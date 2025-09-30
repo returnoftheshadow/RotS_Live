@@ -1634,16 +1634,22 @@ int new_spell_list[mage_types][hp_brackets][indvidual_spells_length] = {
      {SPELL_CHILL_RAY, SPELL_MAGIC_MISSILE}}};
 
 int pick_a_spell(int *spell_list, char_data *host) {
-    if (has_alias(host, "spells")) {
-        sprintf(buf, "----------");
-        mudlog_aliased_mob(buf, host, "spells");
-        for (int i = 1; i <= spell_list[0]; i++) {
-            sprintf(buf, "Spell: %d", spell_list[i]);
+    if (spell_list[0] > 0) {
+        if (has_alias(host, "spells")) {
+            sprintf(buf, "----------");
             mudlog_aliased_mob(buf, host, "spells");
+            for (int i = 1; i <= spell_list[0]; i++) {
+                sprintf(buf, "Spell: %d", spell_list[i]);
+                mudlog_aliased_mob(buf, host, "spells");
+            }
         }
+        int chance = number(1, spell_list[0]);
+        return spell_list[chance];
+    } else {
+        sprintf(buf, "--- NO MAGE KEYWORDS FOUND ---");
+        mudlog_aliased_mob(buf, host, "spells");
+        return 0;
     }
-    int chance = number(1, spell_list[0]);
-    return spell_list[chance];
 }
 
 // add spell and avoid dupes
@@ -1835,7 +1841,7 @@ SPECIAL(mob_magic_user_spec) {
         }
     }
 
-    if (spell_number == 0) {
+    if (spell_number < 1) {
         return FALSE;
     }
 
