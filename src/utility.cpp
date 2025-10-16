@@ -2209,3 +2209,11 @@ int has_alias(char_data* host, char *keyword) {
         return 0;
     }
 }
+
+int has_program(char_data* host, int num) {
+    if((int)host->specials.store_prog_number == num) {
+        return 1;
+    } else {
+        return 0;
+    }
+}

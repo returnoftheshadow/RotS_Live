@@ -94,6 +94,7 @@ void track_specialized_mage(char_data* mage);
 void untrack_specialized_mage(char_data* mage);
 
 int has_alias(char_data* host, char *keyword);
+int has_program(char_data* host, int num);
 
 /* defines for fseek */
 #ifndef SEEK_SET

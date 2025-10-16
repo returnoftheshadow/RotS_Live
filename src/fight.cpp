@@ -2107,14 +2107,28 @@ void check_grip(struct char_data* ch, struct obj_data* wielded)
 int check_riposte(struct char_data* ch, struct char_data* victim)
 {
     int dam;
-    int prob;
+    int prob = 0;
+    int can_riposte = 0;
     struct obj_data* wielded;
-
     wielded = victim->equipment[WIELD];
 
-    if (GET_SKILL(victim, SKILL_RIPOSTE) && !IS_NPC(victim) && wielded && GET_POS(victim) == POSITION_FIGHTING && !IS_SET(victim->specials.affected_by, AFF_BASH))
+    if (!wielded || GET_POS(victim) != POSITION_FIGHTING || IS_SET(victim->specials.affected_by, AFF_BASH)) {
+        return 0;
+    }
+
+    const int ranger_prog = 32;
+    if (IS_NPC(victim)) {
+        if (has_alias(victim, "riposter") && has_program(victim, ranger_prog)) {
+            can_riposte = 1;
+            prob = 75;
+        }
+    } else {
+        can_riposte = 1;
+        prob = GET_SKILL(victim, SKILL_RIPOSTE);
+    }
+
+    if (can_riposte && prob)
         if (wielded->obj_flags.value[2] <= 3) {
-            prob = GET_SKILL(victim, SKILL_RIPOSTE);
             prob += GET_SKILL(victim, SKILL_STEALTH);
             prob += GET_DEX(victim) * 5;
             prob *= GET_PROF_LEVEL(PROF_RANGER, victim);
@@ -2124,12 +2138,11 @@ int check_riposte(struct char_data* ch, struct char_data* victim)
                 do_riposte(victim, ch);
                 dam = get_weapon_damage(wielded) * std::min(static_cast<int>(GET_DEX(victim)), 20) / number(50, 100);
 
-                if (damage(victim, ch, dam,
-                        weapon_hit_type(wielded->obj_flags.value[3]), 1))
+                if (damage(victim, ch, dam, weapon_hit_type(wielded->obj_flags.value[3]), 1)) {
                     return 1;
+                }
             }
         }
-
     return 0;
 }
 
