@@ -1,12 +1,12 @@
 CXX = g++
 CXXFLAGS = -std=c++1z -Wall -Wextra -D TESTING
-LDFLAGS = -lgtest -lgtest_main
+LDFLAGS = -lgtest
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
 	comm.o config.o consts.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o \
-	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o obj2html.o object_utils.o objsave.o olog_hai.o\
-	pkill.o profs.o ranger.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
+	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
+	pkill.o profs.o protocol.o ranger.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
 	wild_fighting_handler.o weather.o zone.o
 
@@ -160,20 +160,23 @@ color.o: ../color.cpp ../color.h
 	$(CXX) -c $(CXXFLAGS) ../color.cpp
 obj2html.o: ../obj2html.cpp
 	$(CXX) -c $(CXXFLAGS) ../obj2html.cpp
+mob_csv_extract.o: ../mob_csv_extract.cpp ../mob_csv_extract.h
+	$(CXX) -c $(CXXFLAGS) ../mob_csv_extract.cpp
 pkill.o: ../pkill.cpp ../pkill.h
 	$(CXX) -c $(CXXFLAGS) ../pkill.cpp
+protocol.o: ../protocol.cpp ../protocol.h
+	$(CXX) -c $(CXXFLAGS) ../protocol.cpp
 
 
-SRCS = CharPlayerDataBuilder.h CharPlayerDataBuilder.cpp ObjFlagDataBuilder.h ObjFlagDataBuilder.cpp \
- 	   obj_flag_data_tests.cpp gtest_main.cpp
+SRCS = CharPlayerDataBuilder.cpp ObjFlagDataBuilder.cpp obj_flag_data_tests.cpp gtest_main.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 EXECUTABLE = ../../bin/tests
 
 tests: $(EXECUTABLE)
 
-$(EXECUTABLE): $(OBJS)
-	$(CXX) $(CXX_FLAGS) $(OBJFILES) $(OBJS) -o $(EXECUTABLE) $(LDFLAGS)
+$(EXECUTABLE): $(OBJFILES) $(OBJS)
+	$(CXX) $(CXXFLAGS) $(OBJFILES) $(OBJS) -o $(EXECUTABLE) $(LDFLAGS)
 
 .cpp.o:
 	$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -187,7 +190,5 @@ ageland: ../bin/ageland
 
 all: ageland $(EXECUTABLE)
 
-../bin/tests:
-	../../bin/tests
-
-run: ../bin/tests
+run: $(EXECUTABLE)
+	$(EXECUTABLE)

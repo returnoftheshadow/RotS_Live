@@ -9,6 +9,7 @@ On your Unix based system you'll need to install the following packages.
 2. g++ (This is needed for the main game compiler)
 3. clang-format (We use  this to format all the code base)
 4. make (This is just something you should have in general)
+5. cmake (Optional, for the CMake-based build and test workflow)
 
 
 ### Installing
@@ -22,6 +23,11 @@ After you have successfully forked this repository, you'll need to setup the gam
 ```bash
 cd src
 make setup
+```
+Or with CMake from the repository root:
+```bash
+cmake -S src -B build -DCMAKE_CXX_COMPILER=g++
+cmake --build build --target setup
 ```
 This will create all user folder structure that the game needs to run. This will not important any characters to the game, so the first character created will be promoted to a level 100 Implementor.
 
@@ -38,8 +44,26 @@ Once all the game files are setup from Step 2 you'll need to compile the game. I
 cd src
 make all
 ```
+Or with CMake from the repository root:
+```bash
+cmake -S src -B build -DCMAKE_CXX_COMPILER=g++
+cmake --build build --target ageland
+```
 > You'll see tons of notifications of deprecated functions, but the game should compile none the less.
 This will compile all the code and create an executable called ageland in the ./bin folder.
+
+#### Step 4a: Running the Unit Tests
+For the C++ unit tests you can use either workflow.
+```bash
+cd src
+make test
+```
+Or with CMake from the repository root:
+```bash
+cmake -S src -B build -DCMAKE_CXX_COMPILER=g++
+cmake --build build --target ageland_tests
+ctest --test-dir build --output-on-failure
+```
 
 #### Step 5: Running the Game
 In the src directory you can run the following command.

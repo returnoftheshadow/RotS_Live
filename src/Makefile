@@ -201,6 +201,12 @@ format:
 	clang-format -i -style=WebKit *.cpp
 	clang-format -i -style=WebKit *.h
 
+.PHONY: test
+test:
+	$(MAKE) -C tests clean
+	$(MAKE) -C tests tests
+	$(MAKE) -C tests run
+
 .PHONY: setup
 setup:
 	@mkdir -p ../bin ../log ../lib/misc \
