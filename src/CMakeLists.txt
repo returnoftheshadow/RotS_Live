@@ -93,9 +93,14 @@ set(ROTS_SERVER_SOURCES
 )
 
 set(ROTS_TEST_SOURCES
+    tests/battle_mage_handler_tests.cpp
     tests/CharPlayerDataBuilder.cpp
+    tests/char_utils_tests.cpp
+    tests/fight_proc_tests.cpp
+    tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/gtest_main.cpp
+    tests/olog_hai_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp

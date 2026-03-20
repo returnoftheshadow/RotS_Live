@@ -31,7 +31,8 @@
 - Rust: write unit/integration tests in `proxy/`; run with `cargo test -p proxy` and keep coverage reasonable.
 
 ## Review Workflow
-- Before finalizing any non-trivial change set, spawn two subagents to review the current worktree changes in parallel: one quality engineer review and one security engineer review.
+- Before finalizing any non-trivial change set, maintain two review subagents in parallel: `Magus` as the quality engineer reviewer and `Vincent` as the security engineer reviewer.
+- Reuse the same reviewer pair across successive changes by sending them updated diff context, instead of spawning a fresh pair for every round. Only replace a reviewer when it has been closed, becomes unavailable, or its context is no longer reliable. If either reviewer must be replaced, assign the replacement the same role name so the workflow stays consistent.
 - The quality engineer should focus on regressions, correctness, maintainability, test quality, developer ergonomics, and documentation gaps.
 - The security engineer should focus on trust boundaries, unsafe execution paths, secrets or data exposure, command safety, and build/test workflow risks.
 - Give both reviewers the relevant changed files or diff context, ask for findings first with severity, file references, and concrete recommendations, and do not treat the work as complete until their feedback has been reviewed.

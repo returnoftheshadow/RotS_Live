@@ -50,6 +50,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 
 extern struct time_data time_info;
 extern struct room_data world;
@@ -924,9 +925,32 @@ int get_followers_level(char_data* ch) /* summ of levels of mobs/players charmed
     return levels;
 }
 
+#ifdef TESTING
+namespace {
+std::deque<double> test_random_values;
+}
+
+void clear_test_random_values()
+{
+    test_random_values.clear();
+}
+
+void push_test_random_value(double value)
+{
+    test_random_values.push_back(value);
+}
+#endif
+
 // returns a random number from 0.0 to 1.0
 double number()
 {
+#ifdef TESTING
+    if (!test_random_values.empty()) {
+        double value = test_random_values.front();
+        test_random_values.pop_front();
+        return value;
+    }
+#endif
     double roll = std::rand();
     double max = RAND_MAX;
     return roll / max;
@@ -964,6 +988,19 @@ int number(int from, int to)
         //       fprintf(stderr, "SYSERR: number(%d, %d)\n",from,to);
         to = from;
     }
+
+#ifdef TESTING
+    if (!test_random_values.empty()) {
+        double value = test_random_values.front();
+        test_random_values.pop_front();
+        if (value < 0.0) {
+            value = 0.0;
+        } else if (value >= 1.0) {
+            value = 0.999999;
+        }
+        return from + static_cast<int>(value * upper_end);
+    }
+#endif
 
     return (std::rand() % upper_end) + from;
 }

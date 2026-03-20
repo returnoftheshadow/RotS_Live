@@ -32,6 +32,11 @@ double number(double max);
 // returns a random number in interval [from;to] */
 double number_d(double from, double to);
 
+#ifdef TESTING
+void clear_test_random_values();
+void push_test_random_value(double value);
+#endif
+
 struct time_info_data mud_time_passed(time_t, time_t);
 char* PERS(struct char_data*, struct char_data*, int, int);
 void retire(struct char_data*);

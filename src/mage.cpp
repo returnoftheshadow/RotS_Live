@@ -27,6 +27,88 @@ extern struct room_data world;
 
 #define RACE_SOME_ORC(caster) ((GET_RACE(caster) == RACE_URUK || GET_RACE(caster) == RACE_ORC || GET_RACE(caster) == RACE_MAGUS))
 
+int apply_spell_damage(char_data* caster, char_data* victim, int damage_dealt, int spell_number, int hit_location);
+bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus);
+
+#ifdef TESTING
+namespace {
+bool mage_test_forced_save_enabled = false;
+bool mage_test_forced_save_result = false;
+bool mage_test_capture_spell_damage = false;
+int mage_test_last_spell_damage = 0;
+int mage_test_last_spell_number = -1;
+int mage_test_last_hit_location = -1;
+int mage_test_spell_damage_call_count = 0;
+char_data* mage_test_last_caster = nullptr;
+char_data* mage_test_last_victim = nullptr;
+}
+
+void clear_mage_test_spell_hooks()
+{
+    mage_test_forced_save_enabled = false;
+    mage_test_forced_save_result = false;
+    mage_test_capture_spell_damage = false;
+    mage_test_last_spell_damage = 0;
+    mage_test_last_spell_number = -1;
+    mage_test_last_hit_location = -1;
+    mage_test_spell_damage_call_count = 0;
+    mage_test_last_caster = nullptr;
+    mage_test_last_victim = nullptr;
+}
+
+void set_mage_test_forced_save_result(bool result)
+{
+    mage_test_forced_save_enabled = true;
+    mage_test_forced_save_result = result;
+}
+
+void enable_mage_test_spell_damage_capture()
+{
+    mage_test_capture_spell_damage = true;
+}
+
+int get_mage_test_last_spell_damage()
+{
+    return mage_test_last_spell_damage;
+}
+
+int get_mage_test_last_spell_number()
+{
+    return mage_test_last_spell_number;
+}
+
+int get_mage_test_spell_damage_call_count()
+{
+    return mage_test_spell_damage_call_count;
+}
+#endif
+
+static bool mage_new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus)
+{
+#ifdef TESTING
+    if (mage_test_forced_save_enabled) {
+        return mage_test_forced_save_result;
+    }
+#endif
+    return new_saves_spell(caster, victim, save_bonus);
+}
+
+static int mage_apply_spell_damage(char_data* caster, char_data* victim, int damage_dealt, int spell_number, int hit_location)
+{
+#ifdef TESTING
+    if (mage_test_capture_spell_damage) {
+        mage_test_last_caster = caster;
+        mage_test_last_victim = victim;
+        mage_test_last_spell_damage = damage_dealt;
+        mage_test_last_spell_number = spell_number;
+        mage_test_last_hit_location = hit_location;
+        ++mage_test_spell_damage_call_count;
+        return damage_dealt;
+    }
+#endif
+    return apply_spell_damage(caster, victim, damage_dealt, spell_number, hit_location);
+}
+
 int get_mage_caster_level(const char_data* caster)
 {
     int mage_level = utils::get_prof_level(PROF_MAGE, *caster);
@@ -1335,14 +1417,14 @@ ASPELL(spell_magic_missile)
     int mag_power = get_magic_power(caster);
     int dam = 12 + number(1, mag_power / 6);
 
-    bool saved = new_saves_spell(caster, victim, 0);
+    bool saved = mage_new_saves_spell(caster, victim, 0);
     if (saved) {
         act("$N ignores most of the impact.", FALSE, caster, 0, victim, TO_CHAR);
         act("You ignore most of the impact.", FALSE, caster, 0, victim, TO_VICT);
         dam = dam >> 1;
     }
 
-    apply_spell_damage(caster, victim, dam, SPELL_MAGIC_MISSILE, 0);
+    mage_apply_spell_damage(caster, victim, dam, SPELL_MAGIC_MISSILE, 0);
 }
 
 void apply_chilled_effect(char_data* caster, char_data* victim)
@@ -1379,7 +1461,7 @@ ASPELL(spell_chill_ray)
         save_bonus -= 4;
     }
 
-    bool saved = new_saves_spell(caster, victim, save_bonus);
+    bool saved = mage_new_saves_spell(caster, victim, save_bonus);
     if (!saved) {
         apply_chilled_effect(caster, victim);
         if (is_cold_spec) {
@@ -1396,7 +1478,7 @@ ASPELL(spell_chill_ray)
         }
     }
 
-    apply_spell_damage(caster, victim, dam, SPELL_CHILL_RAY, 0);
+    mage_apply_spell_damage(caster, victim, dam, SPELL_CHILL_RAY, 0);
 }
 
 /*----------------------------------------------------------------------------------------------------------*/
@@ -1427,14 +1509,14 @@ ASPELL(spell_lightning_bolt)
     }
 
     int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Lightning, game_types::PS_Darkness);
-    bool saved = new_saves_spell(caster, victim, save_bonus);
+    bool saved = mage_new_saves_spell(caster, victim, save_bonus);
     if (saved) {
         act("$N dodges off to the side, avoiding part of the lightning!", FALSE, caster, 0, victim, TO_CHAR);
         act("You dodge to the side, avoiding part of the lightning!", FALSE, caster, 0, victim, TO_VICT);
         dam >>= 1;
     }
 
-    apply_spell_damage(caster, victim, dam, SPELL_LIGHTNING_BOLT, 0);
+    mage_apply_spell_damage(caster, victim, dam, SPELL_LIGHTNING_BOLT, 0);
 }
 
 /*----------------------------------------------------------------------------------------------------------*/
@@ -1460,14 +1542,14 @@ ASPELL(spell_dark_bolt)
     }
 
     int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Darkness, game_types::PS_Lightning);
-    bool saved = new_saves_spell(caster, victim, save_bonus);
+    bool saved = mage_new_saves_spell(caster, victim, save_bonus);
     if (saved) {
         act("$N seems unfazed by the darkness.", FALSE, caster, 0, victim, TO_CHAR);
         act("You are unfazed by the darkness.", FALSE, caster, 0, victim, TO_VICT);
         dam >>= 1;
     }
 
-    apply_spell_damage(caster, victim, dam, SPELL_DARK_BOLT, 0);
+    mage_apply_spell_damage(caster, victim, dam, SPELL_DARK_BOLT, 0);
 }
 
 /*----------------------------------------------------------------------------------------------------------*/
@@ -1487,14 +1569,14 @@ ASPELL(spell_firebolt)
     }
 
     int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Fire, game_types::PS_Cold);
-    bool saved = new_saves_spell(caster, victim, save_bonus);
+    bool saved = mage_new_saves_spell(caster, victim, save_bonus);
     if (saved) {
         act("$N dodges off to the side, avoiding part of the bolt!", FALSE, caster, 0, victim, TO_CHAR);
         act("You dodge to the side, avoiding part of the bolt!", FALSE, caster, 0, victim, TO_VICT);
         dam >>= 1;
     }
 
-    apply_spell_damage(caster, victim, dam, SPELL_FIREBOLT, 0);
+    mage_apply_spell_damage(caster, victim, dam, SPELL_FIREBOLT, 0);
 }
 
 /*----------------------------------------------------------------------------------------------------------*/
@@ -1515,7 +1597,7 @@ ASPELL(spell_cone_of_cold)
         bool is_cold_spec = utils::get_specialization(*caster) == game_types::PS_Cold;
 
         int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Cold, game_types::PS_Fire);
-        bool saved = new_saves_spell(caster, victim, save_bonus);
+        bool saved = mage_new_saves_spell(caster, victim, save_bonus);
         if (saved) {
             act("$N shrugs off the cold, withstanding most of the chill.", FALSE, caster, 0, victim, TO_CHAR);
             act("You shrug off the cold, withstanding the brunt of the chill.", FALSE, caster, 0, victim, TO_VICT);
@@ -1531,7 +1613,7 @@ ASPELL(spell_cone_of_cold)
             data->on_cone_of_cold_success(dam);
         }
 
-        apply_spell_damage(caster, victim, dam, SPELL_CONE_OF_COLD, 0);
+        mage_apply_spell_damage(caster, victim, dam, SPELL_CONE_OF_COLD, 0);
         return;
     }
 
