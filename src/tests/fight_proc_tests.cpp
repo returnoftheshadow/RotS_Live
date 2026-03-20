@@ -1,5 +1,6 @@
 #include "../spells.h"
 #include "../utils.h"
+#include "test_random_utils.h"
 #include <gtest/gtest.h>
 
 bool is_victim_around(const char_data* character);

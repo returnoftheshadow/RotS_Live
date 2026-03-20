@@ -18,7 +18,7 @@ On your Unix based system you'll need to install the following packages.
 2. g++ (This is needed for the main game compiler)
 3. clang-format (We use  this to format all the code base)
 4. make (This is just something you should have in general)
-5. cmake (Optional, for the CMake-based build and test workflow)
+5. cmake (Used by the root Makefile and the direct CMake workflow)
 
 ### Installing
 
@@ -36,9 +36,11 @@ After you have successfully forked this repository, you'll need to setup the
 games files. In your terminal navigate to the local repository and run the
 following commands.
 
-```bash cd src make setup```
+```bash
+make setup
+```
 
-Or with CMake from the repository root:
+Or directly with CMake from the repository root:
 
 ```bash
 cmake -S src -B build -DCMAKE_CXX_COMPILER=g++
@@ -67,10 +69,10 @@ In your terminal navigate to the local repository and run the following
 commands.
 
 ```bash
-cd src make all
+make build
 ```
 
-Or with CMake from the repository root:
+Or directly with CMake from the repository root:
 
 ```bash
 cmake -S src -B build -DCMAKE_CXX_COMPILER=g++
@@ -88,10 +90,10 @@ This will compile all the code and create an executable called ageland in the
 For the C++ unit tests you can use either workflow.
 
 ```bash
-cd src make test
+make test
 ```
 
-Or with CMake from the repository root:
+Or directly with CMake from the repository root:
 
 ```bash
 cmake -S src -B build -DCMAKE_CXX_COMPILER=g++
@@ -101,17 +103,16 @@ ctest --test-dir build --output-on-failure
 
 #### Step 5: Running the Game
 
-In the src directory you can run the following command.
+From the repository root you can run the following command.
 
 ```bash
 make run
 ```
 
-Or if you want you do the following from the root directory in your local
-repository
+Or if you want you can still run the binary directly from the root directory
 
 ```bash
-./ageland & 
+./bin/ageland -p 3791 &
 ```
 
 Either command will start the game up and put it in a background process.

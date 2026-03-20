@@ -18,18 +18,18 @@
 
 #define MAX_CMD_LIST 350
 
-#define ACMD(c)                                                                                    \
-    void(c)(struct char_data * ch, char *argument, struct waiting_type *wtl, int cmd, int subcmd)
+#define ACMD(c) \
+    void(c)(struct char_data * ch, char* argument, struct waiting_type* wtl, int cmd, int subcmd)
 
 // #define CRYPT(a,b) ((char *) crypt((a),(b)))
 
-#define CRYPT(a, b) ((char *)(a))
+#define CRYPT(a, b) ((char*)(a))
 
-typedef int (*special_func)(char_data *host, char_data *character, int cmd, char *argument,
-                            int callflag, waiting_type *wait_data);
-#define SPECIAL(cname)                                                                             \
-    int(cname)(struct char_data * host, struct char_data * ch, int cmd, char *arg, int callflag,   \
-               waiting_type *wtl)
+typedef int (*special_func)(char_data* host, char_data* character, int cmd, char* argument,
+    int callflag, waiting_type* wait_data);
+#define SPECIAL(cname)                                                                           \
+    int(cname)(struct char_data * host, struct char_data * ch, int cmd, char* arg, int callflag, \
+        waiting_type* wtl)
 
 #define SPECIAL_NONE 0
 #define SPECIAL_COMMAND 1
@@ -40,59 +40,59 @@ typedef int (*special_func)(char_data *host, char_data *character, int cmd, char
 #define SPECIAL_DAMAGE 32
 #define SPECIAL_DEATH 64
 
-#define ASSIGNMOB(mob, fname)                                                                      \
-    {                                                                                              \
-        if (real_mobile(mob) >= 0)                                                                 \
-            mob_index[real_mobile(mob)].func = fname;                                              \
+#define ASSIGNMOB(mob, fname)                         \
+    {                                                 \
+        if (real_mobile(mob) >= 0)                    \
+            mob_index[real_mobile(mob)].func = fname; \
     }
 
-#define ASSIGNREALMOB(mob, fname)                                                                  \
-    {                                                                                              \
-        if (mob->nr >= 0)                                                                          \
-            mob_index[mob->nr].func = fname;                                                       \
+#define ASSIGNREALMOB(mob, fname)            \
+    {                                        \
+        if (mob->nr >= 0)                    \
+            mob_index[mob->nr].func = fname; \
     }
 
-#define ASSIGNREALOBJ(obj, fname)                                                                  \
-    {                                                                                              \
-        if (obj->item_number >= 0)                                                                 \
-            obj_index[obj->item_number].func = fname;                                              \
+#define ASSIGNREALOBJ(obj, fname)                     \
+    {                                                 \
+        if (obj->item_number >= 0)                    \
+            obj_index[obj->item_number].func = fname; \
     }
 
-#define ASSIGNOBJ(obj, fname)                                                                      \
-    {                                                                                              \
-        if (real_object(obj) >= 0)                                                                 \
-            obj_index[real_object(obj)].func = fname;                                              \
+#define ASSIGNOBJ(obj, fname)                         \
+    {                                                 \
+        if (real_object(obj) >= 0)                    \
+            obj_index[real_object(obj)].func = fname; \
     }
 
-#define ASSIGNROOM(room, fname)                                                                    \
-    {                                                                                              \
-        if (real_room(room) >= 0)                                                                  \
-            world[real_room(room)].funct = fname;                                                  \
+#define ASSIGNROOM(room, fname)                   \
+    {                                             \
+        if (real_room(room) >= 0)                 \
+            world[real_room(room)].funct = fname; \
     }
 
-void command_interpreter(struct char_data *ch, char *arg_chr, struct waiting_type *arg_wtl = 0);
-int search_block(char *arg, char **list, char exact);
-int old_search_block(char *argument, int begin, unsigned int length, const char **list, int mode);
+void command_interpreter(struct char_data* ch, char* arg_chr, struct waiting_type* arg_wtl = 0);
+int search_block(char* arg, char** list, char exact);
+int old_search_block(char* argument, int begin, unsigned int length, const char** list, int mode);
 char lower(char c);
-void argument_interpreter(char *argument, char *first_arg, char *second_arg);
-int special(struct char_data *ch, int cmd, char *arg, int callflag, waiting_type *wtl,
-            int in_room = NOWHERE);
-int activate_char_special(char_data *k, char_data *ch, int cmd, char *arg, int callflag,
-                          waiting_type *wtl, int in_room);
+void argument_interpreter(char* argument, char* first_arg, char* second_arg);
+int special(struct char_data* ch, int cmd, char* arg, int callflag, waiting_type* wtl,
+    int in_room = NOWHERE);
+int activate_char_special(char_data* k, char_data* ch, int cmd, char* arg, int callflag,
+    waiting_type* wtl, int in_room);
 
-char *one_argument(char *argument, char *first_arg);
-int fill_word(char *argument);
-void half_chop(char *string, char *arg1, char *arg2);
-void nanny(struct descriptor_data *d, char *arg);
-int is_abbrev(char *arg1, char *arg2);
-int is_number(char *str);
+char* one_argument(char* argument, char* first_arg);
+int fill_word(char* argument);
+void half_chop(char* string, char* arg1, char* arg2);
+void nanny(struct descriptor_data* d, char* arg);
+int is_abbrev(char* arg1, char* arg2);
+int is_number(char* str);
 
-void virt_assignmob(struct char_data *);
-void virt_assignobj(struct obj_data *obj);
+void virt_assignmob(struct char_data*);
+void virt_assignobj(struct obj_data* obj);
 
 struct command_info {
-    void (*command_pointer)(struct char_data *ch, char *argument, struct waiting_type *, int cmd,
-                            int subcmd);
+    void (*command_pointer)(struct char_data* ch, char* argument, struct waiting_type*, int cmd,
+        int subcmd);
     byte minimum_position;
     sh_int minimum_level;
     char retired_allowed;
@@ -101,13 +101,14 @@ struct command_info {
     byte is_social;
 
 /* mask bits */
-#define CMD_MASK_MOVE_PENALTY 0x01    /* command has random move penalty */
+#define CMD_MASK_MOVE_PENALTY 0x01 /* command has random move penalty */
 #define CMD_MASK_STAMINA_PENALTY 0x02 /* command has random stamina penalty */
-#define CMD_MASK_NO_UNHIDE 0x04       /* command doesn't unhide players */
+#define CMD_MASK_NO_UNHIDE 0x04 /* command doesn't unhide players */
     unsigned char mask;
 
     int target_mask[32];
-    void add_target(int mask_in, int value) {
+    void add_target(int mask_in, int value)
+    {
         for (int index = 0; index < 32; index++) {
             int bit_position_as_int = 1 << index;
             if (bit_position_as_int & mask_in) {
@@ -117,7 +118,8 @@ struct command_info {
     }
 
     /* This is never used anywhere */
-    bool valid_target(int mask_in, int value) {
+    bool valid_target(int mask_in, int value)
+    {
         for (int index = 0; index < 32; index++) {
             int bit_position_as_int = 1 << index;
             if (bit_position_as_int & mask_in) {
@@ -344,15 +346,15 @@ struct ferry_boat_type {
 };
 
 struct ferry_captain_type {
-    int num_of_ferry;     // virt. number of the ferry_boat.
-    int length;           // route length
+    int num_of_ferry; // virt. number of the ferry_boat.
+    int length; // route length
     int ferry_route[100]; // where to put the ferry object
     int cabin_route[100]; // where to put passengers
-    int stop_time[100];   // in quarter-ticks (?) 0 = no stopping
+    int stop_time[100]; // in quarter-ticks (?) 0 = no stopping
     int timer;
     int marker;
     char leave_to_outside[255]; // $n stands for the captain,
-    char leave_to_inside[255];  // $o - for the ferry
+    char leave_to_inside[255]; // $o - for the ferry
     char arrive_to_outside[255];
     char arrive_to_inside[255];
     char move_out_outside[255];

@@ -9,12 +9,13 @@
 - release-notes/, game design docs/, code documentation/: Docs and release history.
 
 ## Build, Test, and Development Commands
-- Configure: `cmake -S src -B build -DCMAKE_CXX_COMPILER=g++` — generates the CMake build tree in `build/`.
-- Bootstrap data: `cmake --build build --target setup` — creates required runtime directories/files under `lib/`, `log/`, and `bin/`.
-- Build: `cmake --build build --target ageland` — compiles C/C++ sources to `bin/ageland`.
-- Test: `cmake --build build --target ageland_tests && ctest --test-dir build --output-on-failure` — builds and runs the GoogleTest-based C++ unit tests.
-- Run: `./bin/ageland -p &` — starts server in background.
-- Clean: `cmake --build build --target clean` — removes build outputs from the configured tree.
+- Configure: `make configure` — generates the CMake build tree in `build/`.
+- Bootstrap data: `make setup` — creates required runtime directories/files under `lib/`, `log/`, and `bin/`.
+- Build: `make build` — compiles C/C++ sources to `bin/ageland`.
+- Test: `make test` — builds and runs the GoogleTest-based C++ unit tests.
+- Run: `make run` — builds and starts the server in the background on port `3791`.
+- Clean: `make clean` — removes build outputs from the configured tree.
+- Raw CMake fallback: `cmake -S src -B build -DCMAKE_CXX_COMPILER=g++ && cmake --build build --target ageland`
 - Rust proxy: `cargo build -p proxy` | `cargo test -p proxy` | `cargo run -p proxy -- --help`.
 
 ## Coding Style & Naming Conventions
@@ -25,8 +26,9 @@
 - Rust (proxy): follow `rustfmt` defaults; module/file lowercase with underscores.
 
 ## Testing Guidelines
-- C/C++: add or update unit tests in `src/tests/` when working in covered areas, run them via `cmake --build build --target ageland_tests && ctest --test-dir build --output-on-failure`, and also perform smoke tests by building and running locally. Verify server boots, accepts connections, and changed features behave as expected.
+- C/C++: add or update unit tests in `src/tests/` when working in covered areas, run them via `make test`, and also perform smoke tests by building and running locally. Verify server boots, accepts connections, and changed features behave as expected.
 - C/C++ test style: prefer behavior-oriented GoogleTest names that read clearly in CTest output, such as `ReturnsConfiguredWeaponType` instead of terse names like `WeaponType`. Use readable assertions like `EXPECT_TRUE` when appropriate, and add concise failure messages that explain the expectation and include important domain values when a failure would otherwise be cryptic.
+- Do not modify production code solely to accommodate tests. Prefer test fixtures, helper builders, dependency-free coverage, and existing public behavior. Only introduce a production seam for testability when it is also a legitimate design improvement, and call that out explicitly.
 - New code: add unit tests for newly written code when the surrounding module supports them, and document any gaps when tests are not practical.
 - Rust: write unit/integration tests in `proxy/`; run with `cargo test -p proxy` and keep coverage reasonable.
 

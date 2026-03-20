@@ -32,11 +32,6 @@ double number(double max);
 // returns a random number in interval [from;to] */
 double number_d(double from, double to);
 
-#ifdef TESTING
-void clear_test_random_values();
-void push_test_random_value(double value);
-#endif
-
 struct time_info_data mud_time_passed(time_t, time_t);
 char* PERS(struct char_data*, struct char_data*, int, int);
 void retire(struct char_data*);
@@ -53,7 +48,7 @@ int strn_cmp(char* arg1, char* arg2, int n);
 void log(const char* str);
 void mudlog(char* str, char type, sh_int level, byte file);
 void mudlog_debug_mob(char* buf, char_data* ch);
-void mudlog_aliased_mob(char* buf, char_data* ch, char *mob_alias);
+void mudlog_aliased_mob(char* buf, char_data* ch, char* mob_alias);
 void vmudlog(char type, char* format, ...);
 void log_death_trap(struct char_data* ch);
 int number(int from, int to);
@@ -98,7 +93,7 @@ struct time_info_data age(struct char_data* ch);
 void track_specialized_mage(char_data* mage);
 void untrack_specialized_mage(char_data* mage);
 
-int has_alias(char_data* host, char *keyword);
+int has_alias(char_data* host, char* keyword);
 int has_program(char_data* host, int num);
 
 /* defines for fseek */

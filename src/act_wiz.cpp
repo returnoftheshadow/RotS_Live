@@ -465,7 +465,7 @@ void do_stat_room(struct char_data* ch)
         sprintf(buf2, "%s %s(%s)", found++ ? "," : "", GET_NAME(k),
             (!IS_NPC(k) ? "PC" : (!IS_MOB(k) ? "NPC" : "MOB")));
         strcat(buf, buf2);
-        if(IS_NPC(k)) {
+        if (IS_NPC(k)) {
             sprintf(buf2, " [%d]", mob_index[k->nr].virt);
             strcat(buf, buf2);
         }
@@ -485,12 +485,12 @@ void do_stat_room(struct char_data* ch)
     if (rm->contents) {
         sprintf(buf, "Contents:%s", CC_USE(ch, COLOR_OBJ));
         for (found = 0, j = rm->contents; j; j = j->next_content) {
-            if ( !CAN_SEE_OBJ(ch, j) && ch->player.level < IMM_SEE_INVIS_OBJ_MIN_LVL )
+            if (!CAN_SEE_OBJ(ch, j) && ch->player.level < IMM_SEE_INVIS_OBJ_MIN_LVL)
                 continue;
             sprintf(buf2, "%s %s", found++ ? "," : "", j->short_description);
-            if(found > 0 && ch->player.level > 91)
+            if (found > 0 && ch->player.level > 91)
                 sprintf(buf1, " [%d]", obj_index[j->item_number].virt);
-                strcat(buf2, buf1);
+            strcat(buf2, buf1);
             strcat(buf, buf2);
             if (strlen(buf) >= 62) {
                 if (j->next_content)

@@ -902,29 +902,27 @@ void shape_center_room(struct char_data* ch, char* arg)
             break;
 
         case 18:
-            if(!mob->affected){
-                send_to_char("No room affections found.\n\r",ch);
+            if (!mob->affected) {
+                send_to_char("No room affections found.\n\r", ch);
                 SHAPE_ROOM(ch)
                     ->editflag
                     = 0;
                 break;
             }
-            if(!IS_SET(SHAPE_ROOM(ch)->flags,SHAPE_DIGIT_ACTIVE)){
-                send_to_char("Describe room affection (four numbers, without commas):\n\r",ch);
-                SET_BIT(SHAPE_ROOM(ch)->flags,SHAPE_DIGIT_ACTIVE);
-                SHAPE_ROOM(ch)->position=shape_standup(ch,POSITION_SHAPING);
-                ch->specials.prompt_number=3;
+            if (!IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                send_to_char("Describe room affection (four numbers, without commas):\n\r", ch);
+                SET_BIT(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                SHAPE_ROOM(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                ch->specials.prompt_number = 3;
                 return;
-            }
-            else{
-                if(4!=sscanf(arg,"%d %d %d %d",
-                            &tmp,&tmp1,&tmp2,&tmp3)){
-                send_to_char("four numbers required. dropped\n\r",ch);
-                REMOVE_BIT(SHAPE_PROTO(ch)->flags,SHAPE_DIGIT_ACTIVE);
-                shape_standup(ch,SHAPE_ROOM(ch)->position);
-                ch->specials.prompt_number=4;
-                SHAPE_ROOM(ch)->editflag=0;
-                return;
+            } else {
+                if (4 != sscanf(arg, "%d %d %d %d", &tmp, &tmp1, &tmp2, &tmp3)) {
+                    send_to_char("four numbers required. dropped\n\r", ch);
+                    REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                    shape_standup(ch, SHAPE_ROOM(ch)->position);
+                    ch->specials.prompt_number = 4;
+                    SHAPE_ROOM(ch)->editflag = 0;
+                    return;
                 }
             }
             mob->affected->type = tmp;
@@ -932,12 +930,12 @@ void shape_center_room(struct char_data* ch, char* arg)
             mob->affected->duration = -1;
             mob->affected->modifier = tmp2;
             mob->affected->bitvector = tmp3;
-            REMOVE_BIT(SHAPE_ROOM(ch)->flags,SHAPE_DIGIT_ACTIVE);
-            shape_standup(ch,SHAPE_ROOM(ch)->position);
-            ch->specials.prompt_number=4;
-            SHAPE_ROOM(ch)->editflag=0;
-            if(IS_SET(SHAPE_ROOM(ch)->flags,SHAPE_CHAIN)) {
-                SHAPE_ROOM(ch)->editflag=room_chain[18];
+            REMOVE_BIT(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE);
+            shape_standup(ch, SHAPE_ROOM(ch)->position);
+            ch->specials.prompt_number = 4;
+            SHAPE_ROOM(ch)->editflag = 0;
+            if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_CHAIN)) {
+                SHAPE_ROOM(ch)->editflag = room_chain[18];
             }
             break;
 
@@ -945,29 +943,28 @@ void shape_center_room(struct char_data* ch, char* arg)
             tmpaf = get_from_affected_type_pool();
             tmpaf->next = SHAPE_ROOM(ch)->room->affected;
             SHAPE_ROOM(ch)->room->affected = tmpaf;
-            send_to_char("A new affection added.\n\r",ch);
+            send_to_char("A new affection added.\n\r", ch);
 
-            SHAPE_ROOM(ch)->editflag=0;
+            SHAPE_ROOM(ch)->editflag = 0;
             SET_BIT(SHAPE_ROOM(ch)->flags, SHAPE_CHAIN);
-            if(IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_CHAIN)) {
-                SHAPE_ROOM(ch)->editflag=room_chain[19];
+            if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_CHAIN)) {
+                SHAPE_ROOM(ch)->editflag = room_chain[19];
             }
             break;
 
         case 20: /*removing an affection */
-            if(!SHAPE_ROOM(ch)->room->affected){
-                send_to_char("No affections exist on this room.\n\r",ch);
-            }
-            else{
+            if (!SHAPE_ROOM(ch)->room->affected) {
+                send_to_char("No affections exist on this room.\n\r", ch);
+            } else {
                 tmpaf = SHAPE_ROOM(ch)->room->affected->next;
                 put_to_affected_type_pool(SHAPE_ROOM(ch)->room->affected);
                 SHAPE_ROOM(ch)->room->affected = tmpaf;
-                send_to_char("Affection removed.\n\r",ch);
+                send_to_char("Affection removed.\n\r", ch);
             }
-            SHAPE_ROOM(ch)->editflag=0;
+            SHAPE_ROOM(ch)->editflag = 0;
             SET_BIT(SHAPE_ROOM(ch)->flags, SHAPE_CHAIN);
-            if(IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_CHAIN)) {
-                SHAPE_ROOM(ch)->editflag=room_chain[20];
+            if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_CHAIN)) {
+                SHAPE_ROOM(ch)->editflag = room_chain[20];
             }
             break;
 

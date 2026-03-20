@@ -1144,7 +1144,7 @@ int run_script(struct info_script* info, struct script_data* position)
             } else
                 exit = TRUE;
             break;
-        
+
         case SCRIPT_IF_INT_FALSE:
             if (!curr->param[0]) {
                 exit = TRUE;
@@ -1195,7 +1195,7 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_IF_ROOM_SUNLIT:
-            if (!curr->param[0]) { 
+            if (!curr->param[0]) {
                 exit = TRUE;
                 break;
             }
@@ -1219,7 +1219,7 @@ int run_script(struct info_script* info, struct script_data* position)
                 }
             }
             break;
-            
+
         case SCRIPT_IF_STR_CONTAINS:
             if (curr->param[0]) {
                 txt1 = get_text_param(curr->param[0], info);

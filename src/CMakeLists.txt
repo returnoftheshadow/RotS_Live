@@ -96,6 +96,7 @@ set(ROTS_TEST_SOURCES
     tests/battle_mage_handler_tests.cpp
     tests/CharPlayerDataBuilder.cpp
     tests/char_utils_tests.cpp
+    tests/damage_tests.cpp
     tests/fight_proc_tests.cpp
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
@@ -103,6 +104,8 @@ set(ROTS_TEST_SOURCES
     tests/olog_hai_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_utils_tests.cpp
+    tests/test_random_utils.cpp
+    tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp
 )
 
@@ -134,6 +137,10 @@ target_compile_options(ageland_tests PRIVATE
     -Wextra
 )
 target_link_libraries(ageland_tests PRIVATE GTest::gtest)
+target_link_options(ageland_tests PRIVATE
+    -Wl,--wrap=_Z6numberv
+    -Wl,--wrap=_Z6numberii
+)
 set_target_properties(ageland_tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${BIN_DIR}"
     OUTPUT_NAME tests

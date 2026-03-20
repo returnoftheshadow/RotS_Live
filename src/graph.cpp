@@ -223,7 +223,7 @@ void hunt_victim(struct char_data* ch)
             found = 1;
 
     if (!found) {
-        do_say(ch,  "Damn!  My prey is gone!!", 0, 0, 0);
+        do_say(ch, "Damn!  My prey is gone!!", 0, 0, 0);
         ch->specials.hunting = 0;
         return;
     }

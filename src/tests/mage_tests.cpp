@@ -1,6 +1,7 @@
 #include "../spells.h"
 #include "../utils.h"
 #include "../warrior_spec_handlers.h"
+#include "test_random_utils.h"
 #include <algorithm>
 #include <gtest/gtest.h>
 
@@ -16,12 +17,6 @@ int get_save_bonus(const char_data& caster, const char_data& victim, game_types:
     game_types::player_specs opposing_spec);
 bool is_friendly_taget(const char_data* caster, const char_data* victim);
 void apply_chilled_effect(char_data* caster, char_data* victim);
-void clear_mage_test_spell_hooks();
-void set_mage_test_forced_save_result(bool result);
-void enable_mage_test_spell_damage_capture();
-int get_mage_test_last_spell_damage();
-int get_mage_test_last_spell_number();
-int get_mage_test_spell_damage_call_count();
 
 struct loclife_coord {
     int number;
@@ -107,12 +102,19 @@ struct MageTestContext {
     char_prof_data caster_profs{};
     char_prof_data victim_profs{};
     char_prof_data master_profs{};
+    char caster_name[16] = "test_mage";
+    char victim_short_descr[16] = "test_target";
+    char master_name[16] = "test_master";
 
     MageTestContext()
     {
         caster.profs = &caster_profs;
         victim.profs = &victim_profs;
         master.profs = &master_profs;
+
+        caster.player.name = caster_name;
+        victim.player.short_descr = victim_short_descr;
+        master.player.name = master_name;
 
         caster.player.race = RACE_HUMAN;
         victim.player.race = RACE_HUMAN;
@@ -123,8 +125,41 @@ struct MageTestContext {
         master.player.level = 30;
 
         caster.tmpabilities.intel = 20;
+        victim.tmpabilities.intel = 20;
         caster.points.spell_power = 0;
         victim.specials2.saving_throw = 0;
+        caster.abilities.hit = 500;
+        victim.abilities.hit = 500;
+        caster.tmpabilities.hit = 500;
+        victim.tmpabilities.hit = 500;
+        caster.specials.position = POSITION_STANDING;
+        victim.specials.position = POSITION_STANDING;
+        caster.in_room = 7;
+        victim.in_room = 7;
+    }
+
+    void prepare_for_spell_damage()
+    {
+        victim.specials2.act = MOB_ISNPC;
+        victim.player.level = 0;
+        victim.tmpabilities.intel = 8;
+        victim.specials2.saving_throw = 0;
+        victim.tmpabilities.hit = 500;
+        victim.abilities.hit = 500;
+        caster.specials.fighting = nullptr;
+        victim.specials.fighting = nullptr;
+    }
+
+    void force_spell_save()
+    {
+        victim.specials2.act = MOB_ISNPC;
+        victim.player.level = 90;
+        victim.tmpabilities.intel = 25;
+        victim.specials2.saving_throw = 0;
+        victim.tmpabilities.hit = 500;
+        victim.abilities.hit = 500;
+        caster.specials.fighting = nullptr;
+        victim.specials.fighting = nullptr;
     }
 };
 
@@ -150,7 +185,6 @@ class MageProcTest : public ::testing::Test {
     void TearDown() override
     {
         clear_test_random_values();
-        clear_mage_test_spell_hooks();
     }
 };
 
@@ -408,18 +442,15 @@ TEST(MageHelpers, ChilledEffectUsesVictimEnergyAndTracksColdSpecDrain) {
 TEST_F(MageProcTest, MagicMissileHalvesDamageWhenSaveIsForced) {
     MageTestContext context;
     context.caster.tmpabilities.intel = 25;
-    enable_mage_test_spell_damage_capture();
-    set_mage_test_forced_save_result(true);
+    context.force_spell_save();
     push_test_random_value(0.0);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
 
     spell_magic_missile(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
-    EXPECT_EQ(get_mage_test_spell_damage_call_count(), 1);
-    EXPECT_EQ(get_mage_test_last_spell_number(), SPELL_MAGIC_MISSILE);
-    EXPECT_EQ(get_mage_test_last_spell_damage(), 6)
-        << "Expected forced saves to halve magic missile's minimum deterministic raw damage before spell-damage application.";
+    EXPECT_EQ(context.victim.tmpabilities.hit, 494)
+        << "Expected strong-saving victims to halve magic missile's minimum deterministic damage on the real damage path.";
 }
 
 TEST_F(MageProcTest, ChillRayAppliesChilledEffectAndTracksColdSpecOnFailedSave) {
@@ -429,9 +460,8 @@ TEST_F(MageProcTest, ChillRayAppliesChilledEffectAndTracksColdSpecOnFailedSave) 
     context.caster.extra_specialization_data.set(context.caster);
     context.victim.specials.ENERGY = 120;
     context.victim.points.ENE_regen = 3;
+    context.prepare_for_spell_damage();
 
-    enable_mage_test_spell_damage_capture();
-    set_mage_test_forced_save_result(false);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
@@ -440,8 +470,7 @@ TEST_F(MageProcTest, ChillRayAppliesChilledEffectAndTracksColdSpecOnFailedSave) 
 
     auto* cold_data = static_cast<cold_spec_data*>(context.caster.extra_specialization_data.current_spec_info);
     ASSERT_NE(cold_data, nullptr);
-    EXPECT_EQ(get_mage_test_last_spell_number(), SPELL_CHILL_RAY);
-    EXPECT_EQ(get_mage_test_last_spell_damage(), 20);
+    EXPECT_EQ(context.victim.tmpabilities.hit, 480);
     EXPECT_EQ(context.victim.specials.ENERGY, 48);
     EXPECT_EQ(cold_data->get_successful_chills(), 1);
     EXPECT_EQ(cold_data->get_total_energy_sapped(), 72);
@@ -452,9 +481,8 @@ TEST_F(MageProcTest, ChillRayTracksColdSpecFailureOnSavedCast) {
     context.caster.tmpabilities.intel = 25;
     context.caster_profs.specialization = static_cast<int>(game_types::PS_Cold);
     context.caster.extra_specialization_data.set(context.caster);
+    context.force_spell_save();
 
-    enable_mage_test_spell_damage_capture();
-    set_mage_test_forced_save_result(true);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
@@ -463,7 +491,7 @@ TEST_F(MageProcTest, ChillRayTracksColdSpecFailureOnSavedCast) {
 
     auto* cold_data = static_cast<cold_spec_data*>(context.caster.extra_specialization_data.current_spec_info);
     ASSERT_NE(cold_data, nullptr);
-    EXPECT_EQ(get_mage_test_last_spell_damage(), 10);
+    EXPECT_EQ(context.victim.tmpabilities.hit, 490);
     EXPECT_EQ(cold_data->get_saved_chills(), 1);
 }
 
@@ -471,9 +499,8 @@ TEST_F(MageProcTest, LightningBoltUsesSpecializationBonusAndSaveReduction) {
     MageTestContext context;
     context.caster.tmpabilities.intel = 25;
     context.caster_profs.specialization = static_cast<int>(game_types::PS_Lightning);
+    context.force_spell_save();
 
-    enable_mage_test_spell_damage_capture();
-    set_mage_test_forced_save_result(true);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
@@ -483,18 +510,16 @@ TEST_F(MageProcTest, LightningBoltUsesSpecializationBonusAndSaveReduction) {
 
     spell_lightning_bolt(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
-    EXPECT_EQ(get_mage_test_last_spell_number(), SPELL_LIGHTNING_BOLT);
-    EXPECT_EQ(get_mage_test_last_spell_damage(), 15)
-        << "Expected lightning specialization to boost indoor lightning bolt damage before the forced-save reduction is applied.";
+    EXPECT_EQ(context.victim.tmpabilities.hit, 485)
+        << "Expected lightning specialization to boost indoor lightning bolt damage before the strong victim save halves it on the real damage path.";
 }
 
 TEST_F(MageProcTest, DarkBoltUsesSpecializationBonusWithoutSunPenalty) {
     MageTestContext context;
     context.caster.tmpabilities.intel = 25;
     context.caster_profs.specialization = static_cast<int>(game_types::PS_Darkness);
+    context.prepare_for_spell_damage();
 
-    enable_mage_test_spell_damage_capture();
-    set_mage_test_forced_save_result(false);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
@@ -504,8 +529,7 @@ TEST_F(MageProcTest, DarkBoltUsesSpecializationBonusWithoutSunPenalty) {
 
     spell_dark_bolt(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
-    EXPECT_EQ(get_mage_test_last_spell_number(), SPELL_DARK_BOLT);
-    EXPECT_EQ(get_mage_test_last_spell_damage(), 31)
+    EXPECT_EQ(context.victim.tmpabilities.hit, 469)
         << "Expected darkness specialization to apply its current 10% raw-damage bonus when sunlight is not weakening the spell.";
 }
 
@@ -513,9 +537,8 @@ TEST_F(MageProcTest, FireboltUsesFireSpecMinimumDamageAndSaveReduction) {
     MageTestContext context;
     context.caster.tmpabilities.intel = 25;
     context.caster_profs.specialization = static_cast<int>(game_types::PS_Fire);
+    context.force_spell_save();
 
-    enable_mage_test_spell_damage_capture();
-    set_mage_test_forced_save_result(true);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
@@ -533,9 +556,8 @@ TEST_F(MageProcTest, FireboltUsesFireSpecMinimumDamageAndSaveReduction) {
 
     spell_firebolt(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
-    EXPECT_EQ(get_mage_test_last_spell_number(), SPELL_FIREBOLT);
-    EXPECT_EQ(get_mage_test_last_spell_damage(), 2)
-        << "Expected firebolt's forced-save path to halve the specialization-clamped minimum damage when every damage roll is minimized.";
+    EXPECT_EQ(context.victim.tmpabilities.hit, 498)
+        << "Expected firebolt's strong-save path to halve the specialization-clamped minimum damage on the real damage path.";
 }
 
 TEST_F(MageProcTest, ConeOfColdAppliesChilledEffectAndColdSpecTrackingOnFailedSave) {
@@ -545,9 +567,8 @@ TEST_F(MageProcTest, ConeOfColdAppliesChilledEffectAndColdSpecTrackingOnFailedSa
     context.caster.extra_specialization_data.set(context.caster);
     context.victim.specials.ENERGY = 120;
     context.victim.points.ENE_regen = 3;
+    context.prepare_for_spell_damage();
 
-    enable_mage_test_spell_damage_capture();
-    set_mage_test_forced_save_result(false);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
     push_test_random_value(0.0);
@@ -558,8 +579,7 @@ TEST_F(MageProcTest, ConeOfColdAppliesChilledEffectAndColdSpecTrackingOnFailedSa
 
     auto* cold_data = static_cast<cold_spec_data*>(context.caster.extra_specialization_data.current_spec_info);
     ASSERT_NE(cold_data, nullptr);
-    EXPECT_EQ(get_mage_test_last_spell_number(), SPELL_CONE_OF_COLD);
-    EXPECT_EQ(get_mage_test_last_spell_damage(), 35);
+    EXPECT_EQ(context.victim.tmpabilities.hit, 465);
     EXPECT_EQ(context.victim.specials.ENERGY, 48);
     EXPECT_EQ(cold_data->get_successful_cones(), 1);
     EXPECT_EQ(cold_data->get_total_energy_sapped(), 72);

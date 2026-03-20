@@ -2,6 +2,7 @@
 #include "../interpre.h"
 #include "../spells.h"
 #include "../utils.h"
+#include "test_random_utils.h"
 #include <gtest/gtest.h>
 
 namespace olog_hai {

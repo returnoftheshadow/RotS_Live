@@ -168,7 +168,7 @@ protocol.o: ../protocol.cpp ../protocol.h
 	$(CXX) -c $(CXXFLAGS) ../protocol.cpp
 
 
-SRCS = battle_mage_handler_tests.cpp CharPlayerDataBuilder.cpp char_utils_tests.cpp fight_proc_tests.cpp mage_tests.cpp ObjFlagDataBuilder.cpp olog_hai_tests.cpp obj_flag_data_tests.cpp object_utils_tests.cpp weapon_master_handler_tests.cpp gtest_main.cpp
+SRCS = battle_mage_handler_tests.cpp CharPlayerDataBuilder.cpp char_utils_tests.cpp damage_tests.cpp fight_proc_tests.cpp mage_tests.cpp ObjFlagDataBuilder.cpp olog_hai_tests.cpp obj_flag_data_tests.cpp object_utils_tests.cpp test_random_utils.cpp test_random_utils_tests.cpp weapon_master_handler_tests.cpp gtest_main.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 EXECUTABLE = ../../bin/tests
@@ -176,7 +176,7 @@ EXECUTABLE = ../../bin/tests
 tests: $(EXECUTABLE)
 
 $(EXECUTABLE): $(OBJFILES) $(OBJS)
-	$(CXX) $(CXXFLAGS) $(OBJFILES) $(OBJS) -o $(EXECUTABLE) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(OBJFILES) $(OBJS) -o $(EXECUTABLE) $(LDFLAGS) -Wl,--wrap=_Z6numberv -Wl,--wrap=_Z6numberii
 
 .cpp.o:
 	$(CXX) $(CXXFLAGS) -c $< -o $@

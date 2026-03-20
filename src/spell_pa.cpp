@@ -25,39 +25,40 @@
 #include "big_brother.h"
 #include "char_utils.h"
 
-extern struct descriptor_data *descriptor_list;
-extern struct char_data *fast_update_list;
-extern struct char_data *character_list;
-extern struct char_data *waiting_list;
+extern struct descriptor_data* descriptor_list;
+extern struct char_data* fast_update_list;
+extern struct char_data* character_list;
+extern struct char_data* waiting_list;
 extern struct skill_data skills[];
 extern struct room_data world;
-extern char *spell_wear_off_msg[];
-extern char *dirs[];
+extern char* spell_wear_off_msg[];
+extern char* dirs[];
 
-char *target_from_word(struct char_data *, char *, int, struct target_data *);
-int check_hallucinate(struct char_data *, struct char_data *);
-void report_wrong_target(struct char_data *, int, char);
-void affect_update_person(struct char_data *, int);
-char saves_spell(struct char_data *, sh_int, int);
-bool new_saves_spell(const char_data *caster, const char_data *victim, int save_bonus);
-void one_mobile_activity(struct char_data *);
-void do_sense_magic(struct char_data *, int);
-char saves_mystic(struct char_data *);
-void appear(struct char_data *);
+char* target_from_word(struct char_data*, char*, int, struct target_data*);
+int check_hallucinate(struct char_data*, struct char_data*);
+void report_wrong_target(struct char_data*, int, char);
+void affect_update_person(struct char_data*, int);
+char saves_spell(struct char_data*, sh_int, int);
+bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus);
+void one_mobile_activity(struct char_data*);
+void do_sense_magic(struct char_data*, int);
+char saves_mystic(struct char_data*);
+void appear(struct char_data*);
 void affect_update();
 void fast_update();
-void check_break_prep(struct char_data *ch);
+void check_break_prep(struct char_data* ch);
 
 ACMD(do_flee);
 
-void say_spell(char_data *caster, int spell_index) {
+void say_spell(char_data* caster, int spell_index)
+{
     // Validity check.
     if (!caster || spell_index >= MAX_SKILLS)
         return;
 
     // Get the spell that we're casting.
-    const skill_data &spell = skills[spell_index];
-    const char *spell_name = spell.name;
+    const skill_data& spell = skills[spell_index];
+    const char* spell_name = spell.name;
     if (!spell_name) {
         log("Cast a spell without a name!  Unable to say the spell.");
         return;
@@ -71,8 +72,8 @@ void say_spell(char_data *caster, int spell_index) {
         sprintf(buf, "$n utters a foreign command, '%s'", spell_name);
     }
 
-    const room_data &room = world[caster->in_room];
-    char_data *receiver = room.people;
+    const room_data& room = world[caster->in_room];
+    char_data* receiver = room.people;
     while (receiver) {
         if ((receiver != caster) && (GET_POS(receiver) > POSITION_SLEEPING)) {
             act(buf, FALSE, caster, 0, receiver, TO_VICT);
@@ -87,30 +88,29 @@ void say_spell(char_data *caster, int spell_index) {
  * zone (though not the same room) by an opposite race, we send
  * them a 'sensing' message.
  */
-void do_sense_magic(char_data *caster, int spell_number) {
+void do_sense_magic(char_data* caster, int spell_number)
+{
     const int MIN_MAGE_LEVEL_TO_SENSE = 12;
 
     if (skills[spell_number].type != PROF_MAGE || caster == NULL)
         return;
 
-    for (descriptor_data *player = descriptor_list; player; player = player->next) {
+    for (descriptor_data* player = descriptor_list; player; player = player->next) {
         // Ignore disconnected players.
         if (player->connected == CON_PLYNG) {
-            char_data *character = player->character;
+            char_data* character = player->character;
             if (other_side(character, caster)) {
                 // Players that are writing or asleep can't sense anything.
-                if (!utils::is_player_flagged(*character, PLR_WRITING) &&
-                    character->specials.position > POSITION_SLEEPING) {
+                if (!utils::is_player_flagged(*character, PLR_WRITING) && character->specials.position > POSITION_SLEEPING) {
                     if (utils::get_prof_level(PROF_MAGE, *character) >= MIN_MAGE_LEVEL_TO_SENSE) {
                         int caster_room = caster->in_room;
                         int character_room = character->in_room;
 
                         // Only send the message if characters are in different rooms within the
                         // same zone.
-                        if (caster_room != character_room &&
-                            world[caster_room].zone == world[character_room].zone) {
+                        if (caster_room != character_room && world[caster_room].zone == world[character_room].zone) {
                             send_to_char("You sense a surge of unknown magic from nearby...\n\r",
-                                         character);
+                                character);
                         }
                     }
                 }
@@ -119,7 +119,8 @@ void do_sense_magic(char_data *caster, int spell_number) {
     }
 }
 
-char saves_power(const char_data *victim, sh_int casting_power, sh_int save_bonus) {
+char saves_power(const char_data* victim, sh_int casting_power, sh_int save_bonus)
+{
     sh_int victim_save_bonus = victim->points.willpower + save_bonus;
 
     int saving_throw_roll = number(0, victim_save_bonus * victim_save_bonus);
@@ -163,10 +164,11 @@ char saves_power(const char_data *victim, sh_int casting_power, sh_int save_bonu
 
 /* These variables are used in fight.cc's damage() to aid in logging */
 unsigned char spllog_saves; /* 1: character saved, 0: character failed */
-short spllog_mage_level;    /* the effective level of the caster */
-short spllog_save;          /* the effective save computed in saves_spell */
+short spllog_mage_level; /* the effective level of the caster */
+short spllog_save; /* the effective save computed in saves_spell */
 
-char saves_spell(struct char_data *ch, sh_int level, int bonus) {
+char saves_spell(struct char_data* ch, sh_int level, int bonus)
+{
     int save;
 
     /* positive saving_throw makes saving throw better! */
@@ -190,7 +192,8 @@ char saves_spell(struct char_data *ch, sh_int level, int bonus) {
 //============================================================================
 // Calculates the saving throw bonus of a character vs. Mage spells.
 //============================================================================
-int get_character_saving_throw(const char_data *victim) {
+int get_character_saving_throw(const char_data* victim)
+{
     int saving_throw = 0;
 
     // NPCs are only considered 66% mages!  :D
@@ -213,7 +216,8 @@ int get_character_saving_throw(const char_data *victim) {
 //   Spell_id is not currently used, but may be used in the future to make
 //   it harder to save against spells from specialized mages.
 //============================================================================
-int get_saving_throw_dc(const char_data *caster) {
+int get_saving_throw_dc(const char_data* caster)
+{
     player_spec::battle_mage_handler battle_mage_handler(caster);
     int caster_dc = 10;
     caster_dc += utils::get_prof_level(PROF_MAGE, *caster) / 3;
@@ -225,7 +229,8 @@ int get_saving_throw_dc(const char_data *caster) {
 // Returns true if the victim saves against the spell, false otherwise.
 //   Save bonus is added to the victim's base save value.
 //============================================================================
-bool new_saves_spell(const char_data *caster, const char_data *victim, int save_bonus) {
+bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus)
+{
     int save_value = get_character_saving_throw(victim) + save_bonus;
     int casting_dc = get_saving_throw_dc(caster);
 
@@ -247,21 +252,18 @@ bool new_saves_spell(const char_data *caster, const char_data *victim, int save_
     return saved;
 }
 
-void record_spell_damage(struct char_data *caster, struct char_data *victim, int at, int dam) {
-    if (at == SPELL_CHILL_RAY || at == SPELL_LIGHTNING_BOLT || at == SPELL_DARK_BOLT ||
-        at == SPELL_CONE_OF_COLD || at == SPELL_FIREBOLT || at == SPELL_LIGHTNING_STRIKE ||
-        at == SPELL_FIREBALL || at == SPELL_WORD_OF_PAIN || at == SPELL_WORD_OF_AGONY ||
-        at == SPELL_SHOUT_OF_PAIN || at == SPELL_SPEAR_OF_DARKNESS || at == SPELL_LEACH ||
-        at == SPELL_BLACK_ARROW || at == SPELL_MAGIC_MISSILE || at == SPELL_EARTHQUAKE ||
-        at == SPELL_BLAZE || at == SPELL_SEARING_DARKNESS) {
+void record_spell_damage(struct char_data* caster, struct char_data* victim, int at, int dam)
+{
+    if (at == SPELL_CHILL_RAY || at == SPELL_LIGHTNING_BOLT || at == SPELL_DARK_BOLT || at == SPELL_CONE_OF_COLD || at == SPELL_FIREBOLT || at == SPELL_LIGHTNING_STRIKE || at == SPELL_FIREBALL || at == SPELL_WORD_OF_PAIN || at == SPELL_WORD_OF_AGONY || at == SPELL_SHOUT_OF_PAIN || at == SPELL_SPEAR_OF_DARKNESS || at == SPELL_LEACH || at == SPELL_BLACK_ARROW || at == SPELL_MAGIC_MISSILE || at == SPELL_EARTHQUAKE || at == SPELL_BLAZE || at == SPELL_SEARING_DARKNESS) {
         vmudlog(SPL, "spell=%s, damage=%d, from %s(%d) to %s(%d) %s", skills[at].name, dam,
-                GET_NAME(caster), spllog_mage_level, GET_NAME(victim), spllog_save,
-                spllog_saves ? "(saved)" : "");
+            GET_NAME(caster), spllog_mage_level, GET_NAME(victim), spllog_save,
+            spllog_saves ? "(saved)" : "");
         spllog_saves = 0;
     }
 }
 
-char char_perception_check(struct char_data *ch) {
+char char_perception_check(struct char_data* ch)
+{
     int offense, defense;
 
     offense = number(0, 90);
@@ -270,7 +272,8 @@ char char_perception_check(struct char_data *ch) {
     return offense <= defense;
 }
 
-void check_break_prep(struct char_data *ch) {
+void check_break_prep(struct char_data* ch)
+{
     ACMD(do_trap);
 
     if (ch->delay.cmd == CMD_PREPARE && (ch->delay.targ1.type == TARGET_IGNORE)) {
@@ -288,7 +291,8 @@ void check_break_prep(struct char_data *ch) {
  * A pretty general save function that takes into consideration
  * perception.  Higher percep makes better save.
  */
-char saves_mystic(struct char_data *ch) {
+char saves_mystic(struct char_data* ch)
+{
     int offense, defense;
 
     offense = number(0, 100);
@@ -304,13 +308,13 @@ char saves_mystic(struct char_data *ch) {
  * since they were very resilient to disease, but are represented
  * in rots by such low constitution.
  */
-char saves_poison(struct char_data *victim, struct char_data *caster) {
+char saves_poison(struct char_data* victim, struct char_data* caster)
+{
     int offence, defense;
     int perception = GET_PERCEPTION(caster);
     offence = ((GET_WILLPOWER(caster) * 8) * perception) / 100;
     /* wood elves get a bonus against poison */
-    defense = (GET_CON(victim) * 5) + (GET_WILLPOWER(victim) * 3) +
-              (GET_RACE(victim) == RACE_WOOD ? 30 : 0);
+    defense = (GET_CON(victim) * 5) + (GET_WILLPOWER(victim) * 3) + (GET_RACE(victim) == RACE_WOOD ? 30 : 0);
 
     return (number(offence / 3, offence) < number(defense / 2, defense));
 }
@@ -320,7 +324,8 @@ char saves_poison(struct char_data *victim, struct char_data *caster) {
  * and the victim.  This should probably depend on some other
  * thing as well..
  */
-char saves_confuse(struct char_data *victim, struct char_data *caster) {
+char saves_confuse(struct char_data* victim, struct char_data* caster)
+{
     int offence, defense;
 
     offence = GET_WILLPOWER(caster);
@@ -336,7 +341,8 @@ char saves_confuse(struct char_data *victim, struct char_data *caster) {
  * victims have terrible chances to save, as well.  This should
  * (like saves_confuse) one day take more things into account.
  */
-char saves_insight(struct char_data *victim, struct char_data *caster) {
+char saves_insight(struct char_data* victim, struct char_data* caster)
+{
     int offense, defense;
 
     offense = GET_PERCEPTION(caster) * GET_WILLPOWER(caster) / 100;
@@ -352,7 +358,8 @@ char saves_insight(struct char_data *victim, struct char_data *caster) {
  * common orcs) for following characters and players, and
  * ride skill for mounts.
  */
-char saves_leadership(struct char_data *victim) {
+char saves_leadership(struct char_data* victim)
+{
     int save;
 
     if (!(save = saves_mystic(victim)))
@@ -364,7 +371,8 @@ char saves_leadership(struct char_data *victim) {
     return save;
 }
 
-char *skip_spaces(char *string) {
+char* skip_spaces(char* string)
+{
     for (; *string && (*string) == ' '; string++)
         ;
 
@@ -372,19 +380,21 @@ char *skip_spaces(char *string) {
 }
 
 namespace {
-bool can_orc_follower_cast_spell(int spell_index) {
+bool can_orc_follower_cast_spell(int spell_index)
+{
     const int MAX_SPELLS = 17;
 
     // Orc followers cannot cast any "whitie" or "lhuth" only spells.
     // Assume any other spell is valid.
     // Exception:  Orcs can cast fire spells.
     static int invalid_spells[MAX_SPELLS] = {
-        SPELL_CREATE_LIGHT,   SPELL_DETECT_EVIL,       SPELL_FLASH,
-        SPELL_LIGHTNING_BOLT, SPELL_LIGHTNING_STRIKE,  SPELL_WORD_OF_AGONY,
-        SPELL_WORD_OF_PAIN,   SPELL_WORD_OF_SHOCK,     SPELL_BLACK_ARROW,
-        SPELL_WORD_OF_SIGHT,  SPELL_SPEAR_OF_DARKNESS, SPELL_LEACH,
-        SPELL_SHOUT_OF_PAIN,  SPELL_SANCTUARY,         SPELL_CONFUSE,
-        SPELL_PROTECTION,     SPELL_GUARDIAN};
+        SPELL_CREATE_LIGHT, SPELL_DETECT_EVIL, SPELL_FLASH,
+        SPELL_LIGHTNING_BOLT, SPELL_LIGHTNING_STRIKE, SPELL_WORD_OF_AGONY,
+        SPELL_WORD_OF_PAIN, SPELL_WORD_OF_SHOCK, SPELL_BLACK_ARROW,
+        SPELL_WORD_OF_SIGHT, SPELL_SPEAR_OF_DARKNESS, SPELL_LEACH,
+        SPELL_SHOUT_OF_PAIN, SPELL_SANCTUARY, SPELL_CONFUSE,
+        SPELL_PROTECTION, SPELL_GUARDIAN
+    };
 
     for (int i = 0; i < MAX_SPELLS; ++i) {
         if (spell_index == invalid_spells[i]) {
@@ -395,7 +405,8 @@ bool can_orc_follower_cast_spell(int spell_index) {
     return true;
 }
 
-bool is_spell_free(const int spell_index) {
+bool is_spell_free(const int spell_index)
+{
     switch (spell_index) {
     case SPELL_MASS_REGENERATION:
     case SPELL_MASS_INSIGHT:
@@ -407,18 +418,19 @@ bool is_spell_free(const int spell_index) {
     }
 }
 
-bool can_cast_spell(char_data &character, int spell_index, const skill_data &spell) {
+bool can_cast_spell(char_data& character, int spell_index, const skill_data& spell)
+{
     if (spell_index == SPELL_EXPOSE_ELEMENTS) {
         if (character.extra_specialization_data.is_mage_spec() == false) {
             send_to_char("You need to have a mage specialization to cast this spell!\n\r",
-                         &character);
+                &character);
             return false;
         }
     }
 
     if (utils::is_npc(character) && utils::is_mob_flagged(character, MOB_PET)) {
         // Ensure that the pet's master gets the message.
-        char_data *message_recipient = character.master;
+        char_data* message_recipient = character.master;
         if (character.master == NULL) {
             message_recipient = &character;
         }
@@ -426,17 +438,17 @@ bool can_cast_spell(char_data &character, int spell_index, const skill_data &spe
         if (utils::is_mob_flagged(character, MOB_ORC_FRIEND)) {
             if (spell.level > character.player.level) {
                 send_to_char("Pah!  Your follower is too weak for such a spell!\n\r",
-                             message_recipient);
+                    message_recipient);
                 return false;
             }
 
             if (spell.type == PROF_MAGE && character.get_cur_int() < 18) {
                 send_to_char("Your stupid follower doesn't have the smarts for that!\n\r",
-                             message_recipient);
+                    message_recipient);
                 return false;
             } else if (spell.type == PROF_CLERIC && character.get_cur_wil() < 18) {
                 send_to_char("Your dull follower doesn't have the will for that!\n\r",
-                             message_recipient);
+                    message_recipient);
                 return false;
             } else if (!can_orc_follower_cast_spell(spell_index)) {
                 send_to_char("Blasphemy!  Orcs cannot utter such words...\n\r", message_recipient);
@@ -473,13 +485,11 @@ bool can_cast_spell(char_data &character, int spell_index, const skill_data &spe
         return false;
     }
 
-    if (spell.type == PROF_MAGE &&
-        (character.tmpabilities.mana < USE_MANA(&character, spell_index))) {
+    if (spell.type == PROF_MAGE && (character.tmpabilities.mana < USE_MANA(&character, spell_index))) {
         send_to_char("You can't summon enough energy to cast the spell.\n\r", &character);
         return false;
     }
-    if (spell.type == PROF_CLERIC &&
-        (character.points.spirit < USE_SPIRIT(&character, spell_index))) {
+    if (spell.type == PROF_CLERIC && (character.points.spirit < USE_SPIRIT(&character, spell_index))) {
         send_to_char("You can't summon enough energy to cast the spell.\n\r", &character);
         return false;
     }
@@ -505,8 +515,9 @@ bool can_cast_spell(char_data &character, int spell_index, const skill_data &spe
 //============================================================================
 // Returns the effective casting level for this caster and spell.
 //============================================================================
-double get_casting_level(const char_data *caster, int casting_level, int casting_stat,
-                         int spec_number) {
+double get_casting_level(const char_data* caster, int casting_level, int casting_stat,
+    int spec_number)
+{
     double final_level(casting_level);
 
     /* a bonus for anyone who is specialized in this spell's spec */
@@ -521,20 +532,21 @@ double get_casting_level(const char_data *caster, int casting_level, int casting
 } // namespace
 
 /* Assumes that *argument does start with first letter of chopped string */
-ACMD(do_cast) {
-    struct obj_data *tar_obj;
-    struct char_data *tar_char;
-    struct obj_data *tmpobj;
+ACMD(do_cast)
+{
+    struct obj_data* tar_obj;
+    struct char_data* tar_char;
+    struct obj_data* tmpobj;
     int qend, i, tmp;
     int tar_dig;
-    char *arg;
+    char* arg;
     int spell_prof, prepared_spell;
     int target_flag;
     struct waiting_type tmpwtl;
     int casting_time;
 
     int npc_can_cast_self = 0;
-    int npc_self_spells[] = {SPELL_REGENERATION, SPELL_CURE_SELF, SPELL_CURING, SPELL_SHIELD};
+    int npc_self_spells[] = { SPELL_REGENERATION, SPELL_CURE_SELF, SPELL_CURING, SPELL_SHIELD };
     int nss_len = sizeof npc_self_spells / sizeof npc_self_spells[0];
 
     tmpwtl.targ1.type = tmpwtl.targ2.type = TARGET_NONE;
@@ -602,8 +614,7 @@ ACMD(do_cast) {
             spell_index = tmp;
 
             // npc_can_cast_self
-        } else if (wtl && (wtl->targ1.type == TARGET_OTHER ||
-                           (wtl->targ1.type != TARGET_OTHER && npc_can_cast_self))) {
+        } else if (wtl && (wtl->targ1.type == TARGET_OTHER || (wtl->targ1.type != TARGET_OTHER && npc_can_cast_self))) {
             spell_index = wtl->targ1.ch_num;
         } else { // wtl is no good, using the argument line.
             if (!argument) {
@@ -648,7 +659,7 @@ ACMD(do_cast) {
             spell_index = tmp;
         }
 
-        const skill_data &spell = skills[spell_index];
+        const skill_data& spell = skills[spell_index];
         /* Checking for the spell validity now */
         switch (spell.type) {
         case PROF_MAGE:
@@ -684,11 +695,11 @@ ACMD(do_cast) {
 
             // The spell is targeting a character.  Ensure that it's valid before continuing.
             if (tmpwtl.targ2.type == TARGET_CHAR && tmpwtl.targ2.ptr.ch) {
-                game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+                game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
                 if (!bb_instance.is_target_valid(ch, tmpwtl.targ2.ptr.ch, spell_index)) {
                     send_to_char("You feel the Gods looking down upon you, and protecting your "
                                  "target.  Your lips falter.\r\n",
-                                 ch);
+                        ch);
                     return;
                 }
 
@@ -697,8 +708,7 @@ ACMD(do_cast) {
                         send_to_char("You cannot target players with that spell.\r\n", ch);
                         return;
                     } else if (ch->extra_specialization_data.is_mage_spec()) {
-                        elemental_spec_data *spec_data =
-                            ch->extra_specialization_data.get_mage_spec();
+                        elemental_spec_data* spec_data = ch->extra_specialization_data.get_mage_spec();
                         if (spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
                             send_to_char(
                                 "You have already exposed your target to the elements!\n\r", ch);
@@ -711,9 +721,7 @@ ACMD(do_cast) {
         /* supposedly, we have ch.delay formed now, except for delay value. */
 
         // only allow NPCs and god race to cast in rooms (for now)
-        auto restricted_room_haze_cast = spell_index == SPELL_HAZE && tmpwtl.targ2.type == 0 &&
-                                         !ch->specials.fighting &&
-                                         !(IS_NPC(ch) || GET_RACE(ch) == 0);
+        auto restricted_room_haze_cast = spell_index == SPELL_HAZE && tmpwtl.targ2.type == 0 && !ch->specials.fighting && !(IS_NPC(ch) || GET_RACE(ch) == 0);
 
         if (restricted_room_haze_cast) {
             send_to_char("You cannot cast to room.\n\r", ch);
@@ -769,11 +777,11 @@ ACMD(do_cast) {
         tar_char = wtl->targ2.ptr.ch;
 
         // The spell is targeting a character.  Ensure that it's valid before continuing.
-        game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+        game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
         if (!bb_instance.is_target_valid(ch, tar_char, spell_index)) {
             send_to_char("You feel the Gods looking down upon you, and protecting your target.  "
                          "Your lips falter.\r\n",
-                         ch);
+                ch);
             return;
         }
 
@@ -919,7 +927,7 @@ ACMD(do_cast) {
                 }
             }
 
-            elemental_spec_data *spec_data = ch->extra_specialization_data.get_mage_spec();
+            elemental_spec_data* spec_data = ch->extra_specialization_data.get_mage_spec();
             if (spec_data) {
                 if (tar_char == spec_data->exposed_target) {
                     // Currently, spells cast by expose elements are free.
@@ -940,7 +948,7 @@ ACMD(do_cast) {
         /* it's a cleric spell */
         else {
             int spirit_cost = USE_SPIRIT(ch, spell_index);
-            affected_type *aff = affected_by_spell(ch, SPELL_FAME_WAR);
+            affected_type* aff = affected_by_spell(ch, SPELL_FAME_WAR);
             if (aff && utils::get_highest_coeffs(*ch) == PROF_CLERIC) {
                 spirit_cost = spirit_cost * 0.80;
             }
@@ -960,7 +968,7 @@ ACMD(do_cast) {
 
         /* execute the spell */
         ((*skills[spell_index].spell_pointer)(ch, arg, SPELL_TYPE_SPELL, tar_char, tar_obj, tar_dig,
-                                              0));
+            0));
 
         /*
          * Casting a prepared spell now causes a short after-spell
@@ -994,10 +1002,11 @@ ACMD(do_cast) {
  *   1 - After the prepare delay, causes the prepared spell to
  *       be stored.
  */
-ACMD(do_prepare) {
-    char *arg;
+ACMD(do_prepare)
+{
+    char* arg;
     int i, tmp, spl, qend, spell_prof;
-    void abort_delay(struct char_data *);
+    void abort_delay(struct char_data*);
     player_spec::battle_mage_handler battle_mage_handler(ch);
     if (!battle_mage_handler.can_prepare_spell()) {
         send_to_char("Battle mages can't prepare spells.\n\r", ch);
@@ -1044,7 +1053,7 @@ ACMD(do_prepare) {
                 if (*arg != '\'') {
                     send_to_char("Magic must always be enclosed by the holy "
                                  "magic symbols: '\n\r",
-                                 ch);
+                        ch);
                     return;
                 }
 
@@ -1055,7 +1064,7 @@ ACMD(do_prepare) {
                 if (*(arg + qend) != '\'') {
                     send_to_char("Magic must always be enclosed by the holy "
                                  "magic symbols: '\n\r",
-                                 ch);
+                        ch);
                     return;
                 }
 
@@ -1099,7 +1108,7 @@ ACMD(do_prepare) {
             }
 
             WAIT_STATE_BRIEF(ch, CASTING_TIME(ch, spl) * 2, cmd, 1, 30,
-                             AFF_WAITING | AFF_WAITWHEEL);
+                AFF_WAITING | AFF_WAITWHEEL);
 
             ch->delay.targ1.type = TARGET_OTHER;
             ch->delay.targ1.ch_num = spl;

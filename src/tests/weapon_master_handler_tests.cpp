@@ -1,6 +1,7 @@
 #include "../warrior_spec_handlers.h"
 #include "../utils.h"
 #include "ObjFlagDataBuilder.h"
+#include "test_random_utils.h"
 #include <gtest/gtest.h>
 
 namespace {

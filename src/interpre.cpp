@@ -21,13 +21,13 @@
 #include "interpre.h"
 #include "limits.h"
 #include "mail.h"
+#include "mob_csv_extract.h"
 #include "pkill.h"
 #include "profs.h"
 #include "protos.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
-#include "mob_csv_extract.h"
 
 #include "big_brother.h"
 #include "char_utils.h"
@@ -2506,7 +2506,7 @@ void nanny(struct descriptor_data* d, char* arg)
                     STATE(d) = CON_PLYNG;
                     d->pProtocol = ProtocolCreate();
                     ProtocolNegotiate(d);
-                    extern void msdp_room_update(char_data* ch);
+                    extern void msdp_room_update(char_data * ch);
                     msdp_room_update(d->character);
                     return;
                 }
@@ -2837,7 +2837,6 @@ void nanny(struct descriptor_data* d, char* arg)
             report_mail(d->character);
             send_to_char(WELC_MESSG, d->character);
 
-            
             send_to_char("\n\r", d->character);
 
             /* if level 0, start out the new character */
@@ -2855,7 +2854,7 @@ void nanny(struct descriptor_data* d, char* arg)
             /* update msdp room information */
             d->pProtocol = ProtocolCreate();
             ProtocolNegotiate(d);
-            extern void msdp_room_update(char_data* ch);
+            extern void msdp_room_update(char_data * ch);
             msdp_room_update(d->character);
 
             do_look(d->character, "", 0, 0, 0);

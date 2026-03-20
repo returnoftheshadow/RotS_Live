@@ -282,7 +282,7 @@ int valid_name(char* newname)
 
     if (str_cmp(newname, "all") == 0) {
         sprintf(buf, "Invalid name '%s' (matched '%s')",
-                newname, "all");
+            newname, "all");
         mudlog(buf, NRM, LEVEL_GOD, TRUE);
         clear_invalid_list();
         return 0;

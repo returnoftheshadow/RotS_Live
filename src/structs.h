@@ -15,7 +15,7 @@
 
 #include <stdio.h>
 
-#include "color.h"   /* For MAX_COLOR_FIELDS */
+#include "color.h" /* For MAX_COLOR_FIELDS */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 
 #include "protocol.h"
@@ -75,8 +75,8 @@ const int constexpr MAX_RACE_NAME_LENGTH = 14;
 const int constexpr MIN_NAME_LENGTH = 3;
 const int constexpr MAX_NAME_LENGTH = 12;
 const int constexpr MAX_PWD_LENGTH = 10; /* Used in char_file_u *DO*NOT*CHANGE* */
-const int constexpr HOST_LEN = 30;       /* Used in char_file_u *DO*NOT*CHANGE* */
-const int constexpr MAX_MAXBOARD = 22;   /* the max number of boards ever -  */
+const int constexpr HOST_LEN = 30; /* Used in char_file_u *DO*NOT*CHANGE* */
+const int constexpr MAX_MAXBOARD = 22; /* the max number of boards ever -  */
 /*   used in objsave                */
 
 #define MAX_ZONES 500
@@ -186,13 +186,13 @@ const int constexpr SECS_PER_MUD_YEAR = (12 * SECS_PER_MUD_MONTH);
 #define ITEM_INVISIBLE (1 << 5)
 #define ITEM_MAGIC (1 << 6)
 #define ITEM_NODROP (1 << 7)
-#define ITEM_BROKEN (1 << 8)        /* was ITEM_BLESS - now used to break keys etc */
-#define ITEM_ANTI_GOOD (1 << 9)     /* not usable by good people    */
-#define ITEM_ANTI_EVIL (1 << 10)    /* not usable by evil people    */
+#define ITEM_BROKEN (1 << 8) /* was ITEM_BLESS - now used to break keys etc */
+#define ITEM_ANTI_GOOD (1 << 9) /* not usable by good people    */
+#define ITEM_ANTI_EVIL (1 << 10) /* not usable by evil people    */
 #define ITEM_ANTI_NEUTRAL (1 << 11) /* not usable by neutral people */
-#define ITEM_NORENT (1 << 12)       /* not allowed to rent the item */
-#define ITEM_NOINVIS (1 << 14)      /* not allowed to cast invis on */
-#define ITEM_WILLPOWER (1 << 15)    /* indicates a weapon which can damage a wraith */
+#define ITEM_NORENT (1 << 12) /* not allowed to rent the item */
+#define ITEM_NOINVIS (1 << 14) /* not allowed to cast invis on */
+#define ITEM_WILLPOWER (1 << 15) /* indicates a weapon which can damage a wraith */
 #define ITEM_IMM (1 << 16)
 #define ITEM_HUMAN (1 << 17)
 #define ITEM_DWARF (1 << 18)
@@ -232,17 +232,21 @@ const int constexpr SECS_PER_MUD_YEAR = (12 * SECS_PER_MUD_MONTH);
 #define CONT_CLOSED 4
 #define CONT_LOCKED 8
 
-typedef std::vector<struct char_data *> char_vector;
+typedef std::vector<struct char_data*> char_vector;
 typedef char_vector::iterator char_iter;
 typedef char_vector::const_iterator const_char_iter;
 
-typedef std::set<struct char_data *> char_set;
+typedef std::set<struct char_data*> char_set;
 typedef char_set::iterator char_set_iter;
 typedef char_set::const_iterator const_char_set_iter;
 
 struct combat_result_struct {
-    combat_result_struct() : wants_to_flee(false), will_die(false) {};
-    combat_result_struct(bool wimpy, bool dead) : wants_to_flee(wimpy), will_die(dead) {};
+    combat_result_struct()
+        : wants_to_flee(false)
+        , will_die(false) {};
+    combat_result_struct(bool wimpy, bool dead)
+        : wants_to_flee(wimpy)
+        , will_die(dead) {};
 
     bool wants_to_flee;
     bool will_die;
@@ -268,7 +272,7 @@ enum weapon_type {
     WT_COUNT,
 };
 
-const char *get_weapon_name(weapon_type type);
+const char* get_weapon_name(weapon_type type);
 } // namespace game_types
 
 #ifdef CONSTANTSMARK
@@ -330,20 +334,21 @@ struct room_data;
 struct target_data {
     signed char type;
     union {
-        struct char_data *ch;
-        struct obj_data *obj;
-        struct room_data *room;
-        struct txt_block *text;
-        void *other;
+        struct char_data* ch;
+        struct obj_data* obj;
+        struct room_data* room;
+        struct txt_block* text;
+        void* other;
     } ptr;
-    sh_int ch_num;  /* abs_number, if the target is a character, or just some
-                    digit data*/
-    int choice;     /* what kind of target is this   */
+    sh_int ch_num; /* abs_number, if the target is a character, or just some
+                   digit data*/
+    int choice; /* what kind of target is this   */
     void cleanup(); /* cleans the target data, releases the text if nec. */
     void operator=(target_data t2);
     int operator==(target_data t2);
 
-    target_data() {
+    target_data()
+    {
         type = TARGET_NONE;
         ptr.other = 0;
         ch_num = 0;
@@ -352,9 +357,9 @@ struct target_data {
 };
 
 struct extra_descr_data {
-    char *keyword;                 /* Keyword in look/examine          */
-    char *description;             /* What to see                      */
-    struct extra_descr_data *next; /* Next in list                     */
+    char* keyword; /* Keyword in look/examine          */
+    char* description; /* What to see                      */
+    struct extra_descr_data* next; /* Next in list                     */
 };
 
 #define MAX_OBJ_AFFECT 2 /* Used in OBJ_FILE_ELEM *DO*NOT*CHANGE* */
@@ -362,23 +367,23 @@ struct extra_descr_data {
 
 struct waiting_type {
     int wait_value; /* number of ticks left to wait */
-    int cmd;        /* command to be performed after delay -
-                                        0  = none,
-                                        -1 = call special for NPC, none for PC */
-    int subcmd;     /* subcmd it is, probably as a chain flag
-                                     for specials for NPCs */
-    int priority;   /* priority it is. 0 is the lowest */
+    int cmd; /* command to be performed after delay -
+                                 0  = none,
+                                 -1 = call special for NPC, none for PC */
+    int subcmd; /* subcmd it is, probably as a chain flag
+                                 for specials for NPCs */
+    int priority; /* priority it is. 0 is the lowest */
 
     int flg; /* also for whatever needed, flags mostly */
     struct target_data targ1;
     struct target_data targ2;
-    struct char_data *next;
+    struct char_data* next;
 };
 
 #define WEAPON_POISON_DUR 60
 
 struct obj_flag_data {
-  public:
+public:
     int get_ob_coef() const { return value[0]; }
     int get_parry_coef() const { return value[1]; }
     int get_bulk() const { return value[2]; }
@@ -402,30 +407,32 @@ struct obj_flag_data {
     int get_poison_strength() const { return poisondata[1]; }
     int get_poison_multipler() const { return poisondata[2]; }
 
-  public:
+public:
     int value[5]; /* Values of the item (see list) */ /*changed*/
-    byte type_flag;                                   /* Type of item                     */
-    int wear_flags;                                   /* Where you can wear it            */
-    int extra_flags;                                  /* If it hums,glows etc             */
-    int weight;                                       /* Weigt what else                  */
-    int cost;                                         /* Value when sold (gp.)            */
-    sh_int cost_per_day;                              /* Cost to keep pr. real day        */
-    int timer;                                        /* Timer for object                 */
-    long bitvector;                                   /* To set chars bits                */
-    ubyte level;          /* level of an item (not to correspond to character's*/
-    ubyte rarity;         /* rarity of an item */
+    byte type_flag; /* Type of item                     */
+    int wear_flags; /* Where you can wear it            */
+    int extra_flags; /* If it hums,glows etc             */
+    int weight; /* Weigt what else                  */
+    int cost; /* Value when sold (gp.)            */
+    sh_int cost_per_day; /* Cost to keep pr. real day        */
+    int timer; /* Timer for object                 */
+    long bitvector; /* To set chars bits                */
+    ubyte level; /* level of an item (not to correspond to character's*/
+    ubyte rarity; /* rarity of an item */
     signed char material; /* what is it made of               */
-    sh_int butcher_item;  /* virtual item to butcher, 0 for none, -1 for butchered */
-    int prog_number;      /* for special objects... */
-    int script_number;    /* identifies the script which is triggered under certain conditions */
-    struct info_script *script_info; /* Pointer to char_script (protos.h) 0 if no script */
+    sh_int butcher_item; /* virtual item to butcher, 0 for none, -1 for butchered */
+    int prog_number; /* for special objects... */
+    int script_number; /* identifies the script which is triggered under certain conditions */
+    struct info_script* script_info; /* Pointer to char_script (protos.h) 0 if no script */
     bool poisoned;
     int poisondata[5];
 };
 
 /* Wraps the object_flag_data and exposes values that are used for weapons. */
 struct weapon_flag_data {
-    weapon_flag_data(obj_flag_data *data) : object_flag_data(data) {
+    weapon_flag_data(obj_flag_data* data)
+        : object_flag_data(data)
+    {
         assert(data);
         assert(data->type_flag == ITEM_WEAPON);
     }
@@ -433,23 +440,24 @@ struct weapon_flag_data {
     int get_ob_coef() const { return object_flag_data->value[0]; }
     int get_parry_coef() const { return object_flag_data->value[1]; }
     int get_bulk() const { return object_flag_data->value[2]; }
-    game_types::weapon_type get_weapon_type() const {
+    game_types::weapon_type get_weapon_type() const
+    {
         return game_types::weapon_type(object_flag_data->value[3]);
     }
 
-  private:
-    obj_flag_data *object_flag_data;
+private:
+    obj_flag_data* object_flag_data;
 };
 
 /* Used in OBJ_FILE_ELEM *DO*NOT*CHANGE* */
 struct obj_affected_type {
     byte location; /* Which ability to change (APPLY_XXX) */
-    int modifier;  /* How much it changes by              */
+    int modifier; /* How much it changes by              */
 };
 
 /* ======================== Structure for object ========================= */
 struct obj_data {
-  public:
+public:
     int get_ob_coef() const { return obj_flags.get_ob_coef(); }
     int get_parry_coef() const { return obj_flags.get_parry_coef(); }
     int get_bulk() const { return obj_flags.get_bulk(); }
@@ -459,7 +467,7 @@ struct obj_data {
 
     int get_base_damage_reduction() const { return obj_flags.get_base_damage_reduction(); }
 
-    const char_data *get_owner() const { return carried_by; }
+    const char_data* get_owner() const { return carried_by; }
 
     // Returns true if the object can be equipped.
     bool is_wearable() const { return obj_flags.is_wearable(); }
@@ -470,28 +478,28 @@ struct obj_data {
     // Returns true if the weapon is a ranged weapon.
     bool is_ranged_weapon() const;
 
-  public:
+public:
     int item_number; /* Where in data-base               */
-    int in_room;     /* In what room -1 when conta/carr  */
+    int in_room; /* In what room -1 when conta/carr  */
 
-    struct obj_flag_data obj_flags;                    /* Object information               */
+    struct obj_flag_data obj_flags; /* Object information               */
     struct obj_affected_type affected[MAX_OBJ_AFFECT]; /* Which abilities in PC to change  */
 
-    char *name;                              /* Title of object :get etc.        */
-    char *description;                       /* When in room                     */
-    char *short_description;                 /* when worn/carry/in cont.         */
-    char *action_description;                /* What to write when used          */
-    struct extra_descr_data *ex_description; /* extra descriptions     */
-    struct char_data *carried_by;            /* Carried by :NULL in room/conta   */
+    char* name; /* Title of object :get etc.        */
+    char* description; /* When in room                     */
+    char* short_description; /* when worn/carry/in cont.         */
+    char* action_description; /* What to write when used          */
+    struct extra_descr_data* ex_description; /* extra descriptions     */
+    struct char_data* carried_by; /* Carried by :NULL in room/conta   */
 
     int owner;
-    struct obj_data *in_obj;   /* In what object NULL when none    */
-    struct obj_data *contains; /* Contains objects                 */
+    struct obj_data* in_obj; /* In what object NULL when none    */
+    struct obj_data* contains; /* Contains objects                 */
 
-    struct obj_data *next_content; /* For 'contains' lists             */
-    struct obj_data *next;         /* For the object list              */
-    int touched;                   /* Has a PC touched this object?    */
-    int loaded_by;                 /* idnum of immortal who loaded the object (else 0) */
+    struct obj_data* next_content; /* For 'contains' lists             */
+    struct obj_data* next; /* For the object list              */
+    int touched; /* Has a PC touched this object?    */
+    int loaded_by; /* idnum of immortal who loaded the object (else 0) */
 };
 
 /* ======================================================================= */
@@ -540,9 +548,9 @@ struct obj_data {
 #define EX_RSLOCKED 16
 #define EX_PICKPROOF 32
 #define EX_DOORISHEAVY 64 /*changed*/
-#define EX_NOBREAK 128    /*changed*/
-#define EX_NO_LOOK 256    /*changed*/
-#define EX_ISHIDDEN 512   /* for hidden exit*/
+#define EX_NOBREAK 128 /*changed*/
+#define EX_NO_LOOK 256 /*changed*/
+#define EX_ISHIDDEN 512 /* for hidden exit*/
 #define EX_ISBROKEN 1024
 #define EX_NORIDE 2048
 #define EX_NOBLINK 4096
@@ -566,14 +574,14 @@ struct obj_data {
 #define SECT_SWAMP 12
 
 struct room_direction_data {
-    char *general_description; /* When look DIR.                  */
+    char* general_description; /* When look DIR.                  */
 
-    char *keyword; /* for open/close                  */
+    char* keyword; /* for open/close                  */
 
     ubyte exit_width; /* 1-6, default should be 4 */
-    int exit_info;    /* Exit info    changed from sh_int                   */
-    int key;          /* Key's number (-1 for no key)    */
-    int to_room;      /* Where direction leeds (NOWHERE) */
+    int exit_info; /* Exit info    changed from sh_int                   */
+    int key; /* Key's number (-1 for no key)    */
+    int to_room; /* Where direction leeds (NOWHERE) */
 };
 
 /* ========================= Structure for room ========================== */
@@ -587,11 +595,12 @@ struct room_data;
 
 struct room_track_data {
     sh_int char_number; // race number for players, virt_number for mobs
-    byte data;          // data/8 = time of the track, data & 8 = direction
-    sh_int condition;   // Effective condition of the tracks in hours
+    byte data; // data/8 = time of the track, data & 8 = direction
+    sh_int condition; // Effective condition of the tracks in hours
     // Weather makes tracks age faster/slower etc
 
-    room_track_data() {
+    room_track_data()
+    {
         char_number = 0;
         data = 0;
         condition = 0;
@@ -603,7 +612,8 @@ struct room_bleed_data {
     byte data;
     sh_int condition;
 
-    room_bleed_data() {
+    room_bleed_data()
+    {
         char_number = 0;
         data = 0;
         condition = 0;
@@ -611,53 +621,53 @@ struct room_bleed_data {
 };
 
 struct room_data_extension {
-    room_data *extension_world;
+    room_data* extension_world;
     //  int extension_length;  use EXTENSION_SIZE instead
-    room_data_extension *extension_next;
+    room_data_extension* extension_next;
 
     room_data_extension();
     ~room_data_extension();
 };
 
 struct room_data {
-    static room_data *BASE_WORLD;
+    static room_data* BASE_WORLD;
     static int BASE_LENGTH;
     static int TOTAL_LENGTH;
-    static room_data_extension *BASE_EXTENSION;
+    static room_data_extension* BASE_EXTENSION;
 
     int number; /* Rooms number                       */
-    int zone;   /* Room zone (for resetting)          */
+    int zone; /* Room zone (for resetting)          */
     byte level;
-    int sector_type; /* sector type (move/hide)*/        /*changed*/
-    char *name;                                          /* Rooms name 'You are ...'           */
-    char *description;                                   /* Shown when entered                 */
-    struct extra_descr_data *ex_description;             /* for examine/look       */
-    struct room_direction_data *dir_option[NUM_OF_DIRS]; /* Directions */
-    struct room_track_data room_track[NUM_OF_TRACKS];    /* track info.. */
-    long room_flags;                                     /* DEATH,DARK ... etc                 */
-    int alignment;                                       /*changed*/
-    byte light;                                          /* Number of lightsources in room     */
+    int sector_type; /* sector type (move/hide)*/ /*changed*/
+    char* name; /* Rooms name 'You are ...'           */
+    char* description; /* Shown when entered                 */
+    struct extra_descr_data* ex_description; /* for examine/look       */
+    struct room_direction_data* dir_option[NUM_OF_DIRS]; /* Directions */
+    struct room_track_data room_track[NUM_OF_TRACKS]; /* track info.. */
+    long room_flags; /* DEATH,DARK ... etc                 */
+    int alignment; /*changed*/
+    byte light; /* Number of lightsources in room     */
 
     byte bfs_dir;
-    room_data *bfs_next; /*instead ot bfs_queue structure, for hunting*/
+    room_data* bfs_next; /*instead ot bfs_queue structure, for hunting*/
 
-    int (*funct)(struct char_data *, struct char_data *, int, char *, int, waiting_type *);
+    int (*funct)(struct char_data*, struct char_data*, int, char*, int, waiting_type*);
     /* special procedure, check SPECIAL in interpre.h      */
-    struct obj_data *contents; /* List of items in room              */
-    struct char_data *people;  /* List of NPC / PC in room           */
+    struct obj_data* contents; /* List of items in room              */
+    struct char_data* people; /* List of NPC / PC in room           */
 
-    struct affected_type *affected; /* room affects */
+    struct affected_type* affected; /* room affects */
 
     struct room_bleed_data bleed_track[NUM_OF_BLOOD_TRAILS];
 
     room_data();
 
-    room_data &operator[](int i);
+    room_data& operator[](int i);
 
-    int create_room(int zone);    /* active constructor, returns real number  -
-                                                              use this one to add rooms */
+    int create_room(int zone); /* active constructor, returns real number  -
+                                                           use this one to add rooms */
     void create_bulk(int amount); /* initial world constructor, the first alloc*/
-    void delete_room();           /* active destructor - use it when removing rooms */
+    void delete_room(); /* active destructor - use it when removing rooms */
     void create_exit(int dir, int room, char connect = 1);
 };
 
@@ -693,7 +703,7 @@ struct room_data {
 
 /* For 'char_payer_data' */
 
-#define MAX_TOUNGE 3   /* Used in CHAR_FILE_U *DO*NOT*CHANGE* */
+#define MAX_TOUNGE 3 /* Used in CHAR_FILE_U *DO*NOT*CHANGE* */
 #define MAX_SKILLS 256 /* Used in CHAR_FILE_U *DO*NOT*CHANGE* */
 #define MAX_WEAR 22
 #define MAX_AFFECT 32 /* Used in CHAR_FILE_U *DO*NOT*CHANGE* */
@@ -717,7 +727,7 @@ struct room_data {
 #define AFF_MOONVISION (1 << 10)
 #define AFF_POISON (1 << 11)
 #define AFF_SHIELD (1 << 12)
-#define AFF_BREATHE                                                                                \
+#define AFF_BREATHE \
     (1 << 13) // was paralysis - now indicates the ch can breathe whatever the room conditions
 #define AFF_UNUSED (1 << 14) // unused affect
 #define AFF_CONFUSE (1 << 15)
@@ -874,13 +884,13 @@ const int constexpr RACE_HARADRIM = 18;
 #define RACE_UNDEAD 16
 #define RACE_TROLL 20
 
-#define localtime(x) localtime((time_t *)x)
+#define localtime(x) localtime((time_t*)x)
 #ifndef CONSTANTSMARK
-extern char *pc_races[];
-extern char *pc_race_types[];
-extern char *pc_race_keywords[];
-extern char *pc_star_types[];
-extern char *pc_named_star_types[];
+extern char* pc_races[];
+extern char* pc_race_types[];
+extern char* pc_race_keywords[];
+extern char* pc_star_types[];
+extern char* pc_named_star_types[];
 #endif
 
 /* sex */
@@ -900,19 +910,19 @@ extern char *pc_named_star_types[];
 #define POSITION_STANDING 8
 
 /* for mobile actions: specials.act */
-#define MOB_VOID 0              /* for special uses only */
-#define MOB_SPEC (1 << 0)       /* spec-proc to be called if exist   */
-#define MOB_SENTINEL (1 << 1)   /* this mobile not to be moved       */
-#define MOB_SCAVENGER (1 << 2)  /* pick up stuff lying around        */
-#define MOB_ISNPC (1 << 3)      /* This bit is set for use with IS_NPC()*/
-#define MOB_NOBASH (1 << 4)     /* Set if a thief should NOT be killed  */
+#define MOB_VOID 0 /* for special uses only */
+#define MOB_SPEC (1 << 0) /* spec-proc to be called if exist   */
+#define MOB_SENTINEL (1 << 1) /* this mobile not to be moved       */
+#define MOB_SCAVENGER (1 << 2) /* pick up stuff lying around        */
+#define MOB_ISNPC (1 << 3) /* This bit is set for use with IS_NPC()*/
+#define MOB_NOBASH (1 << 4) /* Set if a thief should NOT be killed  */
 #define MOB_AGGRESSIVE (1 << 5) /* Set if automatic attack on NPC's     */
-#define MOB_STAY_ZONE (1 << 6)  /* MOB Must stay inside its own zone    */
-#define MOB_WIMPY (1 << 7)      /* MOB Will flee when injured, and if   */
+#define MOB_STAY_ZONE (1 << 6) /* MOB Must stay inside its own zone    */
+#define MOB_WIMPY (1 << 7) /* MOB Will flee when injured, and if   */
 /* aggressive only attack sleeping players*/
 #define MOB_STAY_TYPE (1 << 8) /* MOB will move in rooms of the same type*/
-#define MOB_MOUNT (1 << 9)     /* MOB can be ridden	*/
-#define MOB_CAN_SWIM                                                                               \
+#define MOB_MOUNT (1 << 9) /* MOB can be ridden	*/
+#define MOB_CAN_SWIM \
     (1 << 10) /* MOB doesn't need a boat to swim. If GATEKEEPER, he wont' respond to knock/say */
 #define MOB_MEMORY (1 << 11) /* remember attackers if struck first */
 #define MOB_HELPER (1 << 12) /* attack chars attacking a PC in room */
@@ -920,16 +930,16 @@ extern char *pc_named_star_types[];
 #define MOB_AGGRESSIVE_NEUTRAL (1 << 14)
 #define MOB_AGGRESSIVE_GOOD (1 << 15)
 #define MOB_BODYGUARD (1 << 16) /* rescues his master, if any */
-#define MOB_SHADOW (1 << 17)    /* a ghost, a spirit, all that stuff */
+#define MOB_SHADOW (1 << 17) /* a ghost, a spirit, all that stuff */
 #define MOB_SWITCHING (1 << 18) /* is stupid - won't switch opponents */
 #define MOB_NORECALC (1 << 19)
-#define MOB_FAST (1 << 20)       /* will mob_act when somebody enters... */
-#define MOB_PET (1 << 21)        /* pet of a player */
-#define MOB_HUNTER (1 << 22)     /* memory + hunts his enemies         */
+#define MOB_FAST (1 << 20) /* will mob_act when somebody enters... */
+#define MOB_PET (1 << 21) /* pet of a player */
+#define MOB_HUNTER (1 << 22) /* memory + hunts his enemies         */
 #define MOB_ORC_FRIEND (1 << 23) /* can be recruited by common orcs */
 #define MOB_RACE_GUARD (1 << 24) /* will not allow players of different race into the room */
-#define MOB_ASSISTANT (1 << 25)  /* will assist his master if his master is in combat */
-#define MOB_GUARDIAN (1 << 26)   /* flag for guardian mobs */
+#define MOB_ASSISTANT (1 << 25) /* will assist his master if his master is in combat */
+#define MOB_GUARDIAN (1 << 26) /* flag for guardian mobs */
 
 /* For players : specials.act */
 #define PLR_IS_NCHANGED (1 << 1)
@@ -987,11 +997,11 @@ extern char *pc_named_star_types[];
 #define PRF_ADVANCED_PROMPT (1 << 31)
 
 struct memory_rec {
-    struct char_data *enemy;
+    struct char_data* enemy;
     int enemy_number;
     long id;
-    struct memory_rec *next;
-    struct memory_rec *next_on_mob;
+    struct memory_rec* next;
+    struct memory_rec* next_on_mob;
 };
 
 /* This structure is purely intended to be an easy way to transfer */
@@ -1005,30 +1015,30 @@ struct time_info_data {
 struct time_data {
     time_t birth; /* This represents the characters age                */
     time_t logon; /* Time of the last logon (used to calculate played) */
-    int played;   /* This is the total accumulated time played in secs */
+    int played; /* This is the total accumulated time played in secs */
 };
 
 struct char_player_data {
-    char *name;             /* PC / NPC s name (kill ...  )		*/
-    char *short_descr;      /* for 'actions'                        	*/
-    char *long_descr;       /* for 'look'.. Only here for testing   	*/
-    char *description;      /* Extra descriptions                   	*/
-    char *title;            /* PC / NPC s title                     	*/
-    char *death_cry;        /* NPC - message to give in death        */
-    char *death_cry2;       /* NPC - message to other rooms         */
-    int corpse_num;         /* what object to use as a corpse        */
-    int race;               /* PC /NPC's race                       	*/
-    byte sex;               /* PC / NPC s sex                       	*/
-    byte bodytype;          /* PC / NPC hit locations                */
-    byte prof;              /* PC s or NPC s prof                 	*/
-    int level;              /* PC / NPC s level                     	*/
-    byte language;          /* the lang he's presently speaking      */
-    int hometown;           /* PC s Hometown (zone)                 	*/
+    char* name; /* PC / NPC s name (kill ...  )		*/
+    char* short_descr; /* for 'actions'                        	*/
+    char* long_descr; /* for 'look'.. Only here for testing   	*/
+    char* description; /* Extra descriptions                   	*/
+    char* title; /* PC / NPC s title                     	*/
+    char* death_cry; /* NPC - message to give in death        */
+    char* death_cry2; /* NPC - message to other rooms         */
+    int corpse_num; /* what object to use as a corpse        */
+    int race; /* PC /NPC's race                       	*/
+    byte sex; /* PC / NPC s sex                       	*/
+    byte bodytype; /* PC / NPC hit locations                */
+    byte prof; /* PC s or NPC s prof                 	*/
+    int level; /* PC / NPC s level                     	*/
+    byte language; /* the lang he's presently speaking      */
+    int hometown; /* PC s Hometown (zone)                 	*/
     byte talks[MAX_TOUNGE]; /* PC s Tounges 0 for NPC           	*/
-    struct time_data time;  /* PC s AGE in days                 	*/
-    int weight;             /* PC / NPC s weight                    	*/
-    int height;             /* PC / NPC s height                    	*/
-    int ranking;            /* PC / NPC s ranking in fame war */
+    struct time_data time; /* PC s AGE in days                 	*/
+    int weight; /* PC / NPC s weight                    	*/
+    int height; /* PC / NPC s height                    	*/
+    int ranking; /* PC / NPC s ranking in fame war */
 };
 
 /* Used in CHAR_FILE_U;
@@ -1058,20 +1068,20 @@ struct char_ability_data {
 struct char_point_data {
 
     ubyte bodypart_hit[MAX_BODYPARTS]; /* hit points of individual body parts */
-    int gold;                          /* Money carried                           */
-    int exp;                           /* The experience of the player            */
-    int spirit;                        /* well, the spirit */
-    int mana_regen = 0;                /* bonus mana regen from gear/spells/etc.  can be negative */
-    int health_regen = 0;              /* bonus health regen from spells etc. */
-    int move_regen = 0;                /* bonus move regen from spells etc. */
+    int gold; /* Money carried                           */
+    int exp; /* The experience of the player            */
+    int spirit; /* well, the spirit */
+    int mana_regen = 0; /* bonus mana regen from gear/spells/etc.  can be negative */
+    int health_regen = 0; /* bonus health regen from spells etc. */
+    int move_regen = 0; /* bonus move regen from spells etc. */
 
-    sh_int OB;        /* OB in normal tactics   */
-    sh_int damage;    /*  damage in normal tactics */
+    sh_int OB; /* OB in normal tactics   */
+    sh_int damage; /*  damage in normal tactics */
     sh_int ENE_regen; /* Rate at which energy for hitting is regened*/
-    sh_int parry;     /* parry in normal tactics */
-    sh_int dodge;     /* dodge. all in this file are tactics independent.*/
-    sh_int encumb;    /* how encumbered a player is, affects casting and
-                             dex skills */
+    sh_int parry; /* parry in normal tactics */
+    sh_int dodge; /* dodge. all in this file are tactics independent.*/
+    sh_int encumb; /* how encumbered a player is, affects casting and
+                          dex skills */
     sh_int willpower; /* strength in mental fights */
     sh_int spell_pen;
     sh_int spell_power;
@@ -1088,58 +1098,58 @@ struct char_point_data {
 */
 
 struct char_special_data {
-    struct char_data *fighting; /* Opponent                             */
-    struct char_data *hunting;  /* Hunting person..                     */
+    struct char_data* fighting; /* Opponent                             */
+    struct char_data* hunting; /* Hunting person..                     */
 
-    long affected_by;     /* Bitvector for spells/skills affected by */
-    sh_int resistance;    /* bitvector for resistances */
+    long affected_by; /* Bitvector for spells/skills affected by */
+    sh_int resistance; /* bitvector for resistances */
     sh_int vulnerability; /* bitvector for vulnerabilities */
 
-    sh_int position;    /* Standing or ...                         */
+    sh_int position; /* Standing or ...                         */
     sh_int default_pos; /* Default position for NPC                */
 
-    int carry_weight;     /* Carried weight                          */
-    sh_int worn_weight;   /* Worn weight :)                          */
+    int carry_weight; /* Carried weight                          */
+    sh_int worn_weight; /* Worn weight :)                          */
     sh_int encumb_weight; /* weight for skill encumberance            */
 
     byte carry_items; /* Number of items carried                 */
-    int timer;        /* Timer for update                        */
-    int was_in_room;  /* storage of location for linkdead people */
+    int timer; /* Timer for update                        */
+    int was_in_room; /* storage of location for linkdead people */
 
-    int ENERGY;           /* current energy */
+    int ENERGY; /* current energy */
     sh_int current_parry; /*parry currently affected by 'parry split' */
 
     signed char last_direction; /* The last direction the monster went     */
-    int attack_type;            /* The Attack Type Bitvector for NPC's     */
+    int attack_type; /* The Attack Type Bitvector for NPC's     */
 
-    struct alias_list *alias; /* aliases, 0 for mobs */
+    struct alias_list* alias; /* aliases, 0 for mobs */
 
-    char *poofIn; /* Description on arrival of a god.	       */
+    char* poofIn; /* Description on arrival of a god.	       */
     /* also a stack pointer for special mobs   */
-    char *poofOut; /* Description upon a god's exit.	       */
+    char* poofOut; /* Description upon a god's exit.	       */
     /* also a list pointer for special mobs    */
     int invis_level; /* level of invisibility		       */
     /* also a stack pointer for special mobs   */
 
     union {
-        struct char_data *reply_ptr;
-        int *prog_number; /* also a call list pointer for special mobs */
+        struct char_data* reply_ptr;
+        int* prog_number; /* also a call list pointer for special mobs */
     } union1;
 
     int store_prog_number; /* in database, stores prog_numbers for mobiles,*/
     /* in the game, can be used for PCs as for   */
     /* mobiles with SPECIAL flag set */
-    struct info_script *script_info; /* Pointer to char_script (protos.h) */
+    struct info_script* script_info; /* Pointer to char_script (protos.h) */
     /* 0 if no script */
     int script_number; /* vnum of script */
 
     union {
         int reply_number;
-        int *prog_point; /* and the call point list for that*/
+        int* prog_point; /* and the call point list for that*/
     } union2;
 
-    struct memory_rec *memory; /* List of attackers to remember */
-    sh_int current_bodypart;   /* The number of current bodypart */
+    struct memory_rec* memory; /* List of attackers to remember */
+    sh_int current_bodypart; /* The number of current bodypart */
 
     ubyte tactics; /* combat tactics of a person */
     /* also, program pointer in call list for npc */
@@ -1149,7 +1159,7 @@ struct char_special_data {
 
     int prompt_value; /* value to be inserted into text prompt */
     /* or zon_table index for NPC */
-    int homezone;  /* zone where it was loaded */
+    int homezone; /* zone where it was loaded */
     int load_line; /* the line in zone that loaded the mob */
 
     byte trophy_line; /* for mobs, 0-4 in each zone */
@@ -1157,19 +1167,19 @@ struct char_special_data {
     int board_point[MAX_MAXBOARD]; /* pointers on the current messages */
 
     int null_speed; /*UPDATE* For temporary use, should be removed later*/
-    int str_speed;  /*UPDATE* For temporary use, should be removed later*/
+    int str_speed; /*UPDATE* For temporary use, should be removed later*/
 
     int butcher_item; /* virtual item to load when buther corpse, 0 if none*/
 
     int was_ambushed;
     int attacked_level; /* the highest level of the attackers, NPC only */
-    byte hide_value;    /* how good you are hidden, if at all */
+    byte hide_value; /* how good you are hidden, if at all */
 
     int mental_delay;
-    int trap_number;    /* used to determine #s in trap */
-    char *recite_lines; /* For reciters, how far read? */
-    ubyte shooting;     /* shooting speed for archery spec*/
-    ubyte casting;      /*  casting speed for spell casters*/
+    int trap_number; /* used to determine #s in trap */
+    char* recite_lines; /* For reciters, how far read? */
+    ubyte shooting; /* shooting speed for archery spec*/
+    ubyte casting; /*  casting speed for spell casters*/
 };
 
 /* defines for hide_flags */
@@ -1180,21 +1190,21 @@ struct char_special_data {
  * Changes may require serialization updates in loading code if we want to persist new data
  */
 struct char_special2_data {
-    long idnum;          /* player's idnum			*/
-    int load_room;       /* Which room to place char in		*/
+    long idnum; /* player's idnum			*/
+    int load_room; /* Which room to place char in		*/
     int spells_to_learn; /* How many can you learn yet this level*/
-    int alignment;       /* +-1000 for alignments          */
-    long act;            /* act flag for NPC's; player flag for PC's */
-    long pref;           /* preference flags for PC's,
-                                                          racial agg/non-agg NPCs		*/
-    int wimp_level;      /* Below this # of hit points, flee! */
-    byte freeze_level;   /* Level of god who froze char, if any	*/
-    int bad_pws;         /* number of bad password attemps	*/
+    int alignment; /* +-1000 for alignments          */
+    long act; /* act flag for NPC's; player flag for PC's */
+    long pref; /* preference flags for PC's,
+                                                racial agg/non-agg NPCs		*/
+    int wimp_level; /* Below this # of hit points, flee! */
+    byte freeze_level; /* Level of god who froze char, if any	*/
+    int bad_pws; /* number of bad password attemps	*/
     /* also a call mask for special mobiles */
-    int saving_throw;  /* saving throw for new mobiles */
+    int saving_throw; /* saving throw for new mobiles */
     int rawPerception; /* a raw value without any overrides applied. can be outside of the 0 to 100
                           range */
-    int perception;    /* perception changes between 0 and 100 */
+    int perception; /* perception changes between 0 and 100 */
     int conditions[3]; /* Drunk full etc.			*/
 
     int mini_level;
@@ -1202,11 +1212,11 @@ struct char_special2_data {
     int morale; /* flag to account for good/evil zones, and such */
     int owner;
 
-    ubyte rerolls;  /* Number of rerolls that has happened */
+    ubyte rerolls; /* Number of rerolls that has happened */
     int leg_encumb; /* how encumbered is char for movement/dodging? */
-    int rp_flag;    /* Special flag for PC, racial behaviour for - */
+    int rp_flag; /* Special flag for PC, racial behaviour for - */
     /* NPC (bitvector) */
-    int retiredon;  /* time of retirement */
+    int retiredon; /* time of retirement */
     int hide_flags; /* flag set for hide info */
     long will_teach;
 };
@@ -1223,46 +1233,46 @@ enum source_type {
 struct affection_source {
     source_type type;
     int source_id;
-    void *source;
+    void* source;
 };
 
 /* Used in CHAR_FILE_U Change with the utmost care */
 struct affected_type {
     sh_int type; /* The type of spell that caused this      */
 
-    int duration;    /* For how long its effects will last      */
+    int duration; /* For how long its effects will last      */
     char time_phase; /* when exactly in the tick it was cast  */
     /*  is set in affect_to_char, room */
 
     sh_int modifier; /* This is added to apropriate ability     */
     sh_int location; /* Tells which ability to change(APPLY_XXX)*/
-    long bitvector;  /* Tells which bits to set (AFF_XXX)       */
+    long bitvector; /* Tells which bits to set (AFF_XXX)       */
     sh_int counter;
 
-    struct affected_type *next;
+    struct affected_type* next;
 };
 
 struct follow_type {
     int fol_number; /* abs_number of the follower, for safety */
-    struct char_data *follower;
-    struct follow_type *next;
+    struct char_data* follower;
+    struct follow_type* next;
 };
 
 struct mount_data_type {
-    struct char_data *mount;
+    struct char_data* mount;
     int mount_number;
 
-    struct char_data *rider;
+    struct char_data* rider;
     int rider_number;
 
-    struct char_data *next_rider;
+    struct char_data* next_rider;
     int next_rider_number;
 };
 
 struct alias_list {
     char keyword[20];
-    char *command;
-    struct alias_list *next;
+    char* command;
+    struct alias_list* next;
 };
 
 struct char_prof_data {
@@ -1277,35 +1287,48 @@ struct char_prof_data {
 };
 
 struct specialization_info {
-    virtual ~specialization_info() {}
+    virtual ~specialization_info() { }
 
-    virtual std::string to_string(char_data &character) const = 0;
+    virtual std::string to_string(char_data& character) const = 0;
 };
 
 struct elemental_spec_data : public specialization_info {
-    elemental_spec_data() : exposed_target(NULL), spell_id(0) {}
+    elemental_spec_data()
+        : exposed_target(NULL)
+        , spell_id(0)
+    {
+    }
 
-    void reset() {
+    void reset()
+    {
         exposed_target = NULL;
         spell_id = 0;
     }
 
     /* Target (if any) that the character has 'exposed' to their element. */
-    char_data *exposed_target;
+    char_data* exposed_target;
     int spell_id;
 
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 
-  protected:
-    void report_exposed_data(std::ostringstream &message_writer) const;
+protected:
+    void report_exposed_data(std::ostringstream& message_writer) const;
 };
 
 struct cold_spec_data : public elemental_spec_data {
-  public:
+public:
     cold_spec_data()
-        : total_chill_ray_count(0), successful_chill_ray_count(0), failed_chill_ray_count(0),
-          total_chill_ray_damage(0), total_cone_of_cold_count(0), successful_cone_of_cold_count(0),
-          failed_cone_of_cold_count(0), total_cone_of_cold_damage(0), total_energy_sapped(0) {}
+        : total_chill_ray_count(0)
+        , successful_chill_ray_count(0)
+        , failed_chill_ray_count(0)
+        , total_chill_ray_damage(0)
+        , total_cone_of_cold_count(0)
+        , successful_cone_of_cold_count(0)
+        , failed_cone_of_cold_count(0)
+        , total_cone_of_cold_damage(0)
+        , total_energy_sapped(0)
+    {
+    }
 
     void on_chill_ray_success(int damage);
     void on_chill_ray_fail(int damage);
@@ -1318,22 +1341,24 @@ struct cold_spec_data : public elemental_spec_data {
     int get_chill_ray_count() const { return total_chill_ray_count; }
     int get_successful_chills() const { return successful_chill_ray_count; }
     int get_saved_chills() const { return failed_chill_ray_count; }
-    double get_chill_success_percentage() const {
+    double get_chill_success_percentage() const
+    {
         return double(successful_chill_ray_count) / double(total_chill_ray_count);
     }
 
     int get_cone_count() const { return total_cone_of_cold_count; }
     int get_successful_cones() const { return successful_cone_of_cold_count; }
     int get_saved_cones() const { return failed_cone_of_cold_count; }
-    double get_cone_success_percentage() const {
+    double get_cone_success_percentage() const
+    {
         return double(successful_cone_of_cold_count) / double(total_cone_of_cold_count);
     }
 
     long get_total_energy_sapped() const { return total_energy_sapped; }
 
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 
-  private:
+private:
     /* Total number of chill rays cast. */
     int total_chill_ray_count;
 
@@ -1363,24 +1388,27 @@ struct cold_spec_data : public elemental_spec_data {
 };
 
 struct fire_spec_data : public elemental_spec_data {
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 };
 
 struct lightning_spec_data : public elemental_spec_data {
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 };
 
 struct darkness_spec_data : public elemental_spec_data {
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 };
 
 struct arcane_spec_data : public elemental_spec_data {
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 };
 
 struct defender_data : public specialization_info {
     defender_data()
-        : last_block_time(0), next_block_available(0), is_blocking(false), blocked_damage(0) {};
+        : last_block_time(0)
+        , next_block_available(0)
+        , is_blocking(false)
+        , blocked_damage(0) {};
 
     /* The last time the player used the "block" command. */
     time_t last_block_time;
@@ -1394,19 +1422,21 @@ struct defender_data : public specialization_info {
     void add_blocked_damage(int damage) { blocked_damage += damage; }
     unsigned int get_total_blocked_damage() { return blocked_damage; }
 
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 
-  private:
+private:
     /* Total damage blocked by defender spec this session. */
     unsigned int blocked_damage;
 };
 
 struct battle_mage_spec_data : public specialization_info {
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 };
 
 struct wild_fighting_data : public specialization_info {
-    wild_fighting_data() : is_frenzying(false), rush_forward_damage(0) {};
+    wild_fighting_data()
+        : is_frenzying(false)
+        , rush_forward_damage(0) {};
 
     /* True if the character is currently in a frenzy. */
     bool is_frenzying;
@@ -1420,18 +1450,19 @@ struct wild_fighting_data : public specialization_info {
     void add_rush_damage(int damage) { rush_forward_damage += damage; }
     unsigned int get_total_rush_damage() { return rush_forward_damage; }
 
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 
-  private:
+private:
     /* Total extra damage added by rushing forward wildly. */
     unsigned int rush_forward_damage;
 };
 
 struct light_fighting_data : public specialization_info {
-    light_fighting_data() : light_fighting_extra_hits(0) {};
+    light_fighting_data()
+        : light_fighting_extra_hits(0) {};
 
     /* Weapon that is currently being used in the off-hand. */
-    obj_data *off_hand_weapon;
+    obj_data* off_hand_weapon;
 
     /* Current energy of the off-hand.  */
     sh_int off_hand_energy;
@@ -1442,60 +1473,62 @@ struct light_fighting_data : public specialization_info {
     void add_light_fighting_proc() { ++light_fighting_extra_hits; }
     unsigned int get_total_light_fighting_procs() { return light_fighting_extra_hits; }
 
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 
-  private:
+private:
     /* Total extra damage added by light fighting. */
     unsigned int light_fighting_extra_hits;
 };
 
 struct heavy_fighting_data : public specialization_info {
-    heavy_fighting_data() : heavy_fighting_damage(0) {};
+    heavy_fighting_data()
+        : heavy_fighting_damage(0) {};
 
     void add_heavy_fighting_damage(int damage) { heavy_fighting_damage += damage; }
     unsigned int get_total_heavy_fighting_damage() { return heavy_fighting_damage; }
 
-    virtual std::string to_string(char_data &character) const;
+    virtual std::string to_string(char_data& character) const;
 
-  private:
+private:
     /* Total extra damage added by heavy fighting. */
     unsigned int heavy_fighting_damage;
 };
 
 /* ========== Structure for storing specialization information ============= */
 struct specialization_data {
-    specialization_data() : current_spec_info(NULL), current_spec(game_types::PS_None) {};
+    specialization_data()
+        : current_spec_info(NULL)
+        , current_spec(game_types::PS_None) {};
 
     ~specialization_data() { reset(); }
 
     void reset();
 
-    void set(char_data &character);
+    void set(char_data& character);
 
-    specialization_info *current_spec_info;
+    specialization_info* current_spec_info;
 
-    bool is_mage_spec() const {
+    bool is_mage_spec() const
+    {
         if (current_spec == game_types::PS_None)
             return false;
 
-        return current_spec == game_types::PS_Darkness || current_spec == game_types::PS_Arcane ||
-               current_spec == game_types::PS_Fire || current_spec == game_types::PS_Cold ||
-               current_spec == game_types::PS_Lightning ||
-               current_spec == game_types::PS_BattleMage;
+        return current_spec == game_types::PS_Darkness || current_spec == game_types::PS_Arcane || current_spec == game_types::PS_Fire || current_spec == game_types::PS_Cold || current_spec == game_types::PS_Lightning || current_spec == game_types::PS_BattleMage;
     }
 
-    elemental_spec_data *get_mage_spec() const {
+    elemental_spec_data* get_mage_spec() const
+    {
         if (is_mage_spec()) {
-            return static_cast<elemental_spec_data *>(current_spec_info);
+            return static_cast<elemental_spec_data*>(current_spec_info);
         }
 
         return NULL;
     }
 
     game_types::player_specs get_current_spec() const { return current_spec; }
-    std::string to_string(char_data &character) const;
+    std::string to_string(char_data& character) const;
 
-  private:
+private:
     game_types::player_specs current_spec;
 };
 
@@ -1507,18 +1540,25 @@ struct player_skill_data {
 
 /* ========== Structures used for tracking player damage ============= */
 class damage_details {
-  public:
-    damage_details() : total_damage(0), instance_count(0), largest_damage(0) {}
+public:
+    damage_details()
+        : total_damage(0)
+        , instance_count(0)
+        , largest_damage(0)
+    {
+    }
 
-    virtual ~damage_details() {}
+    virtual ~damage_details() { }
 
-    void add_damage(int damage) {
+    void add_damage(int damage)
+    {
         total_damage += damage;
         instance_count++;
         largest_damage = std::max(largest_damage, damage);
     }
 
-    float get_average_damage() const {
+    float get_average_damage() const
+    {
         return static_cast<float>(total_damage) / static_cast<float>(instance_count);
     }
 
@@ -1526,111 +1566,129 @@ class damage_details {
     int get_instance_count() const { return instance_count; }
     int get_largest_damage() const { return largest_damage; }
 
-    virtual void reset() {
+    virtual void reset()
+    {
         total_damage = 0;
         instance_count = 0;
         largest_damage = 0;
     }
 
-  private:
+private:
     int total_damage;
     int instance_count;
     int largest_damage;
 };
 
 class player_damage_details {
-  public:
-    player_damage_details() : damage_map(), elapsed_combat_seconds(0) {};
+public:
+    player_damage_details()
+        : damage_map()
+        , elapsed_combat_seconds(0) {};
 
     void add_damage(int skill_id, int damage) { damage_map[skill_id].add_damage(damage); }
     void tick(float delta) { elapsed_combat_seconds += delta; }
-    void reset() {
+    void reset()
+    {
         damage_map.clear();
         elapsed_combat_seconds = 0;
     }
 
-    std::string get_damage_report(const char_data *character) const;
+    std::string get_damage_report(const char_data* character) const;
 
-  private:
+private:
     std::map<int, damage_details> damage_map;
     float elapsed_combat_seconds;
 };
 
 class timed_damage_details : public damage_details {
-  public:
-    timed_damage_details() : damage_details(), elapsed_combat_seconds(0) {}
-    virtual ~timed_damage_details() {}
+public:
+    timed_damage_details()
+        : damage_details()
+        , elapsed_combat_seconds(0)
+    {
+    }
+    virtual ~timed_damage_details() { }
 
     float get_combat_time() const { return elapsed_combat_seconds; }
-    float get_dps() const {
+    float get_dps() const
+    {
         return static_cast<float>(get_total_damage()) / std::max(elapsed_combat_seconds, 0.5f);
     }
     void tick(float delta) { elapsed_combat_seconds += delta; }
 
-    virtual void reset() {
+    virtual void reset()
+    {
         damage_details::reset();
         elapsed_combat_seconds = 0;
     }
 
-  private:
+private:
     float elapsed_combat_seconds;
 };
 
 class group_damaga_data {
-  public:
-    group_damaga_data() : damage_map() {};
+public:
+    group_damaga_data()
+        : damage_map() {};
 
-    void add_damage(struct char_data *character, int damage) {
+    void add_damage(struct char_data* character, int damage)
+    {
         damage_map[character].add_damage(damage);
     }
-    void track_time(struct char_data *character, float elapsed_seconds) {
+    void track_time(struct char_data* character, float elapsed_seconds)
+    {
         damage_map[character].tick(elapsed_seconds);
     }
-    void remove(struct char_data *character) { damage_map.erase(character); }
+    void remove(struct char_data* character) { damage_map.erase(character); }
     void reset() { damage_map.clear(); }
 
     std::string get_damage_report() const;
 
-  private:
-    std::map<struct char_data *, timed_damage_details> damage_map;
+private:
+    std::map<struct char_data*, timed_damage_details> damage_map;
 };
 
 /* ================== Structure for grouping ===================== */
 class group_data {
-  public:
+public:
     /* Groups cannot exist without a leader. */
-    group_data(struct char_data *in_leader) : leader(in_leader), pc_count(0) {
+    group_data(struct char_data* in_leader)
+        : leader(in_leader)
+        , pc_count(0)
+    {
         add_member(in_leader);
     };
 
-    void add_member(struct char_data *member);
-    bool remove_member(struct char_data *member);
+    void add_member(struct char_data* member);
+    bool remove_member(struct char_data* member);
 
-    void track_damage(struct char_data *character, int damage) {
+    void track_damage(struct char_data* character, int damage)
+    {
         damage_report.add_damage(character, damage);
     }
-    void track_combat_time(struct char_data *character, float elapsed_seconds);
+    void track_combat_time(struct char_data* character, float elapsed_seconds);
     void reset_damage();
     std::string get_damage_report() const { return damage_report.get_damage_report(); }
 
-    struct char_data *get_leader() const { return leader; }
-    bool is_member(struct char_data *character) const;
-    bool is_leader(struct char_data *character) const { return character == leader; }
+    struct char_data* get_leader() const { return leader; }
+    bool is_member(struct char_data* character) const;
+    bool is_leader(struct char_data* character) const { return character == leader; }
     int get_pc_count() const { return pc_count; }
 
-    void get_pcs_in_room(char_vector &pc_vec, int room_number) const;
+    void get_pcs_in_room(char_vector& pc_vec, int room_number) const;
     size_t size() const { return members.size(); }
     char_iter begin() { return members.begin(); }
     char_iter end() { return members.end(); }
     const_char_iter begin() const { return members.begin(); }
     const_char_iter end() const { return members.end(); }
-    struct char_data *at(size_t index) { return members.at(index); }
-    bool contains(const char_data *character) {
+    struct char_data* at(size_t index) { return members.at(index); }
+    bool contains(const char_data* character)
+    {
         return std::find(members.begin(), members.end(), character) != members.end();
     }
 
-  private:
-    struct char_data *leader;
+private:
+    struct char_data* leader;
     char_vector members;
 
     group_damaga_data damage_report;
@@ -1639,7 +1697,7 @@ class group_data {
 
 /* ================== Structure for player/non-player ===================== */
 struct char_data {
-  public:
+public:
     int get_cur_str() const { return tmpabilities.str; }
     int get_cur_int() const { return tmpabilities.intel; }
     int get_cur_wil() const { return tmpabilities.wil; }
@@ -1660,7 +1718,7 @@ struct char_data {
     int get_capped_level() const { return std::min(get_level(), LEVEL_MAX); }
 
     /* Returns the leader of the character's group, if the character is in a group. */
-    char_data *get_group_leader() const { return group ? group->get_leader() : NULL; }
+    char_data* get_group_leader() const { return group ? group->get_leader() : NULL; }
 
     int get_spent_practice_count() const;
     int get_max_practice_count() const;
@@ -1674,59 +1732,58 @@ struct char_data {
 
     int get_dodge() const { return points.dodge; }
 
-  public:
-    int abs_number;   /* bit number in the control array */
+public:
+    int abs_number; /* bit number in the control array */
     int player_index; /* Index in player table */
-    int nr;           /* monster nr (pos in file)      */
-    int in_room;      /* Location                      */
+    int nr; /* monster nr (pos in file)      */
+    int in_room; /* Location                      */
 
-    struct char_player_data player;                /* Normal data                   */
-    struct char_ability_data abilities;            /* Max. Abilities                 */
-    struct char_ability_data tmpabilities;         /* Current abilities    */
-    struct char_ability_data constabilities;       /* Rolled abilities */
-    struct char_point_data points;                 /* Points                        */
-    struct char_special_data specials;             /* Special playing constants      */
-    struct char_special2_data specials2;           /* Additional special constants  */
-    struct char_prof_data *profs;                  /* prof cooficients */
+    struct char_player_data player; /* Normal data                   */
+    struct char_ability_data abilities; /* Max. Abilities                 */
+    struct char_ability_data tmpabilities; /* Current abilities    */
+    struct char_ability_data constabilities; /* Rolled abilities */
+    struct char_point_data points; /* Points                        */
+    struct char_special_data specials; /* Special playing constants      */
+    struct char_special2_data specials2; /* Additional special constants  */
+    struct char_prof_data* profs; /* prof cooficients */
     specialization_data extra_specialization_data; /* extra data used by some specializations */
-    player_damage_details damage_details;          /* structure for storing damage data */
-    byte *skills; /* dynam. alloc. array of pracs spent                                         on
+    player_damage_details damage_details; /* structure for storing damage data */
+    byte* skills; /* dynam. alloc. array of pracs spent                                         on
                      skills */
-    byte *knowledge;                      /* array of knowledge, computed from
-                                                                                                             pracs spent
-                                             at logon */
-    struct affected_type *affected;       /* affected by what spells       */
-    struct obj_data *equipment[MAX_WEAR]; /* Equipment array               */
+    byte* knowledge; /* array of knowledge, computed from
+                                                                                        pracs spent
+                        at logon */
+    struct affected_type* affected; /* affected by what spells       */
+    struct obj_data* equipment[MAX_WEAR]; /* Equipment array               */
 
-    struct obj_data *carrying;    /* Head of list                  */
-    struct descriptor_data *desc; /* NULL for mobiles              */
+    struct obj_data* carrying; /* Head of list                  */
+    struct descriptor_data* desc; /* NULL for mobiles              */
 
-    struct char_data *next_in_room;     /* For room->people - list         */
-    struct char_data *next;             /* For either monster or ppl-list  */
-    struct char_data *next_fighting;    /* For fighting list               */
-    struct char_data *next_fast_update; /* For fast-update list            */
+    struct char_data* next_in_room; /* For room->people - list         */
+    struct char_data* next; /* For either monster or ppl-list  */
+    struct char_data* next_fighting; /* For fighting list               */
+    struct char_data* next_fast_update; /* For fast-update list            */
 
-    struct follow_type *followers; /* List of chars followers       */
-    struct char_data *master;      /* Who is char following?        */
+    struct follow_type* followers; /* List of chars followers       */
+    struct char_data* master; /* Who is char following?        */
     int master_number;
 
     struct mount_data_type mount_data;
-    group_data *group; /* The group that the character belongs to.  Can be null. */
+    group_data* group; /* The group that the character belongs to.  Can be null. */
 
-    void *temp; /* pointer to any special structures if need be   */
+    void* temp; /* pointer to any special structures if need be   */
     struct waiting_type delay;
-    struct char_data *next_die; /* next to die in the death_waiting_list :(  */
+    struct char_data* next_die; /* next to die in the death_waiting_list :(  */
     int classpoints; /* Only used for character creation in interpre.cc new_player_select.  Move
                         variable elsewhere? */
-    int interrupt_count =
-        0; /* Meant to store times interupted so that npc mages know to stop casting in battle */
+    int interrupt_count = 0; /* Meant to store times interupted so that npc mages know to stop casting in battle */
     int interrupt_time = 0; /* Meant to be a countdown timer to remove 1 from interrupt_count */
 
     bool spec_busy;
 };
 
 struct race_bodypart_data {
-    char *parts[MAX_BODYPARTS];
+    char* parts[MAX_BODYPARTS];
     sh_int percent[MAX_BODYPARTS];
     sh_int bodyparts;
     ubyte armor_location[MAX_BODYPARTS];
@@ -1767,13 +1824,13 @@ struct race_bodypart_data {
 
 struct weather_data {
     int pressure; /* How is the pressure (Mb)? */
-    int change;   /* How fast and in what way does it change? */
-    int sky[13];  /* How is the sky? cloudy, sunny, etc for each sector_type*/
+    int change; /* How fast and in what way does it change? */
+    int sky[13]; /* How is the sky? cloudy, sunny, etc for each sector_type*/
     int sunlight; /* And how much sun. (day/night etc) */
     int moonlight;
     int moonphase;
     int temperature[13]; /* Temperature in each sector */
-    int snow[13];        /* Is there snow on the ground? */
+    int snow[13]; /* Is there snow on the ground? */
 };
 
 /* ***********************************************************************
@@ -1788,8 +1845,8 @@ struct char_file_u {
     byte level;
     byte language;
     int player_index; /* Index in player table */
-    time_t birth;     /* Time of birth of character     */
-    int played;       /* Number of secs played in total */
+    time_t birth; /* Time of birth of character     */
+    int played; /* Number of secs played in total */
 
     int weight;
     int height;
@@ -1811,7 +1868,7 @@ struct char_file_u {
     struct char_special2_data specials2;
     struct char_prof_data profs;
 
-    time_t last_logon;       /* Time (in secs) of last logon */
+    time_t last_logon; /* Time (in secs) of last logon */
     char host[HOST_LEN + 1]; /* host of last logon */
 
     /* char data */
@@ -1850,7 +1907,7 @@ struct obj_file_elem {
     long bitvector;
     struct obj_affected_type affected[MAX_OBJ_AFFECT];
     sh_int wear_pos;
-    int loaded_by;   // idnum of immortal who loaded object.  0 if loaded by a zone command etc.
+    int loaded_by; // idnum of immortal who loaded object.  0 if loaded by a zone command etc.
     int item_number; // this used to be spare2, but we needed more item numbers.
 };
 
@@ -1884,13 +1941,13 @@ struct rent_info {
  *********************************************************** */
 
 struct txt_block {
-    char *text;
-    struct txt_block *next;
+    char* text;
+    struct txt_block* next;
 };
 
 struct txt_q {
-    struct txt_block *head;
-    struct txt_block *tail;
+    struct txt_block* head;
+    struct txt_block* tail;
 };
 
 /* modes of connectedness */
@@ -1926,72 +1983,72 @@ struct txt_q {
 #define DFLAG_IS_SPAMMING 1
 
 struct snoop_data {
-    struct char_data *snooping; /* Who is this char snooping		*/
-    struct char_data *snoop_by; /* And who is snooping this char	*/
+    struct char_data* snooping; /* Who is this char snooping		*/
+    struct char_data* snoop_by; /* And who is snooping this char	*/
 };
 
-#define BLOCK_STR_LEN                                                                              \
-    512 /* how much to allocate initially                                                          \
+#define BLOCK_STR_LEN                     \
+    512 /* how much to allocate initially \
            for string_add messages */
 
 struct descriptor_data {
-    SocketType descriptor;        /* file descriptor for socket	*/
-    char *name;                   /* ptr to name for mail system		*/
-    char host[50];                /* hostname				*/
+    SocketType descriptor; /* file descriptor for socket	*/
+    char* name; /* ptr to name for mail system		*/
+    char host[50]; /* hostname				*/
     char pwd[MAX_PWD_LENGTH + 1]; /* password			*/
-    int bad_pws;                  /* number of bad pw attemps this login	*/
-    int pos;                      /* position in player-file		*/
-    int connected;                /* mode of 'connectedness'		*/
+    int bad_pws; /* number of bad pw attemps this login	*/
+    int pos; /* position in player-file		*/
+    int connected; /* mode of 'connectedness'		*/
     //   int	wait;			/* wait for how many loops    	*/
-    int desc_num;                      /* unique num assigned to desc		*/
-    long login_time;                   /* when the person connected		*/
-    char *showstr_head;                /* for paging through texts		*/
-    char *showstr_point;               /*		-			*/
-    char **str;                        /* for the modify-str system		*/
-    unsigned int max_str;              /*  allocated length of *str		*/
-    unsigned int len_str;              /* present length of *str               */
-    unsigned int cur_str;              /* current pointer position in *str     */
-    int prompt_mode;                   /* control of prompt-printing		*/
-    char buf[MAX_STRING_LENGTH];       /* buffer for raw input			*/
+    int desc_num; /* unique num assigned to desc		*/
+    long login_time; /* when the person connected		*/
+    char* showstr_head; /* for paging through texts		*/
+    char* showstr_point; /*		-			*/
+    char** str; /* for the modify-str system		*/
+    unsigned int max_str; /*  allocated length of *str		*/
+    unsigned int len_str; /* present length of *str               */
+    unsigned int cur_str; /* current pointer position in *str     */
+    int prompt_mode; /* control of prompt-printing		*/
+    char buf[MAX_STRING_LENGTH]; /* buffer for raw input			*/
     char last_input[MAX_INPUT_LENGTH]; /* the last input			*/
-    char small_outbuf[SMALL_BUFSIZE];  /* standard output bufer		*/
-    char *output;                      /* ptr to the current output buffer	*/
-    int bufptr;                        /* ptr to end of current output		*/
-    int bufspace;                      /* space left in the output buffer	*/
-    unsigned char dflags;              /* flags for this descriptor            */
-    time_t last_input_time;            /* time(0) of last_input               */
-    struct txt_block *large_outbuf;    /* ptr to large buffer, if we need it */
-    struct txt_q input;                /* q of unprocessed input		*/
-    struct char_data *character;       /* linked to char			*/
-    struct char_data *original;        /* original char if switched		*/
-    struct snoop_data snoop;           /* to snoop people			*/
-    struct descriptor_data *next;      /* link to next descriptor		*/
-    protocol_t *pProtocol;
+    char small_outbuf[SMALL_BUFSIZE]; /* standard output bufer		*/
+    char* output; /* ptr to the current output buffer	*/
+    int bufptr; /* ptr to end of current output		*/
+    int bufspace; /* space left in the output buffer	*/
+    unsigned char dflags; /* flags for this descriptor            */
+    time_t last_input_time; /* time(0) of last_input               */
+    struct txt_block* large_outbuf; /* ptr to large buffer, if we need it */
+    struct txt_q input; /* q of unprocessed input		*/
+    struct char_data* character; /* linked to char			*/
+    struct char_data* original; /* original char if switched		*/
+    struct snoop_data snoop; /* to snoop people			*/
+    struct descriptor_data* next; /* link to next descriptor		*/
+    protocol_t* pProtocol;
 };
 
 struct msg_type {
-    char *attacker_msg; /* message to attacker */
-    char *victim_msg;   /* message to victim   */
-    char *room_msg;     /* message to room     */
+    char* attacker_msg; /* message to attacker */
+    char* victim_msg; /* message to victim   */
+    char* room_msg; /* message to room     */
 };
 
 struct message_type {
-    struct msg_type die_msg;       /* messages when death			*/
-    struct msg_type miss_msg;      /* messages when miss			*/
-    struct msg_type hit_msg;       /* messages when hit			*/
+    struct msg_type die_msg; /* messages when death			*/
+    struct msg_type miss_msg; /* messages when miss			*/
+    struct msg_type hit_msg; /* messages when hit			*/
     struct msg_type sanctuary_msg; /* messages when hit on sanctuary	*/
-    struct msg_type self_msg;      /* messages when hit on god		*/
-    struct message_type *next;     /* to next messages of this kind.	*/
+    struct msg_type self_msg; /* messages when hit on god		*/
+    struct message_type* next; /* to next messages of this kind.	*/
 };
 
 struct message_list {
-    int a_type;               /* Attack type				*/
-    int number_of_attacks;    /* How many attack messages to chose from. */
-    struct message_type *msg; /* List of messages.			*/
+    int a_type; /* Attack type				*/
+    int number_of_attacks; /* How many attack messages to chose from. */
+    struct message_type* msg; /* List of messages.			*/
 };
 
 struct prompt_type {
-    char *message;
+    char* message;
     int value;
 };
 
@@ -2000,21 +2057,24 @@ struct universal_list {
     int number; /* abs_number for ch, whatever else for obj, */
     /* room number optional for rooms*/
     union {
-        char_data *ch;
-        room_data *room;
-        obj_data *obj;
+        char_data* ch;
+        room_data* room;
+        obj_data* obj;
     } ptr;
 
-    universal_list *next;
+    universal_list* next;
 };
 
 class group_roll {
-  public:
-    char *character_name;
+public:
+    char* character_name;
     int roll;
 
-    group_roll(char_data *character_name, int roll)
-        : character_name(character_name->player.name), roll(roll) {}
+    group_roll(char_data* character_name, int roll)
+        : character_name(character_name->player.name)
+        , roll(roll)
+    {
+    }
 };
 
 #endif /* STRUCTS_H */
