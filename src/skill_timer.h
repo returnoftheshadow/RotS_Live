@@ -1,6 +1,7 @@
 #pragma once
 
 #include "singleton.h"
+#include <cstddef>
 #include <vector>
 
 struct char_data;
@@ -14,8 +15,9 @@ public:
     bool is_skill_allowed(const char_data& ch, const int skill_id);
     // Updates the skill timer list and removes any that have expired.
     void update_skill_timer();
-    // Reports all skills for a specific player and the time left on it.
-    int report_skill_status(int player_id, char* buffer);
+    // Appends all tracked skills for a specific player into a caller-provided
+    // NUL-terminated buffer, respecting the provided capacity.
+    void report_skill_status(int player_id, char* buffer, std::size_t buffer_size);
 
 private:
     friend class world_singleton<skill_timer>;

@@ -19,6 +19,7 @@
 #include "platdef.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "comm.h"
 #include "db.h"
@@ -180,7 +181,7 @@ ACMD(do_wiztrack)
         send_to_char("You're already in the same room!!\r\n", ch);
         break;
     case BFS_NO_PATH:
-        sprintf(buf, "You can't sense a trail to %s from here.\r\n",
+        snprintf(buf, sizeof(buf), "You can't sense a trail to %s from here.\r\n",
             HMHR(vict));
         send_to_char(buf, ch);
         break;
@@ -202,7 +203,7 @@ ACMD(do_wiztrack)
             } while (!CAN_GO(ch, dir));
     }
 #endif
-        sprintf(buf, "You sense a trail %s from here!\n\r", dirs[dir]);
+        snprintf(buf, sizeof(buf), "You sense a trail %s from here!\n\r", dirs[dir]);
         send_to_char(buf, ch);
         break;
     }
@@ -230,7 +231,7 @@ void hunt_victim(struct char_data* ch)
 
     dir = find_first_step(ch->in_room, ch->specials.hunting->in_room);
     if (dir < 0) {
-        sprintf(buf, "Damn!  Lost %s!", HMHR(ch->specials.hunting));
+        snprintf(buf, sizeof(buf), "Damn!  Lost %s!", HMHR(ch->specials.hunting));
         do_say(ch, buf, 0, 0, 0);
         ch->specials.hunting = 0;
         return;
@@ -337,11 +338,14 @@ int show_tracks(char_data* ch, char* name, int mode)
         if (shall_show) {
             count++;
             if (IS_WATER(ch->in_room))
-                sprintf(buf, "The water looks %s disturbed to the %s.\n\r",
+                std::snprintf(buf, sizeof(buf), "The water looks %s disturbed to the %s.\n\r",
                     water_track_desc(tr_time), dirs[ch_room->room_track[tmp].data & 7]);
-            else
-                sprintf(buf, "%sThe tracks of %s lead %s.  Their condition is %s\n\r", buf,
+            else {
+                std::size_t length = strlen(buf);
+                std::snprintf(buf + length, sizeof(buf) - length,
+                    "The tracks of %s lead %s.  Their condition is %s\n\r",
                     (ch_num >= 0) ? mob_proto[ch_num].player.short_descr : pc_star_types[-ch_num], dirs[ch_room->room_track[tmp].data & 7], track_desc(tr_time));
+            }
         }
     }
     if (count != 0) {
@@ -393,10 +397,13 @@ int show_blood_trail(struct char_data* ch, char* name, int mode)
         if (shall_show) {
             count++;
             if (IS_WATER(ch->in_room)) {
-                sprintf(buf, "The water looks %s disturbed to the %s.\n\r",
+                std::snprintf(buf, sizeof(buf), "The water looks %s disturbed to the %s.\n\r",
                     water_track_desc(tr_time), dirs[ch_room->bleed_track[tmp].data & 7]);
             } else {
-                sprintf(buf, "%sA blood trail leading %s is %s.\n\r", buf, dirs[ch_room->bleed_track[tmp].data & 7], track_desc(tr_time));
+                std::size_t length = strlen(buf);
+                std::snprintf(buf + length, sizeof(buf) - length,
+                    "A blood trail leading %s is %s.\n\r", dirs[ch_room->bleed_track[tmp].data & 7],
+                    track_desc(tr_time));
             }
         }
     }

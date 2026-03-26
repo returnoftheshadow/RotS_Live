@@ -1,6 +1,8 @@
 #include "skill_timer.h"
 #include "char_utils.h"
 #include "structs.h"
+#include <cstdio>
+#include <cstring>
 
 template <>
 game_timer::skill_timer* world_singleton<game_timer::skill_timer>::m_pInstance(0);
@@ -24,18 +26,38 @@ void skill_timer::add_skill_timer(const char_data& ch, const int skill_id, const
     add_global_cooldown(player_id);
 }
 
-int skill_timer::report_skill_status(int player_id, char* buffer)
+void skill_timer::report_skill_status(int player_id, char* buffer, std::size_t buffer_size)
 {
-    char str[255];
+    if (!buffer || buffer_size == 0) {
+        return;
+    }
+
+    std::size_t current_length = strnlen(buffer, buffer_size);
+    if (current_length == buffer_size) {
+        buffer[buffer_size - 1] = '\0';
+        return;
+    }
+
     for (int i = 0; i < m_skill_timer.size(); ++i) {
         auto& data = m_skill_timer[i];
 
         if (data.player_id == player_id && data.skill_id != GLOBAL_SKILL) {
-            sprintf(str, "%-30s %-3d (seconds)\n\r", utils::get_skill_name(data.skill_id), data.counter);
-            sprintf(buffer, "%s%s", buffer, str);
+            int written = std::snprintf(buffer + current_length, buffer_size - current_length,
+                "%-30s %-3d (seconds)\n\r", utils::get_skill_name(data.skill_id), data.counter);
+            if (written < 0) {
+                return;
+            }
+
+            std::size_t appended = static_cast<std::size_t>(written);
+            if (appended >= buffer_size - current_length) {
+                current_length = buffer_size - 1;
+                buffer[current_length] = '\0';
+                return;
+            }
+
+            current_length += appended;
         }
     }
-    return 1;
 }
 
 void skill_timer::update_skill_timer()

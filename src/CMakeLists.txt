@@ -104,6 +104,7 @@ set(ROTS_TEST_SOURCES
     tests/olog_hai_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_utils_tests.cpp
+    tests/skill_timer_tests.cpp
     tests/test_random_utils.cpp
     tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp

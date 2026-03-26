@@ -168,7 +168,7 @@ protocol.o: ../protocol.cpp ../protocol.h
 	$(CXX) -c $(CXXFLAGS) ../protocol.cpp
 
 
-SRCS = battle_mage_handler_tests.cpp CharPlayerDataBuilder.cpp char_utils_tests.cpp damage_tests.cpp fight_proc_tests.cpp mage_tests.cpp ObjFlagDataBuilder.cpp olog_hai_tests.cpp obj_flag_data_tests.cpp object_utils_tests.cpp test_random_utils.cpp test_random_utils_tests.cpp weapon_master_handler_tests.cpp gtest_main.cpp
+SRCS = battle_mage_handler_tests.cpp CharPlayerDataBuilder.cpp char_utils_tests.cpp damage_tests.cpp fight_proc_tests.cpp mage_tests.cpp ObjFlagDataBuilder.cpp olog_hai_tests.cpp obj_flag_data_tests.cpp object_utils_tests.cpp skill_timer_tests.cpp test_random_utils.cpp test_random_utils_tests.cpp weapon_master_handler_tests.cpp gtest_main.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 EXECUTABLE = ../../bin/tests

@@ -34,6 +34,7 @@
 
 #include "big_brother.h"
 #include "char_utils.h"
+#include <cstdarg>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -109,13 +110,38 @@ void list_obj_to_char(struct obj_data*, struct char_data*, int, bool);
 void calculate_small_map(int, int);
 void report_mob_age(struct char_data*, struct char_data*);
 void report_char_mentals(struct char_data*, char*, int);
-void report_affection(struct affected_type*, char*);
+void report_affection(struct affected_type*, char*, std::size_t);
 void report_perception(struct char_data*, char*);
 int show_tracks(struct char_data*, char*, int);
 static char* get_level_abbr(sh_int level, sh_int);
 int show_blood_trail(struct char_data*, char*, int);
 
 namespace {
+void append_formatted(char* buffer, std::size_t buffer_size, const char* format, ...)
+{
+    if (buffer == nullptr || buffer_size == 0) {
+        return;
+    }
+
+    const std::size_t length = strnlen(buffer, buffer_size);
+    if (length >= buffer_size) {
+        buffer[buffer_size - 1] = '\0';
+        return;
+    }
+
+    va_list args;
+    va_start(args, format);
+    const int written = vsnprintf(buffer + length, buffer_size - length, format, args);
+    va_end(args);
+
+    if (written < 0 || static_cast<std::size_t>(written) >= buffer_size - length) {
+        buffer[buffer_size - 1] = '\0';
+    }
+}
+
+void show_room_affection_impl(char* str, std::size_t str_size, struct affected_type* aff, int mode);
+void show_room_weather_impl(char* str, std::size_t str_size, struct char_data* ch);
+
 /* Simple structure for handling inventory formatting data. */
 struct inventory_data {
     inventory_data()
@@ -327,9 +353,9 @@ void show_obj_to_char(struct obj_data* object, struct char_data* ch, int mode)
     *buf = '\0';
 
     if ((mode == 0) && object->description)
-        sprintf(buf, "%s", object->description);
+        snprintf(buf, sizeof(buf), "%s", object->description);
     else if (object->short_description && ((mode == 1) || (mode == 2) || (mode == 3) || (mode == 4)))
-        sprintf(buf, "%s", object->short_description);
+        snprintf(buf, sizeof(buf), "%s", object->short_description);
     else if (mode == 5) { /* The trigger will deal with what is sent to ch */
         if (!call_trigger(ON_EXAMINE_OBJECT, object, ch, 0))
             return;
@@ -479,7 +505,7 @@ void diag_char_to_char(char_data* looked_at, char_data* viewer)
     *buf = 0;
     report_char_health(viewer, looked_at, buf);
     report_char_mentals(looked_at, str, 0);
-    sprintf(buf, "%s%s is %s.\n\r", buf, strname, str);
+    append_formatted(buf, sizeof(buf), "%s is %s.\n\r", strname, str);
     send_to_char(buf, viewer);
     if (IS_NPC(looked_at)) {
         report_mob_age(viewer, looked_at);
@@ -495,19 +521,19 @@ void diag_char_to_char(char_data* looked_at, char_data* viewer)
         game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
         bool is_protected = !bb_instance.is_target_valid(viewer, looked_at);
         if (looked_at->is_affected() == false && is_protected == false && is_exposed_to_elements == false) {
-            sprintf(buf, "%s is not affected by anything.\n\r", strname);
+            snprintf(buf, sizeof(buf), "%s is not affected by anything.\n\r", strname);
             send_to_char(buf, viewer);
         } else {
-            sprintf(buf, "%s is affected by:\n\r", strname);
+            snprintf(buf, sizeof(buf), "%s is affected by:\n\r", strname);
             if (is_protected) {
-                sprintf(buf, "%-30s (special)\n\r", "holy protection");
+                append_formatted(buf, sizeof(buf), "%-30s (special)\n\r", "holy protection");
             }
             if (is_exposed_to_elements) {
-                sprintf(buf, "%-30s (special)\n\r", "expose elements");
+                append_formatted(buf, sizeof(buf), "%-30s (special)\n\r", "expose elements");
             }
             for (tmpaff = looked_at->affected; tmpaff; tmpaff = tmpaff->next) {
-                report_affection(tmpaff, str);
-                strcat(buf, str);
+                report_affection(tmpaff, str, sizeof(str));
+                append_formatted(buf, sizeof(buf), "%s", str);
             }
             send_to_char(buf, viewer);
         }
@@ -691,7 +717,7 @@ void show_mount_to_char(struct char_data* i, struct char_data* ch, char* line1, 
             }
 
             if (ch == tmpch) {
-                sprintf(buf + strlen(buf), "%cou", !vis_count ? 'Y' : 'y');
+                append_formatted(buf, sizeof(buf), "%cou", !vis_count ? 'Y' : 'y');
                 you_are_riding = 1;
             } else {
                 /* Unfortunately, act can't take arbitrary numbers of riders */
@@ -848,15 +874,15 @@ void show_char_to_char(struct char_data* i, struct char_data* ch, int mode, char
          */
         if ((!i->player.long_descr || GET_POS(i) != i->specials.default_pos || pos_line) || (IS_NPC(i) && MOB_FLAGGED(i, MOB_ORC_FRIEND) && MOB_FLAGGED(i, MOB_PET) && other_side(ch, i))) {
             if (!pos_line) {
-                sprintf(buf, "%s%s%s", CC_USE(ch, COLOR_CHAR), PERS(i, ch, TRUE, FALSE),
+                snprintf(buf, sizeof(buf), "%s%s%s", CC_USE(ch, COLOR_CHAR), PERS(i, ch, TRUE, FALSE),
                     CC_USE(ch, COLOR_CHAR));
                 if (!IS_NPC(i) && !other_side(ch, i))
-                    sprintf(buf + strlen(buf), " %s", GET_TITLE(i));
+                    append_formatted(buf, sizeof(buf), " %s", GET_TITLE(i));
 
                 get_char_flag_line(ch, i, buf + strlen(buf));
                 get_char_position_line(ch, i, buf + strlen(buf));
             } else {
-                sprintf(buf, "%s", PERS(i, ch, TRUE, FALSE));
+                snprintf(buf, sizeof(buf), "%s", PERS(i, ch, TRUE, FALSE));
                 get_char_flag_line(ch, i, buf + strlen(buf));
                 strcat(buf, pos_line);
             }
@@ -886,7 +912,7 @@ void show_char_to_char(struct char_data* i, struct char_data* ch, int mode, char
         } else {
             log("show_char: No description.");
             if (GET_NAME(i))
-                sprintf(buf, "show_char: No description on %s.\n", GET_NAME(i));
+                snprintf(buf, sizeof(buf), "show_char: No description on %s.\n", GET_NAME(i));
             act("You see nothing special about $m.", FALSE, i, 0, ch, TO_VICT);
         }
 
@@ -944,29 +970,33 @@ void list_char_to_char(struct char_data* list, struct char_data* ch, int mode)
  */
 void show_room_affection(char* str, struct affected_type* aff, int mode)
 {
+    show_room_affection_impl(str, MAX_STRING_LENGTH, aff, mode);
+}
+
+namespace {
+void show_room_affection_impl(char* str, std::size_t str_size, struct affected_type* aff, int mode)
+{
     int tmp;
 
     if (mode == 0) {
         switch (aff->type) {
         case ROOMAFF_SPELL:
             if ((aff->location >= 0) && (aff->location < MAX_SKILLS) && *room_spell_message[aff->location] && !(aff->bitvector & PERMAFFECT)) {
-                strcat(str, room_spell_message[aff->location]);
-                strcat(str, "\n\r");
+                append_formatted(str, str_size, "%s\n\r", room_spell_message[aff->location]);
             }
 
             if (!(aff->bitvector & PERMAFFECT)) {
                 for (tmp = 0; tmp < 32; tmp++) {
                     if ((aff->bitvector & (1 << tmp)) && *room_bits_message[tmp]) {
-                        strcat(str, room_bits_message[tmp]);
-                        strcat(str, "\n\r");
+                        append_formatted(str, str_size, "%s\n\r", room_bits_message[tmp]);
                     }
                 }
             }
             break;
 
         default:
-            strcat(str, "Unknown room affection here; "
-                        "please report to an immortal as quickly as possible.\n\r");
+            append_formatted(str, str_size, "Unknown room affection here; "
+                                "please report to an immortal as quickly as possible.\n\r");
             break;
         }
     }
@@ -975,7 +1005,7 @@ void show_room_affection(char* str, struct affected_type* aff, int mode)
         case ROOMAFF_SPELL:
             *buf2 = 0;
             sprintbit(aff->bitvector, room_bits, buf2, 0);
-            sprintf(str, "%s Spell %s(%d) level %d, %dhrs, sets %s.\r\n", str,
+            append_formatted(str, str_size, " Spell %s(%d) level %d, %dhrs, sets %s.\r\n",
                 ((aff->location >= 0) && (aff->location < MAX_SKILLS))
                     ? skills[aff->location].name
                     : "none",
@@ -983,28 +1013,36 @@ void show_room_affection(char* str, struct affected_type* aff, int mode)
             break;
 
         case ROOMAFF_EXIT:
-            strcat(str, "exit affects are not yet defined.\r\n");
+            append_formatted(str, str_size, "exit affects are not yet defined.\r\n");
             break;
 
         default:
-            sprintf(str, "Unknown room affect (%d).\n\r", aff->type);
+            snprintf(str, str_size, "Unknown room affect (%d).\n\r", aff->type);
             break;
         }
     }
 }
+} // namespace
 
 /*
  * Put a message describing the weather in `ch's room in `str'
  */
 void show_room_weather(char* str, struct char_data* ch)
 {
-    /* Is it snowy? */
-    if (weather_info.snow[world[ch->in_room].sector_type])
-        sprintf(str, "%sSnow lies upon the ground.\n\r", str);
+    show_room_weather_impl(str, MAX_STRING_LENGTH, ch);
 }
 
+namespace {
+void show_room_weather_impl(char* str, std::size_t str_size, struct char_data* ch)
+{
+    /* Is it snowy? */
+    if (weather_info.snow[world[ch->in_room].sector_type])
+        append_formatted(str, str_size, "Snow lies upon the ground.\n\r");
+}
+} // namespace
+
 /*
- * Format strings passed to sprintf(3); used to print an exit
+ * Format strings used to print an exit
  * symbol when using the look <no argument> command; i.e.:
  * Exits are: E (W) *S* #U# %D%
  */
@@ -1090,14 +1128,14 @@ ACMD(do_look)
                  * to that direction
                  */
                 if (subcmd == SCMD_LOOK_EXAM) {
-                    sprintf(str, "To the %s you see:\n\r", keywords[keyword_no]);
+                    snprintf(str, sizeof(str), "To the %s you see:\n\r", keywords[keyword_no]);
                     send_to_char(str, ch);
                     tmp = ch->in_room;
                     ch->in_room = EXIT(ch, keyword_no)->to_room;
 
                     /* Darkies can't see room contents or description if it's sunny */
                     if (SUN_PENALTY(ch)) {
-                        sprintf(str, "%s\n\r", world[ch->in_room].name);
+                        snprintf(str, sizeof(str), "%s\n\r", world[ch->in_room].name);
                         send_to_char(str, ch);
                         send_to_char("The power of light makes it hard to see.\n\r", ch);
                         ch->in_room = tmp;
@@ -1111,16 +1149,16 @@ ACMD(do_look)
                 } else {
                     /* They typed look <dir>; look renders the exit's description */
                     if (*(EXIT(ch, keyword_no)->general_description))
-                        sprintf(str, "%s", (EXIT(ch, keyword_no)->general_description));
+                        snprintf(str, sizeof(str), "%s", (EXIT(ch, keyword_no)->general_description));
                     else {
                         tmp = EXIT(ch, keyword_no)->to_room;
                         if (tmp == NOWHERE)
-                            sprintf(str, "Protogenal chaos.\n\r");
+                            snprintf(str, sizeof(str), "Protogenal chaos.\n\r");
                         else if (IS_DARK(tmp) && !PRF_FLAGGED(ch, PRF_HOLYLIGHT))
-                            sprintf(str, "It's too dark to the %s to see anything.\n\r",
+                            snprintf(str, sizeof(str), "It's too dark to the %s to see anything.\n\r",
                                 keywords[keyword_no]);
                         else
-                            sprintf(str, "To the %s you see %s.\n\r", keywords[keyword_no],
+                            snprintf(str, sizeof(str), "To the %s you see %s.\n\r", keywords[keyword_no],
                                 world[EXIT(ch, keyword_no)->to_room].name);
                     }
                     send_to_char(str, ch);
@@ -1137,15 +1175,15 @@ ACMD(do_look)
             /* Handle different states of doors */
             if (EXIT(ch, keyword_no)->to_room != NOWHERE) {
                 if (IS_SET(EXIT(ch, keyword_no)->exit_info, EX_ISBROKEN) && (EXIT(ch, keyword_no)->keyword)) { /* Broken door */
-                    sprintf(buf, "The %s is broken.\n\r", fname(EXIT(ch, keyword_no)->keyword));
+                    snprintf(buf, sizeof(buf), "The %s is broken.\n\r", fname(EXIT(ch, keyword_no)->keyword));
                     send_to_char(buf, ch);
                 } else if (IS_SET(EXIT(ch, keyword_no)->exit_info, EX_CLOSED) && (EXIT(ch, keyword_no)->keyword)) { /* Closed door */
                     if (!IS_SET(EXIT(ch, keyword_no)->exit_info, EX_ISHIDDEN)) {
-                        sprintf(buf, "The %s is closed.\n\r", fname(EXIT(ch, keyword_no)->keyword));
+                        snprintf(buf, sizeof(buf), "The %s is closed.\n\r", fname(EXIT(ch, keyword_no)->keyword));
                         send_to_char(buf, ch);
                     }
                 } else if (IS_SET(EXIT(ch, keyword_no)->exit_info, EX_ISDOOR) && EXIT(ch, keyword_no)->keyword) { /* Open door */
-                    sprintf(buf, "The %s is open.\n\r", fname(EXIT(ch, keyword_no)->keyword));
+                    snprintf(buf, sizeof(buf), "The %s is open.\n\r", fname(EXIT(ch, keyword_no)->keyword));
                     send_to_char(buf, ch);
                 }
             }
@@ -1166,10 +1204,10 @@ ACMD(do_look)
                     else { /* It's not empty, how full is it? */
                         if (tmp_object->obj_flags.value[0]) {
                             temp = (tmp_object->obj_flags.value[1] * 3) / tmp_object->obj_flags.value[0];
-                            sprintf(buf, "It's %sfull of a %s liquid.\n\r", fullness[temp],
+                            snprintf(buf, sizeof(buf), "It's %sfull of a %s liquid.\n\r", fullness[temp],
                                 color_liquid[tmp_object->obj_flags.value[2]]);
                         } else
-                            sprintf(buf, "It's max_content is zero, beware!\n\r");
+                            snprintf(buf, sizeof(buf), "It's max_content is zero, beware!\n\r");
                         send_to_char(buf, ch);
                     }
                 } else if (GET_ITEM_TYPE(tmp_object) == ITEM_CONTAINER) {
@@ -1318,14 +1356,14 @@ ACMD(do_look)
                 strcpy(buf, "NOFLAGS");
             else
                 sprintbit((long)world[ch->in_room].room_flags, room_bits, buf, 0);
-            sprintf(buf2, "%s (#%d) [ %s, %s]", buf2, world[ch->in_room].number,
+            append_formatted(buf2, sizeof(buf2), " (#%d) [ %s, %s]", world[ch->in_room].number,
                 sector_types[world[ch->in_room].sector_type], buf);
         } else if (PRF_FLAGGED(ch, PRF_ADVANCED_VIEW)) {
             if (IS_SET(world[ch->in_room].room_flags, HIDE_VNUM)) {
-                sprintf(buf2, "%s (???) [ %s ]", buf2,
+                append_formatted(buf2, sizeof(buf2), " (??" "?) [ %s ]",
                     sector_types[world[ch->in_room].sector_type]);
             } else {
-                sprintf(buf2, "%s (#%d) [ %s ]", buf2, world[ch->in_room].number,
+                append_formatted(buf2, sizeof(buf2), " (#%d) [ %s ]", world[ch->in_room].number,
                     sector_types[world[ch->in_room].sector_type]);
             }
         }
@@ -1386,22 +1424,22 @@ ACMD(do_look)
                      */
                     switch (i) {
                     case 0:
-                        sprintf(exit_line, exit_mark[exit_choice], 'N');
+                        snprintf(exit_line, sizeof(exit_line), exit_mark[exit_choice], 'N');
                         break;
                     case 1:
-                        sprintf(exit_line, exit_mark[exit_choice], 'E');
+                        snprintf(exit_line, sizeof(exit_line), exit_mark[exit_choice], 'E');
                         break;
                     case 2:
-                        sprintf(exit_line, exit_mark[exit_choice], 'S');
+                        snprintf(exit_line, sizeof(exit_line), exit_mark[exit_choice], 'S');
                         break;
                     case 3:
-                        sprintf(exit_line, exit_mark[exit_choice], 'W');
+                        snprintf(exit_line, sizeof(exit_line), exit_mark[exit_choice], 'W');
                         break;
                     case 4:
-                        sprintf(exit_line, exit_mark[exit_choice], 'U');
+                        snprintf(exit_line, sizeof(exit_line), exit_mark[exit_choice], 'U');
                         break;
                     case 5:
-                        sprintf(exit_line, exit_mark[exit_choice], 'D');
+                        snprintf(exit_line, sizeof(exit_line), exit_mark[exit_choice], 'D');
                         break;
                     };
 
@@ -1421,9 +1459,9 @@ ACMD(do_look)
 
         /* Any affections in the room */
         for (tmpaf = world[ch->in_room].affected; tmpaf; tmpaf = tmpaf->next)
-            show_room_affection(buf2, tmpaf, 0);
+            show_room_affection_impl(buf2, sizeof(buf2), tmpaf, 0);
 
-        show_room_weather(buf2, ch); /* A weather-related string */
+        show_room_weather_impl(buf2, sizeof(buf2), ch); /* A weather-related string */
         send_to_char(buf2, ch);
 
         /* Now list the objects in the room */
@@ -1467,7 +1505,7 @@ ACMD(do_read)
         return;
     }
 
-    sprintf(buf1, "at %s", argument);
+    snprintf(buf1, sizeof(buf1), "at %s", argument);
     do_look(ch, buf1, wtl, 15, 0);
 }
 
@@ -1502,7 +1540,7 @@ ACMD(do_examine)
     if (tmp_object) {
         if ((GET_ITEM_TYPE(tmp_object) == ITEM_DRINKCON) || (GET_ITEM_TYPE(tmp_object) == ITEM_FOUNTAIN) || (GET_ITEM_TYPE(tmp_object) == ITEM_CONTAINER)) {
             send_to_char("When you look inside, you see:\n\r", ch);
-            sprintf(buf, "in %s", argument);
+            snprintf(buf, sizeof(buf), "in %s", argument);
             do_look(ch, buf, wtl, 15, 0);
         }
     }
@@ -1523,19 +1561,19 @@ ACMD(do_exits)
 
                 if (!tmp && (!IS_SET(EXIT(ch, door)->exit_info, EX_CLOSED) || IS_SET(EXIT(ch, door)->exit_info, EX_ISBROKEN))) {
                     if (GET_LEVEL(ch) >= LEVEL_IMMORT) {
-                        sprintf(buf + strlen(buf), "%-7s - [%7d][w:%2d] %s\n\r", exits[door],
+                        append_formatted(buf, sizeof(buf), "%-7s - [%7d][w:%2d] %s\n\r", exits[door],
                             world[EXIT(ch, door)->to_room].number, EXIT(ch, door)->exit_width,
                             world[EXIT(ch, door)->to_room].name);
                     } else {
                         tmp = ch->in_room;
                         ch->in_room = EXIT(ch, door)->to_room;
                         if (!CAN_SEE(ch) && !PRF_FLAGGED(ch, PRF_HOLYLIGHT)) {
-                            sprintf(buf + strlen(buf), "%-7s - Too dark to tell\n\r",
+                            append_formatted(buf, sizeof(buf), "%-7s - Too dark to tell\n\r",
                                 (((GET_RACE(ch) == RACE_URUK) || (GET_RACE(ch) == RACE_ORC)) && IS_SUNLIT_EXIT(tmp, ch->in_room, door))
                                     ? sun_exits[door]
                                     : exits[door]);
                         } else {
-                            sprintf(buf + strlen(buf), "%-7s - %s\n\r",
+                            append_formatted(buf, sizeof(buf), "%-7s - %s\n\r",
                                 (((GET_RACE(ch) == RACE_URUK) || (GET_RACE(ch) == RACE_ORC)) && IS_SUNLIT_EXIT(tmp, ch->in_room, door))
                                     ? sun_exits[door]
                                     : exits[door],
@@ -1545,13 +1583,13 @@ ACMD(do_exits)
                     }
                 } else {
                     if (!IS_SET(EXIT(ch, door)->exit_info, EX_ISHIDDEN)) {
-                        sprintf(buf + strlen(buf), "%-7s - Closed %s\n\r",
+                        append_formatted(buf, sizeof(buf), "%-7s - Closed %s\n\r",
                             (((GET_RACE(ch) == RACE_URUK) || (GET_RACE(ch) == RACE_ORC)) && IS_SUNLIT_EXIT(ch->in_room, ch->in_room, door))
                                 ? sun_exits[door]
                                 : exits[door],
                             EXIT(ch, door)->keyword);
                     } else if (ch->player.level >= LEVEL_GOD)
-                        sprintf(buf + strlen(buf), "%-7s - *Hidden* %s\n\r",
+                        append_formatted(buf, sizeof(buf), "%-7s - *Hidden* %s\n\r",
                             (((GET_RACE(ch) == RACE_URUK) || (GET_RACE(ch) == RACE_ORC)) && IS_SUNLIT_EXIT(ch->in_room, ch->in_room, door))
                                 ? sun_exits[door]
                                 : exits[door],
@@ -1619,16 +1657,15 @@ void add_move_report(int real_move, char* bf)
 ACMD(do_info)
 {
     int tmp;
-    char* bufpt;
     struct time_info_data playing_time;
     int room_move_cost(struct char_data*, struct room_data*);
     struct time_info_data real_time_passed(time_t, time_t);
     extern const char* specialize_name[];
 
-    bufpt = buf;
+    *buf = '\0';
 
     /* `ch's name, title, alignment, sex and race */
-    bufpt += sprintf(bufpt, "You are %s %s, %s (%d) %s %s.\n\r", GET_NAME(ch), GET_TITLE(ch),
+    append_formatted(buf, sizeof(buf), "You are %s %s, %s (%d) %s %s.\n\r", GET_NAME(ch), GET_TITLE(ch),
         IS_GOOD(ch)       ? "a good"
             : IS_EVIL(ch) ? "an evil"
                           : "a neutral",
@@ -1636,10 +1673,10 @@ ACMD(do_info)
         pc_races[GET_RACE(ch)]);
 
     /* `ch's level */
-    bufpt += sprintf(bufpt, "You have reached level %d.\n\r", GET_LEVEL(ch));
+    append_formatted(buf, sizeof(buf), "You have reached level %d.\n\r", GET_LEVEL(ch));
 
     /* `ch's class proficiencies */
-    bufpt += sprintf(bufpt,
+    append_formatted(buf, sizeof(buf),
         "You are level %d Warrior, %d Ranger, "
         "%d Mystic, and %d Mage.\n\r",
         GET_PROF_LEVEL(PROF_WARRIOR, ch), GET_PROF_LEVEL(PROF_RANGER, ch),
@@ -1648,31 +1685,31 @@ ACMD(do_info)
     /* `ch's specialization */
     game_types::player_specs spec = utils::get_specialization(*ch);
     if (spec == game_types::PS_None || spec == game_types::PS_Count) {
-        bufpt += sprintf(bufpt, "You are not specialized in anything.\n\r");
+        append_formatted(buf, sizeof(buf), "You are not specialized in anything.\n\r");
     } else {
-        bufpt += sprintf(bufpt, "You are specialized in %s.\n\r", specialize_name[spec]);
+        append_formatted(buf, sizeof(buf), "You are specialized in %s.\n\r", specialize_name[spec]);
     }
 
     /* `ch's age */
     playing_time = real_time_passed((time(0) - ch->player.time.logon) + ch->player.time.played, 0);
-    bufpt += sprintf(bufpt,
+    append_formatted(buf, sizeof(buf),
         "You are %d years old, and have played "
         "%d days and %d hours.\n\r",
         GET_AGE(ch), playing_time.day, playing_time.hours);
 
     /* Is it `ch's birthday today? */
     if (!age(ch).month && !age(ch).day)
-        bufpt += sprintf(bufpt, "It's your birthday today!\r\n");
+        append_formatted(buf, sizeof(buf), "It's your birthday today!\r\n");
 
     /* `ch's weight and height */
-    bufpt += sprintf(bufpt,
+    append_formatted(buf, sizeof(buf),
         "You are %d'%d\" high, weight %.1flb and "
         "carrying %.1flb.\r\n",
         GET_HEIGHT(ch) / 30, (GET_HEIGHT(ch) % 30) * 10 / 25, GET_WEIGHT(ch) / 100.,
         IS_CARRYING_W(ch) / 100.);
 
     /* `ch's hitpoints, stamina, moves and spirit */
-    bufpt += sprintf(bufpt,
+    append_formatted(buf, sizeof(buf),
         "You have %d/%d hit points, %d/%d stamina, "
         "%d/%d moves and %d spirit.\n\r",
         GET_HIT(ch), GET_MAX_HIT(ch), GET_MANA(ch), GET_MAX_MANA(ch), GET_MOVE(ch),
@@ -1692,7 +1729,7 @@ ACMD(do_info)
         float bonus_move_regen = get_bonus_move_gain(ch);
         const char* move_symbol = bonus_move_regen > 0.0f ? "+" : "";
 
-        bufpt += sprintf(bufpt,
+        append_formatted(buf, sizeof(buf),
             "You regain %.0f (%s%.0f) health, %.0f (%s%.0f) stamina, and %.0f "
             "(%s%.0f) moves per hour.\n\r",
             health_regen, health_symbol, bonus_health_regen, mana_regen, mana_symbol,
@@ -1700,10 +1737,10 @@ ACMD(do_info)
     }
 
     /* `ch's wealth */
-    bufpt += sprintf(bufpt, "You have %s.\n\r", money_message(GET_GOLD(ch), 1));
+    append_formatted(buf, sizeof(buf), "You have %s.\n\r", money_message(GET_GOLD(ch), 1));
 
     /* `ch's OB, DB, PB, and attack speed */
-    bufpt += sprintf(bufpt,
+    append_formatted(buf, sizeof(buf),
         "Your OB is %d, dodge is %d, parry %d, "
         "and your attack speed is %d.\r\n"
         "Your armour absorbs about %d%% damage, and ",
@@ -1712,53 +1749,53 @@ ACMD(do_info)
 
     /* A small blurb on `ch's spellsave; should be its own function */
     if (ch->specials2.saving_throw < 0)
-        bufpt += sprintf(bufpt, "leaves you helpless against magical "
+        append_formatted(buf, sizeof(buf), "leaves you helpless against magical "
                                 "attacks.\r\n");
     else if (!ch->specials2.saving_throw)
-        bufpt += sprintf(bufpt, "makes you extremely sensitive to magic.\r\n");
+        append_formatted(buf, sizeof(buf), "makes you extremely sensitive to magic.\r\n");
     else if (ch->specials2.saving_throw > 0 && ch->specials2.saving_throw < 5)
-        bufpt += sprintf(bufpt, "gives you a meagre resilience to magic.\r\n");
+        append_formatted(buf, sizeof(buf), "gives you a meagre resilience to magic.\r\n");
     else if (ch->specials2.saving_throw > 4 && ch->specials2.saving_throw < 12)
-        bufpt += sprintf(bufpt, "callouses you to the effects of magic.\r\n");
+        append_formatted(buf, sizeof(buf), "callouses you to the effects of magic.\r\n");
     else
-        bufpt += sprintf(bufpt, "renders you numb to magical onslaught.\r\n");
+        append_formatted(buf, sizeof(buf), "renders you numb to magical onslaught.\r\n");
 
     /* `ch's mystic abilities (perception and willpower) */
-    bufpt += sprintf(bufpt,
+    append_formatted(buf, sizeof(buf),
         "Your spiritual perception is %d%%, "
         "willpower: %d,\r\n",
         GET_PERCEPTION(ch), GET_WILLPOWER(ch));
 
     player_spec::battle_mage_handler battle_mage_handler(ch);
-    bufpt += sprintf(bufpt,
+    append_formatted(buf, sizeof(buf),
         "Your spell penetration is %d, "
         "and your spell power is %d,\n\r",
         battle_mage_handler.get_bonus_spell_pen(ch->points.get_spell_pen()),
         battle_mage_handler.get_bonus_spell_power(ch->points.get_spell_power()));
 
     /* `ch's skill encumbrance and leg encumbrance */
-    bufpt += sprintf(bufpt,
+    append_formatted(buf, sizeof(buf),
         "Your skill encumbrance is %d, and your "
         "movement is encumbered by %d.\n\r",
         utils::get_encumbrance(*ch), utils::get_leg_encumbrance(*ch));
 
     /* How much effort `ch' has to put into moving in this room */
     tmp = room_move_cost(ch, &world[ch->in_room]);
+    char* bufpt = buf + strlen(buf);
     add_move_report(tmp, bufpt);
-    bufpt += strlen(bufpt);
 
     /* `ch's total experience and TNL */
     if (GET_LEVEL(ch) < LEVEL_IMMORT - 1)
-        bufpt += sprintf(bufpt,
+        append_formatted(buf, sizeof(buf),
             "You have scored %d experience points, and "
             "need %d more to advance.\n\r",
             GET_EXP(ch), xp_to_level(GET_LEVEL(ch) + 1) - GET_EXP(ch));
     else
-        bufpt += sprintf(bufpt, "You have scored %d experience points.\r\n", GET_EXP(ch));
+        append_formatted(buf, sizeof(buf), "You have scored %d experience points.\r\n", GET_EXP(ch));
 
     /* `ch's stats */
     if (GET_LEVEL(ch) > 5)
-        bufpt += sprintf(bufpt,
+        append_formatted(buf, sizeof(buf),
             "Strength: %d/%d, Intelligence: %d/%d, "
             "Will: %d/%d, Dexterity: %d/%d\r\n             "
             "Constitution: %d/%d, Learning Ability: %d/%d.\r\n",
@@ -1769,53 +1806,53 @@ ACMD(do_info)
     /* `ch's position */
     switch (GET_POS(ch)) {
     case POSITION_DEAD:
-        bufpt += sprintf(bufpt, "You are DEAD!\r\n");
+        append_formatted(buf, sizeof(buf), "You are DEAD!\r\n");
         break;
 
     case POSITION_INCAP:
-        bufpt += sprintf(bufpt, "You are incapacitated, slowly fading away..\r\n");
+        append_formatted(buf, sizeof(buf), "You are incapacitated, slowly fading away..\r\n");
         break;
 
     case POSITION_STUNNED:
-        bufpt += sprintf(bufpt, "You are stunned!  You can't move!\r\n");
+        append_formatted(buf, sizeof(buf), "You are stunned!  You can't move!\r\n");
         break;
 
     case POSITION_SLEEPING:
-        bufpt += sprintf(bufpt, "You are sleeping.\r\n");
+        append_formatted(buf, sizeof(buf), "You are sleeping.\r\n");
         break;
 
     case POSITION_RESTING:
-        bufpt += sprintf(bufpt, "You are resting.\n\r");
+        append_formatted(buf, sizeof(buf), "You are resting.\n\r");
         break;
 
     case POSITION_SITTING:
-        bufpt += sprintf(bufpt, "You are sitting.\r\n");
+        append_formatted(buf, sizeof(buf), "You are sitting.\r\n");
         break;
 
     case POSITION_FIGHTING:
         if (ch->specials.fighting)
-            bufpt += sprintf(bufpt, "You are fighting %s.\r\n",
+            append_formatted(buf, sizeof(buf), "You are fighting %s.\r\n",
                 PERS(ch->specials.fighting, ch, FALSE, FALSE));
         else
-            bufpt += sprintf(bufpt, "You are fighting thin air.\r\n");
+            append_formatted(buf, sizeof(buf), "You are fighting thin air.\r\n");
         break;
 
     case POSITION_STANDING:
-        bufpt += sprintf(bufpt, "You are standing.\r\n");
+        append_formatted(buf, sizeof(buf), "You are standing.\r\n");
         break;
 
     default:
-        bufpt += sprintf(bufpt, "You are floating.\r\n");
+        append_formatted(buf, sizeof(buf), "You are floating.\r\n");
         break;
     }
 
     /* Special conditions */
     if (GET_COND(ch, DRUNK) > 10)
-        bufpt += sprintf(bufpt, "You are intoxicated.\r\n");
+        append_formatted(buf, sizeof(buf), "You are intoxicated.\r\n");
     if (!GET_COND(ch, FULL))
-        bufpt += sprintf(bufpt, "You are hungry.\r\n");
+        append_formatted(buf, sizeof(buf), "You are hungry.\r\n");
     if (!GET_COND(ch, THIRST))
-        bufpt += sprintf(bufpt, "You are thirsty.\r\n");
+        append_formatted(buf, sizeof(buf), "You are thirsty.\r\n");
 
     send_to_char(buf, ch);
     do_affections(ch, "", 0, 0, 0);
@@ -1849,16 +1886,14 @@ int test_hp(int war_points, int ran_points, int cler_points, int level, int con_
 ACMD(do_score)
 {
     int tmp;
-    char* bufpt;
-
-    bufpt = buf;
-    bufpt += sprintf(bufpt,
+    *buf = '\0';
+    append_formatted(buf, sizeof(buf),
         "You have %d/%d hit, %d/%d stamina, %d/%d moves, "
         "%d spirit.\r\n",
         GET_HIT(ch), GET_MAX_HIT(ch), GET_MANA(ch), GET_MAX_MANA(ch), GET_MOVE(ch),
         GET_MAX_MOVE(ch), utils::get_spirits(ch));
 
-    bufpt += sprintf(bufpt, "OB: %d, DB: %d, PB: %d, Speed: %d, Gold: %d", get_real_OB(ch),
+    append_formatted(buf, sizeof(buf), "OB: %d, DB: %d, PB: %d, Speed: %d, Gold: %d", get_real_OB(ch),
         get_real_dodge(ch), get_real_parry(ch), utils::get_energy_regen(*ch) / 5,
         GET_GOLD(ch) / COPP_IN_GOLD);
 
@@ -1866,48 +1901,48 @@ ACMD(do_score)
     if (GET_LEVEL(ch) < LEVEL_IMMORT - 1) {
         tmp = xp_to_level(GET_LEVEL(ch) + 1) - GET_EXP(ch);
         if (tmp < 1000 && tmp > -1000) {
-            bufpt += sprintf(bufpt, ", XP Needed: %d.\n\r", tmp);
+            append_formatted(buf, sizeof(buf), ", XP Needed: %d.\n\r", tmp);
         } else {
-            bufpt += sprintf(bufpt, ", XP Needed: %dK.\n\r", tmp / 1000);
+            append_formatted(buf, sizeof(buf), ", XP Needed: %dK.\n\r", tmp / 1000);
         }
     } else {
-        bufpt += sprintf(bufpt, ".\r\n");
+        append_formatted(buf, sizeof(buf), ".\r\n");
     }
 
     if (utils::get_specialization(*ch) == game_types::PS_LightFighting) {
         obj_data* weapon = ch->equipment[WIELD];
         if (weapon && (weapon->get_bulk() <= 2 || (weapon->get_bulk() == 3 && weapon->get_weight() <= LIGHT_WEAPON_WEIGHT_CUTOFF))) {
-            bufpt += sprintf(bufpt, "The lightness of your weapon lends precision to your strikes.\r\n");
+            append_formatted(buf, sizeof(buf), "The lightness of your weapon lends precision to your strikes.\r\n");
         }
     } else if (utils::get_specialization(*ch) == game_types::PS_HeavyFighting) {
         obj_data* weapon = ch->equipment[WIELD];
         if (weapon && (weapon->get_bulk() >= 4 || (weapon->get_bulk() == 3 && weapon->get_weight() > LIGHT_WEAPON_WEIGHT_CUTOFF))) {
-            bufpt += sprintf(bufpt, "The heft of your weapon lends power to your blows.\r\n");
+            append_formatted(buf, sizeof(buf), "The heft of your weapon lends power to your blows.\r\n");
         }
     } else if (utils::get_specialization(*ch) == game_types::PS_WildFighting && ch->specials.tactics == TACTICS_BERSERK) {
         float health_percentage = ch->tmpabilities.hit / (float)ch->abilities.hit;
         if (health_percentage <= 0.45f) {
-            bufpt += sprintf(bufpt, "Your fury lends speed to your attacks!\r\n");
+            append_formatted(buf, sizeof(buf), "Your fury lends speed to your attacks!\r\n");
         }
     }
 
     player_spec::weapon_master_handler weapon_master(ch);
-    bufpt += weapon_master.append_score_message(bufpt);
+    weapon_master.append_score_message(buf + strlen(buf));
 
     if (GET_COND(ch, DRUNK) > 10) {
-        bufpt += sprintf(bufpt, "You are intoxicated.\n\r");
+        append_formatted(buf, sizeof(buf), "You are intoxicated.\n\r");
     }
 
     if (!GET_COND(ch, FULL)) {
-        bufpt += sprintf(bufpt, "You are hungry.\r\n");
+        append_formatted(buf, sizeof(buf), "You are hungry.\r\n");
     } else if (GET_COND(ch, FULL) < 4 && GET_COND(ch, FULL) > 0) {
-        bufpt += sprintf(bufpt, "You are getting hungry.\r\n");
+        append_formatted(buf, sizeof(buf), "You are getting hungry.\r\n");
     }
 
     if (!GET_COND(ch, THIRST)) {
-        bufpt += sprintf(bufpt, "You are thirsty.\r\n");
+        append_formatted(buf, sizeof(buf), "You are thirsty.\r\n");
     } else if (GET_COND(ch, THIRST) < 4 && GET_COND(ch, THIRST) > 0) {
-        bufpt += sprintf(bufpt, "You are getting thirsty.\r\n");
+        append_formatted(buf, sizeof(buf), "You are getting thirsty.\r\n");
     }
 
     send_to_char(buf, ch);
@@ -1915,7 +1950,6 @@ ACMD(do_score)
 
 ACMD(do_time)
 {
-    char* bufpt;
     char* year;
     int weekday, sunrise, sunset, hours;
     extern int sun_events[12][2];
@@ -1923,29 +1957,28 @@ ACMD(do_time)
     extern struct time_info_data time_info;
     int get_season();
 
-    bufpt = buf;
-    bufpt += sprintf(bufpt, "It is about %d:00 %s on ",
+    *buf = '\0';
+    append_formatted(buf, sizeof(buf), "It is about %d:00 %s on ",
         time_info.hours % 12 == 0 ? 12 : time_info.hours % 12,
         time_info.hours >= 12 ? "PM" : "AM");
 
     /* 35 days in a month */
     weekday = ((30 * time_info.month) + time_info.day + 1) % 7;
-    bufpt += sprintf(bufpt, "%s, ", weekdays[weekday]);
+    append_formatted(buf, sizeof(buf), "%s, ", weekdays[weekday]);
 
     /* Get the daytime */
-    day_to_str(&time_info, bufpt);
-    bufpt += strlen(bufpt);
-    bufpt += sprintf(bufpt, ".\r\n");
+    day_to_str(&time_info, buf + strlen(buf));
+    append_formatted(buf, sizeof(buf), ".\r\n");
 
     year = nth(time_info.year);
-    bufpt += sprintf(bufpt,
+    append_formatted(buf, sizeof(buf),
         "By the Steward's Reckoning, it is "
         "the %s year of the fourth age of Arda.\r\n",
         year);
     free(year);
 
     /* A blurb on the phase of the moon */
-    bufpt += sprintf(bufpt, "The moon is %s and %s.\n\r", moon_phase[weather_info.moonphase],
+    append_formatted(buf, sizeof(buf), "The moon is %s and %s.\n\r", moon_phase[weather_info.moonphase],
         weather_info.moonlight ? "shining" : "not shining");
 
     /* When the sun will rise and set */
@@ -1953,11 +1986,11 @@ ACMD(do_time)
     sunset = sun_events[time_info.month][1];
     if (time_info.hours >= sunrise && time_info.hours < sunset) {
         hours = sunset - time_info.hours;
-        bufpt += sprintf(bufpt, "The sun will set in about %d hour%s.\r\n", hours,
+        append_formatted(buf, sizeof(buf), "The sun will set in about %d hour%s.\r\n", hours,
             hours == 1 ? "" : "s");
     } else {
         hours = sunrise + (time_info.hours < 12 ? -time_info.hours : 24 - time_info.hours);
-        bufpt += sprintf(bufpt, "The sun will rise in about %d hour%s.\n\r", hours,
+        append_formatted(buf, sizeof(buf), "The sun will rise in about %d hour%s.\n\r", hours,
             hours == 1 ? "" : "s");
     }
     send_to_char(buf, ch);
@@ -2041,13 +2074,15 @@ ACMD(do_help)
 
         /* no argument, or no matching chapter */
         if (tmp == help_summary_length) {
-            buf2pt += sprintf(buf2pt, "The manual chapters are:\r\n");
+            append_formatted(buf2, sizeof(buf2), "The manual chapters are:\r\n");
             for (tmp = 0; tmp < help_summary_length; tmp++)
                 if ((help_content[tmp].imm_only && GET_LEVEL(ch) >= LEVEL_IMMORT) || !help_content[tmp].imm_only) {
-                    buf2tmp = sprintf(buf2pt, "%-18s %-50s\r\n", help_content[tmp].keyword,
+                    buf2pt = buf2 + strlen(buf2);
+                    buf2tmp = snprintf(buf2pt, sizeof(buf2) - strlen(buf2), "%-18s %-50s\r\n", help_content[tmp].keyword,
                         help_content[tmp].descr);
                     CAP(buf2pt);
-                    buf2pt += buf2tmp;
+                    if (buf2tmp > 0)
+                        buf2pt += std::min<std::size_t>(buf2tmp, sizeof(buf2) - strlen(buf2) - 1);
                 }
             send_to_char(buf2, ch);
             return;
@@ -2082,12 +2117,12 @@ ACMD(do_help)
                     fgets(buf, 80, help_content[num].file);
                     if (*buf == '#')
                         break;
-                    buf2pt += sprintf(buf2pt, "%s", buf);
+                    append_formatted(buf2, sizeof(buf2), "%s", buf);
                 }
                 page_string(ch->desc, buf2, 1);
                 return;
             } else if (bot >= top) {
-                sprintf(buf2, "There is no entry for '%s' in the %s chapter.\r\n", argument,
+                snprintf(buf2, sizeof(buf2), "There is no entry for '%s' in the %s chapter.\r\n", argument,
                     help_content[num].keyword);
                 send_to_char(buf2, ch);
                 return;
@@ -2098,11 +2133,11 @@ ACMD(do_help)
         }
         return;
     } else if (subcmd == 1) { /* They used manual with a chapter but no argument */
-        buf2pt += sprintf(buf2pt, "Topics in the '%s' chapter are:\r\n", help_content[num].keyword);
+        append_formatted(buf2, sizeof(buf2), "Topics in the '%s' chapter are:\r\n", help_content[num].keyword);
         for (tmp = 0; tmp < help_content[num].top_of_helpt; tmp++) {
-            buf2pt += sprintf(buf2pt, "%-17s| ", help_content[num].index[tmp].keyword);
+            append_formatted(buf2, sizeof(buf2), "%-17s| ", help_content[num].index[tmp].keyword);
             if (!((tmp + 1) % 4))
-                buf2pt += sprintf(buf2pt, "\r\n");
+                append_formatted(buf2, sizeof(buf2), "\r\n");
         }
         if (tmp % 4)
             strcat(buf2, "\n\r");
@@ -2141,7 +2176,7 @@ ACMD(do_who)
         if (isdigit(*arg)) {
             sscanf(arg, "%d-%d", &low, &high);
             level_limit = 1;
-            buf2pt += sprintf(buf2pt, "Players between level %d and %d\r\n", low, high);
+            append_formatted(buf2, sizeof(buf2), "Players between level %d and %d\r\n", low, high);
             strcpy(buf, buf1);
         } else if (*arg == '-') {
             mode = *(arg + 1); /* just in case; we destroy arg in the switch */
@@ -2149,7 +2184,7 @@ ACMD(do_who)
             case 'z':
                 localwho = 1;
                 strcpy(buf, buf1);
-                buf2pt += sprintf(buf2pt, "Players in your zone\r\n");
+                append_formatted(buf2, sizeof(buf2), "Players in your zone\r\n");
                 break;
 
             case 's':
@@ -2161,12 +2196,12 @@ ACMD(do_who)
                 half_chop(buf1, arg, buf);
                 sscanf(arg, "%d-%d", &low, &high);
                 level_limit = 1;
-                buf2pt += sprintf(buf2pt, "Players between level %d and %d\r\n", low, high);
+                append_formatted(buf2, sizeof(buf2), "Players between level %d and %d\r\n", low, high);
                 break;
 
             case 'n':
                 half_chop(buf1, name_search, buf);
-                buf2pt += sprintf(buf2pt,
+                append_formatted(buf2, sizeof(buf2),
                     "Players with '%s' in their names or titles"
                     "\r\n",
                     name_search);
@@ -2175,25 +2210,25 @@ ACMD(do_who)
             case 'r':
                 who_room = 1;
                 strcpy(buf, buf1);
-                buf2pt += sprintf(buf2pt, "Players in your room\r\n");
+                append_formatted(buf2, sizeof(buf2), "Players in your room\r\n");
                 break;
 
             case 'w':
                 who_whitie = 1;
                 strcpy(buf, buf1);
-                buf2pt += sprintf(buf2pt, "Humans, Elves, Dwarves, Beornings and Hobbits\r\n");
+                append_formatted(buf2, sizeof(buf2), "Humans, Elves, Dwarves, Beornings and Hobbits\r\n");
                 break;
 
             case 'm':
                 who_magi = 1;
                 strcpy(buf, buf1);
-                buf2pt += sprintf(buf2pt, "Uruk-Lhuth and Haradrims\r\n");
+                append_formatted(buf2, sizeof(buf2), "Uruk-Lhuth and Haradrims\r\n");
                 break;
 
             case 'd':
                 who_darkie = 1;
                 strcpy(buf, buf1);
-                buf2pt += sprintf(buf2pt, "Uruk-Hais, Olog-Hais and Common Orcs\r\n");
+                append_formatted(buf2, sizeof(buf2), "Uruk-Hais, Olog-Hais and Common Orcs\r\n");
                 break;
 
             default:
@@ -2208,12 +2243,13 @@ ACMD(do_who)
     } /* end while (parser) */
 
     if (!*buf2)
-        buf2pt += sprintf(buf2pt, "Players\r\n");
+        append_formatted(buf2, sizeof(buf2), "Players\r\n");
+    buf2pt = buf2 + strlen(buf2);
     /* Make a dashline the same size as the header */
     memset(buf2pt, '-', strlen(buf2) - 2);
     buf2pt += buf2pt - buf2 - 2;
     *buf2pt = '\0';
-    buf2pt += sprintf(buf2pt, "\r\n");
+    append_formatted(buf2, sizeof(buf2), "\r\n");
 
     /* Cycle through all connected sockets */
     for (d = descriptor_list; d; d = d->next) {
@@ -2256,52 +2292,52 @@ ACMD(do_who)
         /* The short list doesn't show a title, and attempts 4 players per row */
         if (short_list) {
             if (PLR_FLAGGED(tch, PLR_INCOGNITO) && (GET_LEVEL(ch) < LEVEL_IMMORT))
-                buf2pt += sprintf(buf2pt, "[--- %s] %-12.12s%s", RACE_ABBR(tch), GET_NAME(tch),
+                append_formatted(buf2, sizeof(buf2), "[--- %s] %-12.12s%s", RACE_ABBR(tch), GET_NAME(tch),
                     !(++num_can_see % 4) ? "\r\n" : "");
             else
-                buf2pt += sprintf(buf2pt, "[%3d %s] %-12.12s%s", GET_LEVEL(tch), RACE_ABBR(tch),
+                append_formatted(buf2, sizeof(buf2), "[%3d %s] %-12.12s%s", GET_LEVEL(tch), RACE_ABBR(tch),
                     GET_NAME(tch), !(++num_can_see % 4) ? "\r\n" : "");
         } else { /* A normal list */
             num_can_see++;
             if (PLR_FLAGGED(tch, PLR_INCOGNITO) && (GET_LEVEL(ch) < LEVEL_IMMORT))
-                buf2pt += sprintf(buf2pt, "[--- %s] ", RACE_ABBR(tch));
+                append_formatted(buf2, sizeof(buf2), "[--- %s] ", RACE_ABBR(tch));
             else {
                 if (GET_LEVEL(tch) < LEVEL_IMMORT)
-                    buf2pt += sprintf(buf2pt, "[%3d %s] ", GET_LEVEL(tch), RACE_ABBR(tch));
+                    append_formatted(buf2, sizeof(buf2), "[%3d %s] ", GET_LEVEL(tch), RACE_ABBR(tch));
                 else
-                    buf2pt += sprintf(buf2pt, "[%s] ", imm_abbrevs[GET_LEVEL(tch) - LEVEL_MINIMM]);
+                    append_formatted(buf2, sizeof(buf2), "[%s] ", imm_abbrevs[GET_LEVEL(tch) - LEVEL_MINIMM]);
             }
-            buf2pt += sprintf(buf2pt, "%s %s", GET_NAME(tch), GET_TITLE(tch));
+            append_formatted(buf2, sizeof(buf2), "%s %s", GET_NAME(tch), GET_TITLE(tch));
 
             if (GET_INVIS_LEV(tch))
-                buf2pt += sprintf(buf2pt, " (i%d)", GET_INVIS_LEV(tch));
+                append_formatted(buf2, sizeof(buf2), " (i%d)", GET_INVIS_LEV(tch));
             else if (IS_AFFECTED(tch, AFF_INVISIBLE))
-                buf2pt += sprintf(buf2pt, " (invis)");
+                append_formatted(buf2, sizeof(buf2), " (invis)");
             if (PLR_FLAGGED(tch, PLR_MAILING))
-                buf2pt += sprintf(buf2pt, " (mailing)");
+                append_formatted(buf2, sizeof(buf2), " (mailing)");
             else if (PLR_FLAGGED(tch, PLR_WRITING))
-                buf2pt += sprintf(buf2pt, " (writing)");
+                append_formatted(buf2, sizeof(buf2), " (writing)");
             if (d->connected == CON_LINKLS)
-                buf2pt += sprintf(buf2pt, " (linkless)");
+                append_formatted(buf2, sizeof(buf2), " (linkless)");
             if (PLR_FLAGGED(tch, PLR_RETIRED))
-                buf2pt += sprintf(buf2pt, " (retired)");
+                append_formatted(buf2, sizeof(buf2), " (retired)");
             if (!PRF_FLAGGED(tch, PRF_NARRATE))
-                buf2pt += sprintf(buf2pt, " (deaf)");
+                append_formatted(buf2, sizeof(buf2), " (deaf)");
             if (PRF_FLAGGED(tch, PRF_NOTELL))
-                buf2pt += sprintf(buf2pt, " (notell)");
+                append_formatted(buf2, sizeof(buf2), " (notell)");
             if (PLR_FLAGGED(tch, PLR_ISAFK))
-                buf2pt += sprintf(buf2pt, " (AFK)");
+                append_formatted(buf2, sizeof(buf2), " (AFK)");
             if (GET_POS(tch) == POSITION_SLEEPING)
-                buf2pt += sprintf(buf2pt, " (sleeping)");
+                append_formatted(buf2, sizeof(buf2), " (sleeping)");
             if (IS_SHADOW(tch))
-                buf2pt += sprintf(buf2pt, " (shadow)");
-            buf2pt += sprintf(buf2pt, "\n\r");
+                append_formatted(buf2, sizeof(buf2), " (shadow)");
+            append_formatted(buf2, sizeof(buf2), "\n\r");
         }
     }
 
     if (short_list && (num_can_see % 4))
-        buf2pt += sprintf(buf2pt, "\n\r");
-    buf2pt += sprintf(buf2pt, "\n\r%d character%s displayed.\n\r", num_can_see,
+        append_formatted(buf2, sizeof(buf2), "\n\r");
+    append_formatted(buf2, sizeof(buf2), "\n\r%d character%s displayed.\n\r", num_can_see,
         num_can_see == 1 ? "" : "s");
 
     page_string(ch->desc, buf2, 1);
@@ -2420,9 +2456,9 @@ ACMD(do_users)
                 continue;
 
             if (d->original)
-                sprintf(profname, "[%3d %s]", GET_LEVEL(d->original), RACE_ABBR(d->original));
+                snprintf(profname, sizeof(profname), "[%3d %s]", GET_LEVEL(d->original), RACE_ABBR(d->original));
             else
-                sprintf(profname, "[%3d %s]", GET_LEVEL(d->character), RACE_ABBR(d->character));
+                snprintf(profname, sizeof(profname), "[%3d %s]", GET_LEVEL(d->character), RACE_ABBR(d->character));
         } else
             strcpy(profname, "[   -   ]");
 
@@ -2436,7 +2472,7 @@ ACMD(do_users)
             strcpy(state, connected_types[d->connected]);
 
         if (d->character && (!d->connected || (d->connected == CON_LINKLS)))
-            sprintf(idletime, "%3d",
+            snprintf(idletime, sizeof(idletime), "%3d",
                 d->character->specials.timer * SECS_PER_MUD_HOUR / SECS_PER_REAL_MIN);
         else
             strcpy(idletime, " - ");
@@ -2445,16 +2481,16 @@ ACMD(do_users)
 
         if (d->character && d->character->player.name) {
             if (d->original)
-                sprintf(line, format, d->desc_num, profname, d->original->player.name, state,
+                snprintf(line, sizeof(line), format, d->desc_num, profname, d->original->player.name, state,
                     idletime, timeptr);
             else
-                sprintf(line, format, d->desc_num, profname, d->character->player.name, state,
+                snprintf(line, sizeof(line), format, d->desc_num, profname, d->character->player.name, state,
                     idletime, timeptr);
         } else
-            sprintf(line, format, d->desc_num, "   -   ", "UNDEFINED", state, idletime, timeptr);
+            snprintf(line, sizeof(line), format, d->desc_num, "   -   ", "UNDEFINED", state, idletime, timeptr);
 
         if (d->host && *d->host)
-            sprintf(line + strlen(line), "[%s]\n\r", d->host);
+            append_formatted(line, sizeof(line), "[%s]\n\r", d->host);
         else
             strcat(line, "[Hostname unknown]\n\r");
 
@@ -2464,7 +2500,7 @@ ACMD(do_users)
         }
     }
 
-    sprintf(line, "\n\r%d visible sockets connected.\n\r", num_can_see);
+    snprintf(line, sizeof(line), "\n\r%d visible sockets connected.\n\r", num_can_see);
     send_to_char(line, ch);
 }
 
@@ -2532,7 +2568,7 @@ void perform_mortal_where(struct char_data* ch, char* arg)
                 if (i && CAN_SEE(ch, i) && (i->in_room != NOWHERE) && !other_side(ch, i) && (world[ch->in_room].zone == world[i->in_room].zone)) {
                     tmploc = ch->in_room;
                     ch->in_room = i->in_room;
-                    sprintf(buf, "%-20s - %s\n\r", GET_NAME(i),
+                    snprintf(buf, sizeof(buf), "%-20s - %s\n\r", GET_NAME(i),
                         (CAN_SEE(ch)) ? world[i->in_room].name : "Somewhere");
                     ch->in_room = tmploc;
                     send_to_char(buf, ch);
@@ -2543,7 +2579,7 @@ void perform_mortal_where(struct char_data* ch, char* arg)
             if ((i->in_room != NOWHERE) && (!IS_NPC(i)) && (world[i->in_room].zone == world[ch->in_room].zone) && (world[i->in_room].level == world[ch->in_room].level) && CAN_SEE(ch, i) && (!other_side(ch, i)) && isname(arg, i->player.name)) {
                 tmploc = ch->in_room;
                 ch->in_room = i->in_room;
-                sprintf(buf, "%-25s - %s\n\r", GET_NAME(i),
+                snprintf(buf, sizeof(buf), "%-25s - %s\n\r", GET_NAME(i),
                     (CAN_SEE(ch)) ? world[i->in_room].name : "Somewhere");
                 ch->in_room = tmploc;
                 send_to_char(buf, ch);
@@ -2568,11 +2604,11 @@ void perform_immort_where(struct char_data* ch, char* arg)
                 i = (d->original ? d->original : d->character);
                 if (i && CAN_SEE(ch, i) && (i->in_room != NOWHERE)) {
                     if (d->original)
-                        sprintf(buf, "%-20s - [%5d] %s (in %s)\n\r", GET_NAME(i),
+                        snprintf(buf, sizeof(buf), "%-20s - [%5d] %s (in %s)\n\r", GET_NAME(i),
                             world[d->character->in_room].number,
                             world[d->character->in_room].name, GET_NAME(d->character));
                     else
-                        sprintf(buf, "%-20s - [%5d] %s\n\r", GET_NAME(i), world[i->in_room].number,
+                        snprintf(buf, sizeof(buf), "%-20s - [%5d] %s\n\r", GET_NAME(i), world[i->in_room].number,
                             world[i->in_room].name);
                     send_to_char(buf, ch);
                 }
@@ -2581,7 +2617,7 @@ void perform_immort_where(struct char_data* ch, char* arg)
         for (i = character_list; i; i = i->next)
             if (CAN_SEE(ch, i) && i->in_room != NOWHERE && (isname(arg, i->player.name) || mob_index[i->nr].virt == atoi(arg))) {
                 found = 1;
-                sprintf(buf, "%3d. %-25s - [%5d] %s\n\r", ++num, GET_NAME(i),
+                snprintf(buf, sizeof(buf), "%3d. %-25s - [%5d] %s\n\r", ++num, GET_NAME(i),
                     world[i->in_room].number, world[i->in_room].name);
                 send_to_char(buf, ch);
             }
@@ -2607,7 +2643,7 @@ void perform_immort_where(struct char_data* ch, char* arg)
                         i = tmpobj->carried_by;
                     else {
                         tmp = tmpobj->in_room;
-                        sprintf(buf, "%3d. %-25s - [%5d] >> Stored in %s\n\r", ++num,
+                        snprintf(buf, sizeof(buf), "%3d. %-25s - [%5d] >> Stored in %s\n\r", ++num,
                             k->short_description, tmp < 0 ? tmp : world[tmp].number,
                             tmpobj ? tmpobj->short_description : "Something");
                         send_to_char(buf, ch);
@@ -2617,13 +2653,13 @@ void perform_immort_where(struct char_data* ch, char* arg)
                     if (!CAN_SEE(ch, i)) /* Save wizinvis */
                         continue;
                     tmp = i->in_room;
-                    sprintf(buf, "%3d. %-25s - [%5d] >> Carried by %s\n\r", ++num,
+                    snprintf(buf, sizeof(buf), "%3d. %-25s - [%5d] >> Carried by %s\n\r", ++num,
                         k->short_description, tmp < 0 ? tmp : world[tmp].number,
                         i ? GET_NAME(i) : "Somebody");
                     send_to_char(buf, ch);
                 }
                 if (!tmpobj && !i) {
-                    sprintf(buf, "%3d. %-25s - [%5d] %s\n\r", ++num, k->short_description,
+                    snprintf(buf, sizeof(buf), "%3d. %-25s - [%5d] %s\n\r", ++num, k->short_description,
                         tmp < 0 ? tmp : world[tmp].number,
                         tmp < 0 ? "Nowhere" : world[tmp].name);
                     send_to_char(buf, ch);
@@ -2653,14 +2689,14 @@ ACMD(do_levels)
         return;
     }
 
-    sprintf(buf,
+    snprintf(buf, sizeof(buf),
         "You are %d%% Warrior, %d%% Ranger, %d%% Mystic, %d%% Mage\r\n"
         "Level:  Exp. to Level  : Warrior :  Ranger :  Mystic : Mage :\r\n",
         GET_PROF_COOF(PROF_WARRIOR, ch) / 10, GET_PROF_COOF(PROF_RANGER, ch) / 10,
         GET_PROF_COOF(PROF_CLERIC, ch) / 10, GET_PROF_COOF(PROF_MAGIC_USER, ch) / 10);
 
     for (i = 1; i < LEVEL_IMMORT && i < 31; i++) {
-        sprintf(buf + strlen(buf), "[%2d] %8d-%-8d : %9d %9d %9d %9d\n\r", i, xp_to_level(i),
+        append_formatted(buf, sizeof(buf), "[%2d] %8d-%-8d : %9d %9d %9d %9d\n\r", i, xp_to_level(i),
             xp_to_level(i + 1), i * GET_PROF_COOF(PROF_WARRIOR, ch) / 1000,
             i * GET_PROF_COOF(PROF_RANGER, ch) / 1000,
             i * GET_PROF_COOF(PROF_CLERIC, ch) / 1000,
@@ -2699,17 +2735,17 @@ void report_mob_age(struct char_data* ch, struct char_data* victim)
     age = MOB_AGE_TICKS(victim, time(0));
 
     if (age <= 1)
-        sprintf(str, "%s has just arrived to this place.\r\n", GET_NAME(victim));
+        snprintf(str, sizeof(str), "%s has just arrived to this place.\r\n", GET_NAME(victim));
     else if (age <= average_mob_life / 4)
-        sprintf(str, "%s has arrived but recently.\r\n", GET_NAME(victim));
+        snprintf(str, sizeof(str), "%s has arrived but recently.\r\n", GET_NAME(victim));
     else if (age <= average_mob_life * 3 / 4)
-        sprintf(str, "%s has been here for a little while.\r\n", GET_NAME(victim));
+        snprintf(str, sizeof(str), "%s has been here for a little while.\r\n", GET_NAME(victim));
     else if (age <= average_mob_life)
-        sprintf(str, "%s has been here for quite a while.\r\n", GET_NAME(victim));
+        snprintf(str, sizeof(str), "%s has been here for quite a while.\r\n", GET_NAME(victim));
     else if (age <= average_mob_life * 3 / 2)
-        sprintf(str, "%s has been here for a long time already.\r\n", GET_NAME(victim));
+        snprintf(str, sizeof(str), "%s has been here for a long time already.\r\n", GET_NAME(victim));
     else
-        sprintf(str, "%s has been here for a very long time.\r\n", GET_NAME(victim));
+        snprintf(str, sizeof(str), "%s has been here for a very long time.\r\n", GET_NAME(victim));
     str[0] = toupper(str[0]);
     send_to_char(str, ch);
 }
@@ -2771,30 +2807,30 @@ ACMD(do_toggle)
     if (!WIMP_LEVEL(ch))
         strcpy(buf2, "OFF");
     else
-        sprintf(buf2, "%-3d", WIMP_LEVEL(ch));
+        snprintf(buf2, sizeof(buf2), "%-3d", WIMP_LEVEL(ch));
 
     switch (GET_TACTICS(ch)) {
     case TACTICS_DEFENSIVE:
-        sprintf(buf3, "%s", tactics[0]);
+        snprintf(buf3, sizeof(buf3), "%s", tactics[0]);
         break;
     case TACTICS_CAREFUL:
-        sprintf(buf3, "%s", tactics[1]);
+        snprintf(buf3, sizeof(buf3), "%s", tactics[1]);
         break;
     case TACTICS_NORMAL:
-        sprintf(buf3, "%s", tactics[2]);
+        snprintf(buf3, sizeof(buf3), "%s", tactics[2]);
         break;
     case TACTICS_AGGRESSIVE:
-        sprintf(buf3, "%s", tactics[3]);
+        snprintf(buf3, sizeof(buf3), "%s", tactics[3]);
         break;
     case TACTICS_BERSERK:
-        sprintf(buf3, "%s", tactics[4]);
+        snprintf(buf3, sizeof(buf3), "%s", tactics[4]);
         break;
     default:
-        sprintf(buf3, "tactical error, please notify IMPs.");
+        snprintf(buf3, sizeof(buf3), "tactical error, please notify IMPs.");
         break;
     }
 
-    sprintf(buf,
+    snprintf(buf, sizeof(buf),
         "         Prompt: %-3s    "
         "     Brief Mode: %-3s    "
         "         NoTell: %-3s\r\n"
@@ -2829,7 +2865,7 @@ ACMD(do_toggle)
 
     /* the special, immortal set list */
     if (GET_LEVEL(ch) >= LEVEL_IMMORT) {
-        sprintf(buf,
+        snprintf(buf, sizeof(buf),
             "      Roomflags: %-3s\r\n"
             "      Holylight: %-3s    "
             "       Nohassle: %-3s    "
@@ -2839,43 +2875,43 @@ ACMD(do_toggle)
         send_to_char(buf, ch);
     }
 
-    sprintf(buf, "\r\nYou are employing %s tactics, and are speaking %s.\r\n", buf3,
+    snprintf(buf, sizeof(buf), "\r\nYou are employing %s tactics, and are speaking %s.\r\n", buf3,
         ch->player.language ? skills[ch->player.language].name : "common tongue");
     send_to_char(buf, ch);
     if (GET_SPEC(ch) == PLRSPEC_ARCH) {
         switch (GET_SHOOTING(ch)) {
         case SHOOTING_SLOW:
-            sprintf(buf3, "%s", shooting[0]);
+            snprintf(buf3, sizeof(buf3), "%s", shooting[0]);
             break;
         case SHOOTING_NORMAL:
-            sprintf(buf3, "%s", shooting[1]);
+            snprintf(buf3, sizeof(buf3), "%s", shooting[1]);
             break;
         case SHOOTING_FAST:
-            sprintf(buf3, "%s", shooting[2]);
+            snprintf(buf3, sizeof(buf3), "%s", shooting[2]);
             break;
         default:
-            sprintf(buf3, "shooting error, please notify IMMs!");
+            snprintf(buf3, sizeof(buf3), "shooting error, please notify IMMs!");
             break;
         }
-        sprintf(buf, "You are using %s shooting speed.\r\n", buf3);
+        snprintf(buf, sizeof(buf), "You are using %s shooting speed.\r\n", buf3);
         send_to_char(buf, ch);
     }
     if (GET_SPEC(ch) == PLRSPEC_ARCANE) {
         switch (GET_CASTING(ch)) {
         case CASTING_SLOW:
-            sprintf(buf3, "%s", casting[0]);
+            snprintf(buf3, sizeof(buf3), "%s", casting[0]);
             break;
         case CASTING_NORMAL:
-            sprintf(buf3, "%s", casting[1]);
+            snprintf(buf3, sizeof(buf3), "%s", casting[1]);
             break;
         case CASTING_FAST:
-            sprintf(buf3, "%s", casting[2]);
+            snprintf(buf3, sizeof(buf3), "%s", casting[2]);
             break;
         default:
-            sprintf(buf3, "casting error, please notify IMMs!");
+            snprintf(buf3, sizeof(buf3), "casting error, please notify IMMs!");
             break;
         }
-        sprintf(buf, "You are using %s casting speed.\r\n", buf3);
+        snprintf(buf, sizeof(buf), "You are using %s casting speed.\r\n", buf3);
         send_to_char(buf, ch);
     }
 }
@@ -2926,14 +2962,14 @@ ACMD(do_commands)
         vict = ch;
 
     if (subcmd == SCMD_SOCIALS) {
-        sprintf(buf, "The following socials are available to %s:\n\r",
+        snprintf(buf, sizeof(buf), "The following socials are available to %s:\n\r",
             vict == ch ? "you" : GET_NAME(vict));
 
         for (no = 1; no < social_list_top; no++) {
             if ((GET_LEVEL(ch) >= LEVEL_GOD) && PRF_FLAGGED(ch, PRF_ROOMFLAGS))
-                sprintf(buf + strlen(buf), "(%3d)%-11s", no, soc_mess_list[no].command);
+                append_formatted(buf, sizeof(buf), "(%3d)%-11s", no, soc_mess_list[no].command);
             else
-                sprintf(buf + strlen(buf), "%-16s", soc_mess_list[no].command);
+                append_formatted(buf, sizeof(buf), "%-16s", soc_mess_list[no].command);
             if (!(no % 5))
                 strcat(buf, "\n\r");
         }
@@ -2945,16 +2981,16 @@ ACMD(do_commands)
     if (subcmd == SCMD_WIZHELP)
         wizhelp = 1;
 
-    sprintf(buf, "The following %s%s are available to %s:\n\r", wizhelp ? "privileged " : "",
+    snprintf(buf, sizeof(buf), "The following %s%s are available to %s:\n\r", wizhelp ? "privileged " : "",
         socials ? "socials" : "commands", vict == ch ? "you" : GET_NAME(vict));
 
     for (no = 1, cmd_num = 1; cmd_num <= num_of_cmds; cmd_num++) {
         i = cmd_info[cmd_num].sort_pos;
         if (cmd_info[i + 1].minimum_level >= 0 && (cmd_info[i + 1].minimum_level >= LEVEL_IMMORT) == wizhelp && GET_LEVEL(vict) >= cmd_info[i + 1].minimum_level && (wizhelp || socials == cmd_info[i + 1].is_social)) {
             if ((GET_LEVEL(ch) >= LEVEL_GOD) && PRF_FLAGGED(ch, PRF_ROOMFLAGS))
-                sprintf(buf + strlen(buf), "(%3d)%-11s", i + 1, command[i]);
+                append_formatted(buf, sizeof(buf), "(%3d)%-11s", i + 1, command[i]);
             else
-                sprintf(buf + strlen(buf), "%-16s", command[i]);
+                append_formatted(buf, sizeof(buf), "%-16s", command[i]);
             if (!(no % 5))
                 strcat(buf, "\n\r");
             no++;
@@ -2997,16 +3033,16 @@ void add_prompt(char* prompt, struct char_data* ch, long flag)
     char str[250];
     if (flag & PRF_DISPTEXT) {
         if (ch->specials.prompt_value >= 0)
-            sprintf(str, prompt_text[ch->specials.prompt_number], ch->specials.prompt_value);
+            snprintf(str, sizeof(str), prompt_text[ch->specials.prompt_number], ch->specials.prompt_value);
         else
-            sprintf(str, prompt_text[ch->specials.prompt_number], -1);
-        sprintf(prompt, "%s%s%c", prompt, str, 0);
+            snprintf(str, sizeof(str), prompt_text[ch->specials.prompt_number], -1);
+        append_formatted(prompt, MAX_INPUT_LENGTH, "%s", str);
         return;
     }
 
     if (flag & PROMPT_ADVANCED) {
-        sprintf(prompt, "%sHP: %d/%d S: %d/%d MV: %d/%d]%c", prompt, GET_HIT(ch), GET_MAX_HIT(ch),
-            GET_MANA(ch), GET_MAX_MANA(ch), GET_MOVE(ch), GET_MAX_MOVE(ch), 0);
+        append_formatted(prompt, MAX_INPUT_LENGTH, "HP: %d/%d S: %d/%d MV: %d/%d]", GET_HIT(ch), GET_MAX_HIT(ch),
+            GET_MANA(ch), GET_MAX_MANA(ch), GET_MOVE(ch), GET_MAX_MOVE(ch));
         return;
     }
     if (GET_MAX_HIT(ch))
@@ -3014,17 +3050,17 @@ void add_prompt(char* prompt, struct char_data* ch, long flag)
             for (tmp = 0; (1000 * GET_HIT(ch)) / GET_MAX_HIT(ch) > prompt_hit[tmp].value; tmp++)
                 ;
             if ((GET_HIT(ch) != GET_MAX_HIT(ch)) || (ch->specials.position == POSITION_FIGHTING))
-                sprintf(prompt, "%s%s%c", prompt, prompt_hit[tmp].message, 0);
+                append_formatted(prompt, MAX_INPUT_LENGTH, "%s", prompt_hit[tmp].message);
         }
     if (flag & PROMPT_STAT) {
         report_char_mentals(ch, str, 1);
-        sprintf(prompt, "%s%s%c", prompt, str, 0);
+        append_formatted(prompt, MAX_INPUT_LENGTH, "%s", str);
         return;
     }
     if (flag & PROMPT_MAUL) {
         affected_type* maul_aff = affected_by_spell(ch, SKILL_MAUL);
         int mod = maul_aff->duration * 10 / 2;
-        sprintf(prompt, "%s%d/1000%c", prompt, mod, 0);
+        append_formatted(prompt, MAX_INPUT_LENGTH, "%d/1000", mod);
     }
 
     if (flag & PROMPT_ARROWS) {
@@ -3034,14 +3070,14 @@ void add_prompt(char* prompt, struct char_data* ch, long flag)
         for (arrow = quiver->contains; arrow; arrow = arrow->next_content) {
             arrows++;
         }
-        sprintf(prompt, "%s%d)%c", prompt, arrows, 0);
+        append_formatted(prompt, MAX_INPUT_LENGTH, "%d)", arrows);
     }
 
     if (GET_MAX_MANA(ch))
         if (flag & PROMPT_MANA) {
             for (tmp = 0; (1000 * GET_MANA(ch)) / GET_MAX_MANA(ch) > prompt_mana[tmp].value; tmp++)
                 ;
-            sprintf(prompt, "%s%s%c", prompt, prompt_mana[tmp].message, 0);
+            append_formatted(prompt, MAX_INPUT_LENGTH, "%s", prompt_mana[tmp].message);
         }
     if (GET_MAX_MOVE(ch))
         if (flag & PROMPT_MOVE) {
@@ -3049,9 +3085,9 @@ void add_prompt(char* prompt, struct char_data* ch, long flag)
                 ;
 
             if (IS_NPC(ch) && MOB_FLAGGED(ch, MOB_MOUNT))
-                sprintf(prompt, "%s%s%c", prompt, prompt_mount[tmp].message, 0);
+                append_formatted(prompt, MAX_INPUT_LENGTH, "%s", prompt_mount[tmp].message);
             else
-                sprintf(prompt, "%s%s%c", prompt, prompt_move[tmp].message, 0);
+                append_formatted(prompt, MAX_INPUT_LENGTH, "%s", prompt_move[tmp].message);
         }
 }
 
@@ -3120,21 +3156,21 @@ ACMD(do_whois)
     if (other_side_num(GET_RACE(ch), t_race)) {
         /* P->title replaced with "" in the new player file format */
         if (incognito)
-            sprintf(str, "%s %s%s.\n\r", P->name, t_title, t_retired);
+            snprintf(str, sizeof(str), "%s %s%s.\n\r", P->name, t_title, t_retired);
         else
-            sprintf(str, "%s %s is %s%s.\n\r", P->name, t_title, get_level_abbr(t_level, t_race),
+            snprintf(str, sizeof(str), "%s %s is %s%s.\n\r", P->name, t_title, get_level_abbr(t_level, t_race),
                 t_retired);
     } else { /* Now we assume they aren't on opposite sides of the war */
         if (incognito && GET_LEVEL(ch) < LEVEL_GRGOD)
-            sprintf(str, "%s %s%s.\n\r", P->name, t_title, t_retired);
+            snprintf(str, sizeof(str), "%s %s%s.\n\r", P->name, t_title, t_retired);
         else
             /* Playtime info given for: mortals, immortals whoising lower targets */
             if ((GET_LEVEL(ch) >= LEVEL_IMMORT && GET_LEVEL(ch) >= t_level) || t_level < LEVEL_IMMORT)
-                sprintf(str, "%s %s is %s%s.\n\r%s %s\r", P->name, t_title,
+                snprintf(str, sizeof(str), "%s %s is %s%s.\n\r%s %s\r", P->name, t_title,
                     get_level_abbr(t_level, t_race), t_retired,
                     isplaying ? "Playing since " : "Last seen ", asctime(localtime(&tt)));
             else
-                sprintf(str, "%s %s is %s%s.\n\r", P->name, t_title,
+                snprintf(str, sizeof(str), "%s %s is %s%s.\n\r", P->name, t_title,
                     get_level_abbr(t_level, t_race), t_retired);
     }
 
@@ -3156,35 +3192,35 @@ static char* get_level_abbr(sh_int level, sh_int race)
 
     switch (level) {
     case LEVEL_IMPL:
-        sprintf(buf, "an Implementor");
+        snprintf(buf, sizeof(buf), "an Implementor");
         break;
 
     case LEVEL_GRGOD + 2:
     case LEVEL_GRGOD + 1:
     case LEVEL_GRGOD:
-        sprintf(buf, "one of the Aratar (level %d)", level);
+        snprintf(buf, sizeof(buf), "one of the Aratar (level %d)", level);
         break;
 
     case LEVEL_AREAGOD + 1:
     case LEVEL_AREAGOD:
-        sprintf(buf, "one of the Valar (level %d)", level);
+        snprintf(buf, sizeof(buf), "one of the Valar (level %d)", level);
         break;
 
     case LEVEL_GOD + 1:
-        sprintf(buf, "one of the Greater Maiar");
+        snprintf(buf, sizeof(buf), "one of the Greater Maiar");
         break;
 
     case LEVEL_GOD:
-        sprintf(buf, "one of the Maiar");
+        snprintf(buf, sizeof(buf), "one of the Maiar");
         break;
 
     case LEVEL_IMMORT + 1:
     case LEVEL_IMMORT:
-        sprintf(buf, "one of the Lesser Maiar (level %d)", level);
+        snprintf(buf, sizeof(buf), "one of the Lesser Maiar (level %d)", level);
         break;
 
     default:
-        sprintf(buf, "a level %d %s", level, pc_races[race]);
+        snprintf(buf, sizeof(buf), "a level %d %s", level, pc_races[race]);
         break;
     }
 
@@ -3328,7 +3364,7 @@ ACMD(do_search)
         tmp = wtl->flg;
         ex = world[ch->in_room].dir_option[tmp];
 
-        sprintf(buf, "$n searches for something to %s.", refer_dirs[tmp]);
+        snprintf(buf, sizeof(buf), "$n searches for something to %s.", refer_dirs[tmp]);
         act(buf, TRUE, ch, 0, 0, TO_ROOM);
 
         if (ex && !IS_SET(ex->exit_info, EX_ISDOOR) && !IS_SET(ex->exit_info, EX_CLOSED)) {
@@ -3342,12 +3378,12 @@ ACMD(do_search)
 
         if (skill > number(0, 99)) {
             if (!ex || (ex->to_room == NOWHERE))
-                sprintf(buf, "There is no passage %s.\n\r", dirs[tmp]);
+                snprintf(buf, sizeof(buf), "There is no passage %s.\n\r", dirs[tmp]);
             else {
                 if (ex->keyword && *ex->keyword)
-                    sprintf(buf, "You found %s at %s.\n", ex->keyword, refer_dirs[tmp]);
+                    snprintf(buf, sizeof(buf), "You found %s at %s.\n", ex->keyword, refer_dirs[tmp]);
                 else
-                    sprintf(buf, "The exit %s has no name, please notify immortals.\n\r",
+                    snprintf(buf, sizeof(buf), "The exit %s has no name, please notify immortals.\n\r",
                         dirs[tmp]);
             }
             send_to_char(buf, ch);
@@ -3409,22 +3445,22 @@ void report_perception(char_data* ch, char* str)
 {
 
     if (GET_PERCEPTION(ch) == 0) {
-        sprintf(str, "%s mind is totally numb.\n\r", HSHR(ch));
+        snprintf(str, 255, "%s mind is totally numb.\n\r", HSHR(ch));
     } else if (GET_PERCEPTION(ch) < 20) {
-        sprintf(str, "%s mind is as well as numb.\n\r", HSHR(ch));
+        snprintf(str, 255, "%s mind is as well as numb.\n\r", HSHR(ch));
     } else if (GET_PERCEPTION(ch) < 50) {
-        sprintf(str, "%s is moderately sensitive to the spiritual.\n\r", HSSH(ch));
+        snprintf(str, 255, "%s is moderately sensitive to the spiritual.\n\r", HSSH(ch));
     } else if (GET_PERCEPTION(ch) < 80) {
-        sprintf(str, "%s is well aware of the Wraith-world.\n\r", HSSH(ch));
+        snprintf(str, 255, "%s is well aware of the Wraith-world.\n\r", HSSH(ch));
     } else if (GET_PERCEPTION(ch) < 100) {
-        sprintf(str, "%s is very perceptive to the Wraith-world.\n\r", HSSH(ch));
+        snprintf(str, 255, "%s is very perceptive to the Wraith-world.\n\r", HSSH(ch));
     } else {
-        sprintf(str, "%s is one with the Wraith-world!\n\r", HSSH(ch));
+        snprintf(str, 255, "%s is one with the Wraith-world!\n\r", HSSH(ch));
     }
     str[0] = UPPER(str[0]);
 }
 
-void report_affection(affected_type* aff, char* str)
+void report_affection(affected_type* aff, char* str, std::size_t str_size)
 {
     static const char* durations[] = { "permanent", "short", "medium", "long", "fast-acting" };
 
@@ -3445,18 +3481,18 @@ void report_affection(affected_type* aff, char* str)
 
     char duration_text[32];
     if (skill.is_fast) {
-        sprintf(duration_text, "%s, %s", duration, durations[4]);
+        snprintf(duration_text, sizeof(duration_text), "%s, %s", duration, durations[4]);
     } else {
-        sprintf(duration_text, "%s", duration);
+        snprintf(duration_text, sizeof(duration_text), "%s", duration);
     }
 
-    sprintf(str, "%-30s (%s)\n\r", skill_name, duration_text);
+    snprintf(str, str_size, "%-30s (%s)\n\r", skill_name, duration_text);
 }
 
-void report_skill_timer(const char_data& ch, char* buf)
+void report_skill_timer(const char_data& ch, char* buf, std::size_t buffer_size)
 {
     game_timer::skill_timer& timer = game_timer::skill_timer::instance();
-    buf += timer.report_skill_status(utils::get_idnum(ch), buf);
+    timer.report_skill_status(utils::get_idnum(ch), buf, buffer_size);
 }
 
 ACMD(do_affections)
@@ -3480,28 +3516,28 @@ ACMD(do_affections)
     if (!ch->affected) {
         strcpy(buf, "You are not affected by anything.\n\r");
     } else {
-        sprintf(buf, "You are affected by:\n\r");
+        snprintf(buf, sizeof(buf), "You are affected by:\n\r");
 
         for (tmpaff = ch->affected; tmpaff; tmpaff = tmpaff->next) {
-            report_affection(tmpaff, str);
-            sprintf(buf, "%s%s", buf, str);
+            report_affection(tmpaff, str, sizeof(str));
+            append_formatted(buf, sizeof(buf), "%s", str);
         }
     }
-    report_skill_timer(*ch, buf);
+    report_skill_timer(*ch, buf, sizeof(buf));
 
     game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     if (bb_instance.is_target_looting(ch)) {
-        sprintf(buf, "%sYou are under the protection of the Gods.\n\r", buf);
+        append_formatted(buf, sizeof(buf), "You are under the protection of the Gods.\n\r");
     }
 
     /* checking for a prepared spell */
     if ((ch->delay.cmd == CMD_PREPARE) && (ch->delay.targ1.type == TARGET_IGNORE)) {
-        sprintf(buf, "%sYou have prepared the '%s' spell.\n\r", buf,
+        append_formatted(buf, sizeof(buf), "You have prepared the '%s' spell.\n\r",
             skills[ch->delay.targ1.ch_num].name);
     } else if (ch->delay.cmd == CMD_TRAP)
-        sprintf(buf, "%sYou lay in wait to trap an unsuspecting victim.\r\n", buf);
+        append_formatted(buf, sizeof(buf), "You lay in wait to trap an unsuspecting victim.\r\n");
     if (SUN_PENALTY(ch))
-        strcat(buf, "You feel weak under the intensity of light.\n\r");
+        append_formatted(buf, sizeof(buf), "You feel weak under the intensity of light.\n\r");
 
     send_to_char(buf, ch);
 }
@@ -3530,22 +3566,21 @@ ACMD(do_affections)
 void do_fame_leader_string(LEADER* ldr, char* buffer)
 {
     int i, n;
-    size_t bufpt;
 
     if (ldr->invalid) {
-        sprintf(buffer, "%27s", " ");
+        snprintf(buffer, MAX_LEADER_STRING, "%27s", " ");
         return;
     }
 
-    bufpt = sprintf(buffer, "%2d. %s", ldr->rank + 1, ldr->name);
-    bufpt += sprintf(buffer + bufpt, " the %s", pc_races[ldr->race]);
+    snprintf(buffer, MAX_LEADER_STRING, "%2d. %s", ldr->rank + 1, ldr->name);
+    append_formatted(buffer, MAX_LEADER_STRING, " the %s", pc_races[ldr->race]);
 
     /* Pad with spaces til the end of name/title section */
     n = 27 - strlen(ldr->name) - strlen(pc_races[ldr->race]) - 5;
     for (i = 0; i < n; ++i)
-        bufpt += sprintf(buffer + bufpt, " ");
+        append_formatted(buffer, MAX_LEADER_STRING, " ");
 
-    bufpt += sprintf(buffer + bufpt, " %4d", ldr->fame);
+    append_formatted(buffer, MAX_LEADER_STRING, " %4d", ldr->fame);
 }
 
 ACMD(do_fame)
@@ -3577,24 +3612,26 @@ ACMD(do_fame)
     one_argument(argument, name);
 
     if (!strcmp(name, "war")) {
-        bufpt = sprintf(buf, "%22s%s\r\n\r\n", " ", warheader);
+        snprintf(buf, sizeof(buf), "%22s%s\r\n\r\n", " ", warheader);
+        bufpt = strlen(buf);
 
         /* Report the top 10 fame leaders */
-        bufpt += sprintf(buf + bufpt, "    The Free Peoples of Middle-earth     "
+        append_formatted(buf, sizeof(buf), "    The Free Peoples of Middle-earth     "
                                       "    The Forces of the Shadow\r\n");
+        bufpt = strlen(buf);
         for (i = 0; i < 10; ++i) {
             /* Good rank i leader */
             ldr1 = pkill_get_leader_by_rank(i, RACE_WOOD);
             ldr1valid = !ldr1->invalid;
             do_fame_leader_string(ldr1, leaderstr);
-            bufpt += sprintf(buf + bufpt, "%s%5s", leaderstr, " ");
+            append_formatted(buf, sizeof(buf), "%s%5s", leaderstr, " ");
             pkill_free_leader(ldr1);
 
             /* Evil rank i leader */
             ldr2 = pkill_get_leader_by_rank(i, RACE_URUK);
             ldr2valid = !ldr2->invalid;
             do_fame_leader_string(ldr2, leaderstr);
-            bufpt += sprintf(buf + bufpt, "%s\r\n", leaderstr);
+            append_formatted(buf, sizeof(buf), "%s\r\n", leaderstr);
             pkill_free_leader(ldr2);
 
             /* If both ranks were invalid, stop looping */
@@ -3602,22 +3639,22 @@ ACMD(do_fame)
                 break;
         }
         if (i == 10)
-            bufpt += sprintf(buf + bufpt, "\r\n");
+            append_formatted(buf, sizeof(buf), "\r\n");
 
         /* Report the exact states of the war */
-        bufpt += sprintf(buf + bufpt, "Total fame for the free peoples of Middle-earth: %d\r\n",
+        append_formatted(buf, sizeof(buf), "Total fame for the free peoples of Middle-earth: %d\r\n",
             pkill_get_good_fame());
-        bufpt += sprintf(buf + bufpt, "Total fame for the forces of the Shadow: %d\r\n",
+        append_formatted(buf, sizeof(buf), "Total fame for the forces of the Shadow: %d\r\n",
             pkill_get_evil_fame());
-        bufpt += sprintf(buf + bufpt, "\r\n");
+        append_formatted(buf, sizeof(buf), "\r\n");
 
         /* Report the general state of the war */
         if (pkill_get_good_fame() > pkill_get_evil_fame())
-            sprintf(buf + bufpt, "%s\r\n", good_victory);
+            append_formatted(buf, sizeof(buf), "%s\r\n", good_victory);
         else if (pkill_get_good_fame() < pkill_get_evil_fame())
-            sprintf(buf + bufpt, "%s\r\n", evil_victory);
+            append_formatted(buf, sizeof(buf), "%s\r\n", evil_victory);
         else
-            sprintf(buf + bufpt, "%s\r\n", no_victory);
+            append_formatted(buf, sizeof(buf), "%s\r\n", no_victory);
 
         send_to_char(buf, ch);
         return;
@@ -3634,7 +3671,7 @@ ACMD(do_fame)
         bufpt = 0;
         for (i = 0; i < n; ++i) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_KILLED);
-            bufpt += sprintf(buf + bufpt, string);
+            append_formatted(buf, sizeof(buf), "%s", string);
             free(string);
         }
 
@@ -3674,7 +3711,7 @@ ACMD(do_fame)
     for (i = 0; i < n; ++i) {
         if (pkills[i].killer == idx) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_KILLED);
-            bufpt += sprintf(buf + bufpt, string);
+            append_formatted(buf, sizeof(buf), "%s", string);
             free(string);
             ++records;
         }
@@ -3684,7 +3721,7 @@ ACMD(do_fame)
     for (i = 0; i < n; ++i) {
         if (pkills[i].victim == idx) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_SLAIN);
-            bufpt += sprintf(buf + bufpt, string);
+            append_formatted(buf, sizeof(buf), "%s", string);
             free(string);
             ++records;
         }
@@ -3693,7 +3730,7 @@ ACMD(do_fame)
     /* Display the total fame */
     asprintf(&string, "%s", player_table[idx].name);
     CAP(string);
-    sprintf(buf + bufpt,
+    append_formatted(buf, sizeof(buf),
         "There %s %d record%s found about %s, "
         "total fame %d.\r\n",
         records == 1 ? "was" : "were", records, records == 1 ? "" : "s", string,
@@ -3721,8 +3758,9 @@ ACMD(do_rank)
     }
 
     s = nth(r + 1);
-    bufpt = sprintf(buf, "You are ranked %s among %s:\r\n", s,
+    snprintf(buf, sizeof(buf), "You are ranked %s among %s:\r\n", s,
         RACE_GOOD(ch) ? "the free peoples of Middle-earth" : "the forces of the Shadow");
+    bufpt = strlen(buf);
     free(s);
 
     /* Show 7 characters: 3 above ch, ch and 3 below ch */
@@ -3730,15 +3768,15 @@ ACMD(do_rank)
 
     /* We didn't start with the first ranked character */
     if (i > 0)
-        bufpt += sprintf(buf + bufpt, "       ...");
+        append_formatted(buf, sizeof(buf), "       ...");
 
-    bufpt += sprintf(buf + bufpt, "\r\n");
+    append_formatted(buf, sizeof(buf), "\r\n");
 
     for (i = MAX(0, r - 3); i < r + 3; ++i) {
         ldr = pkill_get_leader_by_rank(i, GET_RACE(ch));
         ldrvalid = !ldr->invalid;
         do_fame_leader_string(ldr, leaderstr);
-        bufpt += sprintf(buf + bufpt, " %s %s\r\n", i == r ? "*" : " ", leaderstr);
+        append_formatted(buf, sizeof(buf), " %s %s\r\n", i == r ? "*" : " ", leaderstr);
         pkill_free_leader(ldr);
 
         if (!ldrvalid)
@@ -3747,7 +3785,7 @@ ACMD(do_rank)
 
     /* We didn't hit the last ranked character */
     if (i == r + 3)
-        bufpt += sprintf(buf + bufpt, "       ...\r\n");
+        append_formatted(buf, sizeof(buf), "       ...\r\n");
 
     vsend_to_char(ch, buf);
 }
@@ -3770,14 +3808,14 @@ ACMD(do_compare)
 
     obj1 = get_obj_in_list_vis(ch, str1, ch->carrying, 9999);
     if (!obj1) {
-        sprintf(buf, "You don't seem to have any %s.\n\r", str1);
+        snprintf(buf, sizeof(buf), "You don't seem to have any %s.\n\r", str1);
         send_to_char(buf, ch);
         return;
     }
 
     obj2 = get_obj_in_list_vis(ch, str2, ch->carrying, 9999);
     if (!obj2) {
-        sprintf(buf, "You don't seem to have any %s.\n\r", str2);
+        snprintf(buf, sizeof(buf), "You don't seem to have any %s.\n\r", str2);
         send_to_char(buf, ch);
         return;
     }
@@ -3785,19 +3823,19 @@ ACMD(do_compare)
     lev = obj2->obj_flags.level - obj1->obj_flags.level;
 
     if (lev < -10)
-        sprintf(buf, "%s seems much better than %s.\n\r", obj1->short_description,
+        snprintf(buf, sizeof(buf), "%s seems much better than %s.\n\r", obj1->short_description,
             obj2->short_description);
     else if (lev < -3)
-        sprintf(buf, "%s seems better than %s.\n\r", obj1->short_description,
+        snprintf(buf, sizeof(buf), "%s seems better than %s.\n\r", obj1->short_description,
             obj2->short_description);
     else if (lev <= 3)
-        sprintf(buf, "%s and %s seems about the same.\n\r", obj1->short_description,
+        snprintf(buf, sizeof(buf), "%s and %s seems about the same.\n\r", obj1->short_description,
             obj2->short_description);
     else if (lev < 10)
-        sprintf(buf, "%s seems worse than %s.\n\r", obj1->short_description,
+        snprintf(buf, sizeof(buf), "%s seems worse than %s.\n\r", obj1->short_description,
             obj2->short_description);
     else
-        sprintf(buf, "%s seems much worse than %s.\n\r", obj1->short_description,
+        snprintf(buf, sizeof(buf), "%s seems much worse than %s.\n\r", obj1->short_description,
             obj2->short_description);
 
     send_to_char(buf, ch);
@@ -3895,9 +3933,9 @@ void report_char_mentals(char_data* ch, char* str, int brief_mode)
     if (low_stat1 == -1) {
         strcpy(str, "in top shape");
     } else if ((low_stat2 == -1) || brief_mode) {
-        sprintf(str, "%s %s", stat_attrs[stat_value1 / 10], stat_defects[low_stat1]);
+        snprintf(str, 255, "%s %s", stat_attrs[stat_value1 / 10], stat_defects[low_stat1]);
     } else {
-        sprintf(str, "%s %s and %s %s", stat_attrs[stat_value1 / 10], stat_defects[low_stat1],
+        snprintf(str, 255, "%s %s and %s %s", stat_attrs[stat_value1 / 10], stat_defects[low_stat1],
             stat_attrs[stat_value2 / 10], stat_defects[low_stat2]);
     }
     return;
@@ -3914,7 +3952,7 @@ ACMD(do_stat)
     auto stat_sum = GET_STR_BASE(ch) + GET_INT_BASE(ch) + GET_WILL_BASE(ch) + GET_DEX_BASE(ch) + GET_CON_BASE(ch) + GET_LEA_BASE(ch);
 
     if (!wtl || ((wtl->targ1.type == TARGET_NONE) || RETIRED(ch)) || (GET_LEVEL(ch) < LEVEL_GOD)) {
-        sprintf(buf,
+        snprintf(buf, sizeof(buf),
             "Your fatigue is %d; Your willpower is %d; Your statistic sum is %d\n\rYour "
             "statistics are\n\rStr: %2d/%2d, Int: %2d/%2d, Wil: %2d/%2d, Dex: %2d/%2d, Con: "
             "%2d/%2d, Lea: %2d/%2d.\n\r",
@@ -3957,28 +3995,28 @@ void print_exploits(struct char_data* sendto, char* name)
     case 'c':
     case 'd':
     case 'e':
-        sprintf(playerfname, "exploits/A-E/%s.exploits", tname);
+        snprintf(playerfname, sizeof(playerfname), "exploits/A-E/%s.exploits", tname);
         break;
     case 'f':
     case 'g':
     case 'h':
     case 'i':
     case 'j':
-        sprintf(playerfname, "exploits/F-J/%s.exploits", tname);
+        snprintf(playerfname, sizeof(playerfname), "exploits/F-J/%s.exploits", tname);
         break;
     case 'k':
     case 'l':
     case 'm':
     case 'n':
     case 'o':
-        sprintf(playerfname, "exploits/K-O/%s.exploits", tname);
+        snprintf(playerfname, sizeof(playerfname), "exploits/K-O/%s.exploits", tname);
         break;
     case 'p':
     case 'q':
     case 'r':
     case 's':
     case 't':
-        sprintf(playerfname, "exploits/P-T/%s.exploits", tname);
+        snprintf(playerfname, sizeof(playerfname), "exploits/P-T/%s.exploits", tname);
         break;
     case 'u':
     case 'v':
@@ -3986,10 +4024,10 @@ void print_exploits(struct char_data* sendto, char* name)
     case 'x':
     case 'y':
     case 'z':
-        sprintf(playerfname, "exploits/U-Z/%s.exploits", tname);
+        snprintf(playerfname, sizeof(playerfname), "exploits/U-Z/%s.exploits", tname);
         break;
     default:
-        sprintf(playerfname, "exploits/ZZZ/%s.exploits", tname);
+        snprintf(playerfname, sizeof(playerfname), "exploits/ZZZ/%s.exploits", tname);
         break;
     }
 
@@ -4002,7 +4040,7 @@ void print_exploits(struct char_data* sendto, char* name)
     }
 
     buf[0] = '\0';
-    sprintf(buf,
+    snprintf(buf, sizeof(buf),
         "Exploits for %s\n\r"
         "Numbers in brackets indicate (your,their) level at time of a "
         "kill\n\r\n\r",
@@ -4029,11 +4067,11 @@ void print_exploits(struct char_data* sendto, char* name)
         str3[2] = '\0';
         i++;
 
-        sprintf(str5, "Unknown record type");
+        snprintf(str5, sizeof(str5), "Unknown record type");
 
         switch (exploitrec.type) {
         case EXPLOIT_PK: // it's a pk type
-            sprintf(str5, "%s, %s: Killed %s (%d,%d)", str2, str3, exploitrec.chVictimName,
+            snprintf(str5, sizeof(str5), "%s, %s: Killed %s (%d,%d)", str2, str3, exploitrec.chVictimName,
                 exploitrec.iKillerLevel, exploitrec.iVictimLevel);
             iTotalPk++;
             break;
@@ -4041,94 +4079,94 @@ void print_exploits(struct char_data* sendto, char* name)
         case EXPLOIT_DEATH: // it's a death type
             // chvictimname used to store killer name here
             if (exploitrec.iIntParam == 1) {
-                sprintf(str5, "%s, %s: * Died to %s (%d,%d)", str2, str3, exploitrec.chVictimName,
+                snprintf(str5, sizeof(str5), "%s, %s: * Died to %s (%d,%d)", str2, str3, exploitrec.chVictimName,
                     exploitrec.iVictimLevel, exploitrec.iKillerLevel);
                 iDeaths++;
             } else
-                sprintf(str5, "%s, %s: Died to %s (%d,%d)", str2, str3, exploitrec.chVictimName,
+                snprintf(str5, sizeof(str5), "%s, %s: Died to %s (%d,%d)", str2, str3, exploitrec.chVictimName,
                     exploitrec.iVictimLevel, exploitrec.iKillerLevel);
             break;
 
         case EXPLOIT_LEVEL:
-            sprintf(str5, "%s, %s: Obtained level %d", str2, str3, exploitrec.iIntParam);
+            snprintf(str5, sizeof(str5), "%s, %s: Obtained level %d", str2, str3, exploitrec.iIntParam);
             break;
 
         case EXPLOIT_STAT:
-            sprintf(str5, "%s, %s: L%d: Stat inc (%s)", str2, str3, exploitrec.iIntParam,
+            snprintf(str5, sizeof(str5), "%s, %s: L%d: Stat inc (%s)", str2, str3, exploitrec.iIntParam,
                 exploitrec.chVictimName);
             break;
 
         case EXPLOIT_BIRTH:
-            sprintf(str5, "%s, %s: Character Created", str2, str3);
+            snprintf(str5, sizeof(str5), "%s, %s: Character Created", str2, str3);
             break;
 
         case EXPLOIT_MOBDEATH:
-            sprintf(str5, "%s, %s: Mobdied: %s", str2, str3, exploitrec.chVictimName);
+            snprintf(str5, sizeof(str5), "%s, %s: Mobdied: %s", str2, str3, exploitrec.chVictimName);
             iMobDeaths++;
             break;
 
         case EXPLOIT_RETIRED:
-            sprintf(str5, "%s, %s: Retired", str2, str3);
+            snprintf(str5, sizeof(str5), "%s, %s: Retired", str2, str3);
             break;
 
         case EXPLOIT_ACHIEVEMENT:
-            sprintf(str5, "%s, %s: %s", str2, str3, exploitrec.chVictimName);
+            snprintf(str5, sizeof(str5), "%s, %s: %s", str2, str3, exploitrec.chVictimName);
             break;
 
         case EXPLOIT_NOTE:
-            sprintf(str5, "%s, %s: !%s", str2, str3, exploitrec.chVictimName);
+            snprintf(str5, sizeof(str5), "%s, %s: !%s", str2, str3, exploitrec.chVictimName);
             iNotes++;
             break;
 
         case EXPLOIT_POISON:
-            sprintf(str5, "%s, %s: Died to Poison", str2, str3);
+            snprintf(str5, sizeof(str5), "%s, %s: Died to Poison", str2, str3);
             break;
 
         case EXPLOIT_REGEN_DEATH:
-            sprintf(str5, "%s, %s: Died to Injuries", str2, str3);
+            snprintf(str5, sizeof(str5), "%s, %s: Died to Injuries", str2, str3);
             break;
         }
         // an output line - first column
         if (i == 1)
-            sprintf(str4, "%-39s", str5);
+            snprintf(str4, sizeof(str4), "%-39s", str5);
         else {
-            sprintf(str4, "%s%-39s\n\r", str4, str5);
+            append_formatted(str4, sizeof(str4), "%-39s\n\r", str5);
             // add to output buffer
-            sprintf(buf, "%s%s", buf, str4);
+            append_formatted(buf, sizeof(buf), "%s", str4);
             i = 0;
         }
     }
     if (i == 1) {
         // add to output buffer
-        sprintf(buf, "%s%s\n\r", buf, str4);
+        append_formatted(buf, sizeof(buf), "%s\n\r", str4);
     }
 
     fclose(fp);
 
     if (iTotalPk == 1)
-        sprintf(buf, "%s\n\rTotal: 1 pkill, ", buf);
+        append_formatted(buf, sizeof(buf), "\n\rTotal: 1 pkill, ");
     else
-        sprintf(buf, "%s\n\rTotal: %d pkills, ", buf, iTotalPk);
+        append_formatted(buf, sizeof(buf), "\n\rTotal: %d pkills, ", iTotalPk);
 
     if (iDeaths == 1) {
-        sprintf(buf, "%s1 pdeath, ", buf);
+        append_formatted(buf, sizeof(buf), "1 pdeath, ");
     } else {
-        sprintf(buf, "%s%d pdeaths, ", buf, iDeaths);
+        append_formatted(buf, sizeof(buf), "%d pdeaths, ", iDeaths);
     }
 
     if (iMobDeaths == 1) {
 
-        sprintf(buf, "%s1 mobdeath, ", buf);
+        append_formatted(buf, sizeof(buf), "1 mobdeath, ");
 
     } else {
 
-        sprintf(buf, "%s%d mobdeaths, ", buf, iMobDeaths);
+        append_formatted(buf, sizeof(buf), "%d mobdeaths, ", iMobDeaths);
     }
 
     if (iNotes == 1)
-        sprintf(buf, "%s1 note.\n\r\n\r", buf);
+        append_formatted(buf, sizeof(buf), "1 note.\n\r\n\r");
     else
-        sprintf(buf, "%s%d notes.\n\r\n\r", buf, iNotes);
+        append_formatted(buf, sizeof(buf), "%d notes.\n\r\n\r", iNotes);
 
     page_string(sendto->desc, buf, 1);
     return;
@@ -4515,13 +4553,13 @@ void do_food_display(struct char_data* ch, struct obj_data* j)
 
     make_full = j->obj_flags.value[0];
     if (j->obj_flags.value[3] != 0)
-        sprintf(buf1, "However it seems to be of"
+        snprintf(buf1, sizeof(buf1), "However it seems to be of"
                       " a less than wholesome quality.");
     else
-        sprintf(buf1, "It is also of a wholesome quality.");
+        snprintf(buf1, sizeof(buf1), "It is also of a wholesome quality.");
 
     message_num = get_value_ranges(make_full, 0, 2, 4, 6, 10, 14, 18, 24);
-    sprintf(buf, "%s %s. %s\r\n", j->short_description, food_messages[message_num], buf1);
+    snprintf(buf, sizeof(buf), "%s %s. %s\r\n", j->short_description, food_messages[message_num], buf1);
     send_to_char(buf, ch);
 }
 
@@ -4532,7 +4570,7 @@ void do_light_display(struct char_data* ch, struct obj_data* j)
 
     duration_range = j->obj_flags.value[2];
     message_num = get_value_ranges(duration_range, 0, 6, 12, 19, 50, 150, 500, 1000);
-    sprintf(buf, "This source of light is %s.\r\n", light_messages[message_num]);
+    snprintf(buf, sizeof(buf), "This source of light is %s.\r\n", light_messages[message_num]);
     send_to_char(buf, ch);
 }
 
@@ -4542,19 +4580,19 @@ void do_flag_values_display(struct char_data* ch, struct obj_data* j)
     int i;
 
     if (GET_ITEM_TYPE(j) == ITEM_ARMOR) {
-        sprintf(buf, "Absorbtion\t\t %d.\r\n", armor_absorb(j));
+        snprintf(buf, sizeof(buf), "Absorbtion\t\t %d.\r\n", armor_absorb(j));
         send_to_char(buf, ch);
     }
 
     for (i = 0; i <= 4; i++) {
-        sprintf(buf, "%s", value_array[GET_ITEM_TYPE(j)][i]);
+        snprintf(buf, sizeof(buf), "%s", value_array[GET_ITEM_TYPE(j)][i]);
         if (value_array[GET_ITEM_TYPE(j)][i] != "") {
             send_to_char(buf, ch);
 
             if (j->obj_flags.value[i] < 0) /* Checks for negative for display purposes */
-                sprintf(buf, "\t %d.\r\n", j->obj_flags.value[i]);
+                snprintf(buf, sizeof(buf), "\t %d.\r\n", j->obj_flags.value[i]);
             else
-                sprintf(buf, "\t  %d.\r\n", j->obj_flags.value[i]);
+                snprintf(buf, sizeof(buf), "\t  %d.\r\n", j->obj_flags.value[i]);
             send_to_char(buf, ch);
         }
     }
@@ -4563,8 +4601,8 @@ void do_flag_values_display(struct char_data* ch, struct obj_data* j)
 void do_weapon_display(struct char_data* ch, struct obj_data* j)
 {
 
-    sprintf(buf1, weapon_types[j->obj_flags.value[3]]);
-    sprintf(buf,
+    snprintf(buf1, sizeof(buf1), "%s", weapon_types[j->obj_flags.value[3]]);
+    snprintf(buf, sizeof(buf),
         "The weapon you hold is a %s weapon.\r\n"
         "\n\rDamage Rating \t   %d/10.\r\n",
         buf1, get_weapon_damage(j));
@@ -4601,20 +4639,20 @@ void do_identify_object(struct char_data* ch, struct obj_data* j)
     char found;
     int i;
 
-    sprintf(buf,
+    snprintf(buf, sizeof(buf),
         "   You feel certain the object you have"
         " is %s. \r\n",
         j->short_description ? j->short_description
                              : "No object description found, please report. ");
     send_to_char(buf, ch);
 
-    sprintf(buf, "%s \r\n",
+    snprintf(buf, sizeof(buf), "%s \r\n",
         j->action_description ? j->action_description
                               : "No object description, please report. \r\n");
     send_to_char(buf, ch);
 
     sprintbit(j->obj_flags.wear_flags, wear_messages, buf2, 2);
-    sprintf(buf,
+    snprintf(buf, sizeof(buf),
         "This %s is made %s, and weighs %.1flbs.\r\n"
         "This %s can be%s\r\n",
         item_messages[GET_ITEM_TYPE(j)],
@@ -4645,7 +4683,7 @@ void do_identify_object(struct char_data* ch, struct obj_data* j)
     do_flag_values_display(ch, j);
 
     sprintbit(j->obj_flags.extra_flags, extra_messages, buf1, 1);
-    sprintf(buf, "\r\nThis item %s\r\n", buf1);
+    snprintf(buf, sizeof(buf), "\r\nThis item %s\r\n", buf1);
     send_to_char(buf, ch);
 
     found = 0;
@@ -4653,7 +4691,7 @@ void do_identify_object(struct char_data* ch, struct obj_data* j)
     for (i = 0; i < MAX_OBJ_AFFECT; i++)
         if (j->affected[i].modifier) {
             sprinttype(j->affected[i].location, apply_types, buf2);
-            sprintf(buf, "%s %+d to %s", found++ ? "" : "", j->affected[i].modifier, buf2);
+            snprintf(buf, sizeof(buf), "%s %+d to %s", found++ ? "" : "", j->affected[i].modifier, buf2);
             if (found == 1)
                 send_to_char("\r\nThis item has the following affections.\r\n", ch);
             send_to_char(buf, ch);

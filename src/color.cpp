@@ -138,7 +138,7 @@ ACMD(do_color)
 
         send_to_char("Your colours are:\n\r", ch);
         for (tmp = 0; tmp < num_of_color_fields - 4; tmp++) {
-            sprintf(buf, "%11s: %s\n\r",
+            snprintf(buf, sizeof(buf), "%11s: %s\n\r",
                 color_fields[tmp], color_color[(int)get_colornum(ch, tmp)]);
             send_to_char(buf, ch);
         }
@@ -150,8 +150,14 @@ ACMD(do_color)
     if (num < 0) {
         send_to_char("Possible arguments are:\n\r", ch);
         buf[0] = 0;
-        for (tmp = 0; tmp < num_of_color_fields; tmp++)
-            sprintf(buf, "%s %s", buf, color_fields[tmp]);
+        for (tmp = 0; tmp < num_of_color_fields; tmp++) {
+            std::size_t length = strlen(buf);
+            if (length >= sizeof(buf) - 1) {
+                break;
+            }
+
+            std::snprintf(buf + length, sizeof(buf) - length, " %s", color_fields[tmp]);
+        }
         strcat(buf, "\n\r");
         send_to_char(buf, ch);
         return;
@@ -176,8 +182,14 @@ ACMD(do_color)
     if (col < 0) {
         send_to_char("Possible colours are:", ch);
         buf[0] = 0;
-        for (tmp = 0; tmp < 8; tmp++)
-            sprintf(buf, "%s %s", buf, color_color[tmp]);
+        for (tmp = 0; tmp < 8; tmp++) {
+            std::size_t length = strlen(buf);
+            if (length >= sizeof(buf) - 1) {
+                break;
+            }
+
+            std::snprintf(buf + length, sizeof(buf) - length, " %s", color_color[tmp]);
+        }
         strcat(buf, ".\r\n");
         strcat(buf, "Additionally, you may prefix any of the above "
                     "colours with 'bright'.\r\n");

@@ -608,12 +608,34 @@ ASPELL(spell_divination)
         return;
 
     char buff[1000];
+    std::size_t length = 0;
+    auto append_to_buff = [&](const char* text) {
+        if (!text || length >= sizeof(buff) - 1) {
+            return;
+        }
+
+        int written = std::snprintf(buff + length, sizeof(buff) - length, "%s", text);
+        if (written < 0) {
+            return;
+        }
+
+        std::size_t appended = static_cast<std::size_t>(written);
+        if (appended >= sizeof(buff) - length) {
+            length = sizeof(buff) - 1;
+            buff[length] = '\0';
+            return;
+        }
+
+        length += appended;
+    };
 
     const room_data& cur_room = world[caster->in_room];
 
-    sprintf(buff, "You feel confident about your location.\n\r");
+    std::snprintf(buff, sizeof(buff), "You feel confident about your location.\n\r");
     sprintbit(cur_room.room_flags, room_bits, buf, 0);
-    sprintf(buff, "%s (#%d) [ %s, %s], Exits are:\n\r", buff, cur_room.number, sector_types[cur_room.sector_type], buf);
+    length = strlen(buff);
+    std::snprintf(buff + length, sizeof(buff) - length, " (#%d) [ %s, %s], Exits are:\n\r",
+        cur_room.number, sector_types[cur_room.sector_type], buf);
     send_to_char(buff, caster);
 
     bool found = false;
@@ -623,7 +645,7 @@ ASPELL(spell_divination)
             const room_data& exit_room = world[exit->to_room];
 
             found = true;
-            sprintf(buff, "%5s: to %s (#%d)\n\r", dirs[dir], exit_room.name, exit_room.number);
+            std::snprintf(buff, sizeof(buff), "%5s: to %s (#%d)\n\r", dirs[dir], exit_room.name, exit_room.number);
             if (exit->exit_info != 0) {
                 const char* keyword = exit->keyword ? exit->keyword : "";
                 const char* key_name = "None";
@@ -641,7 +663,9 @@ ASPELL(spell_divination)
                     }
                 }
 
-                sprintf(buff, "%s     door '%s', key '%s'.\n\r", buff, keyword, key_name);
+                length = strlen(buff);
+                std::snprintf(buff + length, sizeof(buff) - length, "     door '%s', key '%s'.\n\r",
+                    keyword, key_name);
             }
             send_to_char(buff, caster);
         }
@@ -650,15 +674,16 @@ ASPELL(spell_divination)
         send_to_char("None.\n\r", caster);
     }
 
-    sprintf(buff, "Living beings in the room:\n\r");
+    std::snprintf(buff, sizeof(buff), "Living beings in the room:\n\r");
+    length = strlen(buff);
     if (cur_room.people) {
         for (char_data* character = cur_room.people; character; character = character->next_in_room) {
             if (caster->player.level >= GET_INVIS_LEV(character)) {
-                strcat(buff, GET_NAME(character));
+                append_to_buff(GET_NAME(character));
                 if (character->next_in_room) {
-                    strcat(buff, ", ");
+                    append_to_buff(", ");
                 } else {
-                    strcat(buff, ".\n\r");
+                    append_to_buff(".\n\r");
                 }
             }
         }
@@ -668,14 +693,15 @@ ASPELL(spell_divination)
     }
 
     if (cur_room.contents) {
-        sprintf(buff, "Objects in the room:\n\r");
+        std::snprintf(buff, sizeof(buff), "Objects in the room:\n\r");
+        length = strlen(buff);
         for (obj_data* item = cur_room.contents; item; item = item->next_content) {
             if (CAN_SEE_OBJ(caster, item)) {
-                strcat(buff, item->short_description);
+                append_to_buff(item->short_description);
                 if (item->next_content) {
-                    strcat(buff, ", ");
+                    append_to_buff(", ");
                 } else {
-                    strcat(buff, ".\n\r");
+                    append_to_buff(".\n\r");
                 }
             }
         }
