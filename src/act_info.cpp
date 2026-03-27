@@ -3935,68 +3935,23 @@ void print_exploits(struct char_data* sendto, char* name)
     char str3[255];
     char str4[255];
     char str5[255];
-    char playerfname[255];
     int i, iTotalPk, iDeaths = 0, iNotes = 0;
     exploit_record exploitrec;
-    FILE* fp = NULL;
     // 1000 lines max of output.
     // that means max of 2000 kills/deaths. certainly enough for a while.
     char buf[80000];
-    char tname[50];
-    char* tmpchar;
     int iMobDeaths;
 
-    // convert name to lowercase
-    strcpy(tname, name);
-    for (tmpchar = tname; *tmpchar; tmpchar++)
-        *tmpchar = tolower(*tmpchar);
-
-    switch (tolower(*name)) {
-    case 'a':
-    case 'b':
-    case 'c':
-    case 'd':
-    case 'e':
-        sprintf(playerfname, "exploits/A-E/%s.exploits", tname);
-        break;
-    case 'f':
-    case 'g':
-    case 'h':
-    case 'i':
-    case 'j':
-        sprintf(playerfname, "exploits/F-J/%s.exploits", tname);
-        break;
-    case 'k':
-    case 'l':
-    case 'm':
-    case 'n':
-    case 'o':
-        sprintf(playerfname, "exploits/K-O/%s.exploits", tname);
-        break;
-    case 'p':
-    case 'q':
-    case 'r':
-    case 's':
-    case 't':
-        sprintf(playerfname, "exploits/P-T/%s.exploits", tname);
-        break;
-    case 'u':
-    case 'v':
-    case 'w':
-    case 'x':
-    case 'y':
-    case 'z':
-        sprintf(playerfname, "exploits/U-Z/%s.exploits", tname);
-        break;
-    default:
-        sprintf(playerfname, "exploits/ZZZ/%s.exploits", tname);
-        break;
+    std::vector<exploit_record> records;
+    std::string error_message;
+    if (!load_exploit_records_for_character(".", name, &records, &error_message)) {
+        snprintf(buf, sizeof(buf), "print_exploits: failed to load exploit history for %s: %s", name, error_message.c_str());
+        mudlog(buf, NRM, LEVEL_IMMORT, TRUE);
+        send_to_char("You have accomplished nothing worthy of note.\n\r", sendto);
+        return;
     }
 
-    // open trophy file
-    fp = fopen(playerfname, "r");
-    if (fp == NULL) {
-        // assume no exploit file exists
+    if (records.empty()) {
         send_to_char("You have accomplished nothing worthy of note.\n\r", sendto);
         return;
     }
@@ -4013,12 +3968,8 @@ void print_exploits(struct char_data* sendto, char* name)
     iTotalPk = 0;
 
     iMobDeaths = 0;
-    for (;;) {
-        // read an entry
-        exploitrec.type = 999;
-        fread(&exploitrec, sizeof(struct exploit_record), 1, fp);
-        if (feof(fp))
-            break;
+    for (const exploit_record& loaded_record : records) {
+        exploitrec = loaded_record;
 
         // this entry - date
         strcpy(str2, exploitrec.chtime + 4);
@@ -4102,8 +4053,6 @@ void print_exploits(struct char_data* sendto, char* name)
         // add to output buffer
         sprintf(buf, "%s%s\n\r", buf, str4);
     }
-
-    fclose(fp);
 
     if (iTotalPk == 1)
         sprintf(buf, "%s\n\rTotal: 1 pkill, ", buf);

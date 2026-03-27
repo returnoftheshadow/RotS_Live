@@ -3,10 +3,12 @@
 #include "platdef.h"
 #include <ctype.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "color.h"
 #include "comm.h"
@@ -25,10 +27,12 @@
 
 #include "big_brother.h"
 #include "char_utils.h"
+#include "account_management.h"
 #include "skill_timer.h"
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 /**************************************************************************
  *  declarations of most of the 'global' variables                         *
@@ -1702,8 +1706,17 @@ int set_exit_state(struct room_data* room, int dir, int newstate)
 
 #define KEY_LONG_STR(the_field, element, length)             \
     if (!strcmp(line, the_field)) {                          \
-        for (tmp1 = 0; *position != '~'; position++, tmp1++) \
+        for (tmp1 = 0; position < input_end && *position != '~' && tmp1 < (length - 1); position++, tmp1++) \
             element[tmp1] = *position;                       \
+        if (position >= input_end || *position != '~') {     \
+            sprintf(buf, "load_player_from_text: malformed long string for %s", name); \
+            log(buf);                                         \
+            return -1;                                        \
+        }                                                     \
+        element[tmp1] = '\0';                                \
+        position++;                                           \
+        while (position < input_end && (*position == '\r' || *position == '\n')) \
+            position++;                                       \
         break;                                               \
     }
 
@@ -1749,11 +1762,12 @@ int set_exit_state(struct room_data* room, int dir, int newstate)
         break;                                \
     }
 
-int load_player(char* name, struct char_file_u* char_element)
+int load_player_from_text(char* name, const char* player_text, struct char_file_u* char_element)
 {
-    int tmp, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, end, return_value, file_len;
-    char playerfname[100], line[100];
-    char *tmpchar, *value, *ctmp, *position, *pf = 0;
+    int tmp, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, end, return_value;
+    char line[100];
+    char *tmpchar, *value, *ctmp, *position;
+    const char* input_end = nullptr;
 
     memset((char*)char_element, 0, sizeof(struct char_file_u));
 
@@ -1773,17 +1787,12 @@ int load_player(char* name, struct char_file_u* char_element)
     }
 
     char_element->player_index = tmp;
-    sprintf(playerfname, "%s", (player_table + tmp)->ch_file);
-
-    file_to_string_alloc(playerfname, &pf);
-    file_len = strlen(pf);
-
-    if (!(pf)) {
-        sprintf(buf, "Couldn't find character file for %s in the player_table\n",
-            name);
+    if (player_text == nullptr) {
+        sprintf(buf, "Couldn't parse character file text for %s\n", name);
         log(buf);
         return -1;
     }
+    input_end = player_text + strlen(player_text);
 
     for (tmp1 = 0; tmp1 < MAX_AFFECT; tmp1++) {
         char_element->affected[tmp1].type = 0;
@@ -1797,15 +1806,30 @@ int load_player(char* name, struct char_file_u* char_element)
         char_element->skills[tmp1] = 0;
 
     end = FALSE;
-    position = pf;
+    position = const_cast<char*>(player_text);
     memset(char_element->description, 0, 512);
     while (end == FALSE) {
+        if (position >= input_end) {
+            sprintf(buf, "load_player_from_text: malformed player data for %s (unexpected end of input)", name);
+            log(buf);
+            return -1;
+        }
+
         /* clear line, then read off a line */
         memset(line, 0, 99);
-        for (tmpchar = position, tmp1 = 0; (*tmpchar != '\n') && (*tmpchar != '\0');
-             tmpchar++, tmp1++)
+        for (tmpchar = position, tmp1 = 0; tmpchar < input_end && (*tmpchar != '\n') && (*tmpchar != '\r') && (*tmpchar != '\0');
+             tmpchar++, tmp1++) {
+            if (tmp1 >= static_cast<int>(sizeof(line) - 1)) {
+                sprintf(buf, "load_player_from_text: malformed player data for %s (line too long)", name);
+                log(buf);
+                return -1;
+            }
             line[tmp1] = *tmpchar;
-        position = (position + tmp1 + 2);
+        }
+
+        position = tmpchar;
+        while (position < input_end && (*position == '\r' || *position == '\n'))
+            ++position;
 
         for (tmp1 = 0; tmp1 < (int)(MIN(12, strlen(line))); tmp1++)
             if (isspace(line[tmp1])) {
@@ -1985,9 +2009,41 @@ int load_player(char* name, struct char_file_u* char_element)
         }
     }
     decrypt_line((unsigned char*)char_element->pwd, MAX_PWD_LENGTH);
-    RELEASE(pf);
 
     return 1;
+}
+
+int load_player(char* name, struct char_file_u* char_element)
+{
+    int tmp;
+    char playerfname[100];
+    char* pf = 0;
+
+    for (tmp = 0; name[tmp]; ++tmp)
+        name[tmp] = tolower(name[tmp]);
+
+    for (tmp = 0; tmp <= top_of_p_table; tmp++)
+        if (!str_cmp((player_table + tmp)->name, name))
+            break;
+
+    if (tmp > top_of_p_table) {
+        sprintf(buf, "load_player: player %s not in player_table", name);
+        log(buf);
+        return -1;
+    }
+
+    sprintf(playerfname, "%s", (player_table + tmp)->ch_file);
+    file_to_string_alloc(playerfname, &pf);
+    if (!(pf)) {
+        sprintf(buf, "Couldn't find character file for %s in the player_table\n",
+            name);
+        log(buf);
+        return -1;
+    }
+
+    const int result = load_player_from_text(name, pf, char_element);
+    RELEASE(pf);
+    return result;
 }
 
 int find_name(char* name);
@@ -2002,6 +2058,22 @@ int load_char(char* name, struct char_file_u* char_element)
         return -1;
 
     ret = load_player(name, char_element);
+
+    if (ret >= 0)
+        convert_old_colormask(char_element);
+
+    return ret;
+}
+
+int load_char_from_text(char* name, const char* player_text, struct char_file_u* char_element)
+{
+    int ret;
+    extern void convert_old_colormask(struct char_file_u*);
+
+    if (*name == '\0')
+        return -1;
+
+    ret = load_player_from_text(name, player_text, char_element);
 
     if (ret >= 0)
         convert_old_colormask(char_element);
@@ -2540,6 +2612,13 @@ void save_char(struct char_data* ch, int load_room, int notify_char)
     (player_table + tmp)->race = ch->player.race;
 
     save_player(ch, load_room, tmp); // New save into individual files
+
+    std::string migration_error;
+    if (!account::refresh_linked_character_snapshot(".", GET_NAME(ch), time(0), nullptr, &migration_error) && !migration_error.empty()) {
+        sprintf(buf, "save_char: failed to refresh account snapshot for %s: %s",
+            GET_NAME(ch), migration_error.c_str());
+        log(buf);
+    }
 }
 
 /************************************************************************
@@ -3506,101 +3585,190 @@ room_data& room_data::operator[](int i)
 
 void write_exploits(char_data* ch, exploit_record* record)
 {
-    char tempfname[255];
-    FILE* exploit_file = NULL;
-    FILE* exploit_player_file = NULL;
-    exploit_record temprec;
-    char playerfname[100];
-    char temp[255];
-    char name[255];
-    char* tmpchar;
-    // Open a temp file for this record
-    sprintf(tempfname, "%s", "exploits/tempfile");
-    exploit_file = fopen(tempfname, "w");
-    if (exploit_file != NULL) {
-        fwrite(record, sizeof(struct exploit_record), 1, exploit_file);
-    } else {
-        mudlog("**ERROR: Could not open temp exploit file for writing.", NRM,
-            LEVEL_IMMORT, TRUE);
-        return;
+    std::string error_message;
+    if (!write_exploit_record_for_character(".", GET_NAME(ch), *record, &error_message)) {
+        snprintf(buf, sizeof(buf), "**ERROR: Could not persist exploit file for character: %s", error_message.c_str());
+        mudlog(buf, NRM, LEVEL_IMMORT, TRUE);
     }
-    strcpy(name, GET_NAME(ch));
-    for (tmpchar = name; *tmpchar; tmpchar++)
-        *tmpchar = tolower(*tmpchar);
+}
 
-    // determine name of player's main trophy file
-    switch (tolower(*name)) {
-    case 'a':
-    case 'b':
-    case 'c':
-    case 'd':
-    case 'e':
-        sprintf(playerfname, "exploits/A-E/%s.exploits", name);
-        break;
-    case 'f':
-    case 'g':
-    case 'h':
-    case 'i':
-    case 'j':
-        sprintf(playerfname, "exploits/F-J/%s.exploits", name);
-        break;
-    case 'k':
-    case 'l':
-    case 'm':
-    case 'n':
-    case 'o':
-        sprintf(playerfname, "exploits/K-O/%s.exploits", name);
-        break;
-    case 'p':
-    case 'q':
-    case 'r':
-    case 's':
-    case 't':
-        sprintf(playerfname, "exploits/P-T/%s.exploits", name);
-        break;
-    case 'u':
-    case 'v':
-    case 'w':
-    case 'x':
-    case 'y':
-    case 'z':
-        sprintf(playerfname, "exploits/U-Z/%s.exploits", name);
-        break;
-    default:
-        sprintf(playerfname, "exploits/ZZZ/%s.exploits", name);
-        break;
-    } // switch
+namespace {
 
-    // open this chars main exploit file
-    exploit_player_file = fopen(playerfname, "r");
+    void set_db_error(std::string* error_message, const std::string& message)
+    {
+        if (error_message)
+            *error_message = message;
+    }
 
-    // if this is their first kill, ok, a file will be created.
-    if (exploit_player_file == NULL) {
-        mudlog("Could not open exploit file for character: creating new one", NRM,
-            LEVEL_IMMORT, TRUE);
-    } else {
-
-        // concat all of the previous entries for this char to end of this file
-        // this is to ensure newest entries are at top of file
-
-        for (;;) {
-            // read an entry from player file
-            fread(&temprec, sizeof(struct exploit_record), 1, exploit_player_file);
-            if (feof(exploit_player_file))
-                break;
-            // write the entry to temp file
-            fwrite(&temprec, sizeof(exploit_record), 1, exploit_file);
+    bool read_binary_file_contents(const std::string& path, std::string* contents, std::string* error_message)
+    {
+        if (contents == nullptr) {
+            set_db_error(error_message, "Output buffer must not be null.");
+            return false;
         }
-        fclose(exploit_player_file);
-    } // more than one entry
 
-    // close the temp file. this temp file contains entire trophy
-    fclose(exploit_file);
+        FILE* file = std::fopen(path.c_str(), "rb");
+        if (file == nullptr) {
+            set_db_error(error_message, "Failed to open file '" + path + "': " + std::string(strerror(errno)));
+            return false;
+        }
 
-    // mv the temp file to the new one
-    sprintf(temp, "cp %s %s", tempfname, playerfname);
-    system(temp);
-    return;
+        contents->clear();
+        char buffer[1024];
+        while (true) {
+            const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+            if (bytes_read > 0)
+                contents->append(buffer, bytes_read);
+
+            if (bytes_read < sizeof(buffer)) {
+                if (std::ferror(file)) {
+                    std::fclose(file);
+                    set_db_error(error_message, "Failed to read file '" + path + "'.");
+                    return false;
+                }
+                break;
+            }
+        }
+
+        std::fclose(file);
+        set_db_error(error_message, "");
+        return true;
+    }
+
+    bool load_exploit_history_bytes(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message)
+    {
+        if (bytes == nullptr) {
+            set_db_error(error_message, "Exploit history output buffer must not be null.");
+            return false;
+        }
+
+        const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
+        FILE* runtime_file = std::fopen(runtime_path.c_str(), "rb");
+        if (runtime_file != nullptr) {
+            std::fclose(runtime_file);
+            if (!read_binary_file_contents(runtime_path, bytes, error_message))
+                return false;
+
+            if (bytes->size() % sizeof(exploit_record) == 0) {
+                set_db_error(error_message, "");
+                return true;
+            }
+
+            if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
+                set_db_error(error_message, "Failed to remove malformed exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
+                return false;
+            }
+        } else if (errno != ENOENT) {
+            set_db_error(error_message, "Failed to open exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
+            return false;
+        }
+
+        std::string owner_account_name;
+        if (!account::find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
+            return false;
+
+        if (owner_account_name.empty()) {
+            bytes->clear();
+            set_db_error(error_message, "");
+            return true;
+        }
+
+        account::CharacterMigrationData migration;
+        if (!account::ensure_character_migration(root_directory, owner_account_name, character_name, time(0), &migration, error_message))
+            return false;
+
+        if (!migration.exploits_file.present) {
+            bytes->clear();
+            set_db_error(error_message, "");
+            return true;
+        }
+
+        return account::decode_snapshot_content(migration.exploits_file, bytes, error_message);
+    }
+
+    FILE* open_secure_temp_output_file(const std::string& path, std::string* error_message)
+    {
+        const int file_descriptor = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+        if (file_descriptor < 0) {
+            set_db_error(error_message, "Failed to open temporary exploit file '" + path + "': " + std::string(strerror(errno)));
+            return nullptr;
+        }
+
+        FILE* file = fdopen(file_descriptor, "wb");
+        if (file == nullptr) {
+            close(file_descriptor);
+            std::remove(path.c_str());
+            set_db_error(error_message, "Failed to create stream for temporary exploit file '" + path + "'.");
+            return nullptr;
+        }
+
+        set_db_error(error_message, "");
+        return file;
+    }
+
+} // namespace
+
+bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message)
+{
+    if (records == nullptr) {
+        set_db_error(error_message, "Exploit record output vector must not be null.");
+        return false;
+    }
+
+    std::string bytes;
+    if (!load_exploit_history_bytes(root_directory, character_name, &bytes, error_message))
+        return false;
+
+    if (bytes.size() % sizeof(exploit_record) != 0) {
+        set_db_error(error_message, "Exploit history for '" + character_name + "' is malformed.");
+        return false;
+    }
+
+    records->clear();
+    records->reserve(bytes.size() / sizeof(exploit_record));
+    for (size_t offset = 0; offset < bytes.size(); offset += sizeof(exploit_record)) {
+        exploit_record loaded_record {};
+        memcpy(&loaded_record, bytes.data() + offset, sizeof(exploit_record));
+        records->push_back(loaded_record);
+    }
+
+    set_db_error(error_message, "");
+    return true;
+}
+
+bool write_exploit_record_for_character(const std::string& root_directory, const std::string& character_name, const exploit_record& record, std::string* error_message)
+{
+    std::string existing_history_bytes;
+    if (!load_exploit_history_bytes(root_directory, character_name, &existing_history_bytes, error_message))
+        return false;
+
+    const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
+    const std::string temp_path = runtime_path + ".tmp";
+
+    FILE* file = open_secure_temp_output_file(temp_path, error_message);
+    if (file == nullptr)
+        return false;
+
+    const size_t record_count = std::fwrite(&record, sizeof(exploit_record), 1, file);
+    const size_t bytes_written = existing_history_bytes.empty()
+        ? 0
+        : std::fwrite(existing_history_bytes.data(), sizeof(char), existing_history_bytes.size(), file);
+    const int close_result = std::fclose(file);
+
+    if (record_count != 1 || bytes_written != existing_history_bytes.size() || close_result != 0) {
+        std::remove(temp_path.c_str());
+        set_db_error(error_message, "Failed to write temporary exploit file '" + temp_path + "'.");
+        return false;
+    }
+
+    if (std::rename(temp_path.c_str(), runtime_path.c_str()) != 0) {
+        std::remove(temp_path.c_str());
+        set_db_error(error_message, "Failed to move temporary exploit file into place: " + std::string(strerror(errno)));
+        return false;
+    }
+
+    set_db_error(error_message, "");
+    return true;
 }
 
 void add_exploit_record(int recordtype, char_data* victim, int iIntParam,

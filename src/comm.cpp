@@ -133,6 +133,34 @@ void replace_aliases(char_data* ch, char* line);
 
 // int gethostname(char *, int);
 
+namespace {
+
+bool is_secret_input_state(int connection_state)
+{
+    switch (connection_state) {
+    case CON_PWDNRM:
+    case CON_PWDGET:
+    case CON_PWDCNF:
+    case CON_PWDNQO:
+    case CON_PWDNEW:
+    case CON_PWDNCNF:
+    case CON_ACCTPWD:
+    case CON_ACCTLINKPWD:
+    case CON_ACCTNEWPWD:
+    case CON_ACCTNEWPWDCNF:
+    case CON_ACCTRESETOLD:
+    case CON_ACCTRESETNEW:
+    case CON_ACCTRESETCNF:
+    case CON_ACCTLEGPWD:
+    case CON_ACCTVERIFY:
+        return true;
+    default:
+        return false;
+    }
+}
+
+} // namespace
+
 ACMD(do_cast);
 SPECIAL(intelligent);
 char* wait_wheel[8] = { "\r|\r", "\r\\\r", "\r-\r", "\r/\r", "\r|\r", "\r\\\r", "\r-\r", "\r/\r" };
@@ -1247,6 +1275,10 @@ SocketType pnew_descriptor(SocketType s)
     pnewd->descriptor = desc;
     pnewd->connected = CON_NME;
     pnewd->bad_pws = 0;
+    *pnewd->account_name = '\0';
+    *pnewd->account_email = '\0';
+    *pnewd->account_password = '\0';
+    *pnewd->account_character_name = '\0';
     pnewd->pos = -1;
     //   pnewd->wait = 1;
     pnewd->prompt_mode = 0;
@@ -1280,7 +1312,7 @@ SocketType pnew_descriptor(SocketType s)
     descriptor_list = pnewd;
 
     SEND_TO_Q(GREETINGS, pnewd);
-    SEND_TO_Q("By what name do you wish to be known? ", pnewd);
+    SEND_TO_Q("Account email: ", pnewd);
 
     return (1);
 }
@@ -1587,7 +1619,7 @@ int process_input(struct descriptor_data* t)
             if (!failed_subst)
                 write_to_q(tmp, &t->input);
 
-            if (t->snoop.snoop_by) {
+            if (t->snoop.snoop_by && !is_secret_input_state(t->connected)) {
                 SEND_TO_Q("% ", t->snoop.snoop_by->desc);
                 SEND_TO_Q(tmp, t->snoop.snoop_by->desc);
                 SEND_TO_Q("\n\r", t->snoop.snoop_by->desc);

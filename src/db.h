@@ -12,6 +12,8 @@
 #define DB_H
 
 #include <stdio.h> /* For the FILE structure */
+#include <string>
+#include <vector>
 
 #include "interpre.h" /* For the SPECIAL macro */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
@@ -101,6 +103,7 @@ void boot_db(void);
 void char_to_store(struct char_data*, struct char_file_u*);
 void store_to_char(struct char_file_u*, struct char_data*);
 int load_char(char*, struct char_file_u*);
+int load_char_from_text(char*, const char*, struct char_file_u*);
 void save_char(struct char_data*, int, int);
 int create_entry(char*);
 void init_char(struct char_data*);
@@ -125,6 +128,7 @@ void delete_character_file(struct char_data*);
 void move_char_deleted(int);
 int get_char_directory(char*, char*);
 int load_player(char*, struct char_file_u*);
+int load_player_from_text(char*, const char*, struct char_file_u*);
 
 // Implemented in consts.cc
 
@@ -220,6 +224,8 @@ struct exploit_record {
     int iKillerLevel; /* at time of kill */
     int iIntParam; /* reserved */
 };
+bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message = nullptr);
+bool write_exploit_record_for_character(const std::string& root_directory, const std::string& character_name, const exploit_record& record, std::string* error_message = nullptr);
 
 struct social_messg {
     int hide;

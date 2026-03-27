@@ -18,13 +18,15 @@ PROFILE = -g -rdynamic
 #remove the has mark below if compiling under IRIX
 #LIBS = -lmalloc
 
+LIBS += -lcrypt
+
 #############################################################################
 
 CFLAGS = $(MYFLAGS) $(PROFILE) $(OSFLAGS)
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
-	comm.o config.o consts.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o \
+	comm.o config.o consts.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
 	pkill.o profs.o protocol.o ranger.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
@@ -41,6 +43,9 @@ clean:
 	rm -f *.o
 
 # Dependencies for the main mud
+
+account_management.o : account_management.cpp account_management.h
+	$(CC) -c $(CFLAGS) account_management.cpp
 
 clock.o : clock.cpp clock.h
 	$(CC) -c $(CFLAGS) clock.cpp
@@ -216,6 +221,12 @@ setup:
 		../lib/players/P-T \
 		../lib/players/U-Z \
 		../lib/players/ZZZ \
+		../lib/accounts/A-E \
+		../lib/accounts/F-J \
+		../lib/accounts/K-O \
+		../lib/accounts/P-T \
+		../lib/accounts/U-Z \
+		../lib/accounts/ZZZ \
 		../lib/plrobjs/A-E \
 		../lib/plrobjs/F-J \
 		../lib/plrobjs/K-O \

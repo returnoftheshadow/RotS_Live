@@ -34,6 +34,7 @@ set(ROTS_SERVER_SOURCES
     act_othe.cpp
     act_soci.cpp
     act_wiz.cpp
+    account_management.cpp
     ban.cpp
     battle_mage_handler.cpp
     big_brother.cpp
@@ -94,9 +95,11 @@ set(ROTS_SERVER_SOURCES
 
 set(ROTS_TEST_SOURCES
     tests/battle_mage_handler_tests.cpp
+    tests/account_management_tests.cpp
     tests/CharPlayerDataBuilder.cpp
     tests/char_utils_tests.cpp
     tests/damage_tests.cpp
+    tests/db_loader_tests.cpp
     tests/fight_proc_tests.cpp
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
@@ -122,6 +125,7 @@ target_link_options(ageland PRIVATE -m32 -g -rdynamic)
 set_target_properties(ageland PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${BIN_DIR}"
 )
+target_link_libraries(ageland PRIVATE crypt)
 
 find_package(GTest REQUIRED)
 include(GoogleTest)
@@ -137,6 +141,7 @@ target_compile_options(ageland_tests PRIVATE
     -Wextra
 )
 target_link_libraries(ageland_tests PRIVATE GTest::gtest)
+target_link_libraries(ageland_tests PRIVATE crypt)
 target_link_options(ageland_tests PRIVATE
     -Wl,--wrap=_Z6numberv
     -Wl,--wrap=_Z6numberii
@@ -164,6 +169,12 @@ add_custom_target(setup
         "${LIB_DIR}/players/P-T"
         "${LIB_DIR}/players/U-Z"
         "${LIB_DIR}/players/ZZZ"
+        "${LIB_DIR}/accounts/A-E"
+        "${LIB_DIR}/accounts/F-J"
+        "${LIB_DIR}/accounts/K-O"
+        "${LIB_DIR}/accounts/P-T"
+        "${LIB_DIR}/accounts/U-Z"
+        "${LIB_DIR}/accounts/ZZZ"
         "${LIB_DIR}/plrobjs/A-E"
         "${LIB_DIR}/plrobjs/F-J"
         "${LIB_DIR}/plrobjs/K-O"

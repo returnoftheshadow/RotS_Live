@@ -100,6 +100,7 @@ char* GREETINGS = "\n\r"
                   "           Tom Madsen, Michael Seifert, and Sebastian Hammer\n\r"
                   "       Currently maintained by Maga, Lowtheim, Drelidan, and others\n\r\n\r"
                   "                       Webpage: http://www.rotsmud.org\n\r"
+                  "          Log in with your account email address at the prompt.\n\r"
                   "\n\r";
 
 char* WELC_MESSG = "\n\r"

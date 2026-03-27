@@ -8,6 +8,13 @@
 - proxy/: Rust workspace member (`cargo` crate) for proxy/CLI utilities.
 - release-notes/, game design docs/, code documentation/: Docs and release history.
 
+## Planning Workflow
+- Before starting feature work, always read `FEATURES.md` and `WIP.md` if they exist.
+- Treat `FEATURES.md` as the current feature scope, breakdown, and implementation checklist.
+- Treat `WIP.md` as the current execution log and update it during feature work with the current task, recent progress, and next step.
+- If feature scope changes during discussion, update `FEATURES.md` before implementing.
+- If active work changes during implementation, update `WIP.md` before continuing.
+
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
 - Bootstrap data: `make setup` — creates required runtime directories/files under `lib/`, `log/`, and `bin/`.

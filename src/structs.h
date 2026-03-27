@@ -75,6 +75,7 @@ const int constexpr MAX_RACE_NAME_LENGTH = 14;
 const int constexpr MIN_NAME_LENGTH = 3;
 const int constexpr MAX_NAME_LENGTH = 12;
 const int constexpr MAX_PWD_LENGTH = 10; /* Used in char_file_u *DO*NOT*CHANGE* */
+const int constexpr MAX_ACCOUNT_PASSWORD_LENGTH = 255;
 const int constexpr HOST_LEN = 30; /* Used in char_file_u *DO*NOT*CHANGE* */
 const int constexpr MAX_MAXBOARD = 22; /* the max number of boards ever -  */
 /*   used in objsave                */
@@ -1978,6 +1979,20 @@ struct txt_q {
 #define CON_LINKLS 23
 #define CON_LATIN 24
 #define CON_COLOR 25
+#define CON_ACCTPWD 26
+#define CON_ACCTSLCT 27
+#define CON_ACCTLINKPWD 28
+#define CON_ACCTNEWCNF 29
+#define CON_ACCTNEWPWD 30
+#define CON_ACCTNEWPWDCNF 31
+#define CON_ACCTMENU 32
+#define CON_ACCTLINKNAME 33
+#define CON_ACCTRESETOLD 34
+#define CON_ACCTRESETNEW 35
+#define CON_ACCTRESETCNF 36
+#define CON_ACCTNEWCHAR 37
+#define CON_ACCTLEGPWD 38
+#define CON_ACCTVERIFY 39
 
 /* modes for flags */
 #define DFLAG_IS_SPAMMING 1
@@ -1996,6 +2011,10 @@ struct descriptor_data {
     char* name; /* ptr to name for mail system		*/
     char host[50]; /* hostname				*/
     char pwd[MAX_PWD_LENGTH + 1]; /* password			*/
+    char account_name[MAX_INPUT_LENGTH]; /* authenticated account login */
+    char account_email[MAX_INPUT_LENGTH]; /* authenticated account email */
+    char account_password[MAX_ACCOUNT_PASSWORD_LENGTH + 1]; /* transient account password */
+    char account_character_name[MAX_INPUT_LENGTH]; /* pending account character action */
     int bad_pws; /* number of bad pw attemps this login	*/
     int pos; /* position in player-file		*/
     int connected; /* mode of 'connectedness'		*/

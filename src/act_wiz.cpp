@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "account_management.h"
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
@@ -109,6 +110,7 @@ void show_room_affection(char* str, affected_type* aff, int mode);
 void print_exploits(char_data* sendto, char* name);
 
 ACMD(do_look);
+ACMD(do_account);
 int Check_zone_authority(int zonenum, char_data* ch);
 
 ACMD(do_emote)
@@ -3151,6 +3153,140 @@ ACMD(do_delete)
     Crash_delete_file(player_table[char_index].name);
     delete_exploits_file(player_table[char_index].name);
     move_char_deleted(char_index);
+}
+
+ACMD(do_account)
+{
+    char subcommand[MAX_INPUT_LENGTH];
+    char account_name[MAX_INPUT_LENGTH];
+    char value[MAX_INPUT_LENGTH];
+
+    half_chop(argument, subcommand, buf);
+    half_chop(buf, account_name, value);
+
+    if (!*subcommand) {
+        send_to_char("Usage: account <show|verify|unverify|block|unblock|passwd|addchar|migratechar> <account> [value]\n\r", ch);
+        return;
+    }
+
+    if (!*account_name) {
+        send_to_char("You must specify an account name.\n\r", ch);
+        return;
+    }
+
+    const std::string root_directory = ".";
+    std::string error_message;
+    account::AccountData account_data;
+
+    if (!str_cmp(subcommand, "show")) {
+        if (!account::read_account_file(root_directory, account_name, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        send_to_char(account::format_account_summary(account_data).c_str(), ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "block")) {
+        if (!*value) {
+            send_to_char("Usage: account block <account> <reason>\n\r", ch);
+            return;
+        }
+
+        if (!account::admin_block_account(root_directory, account_name, GET_NAME(ch), value, time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s blocked account %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account blocked.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "verify")) {
+        if (!account::admin_verify_email(root_directory, account_name, GET_NAME(ch), time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s verified account email for %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account email verified.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "unverify")) {
+        if (!account::admin_unverify_email(root_directory, account_name, time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s removed email verification for %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account email marked unverified.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "unblock")) {
+        if (!account::admin_unblock_account(root_directory, account_name, time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s unblocked account %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account unblocked.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "passwd")) {
+        if (!*value) {
+            send_to_char("Usage: account passwd <account> <new-password>\n\r", ch);
+            return;
+        }
+
+        if (!account::admin_reset_password(root_directory, account_name, value, GET_NAME(ch), time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s reset account password for %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account password reset.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "addchar")) {
+        if (!*value) {
+            send_to_char("Usage: account addchar <account> <character>\n\r", ch);
+            return;
+        }
+
+        if (!account::admin_link_character(root_directory, account_name, value, time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s linked character %s to account %s", GET_NAME(ch), value, account_data.account_name.c_str());
+        send_to_char("Character linked to account.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "migratechar")) {
+        account::CharacterMigrationData migration;
+        if (!*value) {
+            send_to_char("Usage: account migratechar <account> <character>\n\r", ch);
+            return;
+        }
+
+        if (!account::admin_link_and_migrate_character(root_directory, account_name, value, time(0), &account_data, &migration, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s migrated character %s into account %s", GET_NAME(ch), value, account_data.account_name.c_str());
+        send_to_char("Character migrated into account storage.\n\r", ch);
+        return;
+    }
+
+    send_to_char("Unknown account subcommand.\n\r", ch);
 }
 
 extern int top_of_world;
