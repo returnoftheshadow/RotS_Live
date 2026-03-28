@@ -1,22 +1,21 @@
 #include "../spells.h"
 #include "../utils.h"
-#include "../warrior_spec_handlers.h"
 #include "test_random_utils.h"
 #include <algorithm>
 #include <gtest/gtest.h>
 
-int get_mage_caster_level(const char_data* caster);
-int get_magic_power(const char_data* caster);
-bool should_apply_spell_penetration(const char_data* caster);
-double get_spell_pen_value(const char_data* caster);
-double get_victim_saving_throw(const char_data* caster, const char_data* victim);
+int get_mage_caster_level(const char_data *caster);
+int get_magic_power(const char_data *caster);
+bool should_apply_spell_penetration(const char_data *caster);
+double get_spell_pen_value(const char_data *caster);
+double get_victim_saving_throw(const char_data *caster, const char_data *victim);
 bool different_zone(int was_in, int to_room);
 int random_exit(int room);
-bool is_teleportation_room_valid(room_data* room);
-int get_save_bonus(const char_data& caster, const char_data& victim, game_types::player_specs primary_spec,
-    game_types::player_specs opposing_spec);
-bool is_friendly_taget(const char_data* caster, const char_data* victim);
-void apply_chilled_effect(char_data* caster, char_data* victim);
+bool is_teleportation_room_valid(room_data *room);
+int get_save_bonus(const char_data &caster, const char_data &victim,
+                   game_types::player_specs primary_spec, game_types::player_specs opposing_spec);
+bool is_friendly_taget(const char_data *caster, const char_data *victim);
+void apply_chilled_effect(char_data *caster, char_data *victim);
 
 struct loclife_coord {
     int number;
@@ -25,15 +24,14 @@ struct loclife_coord {
     signed char u;
 };
 
-int loclife_add_rooms(loclife_coord room, loclife_coord* roomlist, int* roomnum, int room_not);
+int loclife_add_rooms(loclife_coord room, loclife_coord *roomlist, int *roomnum, int room_not);
 
 extern room_data world;
 extern int top_of_world;
 
 namespace {
 
-void ensure_test_world(int minimum_room_number)
-{
+void ensure_test_world(int minimum_room_number) {
     if (!room_data::BASE_WORLD) {
         world.create_bulk(minimum_room_number + 2);
         top_of_world = minimum_room_number + 1;
@@ -49,18 +47,13 @@ struct ZoneGuard {
     int original_zone_b;
 
     ZoneGuard(int first_room, int second_room)
-        : room_a(first_room)
-        , room_b(second_room)
-        , original_zone_a(0)
-        , original_zone_b(0)
-    {
+        : room_a(first_room), room_b(second_room), original_zone_a(0), original_zone_b(0) {
         ensure_test_world(std::max(first_room, second_room));
         original_zone_a = world[first_room].zone;
         original_zone_b = world[second_room].zone;
     }
 
-    ~ZoneGuard()
-    {
+    ~ZoneGuard() {
         world[room_a].zone = original_zone_a;
         world[room_b].zone = original_zone_b;
     }
@@ -68,15 +61,12 @@ struct ZoneGuard {
 
 struct RoomExitGuard {
     int room_number;
-    room_direction_data* original_exits[NUM_OF_DIRS]{};
+    room_direction_data *original_exits[NUM_OF_DIRS]{};
     long original_room_flags = 0;
-    char_data* original_people = nullptr;
+    char_data *original_people = nullptr;
 
     explicit RoomExitGuard(int room)
-        : room_number(room)
-        , original_room_flags(0)
-        , original_people(nullptr)
-    {
+        : room_number(room), original_room_flags(0), original_people(nullptr) {
         ensure_test_world(room);
         original_room_flags = world[room].room_flags;
         original_people = world[room].people;
@@ -85,8 +75,7 @@ struct RoomExitGuard {
         }
     }
 
-    ~RoomExitGuard()
-    {
+    ~RoomExitGuard() {
         for (int i = 0; i < NUM_OF_DIRS; ++i) {
             world[room_number].dir_option[i] = original_exits[i];
         }
@@ -106,8 +95,7 @@ struct MageTestContext {
     char victim_short_descr[16] = "test_target";
     char master_name[16] = "test_master";
 
-    MageTestContext()
-    {
+    MageTestContext() {
         caster.profs = &caster_profs;
         victim.profs = &victim_profs;
         master.profs = &master_profs;
@@ -138,8 +126,7 @@ struct MageTestContext {
         victim.in_room = 7;
     }
 
-    void prepare_for_spell_damage()
-    {
+    void prepare_for_spell_damage() {
         victim.specials2.act = MOB_ISNPC;
         victim.player.level = 0;
         victim.tmpabilities.intel = 8;
@@ -150,8 +137,7 @@ struct MageTestContext {
         victim.specials.fighting = nullptr;
     }
 
-    void force_spell_save()
-    {
+    void force_spell_save() {
         victim.specials2.act = MOB_ISNPC;
         victim.player.level = 90;
         victim.tmpabilities.intel = 25;
@@ -163,8 +149,7 @@ struct MageTestContext {
     }
 };
 
-loclife_coord* find_loclife_room(loclife_coord* roomlist, int roomnum, int target_room)
-{
+loclife_coord *find_loclife_room(loclife_coord *roomlist, int roomnum, int target_room) {
     for (int i = 0; i < roomnum; ++i) {
         if (roomlist[i].number == target_room) {
             return &roomlist[i];
@@ -177,15 +162,9 @@ loclife_coord* find_loclife_room(loclife_coord* roomlist, int roomnum, int targe
 
 class MageProcTest : public ::testing::Test {
   protected:
-    void SetUp() override
-    {
-        ensure_test_world(32);
-    }
+    void SetUp() override { ensure_test_world(32); }
 
-    void TearDown() override
-    {
-        clear_test_random_values();
-    }
+    void TearDown() override { clear_test_random_values(); }
 };
 
 TEST_F(MageProcTest, MageCasterLevelUsesCurrentIntelRoundingPath) {
@@ -213,7 +192,8 @@ TEST_F(MageProcTest, MagicPowerUsesBattleMageBonusLevelModifierAndIntelRounding)
     push_test_random_value(0.0);
     push_test_random_value(0.0);
     EXPECT_EQ(get_magic_power(&context.caster), 124)
-        << "Expected magic power to combine mage level, battle-mage bonus, level modifier, and the current low-roll intel contribution.";
+        << "Expected magic power to combine mage level, battle-mage bonus, level modifier, and the "
+           "current low-roll intel contribution.";
 
     push_test_random_value(0.99);
     push_test_random_value(0.99);
@@ -266,7 +246,8 @@ TEST(MageHelpers, SpellPenValueUsesCasterAndMasterMageLevelsForCharmedNpcs) {
     context.master_profs.prof_level[PROF_MAGE] = 15;
 
     EXPECT_DOUBLE_EQ(get_spell_pen_value(&context.caster), 5.0)
-        << "Expected charmed NPC spell penetration to include one third of the master's mage level.";
+        << "Expected charmed NPC spell penetration to include one third of the master's mage "
+           "level.";
 }
 
 TEST(MageHelpers, VictimSavingThrowUsesSpellPenetrationAndPlayerLevelAdjustment) {
@@ -276,11 +257,13 @@ TEST(MageHelpers, VictimSavingThrowUsesSpellPenetrationAndPlayerLevelAdjustment)
     context.victim.player.level = 25;
 
     EXPECT_DOUBLE_EQ(get_victim_saving_throw(&context.caster, &context.victim), 11.0)
-        << "Expected player victims to offset spell penetration with the current level-based saving-throw adjustment.";
+        << "Expected player victims to offset spell penetration with the current level-based "
+           "saving-throw adjustment.";
 
     context.caster.specials2.act = MOB_ISNPC;
     EXPECT_DOUBLE_EQ(get_victim_saving_throw(&context.caster, &context.victim), 10.0)
-        << "Expected NPC casters without spell penetration eligibility to leave the victim saving throw unchanged.";
+        << "Expected NPC casters without spell penetration eligibility to leave the victim saving "
+           "throw unchanged.";
 }
 
 TEST(MageHelpers, DifferentZoneReflectsCurrentWorldZoneNumbers) {
@@ -313,8 +296,8 @@ TEST_F(MageProcTest, RandomExitFallsBackToSameRoomWhenNoBlinkableExitsExist) {
     world[7].dir_option[NORTH] = &blocked_exit;
     world[8].room_flags = 0;
 
-    EXPECT_EQ(random_exit(7), 7)
-        << "Expected random_exit to leave the caster in place when every exit is excluded from blinking.";
+    EXPECT_EQ(random_exit(7), 7) << "Expected random_exit to leave the caster in place when every "
+                                    "exit is excluded from blinking.";
 }
 
 TEST_F(MageProcTest, RandomExitChoosesAmongEligibleExitsUsingQueuedRandomRolls) {
@@ -375,7 +358,8 @@ TEST(MageHelpers, TeleportationRoomValidationAcceptsEmptyOrdinaryRooms) {
     test_room.people = nullptr;
 
     EXPECT_TRUE(is_teleportation_room_valid(&test_room))
-        << "Expected empty rooms without teleport restrictions to be valid teleportation destinations.";
+        << "Expected empty rooms without teleport restrictions to be valid teleportation "
+           "destinations.";
 }
 
 TEST(MageHelpers, SaveBonusUsesCasterAndVictimSpecializationMatchups) {
@@ -384,20 +368,25 @@ TEST(MageHelpers, SaveBonusUsesCasterAndVictimSpecializationMatchups) {
     context.victim_profs.specialization = static_cast<int>(game_types::PS_Cold);
 
     EXPECT_EQ(
-        get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold), -4)
-        << "Expected matching caster specialization and opposing victim specialization to stack the current save-bonus reductions.";
+        get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold),
+        -4)
+        << "Expected matching caster specialization and opposing victim specialization to stack "
+           "the current save-bonus reductions.";
 
     context.caster_profs.specialization = static_cast<int>(game_types::PS_Cold);
     context.victim_profs.specialization = static_cast<int>(game_types::PS_Fire);
     EXPECT_EQ(
         get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold), 4)
-        << "Expected opposing caster specialization and matching victim specialization to stack the current save-bonus increases.";
+        << "Expected opposing caster specialization and matching victim specialization to stack "
+           "the current save-bonus increases.";
 
     context.caster_profs.specialization = static_cast<int>(game_types::PS_Arcane);
     context.victim_profs.specialization = static_cast<int>(game_types::PS_Arcane);
     EXPECT_EQ(
-        get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold), -4)
-        << "Expected arcane specialization to count as primary for the caster and opposing for the victim in the current implementation.";
+        get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold),
+        -4)
+        << "Expected arcane specialization to count as primary for the caster and opposing for the "
+           "victim in the current implementation.";
 }
 
 TEST(MageHelpers, FriendlyTargetTreatsSelfFollowersAndSameSideCharactersAsFriendly) {
@@ -425,7 +414,8 @@ TEST(MageHelpers, ChilledEffectUsesVictimEnergyAndTracksColdSpecDrain) {
     apply_chilled_effect(&context.caster, &context.victim);
 
     EXPECT_EQ(context.victim.specials.ENERGY, 48)
-        << "Expected chilled effect to remove half the victim's energy plus four rounds of current energy regeneration.";
+        << "Expected chilled effect to remove half the victim's energy plus four rounds of current "
+           "energy regeneration.";
 
     context.caster_profs.specialization = static_cast<int>(game_types::PS_Cold);
     context.caster.extra_specialization_data.set(context.caster);
@@ -433,10 +423,12 @@ TEST(MageHelpers, ChilledEffectUsesVictimEnergyAndTracksColdSpecDrain) {
 
     apply_chilled_effect(&context.caster, &context.victim);
 
-    auto* cold_data = static_cast<cold_spec_data*>(context.caster.extra_specialization_data.current_spec_info);
+    auto *cold_data =
+        static_cast<cold_spec_data *>(context.caster.extra_specialization_data.current_spec_info);
     ASSERT_NE(cold_data, nullptr);
     EXPECT_EQ(cold_data->get_total_energy_sapped(), 72)
-        << "Expected cold specialization bookkeeping to track the exact energy drained by chilled effect.";
+        << "Expected cold specialization bookkeeping to track the exact energy drained by chilled "
+           "effect.";
 }
 
 TEST_F(MageProcTest, MagicMissileHalvesDamageWhenSaveIsForced) {
@@ -450,7 +442,8 @@ TEST_F(MageProcTest, MagicMissileHalvesDamageWhenSaveIsForced) {
     spell_magic_missile(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     EXPECT_EQ(context.victim.tmpabilities.hit, 494)
-        << "Expected strong-saving victims to halve magic missile's minimum deterministic damage on the real damage path.";
+        << "Expected strong-saving victims to halve magic missile's minimum deterministic damage "
+           "on the real damage path.";
 }
 
 TEST_F(MageProcTest, ChillRayAppliesChilledEffectAndTracksColdSpecOnFailedSave) {
@@ -468,7 +461,8 @@ TEST_F(MageProcTest, ChillRayAppliesChilledEffectAndTracksColdSpecOnFailedSave) 
 
     spell_chill_ray(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
-    auto* cold_data = static_cast<cold_spec_data*>(context.caster.extra_specialization_data.current_spec_info);
+    auto *cold_data =
+        static_cast<cold_spec_data *>(context.caster.extra_specialization_data.current_spec_info);
     ASSERT_NE(cold_data, nullptr);
     EXPECT_EQ(context.victim.tmpabilities.hit, 480);
     EXPECT_EQ(context.victim.specials.ENERGY, 48);
@@ -489,7 +483,8 @@ TEST_F(MageProcTest, ChillRayTracksColdSpecFailureOnSavedCast) {
 
     spell_chill_ray(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
-    auto* cold_data = static_cast<cold_spec_data*>(context.caster.extra_specialization_data.current_spec_info);
+    auto *cold_data =
+        static_cast<cold_spec_data *>(context.caster.extra_specialization_data.current_spec_info);
     ASSERT_NE(cold_data, nullptr);
     EXPECT_EQ(context.victim.tmpabilities.hit, 490);
     EXPECT_EQ(cold_data->get_saved_chills(), 1);
@@ -511,7 +506,8 @@ TEST_F(MageProcTest, LightningBoltUsesSpecializationBonusAndSaveReduction) {
     spell_lightning_bolt(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     EXPECT_EQ(context.victim.tmpabilities.hit, 485)
-        << "Expected lightning specialization to boost indoor lightning bolt damage before the strong victim save halves it on the real damage path.";
+        << "Expected lightning specialization to boost indoor lightning bolt damage before the "
+           "strong victim save halves it on the real damage path.";
 }
 
 TEST_F(MageProcTest, DarkBoltUsesSpecializationBonusWithoutSunPenalty) {
@@ -530,7 +526,8 @@ TEST_F(MageProcTest, DarkBoltUsesSpecializationBonusWithoutSunPenalty) {
     spell_dark_bolt(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     EXPECT_EQ(context.victim.tmpabilities.hit, 469)
-        << "Expected darkness specialization to apply its current 10% raw-damage bonus when sunlight is not weakening the spell.";
+        << "Expected darkness specialization to apply its current 10% raw-damage bonus when "
+           "sunlight is not weakening the spell.";
 }
 
 TEST_F(MageProcTest, FireboltUsesFireSpecMinimumDamageAndSaveReduction) {
@@ -557,7 +554,8 @@ TEST_F(MageProcTest, FireboltUsesFireSpecMinimumDamageAndSaveReduction) {
     spell_firebolt(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     EXPECT_EQ(context.victim.tmpabilities.hit, 498)
-        << "Expected firebolt's strong-save path to halve the specialization-clamped minimum damage on the real damage path.";
+        << "Expected firebolt's strong-save path to halve the specialization-clamped minimum "
+           "damage on the real damage path.";
 }
 
 TEST_F(MageProcTest, ConeOfColdAppliesChilledEffectAndColdSpecTrackingOnFailedSave) {
@@ -577,7 +575,8 @@ TEST_F(MageProcTest, ConeOfColdAppliesChilledEffectAndColdSpecTrackingOnFailedSa
 
     spell_cone_of_cold(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
-    auto* cold_data = static_cast<cold_spec_data*>(context.caster.extra_specialization_data.current_spec_info);
+    auto *cold_data =
+        static_cast<cold_spec_data *>(context.caster.extra_specialization_data.current_spec_info);
     ASSERT_NE(cold_data, nullptr);
     EXPECT_EQ(context.victim.tmpabilities.hit, 465);
     EXPECT_EQ(context.victim.specials.ENERGY, 48);
@@ -609,9 +608,9 @@ TEST_F(MageProcTest, LocateLifeAddsReachableRoomsWithUpdatedCoordinates) {
         << "Expected locate-life room expansion to add each reachable adjacent room once.";
     EXPECT_EQ(roomnum, 3);
 
-    loclife_coord* north_room = find_loclife_room(roomlist, roomnum, 8);
-    loclife_coord* east_room = find_loclife_room(roomlist, roomnum, 9);
-    loclife_coord* down_room = find_loclife_room(roomlist, roomnum, 10);
+    loclife_coord *north_room = find_loclife_room(roomlist, roomnum, 8);
+    loclife_coord *east_room = find_loclife_room(roomlist, roomnum, 9);
+    loclife_coord *down_room = find_loclife_room(roomlist, roomnum, 10);
 
     ASSERT_NE(north_room, nullptr);
     ASSERT_NE(east_room, nullptr);
@@ -657,10 +656,11 @@ TEST_F(MageProcTest, LocateLifeSkipsBlockedDuplicateAndExcludedRooms) {
     world[7].dir_option[WEST] = &west_exit;   // valid
 
     EXPECT_EQ(loclife_add_rooms(origin, roomlist, &roomnum, 12), 1)
-        << "Expected locate-life room expansion to skip duplicates, excluded rooms, and heavy closed exits.";
+        << "Expected locate-life room expansion to skip duplicates, excluded rooms, and heavy "
+           "closed exits.";
     EXPECT_EQ(roomnum, 2);
 
-    loclife_coord* west_room = find_loclife_room(roomlist, roomnum, 13);
+    loclife_coord *west_room = find_loclife_room(roomlist, roomnum, 13);
     ASSERT_NE(west_room, nullptr);
     EXPECT_EQ(west_room->n, 0);
     EXPECT_EQ(west_room->e, -1);

@@ -101,6 +101,28 @@ cmake --build build --target ageland_tests
 ctest --test-dir build --output-on-failure
 ```
 
+#### Step 4b: Running the Account Smoke Test
+
+The account/login smoke flow is kept separate from `make test` so unit tests stay
+fast and stable. Run it manually when validating account, login, authentication,
+or character-selection changes.
+
+```bash
+make smoke-account
+```
+
+## GitHub Actions
+
+This repository includes a GitHub Actions workflow that runs on pushes to
+`master` and pull requests targeting `master`. It builds the game, runs the C++
+unit tests, and then runs the proxy-backed account smoke flow.
+
+If you want GitHub to block merges until those checks pass, enable branch
+protection for `master` in the repository settings and mark the `Build, Unit
+Tests, and Smoke Tests` job from the CI workflow as a required status check.
+If you also want to block direct pushes to `master`, make sure your branch
+protection or ruleset disables direct-push bypass as well.
+
 #### Step 5: Running the Game
 
 From the repository root you can run the following command.
@@ -138,5 +160,4 @@ Design documentation should be added to the following location.
 
 * **Seth Lyon** [Noobinabox](https://github.com/Noobinabox)
 * **David Gurley** [drelidan7](https://github.com/drelidan7)
-* **KJ Valencik** [kjvalencik](https://github.com/kjvalencik)
 * **Andrew Humbert** [ahumbert](https://github.com/ahumbert)

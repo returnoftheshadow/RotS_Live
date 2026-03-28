@@ -26,7 +26,7 @@ CFLAGS = $(MYFLAGS) $(PROFILE) $(OSFLAGS)
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
-	comm.o config.o consts.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o \
+	comm.o config.o consts.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o character_json.o exploits_json.o json_utils.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
 	pkill.o profs.o protocol.o ranger.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
@@ -44,8 +44,20 @@ clean:
 
 # Dependencies for the main mud
 
-account_management.o : account_management.cpp account_management.h
+account_management.o : account_management.cpp account_management.h json_utils.h
 	$(CC) -c $(CFLAGS) account_management.cpp
+
+character_json.o : character_json.cpp character_json.h json_utils.h structs.h
+	$(CC) -c $(CFLAGS) character_json.cpp
+
+exploits_json.o : exploits_json.cpp exploits_json.h json_utils.h db.h
+	$(CC) -c $(CFLAGS) exploits_json.cpp
+
+json_utils.o : json_utils.cpp json_utils.h
+	$(CC) -c $(CFLAGS) json_utils.cpp
+
+objects_json.o : objects_json.cpp objects_json.h json_utils.h structs.h
+	$(CC) -c $(CFLAGS) objects_json.cpp
 
 clock.o : clock.cpp clock.h
 	$(CC) -c $(CFLAGS) clock.cpp

@@ -2349,6 +2349,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
     struct char_data* tmp_ch;
 
     if (isbanned(d->host) == BAN_SELECT && !PLR_FLAGGED(d->character, PLR_SITEOK)) {
+        clear_account_backed_object_bytes_for_character(d->character);
         SEND_TO_Q("Sorry, this character has not been cleared for login from your site!\n\r", d);
         STATE(d) = CON_CLOSE;
         vmudlog(NRM, "Connection attempt for %s denied from %s", GET_NAME(d->character), d->host);
@@ -2356,6 +2357,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
     }
 
     if (GET_LEVEL(d->character) < restrict) {
+        clear_account_backed_object_bytes_for_character(d->character);
         SEND_TO_Q("The game is temporarily restricted.\r\nTry again later.", d);
         SEND_TO_Q(wizlock_msg, d);
         SEND_TO_Q("\n\r", d);
@@ -2376,6 +2378,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
             d->character->specials.timer = 0;
             SEND_TO_Q("Reconnecting to unswitched char.", d);
             REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+            clear_account_backed_object_bytes_for_character(d->character);
             STATE(d) = CON_PLYNG;
             vmudlog(NRM, "%s [%s] has reconnected.", GET_NAME(d->character), d->host);
             return;
@@ -2403,6 +2406,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
                 act("$n has reconnected.\n\r$n's body has been taken over by a new spirit!", TRUE, tmp_ch, 0, 0, TO_ROOM);
             }
 
+            clear_account_backed_object_bytes_for_character(d->character);
             free_char(d->character);
             tmp_ch->desc = d;
             d->character = tmp_ch;
@@ -2749,37 +2753,59 @@ void nanny(struct descriptor_data* d, char* arg)
                 return;
             }
 
-            account::CharacterMigrationData migration;
-            if (!account::ensure_character_migration(kAccountStorageRoot, d->account_name, selected_character_name, time(0), &migration, &error_message)) {
-                SEND_TO_Q("That linked character is not ready for account-backed play yet.\n\r", d);
-                SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                show_account_character_prompt(d, account_data);
-                return;
-            }
-
-            std::string player_file_text;
-            if (!account::decode_snapshot_content(migration.player_file, &player_file_text, &error_message)) {
-                SEND_TO_Q("That linked character is missing required player data in account storage.\n\r", d);
-                SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                show_account_character_prompt(d, account_data);
-                return;
-            }
-
-            if (!account::restore_character_runtime_support_files(kAccountStorageRoot, d->account_name, selected_character_name, migration, &error_message)) {
-                SEND_TO_Q("That linked character could not restore its runtime support files from account storage.\n\r", d);
-                SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                show_account_character_prompt(d, account_data);
-                return;
-            }
-
+            std::string object_file_bytes;
             char selected_name[MAX_INPUT_LENGTH];
             strncpy(selected_name, selected_character_name.c_str(), sizeof(selected_name) - 1);
             selected_name[sizeof(selected_name) - 1] = '\0';
+            if (account::read_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &tmp_store, &error_message)) {
+                if (!load_object_save_bytes_for_character(kAccountStorageRoot, selected_character_name, &object_file_bytes, &error_message)) {
+                    SEND_TO_Q("That linked character is missing required object-save data in account storage.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+                update_player_index_entry_from_store(&tmp_store);
+                player_i = tmp_store.player_index;
+            } else {
+                const std::string read_error = error_message;
+                bool account_character_exists = false;
+                std::string inspect_error;
+                if (!account::inspect_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &account_character_exists, &inspect_error)) {
+                    SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
+                    SEND_TO_Q((inspect_error + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+                if (account_character_exists) {
+                    SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
+                    SEND_TO_Q((read_error + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
 
-            if ((player_i = load_char_from_text(selected_name, player_file_text.c_str(), &tmp_store)) < 0) {
-                SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
-                show_account_character_prompt(d, account_data);
-                return;
+                account::CharacterMigrationData migration;
+                if (!account::ensure_character_migration(kAccountStorageRoot, d->account_name, selected_character_name, time(0), &migration, &error_message)) {
+                    SEND_TO_Q("That linked character is not ready for account-backed play yet.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+
+                if (!account::read_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &tmp_store, &error_message)) {
+                    SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+                update_player_index_entry_from_store(&tmp_store);
+                player_i = tmp_store.player_index;
+
+                if (!load_object_save_bytes_for_character(kAccountStorageRoot, selected_character_name, &object_file_bytes, &error_message)) {
+                    SEND_TO_Q("That linked character is missing required object-save data in account storage.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
             }
 
             d->pos = player_i;
@@ -2796,6 +2822,15 @@ void nanny(struct descriptor_data* d, char* arg)
             load_result = d->character->specials2.bad_pws;
             d->character->specials2.bad_pws = 0;
             save_char(d->character, d->character->specials2.load_room, 0);
+            stage_account_backed_object_bytes_for_character(d->character, object_file_bytes.data(), object_file_bytes.size());
+            if (!account::clear_account_character_runtime_support_files(kAccountStorageRoot, selected_character_name, &error_message)) {
+                clear_account_backed_object_bytes_for_character(d->character);
+                SEND_TO_Q("That linked character could not prepare its runtime support files for account-backed play.\n\r", d);
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                show_account_character_prompt(d, account_data);
+                return;
+            }
+
             clear_account_login_state(d);
             complete_existing_character_login(d, load_result);
         }
@@ -3797,6 +3832,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
 void introduce_char(struct descriptor_data* d)
 {
     FILE* fp;
+    char_file_u stored_character {};
     init_char(d->character);
 
     if (d->pos < 0)
@@ -3811,13 +3847,20 @@ void introduce_char(struct descriptor_data* d)
 
     if ((fp = Crash_get_file_by_name(GET_NAME(d->character), "wb")))
         fclose(fp);
-    save_char(d->character, NOWHERE, 0);
 
     if (*d->account_name) {
         account::AccountData account_data;
-        account::CharacterMigrationData migration;
         std::string error_message;
-        if (!account::admin_link_and_migrate_character(kAccountStorageRoot, d->account_name, GET_NAME(d->character), time(0), &account_data, &migration, &error_message)) {
+        char_to_store(d->character, &stored_character);
+        stored_character.specials2.load_room = NOWHERE;
+
+        if (!account::write_account_character_file(kAccountStorageRoot, d->account_name, stored_character, &error_message)
+            || !account::write_default_account_object_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), &error_message)
+            || !account::write_default_account_exploit_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), &error_message)
+            || !account::admin_link_character(kAccountStorageRoot, d->account_name, GET_NAME(d->character), time(0), &account_data, &error_message)) {
+            account::remove_account_character_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), nullptr);
+            account::remove_account_object_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), nullptr);
+            account::remove_account_exploit_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), nullptr);
             SET_BIT(PLR_FLAGS(d->character), PLR_DELETED);
             save_char(d->character, NOWHERE, 0);
             SEND_TO_Q("Account linking failed, so the new character was rolled back. Please reconnect and try again.\n\r", d);
@@ -3826,7 +3869,9 @@ void introduce_char(struct descriptor_data* d)
             STATE(d) = CON_CLOSE;
             return;
         }
-    }
+        save_char(d->character, NOWHERE, 0);
+    } else
+        save_char(d->character, NOWHERE, 0);
 
     SEND_TO_Q(motd, d);
 }

@@ -1,4 +1,8 @@
 #include "account_management.h"
+#include "character_json.h"
+#include "exploits_json.h"
+#include "json_utils.h"
+#include "objects_json.h"
 
 #include <cerrno>
 #include <crypt.h>
@@ -9,6 +13,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -18,6 +23,8 @@
 
 namespace account {
 namespace {
+
+    using CharacterLinkReference = AccountData::CharacterLinkReference;
 
     std::string trim_copy(const std::string& value)
     {
@@ -46,41 +53,29 @@ namespace {
             *error_message = message;
     }
 
-    std::string json_escape(const std::string& value)
+    std::string json_path_or_empty(const std::string& path)
     {
-        std::string escaped;
-        escaped.reserve(value.size() + 8);
+        return path.empty() ? "" : path;
+    }
 
-        for (char character : value) {
-            switch (character) {
-            case '\\':
-                escaped += "\\\\";
-                break;
-            case '"':
-                escaped += "\\\"";
-                break;
-            case '\b':
-                escaped += "\\b";
-                break;
-            case '\f':
-                escaped += "\\f";
-                break;
-            case '\n':
-                escaped += "\\n";
-                break;
-            case '\r':
-                escaped += "\\r";
-                break;
-            case '\t':
-                escaped += "\\t";
-                break;
-            default:
-                escaped += character;
-                break;
-            }
-        }
+    std::string character_asset_slug(const std::string& character_name)
+    {
+        return normalize_account_name(character_name);
+    }
 
-        return escaped;
+    std::string character_json_file_name(const std::string& character_name)
+    {
+        return character_asset_slug(character_name) + ".character.json";
+    }
+
+    std::string objects_json_file_name(const std::string& character_name)
+    {
+        return character_asset_slug(character_name) + ".objects.json";
+    }
+
+    std::string exploits_json_file_name(const std::string& character_name)
+    {
+        return character_asset_slug(character_name) + ".exploits.json";
     }
 
     std::string read_secure_random_bytes(size_t byte_count)
@@ -151,25 +146,184 @@ namespace {
         return code;
     }
 
-    bool send_email_message(const std::string& recipient, const std::string& subject, const std::string& body, std::string* error_message)
+    std::string configured_sendmail_command()
     {
-        FILE* pipe = popen("/usr/sbin/sendmail -t -oi", "w");
-        if (pipe == nullptr) {
-            set_error(error_message, "Failed to open sendmail for email delivery.");
+        const char* configured_command = std::getenv("ROTS_SENDMAIL_COMMAND");
+        if (configured_command == nullptr)
+            return "/usr/sbin/sendmail -t -oi";
+
+        const std::string trimmed_command = trim_copy(configured_command);
+        if (trimmed_command.empty())
+            return "/usr/sbin/sendmail -t -oi";
+
+        return trimmed_command;
+    }
+
+    bool split_command_arguments(const std::string& command, std::vector<std::string>* arguments, std::string* error_message)
+    {
+        if (arguments == nullptr) {
+            set_error(error_message, "Sendmail command arguments output must not be null.");
             return false;
         }
 
-        std::fprintf(pipe,
-            "To: %s\n"
-            "From: RotS Account Verification <noreply@rotsmud.org>\n"
-            "Subject: %s\n"
-            "\n"
-            "%s\n",
-            recipient.c_str(), subject.c_str(), body.c_str());
+        arguments->clear();
+        std::string current_argument;
+        bool in_single_quotes = false;
+        bool in_double_quotes = false;
+        bool escaping = false;
 
-        const int close_result = pclose(pipe);
-        if (close_result != 0) {
-            set_error(error_message, "sendmail reported a delivery failure.");
+        for (char character : command) {
+            if (escaping) {
+                current_argument += character;
+                escaping = false;
+                continue;
+            }
+
+            if (character == '\\') {
+                escaping = true;
+                continue;
+            }
+
+            if (in_single_quotes) {
+                if (character == '\'')
+                    in_single_quotes = false;
+                else
+                    current_argument += character;
+                continue;
+            }
+
+            if (in_double_quotes) {
+                if (character == '"')
+                    in_double_quotes = false;
+                else
+                    current_argument += character;
+                continue;
+            }
+
+            if (character == '\'') {
+                in_single_quotes = true;
+                continue;
+            }
+
+            if (character == '"') {
+                in_double_quotes = true;
+                continue;
+            }
+
+            if (std::isspace(static_cast<unsigned char>(character))) {
+                if (!current_argument.empty()) {
+                    arguments->push_back(current_argument);
+                    current_argument.clear();
+                }
+                continue;
+            }
+
+            current_argument += character;
+        }
+
+        if (escaping || in_single_quotes || in_double_quotes) {
+            set_error(error_message, "The configured sendmail command contains unmatched quoting or escaping.");
+            return false;
+        }
+
+        if (!current_argument.empty())
+            arguments->push_back(current_argument);
+
+        if (arguments->empty()) {
+            set_error(error_message, "The configured sendmail command must not be empty.");
+            return false;
+        }
+
+        set_error(error_message, "");
+        return true;
+    }
+
+    bool send_email_message(const std::string& recipient, const std::string& subject, const std::string& body, std::string* error_message)
+    {
+        const std::string sendmail_command = configured_sendmail_command();
+        std::vector<std::string> sendmail_arguments;
+        if (!split_command_arguments(sendmail_command, &sendmail_arguments, error_message))
+            return false;
+
+        int pipe_fds[2];
+        if (pipe(pipe_fds) != 0) {
+            set_error(error_message, "Failed to create an email-delivery pipe.");
+            return false;
+        }
+
+        pid_t child_pid = fork();
+        if (child_pid < 0) {
+            close(pipe_fds[0]);
+            close(pipe_fds[1]);
+            set_error(error_message, "Failed to fork the email-delivery process.");
+            return false;
+        }
+
+        if (child_pid == 0) {
+            if (dup2(pipe_fds[0], STDIN_FILENO) < 0)
+                _exit(127);
+
+            close(pipe_fds[0]);
+            close(pipe_fds[1]);
+            std::vector<char*> sendmail_argv;
+            sendmail_argv.reserve(sendmail_arguments.size() + 1);
+            for (std::string& argument : sendmail_arguments)
+                sendmail_argv.push_back(argument.data());
+            sendmail_argv.push_back(nullptr);
+
+            execvp(sendmail_argv[0], sendmail_argv.data());
+            _exit(127);
+        }
+
+        close(pipe_fds[0]);
+        std::ostringstream message;
+        message << "To: " << recipient << "\n";
+        message << "From: RotS Account Verification <noreply@rotsmud.org>\n";
+        message << "Subject: " << subject << "\n\n";
+        message << body << "\n";
+
+        const std::string message_text = message.str();
+        size_t write_offset = 0;
+        while (write_offset < message_text.size()) {
+            const ssize_t bytes_written = write(pipe_fds[1], message_text.data() + write_offset, message_text.size() - write_offset);
+            if (bytes_written < 0) {
+                if (errno == EINTR)
+                    continue;
+
+                close(pipe_fds[1]);
+                int status = 0;
+                while (waitpid(child_pid, &status, 0) < 0 && errno == EINTR) { }
+                set_error(error_message, "Failed to write the verification email to the delivery process: " + std::string(std::strerror(errno)));
+                return false;
+            }
+
+            write_offset += static_cast<size_t>(bytes_written);
+        }
+
+        if (close(pipe_fds[1]) != 0) {
+            int status = 0;
+            while (waitpid(child_pid, &status, 0) < 0 && errno == EINTR) { }
+            set_error(error_message, "Failed to close the verification email stream cleanly: " + std::string(std::strerror(errno)));
+            return false;
+        }
+
+        int child_status = 0;
+        while (waitpid(child_pid, &child_status, 0) < 0) {
+            if (errno == EINTR)
+                continue;
+
+            set_error(error_message, "Failed to wait for the email-delivery process: " + std::string(std::strerror(errno)));
+            return false;
+        }
+
+        if (!WIFEXITED(child_status) || WEXITSTATUS(child_status) != 0) {
+            if (WIFEXITED(child_status)) {
+                set_error(error_message, "sendmail reported a delivery failure with exit code " + std::to_string(WEXITSTATUS(child_status)) + ".");
+            } else if (WIFSIGNALED(child_status)) {
+                set_error(error_message, "sendmail reported a delivery failure after signal " + std::to_string(WTERMSIG(child_status)) + ".");
+            } else {
+                set_error(error_message, "sendmail reported a delivery failure with unexpected process status.");
+            }
             return false;
         }
 
@@ -281,6 +435,30 @@ namespace {
         return stat(path.c_str(), &file_info) == 0;
     }
 
+    bool inspect_path_existence(const std::string& path, const char* description, bool* exists, std::string* error_message)
+    {
+        if (exists == nullptr) {
+            set_error(error_message, std::string(description) + " existence output parameter must not be null.");
+            return false;
+        }
+
+        struct stat file_info { };
+        if (stat(path.c_str(), &file_info) == 0) {
+            *exists = true;
+            set_error(error_message, "");
+            return true;
+        }
+
+        if (errno == ENOENT) {
+            *exists = false;
+            set_error(error_message, "");
+            return true;
+        }
+
+        set_error(error_message, "Failed to inspect " + std::string(description) + " '" + path + "': " + std::strerror(errno));
+        return false;
+    }
+
     bool validate_identifier_for_path(const std::string& value, const char* identifier_label, std::string* error_message)
     {
         if (!is_valid_account_name(value, error_message)) {
@@ -319,6 +497,232 @@ namespace {
 
         std::fclose(file);
         return deserialize_account_from_json(json, account, error_message);
+    }
+
+    bool read_text_file(const std::string& path, std::string* contents, std::string* error_message)
+    {
+        if (contents == nullptr) {
+            set_error(error_message, "Text-file output parameter must not be null.");
+            return false;
+        }
+
+        FILE* file = std::fopen(path.c_str(), "r");
+        if (file == nullptr) {
+            set_error(error_message, "Failed to open file '" + path + "': " + std::strerror(errno));
+            return false;
+        }
+
+        std::string text;
+        char buffer[1024];
+        while (true) {
+            const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+            if (bytes_read > 0)
+                text.append(buffer, bytes_read);
+
+            if (bytes_read < sizeof(buffer)) {
+                if (std::ferror(file)) {
+                    std::fclose(file);
+                    set_error(error_message, "Failed to read file '" + path + "'.");
+                    return false;
+                }
+                break;
+            }
+        }
+
+        std::fclose(file);
+        *contents = std::move(text);
+        set_error(error_message, "");
+        return true;
+    }
+
+    bool write_text_file_atomically(const std::string& path, const std::string& text, std::string* error_message)
+    {
+        const std::string temp_path = path + ".tmp";
+        FILE* file = open_secure_output_file(temp_path, error_message);
+        if (file == nullptr)
+            return false;
+
+        const size_t written_length = std::fwrite(text.data(), sizeof(char), text.size(), file);
+        const int close_result = std::fclose(file);
+        if (written_length != text.size() || close_result != 0) {
+            std::remove(temp_path.c_str());
+            set_error(error_message, "Failed to write temporary file '" + temp_path + "'.");
+            return false;
+        }
+
+        if (std::rename(temp_path.c_str(), path.c_str()) != 0) {
+            std::remove(temp_path.c_str());
+            set_error(error_message, "Failed to move temporary file into place: " + std::string(std::strerror(errno)));
+            return false;
+        }
+
+        set_error(error_message, "");
+        return true;
+    }
+
+    std::string account_directory_path_from_email(const std::string& root_directory, const std::string& email)
+    {
+        const std::string normalized_email = normalize_email(email);
+        return root_directory + "/accounts/" + account_bucket_for_name(normalized_email) + "/" + normalized_email;
+    }
+
+    std::string account_file_path_from_email(const std::string& root_directory, const std::string& email)
+    {
+        return account_directory_path_from_email(root_directory, email) + "/account.json";
+    }
+
+    std::string legacy_account_file_path_from_account_name(const std::string& root_directory, const std::string& account_name)
+    {
+        const std::string normalized_name = normalize_account_name(account_name);
+        return root_directory + "/accounts/" + account_bucket_for_name(normalized_name) + "/" + normalized_name + ".json";
+    }
+
+    std::string resolve_account_storage_key(const std::string& root_directory, const std::string& account_identifier)
+    {
+        if (account_identifier.find('@') != std::string::npos) {
+            if (!is_valid_email(account_identifier, nullptr))
+                return "";
+            return normalize_email(account_identifier);
+        }
+
+        if (!validate_identifier_for_path(account_identifier, "Account name", nullptr))
+            return "";
+
+        AccountData stored_account;
+        if (read_account_file(root_directory, account_identifier, &stored_account, nullptr))
+            return normalize_email(stored_account.normalized_email);
+
+        return "";
+    }
+
+    bool read_account_file_from_bucket_entry(const std::string& bucket_path, const dirent& account_entry, AccountData* account, std::string* error_message)
+    {
+        const std::string entry_path = bucket_path + "/" + account_entry.d_name;
+        struct stat entry_info { };
+        if (stat(entry_path.c_str(), &entry_info) != 0)
+            return false;
+
+        if (S_ISDIR(entry_info.st_mode)) {
+            const std::string account_json_path = entry_path + "/account.json";
+            struct stat account_json_info { };
+            if (stat(account_json_path.c_str(), &account_json_info) != 0) {
+                if (errno == ENOENT) {
+                    set_error(error_message, "Entry is not an account record.");
+                    return false;
+                }
+
+                set_error(error_message, "Failed to stat account file '" + account_json_path + "': " + std::strerror(errno));
+                return false;
+            }
+
+            return read_account_file_from_path(account_json_path, account, error_message);
+        }
+
+        const std::string file_name = account_entry.d_name;
+        if (S_ISREG(entry_info.st_mode) && file_name.length() >= 6 && file_name.substr(file_name.length() - 5) == ".json")
+            return read_account_file_from_path(entry_path, account, error_message);
+
+        set_error(error_message, "Entry is not an account record.");
+        return false;
+    }
+
+    bool is_directory_bucket_entry(const std::string& bucket_path, const dirent& account_entry)
+    {
+        const std::string entry_path = bucket_path + "/" + account_entry.d_name;
+        struct stat entry_info { };
+        return stat(entry_path.c_str(), &entry_info) == 0 && S_ISDIR(entry_info.st_mode);
+    }
+
+    bool find_account_file_path_by_account_name(const std::string& root_directory, const std::string& account_name, std::string* account_path, std::string* error_message)
+    {
+        if (account_path == nullptr) {
+            set_error(error_message, "Account-path output parameter must not be null.");
+            return false;
+        }
+
+        const std::string normalized_account_name = normalize_account_name(account_name);
+        const std::string accounts_directory = root_directory + "/accounts";
+        DIR* accounts_dir = opendir(accounts_directory.c_str());
+        if (accounts_dir == nullptr) {
+            set_error(error_message, "Failed to open account file for account '" + normalized_account_name + "': " + std::strerror(errno));
+            return false;
+        }
+
+        bool found_match = false;
+        bool matched_is_directory = false;
+        std::string matched_path;
+        while (dirent* bucket_entry = readdir(accounts_dir)) {
+            if (std::strcmp(bucket_entry->d_name, ".") == 0 || std::strcmp(bucket_entry->d_name, "..") == 0)
+                continue;
+
+            const std::string bucket_path = accounts_directory + "/" + bucket_entry->d_name;
+            struct stat bucket_info { };
+            if (stat(bucket_path.c_str(), &bucket_info) != 0 || !S_ISDIR(bucket_info.st_mode))
+                continue;
+
+            DIR* bucket_dir = opendir(bucket_path.c_str());
+            if (bucket_dir == nullptr) {
+                closedir(accounts_dir);
+                set_error(error_message, "Failed to open account bucket directory '" + bucket_path + "': " + std::strerror(errno));
+                return false;
+            }
+
+            while (dirent* account_entry = readdir(bucket_dir)) {
+                if (std::strcmp(account_entry->d_name, ".") == 0 || std::strcmp(account_entry->d_name, "..") == 0)
+                    continue;
+
+                AccountData stored_account;
+                std::string read_error;
+                if (!read_account_file_from_bucket_entry(bucket_path, *account_entry, &stored_account, &read_error))
+                    continue;
+
+                if (stored_account.account_name != normalized_account_name)
+                    continue;
+
+                const std::string entry_path = bucket_path + "/" + account_entry->d_name;
+                const bool candidate_is_directory = is_directory_bucket_entry(bucket_path, *account_entry);
+                const std::string candidate_path = candidate_is_directory ? (entry_path + "/account.json") : entry_path;
+                if (found_match) {
+                    AccountData matched_account;
+                    std::string matched_read_error;
+                    if (!read_account_file_from_path(matched_path, &matched_account, &matched_read_error)) {
+                        closedir(bucket_dir);
+                        closedir(accounts_dir);
+                        set_error(error_message, matched_read_error);
+                        return false;
+                    }
+
+                    if (matched_account.account_name == stored_account.account_name && matched_account.normalized_email == stored_account.normalized_email) {
+                        if (candidate_is_directory && !matched_is_directory) {
+                            matched_path = candidate_path;
+                            matched_is_directory = true;
+                        }
+                        continue;
+                    }
+
+                    closedir(bucket_dir);
+                    closedir(accounts_dir);
+                    set_error(error_message, "Multiple account records exist for account '" + normalized_account_name + "'.");
+                    return false;
+                }
+
+                matched_path = candidate_path;
+                found_match = true;
+                matched_is_directory = candidate_is_directory;
+            }
+
+            closedir(bucket_dir);
+        }
+
+        closedir(accounts_dir);
+        if (!found_match) {
+            set_error(error_message, "Failed to open account file for account '" + normalized_account_name + "': " + std::strerror(ENOENT));
+            return false;
+        }
+
+        *account_path = matched_path;
+        set_error(error_message, "");
+        return true;
     }
 
     bool find_character_owner_account(const std::string& root_directory, const std::string& character_name, std::string* owner_account_name, std::string* error_message)
@@ -363,15 +767,14 @@ namespace {
                 if (std::strcmp(account_entry->d_name, ".") == 0 || std::strcmp(account_entry->d_name, "..") == 0)
                     continue;
 
-                const std::string file_name = account_entry->d_name;
-                if (file_name.length() < 6 || file_name.substr(file_name.length() - 5) != ".json")
-                    continue;
-
-                const std::string account_path = bucket_path + "/" + file_name;
                 AccountData stored_account;
-                if (!read_account_file_from_path(account_path, &stored_account, error_message)) {
+                std::string read_error;
+                if (!read_account_file_from_bucket_entry(bucket_path, *account_entry, &stored_account, &read_error)) {
+                    if (read_error == "Entry is not an account record.")
+                        continue;
                     closedir(bucket_dir);
                     closedir(accounts_dir);
+                    set_error(error_message, read_error);
                     return false;
                 }
 
@@ -417,6 +820,7 @@ namespace {
         }
 
         bool found_match = false;
+        bool matched_is_directory = false;
         AccountData matched_account;
         while (dirent* bucket_entry = readdir(accounts_dir)) {
             if (std::strcmp(bucket_entry->d_name, ".") == 0 || std::strcmp(bucket_entry->d_name, "..") == 0)
@@ -438,17 +842,25 @@ namespace {
                 if (std::strcmp(account_entry->d_name, ".") == 0 || std::strcmp(account_entry->d_name, "..") == 0)
                     continue;
 
-                const std::string file_name = account_entry->d_name;
-                if (file_name.length() < 6 || file_name.substr(file_name.length() - 5) != ".json")
-                    continue;
-
                 AccountData stored_account;
-                if (!read_account_file_from_path(bucket_path + "/" + file_name, &stored_account, error_message)) {
+                std::string read_error;
+                if (!read_account_file_from_bucket_entry(bucket_path, *account_entry, &stored_account, &read_error)) {
+                    if (read_error == "Entry is not an account record.")
+                        continue;
                     continue;
                 }
 
                 if (stored_account.normalized_email == normalized_email) {
                     if (found_match) {
+                        if (matched_account.account_name == stored_account.account_name && matched_account.normalized_email == stored_account.normalized_email) {
+                            const bool candidate_is_directory = is_directory_bucket_entry(bucket_path, *account_entry);
+                            if (candidate_is_directory && !matched_is_directory) {
+                                matched_account = stored_account;
+                                matched_is_directory = true;
+                            }
+                            continue;
+                        }
+
                         closedir(bucket_dir);
                         closedir(accounts_dir);
                         set_error(error_message, "Multiple account records exist for that email address.");
@@ -457,6 +869,7 @@ namespace {
 
                     matched_account = stored_account;
                     found_match = true;
+                    matched_is_directory = is_directory_bucket_entry(bucket_path, *account_entry);
                 }
             }
 
@@ -508,12 +921,11 @@ namespace {
                 if (std::strcmp(account_entry->d_name, ".") == 0 || std::strcmp(account_entry->d_name, "..") == 0)
                     continue;
 
-                const std::string file_name = account_entry->d_name;
-                if (file_name.length() < 6 || file_name.substr(file_name.length() - 5) != ".json")
-                    continue;
-
                 AccountData stored_account;
-                if (!read_account_file_from_path(bucket_path + "/" + file_name, &stored_account, nullptr)) {
+                std::string read_error;
+                if (!read_account_file_from_bucket_entry(bucket_path, *account_entry, &stored_account, &read_error)) {
+                    if (read_error == "Entry is not an account record.")
+                        continue;
                     closedir(bucket_dir);
                     closedir(accounts_dir);
                     set_error(error_message, "Existing account records could not be read safely.");
@@ -603,6 +1015,129 @@ namespace {
         snapshot->present = true;
         set_error(error_message, "");
         return true;
+    }
+
+    bool file_exists(const std::string& path)
+    {
+        struct stat file_info { };
+        return stat(path.c_str(), &file_info) == 0;
+    }
+
+    bool find_versioned_legacy_player_file_path(const std::string& root_directory, const std::string& character_name, std::string* resolved_path, bool* found, std::string* error_message)
+    {
+        if (resolved_path == nullptr) {
+            set_error(error_message, "Resolved player-file path output must not be null.");
+            return false;
+        }
+        if (found == nullptr) {
+            set_error(error_message, "Versioned player-file presence output must not be null.");
+            return false;
+        }
+
+        *found = false;
+
+        const std::string normalized_name = normalize_account_name(character_name);
+        const std::string directory_path = root_directory + "/players/" + account_bucket_for_name(normalized_name);
+        DIR* directory = opendir(directory_path.c_str());
+        if (directory == nullptr) {
+            if (errno == ENOENT) {
+                set_error(error_message, "");
+                return true;
+            }
+            set_error(error_message, "Failed to open legacy player directory '" + directory_path + "': " + std::string(std::strerror(errno)));
+            return false;
+        }
+
+        const std::string required_prefix = normalized_name + ".";
+        std::string matched_path;
+        while (dirent* entry = readdir(directory)) {
+            const char* entry_name = entry->d_name;
+            if (entry_name == nullptr)
+                continue;
+            if (entry_name[0] == '.')
+                continue;
+            if (std::strncmp(entry_name, required_prefix.c_str(), required_prefix.length()) != 0)
+                continue;
+            if (std::strchr(entry_name + required_prefix.length(), '.') == nullptr)
+                continue;
+
+            const char* suffix = entry_name + required_prefix.length();
+            bool valid_versioned_name = true;
+            for (int field_index = 0; field_index < 5; ++field_index) {
+                if (*suffix == '\0') {
+                    valid_versioned_name = false;
+                    break;
+                }
+
+                while (*suffix != '\0' && *suffix != '.') {
+                    if (!std::isdigit(static_cast<unsigned char>(*suffix))) {
+                        valid_versioned_name = false;
+                        break;
+                    }
+                    ++suffix;
+                }
+
+                if (!valid_versioned_name)
+                    break;
+
+                if (field_index < 4) {
+                    if (*suffix != '.') {
+                        valid_versioned_name = false;
+                        break;
+                    }
+                    ++suffix;
+                }
+            }
+
+            if (!valid_versioned_name || *suffix != '\0')
+                continue;
+
+            const std::string candidate_path = directory_path + "/" + entry_name;
+            if (!matched_path.empty()) {
+                closedir(directory);
+                set_error(error_message, "Multiple versioned legacy player files matched character '" + normalized_name + "'.");
+                return false;
+            }
+
+            matched_path = candidate_path;
+        }
+
+        closedir(directory);
+        if (matched_path.empty()) {
+            set_error(error_message, "");
+            return true;
+        }
+
+        *resolved_path = matched_path;
+        *found = true;
+        set_error(error_message, "");
+        return true;
+    }
+
+    bool resolve_legacy_player_file_path(const std::string& root_directory, const std::string& character_name, std::string* resolved_path, std::string* error_message)
+    {
+        if (resolved_path == nullptr) {
+            set_error(error_message, "Resolved player-file path output must not be null.");
+            return false;
+        }
+
+        bool found_versioned_path = false;
+        if (!find_versioned_legacy_player_file_path(root_directory, character_name, resolved_path, &found_versioned_path, error_message))
+            return false;
+        if (found_versioned_path) {
+            set_error(error_message, "");
+            return true;
+        }
+
+        const std::string canonical_path = legacy_player_file_path(root_directory, character_name);
+        if (file_exists(canonical_path)) {
+            *resolved_path = canonical_path;
+            set_error(error_message, "");
+            return true;
+        }
+
+        set_error(error_message, "Failed to open legacy file '" + canonical_path + "': " + std::strerror(ENOENT));
+        return false;
     }
 
     std::string parent_directory_for_path(const std::string& path)
@@ -697,503 +1232,137 @@ namespace {
         return true;
     }
 
-    class JsonReader {
-    public:
-        explicit JsonReader(const std::string& input)
-            : m_input(input)
-        {
+    bool parse_snapshot(json_utils::JsonReader* reader, LegacyAssetSnapshot* snapshot, std::string* error_message)
+    {
+        if (reader == nullptr || snapshot == nullptr) {
+            set_error(error_message, "Snapshot parser requires reader and output parameters.");
+            return false;
         }
 
-        bool parse_account(AccountData* account, std::string* error_message)
-        {
-            skip_whitespace();
-            if (!consume('{')) {
-                set_error(error_message, "Expected JSON object.");
-                return false;
-            }
+        return reader->parse_object([snapshot](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+            if (key == "source_path")
+                return nested_reader->parse_string(&snapshot->source_path, nested_error_message);
+            if (key == "encoding")
+                return nested_reader->parse_string(&snapshot->encoding, nested_error_message);
+            if (key == "content")
+                return nested_reader->parse_string(&snapshot->content, nested_error_message);
+            if (key == "present")
+                return nested_reader->parse_bool(&snapshot->present, nested_error_message);
+            return nested_reader->skip_value(nested_error_message);
+        },
+            error_message);
+    }
 
-            bool first_property = true;
-            while (true) {
-                skip_whitespace();
-
-                if (consume('}'))
-                    break;
-
-                if (!first_property) {
-                    if (!consume(',')) {
-                        set_error(error_message, "Expected ',' between object properties.");
-                        return false;
-                    }
-
-                    skip_whitespace();
-                }
-
-                std::string key;
-                if (!parse_string(&key, error_message))
-                    return false;
-
-                skip_whitespace();
-                if (!consume(':')) {
-                    set_error(error_message, "Expected ':' after object key.");
-                    return false;
-                }
-
-                skip_whitespace();
-                if (!parse_property(key, account, error_message))
-                    return false;
-
-                first_property = false;
-            }
-
-            skip_whitespace();
-            if (!is_at_end()) {
-                set_error(error_message, "Unexpected trailing characters after JSON object.");
-                return false;
-            }
-
-            return true;
+    bool parse_character_link(json_utils::JsonReader* reader, CharacterLinkReference* link, std::string* error_message)
+    {
+        if (reader == nullptr || link == nullptr) {
+            set_error(error_message, "Character link parser requires reader and output parameters.");
+            return false;
         }
 
-        bool parse_character_migration(CharacterMigrationData* migration, std::string* error_message)
-        {
-            skip_whitespace();
-            if (!consume('{')) {
-                set_error(error_message, "Expected JSON object.");
-                return false;
-            }
-
-            bool first_property = true;
-            while (true) {
-                skip_whitespace();
-
-                if (consume('}'))
-                    break;
-
-                if (!first_property) {
-                    if (!consume(',')) {
-                        set_error(error_message, "Expected ',' between object properties.");
-                        return false;
-                    }
-
-                    skip_whitespace();
-                }
-
-                std::string key;
-                if (!parse_string(&key, error_message))
-                    return false;
-
-                skip_whitespace();
-                if (!consume(':')) {
-                    set_error(error_message, "Expected ':' after object key.");
-                    return false;
-                }
-
-                skip_whitespace();
-                if (!parse_migration_property(key, migration, error_message))
-                    return false;
-
-                first_property = false;
-            }
-
-            skip_whitespace();
-            if (!is_at_end()) {
-                set_error(error_message, "Unexpected trailing characters after JSON object.");
-                return false;
-            }
-
-            return true;
-        }
-
-    private:
-        bool parse_property(const std::string& key, AccountData* account, std::string* error_message)
-        {
-            if (key == "version")
-                return parse_integer(&account->version, error_message);
-            if (key == "account_name")
-                return parse_string(&account->account_name, error_message);
-            if (key == "normalized_email")
-                return parse_string(&account->normalized_email, error_message);
-            if (key == "password_hash")
-                return parse_string(&account->password_hash, error_message);
-            if (key == "password_salt")
-                return parse_string(&account->password_salt, error_message);
-            if (key == "characters")
-                return parse_string_array(&account->characters, error_message);
-            if (key == "email_verified")
-                return parse_bool(&account->email_verified, error_message);
-            if (key == "email_verified_by")
-                return parse_string(&account->email_verified_by, error_message);
-            if (key == "email_verified_at")
-                return parse_long(&account->email_verified_at, error_message);
-            if (key == "verification_code_hash")
-                return parse_string(&account->verification_code_hash, error_message);
-            if (key == "verification_code_sent_at")
-                return parse_long(&account->verification_code_sent_at, error_message);
-            if (key == "verification_code_expires_at")
-                return parse_long(&account->verification_code_expires_at, error_message);
-            if (key == "verification_attempt_count")
-                return parse_integer(&account->verification_attempt_count, error_message);
-            if (key == "verification_last_attempt_at")
-                return parse_long(&account->verification_last_attempt_at, error_message);
-            if (key == "blocked")
-                return parse_bool(&account->blocked, error_message);
-            if (key == "block_reason")
-                return parse_string(&account->block_reason, error_message);
-            if (key == "blocked_by")
-                return parse_string(&account->blocked_by, error_message);
-            if (key == "blocked_at")
-                return parse_long(&account->blocked_at, error_message);
-            if (key == "created_at")
-                return parse_long(&account->created_at, error_message);
-            if (key == "updated_at")
-                return parse_long(&account->updated_at, error_message);
-            if (key == "password_reset_at")
-                return parse_long(&account->password_reset_at, error_message);
-            if (key == "password_reset_by")
-                return parse_string(&account->password_reset_by, error_message);
-
-            return skip_value(error_message);
-        }
-
-        bool parse_migration_property(const std::string& key, CharacterMigrationData* migration, std::string* error_message)
-        {
-            if (key == "version")
-                return parse_integer(&migration->version, error_message);
-            if (key == "account_name")
-                return parse_string(&migration->account_name, error_message);
+        return reader->parse_object([link](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
             if (key == "character_name")
-                return parse_string(&migration->character_name, error_message);
-            if (key == "migrated_at")
-                return parse_long(&migration->migrated_at, error_message);
-            if (key == "player_file")
-                return parse_snapshot(&migration->player_file, error_message);
-            if (key == "object_file")
-                return parse_snapshot(&migration->object_file, error_message);
-            if (key == "exploits_file")
-                return parse_snapshot(&migration->exploits_file, error_message);
+                return nested_reader->parse_string(&link->character_name, nested_error_message);
+            if (key == "character_path" || key == "player_path")
+                return nested_reader->parse_string(&link->character_path, nested_error_message);
+            if (key == "object_path")
+                return nested_reader->parse_string(&link->object_path, nested_error_message);
+            if (key == "exploits_path")
+                return nested_reader->parse_string(&link->exploits_path, nested_error_message);
+            return nested_reader->skip_value(nested_error_message);
+        },
+            error_message);
+    }
 
-            return skip_value(error_message);
-        }
-
-        bool parse_snapshot(LegacyAssetSnapshot* snapshot, std::string* error_message)
-        {
-            if (!consume('{')) {
-                set_error(error_message, "Expected JSON object for snapshot.");
-                return false;
-            }
-
-            bool first_property = true;
-            while (true) {
-                skip_whitespace();
-                if (consume('}'))
-                    return true;
-
-                if (!first_property) {
-                    if (!consume(',')) {
-                        set_error(error_message, "Expected ',' between snapshot properties.");
-                        return false;
-                    }
-                    skip_whitespace();
-                }
-
-                std::string key;
-                if (!parse_string(&key, error_message))
-                    return false;
-
-                skip_whitespace();
-                if (!consume(':')) {
-                    set_error(error_message, "Expected ':' after snapshot key.");
-                    return false;
-                }
-
-                skip_whitespace();
-                if (key == "source_path") {
-                    if (!parse_string(&snapshot->source_path, error_message))
-                        return false;
-                } else if (key == "encoding") {
-                    if (!parse_string(&snapshot->encoding, error_message))
-                        return false;
-                } else if (key == "content") {
-                    if (!parse_string(&snapshot->content, error_message))
-                        return false;
-                } else if (key == "present") {
-                    if (!parse_bool(&snapshot->present, error_message))
-                        return false;
-                } else {
-                    if (!skip_value(error_message))
-                        return false;
-                }
-
-                first_property = false;
-            }
-        }
-
-        bool parse_string(std::string* value, std::string* error_message)
-        {
-            if (!consume('"')) {
-                set_error(error_message, "Expected string value.");
-                return false;
-            }
-
-            std::string parsed;
-            while (!is_at_end()) {
-                char character = m_input[m_position++];
-                if (character == '"') {
-                    *value = parsed;
-                    return true;
-                }
-
-                if (character == '\\') {
-                    if (is_at_end()) {
-                        set_error(error_message, "Unexpected end of input in string escape sequence.");
-                        return false;
-                    }
-
-                    char escaped = m_input[m_position++];
-                    switch (escaped) {
-                    case '"':
-                    case '\\':
-                    case '/':
-                        parsed += escaped;
-                        break;
-                    case 'b':
-                        parsed += '\b';
-                        break;
-                    case 'f':
-                        parsed += '\f';
-                        break;
-                    case 'n':
-                        parsed += '\n';
-                        break;
-                    case 'r':
-                        parsed += '\r';
-                        break;
-                    case 't':
-                        parsed += '\t';
-                        break;
-                    default:
-                        set_error(error_message, "Unsupported escape sequence in JSON string.");
-                        return false;
-                    }
-                } else {
-                    parsed += character;
-                }
-            }
-
-            set_error(error_message, "Unterminated JSON string.");
+    bool parse_character_link_array(json_utils::JsonReader* reader, std::vector<CharacterLinkReference>* links, std::string* error_message)
+    {
+        if (reader == nullptr || links == nullptr) {
+            set_error(error_message, "Character link output parameter must not be null.");
             return false;
         }
 
-        bool parse_bool(bool* value, std::string* error_message)
-        {
-            if (match_literal("true")) {
-                *value = true;
-                return true;
-            }
-
-            if (match_literal("false")) {
-                *value = false;
-                return true;
-            }
-
-            set_error(error_message, "Expected boolean value.");
-            return false;
-        }
-
-        bool parse_integer(int* value, std::string* error_message)
-        {
-            long parsed = 0;
-            if (!parse_long(&parsed, error_message))
+        links->clear();
+        return reader->parse_array([links](json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+            CharacterLinkReference link;
+            if (!parse_character_link(nested_reader, &link, nested_error_message))
                 return false;
-
-            *value = static_cast<int>(parsed);
+            links->push_back(link);
             return true;
-        }
+        },
+            error_message);
+    }
 
-        bool parse_long(long* value, std::string* error_message)
-        {
-            if (is_at_end()) {
-                set_error(error_message, "Expected integer value.");
-                return false;
-            }
+    bool parse_account_property(const std::string& key, json_utils::JsonReader* reader, AccountData* account, std::string* error_message)
+    {
+        if (key == "version")
+            return reader->parse_integer(&account->version, error_message);
+        if (key == "account_name")
+            return reader->parse_string(&account->account_name, error_message);
+        if (key == "normalized_email")
+            return reader->parse_string(&account->normalized_email, error_message);
+        if (key == "password_hash")
+            return reader->parse_string(&account->password_hash, error_message);
+        if (key == "password_salt")
+            return reader->parse_string(&account->password_salt, error_message);
+        if (key == "characters")
+            return reader->parse_string_array(&account->characters, error_message);
+        if (key == "character_links")
+            return parse_character_link_array(reader, &account->character_links, error_message);
+        if (key == "email_verified")
+            return reader->parse_bool(&account->email_verified, error_message);
+        if (key == "email_verified_by")
+            return reader->parse_string(&account->email_verified_by, error_message);
+        if (key == "email_verified_at")
+            return reader->parse_long(&account->email_verified_at, error_message);
+        if (key == "verification_code_hash")
+            return reader->parse_string(&account->verification_code_hash, error_message);
+        if (key == "verification_code_sent_at")
+            return reader->parse_long(&account->verification_code_sent_at, error_message);
+        if (key == "verification_code_expires_at")
+            return reader->parse_long(&account->verification_code_expires_at, error_message);
+        if (key == "verification_attempt_count")
+            return reader->parse_integer(&account->verification_attempt_count, error_message);
+        if (key == "verification_last_attempt_at")
+            return reader->parse_long(&account->verification_last_attempt_at, error_message);
+        if (key == "blocked")
+            return reader->parse_bool(&account->blocked, error_message);
+        if (key == "block_reason")
+            return reader->parse_string(&account->block_reason, error_message);
+        if (key == "blocked_by")
+            return reader->parse_string(&account->blocked_by, error_message);
+        if (key == "blocked_at")
+            return reader->parse_long(&account->blocked_at, error_message);
+        if (key == "created_at")
+            return reader->parse_long(&account->created_at, error_message);
+        if (key == "updated_at")
+            return reader->parse_long(&account->updated_at, error_message);
+        if (key == "password_reset_at")
+            return reader->parse_long(&account->password_reset_at, error_message);
+        if (key == "password_reset_by")
+            return reader->parse_string(&account->password_reset_by, error_message);
 
-            size_t start = m_position;
-            if (m_input[m_position] == '-')
-                ++m_position;
+        return reader->skip_value(error_message);
+    }
 
-            if (m_position >= m_input.size() || !std::isdigit(static_cast<unsigned char>(m_input[m_position]))) {
-                set_error(error_message, "Expected integer value.");
-                return false;
-            }
+    bool parse_migration_property(const std::string& key, json_utils::JsonReader* reader, CharacterMigrationData* migration, std::string* error_message)
+    {
+        if (key == "version")
+            return reader->parse_integer(&migration->version, error_message);
+        if (key == "account_name")
+            return reader->parse_string(&migration->account_name, error_message);
+        if (key == "character_name")
+            return reader->parse_string(&migration->character_name, error_message);
+        if (key == "migrated_at")
+            return reader->parse_long(&migration->migrated_at, error_message);
+        if (key == "player_file")
+            return parse_snapshot(reader, &migration->player_file, error_message);
+        if (key == "object_file")
+            return parse_snapshot(reader, &migration->object_file, error_message);
+        if (key == "exploits_file")
+            return parse_snapshot(reader, &migration->exploits_file, error_message);
 
-            while (m_position < m_input.size() && std::isdigit(static_cast<unsigned char>(m_input[m_position])))
-                ++m_position;
-
-            std::string number_text = m_input.substr(start, m_position - start);
-            char* end_ptr = nullptr;
-            errno = 0;
-            long parsed = std::strtol(number_text.c_str(), &end_ptr, 10);
-            if (errno != 0 || end_ptr == nullptr || *end_ptr != '\0') {
-                set_error(error_message, "Invalid integer value.");
-                return false;
-            }
-
-            *value = parsed;
-            return true;
-        }
-
-        bool parse_string_array(std::vector<std::string>* values, std::string* error_message)
-        {
-            if (!consume('[')) {
-                set_error(error_message, "Expected array value.");
-                return false;
-            }
-
-            values->clear();
-            bool first_value = true;
-            while (true) {
-                skip_whitespace();
-
-                if (consume(']'))
-                    return true;
-
-                if (!first_value) {
-                    if (!consume(',')) {
-                        set_error(error_message, "Expected ',' between array values.");
-                        return false;
-                    }
-
-                    skip_whitespace();
-                }
-
-                std::string value;
-                if (!parse_string(&value, error_message))
-                    return false;
-
-                values->push_back(value);
-                first_value = false;
-            }
-        }
-
-        bool skip_value(std::string* error_message)
-        {
-            skip_whitespace();
-            if (is_at_end()) {
-                set_error(error_message, "Expected JSON value.");
-                return false;
-            }
-
-            char current = m_input[m_position];
-            if (current == '"') {
-                std::string ignored;
-                return parse_string(&ignored, error_message);
-            }
-
-            if (current == '{') {
-                ++m_position;
-                bool first_property = true;
-                while (true) {
-                    skip_whitespace();
-                    if (consume('}'))
-                        return true;
-
-                    if (!first_property) {
-                        if (!consume(',')) {
-                            set_error(error_message, "Expected ',' between nested object properties.");
-                            return false;
-                        }
-                        skip_whitespace();
-                    }
-
-                    std::string ignored_key;
-                    if (!parse_string(&ignored_key, error_message))
-                        return false;
-
-                    skip_whitespace();
-                    if (!consume(':')) {
-                        set_error(error_message, "Expected ':' after nested object key.");
-                        return false;
-                    }
-
-                    skip_whitespace();
-                    if (!skip_value(error_message))
-                        return false;
-
-                    first_property = false;
-                }
-            }
-
-            if (current == '[') {
-                ++m_position;
-                bool first_value = true;
-                while (true) {
-                    skip_whitespace();
-                    if (consume(']'))
-                        return true;
-
-                    if (!first_value) {
-                        if (!consume(',')) {
-                            set_error(error_message, "Expected ',' between nested array values.");
-                            return false;
-                        }
-                        skip_whitespace();
-                    }
-
-                    if (!skip_value(error_message))
-                        return false;
-
-                    first_value = false;
-                }
-            }
-
-            if (current == 't' || current == 'f') {
-                bool ignored = false;
-                return parse_bool(&ignored, error_message);
-            }
-
-            if (current == '-' || std::isdigit(static_cast<unsigned char>(current))) {
-                long ignored = 0;
-                return parse_long(&ignored, error_message);
-            }
-
-            set_error(error_message, "Unsupported JSON value.");
-            return false;
-        }
-
-        bool match_literal(const char* literal)
-        {
-            size_t literal_length = std::strlen(literal);
-            if (m_input.compare(m_position, literal_length, literal) != 0)
-                return false;
-
-            m_position += literal_length;
-            return true;
-        }
-
-        void skip_whitespace()
-        {
-            while (m_position < m_input.size() && std::isspace(static_cast<unsigned char>(m_input[m_position])))
-                ++m_position;
-        }
-
-        bool consume(char character)
-        {
-            if (m_position < m_input.size() && m_input[m_position] == character) {
-                ++m_position;
-                return true;
-            }
-
-            return false;
-        }
-
-        bool is_at_end() const
-        {
-            return m_position >= m_input.size();
-        }
-
-        const std::string& m_input;
-        size_t m_position = 0;
-    };
+        return reader->skip_value(error_message);
+    }
 
 } // namespace
 
@@ -1503,6 +1672,175 @@ void unverify_email(AccountData* account)
     account->verification_last_attempt_at = 0;
 }
 
+namespace {
+
+    CharacterLinkReference* find_character_link_reference(AccountData* account, const std::string& character_name)
+    {
+        if (account == nullptr)
+            return nullptr;
+
+        const std::string normalized_character_name = normalize_account_name(character_name);
+        for (CharacterLinkReference& link : account->character_links) {
+            if (normalize_account_name(link.character_name) == normalized_character_name)
+                return &link;
+        }
+
+        return nullptr;
+    }
+
+    const CharacterLinkReference* find_character_link_reference(const AccountData& account, const std::string& character_name)
+    {
+        const std::string normalized_character_name = normalize_account_name(character_name);
+        for (const CharacterLinkReference& link : account.character_links) {
+            if (normalize_account_name(link.character_name) == normalized_character_name)
+                return &link;
+        }
+
+        return nullptr;
+    }
+
+    std::string resolved_character_path(const AccountData& account, const std::string& root_directory, const std::string& character_name)
+    {
+        return account_character_player_path(root_directory, account.account_name, character_name);
+    }
+
+    std::string resolved_object_path(const AccountData& account, const std::string& root_directory, const std::string& character_name)
+    {
+        const CharacterLinkReference* link = find_character_link_reference(account, character_name);
+        if (link != nullptr && !link->object_path.empty())
+            return account_character_directory(root_directory, account.account_name, character_name) + "/" + link->object_path;
+        return account_character_object_path(root_directory, account.account_name, character_name);
+    }
+
+    std::string resolved_exploits_path(const AccountData& account, const std::string& root_directory, const std::string& character_name)
+    {
+        const CharacterLinkReference* link = find_character_link_reference(account, character_name);
+        if (link != nullptr && !link->exploits_path.empty())
+            return account_character_directory(root_directory, account.account_name, character_name) + "/" + link->exploits_path;
+        return account_character_exploits_path(root_directory, account.account_name, character_name);
+    }
+
+    std::string safe_relative_object_path_or_empty(const std::string& object_path, const std::string& expected_basename)
+    {
+        if (object_path.empty())
+            return "";
+        if (object_path[0] == '/' || object_path.find('\\') != std::string::npos)
+            return "";
+
+        size_t segment_start = 0;
+        while (segment_start <= object_path.size()) {
+            const size_t slash = object_path.find('/', segment_start);
+            const size_t segment_end = (slash == std::string::npos) ? object_path.size() : slash;
+            const std::string segment = object_path.substr(segment_start, segment_end - segment_start);
+            if (segment.empty() || segment == "." || segment == "..")
+                return "";
+            if (slash == std::string::npos)
+                break;
+            segment_start = slash + 1;
+        }
+
+        const size_t last_slash = object_path.find_last_of('/');
+        const std::string basename = (last_slash == std::string::npos) ? object_path : object_path.substr(last_slash + 1);
+        if (basename != expected_basename)
+            return "";
+
+        return object_path;
+    }
+
+    bool validate_account_owned_object_path(const AccountData& account, const std::string& character_name, std::string* error_message)
+    {
+        const CharacterLinkReference* link = find_character_link_reference(account, character_name);
+        if (link == nullptr || link->object_path.empty()) {
+            set_error(error_message, "");
+            return true;
+        }
+
+        const std::string expected_path = objects_json_file_name(character_name);
+        if (safe_relative_object_path_or_empty(link->object_path, expected_path).empty()) {
+            set_error(error_message, "Stored object path did not match the expected account-owned object filename.");
+            return false;
+        }
+
+        set_error(error_message, "");
+        return true;
+    }
+
+    bool validate_account_owned_character_path(const AccountData& account, const std::string& character_name, std::string* error_message)
+    {
+        const CharacterLinkReference* link = find_character_link_reference(account, character_name);
+        if (link == nullptr || link->character_path.empty()) {
+            set_error(error_message, "");
+            return true;
+        }
+
+        const std::string expected_path = character_json_file_name(character_name);
+        if (link->character_path != expected_path) {
+            set_error(error_message, "Stored character path did not match the expected account-owned character filename.");
+            return false;
+        }
+
+        set_error(error_message, "");
+        return true;
+    }
+
+    bool validate_account_owned_exploits_path(const AccountData& account, const std::string& character_name, std::string* error_message)
+    {
+        const CharacterLinkReference* link = find_character_link_reference(account, character_name);
+        if (link == nullptr || link->exploits_path.empty()) {
+            set_error(error_message, "");
+            return true;
+        }
+
+        const std::string expected_path = exploits_json_file_name(character_name);
+        if (link->exploits_path != expected_path) {
+            set_error(error_message, "Stored exploits path did not match the expected account-owned exploits filename.");
+            return false;
+        }
+
+        set_error(error_message, "");
+        return true;
+    }
+
+    void populate_default_character_link_paths(CharacterLinkReference* link)
+    {
+        if (link == nullptr)
+            return;
+
+        const std::string normalized_character_name = normalize_account_name(link->character_name);
+        if (normalized_character_name.empty())
+            return;
+
+        if (link->character_path.empty())
+            link->character_path = character_json_file_name(normalized_character_name);
+        if (link->object_path.empty())
+            link->object_path = objects_json_file_name(normalized_character_name);
+        if (link->exploits_path.empty())
+            link->exploits_path = exploits_json_file_name(normalized_character_name);
+    }
+
+    void sync_character_links_from_characters(AccountData* account)
+    {
+        if (account == nullptr)
+            return;
+
+        for (CharacterLinkReference& link : account->character_links) {
+            link.character_name = normalize_account_name(link.character_name);
+            populate_default_character_link_paths(&link);
+        }
+
+        for (const std::string& character_name : account->characters) {
+            if (find_character_link_reference(account, character_name) != nullptr)
+                continue;
+
+            CharacterLinkReference link;
+            link.character_name = normalize_account_name(character_name);
+            populate_default_character_link_paths(&link);
+            account->character_links.push_back(link);
+        }
+    }
+
+} // namespace
+
 bool account_has_character(const AccountData& account, const std::string& character_name)
 {
     const std::string normalized_character_name = normalize_account_name(character_name);
@@ -1555,6 +1893,7 @@ bool add_character_to_account(AccountData* account, const std::string& character
     }
 
     account->characters.push_back(normalized_character_name);
+    sync_character_links_from_characters(account);
     set_error(error_message, "");
     return true;
 }
@@ -1630,7 +1969,8 @@ bool create_account(const std::string& root_directory, const std::string& accoun
         return false;
     }
 
-    if (path_exists(account_file_path(root_directory, account_name))) {
+    std::string existing_account_path;
+    if (find_account_file_path_by_account_name(root_directory, account_name, &existing_account_path, nullptr)) {
         set_error(error_message, "Existing account file could not be read safely.");
         return false;
     }
@@ -2064,8 +2404,7 @@ std::string account_bucket_for_name(const std::string& name)
 
 std::string account_file_path(const std::string& root_directory, const std::string& account_name)
 {
-    const std::string normalized_name = normalize_account_name(account_name);
-    return root_directory + "/accounts/" + account_bucket_for_name(normalized_name) + "/" + normalized_name + ".json";
+    return account_file_path_from_email(root_directory, account_name);
 }
 
 std::string legacy_player_file_path(const std::string& root_directory, const std::string& character_name)
@@ -2091,33 +2430,46 @@ std::string serialize_account_to_json(const AccountData& account)
     std::ostringstream output;
     output << "{\n";
     output << "  \"version\": " << account.version << ",\n";
-    output << "  \"account_name\": \"" << json_escape(account.account_name) << "\",\n";
-    output << "  \"normalized_email\": \"" << json_escape(account.normalized_email) << "\",\n";
-    output << "  \"password_hash\": \"" << json_escape(account.password_hash) << "\",\n";
-    output << "  \"password_salt\": \"" << json_escape(account.password_salt) << "\",\n";
+    output << "  \"account_name\": \"" << json_utils::escape_json_string(account.account_name) << "\",\n";
+    output << "  \"normalized_email\": \"" << json_utils::escape_json_string(account.normalized_email) << "\",\n";
+    output << "  \"password_hash\": \"" << json_utils::escape_json_string(account.password_hash) << "\",\n";
+    output << "  \"password_salt\": \"" << json_utils::escape_json_string(account.password_salt) << "\",\n";
     output << "  \"characters\": [";
     for (size_t index = 0; index < account.characters.size(); ++index) {
         if (index > 0)
             output << ", ";
-        output << "\"" << json_escape(account.characters[index]) << "\"";
+        output << "\"" << json_utils::escape_json_string(account.characters[index]) << "\"";
+    }
+    output << "],\n";
+    output << "  \"character_links\": [";
+    for (size_t index = 0; index < account.character_links.size(); ++index) {
+        const CharacterLinkReference& link = account.character_links[index];
+        if (index > 0)
+            output << ", ";
+        output << "{";
+        output << "\"character_name\": \"" << json_utils::escape_json_string(link.character_name) << "\", ";
+        output << "\"character_path\": \"" << json_utils::escape_json_string(json_path_or_empty(link.character_path)) << "\", ";
+        output << "\"object_path\": \"" << json_utils::escape_json_string(json_path_or_empty(link.object_path)) << "\", ";
+        output << "\"exploits_path\": \"" << json_utils::escape_json_string(json_path_or_empty(link.exploits_path)) << "\"";
+        output << "}";
     }
     output << "],\n";
     output << "  \"email_verified\": " << (account.email_verified ? "true" : "false") << ",\n";
-    output << "  \"email_verified_by\": \"" << json_escape(account.email_verified_by) << "\",\n";
+    output << "  \"email_verified_by\": \"" << json_utils::escape_json_string(account.email_verified_by) << "\",\n";
     output << "  \"email_verified_at\": " << account.email_verified_at << ",\n";
-    output << "  \"verification_code_hash\": \"" << json_escape(account.verification_code_hash) << "\",\n";
+    output << "  \"verification_code_hash\": \"" << json_utils::escape_json_string(account.verification_code_hash) << "\",\n";
     output << "  \"verification_code_sent_at\": " << account.verification_code_sent_at << ",\n";
     output << "  \"verification_code_expires_at\": " << account.verification_code_expires_at << ",\n";
     output << "  \"verification_attempt_count\": " << account.verification_attempt_count << ",\n";
     output << "  \"verification_last_attempt_at\": " << account.verification_last_attempt_at << ",\n";
     output << "  \"blocked\": " << (account.blocked ? "true" : "false") << ",\n";
-    output << "  \"block_reason\": \"" << json_escape(account.block_reason) << "\",\n";
-    output << "  \"blocked_by\": \"" << json_escape(account.blocked_by) << "\",\n";
+    output << "  \"block_reason\": \"" << json_utils::escape_json_string(account.block_reason) << "\",\n";
+    output << "  \"blocked_by\": \"" << json_utils::escape_json_string(account.blocked_by) << "\",\n";
     output << "  \"blocked_at\": " << account.blocked_at << ",\n";
     output << "  \"created_at\": " << account.created_at << ",\n";
     output << "  \"updated_at\": " << account.updated_at << ",\n";
     output << "  \"password_reset_at\": " << account.password_reset_at << ",\n";
-    output << "  \"password_reset_by\": \"" << json_escape(account.password_reset_by) << "\"\n";
+    output << "  \"password_reset_by\": \"" << json_utils::escape_json_string(account.password_reset_by) << "\"\n";
     output << "}\n";
     return output.str();
 }
@@ -2130,8 +2482,11 @@ bool deserialize_account_from_json(const std::string& json, AccountData* account
     }
 
     AccountData parsed_account;
-    JsonReader reader(json);
-    if (!reader.parse_account(&parsed_account, error_message))
+    json_utils::JsonReader reader(json);
+    if (!reader.parse_root_object([&parsed_account](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+            return parse_account_property(key, nested_reader, &parsed_account, nested_error_message);
+        },
+            error_message))
         return false;
 
     if (parsed_account.version != ACCOUNT_SCHEMA_VERSION) {
@@ -2144,6 +2499,17 @@ bool deserialize_account_from_json(const std::string& json, AccountData* account
 
     parsed_account.account_name = normalize_account_name(parsed_account.account_name);
     parsed_account.normalized_email = normalize_email(parsed_account.normalized_email);
+    for (std::string& character_name : parsed_account.characters) {
+        if (!validate_identifier_for_path(character_name, "Character name", error_message))
+            return false;
+        character_name = normalize_account_name(character_name);
+    }
+    for (CharacterLinkReference& link : parsed_account.character_links) {
+        if (!validate_identifier_for_path(link.character_name, "Character name", error_message))
+            return false;
+        link.character_name = normalize_account_name(link.character_name);
+    }
+    sync_character_links_from_characters(&parsed_account);
 
     *account = std::move(parsed_account);
     set_error(error_message, "");
@@ -2154,15 +2520,25 @@ bool write_account_file(const std::string& root_directory, const AccountData& ac
 {
     if (!validate_identifier_for_path(account.account_name, "Account name", error_message))
         return false;
+    if (!is_valid_email(account.normalized_email, error_message))
+        return false;
 
     const std::string accounts_directory = root_directory + "/accounts";
-    const std::string bucket_directory = accounts_directory + "/" + account_bucket_for_name(account.account_name);
-    const std::string final_path = account_file_path(root_directory, account.account_name);
+    const std::string normalized_email = normalize_email(account.normalized_email);
+    const std::string bucket_directory = accounts_directory + "/" + account_bucket_for_name(normalized_email);
+    const std::string account_directory = account_directory_path_from_email(root_directory, normalized_email);
+    const std::string final_path = account_file_path_from_email(root_directory, normalized_email);
     const std::string temp_path = final_path + ".tmp";
+    const std::string legacy_flat_path = legacy_account_file_path_from_account_name(root_directory, account.account_name);
+
+    std::string existing_account_path;
+    const bool found_existing_account_path = find_account_file_path_by_account_name(root_directory, account.account_name, &existing_account_path, nullptr);
 
     if (!create_directory_if_missing(accounts_directory, error_message))
         return false;
     if (!create_directory_if_missing(bucket_directory, error_message))
+        return false;
+    if (!create_directory_if_missing(account_directory, error_message))
         return false;
 
     FILE* file = open_secure_output_file(temp_path, error_message);
@@ -2172,7 +2548,29 @@ bool write_account_file(const std::string& root_directory, const AccountData& ac
 
     AccountData normalized_account = account;
     normalized_account.account_name = normalize_account_name(account.account_name);
-    normalized_account.normalized_email = normalize_email(account.normalized_email);
+    normalized_account.normalized_email = normalized_email;
+    sync_character_links_from_characters(&normalized_account);
+    for (CharacterLinkReference& link : normalized_account.character_links) {
+        link.character_name = normalize_account_name(link.character_name);
+        link.character_path = character_json_file_name(link.character_name);
+        const std::string expected_object_path = objects_json_file_name(link.character_name);
+        if (!safe_relative_object_path_or_empty(link.object_path, expected_object_path).empty())
+            link.object_path = expected_object_path;
+    }
+
+    if (path_exists(final_path)) {
+        AccountData existing_account_at_target;
+        if (!read_account_file_from_path(final_path, &existing_account_at_target, nullptr)) {
+            set_error(error_message, "Existing account file could not be read safely.");
+            return false;
+        }
+
+        if (normalize_account_name(existing_account_at_target.account_name) != normalized_account.account_name) {
+            set_error(error_message, "Account storage path is already occupied by a different account.");
+            return false;
+        }
+    }
+
     const std::string json = serialize_account_to_json(normalized_account);
 
     const size_t written_length = std::fwrite(json.data(), sizeof(char), json.size(), file);
@@ -2186,6 +2584,18 @@ bool write_account_file(const std::string& root_directory, const AccountData& ac
     if (std::rename(temp_path.c_str(), final_path.c_str()) != 0) {
         std::remove(temp_path.c_str());
         set_error(error_message, "Failed to move temporary account file into place: " + std::string(std::strerror(errno)));
+        return false;
+    }
+
+    if (found_existing_account_path && existing_account_path != final_path) {
+        if (std::remove(existing_account_path.c_str()) != 0 && errno != ENOENT) {
+            set_error(error_message, "Failed to retire stale account file '" + existing_account_path + "': " + std::strerror(errno));
+            return false;
+        }
+    }
+
+    if (legacy_flat_path != final_path && std::remove(legacy_flat_path.c_str()) != 0 && errno != ENOENT) {
+        set_error(error_message, "Failed to retire legacy account file '" + legacy_flat_path + "': " + std::strerror(errno));
         return false;
     }
 
@@ -2203,7 +2613,11 @@ bool read_account_file(const std::string& root_directory, const std::string& acc
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
 
-    return read_account_file_from_path(account_file_path(root_directory, account_name), account, error_message);
+    std::string account_path;
+    if (!find_account_file_path_by_account_name(root_directory, account_name, &account_path, error_message))
+        return false;
+
+    return read_account_file_from_path(account_path, account, error_message);
 }
 
 bool read_account_file_by_email(const std::string& root_directory, const std::string& email, AccountData* account, std::string* error_message)
@@ -2214,25 +2628,41 @@ bool read_account_file_by_email(const std::string& root_directory, const std::st
     return find_account_by_email_internal(root_directory, email, account, error_message);
 }
 
-std::string account_character_directory(const std::string& root_directory, const std::string& account_name, const std::string& character_name)
+std::string account_character_directory(const std::string& root_directory, const std::string& account_name, const std::string&)
 {
-    const std::string normalized_account_name = normalize_account_name(account_name);
-    const std::string normalized_character_name = normalize_account_name(character_name);
-    return root_directory + "/account_characters/" + account_bucket_for_name(normalized_account_name) + "/" + normalized_account_name + "/" + normalized_character_name;
+    const std::string account_storage_key = resolve_account_storage_key(root_directory, account_name);
+    if (account_storage_key.empty())
+        return root_directory + "/accounts/__invalid_account__";
+    return root_directory + "/accounts/" + account_bucket_for_name(account_storage_key) + "/" + account_storage_key;
 }
 
 std::string account_character_snapshot_path(const std::string& root_directory, const std::string& account_name, const std::string& character_name)
 {
-    return account_character_directory(root_directory, account_name, character_name) + "/snapshot.json";
+    return account_character_directory(root_directory, account_name, character_name) + "/" + character_asset_slug(character_name) + ".migration.json";
+}
+
+std::string account_character_player_path(const std::string& root_directory, const std::string& account_name, const std::string& character_name)
+{
+    return account_character_directory(root_directory, account_name, character_name) + "/" + character_json_file_name(character_name);
+}
+
+std::string account_character_object_path(const std::string& root_directory, const std::string& account_name, const std::string& character_name)
+{
+    return account_character_directory(root_directory, account_name, character_name) + "/" + objects_json_file_name(character_name);
+}
+
+std::string account_character_exploits_path(const std::string& root_directory, const std::string& account_name, const std::string& character_name)
+{
+    return account_character_directory(root_directory, account_name, character_name) + "/" + exploits_json_file_name(character_name);
 }
 
 std::string serialize_character_migration_to_json(const CharacterMigrationData& migration)
 {
     auto write_snapshot = [](std::ostringstream& output, const char* name, const LegacyAssetSnapshot& snapshot) {
         output << "  \"" << name << "\": {\n";
-        output << "    \"source_path\": \"" << json_escape(snapshot.source_path) << "\",\n";
-        output << "    \"encoding\": \"" << json_escape(snapshot.encoding) << "\",\n";
-        output << "    \"content\": \"" << json_escape(snapshot.content) << "\",\n";
+        output << "    \"source_path\": \"" << json_utils::escape_json_string(snapshot.source_path) << "\",\n";
+        output << "    \"encoding\": \"" << json_utils::escape_json_string(snapshot.encoding) << "\",\n";
+        output << "    \"content\": \"" << json_utils::escape_json_string(snapshot.content) << "\",\n";
         output << "    \"present\": " << (snapshot.present ? "true" : "false") << "\n";
         output << "  }";
     };
@@ -2240,8 +2670,8 @@ std::string serialize_character_migration_to_json(const CharacterMigrationData& 
     std::ostringstream output;
     output << "{\n";
     output << "  \"version\": " << migration.version << ",\n";
-    output << "  \"account_name\": \"" << json_escape(migration.account_name) << "\",\n";
-    output << "  \"character_name\": \"" << json_escape(migration.character_name) << "\",\n";
+    output << "  \"account_name\": \"" << json_utils::escape_json_string(migration.account_name) << "\",\n";
+    output << "  \"character_name\": \"" << json_utils::escape_json_string(migration.character_name) << "\",\n";
     output << "  \"migrated_at\": " << migration.migrated_at << ",\n";
     write_snapshot(output, "player_file", migration.player_file);
     output << ",\n";
@@ -2260,8 +2690,11 @@ bool deserialize_character_migration_from_json(const std::string& json, Characte
     }
 
     CharacterMigrationData parsed_migration;
-    JsonReader reader(json);
-    if (!reader.parse_character_migration(&parsed_migration, error_message))
+    json_utils::JsonReader reader(json);
+    if (!reader.parse_root_object([&parsed_migration](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+            return parse_migration_property(key, nested_reader, &parsed_migration, nested_error_message);
+        },
+            error_message))
         return false;
 
     if (parsed_migration.version != ACCOUNT_SCHEMA_VERSION) {
@@ -2292,20 +2725,18 @@ namespace {
 
     bool write_character_migration_snapshot(const std::string& root_directory, const CharacterMigrationData& snapshot_data, CharacterMigrationData* migration, std::string* error_message)
     {
-        const std::string account_character_root = root_directory + "/account_characters";
-        const std::string bucket_directory = account_character_root + "/" + account_bucket_for_name(snapshot_data.account_name);
-        const std::string account_directory = bucket_directory + "/" + snapshot_data.account_name;
-        const std::string character_directory = account_character_directory(root_directory, snapshot_data.account_name, snapshot_data.character_name);
+        const std::string account_storage_key = resolve_account_storage_key(root_directory, snapshot_data.account_name);
+        const std::string account_root = root_directory + "/accounts";
+        const std::string bucket_directory = account_root + "/" + account_bucket_for_name(account_storage_key);
+        const std::string account_directory = account_character_directory(root_directory, snapshot_data.account_name, snapshot_data.character_name);
         const std::string final_path = account_character_snapshot_path(root_directory, snapshot_data.account_name, snapshot_data.character_name);
         const std::string temp_path = final_path + ".tmp";
 
-        if (!create_directory_if_missing(account_character_root, error_message))
+        if (!create_directory_if_missing(account_root, error_message))
             return false;
         if (!create_directory_if_missing(bucket_directory, error_message))
             return false;
         if (!create_directory_if_missing(account_directory, error_message))
-            return false;
-        if (!create_directory_if_missing(character_directory, error_message))
             return false;
 
         FILE* file = open_secure_output_file(temp_path, error_message);
@@ -2334,7 +2765,275 @@ namespace {
         return true;
     }
 
-    bool migrate_legacy_character_files_internal(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::string& player_file_path, const std::string& object_file_path, const std::string& exploits_file_path, long migrated_at, CharacterMigrationData* migration, std::string* error_message)
+    bool retire_previous_account_object_path(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::string& previous_object_path, std::string* error_message)
+    {
+        const std::string expected_object_path = objects_json_file_name(character_name);
+        if (previous_object_path.empty() || previous_object_path == expected_object_path) {
+            set_error(error_message, "");
+            return true;
+        }
+
+        const std::string legacy_safe_path = safe_relative_object_path_or_empty(previous_object_path, expected_object_path);
+        if (legacy_safe_path.empty()) {
+            set_error(error_message, "");
+            return true;
+        }
+
+        const std::string final_path = account_character_object_path(root_directory, account_name, character_name);
+        const std::string prior_path = account_character_directory(root_directory, account_name, character_name) + "/" + legacy_safe_path;
+        if (prior_path != final_path && std::remove(prior_path.c_str()) != 0 && errno != ENOENT) {
+            set_error(error_message, "Failed to retire legacy account-owned object file '" + prior_path + "': " + std::strerror(errno));
+            return false;
+        }
+
+        set_error(error_message, "");
+        return true;
+    }
+
+    bool prepare_account_object_file_destination(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* final_path, std::string* previous_object_path, std::string* error_message)
+    {
+        if (final_path == nullptr || previous_object_path == nullptr) {
+            set_error(error_message, "Object-file destination outputs must not be null.");
+            return false;
+        }
+
+        if (!validate_identifier_for_path(account_name, "Account name", error_message))
+            return false;
+        if (!validate_identifier_for_path(character_name, "Character name", error_message))
+            return false;
+
+        AccountData account;
+        if (!read_account_file(root_directory, account_name, &account, error_message))
+            return false;
+        if (!validate_account_owned_object_path(account, character_name, error_message))
+            return false;
+
+        CharacterLinkReference* link = find_character_link_reference(&account, character_name);
+        *previous_object_path = "";
+        const std::string expected_object_path = objects_json_file_name(character_name);
+        if (link != nullptr) {
+            *previous_object_path = link->object_path;
+        }
+
+        const std::string account_directory = account_character_directory(root_directory, account_name, character_name);
+        if (!create_directory_if_missing(root_directory + "/accounts", error_message))
+            return false;
+        if (!create_directory_if_missing(root_directory + "/accounts/" + account_bucket_for_name(resolve_account_storage_key(root_directory, account_name)), error_message))
+            return false;
+        if (!create_directory_if_missing(account_directory, error_message))
+            return false;
+
+        *final_path = account_character_object_path(root_directory, account_name, character_name);
+        set_error(error_message, "");
+        return true;
+    }
+
+    bool normalize_account_object_path_after_successful_write(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::string& previous_object_path, std::string* error_message)
+    {
+        const std::string expected_object_path = objects_json_file_name(character_name);
+        if (previous_object_path.empty() || previous_object_path == expected_object_path) {
+            set_error(error_message, "");
+            return true;
+        }
+
+        AccountData account;
+        if (!read_account_file(root_directory, account_name, &account, error_message))
+            return false;
+        if (!validate_account_owned_object_path(account, character_name, error_message))
+            return false;
+
+        CharacterLinkReference* link = find_character_link_reference(&account, character_name);
+        if (link == nullptr) {
+            set_error(error_message, "Character '" + character_name + "' is not linked to account '" + account_name + "'.");
+            return false;
+        }
+
+        link->object_path = expected_object_path;
+        if (!write_account_file(root_directory, account, error_message))
+            return false;
+
+        set_error(error_message, "");
+        return true;
+    }
+
+    bool write_account_object_json_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const objects_json::ObjectSaveData& object_data, std::string* error_message)
+    {
+        std::string final_path;
+        std::string previous_object_path;
+        if (!prepare_account_object_file_destination(root_directory, account_name, character_name, &final_path, &previous_object_path, error_message))
+            return false;
+
+        if (!write_text_file_atomically(final_path, objects_json::serialize_objects_to_json(object_data), error_message))
+            return false;
+
+        if (!normalize_account_object_path_after_successful_write(root_directory, account_name, character_name, previous_object_path, error_message))
+            return false;
+
+        if (!retire_previous_account_object_path(root_directory, account_name, character_name, previous_object_path, error_message))
+            return false;
+
+        set_error(error_message, "");
+        return true;
+    }
+
+    bool hydrate_account_native_object_file_from_migration(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const CharacterMigrationData& snapshot_data, std::string* error_message)
+    {
+        if (!snapshot_data.object_file.present)
+            return write_default_account_object_file(root_directory, account_name, character_name, error_message);
+
+        std::string object_bytes;
+        if (!decode_snapshot_content(snapshot_data.object_file, &object_bytes, error_message))
+            return false;
+
+        objects_json::ObjectSaveData object_data;
+        if (!objects_json::object_save_data_from_binary(object_bytes, &object_data, error_message))
+            return false;
+
+        return write_account_object_json_file(root_directory, account_name, character_name, object_data, error_message);
+    }
+
+    bool hydrate_account_native_character_file_from_migration(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const CharacterMigrationData& snapshot_data, std::string* error_message)
+    {
+        std::string player_text;
+        if (!decode_snapshot_content(snapshot_data.player_file, &player_text, error_message))
+            return false;
+
+        ensure_player_index_entry(character_name.c_str());
+
+        char normalized_name[MAX_INPUT_LENGTH];
+        std::snprintf(normalized_name, sizeof(normalized_name), "%s", character_name.c_str());
+
+        char_file_u stored_character {};
+        if (load_char_from_text(normalized_name, player_text.c_str(), &stored_character) < 0) {
+            set_error(error_message, "Legacy player data for '" + character_name + "' could not be converted into account-native character storage.");
+            return false;
+        }
+
+        return write_account_character_file(root_directory, account_name, stored_character, error_message);
+    }
+
+    bool write_account_exploits_json_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const exploits_json::ExploitHistoryData& exploit_history, std::string* error_message)
+    {
+        if (!validate_identifier_for_path(account_name, "Account name", error_message))
+            return false;
+        if (!validate_identifier_for_path(character_name, "Character name", error_message))
+            return false;
+
+        AccountData account;
+        if (!read_account_file(root_directory, account_name, &account, error_message))
+            return false;
+        if (!validate_account_owned_exploits_path(account, character_name, error_message))
+            return false;
+
+        const std::string account_directory = account_character_directory(root_directory, account_name, character_name);
+        if (!create_directory_if_missing(root_directory + "/accounts", error_message))
+            return false;
+        if (!create_directory_if_missing(root_directory + "/accounts/" + account_bucket_for_name(resolve_account_storage_key(root_directory, account_name)), error_message))
+            return false;
+        if (!create_directory_if_missing(account_directory, error_message))
+            return false;
+
+        return write_text_file_atomically(resolved_exploits_path(account, root_directory, character_name), exploits_json::serialize_exploits_to_json(exploit_history), error_message);
+    }
+
+    bool hydrate_account_native_exploit_file_from_migration(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const CharacterMigrationData& snapshot_data, std::string* error_message)
+    {
+        if (!snapshot_data.exploits_file.present)
+            return write_default_account_exploit_file(root_directory, account_name, character_name, error_message);
+
+        std::string exploit_bytes;
+        if (!decode_snapshot_content(snapshot_data.exploits_file, &exploit_bytes, error_message))
+            return false;
+
+        std::vector<exploit_record> records;
+        if (!exploits_json::exploit_records_from_binary(exploit_bytes, &records, error_message))
+            return false;
+
+        exploits_json::ExploitHistoryData exploit_history;
+        exploit_history.records = std::move(records);
+        return write_account_exploits_json_file(root_directory, account_name, character_name, exploit_history, error_message);
+    }
+
+    void append_restore_failure(std::string* error_message, const std::string& restore_error)
+    {
+        if (restore_error.empty())
+            return;
+
+        if (error_message == nullptr)
+            return;
+
+        if (error_message->empty())
+            *error_message = restore_error;
+        else
+            *error_message += " Restore also failed: " + restore_error;
+    }
+
+    void restore_retired_legacy_files(const std::string& player_file_path, const std::string& object_file_path, const std::string& exploits_file_path, const CharacterMigrationData& snapshot_data, bool restore_player, bool restore_object, bool restore_exploits, std::string* error_message)
+    {
+        if (restore_player) {
+            std::string restore_error;
+            if (!write_snapshot_bytes(player_file_path, snapshot_data.player_file, true, &restore_error))
+                append_restore_failure(error_message, restore_error);
+        }
+
+        if (restore_object) {
+            std::string restore_error;
+            if (!write_snapshot_bytes(object_file_path, snapshot_data.object_file, false, &restore_error))
+                append_restore_failure(error_message, restore_error);
+        }
+
+        if (restore_exploits) {
+            std::string restore_error;
+            if (!write_snapshot_bytes(exploits_file_path, snapshot_data.exploits_file, false, &restore_error))
+                append_restore_failure(error_message, restore_error);
+        }
+    }
+
+    bool retire_legacy_character_files_after_migration(const std::string& player_file_path, const std::string& stale_flat_player_file_path, const std::string& object_file_path, const std::string& exploits_file_path, const CharacterMigrationData& snapshot_data, std::string* error_message)
+    {
+        const bool had_player_file = path_exists(player_file_path);
+        const bool had_object_file = path_exists(object_file_path);
+        bool retired_player = false;
+        bool retired_object = false;
+
+        if (std::remove(player_file_path.c_str()) != 0 && errno != ENOENT) {
+            set_error(error_message, "Failed to retire legacy player file '" + player_file_path + "': " + std::strerror(errno));
+            return false;
+        }
+        retired_player = had_player_file;
+
+        if (std::remove(object_file_path.c_str()) != 0 && errno != ENOENT) {
+            set_error(error_message, "Failed to retire legacy object file '" + object_file_path + "': " + std::strerror(errno));
+            restore_retired_legacy_files(player_file_path, object_file_path, exploits_file_path, snapshot_data, retired_player, false, false, error_message);
+            return false;
+        }
+        retired_object = had_object_file;
+
+        if (std::remove(exploits_file_path.c_str()) != 0 && errno != ENOENT) {
+            set_error(error_message, "Failed to retire legacy exploit file '" + exploits_file_path + "': " + std::strerror(errno));
+            restore_retired_legacy_files(player_file_path, object_file_path, exploits_file_path, snapshot_data, retired_player, retired_object, false, error_message);
+            return false;
+        }
+
+        if (!stale_flat_player_file_path.empty() && std::remove(stale_flat_player_file_path.c_str()) != 0 && errno != ENOENT) {
+            set_error(error_message, "Failed to retire stale legacy player file '" + stale_flat_player_file_path + "': " + std::strerror(errno));
+            restore_retired_legacy_files(player_file_path, object_file_path, exploits_file_path, snapshot_data, retired_player, retired_object, true, error_message);
+            return false;
+        }
+
+        set_error(error_message, "");
+        return true;
+    }
+
+    void cleanup_account_native_migration_outputs(const std::string& root_directory, const std::string& account_name, const std::string& character_name)
+    {
+        std::remove(account_character_player_path(root_directory, account_name, character_name).c_str());
+        std::remove(account_character_object_path(root_directory, account_name, character_name).c_str());
+        std::remove(account_character_exploits_path(root_directory, account_name, character_name).c_str());
+        std::remove(account_character_snapshot_path(root_directory, account_name, character_name).c_str());
+    }
+
+    bool migrate_legacy_character_files_internal(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::string& player_file_path, const std::string& stale_flat_player_file_path, const std::string& object_file_path, const std::string& exploits_file_path, long migrated_at, CharacterMigrationData* migration, std::string* error_message)
     {
         CharacterMigrationData snapshot_data;
         snapshot_data.account_name = normalize_account_name(account_name);
@@ -2347,15 +3046,45 @@ namespace {
             return false;
         if (!read_file_bytes(exploits_file_path, false, &snapshot_data.exploits_file, error_message))
             return false;
-        return write_character_migration_snapshot(root_directory, snapshot_data, migration, error_message);
+        if (!hydrate_account_native_character_file_from_migration(root_directory, account_name, character_name, snapshot_data, error_message))
+            return false;
+        if (!hydrate_account_native_object_file_from_migration(root_directory, account_name, character_name, snapshot_data, error_message)) {
+            cleanup_account_native_migration_outputs(root_directory, account_name, character_name);
+            return false;
+        }
+        if (!hydrate_account_native_exploit_file_from_migration(root_directory, account_name, character_name, snapshot_data, error_message)) {
+            cleanup_account_native_migration_outputs(root_directory, account_name, character_name);
+            return false;
+        }
+        if (!write_character_migration_snapshot(root_directory, snapshot_data, migration, error_message)) {
+            cleanup_account_native_migration_outputs(root_directory, account_name, character_name);
+            return false;
+        }
+
+        if (!retire_legacy_character_files_after_migration(player_file_path, stale_flat_player_file_path, object_file_path, exploits_file_path, snapshot_data, error_message)) {
+            cleanup_account_native_migration_outputs(root_directory, account_name, character_name);
+            return false;
+        }
+
+        return true;
     }
 
 } // namespace
 
 bool migrate_legacy_character_by_name(const std::string& root_directory, const std::string& account_name, const std::string& character_name, long migrated_at, CharacterMigrationData* migration, std::string* error_message)
 {
+    std::string player_file_path;
+    if (!resolve_legacy_player_file_path(root_directory, character_name, &player_file_path, error_message))
+        return false;
+
+    std::string stale_flat_player_file_path;
+    const std::string canonical_player_file_path = legacy_player_file_path(root_directory, character_name);
+    if (player_file_path != canonical_player_file_path && path_exists(canonical_player_file_path))
+        stale_flat_player_file_path = canonical_player_file_path;
+
     return migrate_legacy_character_files_internal(root_directory, account_name, character_name,
-        legacy_player_file_path(root_directory, character_name),
+        player_file_path,
+        stale_flat_player_file_path,
         legacy_object_file_path(root_directory, character_name),
         legacy_exploits_file_path(root_directory, character_name),
         migrated_at, migration, error_message);
@@ -2398,17 +3127,334 @@ bool read_character_migration(const std::string& root_directory, const std::stri
 
 bool ensure_character_migration(const std::string& root_directory, const std::string& account_name, const std::string& character_name, long migrated_at, CharacterMigrationData* migration, std::string* error_message)
 {
+    bool account_character_exists = false;
+    if (!inspect_account_character_file(root_directory, account_name, character_name, &account_character_exists, error_message))
+        return false;
+    if (account_character_exists)
+        return true;
+
     const std::string path = account_character_snapshot_path(root_directory, account_name, character_name);
     struct stat file_info { };
     if (stat(path.c_str(), &file_info) == 0) {
-        if (read_character_migration(root_directory, account_name, character_name, migration, error_message))
-            return true;
+        CharacterMigrationData loaded_migration;
+        CharacterMigrationData* migration_target = migration != nullptr ? migration : &loaded_migration;
+        if (read_character_migration(root_directory, account_name, character_name, migration_target, error_message)) {
+            set_error(error_message, "Authoritative character.json is missing for '" + character_name + "'; the transitional migration snapshot alone is insufficient.");
+            return false;
+        }
     } else if (errno != ENOENT) {
         set_error(error_message, "Failed to inspect migration file '" + path + "': " + std::strerror(errno));
         return false;
     }
 
     return migrate_legacy_character_by_name(root_directory, account_name, character_name, migrated_at, migration, error_message);
+}
+
+bool write_account_character_file(const std::string& root_directory, const std::string& account_name, const char_file_u& stored_character, std::string* error_message)
+{
+    if (!validate_identifier_for_path(account_name, "Account name", error_message))
+        return false;
+    if (!validate_identifier_for_path(stored_character.name, "Character name", error_message))
+        return false;
+
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_character_path(account, stored_character.name, error_message))
+        return false;
+
+    const std::string account_directory = account_character_directory(root_directory, account_name, stored_character.name);
+    if (!create_directory_if_missing(root_directory + "/accounts", error_message))
+        return false;
+    if (!create_directory_if_missing(root_directory + "/accounts/" + account_bucket_for_name(resolve_account_storage_key(root_directory, account_name)), error_message))
+        return false;
+    if (!create_directory_if_missing(account_directory, error_message))
+        return false;
+
+    const std::string final_path = resolved_character_path(account, root_directory, stored_character.name);
+    const std::string json = character_json::serialize_character_to_json(character_json::character_data_from_store(stored_character));
+    return write_text_file_atomically(final_path, json, error_message);
+}
+
+bool write_linked_character_file(const std::string& root_directory, const std::string& character_name, const char_file_u& stored_character, std::string* error_message)
+{
+    std::string owner_account_name;
+    if (!find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
+        return false;
+    if (owner_account_name.empty()) {
+        set_error(error_message, "");
+        return true;
+    }
+
+    return write_account_character_file(root_directory, owner_account_name, stored_character, error_message);
+}
+
+bool read_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, char_file_u* stored_character, std::string* error_message)
+{
+    if (stored_character == nullptr) {
+        set_error(error_message, "Stored character output parameter must not be null.");
+        return false;
+    }
+
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_character_path(account, character_name, error_message))
+        return false;
+
+    const std::string path = resolved_character_path(account, root_directory, character_name);
+    std::string json;
+    if (!read_text_file(path, &json, error_message))
+        return false;
+
+    character_json::CharacterData character;
+    if (!character_json::deserialize_character_from_json(json, &character, error_message))
+        return false;
+    if (!character_json::apply_character_data_to_store(character, stored_character, error_message))
+        return false;
+
+    set_error(error_message, "");
+    return true;
+}
+
+bool account_character_file_exists(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message)
+{
+    bool exists = false;
+    if (!inspect_account_character_file(root_directory, account_name, character_name, &exists, error_message))
+        return false;
+    return exists;
+}
+
+bool inspect_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, bool* exists, std::string* error_message)
+{
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_character_path(account, character_name, error_message))
+        return false;
+
+    return inspect_path_existence(resolved_character_path(account, root_directory, character_name), "account character file", exists, error_message);
+}
+
+bool remove_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message)
+{
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_character_path(account, character_name, error_message))
+        return false;
+
+    const std::string path = resolved_character_path(account, root_directory, character_name);
+    if (std::remove(path.c_str()) != 0 && errno != ENOENT) {
+        set_error(error_message, "Failed to remove account character file '" + path + "': " + std::strerror(errno));
+        return false;
+    }
+
+    set_error(error_message, "");
+    return true;
+}
+
+bool write_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::string& object_bytes, std::string* error_message)
+{
+    objects_json::ObjectSaveData object_data;
+    if (!objects_json::object_save_data_from_binary(object_bytes, &object_data, error_message))
+        return false;
+
+    return write_account_object_json_file(root_directory, account_name, character_name, object_data, error_message);
+}
+
+bool write_default_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message)
+{
+    const objects_json::ObjectSaveData empty_object_data;
+    return write_account_object_json_file(root_directory, account_name, character_name, empty_object_data, error_message);
+}
+
+bool write_linked_character_object_file(const std::string& root_directory, const std::string& character_name, const std::string& object_bytes, std::string* error_message)
+{
+    std::string owner_account_name;
+    if (!find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
+        return false;
+    if (owner_account_name.empty()) {
+        set_error(error_message, "");
+        return true;
+    }
+
+    return write_account_object_file(root_directory, owner_account_name, character_name, object_bytes, error_message);
+}
+
+bool read_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* object_bytes, std::string* error_message)
+{
+    if (object_bytes == nullptr) {
+        set_error(error_message, "Object-bytes output parameter must not be null.");
+        return false;
+    }
+
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_object_path(account, character_name, error_message))
+        return false;
+
+    const std::string path = resolved_object_path(account, root_directory, character_name);
+    std::string json;
+    if (!read_text_file(path, &json, error_message))
+        return false;
+
+    objects_json::ObjectSaveData object_data;
+    if (!objects_json::deserialize_objects_from_json(json, &object_data, error_message))
+        return false;
+    if (!objects_json::object_save_data_to_binary(object_data, object_bytes, error_message))
+        return false;
+
+    set_error(error_message, "");
+    return true;
+}
+
+bool account_object_file_exists(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message)
+{
+    bool exists = false;
+    if (!inspect_account_object_file(root_directory, account_name, character_name, &exists, error_message))
+        return false;
+    return exists;
+}
+
+bool inspect_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, bool* exists, std::string* error_message)
+{
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_object_path(account, character_name, error_message))
+        return false;
+
+    return inspect_path_existence(resolved_object_path(account, root_directory, character_name), "account object file", exists, error_message);
+}
+
+bool remove_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message)
+{
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_object_path(account, character_name, error_message))
+        return false;
+
+    const std::string path = resolved_object_path(account, root_directory, character_name);
+    if (std::remove(path.c_str()) != 0 && errno != ENOENT) {
+        set_error(error_message, "Failed to remove account object file '" + path + "': " + std::strerror(errno));
+        return false;
+    }
+
+    set_error(error_message, "");
+    return true;
+}
+
+bool write_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::vector<exploit_record>& records, std::string* error_message)
+{
+    exploits_json::ExploitHistoryData exploit_history;
+    exploit_history.records = records;
+    return write_account_exploits_json_file(root_directory, account_name, character_name, exploit_history, error_message);
+}
+
+bool write_default_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message)
+{
+    const exploits_json::ExploitHistoryData empty_history;
+    return write_account_exploits_json_file(root_directory, account_name, character_name, empty_history, error_message);
+}
+
+bool write_linked_character_exploit_file(const std::string& root_directory, const std::string& character_name, const std::vector<exploit_record>& records, std::string* error_message)
+{
+    std::string owner_account_name;
+    if (!find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
+        return false;
+    if (owner_account_name.empty()) {
+        set_error(error_message, "");
+        return true;
+    }
+
+    return write_account_exploit_file(root_directory, owner_account_name, character_name, records, error_message);
+}
+
+bool read_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message)
+{
+    if (records == nullptr) {
+        set_error(error_message, "Exploit-record output parameter must not be null.");
+        return false;
+    }
+
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_exploits_path(account, character_name, error_message))
+        return false;
+
+    std::string json;
+    if (!read_text_file(resolved_exploits_path(account, root_directory, character_name), &json, error_message))
+        return false;
+
+    exploits_json::ExploitHistoryData exploit_history;
+    if (!exploits_json::deserialize_exploits_from_json(json, &exploit_history, error_message))
+        return false;
+
+    *records = std::move(exploit_history.records);
+    set_error(error_message, "");
+    return true;
+}
+
+bool account_exploit_file_exists(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message)
+{
+    bool exists = false;
+    if (!inspect_account_exploit_file(root_directory, account_name, character_name, &exists, error_message))
+        return false;
+    return exists;
+}
+
+bool inspect_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, bool* exists, std::string* error_message)
+{
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_exploits_path(account, character_name, error_message))
+        return false;
+
+    return inspect_path_existence(resolved_exploits_path(account, root_directory, character_name), "account exploits file", exists, error_message);
+}
+
+bool remove_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message)
+{
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+    if (!validate_account_owned_exploits_path(account, character_name, error_message))
+        return false;
+
+    const std::string path = resolved_exploits_path(account, root_directory, character_name);
+    if (std::remove(path.c_str()) != 0 && errno != ENOENT) {
+        set_error(error_message, "Failed to remove account exploits file '" + path + "': " + std::strerror(errno));
+        return false;
+    }
+
+    set_error(error_message, "");
+    return true;
+}
+
+bool clear_account_character_runtime_support_files(const std::string& root_directory, const std::string& character_name, std::string* error_message)
+{
+    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+        return false;
+
+    const std::string object_path = legacy_object_file_path(root_directory, character_name);
+    if (std::remove(object_path.c_str()) != 0 && errno != ENOENT) {
+        set_error(error_message, "Failed to remove stale legacy file '" + object_path + "': " + std::strerror(errno));
+        return false;
+    }
+
+    const std::string exploits_path = legacy_exploits_file_path(root_directory, character_name);
+    if (std::remove(exploits_path.c_str()) != 0 && errno != ENOENT) {
+        set_error(error_message, "Failed to remove stale legacy file '" + exploits_path + "': " + std::strerror(errno));
+        return false;
+    }
+
+    set_error(error_message, "");
+    return true;
 }
 
 bool decode_snapshot_content(const LegacyAssetSnapshot& snapshot, std::string* contents, std::string* error_message)
@@ -2472,22 +3518,12 @@ bool restore_character_migration(const std::string& root_directory, const std::s
     return true;
 }
 
-bool restore_character_runtime_support_files(const std::string& root_directory, const std::string& expected_account_name, const std::string& expected_character_name, const CharacterMigrationData& migration, std::string* error_message)
+bool clear_character_runtime_support_files_for_account_play(const std::string& root_directory, const std::string& expected_account_name, const std::string& expected_character_name, const CharacterMigrationData& migration, std::string* error_message)
 {
     if (!validate_migration_identity(migration, expected_account_name, expected_character_name, error_message))
         return false;
 
-    if (!write_snapshot_bytes(legacy_object_file_path(root_directory, migration.character_name), migration.object_file, false, error_message))
-        return false;
-
-    const std::string exploits_path = legacy_exploits_file_path(root_directory, migration.character_name);
-    if (std::remove(exploits_path.c_str()) != 0 && errno != ENOENT) {
-        set_error(error_message, "Failed to remove stale legacy file '" + exploits_path + "': " + std::strerror(errno));
-        return false;
-    }
-
-    set_error(error_message, "");
-    return true;
+    return clear_account_character_runtime_support_files(root_directory, migration.character_name, error_message);
 }
 
 bool refresh_linked_character_snapshot(const std::string& root_directory, const std::string& character_name, long migrated_at, CharacterMigrationData* migration, std::string* error_message)

@@ -20,6 +20,8 @@
 - Bootstrap data: `make setup` — creates required runtime directories/files under `lib/`, `log/`, and `bin/`.
 - Build: `make build` — compiles C/C++ sources to `bin/ageland`.
 - Test: `make test` — builds and runs the GoogleTest-based C++ unit tests.
+- Manual smoke: `make smoke-account` — builds the game/proxy and runs the proxy-backed account smoke flow.
+  Use this as a required separate validation step for account/login/authentication changes because `make test` is intentionally unit-test-only.
 - Run: `make run` — builds and starts the server in the background on port `3791`.
 - Clean: `make clean` — removes build outputs from the configured tree.
 - Raw CMake fallback: `cmake -S src -B build -DCMAKE_CXX_COMPILER=g++ && cmake --build build --target ageland`
@@ -33,17 +35,20 @@
 - Rust (proxy): follow `rustfmt` defaults; module/file lowercase with underscores.
 
 ## Testing Guidelines
-- C/C++: add or update unit tests in `src/tests/` when working in covered areas, run them via `make test`, and also perform smoke tests by building and running locally. Verify server boots, accepts connections, and changed features behave as expected.
+- C/C++: add or update unit tests in `src/tests/` when working in covered areas, run them via `make test`, and also perform smoke tests manually by building and running locally, typically via `make smoke-account` for the account flow. For account/login/authentication changes, treat that smoke run as a required separate validation step before finalizing. Verify server boots, accepts connections, and changed features behave as expected.
 - C/C++ test style: prefer behavior-oriented GoogleTest names that read clearly in CTest output, such as `ReturnsConfiguredWeaponType` instead of terse names like `WeaponType`. Use readable assertions like `EXPECT_TRUE` when appropriate, and add concise failure messages that explain the expectation and include important domain values when a failure would otherwise be cryptic.
 - Do not modify production code solely to accommodate tests. Prefer test fixtures, helper builders, dependency-free coverage, and existing public behavior. Only introduce a production seam for testability when it is also a legitimate design improvement, and call that out explicitly.
 - New code: add unit tests for newly written code when the surrounding module supports them, and document any gaps when tests are not practical.
+- When writing or expanding unit tests for non-trivial code paths, maintain a constructively adversarial test-design partner named `Bazarat`. Use `Bazarat` to challenge assumptions, look for missing edge cases, identify weak assertions, and pressure-test whether the tests would catch realistic regressions instead of only happy paths.
 - Rust: write unit/integration tests in `proxy/`; run with `cargo test -p proxy` and keep coverage reasonable.
 
 ## Review Workflow
 - Before finalizing any non-trivial change set, maintain two review subagents in parallel: `Magus` as the quality engineer reviewer and `Vincent` as the security engineer reviewer.
+- When the change set includes meaningful unit-test work, keep `Bazarat` engaged during test design and test review as a constructively adversarial pairing partner in addition to the normal reviewer pair. `Bazarat` is not a replacement for `Magus` or `Vincent`; the role is to pressure-test test intent, edge coverage, and failure realism while the code is still being written.
 - Reuse the same reviewer pair across successive changes by sending them updated diff context, instead of spawning a fresh pair for every round. Only replace a reviewer when it has been closed, becomes unavailable, or its context is no longer reliable. If either reviewer must be replaced, assign the replacement the same role name so the workflow stays consistent.
 - The quality engineer should focus on regressions, correctness, maintainability, test quality, developer ergonomics, and documentation gaps.
 - The security engineer should focus on trust boundaries, unsafe execution paths, secrets or data exposure, command safety, and build/test workflow risks.
+- `Bazarat` should focus on adversarial test questions such as: what assumption is unproven, what malformed input is untested, what rollback path is uncovered, what assertion is too weak, and what realistic regression would still slip through the current tests.
 - Give both reviewers the relevant changed files or diff context, ask for findings first with severity, file references, and concrete recommendations, and do not treat the work as complete until their feedback has been reviewed.
 - Address their findings in code or docs when appropriate, or explicitly document why a recommendation is being deferred.
 

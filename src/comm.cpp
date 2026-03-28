@@ -1696,6 +1696,8 @@ void close_socket(descriptor_data* conn_descriptor, int drop_all)
     descriptor_data* tmp;
     char buf[100];
 
+    clear_account_backed_object_bytes_for_character(conn_descriptor->character);
+
     // Alert Big Brother that the character is leaving.
     char_data* character = conn_descriptor->character;
     if (character && utils::is_pc(*character)) {

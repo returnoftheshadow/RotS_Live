@@ -2,11 +2,50 @@
 
 ## Current Status
 - In progress.
-- The emailed verification-code slice is implemented and hardened, and the account-authoritative cutover is now past the first direct-load stage with exploit history no longer depending on login-time legacy-file restore.
-- The latest exploit-history cutover slice is complete, validated, and reviewer-cleared.
+- The emailed verification-code slice is implemented and hardened, and the account-authoritative cutover now reaches object saves as well as exploit history.
+- The latest object-file cutover slice is implemented and validated, including the reviewer-reported empty-object-envelope ordering fix and the account-backed save-order fix that prevents linked object snapshots from being wiped on first save after login.
+- Local proxy-backed smoke coverage now reaches account creation, emailed verification, verified-account login, character listing, password reset, logout, and re-login with the new password.
+- The create-character smoke gap is now fixed: account migration resolves versioned legacy player-save filenames, and the proxy-backed smoke flow now reaches account-menu new-character creation, reconnect, and account-backed play successfully.
+- Scope update: new account-created characters should ultimately live directly in account-owned JSON storage for character data, objects, and exploits, instead of being born in legacy files and migrated immediately afterward.
+- Scope update: once a legacy character has been migrated successfully into account-owned JSON storage, its old legacy player/object/exploit files should be deleted.
+- Scope update: character data should live in `character.json`, and object data plus exploit history should each live in their own JSON files, with account-owned references pointing at those files so the account file remains easy to inspect.
+- Scope update: those JSON assets should be per character, not combined into any shared multi-character player/object/exploit JSON files.
+- Scope update: the older single-file character snapshot layout is no longer the target design and should be replaced by separate per-character JSON assets plus account-owned references to them.
+- Scope update: keep account-owned files directly under `lib/accounts/<bucket>/<normalized_email>/`, and prefix each character-owned asset filename with the character slug instead of using a per-character subdirectory.
+- Scope update: `character.json` should be modeled from the post-load runtime character/player structs instead of the raw legacy save text so new and migrated characters converge on one canonical schema.
+- Scope update: profession/class points and coeffs are important persisted gameplay data and must be included in `character.json`.
+- Scope update: use `mystic` terminology in the new JSON schema/docs even where the legacy code still uses `cleric` identifiers internally.
+- Scope update: `pretitle` and `prompt` are not needed in the new `character.json` schema and should be left out of the account-native character persistence format.
+- Progress update: the first storage-helper pass for that flat account-directory layout is now in place, including slug-prefixed per-character asset filenames in account link metadata.
+- Progress update: the reusable JSON reader/string-escaping code has now been split out of `account_management.cpp` into a shared `json_utils` module with its own focused unit-test coverage.
+- Progress update: the shared JSON reader now rejects raw control characters inside JSON strings, and that malformed-input rule is covered directly in the new `JsonUtils` tests.
+- Progress update: the shared JSON serializer now escapes any remaining low control bytes safely, and the reader understands the ASCII `\\u00XX` escapes it emits so the shared module round-trips its own output.
+- Progress update: the first shared `character_json` module pass is now in place, covering profession points/coeffs, symbolic player/preference/affected flag arrays, structured affect state, and conversion helpers to/from `char_file_u`.
+- Progress update: the shared `character_json` module now also covers persisted identity/physical fields, temporary and rolled abilities, point-state fields, conditions, timers, talks, skills, hide flags, and the related round-trip/apply validation against `char_file_u`.
+- Progress update: account-native `character.json` helpers now read and write per-character JSON files under the flat account directory layout, and account-backed selection now prefers those files directly with migration fallback only when the authoritative character file is missing.
+- Progress update: newly account-created characters now write their first `character.json` before linking completes, stale legacy object/exploit runtime files are cleared for account-backed play even for account-born characters, and focused regression coverage now exercises account-native character-file read/write/remove behavior.
+- Scope update: boot-time `player_table` indexing must include both legacy characters and account-native characters, and duplicate names across those stores should fail closed because character identities should stay globally unique.
+- Progress update: boot-time `player_table` indexing now scans both legacy player files and account-owned `character.json` files, name-based account-native loads resolve through that shared index, and duplicate names fail closed during startup instead of being silently preferred.
+- Progress update: the first shared `objects_json` module is now in place, account-owned `<character_slug>.objects.json` files can be written/read from the account layer, object-load lookup now prefers those files for linked characters, and crash/rent/idle object saves now refresh the account-native object file after writing the legacy crashsave stream.
+- Progress update: account-owned object-path handling now accepts safe legacy relative paths only when they still resolve to the expected `<character_slug>.objects.json` basename, rewrites those safe legacy paths back to the canonical basename on save, and still rejects traversal or mismatched paths.
+- Progress update: focused runtime coverage now includes a staged account-backed `Crash_load()` path that exercises alias-tail loading from account-owned object bytes instead of only read/write helpers.
+- Progress update: new account-created characters now lay down a canonical empty account-owned `objects.json` during their initial account-link flow instead of waiting for a later crashsave refresh.
+- Progress update: legacy migration now writes account-owned `objects.json` immediately when the legacy object payload is valid, and falls back to an empty account-owned object file when the legacy character has no object payload yet.
+- Progress update: focused loader coverage now proves an account-backed staged `Crash_load()` can equip a real wearable item and preserve carried inventory from account-owned object bytes.
+- Progress update: focused migration-parity coverage now compares decoded legacy object payloads with the decoded account-owned `objects.json` result after migration so object-save structure matches through the cutover.
+- Progress update: the first shared `exploits_json` module is now in place, account-owned `<character_slug>.exploits.json` files can be written/read from the account layer, exploit-load lookup now prefers those files for linked characters, and linked-character exploit writes now refresh the account-native exploit file directly instead of appending to legacy runtime files first.
+- Progress update: new account-created characters now lay down a canonical empty account-owned `exploits.json` during their initial account-link flow, and legacy migration now writes account-owned `exploits.json` immediately when the legacy exploit payload is valid or absent.
+- Progress update: focused loader coverage now proves corrupt authoritative account-owned `exploits.json` fails closed even when a stale legacy runtime exploit file exists, and linked-character exploit writes/readback now stay on the account-owned JSON path.
+- Progress update: legacy-character migration now hydrates and backfills authoritative account-owned `character.json` from legacy player data during migration instead of relying on direct runtime decode of `migration.player_file`.
+- Progress update: account-backed character selection now re-reads authoritative `character.json` after migration/backfill instead of decoding `migration.player_file` directly in `interpre.cpp`.
+- Progress update: migration-focused test fixtures now generate real legacy player save text instead of placeholder blobs, so the new `character.json` backfill path is exercised through the actual legacy parser.
+- Progress update: account-backed selection now also loads authoritative account-owned object-save bytes on the direct `character.json` fast path, so already-account-native characters no longer risk entering the world with an empty staged object envelope.
+- Progress update: legacy-player migration now prefers a valid versioned player-save file over a stale flat player file when both exist, retires that stale flat artifact during successful migration, cleans up account-native outputs if stale-flat retirement fails, and keeps the boot-time player index from tripping duplicate-name failures by ignoring flat artifacts when a valid versioned sibling exists.
 
 ## Current Task
-- Handoff point: the next session should start on the remaining account-authoritative cutover for the legacy object support-file dependency.
+- Remove the remaining runtime dependency on the transitional migration snapshot for player-data authority.
+- Replace snapshot-based `character.json` repair in account-backed play and ordinary saves with direct account-native `character.json` repair or fail-closed behavior.
+- Add focused regressions for missing-`character.json` runtime behavior before sending the next reviewer pass.
 
 ## Recent Progress
 - Read `FEATURES.md`.
@@ -81,20 +120,181 @@
 - Added focused regression coverage for exploit-history snapshot fallback, snapshot-seeded append behavior, corrupt runtime exploit-file fallback, temp-file conflict failure, and preserving snapshot exploit history across refreshes.
 - Rebuilt the server and passed the focused account suite at 61 tests, focused db-loader coverage at 5 tests, and the full unit suite at 240/240.
 - Sent the exploit-history cutover slice through `Magus` and `Vincent`, addressed their findings, and got a clean final reviewer pass from both.
+- Replaced login-time runtime support-file restoration with account-play preparation that clears stale legacy object and exploit files after validating snapshot identity.
+- Added `load_object_save_bytes_for_character(...)` so linked characters can read object-save bytes from the runtime file when present or fall back to the linked account snapshot when it is absent.
+- Updated `Crash_load()` so account-backed play can stage snapshot-backed object bytes into an anonymous temporary stream and continue using the legacy object/alias/follower parser unchanged.
+- Followed up on reviewer findings by staging account-backed object bytes from the authenticated selection context instead of re-resolving ownership by character name at load time.
+- Hardened the legacy object/alias/follower parser so truncated crashsave streams fail closed instead of reading partial data, and added cleanup for staged object bytes on denied/reconnect login paths.
+- Fixed the synthetic empty staged object payload so its alias/follower layout now matches the real crash-save serialization order for no-object account-backed logins.
+- Fixed the account-backed linked-character login order so `save_char()` refreshes the account snapshot before stale legacy object/exploit files are cleared, preventing the first post-login save from rewriting the object snapshot as empty.
+- Added focused regression coverage for clearing runtime support files during account-backed play and for loading object-save bytes from account snapshots when the legacy `plrobjs/...` file is missing.
+- Added a configurable `ROTS_SENDMAIL_COMMAND` override and replaced the live verification mail path with an explicit pipe/fork/exec wait flow after the proxy-backed smoke uncovered live delivery failures in the old `popen`/`pclose` approach.
+- Added unit coverage for the configurable verification-mail command and a reusable `tools/account_smoke.py` harness plus `make smoke-account` / `smoke_account` targets.
+- Tightened the configurable mailer override so it is parsed into argv and executed with `execvp(...)` instead of shell parsing, then updated the smoke harness to use a fixed helper script path and UUID-based account ids with cleanup by `normalized_email`.
+- Folded the Python proxy-backed account smoke flow into the default `make test` command so the standard test entry point now covers both the C++ suite and the create/verify/login/reset smoke path.
+- Rebuilt the test binary and passed the focused account suite, the full unit suite at 243/243, the full server build, and the broader proxy-backed smoke flow.
+- Smoke tested the live account flow through the Rust proxy with temporary accounts: created an account, captured and entered the emailed verification code locally, logged in, listed linked characters, reset the password, logged out, verified the old password was rejected, and re-logged in with the new password.
+- Investigated the deeper smoke failure where account-menu new-character creation produced an unlinked character on reconnect.
+- Confirmed from preserved live-server logs that fresh character creation writes versioned player-save filenames like `name.level.race.idnum.logtime.flags`, while account migration was still looking only for the old unsuffixed `players/<bucket>/<name>` path.
+- Updated account migration to resolve the real versioned player-save filename when the old canonical path is absent, and to fail closed if multiple versioned player files match the same character name.
+- Added regression coverage for migrating a fresh versioned player save and for rejecting ambiguous multiple versioned player-save matches.
+- Updated the smoke harness cleanup to remove versioned player-save artifacts and added persistent game/proxy log capture to the smoke temp directory for easier live-flow debugging.
+- Expanded the proxy-backed smoke harness to cover creating a new character from the account menu, reconnecting, selecting the linked character, and entering the world through the account-backed play path.
+- Re-ran the full validation path and passed `make test` with `245/245` C++ tests plus the expanded Python smoke flow.
+- Updated account discovery and persistence helpers so account records now live under `lib/accounts/<bucket>/<normalized_email>/account.json` while account lookup by internal account name still works through directory scans.
+- Flattened linked-character asset references so account metadata now defaults to `<character_slug>.character.json`, `<character_slug>.objects.json`, and `<character_slug>.exploits.json` in the same account directory.
+- Moved the transitional migration-file path into that same account directory as `<character_slug>.migration.json` while the broader account-native JSON cutover is still in progress.
+- Added focused regression coverage for the new account path layout and default character-link filenames, then re-ran the focused `AccountManagement` and `DbLoader` suites successfully.
+- Hardened account-file rewrites so a different account cannot overwrite an occupied email-rooted path, legacy flat account files are retired after successful rewrites, and duplicate old/new account records now prefer the rooted `account.json` record instead of failing closed when both describe the same account.
+- Tightened account-directory scans so empty or non-account bucket subdirectories are ignored unless they actually contain a broken `account.json`, which fixed the live smoke regression caused by leftover empty account directories.
+- Added focused regression coverage for malicious stored character names, legacy flat-account rewrite migration, and overwrite-prevention behavior, then re-ran `make test` successfully with the updated suite count and live smoke flow.
+- Added a first shared `character_json` module plus focused tests for profession points/coeffs, symbolic player/preference/affected flag arrays, structured affect serialization, `mystic` profession naming, and `char_file_u` conversion helpers.
+- Expanded the shared `character_json` module to cover persisted identity/physical fields, temporary and rolled abilities, point data, conditions, timers, talks, skills, hide flags, and stricter array-capacity validation when applying JSON back to `char_file_u`.
+- Rebuilt the test binary and passed the focused `CharacterJson` and `JsonUtils` suites plus the full `make test` path with the expanded `character_json` coverage in place.
+- Addressed reviewer follow-up on malformed `character.json` input by rejecting out-of-range narrowed numeric fields, truncated fixed-width arrays, and overlong fixed-buffer strings before applying JSON back into `char_file_u`.
+- Added focused regression tests for narrowed numeric overflow, truncated fixed-width arrays, and overlong `character_name` rejection in the shared `character_json` suite.
+- Tightened the shared parser boundary further so `parse_integer()` now rejects out-of-range integers before narrowing, fixed-width arrays are capped while parsing instead of only after materialization, embedded NUL bytes are rejected for fixed-buffer strings, and oversized `affects` arrays fail immediately.
+- Added focused regression tests for out-of-range parsed integers, embedded-NUL fixed-buffer strings, and oversized `affects` arrays in the shared JSON/character suites.
+- Updated the `character_json` schema surface so `skills` and `talks` now serialize as named key/value objects in JSON instead of positional arrays, while still mapping back into the fixed runtime arrays internally.
+- Added account-layer helpers to write, read, check, and remove account-native `character.json` files using the shared `character_json` module.
+- Added `ensure_player_index_entry(...)` and `update_player_index_entry_from_store(...)` so account-backed selection can hydrate runtime player-index state after loading a character directly from JSON.
+- Updated account-backed character selection to prefer direct `character.json` load and only fall back to migration when that authoritative file is genuinely absent.
+- Updated account-backed login prep to clear stale runtime object/exploit files even for account-born characters that never had a migration snapshot.
+- Updated new-character introduction so account-created characters write an account-native `character.json` as part of initial account linking instead of relying solely on the legacy player file birth path.
+- Added focused regression coverage for account-native character-file write/read/remove behavior and re-ran the full test path successfully.
+- Updated boot-time `build_player_index()` to scan account-owned `account.json` records directly, add account-native characters to `player_table`, and fail closed on duplicate names across legacy/account-native storage.
+- Updated `load_player(...)` so name-based loads can resolve an account-native `character.json` path from `player_table` without falling back to legacy player text.
+- Added `DbLoader.BuildPlayerIndexIncludesLegacyAndAccountNativeCharacters` to prove unified indexing and name-based account-native loads work together.
+- Investigated the smoke regression after the indexing change, confirmed the first failure was a stale `bin/ageland` build rather than a loader bug, rebuilt the server binary, and re-ran the smoke flow successfully.
+- Added a shared `objects_json` module that round-trips the current crashsave payload into JSON with explicit sections for rent data, top-level objects, board points, aliases, and followers.
+- Added focused `ObjectsJson` unit coverage for binary round-trip, JSON round-trip, truncated-binary rejection, and alias-keyword validation.
+- Added account-layer helpers to write/read/check per-character `objects.json` files using that shared module.
+- Updated account-backed object-save lookup to prefer account-owned `objects.json` for linked characters before falling back to the runtime legacy file or migration snapshot.
+- Updated crash/rent/idle object saves to refresh account-owned `objects.json` after writing the legacy crashsave stream.
+- Added regression coverage proving the loader can read object-save bytes back from account-owned `objects.json`.
+- Addressed security review feedback by rejecting stored `object_path` values that do not match the expected per-character basename and by validating narrowed `objects.json` fields before converting them back into crashsave storage types.
+- Followed up on Maxwell's compatibility note by allowing safe legacy relative `object_path` values that still resolve to the expected object basename, then normalizing them back to the canonical basename on account-file/object-file rewrites.
+- Added `DbLoader.CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail` so the real staged `Crash_load()` path now has focused regression coverage instead of only helper-level object-load tests.
+- Re-ran the full validation path successfully after the object-path compatibility follow-up and the new staged `Crash_load()` coverage.
+- Added shared account-layer helpers to write a default empty account-owned object file and to remove an account-owned object file during rollback cleanup.
+- Updated new-character introduction so account-created characters now create `objects.json` during the initial account-link transaction and clean it up if account linking rolls back.
+- Updated legacy migration so successful migrations now seed canonical account-owned `objects.json` immediately when legacy object data is valid, or write an empty default `objects.json` when no legacy object file exists yet.
+- Added focused regression coverage for default object-file writes plus migration-time account-owned object-file creation from valid and missing legacy object payloads.
+- Re-ran the full validation path successfully after the object-birth and migration-authority follow-up.
+- Added a scoped object-prototype test helper in `db_loader_tests.cpp` so the staged account-backed `Crash_load()` path can instantiate and equip real wearable objects during unit coverage.
+- Added focused `DbLoader` coverage proving staged account-backed object bytes can enter the game with worn equipment and carried inventory intact.
+- Added focused `DbLoader` migration-parity coverage proving decoded legacy object bytes and the resulting decoded account-owned `objects.json` payload stay structurally equivalent after migration.
+- Followed up on reviewer findings by failing migration closed when legacy object bytes are malformed instead of silently downgrading them to an empty `objects.json`.
+- Tightened account-owned character-file resolution so persisted `character_path` metadata must match the canonical per-character filename and gets normalized back to that basename on save.
+- Updated the successful migration fixtures to use valid crashsave object bytes so the new malformed-payload guard is exercised only where intended.
+- Hardened the staged account-backed object cache so it keys by normalized character identity instead of raw `char_data*`, and stale staged bytes are now cleared on socket close and `free_char()`.
+- Reordered account-owned object-path normalization so `account.json` only rewrites a safe legacy `object_path` to the canonical basename after the new canonical object file write succeeds.
+- Added regression coverage for the stale staged-object isolation path and for preserving a legacy-safe `object_path` when the canonical object-file write fails.
+- Hardened `tools/account_smoke.py` with a bounded retry loop so the proxy-backed smoke path stays reliable under `make test` even when the first connect/prompt handshake flakes.
+- Added a shared `exploits_json` module that round-trips legacy exploit-history records into JSON and back, with focused coverage for malformed binary length and fixed-width string validation.
+- Added account-layer helpers to write/read/check/remove per-character `exploits.json` files using that shared module.
+- Updated new-character introduction so account-created characters now create `exploits.json` during the initial account-link transaction and clean it up if account linking rolls back.
+- Updated legacy migration so successful migrations now seed canonical account-owned `exploits.json` immediately when legacy exploit data is valid, write an empty default `exploits.json` when the legacy exploit file is missing, and fail closed when legacy exploit bytes are malformed.
+- Updated exploit-history runtime flows so linked characters now prefer account-owned `exploits.json`, remove stale legacy runtime exploit files after successful account-native reads/writes, and fail closed when the authoritative account-owned exploit file is corrupt instead of silently falling back to stale runtime data.
+- Added focused regression coverage for account-owned exploit-file read/write/default-empty behavior, migration-time exploit-file creation from valid and missing legacy payloads, malformed legacy exploit rejection, direct account-native exploit read/write preference, and corrupt-authoritative-JSON fail-closed behavior.
+- Re-ran the full validation path successfully after the `exploits.json` authority follow-up.
+- Had `Bazarat` adversarially review the `AccountManagement` suite and added targeted edge-case coverage for stale verification-code rejection after resend, verified-account re-verification safety, conflicting legacy-flat plus rooted duplicate email records, duplicate-email account creation rejection when a legacy-flat record already exists, and absolute-path rejection for stored object-path metadata.
+- Re-ran focused `AccountManagement` coverage at 91 passing tests and the full `make test` path successfully after the new edge-case regressions.
+- Had `Bazarat` adversarially review the `objects_json_tests` suite and added targeted edge-case coverage for empty object-save round-trip, alias/follower/object ordering fidelity, truncation inside alias and follower sections, wrong-typed nested JSON sections, and missing required top-level JSON sections.
+- Tightened `deserialize_objects_from_json(...)` so account-owned `objects.json` now fails closed when required top-level sections like `rent`, `objects`, `board_points`, `aliases`, or `followers` are missing instead of silently defaulting them.
+- Followed up on Maxwell's review by tightening nested object/alias/follower record parsing so missing required fields now fail closed instead of silently defaulting missing scalars or strings.
+- Followed up on Rawls' review by tightening nested object-affect parsing so missing `location` or `modifier` fields now fail closed instead of defaulting silently to zero.
+- Added focused `ObjectsJson` regressions for missing alias `command`, missing object `item_number`, and followers missing required numeric/object fields.
+- Added focused `ObjectsJson` regressions for affect entries missing `location` or `modifier`.
+- Re-ran focused `ObjectsJson` coverage at 12 passing tests, re-ran the full C++ test path at `320/320`, and re-ran the Python smoke harness successfully after the nested-record hardening follow-up.
+- Had `Bazarat` adversarially review the `character_json_tests` suite and added targeted edge-case coverage for missing required top-level sections, legacy `cleric` schema drift, unknown affected/hide flags, duplicate named `talks`, and missing required structured-affect fields.
+- Tightened `character_json` deserialization so required top-level sections must be present, `cleric` is rejected in favor of `mystic`, `flags`/`professions` objects must be complete, and structured affects now fail closed when required fields are missing.
+- Re-ran focused `CharacterJson` coverage at 19 passing tests, re-ran the full C++ test path at `325/325`, and re-ran the Python smoke harness successfully after the `character_json` hardening follow-up.
+- Tightened the nested `character_json` parsers so `identity`, `progression`, `abilities`, `points`, `conditions`, `timers`, `perception`, and `state` now fail closed when required scalar fields are missing instead of silently defaulting them to zero.
+- Added focused `CharacterJson` regressions for missing required `identity`, `points`, and `state` fields during deserialization.
+- Followed up on Maxwell's low test-coverage finding by adding the missing required-field regressions for `progression`, `abilities`, `conditions`, `timers`, and `perception`.
+- Re-ran focused `CharacterJson` coverage at 27 passing tests, re-ran the full C++ test path at `333/333`, and re-ran the Python smoke harness successfully after the nested-field hardening follow-up.
+- Updated legacy-character migration so successful migration now retires the old legacy player/object/exploit files immediately after the account-owned object/exploit files and migration record are written.
+- Added focused `AccountManagement` regressions proving successful migration removes the legacy files, that object-retirement failures restore earlier retired files before returning failure, and that exploit-retirement failures restore both earlier retired legacy files before returning failure.
+- Updated the affected `DbLoader` regressions so their fixtures now expect migration to have already retired the legacy object/exploit files before fallback reads occur.
+- Re-ran focused `AccountManagement` coverage at 94 passing tests, re-ran the targeted `DbLoader` regressions for account-backed object/exploit fallback, and re-ran the full `make test` path successfully at `336/336` C++ tests plus the Python smoke flow.
+- Removed the remaining `migration.object_file` / `migration.exploits_file` runtime fallback in `db.cpp`, so linked-character object/exploit loads now use account-native JSON first, then any still-present runtime legacy files, and otherwise return empty results instead of decoding the transitional migration snapshot.
+- Removed the redundant object-snapshot decode in `interpre.cpp`, since account-backed selection already reloads object-save bytes through the authoritative loader path.
+- Renamed the affected `DbLoader` cases to reflect account-native JSON authority and added focused regressions proving linked characters with neither account-native nor runtime object/exploit files now load as empty instead of reaching back into the migration snapshot.
+- Had `Bazarat` adversarially review the loader cleanup and added the extra authority-order regressions he called out: linked-character runtime legacy fallback when account JSON is absent, preference for account-native object/exploit JSON over conflicting runtime legacy data, and fail-closed malformed-object-JSON behavior that preserves the stale runtime file.
+- Replaced the remaining string-based `"Failed to open file"` fallback checks with structured account-owned file inspection in `account_management`, so unreadable authoritative account-native character/object/exploit files fail closed instead of being treated like missing files.
+- Added a focused `DbLoader` regression proving unreadable authoritative account-native object/exploit JSON does not fall back to stale runtime legacy data.
+- Re-ran focused `DbLoader` coverage at 22 passing tests and re-ran the full `make test` path successfully at `342/342` C++ tests plus the Python smoke flow.
+- Updated migration/backfill helpers so legacy-character migration now writes authoritative account-owned `character.json` immediately from decoded legacy player data, and existing migration snapshots backfill missing `character.json` files the next time migration is ensured.
+- Updated account-backed login in `interpre.cpp` so it re-reads authoritative `character.json` after migration/backfill instead of decoding `migration.player_file` directly at runtime.
+- Reworked migration-heavy test fixtures in `AccountManagement` and `DbLoader` to generate real legacy player saves via `save_player(...)` instead of placeholder text, which exercises the actual legacy loader path during `character.json` backfill.
+- Fixed the new fixture helper so it does not accidentally mark generated characters as NPCs, does not hand stack memory to `free_char()`, and leaves `player_table` in a clean state for `ensure_player_index_entry(...)`.
+- Added regression expectations proving migration-created/backfilled `character.json` is readable after ensure/rebuild paths, and updated migration-retirement expectations so tests no longer expect retired legacy player files to remain on disk after successful migration.
+- Re-ran focused migration regressions and the full C++ suite successfully at `342/342`.
+- Re-ran the direct proxy-backed smoke harness successfully after the migration-backfill changes.
+- Fixed Maxwell's review finding in `interpre.cpp` by loading account-owned object-save bytes on the direct `character.json` fast path instead of only after migration fallback.
+- Added a new `DbLoader` regression proving an existing account-native `character.json` plus `objects.json` path can still equip staged objects through `Crash_load()` without forcing migration first.
+- Re-ran focused `DbLoader` coverage successfully after the fast-path object fix.
+- Re-ran the direct proxy-backed smoke harness successfully after the fast-path object fix.
+- Fixed Maxwell's follow-up save-path finding in `save_char(...)` so already account-native linked characters no longer attempt `refresh_linked_character_snapshot(...)` after ordinary saves once their legacy player/object/exploit files have been retired.
+- Added a focused `DbLoader` regression proving ordinary saves for an already account-native linked character do not emit the old `failed to refresh account snapshot` log noise after migration retirement.
+- Re-ran focused `DbLoader` coverage successfully after the save-path fix at `24` passing tests.
+- Re-ran `make test`; the C++ suite passed cleanly at `344/344`, and the Python smoke step still showed the known intermittent prompt-marker timeout in the combined target.
+- Followed up on Bazarat's migration-test review by changing legacy player-path resolution so a valid versioned player save now wins over a stale flat file.
+- Added focused `AccountManagement` regressions proving migration prefers the versioned player save, hydrates account-native `character.json` from that winning save, and rejects mismatched restore requests without overwriting stale runtime legacy files.
+- Strengthened the corrupt-snapshot rebuild test so it now explicitly re-reads the backfilled account-native `character.json` and checks representative stored fields after rebuild.
+- Followed up on Rawls' migration-integrity review by retiring the ignored stale flat player file during successful versioned-player migration and by adding a `DbLoader` regression proving boot-time `player_table` indexing stays consistent after that migration path.
+- Followed up on Rawls' failure-path review by making stale-flat cleanup retirement-only instead of a second migration input, rolling back account-native migration outputs if stale-flat retirement fails, and teaching boot-time `build_directory()` to skip flat artifacts when a valid versioned sibling exists before any login-driven migration has run.
+- Added focused `AccountManagement` coverage proving a valid versioned migration succeeds even when the stale flat file is unreadable and proving stale-flat retirement failure cleans up account-native outputs instead of leaving half-migrated duplicates behind.
+- Added focused `DbLoader` coverage proving boot-time `player_table` indexing prefers the versioned legacy save over a flat artifact even before migration has run.
+- Re-ran focused `AccountManagement` coverage successfully at `98` tests and focused `DbLoader` coverage successfully at `26` tests after fixing the stale-flat and pre-migration boot-index regressions.
+- Re-ran the full `make test` path successfully at `350/350` C++ tests, and re-ran the Python smoke flow separately via `make smoke-account`.
+- Workflow update: `make test` is back to C++ unit tests only; run the proxy-backed smoke harness manually from here on out via `make smoke-account`.
+- Validation rule update: for account/login/authentication work, `make smoke-account` is now a required separate validation step rather than something implied by `make test`.
+- Added a new GitHub Actions workflow at `.github/workflows/ci.yml` that runs on pushes to `master` and pull requests targeting `master`, installs the Ubuntu build dependencies, builds the game, runs `make test`, and then runs `make smoke-account`.
+- Updated `README.md` to document the manual smoke-test workflow plus the GitHub Actions / branch-protection requirement for making CI a mandatory merge gate.
+- Removed the remaining runtime player-data dependency on the transitional migration snapshot in the account-backed play path: once `character.json` has been read, runtime support-file cleanup now clears stale legacy object/exploit files directly by character name instead of re-reading the snapshot just to validate and clear them.
+- Tightened `ensure_character_migration(...)` so an existing migration snapshot no longer backfills a missing authoritative `character.json`; it now only succeeds from the snapshot if `character.json` already exists, otherwise it falls back to real legacy migration and fails closed if only the snapshot remains.
+- Tightened `ensure_character_migration(...)` again so a corrupt transitional snapshot no longer blocks a valid authoritative `character.json`; if the account-owned character file already exists, migration now succeeds without consulting the corrupt snapshot at all.
+- Added an explicit fail-closed error message for the snapshot-only path so live account-play/login failures now explain that the authoritative `character.json` is missing and the transitional snapshot alone is insufficient.
+- Updated `save_char(...)` so linked characters repair a missing account-native `character.json` directly from the current in-memory store state instead of writing a legacy player file and refreshing the migration snapshot.
+- Added focused regressions proving snapshot-only state no longer repairs missing `character.json`, that a corrupt transitional snapshot does not block an existing authoritative `character.json`, that linked saves recreate `character.json` directly without reviving the snapshot-refresh path or legacy player-file writes, and that unreadable account records do not let account-native saves fall back to legacy player files.
+- Re-ran focused `AccountManagement` coverage at `100` passing tests, focused `DbLoader` coverage at `28` passing tests, and the full `make test` path at `354/354` after the player-data authority cleanup.
+- Manual `make smoke-account` is currently still blocked by the known telnet prompt-detection flake in `tools/account_smoke.py`; two reruns in this slice timed out during the handshake and kept artifacts under `/tmp/rots-account-smoke-*`.
 
 ## Next Step
-- Continue the cutover so the legacy object support file stops being the remaining runtime substrate during account-backed play.
-- Map exactly where `Crash_load()` and related object/runtime flows still require `plrobjs/...`, then decide whether to load object state directly from account snapshots or add a narrower account-aware fallback similar to the exploit-history path.
-- Add smoke coverage for the new interactive login/menu flow and tighten any rough edges uncovered by real socket-level testing.
+- Wait for `Maxwell` and `Rawls` to review the player-data authority cleanup follow-up.
+- If the reviewers are clear, the remaining noted test gap in this slice is a more direct account-play-path regression around stale runtime support-file cleanup after authoritative character load.
+- If they are clear, decide whether the next step is the last migration-policy cleanup or hardening the flaky smoke harness enough to make manual account smoke runs trustworthy again.
+- Once both reviews are back, decide whether to add Maxwell's low extra regression for the wrong expected character-name restore mismatch too, or leave the existing account-mismatch restore regression as sufficient coverage for now.
+- Keep removing the remaining transitional migration-file dependency once the player-data path is fully authoritative on `character.json`.
 - Before production use, replace the current raw legacy snapshot capture with structured/sanitized migration for player data so legacy password/host fields are not carried forward verbatim.
 
 ## Last Validation
-- `cmake --build build --target ageland -j4`
+- `cmake --build build --target ageland_tests -j4`
 - `./bin/tests '--gtest_filter=AccountManagement*'`
 - `./bin/tests '--gtest_filter=DbLoader*'`
-- `make test`
-- Result: all green, including `240/240` full tests.
+- Result: focused `AccountManagement` is green at `98` tests, focused `DbLoader` is green at `26` tests, `cmake --build build --target ageland_tests -j4` succeeds cleanly, `make test` is back to unit-test-only coverage, and the proxy-backed Python smoke flow now runs manually via `make smoke-account`.
 
 ## Reviewer Status
-- `Magus`: clean final review on the exploit-history cutover slice.
-- `Vincent`: clean final security review on the exploit-history cutover slice.
+- `Maxwell`: clear on the shared `json_utils` extraction after follow-up hardening for raw control characters and `\u00XX` serializer/parser round-trip coverage.
+- `Rawls`: clear on the shared `json_utils` extraction; no new trust-boundary or parser-safety findings after the control-character follow-up.
+- `Maxwell`: clear on the current `character_json` expansion after follow-up fixes for numeric range validation, exact-size array validation, and fixed-width string-length guards.
+- `Rawls`: clear on the current `character_json` expansion after the final parser-boundary fixes for out-of-range integers, fixed-width array caps, embedded-NUL rejection, and `MAX_AFFECT` enforcement during parse.
+- `Rawls`: clear on the latest `objects_json` follow-up; no new trust-boundary or data-exposure findings after the staged-object cache lifetime fix, the post-write object-path normalization change, and the new regressions.
+- `Maxwell`: no blocking findings remain on the latest `objects_json` follow-up. He left three low notes to keep in mind for the next testing pass: the scoped object-prototype fixture in `db_loader_tests.cpp` is still brittle, the migration-parity test is still structural parity rather than true live-crashsave compatibility, and the smoke retry in `tools/account_smoke.py` is broad enough that we should make first-attempt failures more visible if it stays.
+- `Maxwell` and `Rawls`: the newest follow-up covered equipped-login object coverage, migration parity, malformed-payload fail-closed behavior, canonical `character_path` enforcement, staged-object lifetime hardening, post-write `object_path` normalization, and the stabilized smoke harness. Both review gates are now satisfied for this slice.
+- `Bazarat`: reviewed the first `exploits.json` cutover coverage and pushed on fail-closed authority boundaries plus stale-runtime precedence. The new corrupt-authoritative-JSON regression was added in response.
+- `Bazarat`: also reviewed the `AccountManagement` suite and directly drove the new resend-invalidation, verified-account lifecycle, duplicate-record authority, legacy-flat duplicate-email, and stricter absolute-path guard regressions.
+- `Bazarat`: also reviewed the `objects_json_tests` suite and directly drove the new empty-payload, required-sections, mid-stream truncation, nested-shape, and ordering-fidelity regressions.
+- `Bazarat`: also reviewed the `character_json_tests` suite and directly drove the new required-sections, legacy-`cleric` rejection, unknown affected/hide flag, duplicate named-value, and missing structured-affect-field regressions.
+- `Maxwell`: the first `character_json` nested-field hardening pass was internally consistent and had one low finding to add explicit regressions for the remaining required-field parser branches. That follow-up is now implemented and awaiting re-check.
+- `Rawls`: clear on the latest `character_json` nested-field hardening follow-up; no new trust-boundary, parser-safety, or data-integrity findings.
+- `Maxwell`: clear on the latest legacy-file-retirement migration follow-up after the exploit-rollback regression and rollback-helper readability cleanup.
+- `Rawls`: clear on the latest legacy-file-retirement migration follow-up after the partial-migration rollback restoration fix.
+- `Maxwell`: latest stale-flat-player retirement and boot-index follow-up review pending.
+- `Rawls`: latest stale-flat-player retirement and boot-index follow-up review pending.
+- `Bazarat`: reviewed the loader-cleanup tests and directly pushed the new runtime-legacy fallback, authoritative-preference, and malformed-object-JSON fail-closed regressions.
+- `Bazarat`: also pushed the new unreadable-authoritative-object/exploit regression while Maxwell's follow-up was being addressed.
+- `Maxwell`: exploit-cutover review pending.
+- `Rawls`: exploit-cutover review pending.

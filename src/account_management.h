@@ -1,6 +1,9 @@
 #ifndef ACCOUNT_MANAGEMENT_H
 #define ACCOUNT_MANAGEMENT_H
 
+#include "db.h"
+#include "structs.h"
+
 #include <string>
 #include <vector>
 
@@ -15,12 +18,20 @@ static constexpr long EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60;
 static constexpr int MAX_EMAIL_VERIFICATION_ATTEMPTS = 5;
 
 struct AccountData {
+    struct CharacterLinkReference {
+        std::string character_name;
+        std::string character_path;
+        std::string object_path;
+        std::string exploits_path;
+    };
+
     int version = ACCOUNT_SCHEMA_VERSION;
     std::string account_name;
     std::string normalized_email;
     std::string password_hash;
     std::string password_salt;
     std::vector<std::string> characters;
+    std::vector<CharacterLinkReference> character_links;
     bool email_verified = false;
     std::string email_verified_by;
     long email_verified_at = 0;
@@ -99,15 +110,39 @@ std::string legacy_exploits_file_path(const std::string& root_directory, const s
 std::string account_file_path(const std::string& root_directory, const std::string& account_name);
 std::string account_character_directory(const std::string& root_directory, const std::string& account_name, const std::string& character_name);
 std::string account_character_snapshot_path(const std::string& root_directory, const std::string& account_name, const std::string& character_name);
+std::string account_character_player_path(const std::string& root_directory, const std::string& account_name, const std::string& character_name);
+std::string account_character_object_path(const std::string& root_directory, const std::string& account_name, const std::string& character_name);
+std::string account_character_exploits_path(const std::string& root_directory, const std::string& account_name, const std::string& character_name);
 
 std::string serialize_character_migration_to_json(const CharacterMigrationData& migration);
 bool deserialize_character_migration_from_json(const std::string& json, CharacterMigrationData* migration, std::string* error_message = nullptr);
 bool migrate_legacy_character_by_name(const std::string& root_directory, const std::string& account_name, const std::string& character_name, long migrated_at, CharacterMigrationData* migration, std::string* error_message = nullptr);
 bool read_character_migration(const std::string& root_directory, const std::string& account_name, const std::string& character_name, CharacterMigrationData* migration, std::string* error_message = nullptr);
 bool ensure_character_migration(const std::string& root_directory, const std::string& account_name, const std::string& character_name, long migrated_at, CharacterMigrationData* migration, std::string* error_message = nullptr);
+bool write_account_character_file(const std::string& root_directory, const std::string& account_name, const char_file_u& stored_character, std::string* error_message = nullptr);
+bool write_linked_character_file(const std::string& root_directory, const std::string& character_name, const char_file_u& stored_character, std::string* error_message = nullptr);
+bool read_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, char_file_u* stored_character, std::string* error_message = nullptr);
+bool inspect_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, bool* exists, std::string* error_message = nullptr);
+bool account_character_file_exists(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
+bool remove_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
+bool write_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::string& object_bytes, std::string* error_message = nullptr);
+bool write_default_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
+bool write_linked_character_object_file(const std::string& root_directory, const std::string& character_name, const std::string& object_bytes, std::string* error_message = nullptr);
+bool read_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* object_bytes, std::string* error_message = nullptr);
+bool inspect_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, bool* exists, std::string* error_message = nullptr);
+bool account_object_file_exists(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
+bool remove_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
+bool write_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::vector<exploit_record>& records, std::string* error_message = nullptr);
+bool write_default_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
+bool write_linked_character_exploit_file(const std::string& root_directory, const std::string& character_name, const std::vector<exploit_record>& records, std::string* error_message = nullptr);
+bool read_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message = nullptr);
+bool inspect_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, bool* exists, std::string* error_message = nullptr);
+bool account_exploit_file_exists(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
+bool remove_account_exploit_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
+bool clear_account_character_runtime_support_files(const std::string& root_directory, const std::string& character_name, std::string* error_message = nullptr);
 bool decode_snapshot_content(const LegacyAssetSnapshot& snapshot, std::string* contents, std::string* error_message = nullptr);
 bool restore_character_migration(const std::string& root_directory, const std::string& expected_account_name, const std::string& expected_character_name, const CharacterMigrationData& migration, std::string* error_message = nullptr);
-bool restore_character_runtime_support_files(const std::string& root_directory, const std::string& expected_account_name, const std::string& expected_character_name, const CharacterMigrationData& migration, std::string* error_message = nullptr);
+bool clear_character_runtime_support_files_for_account_play(const std::string& root_directory, const std::string& expected_account_name, const std::string& expected_character_name, const CharacterMigrationData& migration, std::string* error_message = nullptr);
 bool refresh_linked_character_snapshot(const std::string& root_directory, const std::string& character_name, long migrated_at, CharacterMigrationData* migration, std::string* error_message = nullptr);
 
 std::string format_account_character_prompt(const AccountData& account);

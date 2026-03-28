@@ -25,9 +25,11 @@
 #include "utils.h"
 #include "zone.h"
 
-#include "big_brother.h"
-#include "char_utils.h"
 #include "account_management.h"
+#include "big_brother.h"
+#include "character_json.h"
+#include "char_utils.h"
+#include "exploits_json.h"
 #include "skill_timer.h"
 #include <iostream>
 #include <sstream>
@@ -487,6 +489,249 @@ void inc_p_table(void)
     top_of_p_table++;
 }
 
+namespace {
+
+int find_player_table_index_by_name(const char* name)
+{
+    if (name == nullptr || *name == '\0')
+        return -1;
+
+    for (int index = 0; index <= top_of_p_table; ++index) {
+        if (player_table[index].name && strcasecmp(player_table[index].name, name) == 0)
+            return index;
+    }
+
+    return -1;
+}
+
+[[noreturn]] void fail_duplicate_player_index_entry(const char* name, const char* source_a, const char* source_b)
+{
+    sprintf(buf, "Duplicate character '%s' found in both %s and %s while building player_table.",
+        name ? name : "(null)", source_a ? source_a : "unknown source", source_b ? source_b : "unknown source");
+    log(buf);
+    exit(1);
+}
+
+bool read_text_file_contents(const std::string& path, std::string* contents)
+{
+    if (contents == nullptr)
+        return false;
+
+    FILE* file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr)
+        return false;
+
+    std::string text;
+    char buffer[1024];
+    while (true) {
+        const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+        if (bytes_read > 0)
+            text.append(buffer, bytes_read);
+
+        if (bytes_read < sizeof(buffer)) {
+            if (std::ferror(file)) {
+                std::fclose(file);
+                return false;
+            }
+            break;
+        }
+    }
+
+    std::fclose(file);
+    *contents = std::move(text);
+    return true;
+}
+
+bool has_suffix(const std::string& value, const std::string& suffix)
+{
+    return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+bool is_versioned_legacy_player_entry_name(const char* entry_name, const char* normalized_name)
+{
+    if (entry_name == nullptr || normalized_name == nullptr)
+        return false;
+
+    const size_t normalized_length = strlen(normalized_name);
+    if (strncmp(entry_name, normalized_name, normalized_length) != 0 || entry_name[normalized_length] != '.')
+        return false;
+
+    const char* suffix = entry_name + normalized_length + 1;
+    for (int field_index = 0; field_index < 5; ++field_index) {
+        if (*suffix == '\0')
+            return false;
+
+        while (*suffix != '\0' && *suffix != '.') {
+            if (!std::isdigit(static_cast<unsigned char>(*suffix)))
+                return false;
+            ++suffix;
+        }
+
+        if (field_index < 4) {
+            if (*suffix != '.')
+                return false;
+            ++suffix;
+        }
+    }
+
+    return *suffix == '\0';
+}
+
+bool directory_has_versioned_legacy_player_entry(const char* directory_path, const char* normalized_name)
+{
+    DIR* directory = opendir(directory_path);
+    if (directory == nullptr)
+        return false;
+
+    bool found = false;
+    while (dirent* entry = readdir(directory)) {
+        if (entry->d_name[0] == '.')
+            continue;
+        if (is_versioned_legacy_player_entry_name(entry->d_name, normalized_name)) {
+            found = true;
+            break;
+        }
+    }
+
+    closedir(directory);
+    return found;
+}
+
+void populate_player_index_entry_from_store(const char_file_u& stored_character, const std::string& character_path)
+{
+    if (find_player_table_index_by_name(stored_character.name) >= 0)
+        fail_duplicate_player_index_entry(stored_character.name, "legacy player index", character_path.c_str());
+
+    create_entry(const_cast<char*>(stored_character.name));
+    player_table[top_of_p_table].level = stored_character.level;
+    player_table[top_of_p_table].race = stored_character.race;
+    player_table[top_of_p_table].idnum = stored_character.specials2.idnum;
+    player_table[top_of_p_table].log_time = stored_character.last_logon;
+    player_table[top_of_p_table].flags = stored_character.specials2.act;
+    std::snprintf(player_table[top_of_p_table].ch_file, sizeof(player_table[top_of_p_table].ch_file), "%s", character_path.c_str());
+    top_idnum = MAX(top_idnum, player_table[top_of_p_table].idnum);
+}
+
+void build_account_native_player_index(void)
+{
+    DIR* accounts_root = opendir("accounts");
+    if (accounts_root == nullptr)
+        return;
+
+    while (dirent* bucket_entry = readdir(accounts_root)) {
+        if (bucket_entry->d_name[0] == '.')
+            continue;
+
+        const std::string bucket_path = std::string("accounts/") + bucket_entry->d_name;
+        DIR* bucket_dir = opendir(bucket_path.c_str());
+        if (bucket_dir == nullptr)
+            continue;
+
+        while (dirent* account_entry = readdir(bucket_dir)) {
+            if (account_entry->d_name[0] == '.')
+                continue;
+
+            const std::string account_json_path = bucket_path + "/" + account_entry->d_name + "/account.json";
+            std::string account_json_text;
+            if (!read_text_file_contents(account_json_path, &account_json_text))
+                continue;
+
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::deserialize_account_from_json(account_json_text, &account_data, &error_message)) {
+                sprintf(buf, "Failed to read account-native index source '%s': %s",
+                    account_json_path.c_str(), error_message.c_str());
+                log(buf);
+                closedir(bucket_dir);
+                closedir(accounts_root);
+                exit(1);
+            }
+
+            if (account::normalize_email(account_data.normalized_email) != std::string(account_entry->d_name)) {
+                sprintf(buf, "Account-native index source '%s' has mismatched normalized email '%s'.",
+                    account_json_path.c_str(), account_data.normalized_email.c_str());
+                log(buf);
+                closedir(bucket_dir);
+                closedir(accounts_root);
+                exit(1);
+            }
+
+            for (const std::string& character_name : account_data.characters) {
+                const std::string character_path = account::account_character_player_path(".", account_data.account_name, character_name);
+
+                char_file_u stored_character {};
+                if (!account::read_account_character_file(".", account_data.account_name, character_name, &stored_character, &error_message)) {
+                    const std::string read_error = error_message;
+                    bool account_character_exists = false;
+                    std::string inspect_error;
+                    if (!account::inspect_account_character_file(".", account_data.account_name, character_name, &account_character_exists, &inspect_error)) {
+                        sprintf(buf, "Failed to inspect account-native character file '%s': %s",
+                            character_path.c_str(), inspect_error.c_str());
+                        log(buf);
+                        closedir(bucket_dir);
+                        closedir(accounts_root);
+                        exit(1);
+                    }
+
+                    if (!account_character_exists)
+                        continue;
+
+                    sprintf(buf, "Failed to read account-native character file '%s': %s",
+                        character_path.c_str(), read_error.c_str());
+                    log(buf);
+                    closedir(bucket_dir);
+                    closedir(accounts_root);
+                    exit(1);
+                }
+
+                populate_player_index_entry_from_store(stored_character, character_path);
+            }
+        }
+
+        closedir(bucket_dir);
+    }
+
+    closedir(accounts_root);
+}
+
+int load_player_from_account_json_path(char* name, const char* player_path, struct char_file_u* char_element)
+{
+    if (player_path == nullptr || *player_path == '\0') {
+        sprintf(buf, "Couldn't find account-native character file path for %s\n", name);
+        log(buf);
+        return -1;
+    }
+
+    std::string json_text;
+    if (!read_text_file_contents(player_path, &json_text)) {
+        sprintf(buf, "Couldn't read account-native character file for %s from %s\n", name, player_path);
+        log(buf);
+        return -1;
+    }
+
+    character_json::CharacterData character_data;
+    std::string error_message;
+    if (!character_json::deserialize_character_from_json(json_text, &character_data, &error_message)
+        || !character_json::apply_character_data_to_store(character_data, char_element, &error_message)) {
+        sprintf(buf, "Couldn't parse account-native character file for %s from %s: %s\n",
+            name, player_path, error_message.c_str());
+        log(buf);
+        return -1;
+    }
+
+    const int player_index = find_player_table_index_by_name(name);
+    if (player_index < 0) {
+        sprintf(buf, "load_player: account-native player %s not in player_table", name);
+        log(buf);
+        return -1;
+    }
+
+    char_element->player_index = player_index;
+    return 1;
+}
+
+} // namespace
+
 //  Reads a field from the player filename format (using FAT as index)
 
 int read_filename_field(int pos, char* field, char* fname)
@@ -527,6 +772,13 @@ void build_directory(char* TheDir)
 
         i = read_filename_field(0, tmpch, dentry->d_name);
         tmpch[i] = 0;
+        if (!is_versioned_legacy_player_entry_name(dentry->d_name, tmpch)
+            && directory_has_versioned_legacy_player_entry(TheDir, tmpch)) {
+            dentry = readdir(dp);
+            continue;
+        }
+        if (find_player_table_index_by_name(tmpch) >= 0)
+            fail_duplicate_player_index_entry(tmpch, "legacy player index", dentry->d_name);
         create_entry(tmpch);
 
         i = read_filename_field(i + 1, tmpch, dentry->d_name);
@@ -567,6 +819,7 @@ void build_player_index(void)
     build_directory("players/K-O/");
     build_directory("players/P-T/");
     build_directory("players/U-Z/");
+    build_account_native_player_index();
 
     top_of_p_file = top_of_p_table;
 
@@ -1704,20 +1957,20 @@ int set_exit_state(struct room_data* room, int dir, int newstate)
         break;                                                \
     }
 
-#define KEY_LONG_STR(the_field, element, length)             \
-    if (!strcmp(line, the_field)) {                          \
+#define KEY_LONG_STR(the_field, element, length)                                                            \
+    if (!strcmp(line, the_field)) {                                                                         \
         for (tmp1 = 0; position < input_end && *position != '~' && tmp1 < (length - 1); position++, tmp1++) \
-            element[tmp1] = *position;                       \
-        if (position >= input_end || *position != '~') {     \
-            sprintf(buf, "load_player_from_text: malformed long string for %s", name); \
-            log(buf);                                         \
-            return -1;                                        \
-        }                                                     \
-        element[tmp1] = '\0';                                \
-        position++;                                           \
-        while (position < input_end && (*position == '\r' || *position == '\n')) \
-            position++;                                       \
-        break;                                               \
+            element[tmp1] = *position;                                                                      \
+        if (position >= input_end || *position != '~') {                                                    \
+            sprintf(buf, "load_player_from_text: malformed long string for %s", name);                      \
+            log(buf);                                                                                       \
+            return -1;                                                                                      \
+        }                                                                                                   \
+        element[tmp1] = '\0';                                                                               \
+        position++;                                                                                         \
+        while (position < input_end && (*position == '\r' || *position == '\n'))                            \
+            position++;                                                                                     \
+        break;                                                                                              \
     }
 
 #define KEY_AFF(the_field)                                                    \
@@ -2033,6 +2286,9 @@ int load_player(char* name, struct char_file_u* char_element)
     }
 
     sprintf(playerfname, "%s", (player_table + tmp)->ch_file);
+    if (has_suffix(playerfname, ".character.json"))
+        return load_player_from_account_json_path(name, playerfname, char_element);
+
     file_to_string_alloc(playerfname, &pf);
     if (!(pf)) {
         sprintf(buf, "Couldn't find character file for %s in the player_table\n",
@@ -2288,6 +2544,38 @@ int create_entry(char* name)
          i++)
         ;
     return (top_of_p_table);
+}
+
+int ensure_player_index_entry(const char* name)
+{
+    if (name == nullptr || *name == '\0')
+        return -1;
+
+    for (int index = 0; index <= top_of_p_table; ++index) {
+        if (strcasecmp((player_table + index)->name, name) == 0)
+            return index;
+    }
+
+    char normalized_name[MAX_NAME_LENGTH + 1];
+    std::snprintf(normalized_name, sizeof(normalized_name), "%s", name);
+    return create_entry(normalized_name);
+}
+
+void update_player_index_entry_from_store(struct char_file_u* stored_character)
+{
+    if (stored_character == nullptr || stored_character->name[0] == '\0')
+        return;
+
+    const int player_index = ensure_player_index_entry(stored_character->name);
+    if (player_index < 0)
+        return;
+
+    stored_character->player_index = player_index;
+    player_table[player_index].level = stored_character->level;
+    player_table[player_index].race = stored_character->race;
+    player_table[player_index].idnum = stored_character->specials2.idnum;
+    player_table[player_index].log_time = stored_character->last_logon;
+    player_table[player_index].flags = stored_character->specials2.act;
 }
 
 /* create a new entry in the in-memory index table for the player file */
@@ -2571,6 +2859,7 @@ void save_player(struct char_data* ch, int load_room, int index_pos)
 void save_char(struct char_data* ch, int load_room, int notify_char)
 {
     int tmp;
+    char_file_u chd {};
 
     if (IS_NPC(ch) || (!ch->desc)) {
         sprintf(buf, "save_char: (%s) zero desc or is_npc\n", GET_NAME(ch));
@@ -2610,14 +2899,43 @@ void save_char(struct char_data* ch, int load_room, int notify_char)
     (player_table + tmp)->idnum = ch->specials2.idnum;
     (player_table + tmp)->flags = PLR_FLAGS(ch);
     (player_table + tmp)->race = ch->player.race;
+    char_to_store(ch, &chd);
+    chd.specials2.load_room = load_room;
 
-    save_player(ch, load_room, tmp); // New save into individual files
-
-    std::string migration_error;
-    if (!account::refresh_linked_character_snapshot(".", GET_NAME(ch), time(0), nullptr, &migration_error) && !migration_error.empty()) {
-        sprintf(buf, "save_char: failed to refresh account snapshot for %s: %s",
-            GET_NAME(ch), migration_error.c_str());
+    std::string owner_account_name;
+    std::string account_error;
+    const bool account_native_player_entry = has_suffix((player_table + tmp)->ch_file, ".character.json");
+    const bool linked_character = account::find_linked_character_owner_account(".", GET_NAME(ch), &owner_account_name, &account_error) && !owner_account_name.empty();
+    if (linked_character) {
+        std::string character_file_error;
+        const bool has_account_character_file = account::account_character_file_exists(".", owner_account_name, GET_NAME(ch), &character_file_error);
+        if (has_account_character_file) {
+            std::string write_error;
+            if (!account::write_account_character_file(".", owner_account_name, chd, &write_error)) {
+                sprintf(buf, "save_char: failed to write account-native character file for %s: %s",
+                    GET_NAME(ch), write_error.c_str());
+                log(buf);
+            }
+        } else if (!character_file_error.empty()) {
+            sprintf(buf, "save_char: failed to inspect account-native character file for %s: %s",
+                GET_NAME(ch), character_file_error.c_str());
+            log(buf);
+        } else {
+            std::string write_error;
+            if (!account::write_account_character_file(".", owner_account_name, chd, &write_error)) {
+                sprintf(buf, "save_char: failed to repair missing account-native character file for %s: %s",
+                    GET_NAME(ch), write_error.c_str());
+                log(buf);
+            }
+        }
+    } else if (account_native_player_entry) {
+        if (account_error.empty())
+            sprintf(buf, "save_char: refusing legacy fallback for account-native character %s because linked ownership could not be resolved", GET_NAME(ch));
+        else
+            sprintf(buf, "save_char: refusing legacy fallback for account-native character %s: %s", GET_NAME(ch), account_error.c_str());
         log(buf);
+    } else {
+        save_player(ch, load_room, tmp); // New save into individual files
     }
 }
 
@@ -2741,6 +3059,8 @@ char* fread_line(FILE* fp)
 /* release memory allocated for a char struct */
 void free_char(struct char_data* ch)
 {
+    clear_account_backed_object_bytes_for_character(ch);
+
     RELEASE(ch->specials.poofIn);
     RELEASE(ch->specials.poofOut);
 
@@ -3594,117 +3914,139 @@ void write_exploits(char_data* ch, exploit_record* record)
 
 namespace {
 
-    void set_db_error(std::string* error_message, const std::string& message)
-    {
-        if (error_message)
-            *error_message = message;
+void set_db_error(std::string* error_message, const std::string& message)
+{
+    if (error_message)
+        *error_message = message;
+}
+
+bool read_binary_file_contents(const std::string& path, std::string* contents, std::string* error_message)
+{
+    if (contents == nullptr) {
+        set_db_error(error_message, "Output buffer must not be null.");
+        return false;
     }
 
-    bool read_binary_file_contents(const std::string& path, std::string* contents, std::string* error_message)
-    {
-        if (contents == nullptr) {
-            set_db_error(error_message, "Output buffer must not be null.");
-            return false;
-        }
+    FILE* file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr) {
+        set_db_error(error_message, "Failed to open file '" + path + "': " + std::string(strerror(errno)));
+        return false;
+    }
 
-        FILE* file = std::fopen(path.c_str(), "rb");
-        if (file == nullptr) {
-            set_db_error(error_message, "Failed to open file '" + path + "': " + std::string(strerror(errno)));
-            return false;
-        }
+    contents->clear();
+    char buffer[1024];
+    while (true) {
+        const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+        if (bytes_read > 0)
+            contents->append(buffer, bytes_read);
 
-        contents->clear();
-        char buffer[1024];
-        while (true) {
-            const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
-            if (bytes_read > 0)
-                contents->append(buffer, bytes_read);
-
-            if (bytes_read < sizeof(buffer)) {
-                if (std::ferror(file)) {
-                    std::fclose(file);
-                    set_db_error(error_message, "Failed to read file '" + path + "'.");
-                    return false;
-                }
-                break;
+        if (bytes_read < sizeof(buffer)) {
+            if (std::ferror(file)) {
+                std::fclose(file);
+                set_db_error(error_message, "Failed to read file '" + path + "'.");
+                return false;
             }
+            break;
+        }
+    }
+
+    std::fclose(file);
+    set_db_error(error_message, "");
+    return true;
+}
+
+bool load_exploit_history_bytes(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message)
+{
+    if (bytes == nullptr) {
+        set_db_error(error_message, "Exploit history output buffer must not be null.");
+        return false;
+    }
+
+    std::string owner_account_name;
+    if (!account::find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
+        return false;
+
+    if (!owner_account_name.empty()) {
+        std::vector<exploit_record> account_records;
+        if (account::read_account_exploit_file(root_directory, owner_account_name, character_name, &account_records, error_message)) {
+            if (!exploits_json::exploit_records_to_binary(account_records, bytes, error_message))
+                return false;
+
+            const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
+            if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
+                set_db_error(error_message, "Failed to retire legacy exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
+                return false;
+            }
+
+            return true;
         }
 
-        std::fclose(file);
+        const std::string read_error = error_message ? *error_message : "";
+        bool account_file_exists = false;
+        std::string inspect_error;
+        if (!account::inspect_account_exploit_file(root_directory, owner_account_name, character_name, &account_file_exists, &inspect_error)) {
+            set_db_error(error_message, inspect_error);
+            return false;
+        }
+        if (account_file_exists) {
+            set_db_error(error_message, read_error);
+            return false;
+        }
+
+        set_db_error(error_message, "");
+    }
+
+    const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
+    FILE* runtime_file = std::fopen(runtime_path.c_str(), "rb");
+    if (runtime_file != nullptr) {
+        std::fclose(runtime_file);
+        if (!read_binary_file_contents(runtime_path, bytes, error_message))
+            return false;
+
+        if (bytes->size() % sizeof(exploit_record) == 0) {
+            set_db_error(error_message, "");
+            return true;
+        }
+
+        if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
+            set_db_error(error_message, "Failed to remove malformed exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
+            return false;
+        }
+    } else if (errno != ENOENT) {
+        set_db_error(error_message, "Failed to open exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
+        return false;
+    }
+
+    if (owner_account_name.empty()) {
+        bytes->clear();
         set_db_error(error_message, "");
         return true;
     }
 
-    bool load_exploit_history_bytes(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message)
-    {
-        if (bytes == nullptr) {
-            set_db_error(error_message, "Exploit history output buffer must not be null.");
-            return false;
-        }
+    bytes->clear();
+    set_db_error(error_message, "");
+    return true;
+}
 
-        const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
-        FILE* runtime_file = std::fopen(runtime_path.c_str(), "rb");
-        if (runtime_file != nullptr) {
-            std::fclose(runtime_file);
-            if (!read_binary_file_contents(runtime_path, bytes, error_message))
-                return false;
-
-            if (bytes->size() % sizeof(exploit_record) == 0) {
-                set_db_error(error_message, "");
-                return true;
-            }
-
-            if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
-                set_db_error(error_message, "Failed to remove malformed exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
-                return false;
-            }
-        } else if (errno != ENOENT) {
-            set_db_error(error_message, "Failed to open exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
-            return false;
-        }
-
-        std::string owner_account_name;
-        if (!account::find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
-            return false;
-
-        if (owner_account_name.empty()) {
-            bytes->clear();
-            set_db_error(error_message, "");
-            return true;
-        }
-
-        account::CharacterMigrationData migration;
-        if (!account::ensure_character_migration(root_directory, owner_account_name, character_name, time(0), &migration, error_message))
-            return false;
-
-        if (!migration.exploits_file.present) {
-            bytes->clear();
-            set_db_error(error_message, "");
-            return true;
-        }
-
-        return account::decode_snapshot_content(migration.exploits_file, bytes, error_message);
+FILE* open_secure_temp_output_file(const std::string& path, std::string* error_message)
+{
+    const int file_descriptor = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (file_descriptor < 0) {
+        set_db_error(error_message, "Failed to open temporary exploit file '" + path + "': " + std::string(strerror(errno)));
+        return nullptr;
     }
 
-    FILE* open_secure_temp_output_file(const std::string& path, std::string* error_message)
-    {
-        const int file_descriptor = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
-        if (file_descriptor < 0) {
-            set_db_error(error_message, "Failed to open temporary exploit file '" + path + "': " + std::string(strerror(errno)));
-            return nullptr;
-        }
-
-        FILE* file = fdopen(file_descriptor, "wb");
-        if (file == nullptr) {
-            close(file_descriptor);
-            std::remove(path.c_str());
-            set_db_error(error_message, "Failed to create stream for temporary exploit file '" + path + "'.");
-            return nullptr;
-        }
-
-        set_db_error(error_message, "");
-        return file;
+    FILE* file = fdopen(file_descriptor, "wb");
+    if (file == nullptr) {
+        close(file_descriptor);
+        std::remove(path.c_str());
+        set_db_error(error_message, "Failed to create stream for temporary exploit file '" + path + "'.");
+        return nullptr;
     }
+
+    set_db_error(error_message, "");
+    return file;
+}
 
 } // namespace
 
@@ -3719,27 +4061,42 @@ bool load_exploit_records_for_character(const std::string& root_directory, const
     if (!load_exploit_history_bytes(root_directory, character_name, &bytes, error_message))
         return false;
 
-    if (bytes.size() % sizeof(exploit_record) != 0) {
+    if (!exploits_json::exploit_records_from_binary(bytes, records, error_message)) {
         set_db_error(error_message, "Exploit history for '" + character_name + "' is malformed.");
         return false;
     }
 
-    records->clear();
-    records->reserve(bytes.size() / sizeof(exploit_record));
-    for (size_t offset = 0; offset < bytes.size(); offset += sizeof(exploit_record)) {
-        exploit_record loaded_record {};
-        memcpy(&loaded_record, bytes.data() + offset, sizeof(exploit_record));
-        records->push_back(loaded_record);
-    }
-
-    set_db_error(error_message, "");
     return true;
 }
 
 bool write_exploit_record_for_character(const std::string& root_directory, const std::string& character_name, const exploit_record& record, std::string* error_message)
 {
+    std::vector<exploit_record> records;
+    if (!load_exploit_records_for_character(root_directory, character_name, &records, error_message))
+        return false;
+
+    records.insert(records.begin(), record);
+
+    std::string owner_account_name;
+    if (!account::find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
+        return false;
+
+    if (!owner_account_name.empty()) {
+        if (!account::write_account_exploit_file(root_directory, owner_account_name, character_name, records, error_message))
+            return false;
+
+        const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
+        if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
+            set_db_error(error_message, "Failed to retire legacy exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
+            return false;
+        }
+
+        set_db_error(error_message, "");
+        return true;
+    }
+
     std::string existing_history_bytes;
-    if (!load_exploit_history_bytes(root_directory, character_name, &existing_history_bytes, error_message))
+    if (!exploits_json::exploit_records_to_binary(records, &existing_history_bytes, error_message))
         return false;
 
     const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
@@ -3749,13 +4106,12 @@ bool write_exploit_record_for_character(const std::string& root_directory, const
     if (file == nullptr)
         return false;
 
-    const size_t record_count = std::fwrite(&record, sizeof(exploit_record), 1, file);
     const size_t bytes_written = existing_history_bytes.empty()
         ? 0
         : std::fwrite(existing_history_bytes.data(), sizeof(char), existing_history_bytes.size(), file);
     const int close_result = std::fclose(file);
 
-    if (record_count != 1 || bytes_written != existing_history_bytes.size() || close_result != 0) {
+    if (bytes_written != existing_history_bytes.size() || close_result != 0) {
         std::remove(temp_path.c_str());
         set_db_error(error_message, "Failed to write temporary exploit file '" + temp_path + "'.");
         return false;
@@ -3767,6 +4123,51 @@ bool write_exploit_record_for_character(const std::string& root_directory, const
         return false;
     }
 
+    set_db_error(error_message, "");
+    return true;
+}
+
+bool load_object_save_bytes_for_character(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message)
+{
+    if (bytes == nullptr) {
+        set_db_error(error_message, "Object-save output buffer must not be null.");
+        return false;
+    }
+
+    std::string owner_account_name;
+    if (!account::find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
+        return false;
+
+    if (!owner_account_name.empty()) {
+        if (account::read_account_object_file(root_directory, owner_account_name, character_name, bytes, error_message))
+            return true;
+
+        const std::string read_error = error_message ? *error_message : "";
+        bool account_object_exists = false;
+        std::string inspect_error;
+        if (!account::inspect_account_object_file(root_directory, owner_account_name, character_name, &account_object_exists, &inspect_error)) {
+            set_db_error(error_message, inspect_error);
+            return false;
+        }
+        if (account_object_exists) {
+            set_db_error(error_message, read_error);
+            return false;
+        }
+    }
+
+    const std::string runtime_path = account::legacy_object_file_path(root_directory, character_name);
+    FILE* runtime_file = std::fopen(runtime_path.c_str(), "rb");
+    if (runtime_file != nullptr) {
+        std::fclose(runtime_file);
+        return read_binary_file_contents(runtime_path, bytes, error_message);
+    }
+
+    if (errno != ENOENT) {
+        set_db_error(error_message, "Failed to open object file '" + runtime_path + "': " + std::string(strerror(errno)));
+        return false;
+    }
+
+    bytes->clear();
     set_db_error(error_message, "");
     return true;
 }

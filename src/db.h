@@ -106,6 +106,8 @@ int load_char(char*, struct char_file_u*);
 int load_char_from_text(char*, const char*, struct char_file_u*);
 void save_char(struct char_data*, int, int);
 int create_entry(char*);
+int ensure_player_index_entry(const char*);
+void update_player_index_entry_from_store(struct char_file_u*);
 void init_char(struct char_data*);
 void clear_char(struct char_data*, int);
 void clear_object(struct obj_data*);
@@ -226,6 +228,7 @@ struct exploit_record {
 };
 bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message = nullptr);
 bool write_exploit_record_for_character(const std::string& root_directory, const std::string& character_name, const exploit_record& record, std::string* error_message = nullptr);
+bool load_object_save_bytes_for_character(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message = nullptr);
 
 struct social_messg {
     int hide;

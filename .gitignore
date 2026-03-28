@@ -47,6 +47,7 @@ CVS/
 old/
 backup/
 lib/misc/plrmail
+lib/accounts/
 lib/misc/maze.dat
 lib/misc/mdl
 lib/misc/mudlle.keys
