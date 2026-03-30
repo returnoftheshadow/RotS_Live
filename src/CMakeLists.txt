@@ -100,6 +100,12 @@ set(ROTS_SERVER_SOURCES
 set(ROTS_TEST_SOURCES
     tests/battle_mage_handler_tests.cpp
     tests/account_management_tests.cpp
+    tests/account_management_assets_header_compile.cpp
+    tests/account_management_identity_header_compile.cpp
+    tests/account_management_migration_header_compile.cpp
+    tests/account_management_presentation_header_compile.cpp
+    tests/account_management_storage_header_compile.cpp
+    tests/account_management_types_header_compile.cpp
     tests/act_wiz_tests.cpp
     tests/CharPlayerDataBuilder.cpp
     tests/char_utils_tests.cpp

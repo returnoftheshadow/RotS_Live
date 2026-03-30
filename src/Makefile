@@ -44,7 +44,7 @@ clean:
 
 # Dependencies for the main mud
 
-account_management.o : account_management.cpp account_management.h json_utils.h
+account_management.o : account_management.cpp account_management.h account_management_types.h account_management_identity.h account_management_storage.h account_management_assets.h account_management_migration.h account_management_presentation.h account_management_internal.cpp account_management_identity.cpp account_management_storage.cpp account_management_assets.cpp account_management_migration.cpp account_management_presentation.cpp json_utils.h
 	$(CC) -c $(CFLAGS) account_management.cpp
 
 character_json.o : character_json.cpp character_json.h json_utils.h structs.h

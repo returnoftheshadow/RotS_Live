@@ -2,6 +2,9 @@
 
 ## Current Status
 - In progress.
+- The oversized `account_management` module is being split into smaller responsibility-based headers and implementation fragments so future account/auth/storage work is easier to navigate without changing the compiled entry point layout.
+- `src/account_management.cpp` now keeps the shared helper/private logic while the public surface is broken out into focused identity, storage, assets, migration, and presentation fragments.
+- Added compile-only test translation units so each new public `account_management_*` header has to compile on its own instead of only through the umbrella header.
 - The account-backed play selector no longer exposes the generated internal account name in player-facing copy; it now says `Linked characters for your account:` instead.
 - The immortal `account` command now accepts either an email address or the internal account name for lookup, so admins no longer need to know the generated internal name just to inspect or manage an account.
 - Added a shared `read_account_file_by_identifier(...)` helper in `account_management` and wired `show`, `verify`, `unverify`, `block`, `unblock`, `passwd`, `addchar`, and `migratechar` in `src/act_wiz.cpp` through it.
