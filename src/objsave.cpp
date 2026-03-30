@@ -93,7 +93,8 @@ std::string build_empty_account_backed_object_bytes()
 {
     std::string bytes;
 
-    const rent_info rent {};
+    rent_info rent {};
+    rent.rentcode = RENT_CRASH;
     const follower_file_elem follower_sentinel { -17, 0, 0, 0, 0, 0, 0 };
 
     obj_file_elem object_sentinel {};

@@ -3158,19 +3158,19 @@ ACMD(do_delete)
 ACMD(do_account)
 {
     char subcommand[MAX_INPUT_LENGTH];
-    char account_name[MAX_INPUT_LENGTH];
+    char account_identifier[MAX_INPUT_LENGTH];
     char value[MAX_INPUT_LENGTH];
 
     half_chop(argument, subcommand, buf);
-    half_chop(buf, account_name, value);
+    half_chop(buf, account_identifier, value);
 
     if (!*subcommand) {
-        send_to_char("Usage: account <show|verify|unverify|block|unblock|passwd|addchar|migratechar> <account> [value]\n\r", ch);
+        send_to_char("Usage: account <show|verify|unverify|block|unblock|passwd|addchar|migratechar> <email-or-account> [value]\n\r", ch);
         return;
     }
 
-    if (!*account_name) {
-        send_to_char("You must specify an account name.\n\r", ch);
+    if (!*account_identifier) {
+        send_to_char("You must specify an account email or internal account name.\n\r", ch);
         return;
     }
 
@@ -3179,7 +3179,7 @@ ACMD(do_account)
     account::AccountData account_data;
 
     if (!str_cmp(subcommand, "show")) {
-        if (!account::read_account_file(root_directory, account_name, &account_data, &error_message)) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
             send_to_char((error_message + "\n\r").c_str(), ch);
             return;
         }
@@ -3190,11 +3190,16 @@ ACMD(do_account)
 
     if (!str_cmp(subcommand, "block")) {
         if (!*value) {
-            send_to_char("Usage: account block <account> <reason>\n\r", ch);
+            send_to_char("Usage: account block <email-or-account> <reason>\n\r", ch);
             return;
         }
 
-        if (!account::admin_block_account(root_directory, account_name, GET_NAME(ch), value, time(0), &account_data, &error_message)) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_block_account(root_directory, account_data.account_name, GET_NAME(ch), value, time(0), &account_data, &error_message)) {
             send_to_char((error_message + "\n\r").c_str(), ch);
             return;
         }
@@ -3205,7 +3210,12 @@ ACMD(do_account)
     }
 
     if (!str_cmp(subcommand, "verify")) {
-        if (!account::admin_verify_email(root_directory, account_name, GET_NAME(ch), time(0), &account_data, &error_message)) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_verify_email(root_directory, account_data.account_name, GET_NAME(ch), time(0), &account_data, &error_message)) {
             send_to_char((error_message + "\n\r").c_str(), ch);
             return;
         }
@@ -3216,7 +3226,12 @@ ACMD(do_account)
     }
 
     if (!str_cmp(subcommand, "unverify")) {
-        if (!account::admin_unverify_email(root_directory, account_name, time(0), &account_data, &error_message)) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_unverify_email(root_directory, account_data.account_name, time(0), &account_data, &error_message)) {
             send_to_char((error_message + "\n\r").c_str(), ch);
             return;
         }
@@ -3227,7 +3242,12 @@ ACMD(do_account)
     }
 
     if (!str_cmp(subcommand, "unblock")) {
-        if (!account::admin_unblock_account(root_directory, account_name, time(0), &account_data, &error_message)) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_unblock_account(root_directory, account_data.account_name, time(0), &account_data, &error_message)) {
             send_to_char((error_message + "\n\r").c_str(), ch);
             return;
         }
@@ -3239,11 +3259,16 @@ ACMD(do_account)
 
     if (!str_cmp(subcommand, "passwd")) {
         if (!*value) {
-            send_to_char("Usage: account passwd <account> <new-password>\n\r", ch);
+            send_to_char("Usage: account passwd <email-or-account> <new-password>\n\r", ch);
             return;
         }
 
-        if (!account::admin_reset_password(root_directory, account_name, value, GET_NAME(ch), time(0), &account_data, &error_message)) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_reset_password(root_directory, account_data.account_name, value, GET_NAME(ch), time(0), &account_data, &error_message)) {
             send_to_char((error_message + "\n\r").c_str(), ch);
             return;
         }
@@ -3255,11 +3280,16 @@ ACMD(do_account)
 
     if (!str_cmp(subcommand, "addchar")) {
         if (!*value) {
-            send_to_char("Usage: account addchar <account> <character>\n\r", ch);
+            send_to_char("Usage: account addchar <email-or-account> <character>\n\r", ch);
             return;
         }
 
-        if (!account::admin_link_character(root_directory, account_name, value, time(0), &account_data, &error_message)) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_link_character(root_directory, account_data.account_name, value, time(0), &account_data, &error_message)) {
             send_to_char((error_message + "\n\r").c_str(), ch);
             return;
         }
@@ -3272,11 +3302,16 @@ ACMD(do_account)
     if (!str_cmp(subcommand, "migratechar")) {
         account::CharacterMigrationData migration;
         if (!*value) {
-            send_to_char("Usage: account migratechar <account> <character>\n\r", ch);
+            send_to_char("Usage: account migratechar <email-or-account> <character>\n\r", ch);
             return;
         }
 
-        if (!account::admin_link_and_migrate_character(root_directory, account_name, value, time(0), &account_data, &migration, &error_message)) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_link_and_migrate_character(root_directory, account_data.account_name, value, time(0), &account_data, &migration, &error_message)) {
             send_to_char((error_message + "\n\r").c_str(), ch);
             return;
         }

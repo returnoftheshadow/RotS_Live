@@ -2272,6 +2272,7 @@ int _parse_name(char* arg, char* name)
 namespace {
 
 const char* kAccountStorageRoot = ".";
+const char* kAccountOnlyPasswordMarker = "*ACCOUNT*";
 
 void show_account_email_prompt(struct descriptor_data* d)
 {
@@ -2309,6 +2310,39 @@ void set_account_character_name(struct descriptor_data* d, const std::string& ch
     d->account_character_name[MAX_INPUT_LENGTH - 1] = '\0';
 }
 
+void set_account_only_character_password(struct descriptor_data* d)
+{
+    std::snprintf(d->pwd, sizeof(d->pwd), "%s", kAccountOnlyPasswordMarker);
+}
+
+std::string format_account_character_name_for_display(const char* character_name)
+{
+    if (character_name == nullptr)
+        return "";
+
+    return account::format_character_name_for_display(character_name);
+}
+
+void show_character_menu_impl(struct descriptor_data* d)
+{
+    if (*d->account_name) {
+        SEND_TO_Q("\n\r"
+                  "Welcome to Arda!\n\r"
+                  "0) Back to Account Menu.\n\r"
+                  "1) Enter the game.\n\r"
+                  "3) Read the background story.\n\r"
+                  "4) Change password.\n\r"
+                  "5) Delete this character.\n\r"
+                  "6) View class powers.\n\r"
+                  "\n\r"
+                  "   Make your choice: ",
+            d);
+        return;
+    }
+
+    SEND_TO_Q(MENU, d);
+}
+
 void show_account_menu(struct descriptor_data* d, const account::AccountData& account_data)
 {
     char menu[2048];
@@ -2331,16 +2365,8 @@ void show_account_menu(struct descriptor_data* d, const account::AccountData& ac
 
 void show_account_character_list(struct descriptor_data* d, const account::AccountData& account_data)
 {
-    if (account_data.characters.empty()) {
-        SEND_TO_Q("\n\rNo linked characters yet.\n\r", d);
-        return;
-    }
-
-    SEND_TO_Q("\n\rLinked characters:\n\r", d);
-    for (const std::string& character_name : account_data.characters) {
-        std::string line = "  " + character_name + "\n\r";
-        SEND_TO_Q(line.c_str(), d);
-    }
+    const std::string character_list = account::format_account_character_list(kAccountStorageRoot, account_data);
+    SEND_TO_Q(character_list.c_str(), d);
 }
 
 void complete_existing_character_login(struct descriptor_data* d, int load_result)
@@ -2413,7 +2439,8 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
             tmp_ch->specials.timer = 0;
             REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
             STATE(d) = CON_PLYNG;
-            d->pProtocol = ProtocolCreate();
+            if (!d->pProtocol)
+                d->pProtocol = ProtocolCreate();
             ProtocolNegotiate(d);
             msdp_room_update(d->character);
             return;
@@ -2433,13 +2460,13 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
         SEND_TO_Q(buf, d);
     }
 
-    SEND_TO_Q(MENU, d);
+    show_character_menu_impl(d);
     STATE(d) = CON_SLCT;
 }
 
 void show_account_character_prompt(struct descriptor_data* d, const account::AccountData& account_data)
 {
-    const std::string prompt = account::format_account_character_prompt(account_data);
+    const std::string prompt = account::format_account_character_prompt(kAccountStorageRoot, account_data);
     SEND_TO_Q(prompt.c_str(), d);
 }
 
@@ -2469,6 +2496,24 @@ void start_account_login(struct descriptor_data* d, const char* email)
 }
 
 } // namespace
+
+void show_character_menu(struct descriptor_data* d)
+{
+    show_character_menu_impl(d);
+}
+
+static bool ensure_descriptor_character_for_account_selection(struct descriptor_data* d)
+{
+    if (d->character)
+        return false;
+
+    CREATE(d->character, struct char_data, 1);
+    clear_char(d->character, MOB_VOID);
+    register_pc_char(d->character);
+    d->character->desc = d;
+    SET_BIT(PRF_FLAGS(d->character), PRF_LATIN1);
+    return true;
+}
 
 void nanny(struct descriptor_data* d, char* arg)
 /* deal with newcomers and other non-playing sockets */
@@ -2560,11 +2605,17 @@ void nanny(struct descriptor_data* d, char* arg)
             }
 
             SEND_TO_Q("New character.\n\r", d);
-            sprintf(buf, "Please enter a password for %s: ",
-                GET_NAME(d->character));
-            SEND_TO_Q(buf, d);
-            echo_off(d->descriptor);
-            STATE(d) = CON_PWDGET;
+            if (*d->account_name) {
+                set_account_only_character_password(d);
+                SEND_TO_Q("What is your sex (M/F)? ", d);
+                STATE(d) = CON_QSEX;
+            } else {
+                sprintf(buf, "Please enter a password for %s: ",
+                    GET_NAME(d->character));
+                SEND_TO_Q(buf, d);
+                echo_off(d->descriptor);
+                STATE(d) = CON_PWDGET;
+            }
 
             vmudlog(BRF, "%s [%s] has connected (new character).",
                 GET_NAME(d->character), d->host);
@@ -2733,8 +2784,11 @@ void nanny(struct descriptor_data* d, char* arg)
             account::AccountData account_data;
             if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
                 show_account_character_prompt(d, account_data);
-            else
-                SEND_TO_Q("Character: ", d);
+            else {
+                SEND_TO_Q("The account could not be reloaded. Returning to the account email prompt.\n\rAccount email: ", d);
+                clear_account_login_state(d);
+                STATE(d) = CON_NME;
+            }
             return;
         } else {
             account::AccountData account_data;
@@ -2743,6 +2797,12 @@ void nanny(struct descriptor_data* d, char* arg)
                 SEND_TO_Q("The account could not be reloaded. Returning to the account email prompt.\n\rAccount email: ", d);
                 clear_account_login_state(d);
                 STATE(d) = CON_NME;
+                return;
+            }
+
+            if (!strcmp(arg, "0")) {
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
                 return;
             }
 
@@ -2808,16 +2868,17 @@ void nanny(struct descriptor_data* d, char* arg)
                 }
             }
 
-            d->pos = player_i;
-            store_to_char(&tmp_store, d->character);
-            strncpy(d->pwd, tmp_store.pwd, MAX_PWD_LENGTH);
-            d->pwd[MAX_PWD_LENGTH] = '\0';
-
-            if (PLR_FLAGGED(d->character, PLR_DELETED)) {
+            if (IS_SET(tmp_store.specials2.act, PLR_DELETED)) {
                 SEND_TO_Q("That linked character is deleted and cannot be selected.\n\r", d);
                 show_account_character_prompt(d, account_data);
                 return;
             }
+
+            d->pos = player_i;
+            const bool created_selection_character = ensure_descriptor_character_for_account_selection(d);
+            store_to_char(&tmp_store, d->character);
+            strncpy(d->pwd, tmp_store.pwd, MAX_PWD_LENGTH);
+            d->pwd[MAX_PWD_LENGTH] = '\0';
 
             load_result = d->character->specials2.bad_pws;
             d->character->specials2.bad_pws = 0;
@@ -2825,13 +2886,18 @@ void nanny(struct descriptor_data* d, char* arg)
             stage_account_backed_object_bytes_for_character(d->character, object_file_bytes.data(), object_file_bytes.size());
             if (!account::clear_account_character_runtime_support_files(kAccountStorageRoot, selected_character_name, &error_message)) {
                 clear_account_backed_object_bytes_for_character(d->character);
+                if (created_selection_character) {
+                    d->character->desc = nullptr;
+                    free_char(d->character);
+                    d->character = nullptr;
+                    d->pos = -1;
+                }
                 SEND_TO_Q("That linked character could not prepare its runtime support files for account-backed play.\n\r", d);
                 SEND_TO_Q((error_message + "\n\r").c_str(), d);
                 show_account_character_prompt(d, account_data);
                 return;
             }
 
-            clear_account_login_state(d);
             complete_existing_character_login(d, load_result);
         }
         break;
@@ -2842,7 +2908,7 @@ void nanny(struct descriptor_data* d, char* arg)
             continue;
 
         if (!*arg) {
-            send_to_char("Account linking cancelled.\n\r", d->character);
+            SEND_TO_Q("Account linking cancelled.\n\r", d);
             clear_account_login_state(d);
             STATE(d) = CON_PLYNG;
             return;
@@ -2852,14 +2918,17 @@ void nanny(struct descriptor_data* d, char* arg)
             std::string error_message;
 
             if (!account::link_and_migrate_character(kAccountStorageRoot, d->account_name, arg, GET_NAME(d->character), time(0), &account_data, &migration, &error_message)) {
-                send_to_char((error_message + "\n\r").c_str(), d->character);
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
                 clear_account_login_state(d);
                 STATE(d) = CON_PLYNG;
                 return;
             }
 
             vmudlog(BRF, "%s linked character %s to account %s", GET_NAME(d->character), GET_NAME(d->character), account_data.account_name.c_str());
-            send_to_char("Your character has been linked to the account and migrated into account storage.\n\r", d->character);
+            const std::string success_message = "Successfully added "
+                + format_account_character_name_for_display(GET_NAME(d->character))
+                + " to your account.\n\r";
+            SEND_TO_Q(success_message.c_str(), d);
             clear_account_login_state(d);
             STATE(d) = CON_PLYNG;
         }
@@ -3064,7 +3133,10 @@ void nanny(struct descriptor_data* d, char* arg)
                 return;
             }
 
-            SEND_TO_Q("Character linked and migrated into account storage.\n\r", d);
+            const std::string success_message = "Successfully added "
+                + format_account_character_name_for_display(legacy_name)
+                + " to your account.\n\r";
+            SEND_TO_Q(success_message.c_str(), d);
             show_account_menu(d, account_data);
             STATE(d) = CON_ACCTMENU;
         }
@@ -3187,7 +3259,8 @@ void nanny(struct descriptor_data* d, char* arg)
             return;
         }
 
-        free_char(d->character);
+        if (d->character)
+            free_char(d->character);
         CREATE(d->character, struct char_data, 1);
         clear_char(d->character, MOB_VOID);
         register_pc_char(d->character);
@@ -3446,7 +3519,7 @@ void nanny(struct descriptor_data* d, char* arg)
         /* Give them an autowimpy of 10 */
         WIMP_LEVEL(d->character) = 10;
         introduce_char(d);
-        SEND_TO_Q(MENU, d);
+        show_character_menu(d);
         STATE(d) = CON_SLCT;
         vmudlog(NRM, "%s [%s] new player.",
             GET_NAME(d->character), d->host);
@@ -3456,7 +3529,7 @@ void nanny(struct descriptor_data* d, char* arg)
     case CON_QOWN2:
         break;
     case CON_RMOTD: /* read CR after printing motd	*/
-        SEND_TO_Q(MENU, d);
+        show_character_menu(d);
         STATE(d) = CON_SLCT;
         break;
     case CON_SLCT: /* get selection from main menu */
@@ -3465,7 +3538,21 @@ void nanny(struct descriptor_data* d, char* arg)
 
         switch (*arg) {
         case '0':
-            close_socket(d);
+            if (*d->account_name) {
+                account::AccountData account_data;
+                std::string error_message;
+                if (!account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, &error_message)) {
+                    SEND_TO_Q("The account could not be reloaded. Returning to the account email prompt.\n\rAccount email: ", d);
+                    clear_account_login_state(d);
+                    STATE(d) = CON_NME;
+                    return;
+                }
+
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+            } else {
+                close_socket(d);
+            }
             break;
         case '1':
             // new
@@ -3524,7 +3611,8 @@ void nanny(struct descriptor_data* d, char* arg)
             d->character->update_available_practice_sessions();
 
             /* update msdp room information */
-            d->pProtocol = ProtocolCreate();
+            if (!d->pProtocol)
+                d->pProtocol = ProtocolCreate();
             ProtocolNegotiate(d);
             extern void msdp_room_update(char_data * ch);
             msdp_room_update(d->character);
@@ -3564,9 +3652,15 @@ void nanny(struct descriptor_data* d, char* arg)
             STATE(d) = CON_RMOTD;
             break;
         case '4':
-            SEND_TO_Q("Enter your old password: ", d);
-            echo_off(d->descriptor);
-            STATE(d) = CON_PWDNQO;
+            if (*d->account_name) {
+                SEND_TO_Q("Current account password: ", d);
+                echo_off(d->descriptor);
+                STATE(d) = CON_ACCTRESETOLD;
+            } else {
+                SEND_TO_Q("Enter your old password: ", d);
+                echo_off(d->descriptor);
+                STATE(d) = CON_PWDNQO;
+            }
             break;
         case '5':
             if (GET_LEVEL(d->character) >= LEVEL_GOD) {
@@ -3574,6 +3668,11 @@ void nanny(struct descriptor_data* d, char* arg)
                 break;
             } else if (GET_LEVEL(d->character) > 20) {
                 SEND_TO_Q("\n\rPlease ask an Arata or higher to delete you.\n\r", d);
+                break;
+            } else if (*d->account_name) {
+                SEND_TO_Q("\n\rEnter your account password for verification: ", d);
+                echo_off(d->descriptor);
+                STATE(d) = CON_ACCTDELCNF1;
                 break;
             }
             SEND_TO_Q("\n\rEnter your password for verification: ", d);
@@ -3588,7 +3687,7 @@ void nanny(struct descriptor_data* d, char* arg)
             break;
         default:
             SEND_TO_Q("\n\rThat's not a menu choice!\n\r", d);
-            SEND_TO_Q(MENU, d);
+            show_character_menu(d);
             break;
         }
         break;
@@ -3598,7 +3697,7 @@ void nanny(struct descriptor_data* d, char* arg)
 
         if (strncmp(CRYPT(arg, d->pwd), d->pwd, MAX_PWD_LENGTH)) {
             SEND_TO_Q("\n\rIncorrect password.\n\r", d);
-            SEND_TO_Q(MENU, d);
+            show_character_menu(d);
             STATE(d) = CON_SLCT;
             echo_on(d->descriptor);
             return;
@@ -3637,7 +3736,7 @@ void nanny(struct descriptor_data* d, char* arg)
         SEND_TO_Q("\n\rDone.\r\n"
                   "You must enter the game to make the change final.\n\r",
             d);
-        SEND_TO_Q(MENU, d);
+        show_character_menu(d);
         echo_on(d->descriptor);
         STATE(d) = CON_SLCT;
         break;
@@ -3648,7 +3747,7 @@ void nanny(struct descriptor_data* d, char* arg)
 
         if (strncmp(CRYPT(arg, d->pwd), d->pwd, MAX_PWD_LENGTH)) {
             SEND_TO_Q("\n\rIncorrect password.\n\r", d);
-            SEND_TO_Q(MENU, d);
+            show_character_menu(d);
             STATE(d) = CON_SLCT;
         } else {
             SEND_TO_Q("\n\rYOU ARE ABOUT TO DELETE THIS CHARACTER PERMANENTLY.\n\r"
@@ -3657,6 +3756,35 @@ void nanny(struct descriptor_data* d, char* arg)
                 d);
             STATE(d) = CON_DELCNF2;
         }
+        break;
+    case CON_ACCTDELCNF1:
+        echo_on(d->descriptor);
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg) {
+            SEND_TO_Q("\n\rIncorrect account password.\n\r", d);
+            show_character_menu(d);
+            STATE(d) = CON_SLCT;
+            return;
+        }
+
+        {
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::authenticate_account(kAccountStorageRoot, d->account_name, arg, &account_data, &error_message)) {
+                SEND_TO_Q("\n\rIncorrect account password.\n\r", d);
+                show_character_menu(d);
+                STATE(d) = CON_SLCT;
+                return;
+            }
+        }
+
+        SEND_TO_Q("\n\rYOU ARE ABOUT TO DELETE THIS CHARACTER PERMANENTLY.\n\r"
+                  "ARE YOU ABSOLUTELY SURE?\n\r\n\r"
+                  "Please type \"yes\" to confirm: ",
+            d);
+        STATE(d) = CON_DELCNF2;
         break;
     case CON_DELCNF2:
         if (!strcmp(arg, "yes") || !strcmp(arg, "YES")) {
@@ -3671,20 +3799,52 @@ void nanny(struct descriptor_data* d, char* arg)
 
             pkill_unref_character(d->character);
 
-            save_char(d->character, NOWHERE, 0);
-            Crash_delete_file(GET_NAME(d->character));
-            delete_exploits_file(GET_NAME(d->character));
-            delete_character_file(d->character);
-            sprintf(buf, "Character '%s' deleted!\n\rGoodbye.\n\r",
-                GET_NAME(d->character));
+            account::AccountData account_data;
+            if (*d->account_name) {
+                std::string error_message;
+                if (!account::admin_delete_linked_character(kAccountStorageRoot, d->account_name, GET_NAME(d->character), time(0), &account_data, &error_message)) {
+                    REMOVE_BIT(PLR_FLAGS(d->character), PLR_DELETED);
+                    SEND_TO_Q("Character not deleted.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_character_menu(d);
+                    STATE(d) = CON_SLCT;
+                    return;
+                }
+
+                if (d->pos >= 0 && d->pos <= top_of_p_table) {
+                    player_table[d->pos].flags |= PLR_DELETED;
+                    player_table[d->pos].ch_file[0] = '\0';
+                }
+            } else {
+                save_char(d->character, NOWHERE, 0);
+                Crash_delete_file(GET_NAME(d->character));
+                delete_exploits_file(GET_NAME(d->character));
+                delete_character_file(d->character);
+            }
+            char deleted_character_name[MAX_NAME_LENGTH + 1];
+            std::snprintf(deleted_character_name, sizeof(deleted_character_name), "%s", GET_NAME(d->character));
+            const int deleted_character_level = GET_LEVEL(d->character);
+
+            sprintf(buf, "Character '%s' deleted!\n\r",
+                deleted_character_name);
             SEND_TO_Q(buf, d);
             vmudlog(NRM, "%s (lev %d) has self-deleted.",
-                GET_NAME(d->character), GET_LEVEL(d->character));
+                deleted_character_name, deleted_character_level);
+            if (*d->account_name) {
+                d->character->desc = nullptr;
+                free_char(d->character);
+                d->character = nullptr;
+                d->pos = -1;
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
             STATE(d) = CON_CLOSE;
             return;
         } else {
             SEND_TO_Q("Character not deleted.\n\r\n\r", d);
-            SEND_TO_Q(MENU, d);
+            show_character_menu(d);
             STATE(d) = CON_SLCT;
         }
         break;
@@ -3833,6 +3993,7 @@ void introduce_char(struct descriptor_data* d)
 {
     FILE* fp;
     char_file_u stored_character {};
+    const bool account_backed_character = *d->account_name != '\0';
     init_char(d->character);
 
     if (d->pos < 0)
@@ -3844,15 +4005,19 @@ void introduce_char(struct descriptor_data* d)
     SET_SHOOTING(d->character, SHOOTING_NORMAL);
     utils::set_specialization(*d->character, game_types::PS_None);
     utils::set_casting(*d->character, CASTING_NORMAL);
+    finalize_new_character_start_state(d->character);
 
-    if ((fp = Crash_get_file_by_name(GET_NAME(d->character), "wb")))
-        fclose(fp);
+    if (!account_backed_character) {
+        if ((fp = Crash_get_file_by_name(GET_NAME(d->character), "wb")))
+            fclose(fp);
+    }
 
-    if (*d->account_name) {
+    if (account_backed_character) {
         account::AccountData account_data;
         std::string error_message;
         char_to_store(d->character, &stored_character);
-        stored_character.specials2.load_room = NOWHERE;
+        const int initial_load_room = d->character->specials2.load_room;
+        stored_character.specials2.load_room = initial_load_room;
 
         if (!account::write_account_character_file(kAccountStorageRoot, d->account_name, stored_character, &error_message)
             || !account::write_default_account_object_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), &error_message)
@@ -3862,14 +4027,19 @@ void introduce_char(struct descriptor_data* d)
             account::remove_account_object_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), nullptr);
             account::remove_account_exploit_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), nullptr);
             SET_BIT(PLR_FLAGS(d->character), PLR_DELETED);
-            save_char(d->character, NOWHERE, 0);
+            if (d->pos >= 0 && d->pos <= top_of_p_table) {
+                player_table[d->pos].flags |= PLR_DELETED;
+                player_table[d->pos].ch_file[0] = '\0';
+            }
             SEND_TO_Q("Account linking failed, so the new character was rolled back. Please reconnect and try again.\n\r", d);
             vmudlog(NRM, "Rolled back new character %s after account link failure for account %s: %s",
                 GET_NAME(d->character), d->account_name, error_message.c_str());
             STATE(d) = CON_CLOSE;
             return;
         }
-        save_char(d->character, NOWHERE, 0);
+        if (GET_LEVEL(d->character) == 1)
+            add_exploit_record(EXPLOIT_BIRTH, d->character, 0, NULL);
+        save_char(d->character, initial_load_room, 0);
     } else
         save_char(d->character, NOWHERE, 0);
 

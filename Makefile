@@ -14,7 +14,7 @@ help:
 	@printf "  make test       Run the C++ unit tests\n"
 	@printf "  make smoke-account  Build the game/proxy and run the account smoke flow\n"
 	@printf "  make format     Run clang-format via the CMake target\n"
-	@printf "  make run        Build and start the server in the background\n"
+	@printf "  make run        Build and start the server in the foreground\n"
 	@printf "  make clean      Clean the configured CMake build tree\n"
 
 $(CMAKE_CACHE):
@@ -33,7 +33,7 @@ test: $(CMAKE_CACHE)
 	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 run: build
-	./bin/ageland -p 3791 &
+	./bin/ageland -p 3791
 
 smoke-account: setup build
 	cargo build -p proxy

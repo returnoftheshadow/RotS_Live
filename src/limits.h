@@ -28,6 +28,7 @@ float get_bonus_move_gain(const char_data* character);
 int xp_to_level(int level);
 
 void do_start(struct char_data* ch);
+void finalize_new_character_start_state(struct char_data* ch);
 void set_title(struct char_data* ch);
 void gain_exp(struct char_data* ch, int gain);
 void gain_exp_regardless(struct char_data* ch, int gain);

@@ -1993,6 +1993,7 @@ struct txt_q {
 #define CON_ACCTNEWCHAR 37
 #define CON_ACCTLEGPWD 38
 #define CON_ACCTVERIFY 39
+#define CON_ACCTDELCNF1 40
 
 /* modes for flags */
 #define DFLAG_IS_SPAMMING 1
@@ -2010,6 +2011,9 @@ struct descriptor_data {
     SocketType descriptor; /* file descriptor for socket	*/
     char* name; /* ptr to name for mail system		*/
     char host[50]; /* hostname				*/
+    uint32_t proxy_peer_address; /* pending proxy peer address */
+    byte proxy_peer_bytes_read; /* bytes read for pending proxy header */
+    bool waiting_for_proxy_header; /* descriptor is waiting for proxy header completion */
     char pwd[MAX_PWD_LENGTH + 1]; /* password			*/
     char account_name[MAX_INPUT_LENGTH]; /* authenticated account login */
     char account_email[MAX_INPUT_LENGTH]; /* authenticated account email */

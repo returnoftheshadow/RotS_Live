@@ -44,6 +44,7 @@ extern char* spell_wear_off_msg[];
 extern struct char_data* fast_update_list;
 extern int circle_shutdown;
 extern struct char_data* death_waiting_list;
+extern int r_mortal_start_room[];
 
 void recalc_skills(struct char_data* ch);
 
@@ -928,6 +929,25 @@ void do_start(struct char_data* ch)
         log("Player table was empty: creating new implementor.\r\n");
         gain_exp_regardless(ch, xp_to_level(LEVEL_IMPL));
     }
+}
+
+void finalize_new_character_start_state(struct char_data* ch)
+{
+    if (ch == nullptr || GET_LEVEL(ch) != 0)
+        return;
+
+    do_start(ch);
+    affect_total(ch);
+
+    const int race = GET_RACE(ch);
+    if (race < 0 || race >= MAX_RACES)
+        return;
+
+    const int start_room_rnum = r_mortal_start_room[race];
+    if (start_room_rnum < 0 || start_room_rnum > top_of_world)
+        return;
+
+    ch->specials2.load_room = world[start_room_rnum].number;
 }
 
 // Simply checks that a character can breathe in the room they are in.

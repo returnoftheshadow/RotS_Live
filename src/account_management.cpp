@@ -21,8 +21,11 @@
 #include <sstream>
 #include <utility>
 
+extern char* race_abbrevs[];
+
 namespace account {
 namespace {
+    constexpr size_t kMaxDisplayedAccountCharacters = 100;
 
     using CharacterLinkReference = AccountData::CharacterLinkReference;
 
@@ -76,6 +79,54 @@ namespace {
     std::string exploits_json_file_name(const std::string& character_name)
     {
         return character_asset_slug(character_name) + ".exploits.json";
+    }
+
+    const char* safe_race_abbrev(int race)
+    {
+        if (race < 0 || race >= MAX_RACES + 40 || ::race_abbrevs[race] == nullptr)
+            return "??";
+        return ::race_abbrevs[race];
+    }
+
+    std::string format_account_character_short_entry(const std::string& root_directory, const AccountData& account, size_t index, const std::string& character_name)
+    {
+        const std::string display_name = format_character_name_for_display(character_name);
+
+        char_file_u stored_character {};
+        std::string error_message;
+        if (!read_account_character_file(root_directory, account.account_name, character_name, &stored_character, &error_message))
+        {
+            char line[256];
+            std::snprintf(line, sizeof(line), "%zu) [ ?? ???] %-12.12s", index + 1, display_name.c_str());
+            return line;
+        }
+
+        char line[256];
+        std::snprintf(line, sizeof(line), "%zu) [%3d %s] %-12.12s", index + 1, stored_character.level, safe_race_abbrev(stored_character.race), display_name.c_str());
+        return line;
+    }
+
+    std::string format_account_character_short_roster(const std::string& root_directory, const AccountData& account)
+    {
+        if (account.characters.empty())
+            return "\n\rNo linked characters yet.\n\r";
+
+        std::ostringstream output;
+        const size_t displayed_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
+        for (size_t index = 0; index < displayed_count; ++index) {
+            output << format_account_character_short_entry(root_directory, account, index, account.characters[index]);
+            if ((index + 1) % 2 == 0)
+                output << "\n\r";
+        }
+
+        if (displayed_count % 2 != 0)
+            output << "\n\r";
+
+        if (account.characters.size() > displayed_count)
+            output << "\n\r... and " << (account.characters.size() - displayed_count) << " more\n\r";
+
+        output << "\n\r" << displayed_count << " character" << (displayed_count == 1 ? "" : "s") << " displayed.\n\r";
+        return output.str();
     }
 
     std::string read_secure_random_bytes(size_t byte_count)
@@ -1366,6 +1417,16 @@ namespace {
 
 } // namespace
 
+std::string format_character_name_for_display(const std::string& character_name)
+{
+    if (character_name.empty())
+        return character_name;
+
+    std::string formatted_name = character_name;
+    formatted_name[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(formatted_name[0])));
+    return formatted_name;
+}
+
 std::string normalize_account_name(const std::string& account_name)
 {
     return to_lower_copy(trim_copy(account_name));
@@ -1858,20 +1919,36 @@ bool select_linked_character(const AccountData& account, const std::string& char
         return false;
     }
 
-    const std::string normalized_name = normalize_account_name(character_name);
-    if (normalized_name.empty()) {
-        set_error(error_message, "Character name must not be empty.");
+    const std::string trimmed_selection = trim_copy(character_name);
+    if (trimmed_selection.empty()) {
+        set_error(error_message, "Character selection must not be empty.");
         return false;
     }
 
-    if (!account_has_character(account, normalized_name)) {
-        set_error(error_message, "Character is not linked to this account.");
-        return false;
+    bool selection_is_numeric = !trimmed_selection.empty();
+    for (char character : trimmed_selection) {
+        if (!std::isdigit(static_cast<unsigned char>(character))) {
+            selection_is_numeric = false;
+            break;
+        }
     }
 
-    *normalized_character_name = normalized_name;
-    set_error(error_message, "");
-    return true;
+    if (selection_is_numeric) {
+        const size_t displayed_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
+        char* end_ptr = nullptr;
+        const unsigned long selected_index = std::strtoul(trimmed_selection.c_str(), &end_ptr, 10);
+        if (end_ptr == nullptr || *end_ptr != '\0' || selected_index == 0 || selected_index > displayed_count) {
+            set_error(error_message, "Select a linked character by number, or enter 0 to return to the account menu.");
+            return false;
+        }
+
+        *normalized_character_name = normalize_account_name(account.characters[selected_index - 1]);
+        set_error(error_message, "");
+        return true;
+    }
+
+    set_error(error_message, "Select a linked character by number, or enter 0 to return to the account menu.");
+    return false;
 }
 
 bool add_character_to_account(AccountData* account, const std::string& character_name, std::string* error_message)
@@ -2345,6 +2422,121 @@ bool admin_reset_password(const std::string& root_directory, const std::string& 
     return true;
 }
 
+bool admin_delete_linked_character(const std::string& root_directory, const std::string& account_name, const std::string& character_name, long updated_at, AccountData* account, std::string* error_message)
+{
+    if (!validate_identifier_for_path(account_name, "Account name", error_message))
+        return false;
+    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+        return false;
+
+    AccountData stored_account;
+    if (!read_account_file(root_directory, account_name, &stored_account, error_message))
+        return false;
+
+    const std::string normalized_character_name = normalize_account_name(character_name);
+    if (!account_has_character(stored_account, normalized_character_name)) {
+        set_error(error_message, "Character is not linked to this account.");
+        return false;
+    }
+
+    if (!validate_account_owned_character_path(stored_account, normalized_character_name, error_message))
+        return false;
+    if (!validate_account_owned_object_path(stored_account, normalized_character_name, error_message))
+        return false;
+    if (!validate_account_owned_exploits_path(stored_account, normalized_character_name, error_message))
+        return false;
+
+    const std::string character_path = resolved_character_path(stored_account, root_directory, normalized_character_name);
+    const std::string object_path = resolved_object_path(stored_account, root_directory, normalized_character_name);
+    const std::string exploits_path = resolved_exploits_path(stored_account, root_directory, normalized_character_name);
+
+    struct StagedRemoval {
+        std::string original_path;
+        std::string staged_path;
+        const char* label = "";
+        bool existed = false;
+    };
+
+    std::vector<StagedRemoval> staged_removals = {
+        { character_path, character_path + ".delete-pending", "account character file", false },
+        { object_path, object_path + ".delete-pending", "account object file", false },
+        { exploits_path, exploits_path + ".delete-pending", "account exploits file", false }
+    };
+
+    auto stage_file_removal = [&](StagedRemoval* staged_removal) -> bool {
+        struct stat file_info {};
+        if (stat(staged_removal->original_path.c_str(), &file_info) != 0) {
+            if (errno == ENOENT) {
+                staged_removal->existed = false;
+                return true;
+            }
+
+            set_error(error_message, std::string("Failed to inspect ") + staged_removal->label + " '" + staged_removal->original_path + "': " + std::strerror(errno));
+            return false;
+        }
+
+        staged_removal->existed = true;
+        if (std::remove(staged_removal->staged_path.c_str()) != 0 && errno != ENOENT) {
+            set_error(error_message, std::string("Failed to prepare staged removal for ") + staged_removal->label + " '" + staged_removal->original_path + "': " + std::strerror(errno));
+            return false;
+        }
+
+        if (std::rename(staged_removal->original_path.c_str(), staged_removal->staged_path.c_str()) != 0) {
+            set_error(error_message, std::string("Failed to stage ") + staged_removal->label + " '" + staged_removal->original_path + "' for deletion: " + std::strerror(errno));
+            return false;
+        }
+
+        return true;
+    };
+
+    auto restore_staged_removals = [&]() {
+        for (auto it = staged_removals.rbegin(); it != staged_removals.rend(); ++it) {
+            if (!it->existed)
+                continue;
+            if (std::rename(it->staged_path.c_str(), it->original_path.c_str()) != 0) {
+                std::fprintf(stderr, "SYSERR: Failed to restore staged account deletion path '%s': %s\n",
+                    it->original_path.c_str(), std::strerror(errno));
+            }
+        }
+    };
+
+    for (StagedRemoval& staged_removal : staged_removals) {
+        if (!stage_file_removal(&staged_removal)) {
+            restore_staged_removals();
+            return false;
+        }
+    }
+
+    AccountData updated_account = stored_account;
+    updated_account.characters.erase(std::remove(updated_account.characters.begin(), updated_account.characters.end(), normalized_character_name),
+        updated_account.characters.end());
+    updated_account.character_links.erase(
+        std::remove_if(updated_account.character_links.begin(), updated_account.character_links.end(),
+            [&](const CharacterLinkReference& link) { return link.character_name == normalized_character_name; }),
+        updated_account.character_links.end());
+    updated_account.updated_at = updated_at;
+
+    if (!write_account_file(root_directory, updated_account, error_message)) {
+        restore_staged_removals();
+        return false;
+    }
+
+    for (const StagedRemoval& staged_removal : staged_removals) {
+        if (!staged_removal.existed)
+            continue;
+        if (std::remove(staged_removal.staged_path.c_str()) != 0 && errno != ENOENT) {
+            set_error(error_message, std::string("Failed to remove staged ") + staged_removal.label + " '" + staged_removal.staged_path + "': " + std::strerror(errno));
+            return false;
+        }
+    }
+
+    if (account)
+        *account = updated_account;
+
+    set_error(error_message, "");
+    return true;
+}
+
 bool link_and_migrate_character(const std::string& root_directory, const std::string& account_name, const std::string& password, const std::string& character_name, long updated_at, AccountData* account, CharacterMigrationData* migration, std::string* error_message)
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
@@ -2626,6 +2818,14 @@ bool read_account_file_by_email(const std::string& root_directory, const std::st
         return false;
 
     return find_account_by_email_internal(root_directory, email, account, error_message);
+}
+
+bool read_account_file_by_identifier(const std::string& root_directory, const std::string& identifier, AccountData* account, std::string* error_message)
+{
+    if (identifier.find('@') != std::string::npos)
+        return read_account_file_by_email(root_directory, identifier, account, error_message);
+
+    return read_account_file(root_directory, identifier, account, error_message);
 }
 
 std::string account_character_directory(const std::string& root_directory, const std::string& account_name, const std::string&)
@@ -3265,7 +3465,8 @@ bool write_account_object_file(const std::string& root_directory, const std::str
 
 bool write_default_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message)
 {
-    const objects_json::ObjectSaveData empty_object_data;
+    objects_json::ObjectSaveData empty_object_data;
+    empty_object_data.rent.rentcode = RENT_CRASH;
     return write_account_object_json_file(root_directory, account_name, character_name, empty_object_data, error_message);
 }
 
@@ -3559,21 +3760,32 @@ bool refresh_linked_character_snapshot(const std::string& root_directory, const 
     return true;
 }
 
-std::string format_account_character_prompt(const AccountData& account)
+std::string format_account_character_prompt(const std::string& root_directory, const AccountData& account)
 {
     std::ostringstream output;
-    output << "\n\rLinked characters for account '" << account.account_name << "':\n\r";
-    for (const std::string& character_name : account.characters)
-        output << "  " << character_name << "\n\r";
-    output << "\n\rCharacter: ";
+    output << "\n\rLinked characters for your account:\n\r";
+    output << format_account_character_short_roster(root_directory, account);
+    output << "\n\r0) Back to Account Menu.\n\r";
+    output << "\n\rCharacter number: ";
+    return output.str();
+}
+
+std::string format_account_character_list(const std::string& root_directory, const AccountData& account)
+{
+    if (account.characters.empty())
+        return "\n\rNo linked characters yet.\n\r";
+
+    std::ostringstream output;
+    output << "\n\rLinked characters:\n\r";
+    output << format_account_character_short_roster(root_directory, account);
     return output.str();
 }
 
 std::string format_account_summary(const AccountData& account)
 {
     std::ostringstream output;
-    output << "Account: " << account.account_name << "\n\r";
-    output << "Email: " << account.normalized_email << "\n\r";
+    output << "Account email: " << account.normalized_email << "\n\r";
+    output << "Internal name: " << account.account_name << "\n\r";
     output << "Email verified: " << (account.email_verified ? "yes" : "no") << "\n\r";
     if (account.email_verified) {
         output << "Verified by: " << account.email_verified_by << "\n\r";

@@ -119,6 +119,25 @@ namespace {
         { "snuck_in", HIDING_SNUCK_IN },
     };
 
+    constexpr const char* kColorFieldNames[MAX_COLOR_FIELDS] = {
+        "narrate",
+        "chat",
+        "yell",
+        "tell",
+        "say",
+        "roomname",
+        "hit",
+        "damage",
+        "character",
+        "object",
+        "enemy",
+        "description",
+        "group",
+        "off",
+        "on",
+        "default",
+    };
+
     AbilityData ability_from_store(const char_ability_data& ability)
     {
         AbilityData ability_data;
@@ -257,6 +276,11 @@ namespace {
         return require_integer_range(value, std::numeric_limits<ubyte>::min(), std::numeric_limits<ubyte>::max(), field_name, error_message);
     }
 
+    bool require_color_value_range(int value, const char* field_name, std::string* error_message)
+    {
+        return require_integer_range(value, CNRM, CBWHT, field_name, error_message);
+    }
+
     bool require_short_range(int value, const char* field_name, std::string* error_message)
     {
         return require_integer_range(value, std::numeric_limits<sh_int>::min(), std::numeric_limits<sh_int>::max(), field_name, error_message);
@@ -336,11 +360,26 @@ namespace {
         return true;
     }
 
+    bool validate_color_array_range(const std::vector<int>& values, std::string* error_message)
+    {
+        if (!require_exact_array_size(values, MAX_COLOR_FIELDS, "colors", error_message))
+            return false;
+
+        for (size_t index = 0; index < values.size(); ++index) {
+            const std::string indexed_field = "colors[" + std::to_string(index) + "]";
+            if (!require_color_value_range(values[index], indexed_field.c_str(), error_message))
+                return false;
+        }
+
+        return true;
+    }
+
     bool validate_character_collections(const CharacterData& character, std::string* error_message)
     {
         return validate_ability_data(character.temporary_abilities, "abilities.temporary", error_message)
             && validate_ability_data(character.rolled_abilities, "abilities.rolled", error_message)
             && validate_point_data(character.points, error_message)
+            && validate_color_array_range(character.colors, error_message)
             && validate_integer_array_range(character.talks, MAX_TOUNGE, "talks", true, error_message)
             && validate_integer_array_range(character.skills, MAX_SKILLS, "skills", false, error_message);
     }
@@ -474,6 +513,13 @@ namespace {
         return slugify_key(get_skill_array()[index].name, "skill", index);
     }
 
+    std::string color_key_for_index(int index)
+    {
+        if (index >= 0 && index < MAX_COLOR_FIELDS)
+            return kColorFieldNames[index];
+        return "color_" + std::to_string(index);
+    }
+
     int talk_index_for_key(const std::string& key)
     {
         for (int index = 0; index < MAX_TOUNGE; ++index) {
@@ -487,6 +533,15 @@ namespace {
     {
         for (int index = 0; index < MAX_SKILLS; ++index) {
             if (skill_key_for_index(index) == key)
+                return index;
+        }
+        return -1;
+    }
+
+    int color_index_for_key(const std::string& key)
+    {
+        for (int index = 0; index < MAX_COLOR_FIELDS; ++index) {
+            if (color_key_for_index(index) == key)
                 return index;
         }
         return -1;
@@ -1168,6 +1223,11 @@ CharacterData character_data_from_store(const char_file_u& stored_character)
     character.timers.last_logon = stored_character.last_logon;
     character.timers.played_seconds = stored_character.played;
     character.timers.retired_on = stored_character.specials2.retiredon;
+    character.color_mask = stored_character.profs.color_mask;
+
+    character.colors.reserve(MAX_COLOR_FIELDS);
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index)
+        character.colors.push_back(stored_character.profs.colors[index]);
 
     character.talks.reserve(MAX_TOUNGE);
     for (int index = 0; index < MAX_TOUNGE; ++index)
@@ -1239,6 +1299,8 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
     if (!validate_character_collections(json_character, error_message))
         return false;
 
+    *stored_character = char_file_u {};
+
     if (!apply_profession_to_store(json_character.mage, PROF_MAGE, stored_character, error_message))
         return false;
     if (!apply_profession_to_store(json_character.mystic, PROF_CLERIC, stored_character, error_message))
@@ -1285,10 +1347,14 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
     stored_character->birth = json_character.timers.birth;
     stored_character->last_logon = json_character.timers.last_logon;
     stored_character->played = json_character.timers.played_seconds;
+    stored_character->profs.color_mask = json_character.color_mask;
 
     apply_ability_to_store(json_character.temporary_abilities, &stored_character->tmpabilities);
     apply_ability_to_store(json_character.rolled_abilities, &stored_character->constabilities);
     apply_point_data_to_store(json_character.points, &stored_character->points);
+
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index)
+        stored_character->profs.colors[index] = static_cast<char>((index < static_cast<int>(json_character.colors.size())) ? json_character.colors[index] : 0);
 
     for (int index = 0; index < MAX_TOUNGE; ++index)
         stored_character->talks[index] = static_cast<byte>((index < static_cast<int>(json_character.talks.size())) ? json_character.talks[index] : 0);
@@ -1417,6 +1483,10 @@ std::string serialize_character_to_json(const CharacterData& character)
     output << "    \"full\": " << character.conditions.full << ",\n";
     output << "    \"thirst\": " << character.conditions.thirst << "\n";
     output << "  },\n";
+    output << "  \"color_mask\": " << character.color_mask << ",\n";
+    output << "  \"colors\": ";
+    write_named_integer_object(output, collect_non_zero_named_values(character.colors, MAX_COLOR_FIELDS, color_key_for_index));
+    output << ",\n";
     output << "  \"timers\": {\n";
     output << "    \"birth\": " << character.timers.birth << ",\n";
     output << "    \"last_logon\": " << character.timers.last_logon << ",\n";
@@ -1474,13 +1544,16 @@ bool deserialize_character_from_json(const std::string& json, CharacterData* cha
     bool saw_professions = false;
     bool saw_flags = false;
     bool saw_conditions = false;
+    bool saw_color_mask = false;
+    bool saw_colors = false;
     bool saw_timers = false;
     bool saw_perception = false;
     bool saw_state = false;
     bool saw_talks = false;
     bool saw_skills = false;
     bool saw_affects = false;
-    if (!reader.parse_root_object([&parsed_character, &saw_schema_version, &saw_character_name, &saw_title, &saw_description, &saw_identity, &saw_progression, &saw_abilities, &saw_points, &saw_professions, &saw_flags, &saw_conditions, &saw_timers, &saw_perception, &saw_state, &saw_talks, &saw_skills, &saw_affects](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+    parsed_character.colors.assign(MAX_COLOR_FIELDS, 0);
+    if (!reader.parse_root_object([&parsed_character, &saw_schema_version, &saw_character_name, &saw_title, &saw_description, &saw_identity, &saw_progression, &saw_abilities, &saw_points, &saw_professions, &saw_flags, &saw_conditions, &saw_color_mask, &saw_colors, &saw_timers, &saw_perception, &saw_state, &saw_talks, &saw_skills, &saw_affects](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
             if (key == "schema_version")
                 return saw_schema_version = true, nested_reader->parse_integer(&parsed_character.schema_version, nested_error_message);
             if (key == "character_name")
@@ -1503,6 +1576,10 @@ bool deserialize_character_from_json(const std::string& json, CharacterData* cha
                 return saw_flags = true, parse_flags_object(nested_reader, &parsed_character, nested_error_message);
             if (key == "conditions")
                 return saw_conditions = true, parse_conditions_object(nested_reader, &parsed_character.conditions, nested_error_message);
+            if (key == "color_mask")
+                return saw_color_mask = true, nested_reader->parse_long(&parsed_character.color_mask, nested_error_message);
+            if (key == "colors")
+                return saw_colors = true, parse_named_integer_object(nested_reader, &parsed_character.colors, MAX_COLOR_FIELDS, "color", color_index_for_key, nested_error_message);
             if (key == "timers")
                 return saw_timers = true, parse_timers_object(nested_reader, &parsed_character.timers, nested_error_message);
             if (key == "perception")
@@ -1530,6 +1607,11 @@ bool deserialize_character_from_json(const std::string& json, CharacterData* cha
         return false;
     }
 
+    if (!validate_character_scalar_ranges(parsed_character, error_message))
+        return false;
+    if (!validate_character_collections(parsed_character, error_message))
+        return false;
+
     long ignored_flags = 0;
     if (!decode_player_flags(parsed_character.player_flags, &ignored_flags, error_message))
         return false;
@@ -1540,6 +1622,12 @@ bool deserialize_character_from_json(const std::string& json, CharacterData* cha
     if (!decode_hide_flags(parsed_character.hide_flags, &ignored_flags, error_message))
         return false;
     if (!require_exact_array_size(parsed_character.points.bodypart_hit, MAX_BODYPARTS, "points.bodypart_hit", error_message))
+        return false;
+    if (!saw_color_mask)
+        parsed_character.color_mask = 0;
+    if (!saw_colors)
+        parsed_character.colors.assign(MAX_COLOR_FIELDS, 0);
+    if (!require_exact_array_size(parsed_character.colors, MAX_COLOR_FIELDS, "colors", error_message))
         return false;
     if (!require_exact_array_size(parsed_character.talks, MAX_TOUNGE, "talks", error_message))
         return false;

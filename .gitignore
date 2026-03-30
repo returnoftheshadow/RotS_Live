@@ -54,6 +54,7 @@ lib/misc/mudlle.keys
 lib/misc/oldcrimelist
 lib/misc/pk*
 lib/misc/repair*
+tools/__pycache__/
 core/
 *~
 autorun4000

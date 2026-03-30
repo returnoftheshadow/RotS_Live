@@ -259,6 +259,8 @@ struct protocol_t {
     bool bRenegotiate; /* Workaround for clients that autoconnect */
     bool bNeedMXPVersion; /* Workaround for clients that autoconnect */
     bool bBlockMXP; /* Used internally based on MXP version */
+    int PendingInputLength; /* Buffered bytes from an incomplete telnet/MXP fragment */
+    char PendingInput[4]; /* Prefix buffer for split negotiation sequences */
     bool bTTYPE; /* The client supports TTYPE */
     bool bECHO; /* Toggles ECHO on/off */
     bool bNAWS; /* The client supports NAWS */

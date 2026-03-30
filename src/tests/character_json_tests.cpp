@@ -1,6 +1,7 @@
 #include "../character_json.h"
 
 #include <cstdio>
+#include <cstring>
 
 #include <gtest/gtest.h>
 
@@ -46,6 +47,11 @@ char_file_u make_stored_character()
     stored.specials2.retiredon = 1705000000;
     stored.specials2.hide_flags = HIDING_WELL | HIDING_SNUCK_IN;
     stored.specials2.will_teach = 123456;
+    stored.profs.color_mask = 0x123456;
+    stored.profs.colors[COLOR_NARR] = CYEL;
+    stored.profs.colors[COLOR_CHAT] = CMAG;
+    stored.profs.colors[COLOR_ROOM] = CRED;
+    stored.profs.colors[COLOR_DESC] = CGRN;
 
     stored.tmpabilities.str = 18;
     stored.tmpabilities.lea = 11;
@@ -190,6 +196,11 @@ TEST(CharacterJson, BuildsCharacterDataFromStoredCharacterUsingMysticProfessionN
     EXPECT_EQ(character.points.experience, 1234567);
     EXPECT_EQ(character.conditions.full, 15);
     EXPECT_EQ(character.timers.last_logon, 1710000000);
+    EXPECT_EQ(character.color_mask, 0x123456);
+    ASSERT_EQ(character.colors.size(), static_cast<size_t>(MAX_COLOR_FIELDS));
+    EXPECT_EQ(character.colors[COLOR_NARR], CYEL);
+    EXPECT_EQ(character.colors[COLOR_CHAT], CMAG);
+    EXPECT_EQ(character.colors[COLOR_ROOM], CRED);
     EXPECT_EQ(character.hide_flags, (std::vector<std::string> { "hiding_well", "snuck_in" }));
     EXPECT_EQ(character.skills[2], 95);
     EXPECT_EQ(character.player_flags, (std::vector<std::string> { "writing", "incognito" }));
@@ -216,6 +227,8 @@ TEST(CharacterJson, SerializesAndDeserializesCharacterJsonRoundTrip)
     EXPECT_EQ(parsed.points.spell_power, original.points.spell_power);
     EXPECT_EQ(parsed.conditions.thirst, original.conditions.thirst);
     EXPECT_EQ(parsed.timers.played_seconds, original.timers.played_seconds);
+    EXPECT_EQ(parsed.color_mask, original.color_mask);
+    EXPECT_EQ(parsed.colors, original.colors);
     EXPECT_EQ(parsed.hide_flags, original.hide_flags);
     EXPECT_EQ(parsed.talks, original.talks);
     EXPECT_EQ(parsed.skills, original.skills);
@@ -248,6 +261,21 @@ TEST(CharacterJson, AppliesCharacterDataBackToStoredCharacter)
     EXPECT_TRUE((stored.specials2.act & PLR_WRITING) != 0);
     EXPECT_TRUE((stored.specials2.pref & PRF_ADVANCED_VIEW) != 0);
     EXPECT_EQ(stored.affected[0].bitvector, AFF_INVISIBLE | AFF_DETECT_MAGIC);
+}
+
+TEST(CharacterJson, ApplyCharacterDataToStorePreservesCustomColorSettings)
+{
+    const character_json::CharacterData character = character_json::character_data_from_store(make_stored_character());
+    char_file_u stored {};
+    std::string error_message;
+
+    ASSERT_TRUE(character_json::apply_character_data_to_store(character, &stored, &error_message)) << error_message;
+
+    EXPECT_EQ(stored.profs.color_mask, 0x123456);
+    EXPECT_EQ(stored.profs.colors[COLOR_NARR], CYEL);
+    EXPECT_EQ(stored.profs.colors[COLOR_CHAT], CMAG);
+    EXPECT_EQ(stored.profs.colors[COLOR_ROOM], CRED);
+    EXPECT_EQ(stored.profs.colors[COLOR_DESC], CGRN);
 }
 
 TEST(CharacterJson, RejectsProfessionPointCoeffMismatches)
@@ -299,6 +327,17 @@ TEST(CharacterJson, RejectsOutOfRangeNarrowedNumericFields)
     EXPECT_NE(error_message.find("abilities.temporary.str"), std::string::npos);
 }
 
+TEST(CharacterJson, RejectsOutOfRangeNamedColorValuesDuringDeserialization)
+{
+    std::string json = make_valid_character_json();
+    json = replace_once(json, "\"chat\": 5", "\"chat\": 200");
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    EXPECT_FALSE(character_json::deserialize_character_from_json(json, &parsed, &error_message));
+    EXPECT_NE(error_message.find("colors[1]"), std::string::npos);
+}
+
 TEST(CharacterJson, SerializesSkillsAndTalksAsNamedObjects)
 {
     const std::string json = character_json::serialize_character_to_json(character_json::character_data_from_store(make_stored_character()));
@@ -307,6 +346,33 @@ TEST(CharacterJson, SerializesSkillsAndTalksAsNamedObjects)
     EXPECT_NE(json.find("\"skills\": {"), std::string::npos);
     EXPECT_EQ(json.find("\"talks\": ["), std::string::npos);
     EXPECT_EQ(json.find("\"skills\": ["), std::string::npos);
+}
+
+TEST(CharacterJson, SerializesCustomColorsAsNamedObject)
+{
+    const std::string json = character_json::serialize_character_to_json(character_json::character_data_from_store(make_stored_character()));
+
+    EXPECT_NE(json.find("\"color_mask\": 1193046"), std::string::npos);
+    EXPECT_NE(json.find("\"colors\": {"), std::string::npos);
+    EXPECT_NE(json.find("\"narrate\": 3"), std::string::npos);
+    EXPECT_NE(json.find("\"chat\": 5"), std::string::npos);
+    EXPECT_NE(json.find("\"roomname\": 1"), std::string::npos);
+}
+
+TEST(CharacterJson, DeserializesLegacyCharacterJsonWithoutColorsAsDefaults)
+{
+    std::string json = make_valid_character_json();
+    json = replace_once(json, "  \"color_mask\": 1193046,\n", "");
+    json = replace_once(json, "  \"colors\": {\"narrate\": 3, \"chat\": 5, \"roomname\": 1, \"description\": 2},\n", "");
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    ASSERT_TRUE(character_json::deserialize_character_from_json(json, &parsed, &error_message)) << error_message;
+
+    EXPECT_EQ(parsed.color_mask, 0);
+    ASSERT_EQ(parsed.colors.size(), static_cast<size_t>(MAX_COLOR_FIELDS));
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index)
+        EXPECT_EQ(parsed.colors[index], 0) << "Expected legacy JSON without colors to default slot " << index << " to zero.";
 }
 
 TEST(CharacterJson, RejectsUnknownNamedSkillOrTalkKeysDuringDeserialization)

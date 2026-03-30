@@ -101,6 +101,7 @@ bool admin_unverify_email(const std::string& root_directory, const std::string& 
 bool admin_block_account(const std::string& root_directory, const std::string& account_name, const std::string& blocked_by, const std::string& block_reason, long blocked_at, AccountData* account, std::string* error_message = nullptr);
 bool admin_unblock_account(const std::string& root_directory, const std::string& account_name, long updated_at, AccountData* account, std::string* error_message = nullptr);
 bool admin_reset_password(const std::string& root_directory, const std::string& account_name, const std::string& new_password, const std::string& reset_by, long reset_at, AccountData* account, std::string* error_message = nullptr);
+bool admin_delete_linked_character(const std::string& root_directory, const std::string& account_name, const std::string& character_name, long updated_at, AccountData* account, std::string* error_message = nullptr);
 bool link_and_migrate_character(const std::string& root_directory, const std::string& account_name, const std::string& password, const std::string& character_name, long updated_at, AccountData* account, CharacterMigrationData* migration, std::string* error_message = nullptr);
 
 std::string account_bucket_for_name(const std::string& name);
@@ -145,7 +146,9 @@ bool restore_character_migration(const std::string& root_directory, const std::s
 bool clear_character_runtime_support_files_for_account_play(const std::string& root_directory, const std::string& expected_account_name, const std::string& expected_character_name, const CharacterMigrationData& migration, std::string* error_message = nullptr);
 bool refresh_linked_character_snapshot(const std::string& root_directory, const std::string& character_name, long migrated_at, CharacterMigrationData* migration, std::string* error_message = nullptr);
 
-std::string format_account_character_prompt(const AccountData& account);
+std::string format_character_name_for_display(const std::string& character_name);
+std::string format_account_character_prompt(const std::string& root_directory, const AccountData& account);
+std::string format_account_character_list(const std::string& root_directory, const AccountData& account);
 std::string format_account_summary(const AccountData& account);
 
 std::string serialize_account_to_json(const AccountData& account);
@@ -154,6 +157,7 @@ bool deserialize_account_from_json(const std::string& json, AccountData* account
 bool write_account_file(const std::string& root_directory, const AccountData& account, std::string* error_message = nullptr);
 bool read_account_file(const std::string& root_directory, const std::string& account_name, AccountData* account, std::string* error_message = nullptr);
 bool read_account_file_by_email(const std::string& root_directory, const std::string& email, AccountData* account, std::string* error_message = nullptr);
+bool read_account_file_by_identifier(const std::string& root_directory, const std::string& identifier, AccountData* account, std::string* error_message = nullptr);
 
 } // namespace account
 

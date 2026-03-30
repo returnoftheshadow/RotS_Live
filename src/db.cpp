@@ -3905,6 +3905,15 @@ room_data& room_data::operator[](int i)
 
 void write_exploits(char_data* ch, exploit_record* record)
 {
+    if (ch != nullptr && ch->desc != nullptr && *ch->desc->account_name != '\0') {
+        account::AccountData account_data;
+        std::string account_error;
+        if (account::read_account_file(".", ch->desc->account_name, &account_data, &account_error)
+            && !account::account_has_character(account_data, GET_NAME(ch))) {
+            return;
+        }
+    }
+
     std::string error_message;
     if (!write_exploit_record_for_character(".", GET_NAME(ch), *record, &error_message)) {
         snprintf(buf, sizeof(buf), "**ERROR: Could not persist exploit file for character: %s", error_message.c_str());

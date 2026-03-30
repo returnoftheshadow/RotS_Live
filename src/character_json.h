@@ -114,6 +114,8 @@ struct CharacterData {
     PointData points;
     ConditionData conditions;
     TimerData timers;
+    long color_mask = 0;
+    std::vector<int> colors;
     std::vector<int> talks;
     std::vector<int> skills;
 

@@ -1,4 +1,5 @@
 #include "../account_management.h"
+#include "../color.h"
 #include "../db.h"
 #include "../exploits_json.h"
 #include "../handler.h"
@@ -1042,6 +1043,32 @@ TEST(DbLoader, AccountNativeCharacterAndObjectsJsonSupportEquippedLoginWithoutMi
     EXPECT_EQ(obj_index[character.equipment[WEAR_HEAD]->item_number].virt, 1001);
     ASSERT_NE(character.carrying, nullptr);
     EXPECT_EQ(obj_index[character.carrying->item_number].virt, 1002);
+}
+
+TEST(DbLoader, AccountNativeCharacterLoadDoesNotPropagateGarbageColorStateIntoLiveCharacter) {
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.pref = PRF_COLOR;
+    ASSERT_TRUE(account::write_account_character_file(temp_directory.path(), "alpha-admin", stored_character, &error_message)) << error_message;
+
+    char_file_u loaded_store {};
+    loaded_store.profs.color_mask = 0x5a5a5a5a;
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index)
+        loaded_store.profs.colors[index] = 0x5a;
+    ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded_store, &error_message)) << error_message;
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&loaded_store, &character);
+
+    EXPECT_EQ(get_colornum(&character, COLOR_ROOM), CNRM);
 }
 
 TEST(DbLoader, SavingAccountNativeCharacterDoesNotAttemptLegacySnapshotRefreshAfterMigrationRetirement) {

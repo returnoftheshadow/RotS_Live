@@ -18,6 +18,139 @@ from pathlib import Path
 DEFAULT_CREATE_PASSWORD = "ValidPass1"
 DEFAULT_RESET_PASSWORD = "BetterPass2"
 DEFAULT_CHARACTER_PASSWORD = "HeroPw1"
+IAC = 255
+
+
+class TelnetStreamSanitizer:
+    def __init__(self) -> None:
+        self._pending_iac = False
+        self._pending_option = False
+        self._in_subnegotiation = False
+        self._subnegotiation_pending_iac = False
+        self._pending_cr = False
+        self._sanitized = bytearray()
+
+    def feed(self, chunk: bytes) -> str:
+        for byte in chunk:
+            if self._pending_cr:
+                if byte != 0:
+                    self._sanitized.append(13)
+                self._pending_cr = False
+                if byte == 0:
+                    continue
+
+            if self._in_subnegotiation:
+                if self._subnegotiation_pending_iac:
+                    if byte == 240:
+                        self._in_subnegotiation = False
+                    self._subnegotiation_pending_iac = False
+                    continue
+
+                if byte == IAC:
+                    self._subnegotiation_pending_iac = True
+                continue
+
+            if self._pending_option:
+                self._pending_option = False
+                continue
+
+            if self._pending_iac:
+                self._pending_iac = False
+                if byte == IAC:
+                    self._sanitized.append(IAC)
+                    continue
+                if byte in (251, 252, 253, 254):
+                    self._pending_option = True
+                    continue
+                if byte == 250:
+                    self._in_subnegotiation = True
+                    self._subnegotiation_pending_iac = False
+                    continue
+                continue
+
+            if byte == IAC:
+                self._pending_iac = True
+                continue
+
+            if byte == 13:
+                self._pending_cr = True
+                continue
+
+            self._sanitized.append(byte)
+
+        return self.text
+
+    @property
+    def text(self) -> str:
+        return self._sanitized.decode("latin1", errors="ignore")
+
+
+def find_first_marker_end(text: str, markers: list[str]) -> int | None:
+    matched_end = None
+    matched_start = None
+    for marker in markers:
+        index = text.find(marker)
+        if index < 0:
+            continue
+        marker_end = index + len(marker)
+        if matched_start is None or index < matched_start or (index == matched_start and marker_end < matched_end):
+            matched_start = index
+            matched_end = marker_end
+    return matched_end
+
+
+class BufferedPromptReader:
+    def __init__(self, sock: socket.socket) -> None:
+        self._sock = sock
+        self._sanitizer = TelnetStreamSanitizer()
+        self._buffer = ""
+
+    def recv_until(self, markers: list[str], timeout_seconds: float) -> str:
+        deadline = time.time() + timeout_seconds
+        raw_data = bytearray()
+        self._sock.settimeout(0.5)
+
+        while time.time() < deadline:
+            marker_end = find_first_marker_end(self._buffer, markers)
+            if marker_end is not None:
+                text = self._buffer[:marker_end]
+                self._buffer = self._buffer[marker_end:]
+                return text
+
+            try:
+                chunk = self._sock.recv(4096)
+            except socket.timeout:
+                continue
+
+            if not chunk:
+                break
+
+            raw_data.extend(chunk)
+            previous_length = len(self._sanitizer.text)
+            sanitized_text = self._sanitizer.feed(chunk)
+            self._buffer += sanitized_text[previous_length:]
+            marker_end = find_first_marker_end(self._buffer, markers)
+            if marker_end is not None:
+                text = self._buffer[:marker_end]
+                self._buffer = self._buffer[marker_end:]
+                return text
+
+        marker_end = find_first_marker_end(self._buffer, markers)
+        if marker_end is not None:
+            text = self._buffer[:marker_end]
+            self._buffer = self._buffer[marker_end:]
+            return text
+
+        text = self._buffer
+        raw_tail = bytes(raw_data[-800:]).decode("latin1", errors="ignore")
+        raise RuntimeError(
+            "Timed out waiting for markers "
+            + ", ".join(markers)
+            + ". Last sanitized output was:\n"
+            + text[-800:]
+            + "\nRaw tail was:\n"
+            + raw_tail
+        )
 
 
 def account_bucket_for_name(name: str) -> str:
@@ -53,7 +186,8 @@ def wait_for_port(host: str, port: int, timeout_seconds: float) -> None:
 
 def recv_until(sock: socket.socket, markers: list[str], timeout_seconds: float) -> str:
     deadline = time.time() + timeout_seconds
-    data = b""
+    raw_data = bytearray()
+    sanitizer = TelnetStreamSanitizer()
     sock.settimeout(0.5)
 
     while time.time() < deadline:
@@ -65,17 +199,47 @@ def recv_until(sock: socket.socket, markers: list[str], timeout_seconds: float) 
         if not chunk:
             break
 
-        data += chunk
-        text = data.decode("latin1", errors="ignore")
+        raw_data.extend(chunk)
+        text = sanitizer.feed(chunk)
         if any(marker in text for marker in markers):
             return text
 
-    text = data.decode("latin1", errors="ignore")
+    text = sanitizer.text
+    raw_tail = bytes(raw_data[-800:]).decode("latin1", errors="ignore")
     raise RuntimeError(
         "Timed out waiting for markers "
         + ", ".join(markers)
-        + ". Last output was:\n"
+        + ". Last sanitized output was:\n"
         + text[-800:]
+        + "\nRaw tail was:\n"
+        + raw_tail
+    )
+
+
+def contains_any_marker(text: str, markers: list[str]) -> bool:
+    return any(marker in text for marker in markers)
+
+
+def require_markers(text: str, markers: list[str], context: str) -> str:
+    missing_markers = [marker for marker in markers if marker not in text]
+    if missing_markers:
+        raise RuntimeError(
+            f"{context} was missing expected markers: {', '.join(missing_markers)}. Full output was:\n{text[-800:]}"
+        )
+    return text
+
+
+def wait_for_account_menu(reader: BufferedPromptReader, timeout_seconds: float) -> str:
+    text = reader.recv_until(["Choice:"], timeout_seconds)
+    return require_markers(text, ["0) Log out", "5) Reset account password", "Choice:"], "Account menu")
+
+
+def wait_for_character_menu(reader: BufferedPromptReader, timeout_seconds: float) -> str:
+    text = reader.recv_until(["Make your choice:"], timeout_seconds)
+    return require_markers(
+        text,
+        ["0) Back to Account Menu.", "5) Delete this character.", "Make your choice:"],
+        "Character menu",
     )
 
 
@@ -142,6 +306,40 @@ def read_json_file(path: Path) -> dict | None:
         return None
 
 
+def expect_account_character_list(account_file: Path, expected_characters: list[str]) -> None:
+    account_data = read_json_file(account_file)
+    if account_data is None:
+        raise RuntimeError(f"Failed to read account file at {account_file}.")
+
+    actual_characters = account_data.get("characters")
+    if actual_characters != expected_characters:
+        raise RuntimeError(
+            f"Expected account characters {expected_characters} in {account_file}, got {actual_characters}."
+        )
+
+
+def expect_account_character_links(account_file: Path, expected_characters: list[str]) -> None:
+    account_data = read_json_file(account_file)
+    if account_data is None:
+        raise RuntimeError(f"Failed to read account file at {account_file}.")
+
+    actual_links = account_data.get("character_links")
+    expected_links = [
+        {
+            "character_name": character_name,
+            "character_path": f"{character_name}.character.json",
+            "object_path": f"{character_name}.objects.json",
+            "exploits_path": f"{character_name}.exploits.json",
+        }
+        for character_name in expected_characters
+    ]
+
+    if actual_links != expected_links:
+        raise RuntimeError(
+            f"Expected account character links {expected_links} in {account_file}, got {actual_links}."
+        )
+
+
 def character_bucket_for_name(name: str) -> str:
     return account_bucket_for_name(name)
 
@@ -201,7 +399,8 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
 
     smoke_id = f"smk{uuid.uuid4().hex[:12]}"
     account_email = f"{smoke_id}@example.com"
-    character_name = make_character_name()
+    play_character_name = make_character_name()
+    delete_character_name = make_character_name()
 
     temp_dir_path = Path(tempfile.mkdtemp(prefix="rots-account-smoke-"))
     capture_path = temp_dir_path / "verification-email.txt"
@@ -225,7 +424,7 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
     try:
         game_log = game_log_path.open("wb")
         game_process = subprocess.Popen(
-            [str(game_binary), "-p", str(args.game_port)],
+            [str(game_binary), "-x", str(args.game_port)],
             cwd=repo_root,
             env=game_env,
             stdout=game_log,
@@ -255,98 +454,186 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
         wait_for_port("127.0.0.1", args.proxy_port, args.startup_timeout)
 
         with socket.create_connection(("127.0.0.1", args.proxy_port), timeout=5) as sock:
-            recv_until(sock, ["Account email:"], 8.0)
+            reader = BufferedPromptReader(sock)
+            reader.recv_until(["Account email:"], 8.0)
             send_line(sock, account_email)
 
-            recv_until(sock, ["Create one? (Y/N):"], 8.0)
+            reader.recv_until(["Create one? (Y/N):"], 8.0)
             send_line(sock, "y")
 
-            recv_until(sock, ["Please enter a password:"], 8.0)
+            reader.recv_until(["Please enter a password:"], 8.0)
             send_line(sock, DEFAULT_CREATE_PASSWORD)
 
-            recv_until(sock, ["Please retype your password:"], 8.0)
+            reader.recv_until(["Please retype your password:"], 8.0)
             send_line(sock, DEFAULT_CREATE_PASSWORD)
 
-            recv_until(sock, ["Verification code (or type RESEND/CANCEL):"], 8.0)
+            reader.recv_until(["Verification code (or type RESEND/CANCEL):"], 8.0)
             verification_code = wait_for_verification_code(capture_path, args.verification_timeout)
             send_line(sock, verification_code)
 
-            recv_until(sock, ["Choice:"], 8.0)
+            wait_for_account_menu(reader, 8.0)
             send_line(sock, "1")
-            recv_until(sock, ["No linked characters yet.", "Choice:"], 8.0)
+            reader.recv_until(["No linked characters yet.", "Choice:"], 8.0)
 
             send_line(sock, "5")
-            recv_until(sock, ["Current account password:"], 8.0)
+            reader.recv_until(["Current account password:"], 8.0)
             send_line(sock, DEFAULT_CREATE_PASSWORD)
 
-            recv_until(sock, ["New account password:"], 8.0)
+            reader.recv_until(["New account password:"], 8.0)
             send_line(sock, DEFAULT_RESET_PASSWORD)
 
-            recv_until(sock, ["Please retype the new password:"], 8.0)
+            reader.recv_until(["Please retype the new password:"], 8.0)
             send_line(sock, DEFAULT_RESET_PASSWORD)
 
-            recv_until(sock, ["Account password updated.", "Choice:"], 8.0)
+            reader.recv_until(["Account password updated.", "0) Log out", "Choice:"], 8.0)
             send_line(sock, "0")
 
-            recv_until(sock, ["Account email:"], 8.0)
+            reader.recv_until(["Account email:"], 8.0)
             send_line(sock, account_email)
 
-            recv_until(sock, ["Account password:"], 8.0)
+            reader.recv_until(["Account password:"], 8.0)
             send_line(sock, DEFAULT_CREATE_PASSWORD)
-            recv_until(sock, ["Invalid account credentials.", "Account password:"], 8.0)
+            reader.recv_until(["Invalid account credentials.", "Account password:"], 8.0)
 
             send_line(sock, DEFAULT_RESET_PASSWORD)
-            recv_until(sock, ["Choice:"], 8.0)
+            wait_for_account_menu(reader, 8.0)
             send_line(sock, "4")
-            recv_until(sock, ["New character name:"], 8.0)
-            send_line(sock, character_name)
+            reader.recv_until(["New character name:"], 8.0)
+            send_line(sock, play_character_name)
 
-            recv_until(sock, ["suitable name for roleplay in Middle-earth"], 8.0)
+            reader.recv_until(["suitable name for roleplay in Middle-earth"], 8.0)
             send_line(sock, "y")
 
-            recv_until(sock, ["Please enter a password for"], 8.0)
-            send_line(sock, DEFAULT_CHARACTER_PASSWORD)
-
-            recv_until(sock, ["Please retype your password:"], 8.0)
-            send_line(sock, DEFAULT_CHARACTER_PASSWORD)
-
-            recv_until(sock, ["What is your sex (M/F)?"], 8.0)
+            reader.recv_until(["What is your sex (M/F)?"], 8.0)
             send_line(sock, "m")
 
-            recv_until(sock, ["Race:"], 8.0)
+            reader.recv_until(["Race:"], 8.0)
             send_line(sock, "h")
 
-            recv_until(sock, ["Class:"], 8.0)
+            reader.recv_until(["Class:"], 8.0)
             send_line(sock, "a")
 
-            recv_until(sock, ["Do you wish to enable the default colour set (Y/N)?"], 8.0)
+            reader.recv_until(["Do you wish to enable the default colour set (Y/N)?"], 8.0)
             send_line(sock, "n")
 
-            recv_until(sock, ["Do you see an 'a' with a pair of dots above it:"], 8.0)
+            reader.recv_until(["Do you see an 'a' with a pair of dots above it:"], 8.0)
             send_line(sock, "n")
 
-            recv_until(sock, ["Make your choice:"], 8.0)
+            reader.recv_until(["Make your choice:"], 8.0)
             send_line(sock, "0")
 
+        account_file = find_account_file_for_email(repo_root, account_email)
+        if account_file is None:
+            raise RuntimeError(f"Could not find account file for {account_email} after character creation.")
+        expect_account_character_list(account_file, [play_character_name.lower()])
+        expect_account_character_links(account_file, [play_character_name.lower()])
+
         with socket.create_connection(("127.0.0.1", args.proxy_port), timeout=5) as sock:
-            recv_until(sock, ["Account email:"], 8.0)
+            reader = BufferedPromptReader(sock)
+            reader.recv_until(["Account email:"], 8.0)
             send_line(sock, account_email)
 
-            recv_until(sock, ["Account password:"], 8.0)
+            reader.recv_until(["Account password:"], 8.0)
             send_line(sock, DEFAULT_RESET_PASSWORD)
 
-            recv_until(sock, ["Choice:"], 8.0)
+            wait_for_account_menu(reader, 8.0)
             send_line(sock, "2")
 
-            recv_until(sock, ["Character:"], 8.0)
-            send_line(sock, character_name)
-
-            recv_until(sock, ["Make your choice:"], 8.0)
+            reader.recv_until(["Character number:"], 8.0)
             send_line(sock, "1")
-            recv_until(sock, ["Here we go...", "This is your new MUD character."], 8.0)
+
+            wait_for_character_menu(reader, 8.0)
+            send_line(sock, "1")
+            reader.recv_until(["Here we go...", "This is your new MUD character."], 8.0)
+
+        with socket.create_connection(("127.0.0.1", args.proxy_port), timeout=5) as sock:
+            reader = BufferedPromptReader(sock)
+            reader.recv_until(["Account email:"], 8.0)
+            send_line(sock, account_email)
+
+            reader.recv_until(["Account password:"], 8.0)
+            send_line(sock, DEFAULT_RESET_PASSWORD)
+
+            wait_for_account_menu(reader, 8.0)
+            send_line(sock, "4")
+            reader.recv_until(["New character name:"], 8.0)
+            send_line(sock, delete_character_name)
+
+            reader.recv_until(["suitable name for roleplay in Middle-earth"], 8.0)
+            send_line(sock, "y")
+
+            reader.recv_until(["What is your sex (M/F)?"], 8.0)
+            send_line(sock, "m")
+
+            reader.recv_until(["Race:"], 8.0)
+            send_line(sock, "h")
+
+            reader.recv_until(["Class:"], 8.0)
+            send_line(sock, "a")
+
+            reader.recv_until(["Do you wish to enable the default colour set (Y/N)?"], 8.0)
+            send_line(sock, "n")
+
+            reader.recv_until(["Do you see an 'a' with a pair of dots above it:"], 8.0)
+            send_line(sock, "n")
+
+            wait_for_character_menu(reader, 8.0)
+            send_line(sock, "0")
+            wait_for_account_menu(reader, 8.0)
+
+            send_line(sock, "2")
+            reader.recv_until(["Character number:"], 8.0)
+            send_line(sock, "2")
+
+            wait_for_character_menu(reader, 8.0)
+            send_line(sock, "5")
+
+            reader.recv_until(["Enter your account password for verification:"], 8.0)
+            send_line(sock, DEFAULT_RESET_PASSWORD)
+
+            reader.recv_until(['Please type "yes" to confirm:'], 8.0)
+            send_line(sock, "yes")
+            delete_output = reader.recv_until([" deleted!\n\r", " deleted!\r"], 8.0)
+            account_menu_output = delete_output
+            if "Choice:" not in account_menu_output:
+                account_menu_output += reader.recv_until(["Choice:"], 8.0)
+            require_markers(
+                account_menu_output,
+                ["Linked characters: 1", "0) Log out", "Choice:"],
+                "Post-delete account menu",
+            )
+
+        expect_account_character_list(account_file, [play_character_name.lower()])
+        expect_account_character_links(account_file, [play_character_name.lower()])
+        deleted_account_root = account_file.parent
+        if (deleted_account_root / f"{delete_character_name.lower()}.character.json").exists():
+            raise RuntimeError("Deleted character file still exists after account-backed delete.")
+        if (deleted_account_root / f"{delete_character_name.lower()}.objects.json").exists():
+            raise RuntimeError("Deleted object file still exists after account-backed delete.")
+        if (deleted_account_root / f"{delete_character_name.lower()}.exploits.json").exists():
+            raise RuntimeError("Deleted exploits file still exists after account-backed delete.")
+
+        with socket.create_connection(("127.0.0.1", args.proxy_port), timeout=5) as sock:
+            reader = BufferedPromptReader(sock)
+            reader.recv_until(["Account email:"], 8.0)
+            send_line(sock, account_email)
+
+            reader.recv_until(["Account password:"], 8.0)
+            send_line(sock, DEFAULT_RESET_PASSWORD)
+
+            wait_for_account_menu(reader, 8.0)
+            send_line(sock, "1")
+            final_list_output = reader.recv_until(["1 character displayed."], 8.0)
+            require_markers(
+                final_list_output,
+                [f"1) [  1 Hum] {play_character_name[:1].upper() + play_character_name[1:].lower()}", "1 character displayed."],
+                "Final linked-character list",
+            )
+            if delete_character_name[:1].upper() + delete_character_name[1:].lower() in final_list_output:
+                raise RuntimeError("Deleted character still appeared in the final linked-character list.")
 
         print(
-            "Smoke test passed: create -> verify -> login -> list -> reset password -> re-login -> create character -> account-backed play succeeded."
+            "Smoke test passed: create -> verify -> login -> list -> reset password -> re-login -> create play character -> account-backed play -> create delete character -> delete back to account menu -> relogin-roster-check succeeded."
         )
         return 0
     finally:
@@ -365,7 +652,8 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
                 account_name = account_data.get("account_name")
 
         if not args.keep_artifacts:
-            cleanup_character_artifacts(repo_root, account_name, character_name)
+            cleanup_character_artifacts(repo_root, account_name, play_character_name)
+            cleanup_character_artifacts(repo_root, account_name, delete_character_name)
             if account_file is not None:
                 remove_if_exists(account_file)
             remove_if_exists(temp_dir_path)
@@ -415,7 +703,7 @@ if __name__ == "__main__":
         sys.exit(main())
     except Exception as error:
         print(
-            "Smoke artifacts were kept in the most recent temporary directory under /tmp/rots-account-smoke-* for debugging.",
+            "Smoke artifacts were cleaned up by default; rerun with --keep-artifacts to preserve them under /tmp/rots-account-smoke-* for debugging.",
             file=sys.stderr,
         )
         print(f"Smoke test failed: {error}", file=sys.stderr)

@@ -203,6 +203,10 @@ char_file_u make_stored_character(const char* name = "aragorn")
     stored_character.specials2.alignment = 500;
     stored_character.specials2.act = 0;
     stored_character.specials2.pref = 1L << 5;
+    stored_character.profs.color_mask = 0x654321;
+    stored_character.profs.colors[COLOR_CHAT] = CBLU;
+    stored_character.profs.colors[COLOR_ROOM] = CYEL;
+    stored_character.profs.colors[COLOR_OBJ] = CCYN;
     stored_character.profs.prof_level[PROF_WARRIOR] = 12;
     stored_character.profs.prof_coof[PROF_WARRIOR] = 34;
     return stored_character;
@@ -621,11 +625,31 @@ TEST(AccountManagement, SelectsOnlyCharactersLinkedToTheAccount) {
     std::string selected_character;
     std::string error_message;
 
-    ASSERT_TRUE(account::select_linked_character(account_data, " legolas ", &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(account_data, "2", &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "legolas");
 
     EXPECT_FALSE(account::select_linked_character(account_data, "gandalf", &selected_character, &error_message));
-    EXPECT_NE(error_message.find("not linked"), std::string::npos);
+    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
+    EXPECT_FALSE(account::select_linked_character(account_data, "0", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
+    EXPECT_FALSE(account::select_linked_character(account_data, "aragorn", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
+}
+
+TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange) {
+    account::AccountData account_data = make_account();
+    account_data.characters.clear();
+    for (int index = 1; index <= 101; ++index)
+        account_data.characters.push_back("character" + std::to_string(index));
+
+    std::string selected_character;
+    std::string error_message;
+
+    EXPECT_TRUE(account::select_linked_character(account_data, "100", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "character100");
+
+    EXPECT_FALSE(account::select_linked_character(account_data, "101", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
 }
 
 TEST(AccountManagement, BlocksAndUnblocksAccountsWithAuditMetadata) {
@@ -747,22 +771,85 @@ TEST(AccountManagement, FormatsAccountSummariesIncludingLinkedCharacters) {
 
     const std::string summary = account::format_account_summary(account_data);
 
-    EXPECT_NE(summary.find("Account: alpha-admin"), std::string::npos);
-    EXPECT_NE(summary.find("Email: player@example.com"), std::string::npos);
-    EXPECT_NE(summary.find("Email verified: yes"), std::string::npos);
-    EXPECT_NE(summary.find("Blocked: yes"), std::string::npos);
-    EXPECT_NE(summary.find("Characters (2): Aragorn, Legolas"), std::string::npos);
+    EXPECT_EQ(summary,
+        "Account email: player@example.com\n\r"
+        "Internal name: alpha-admin\n\r"
+        "Email verified: yes\n\r"
+        "Verified by: VerifierAdmin\n\r"
+        "Verified at: 1695000000\n\r"
+        "Blocked: yes\n\r"
+        "Blocked by: AdminUser\n\r"
+        "Block reason: Testing block reason\n\r"
+        "Created: 1690000000\n\r"
+        "Updated: 1700000001\n\r"
+        "Characters (2): Aragorn, Legolas\n\r");
+}
+
+TEST(AccountManagement, ReadsAccountFileByIdentifierUsingEmailOrInternalName) {
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    account::AccountData created_account;
+    ASSERT_TRUE(account::create_account(
+        temp_directory.path(),
+        "alpha-admin",
+        "player@example.com",
+        "ValidPass1",
+        1700010200,
+        &created_account,
+        &error_message)) << error_message;
+
+    account::AccountData loaded_by_email;
+    ASSERT_TRUE(account::read_account_file_by_identifier(
+        temp_directory.path(),
+        "  PLAYER@Example.com  ",
+        &loaded_by_email,
+        &error_message)) << error_message;
+    EXPECT_EQ(loaded_by_email.account_name, "alpha-admin");
+    EXPECT_EQ(loaded_by_email.normalized_email, "player@example.com");
+
+    account::AccountData loaded_by_name;
+    ASSERT_TRUE(account::read_account_file_by_identifier(
+        temp_directory.path(),
+        "alpha-admin",
+        &loaded_by_name,
+        &error_message)) << error_message;
+    EXPECT_EQ(loaded_by_name.account_name, "alpha-admin");
+    EXPECT_EQ(loaded_by_name.normalized_email, "player@example.com");
+}
+
+TEST(AccountManagement, FormatsCharacterNamesForDisplayByOnlyUppercasingTheFirstByte) {
+    EXPECT_EQ(account::format_character_name_for_display(""), "");
+    EXPECT_EQ(account::format_character_name_for_display("aragorn"), "Aragorn");
+    EXPECT_EQ(account::format_character_name_for_display("mCduck"), "MCduck");
 }
 
 TEST(AccountManagement, FormatsCharacterPromptWithLinkedCharacterList) {
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
     account::AccountData account_data = make_account();
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", account_data.account_name, account_data.normalized_email, "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
+    char_file_u aragorn = make_stored_character("aragorn");
+    aragorn.level = 50;
+    aragorn.race = RACE_WOOD;
+    ASSERT_TRUE(account::write_account_character_file(".", account_data.account_name, aragorn, &error_message)) << error_message;
 
-    const std::string prompt = account::format_account_character_prompt(account_data);
+    char_file_u legolas = make_stored_character("legolas");
+    legolas.level = 45;
+    legolas.race = RACE_HUMAN;
+    ASSERT_TRUE(account::write_account_character_file(".", account_data.account_name, legolas, &error_message)) << error_message;
 
-    EXPECT_NE(prompt.find("alpha-admin"), std::string::npos);
-    EXPECT_NE(prompt.find("Aragorn"), std::string::npos);
-    EXPECT_NE(prompt.find("Legolas"), std::string::npos);
-    EXPECT_NE(prompt.find("Character: "), std::string::npos);
+    const std::string prompt = account::format_account_character_prompt(".", account_data);
+
+    EXPECT_EQ(prompt,
+        "\n\rLinked characters for your account:\n\r"
+        "1) [ 50 WdE] Aragorn     2) [ 45 Hum] Legolas     \n\r"
+        "\n\r2 characters displayed.\n\r"
+        "\n\r0) Back to Account Menu.\n\r"
+        "\n\rCharacter number: ");
 }
 
 TEST(AccountManagement, RejectsMalformedJsonInput) {
@@ -1202,8 +1289,58 @@ TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFile) {
     EXPECT_EQ(loaded.points.gold, original.points.gold);
     EXPECT_EQ(loaded.skills[5], original.skills[5]);
     EXPECT_EQ(loaded.talks[2], original.talks[2]);
+    EXPECT_EQ(loaded.profs.color_mask, original.profs.color_mask);
+    EXPECT_EQ(loaded.profs.colors[COLOR_CHAT], original.profs.colors[COLOR_CHAT]);
+    EXPECT_EQ(loaded.profs.colors[COLOR_ROOM], original.profs.colors[COLOR_ROOM]);
+    EXPECT_EQ(loaded.profs.colors[COLOR_OBJ], original.profs.colors[COLOR_OBJ]);
     EXPECT_EQ(loaded.profs.prof_level[PROF_WARRIOR], original.profs.prof_level[PROF_WARRIOR]);
     EXPECT_EQ(loaded.profs.prof_coof[PROF_WARRIOR], original.profs.prof_coof[PROF_WARRIOR]);
+}
+
+TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFilePreservesCustomColorSettings) {
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, nullptr, &error_message)) << error_message;
+
+    const char_file_u original = make_stored_character("aragorn");
+    ASSERT_TRUE(account::write_account_character_file(temp_directory.path(), "alpha-admin", original, &error_message)) << error_message;
+
+    const std::string stored_json = read_file_contents(account::account_character_player_path(temp_directory.path(), "alpha-admin", "aragorn"));
+    EXPECT_NE(stored_json.find("\"color_mask\": 6636321"), std::string::npos);
+    EXPECT_NE(stored_json.find("\"colors\": {"), std::string::npos);
+    EXPECT_NE(stored_json.find("\"chat\": 4"), std::string::npos);
+    EXPECT_NE(stored_json.find("\"roomname\": 3"), std::string::npos);
+    EXPECT_NE(stored_json.find("\"object\": 6"), std::string::npos);
+
+    char_file_u loaded {};
+    ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded, &error_message)) << error_message;
+
+    EXPECT_EQ(loaded.profs.color_mask, original.profs.color_mask);
+    EXPECT_EQ(loaded.profs.colors[COLOR_CHAT], original.profs.colors[COLOR_CHAT]);
+    EXPECT_EQ(loaded.profs.colors[COLOR_ROOM], original.profs.colors[COLOR_ROOM]);
+    EXPECT_EQ(loaded.profs.colors[COLOR_OBJ], original.profs.colors[COLOR_OBJ]);
+}
+
+TEST(AccountManagement, RejectsAccountNativeCharacterFileWithOutOfRangeColorValue) {
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, nullptr, &error_message)) << error_message;
+
+    const char_file_u original = make_stored_character("aragorn");
+    ASSERT_TRUE(account::write_account_character_file(temp_directory.path(), "alpha-admin", original, &error_message)) << error_message;
+
+    const std::string path = account::account_character_player_path(temp_directory.path(), "alpha-admin", "aragorn");
+    std::string stored_json = read_file_contents(path);
+    stored_json.replace(stored_json.find("\"chat\": 4"), std::strlen("\"chat\": 4"), "\"chat\": 200");
+    write_text_file(path, stored_json);
+
+    char_file_u loaded {};
+    EXPECT_FALSE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded, &error_message));
+    EXPECT_NE(error_message.find("colors[1]"), std::string::npos);
 }
 
 TEST(AccountManagement, WritesAndReadsAccountNativeObjectFile) {
@@ -1253,7 +1390,7 @@ TEST(AccountManagement, WritesDefaultAccountNativeObjectFile) {
     EXPECT_TRUE(loaded.objects.empty());
     EXPECT_TRUE(loaded.aliases.empty());
     EXPECT_TRUE(loaded.followers.empty());
-    EXPECT_EQ(loaded.rent.rentcode, 0);
+    EXPECT_EQ(loaded.rent.rentcode, RENT_CRASH);
 }
 
 TEST(AccountManagement, WritesAndReadsAccountNativeExploitFile) {

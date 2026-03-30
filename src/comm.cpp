@@ -97,6 +97,113 @@ int txt_block_counter = 0;
 
 extern int nameserver_is_slow; /* see config.c */
 extern int autosave_time; /* see config.c */
+extern char* GREETINGS;
+
+int process_output(struct descriptor_data* t);
+int isbanned(char* hostname);
+
+namespace {
+
+bool parse_port_value(const char* text, sh_int* port, std::string* error_message)
+{
+    if (text == nullptr || *text == '\0') {
+        if (error_message)
+            *error_message = "Port argument expected after option -p.";
+        return false;
+    }
+
+    if (!isdigit(*text)) {
+        if (error_message)
+            *error_message = "Illegal port #";
+        return false;
+    }
+
+    const int parsed_port = atoi(text);
+    if (parsed_port <= 1024) {
+        if (error_message)
+            *error_message = "Illegal port #";
+        return false;
+    }
+
+    *port = static_cast<sh_int>(parsed_port);
+    return true;
+}
+
+void populate_descriptor_host(descriptor_data* descriptor, in_addr_t peer_address)
+{
+    struct hostent* from;
+
+    if (nameserver_is_slow || !(from = gethostbyaddr((char*)&peer_address, sizeof(peer_address), AF_INET))) {
+        if (!nameserver_is_slow)
+            perror("gethostbyaddr");
+        const int i = peer_address;
+        sprintf(descriptor->host, "%d.%d.%d.%d", (i & 0x000000FF), (i & 0x0000FF00) >> 8,
+            (i & 0x00FF0000) >> 16, (i & 0xFF000000) >> 24);
+        return;
+    }
+
+    strncpy(descriptor->host, from->h_name, 49);
+    *(descriptor->host + 49) = '\0';
+}
+
+int send_initial_login_output(descriptor_data* descriptor)
+{
+    ProtocolNegotiate(descriptor);
+    SEND_TO_Q(GREETINGS, descriptor);
+    SEND_TO_Q("Account email: ", descriptor);
+    if (*(descriptor->output) && process_output(descriptor) < 0)
+        return -1;
+    return 1;
+}
+
+bool reject_banned_descriptor_host(descriptor_data* descriptor)
+{
+    if (descriptor == nullptr || isbanned(descriptor->host) != BAN_ALL)
+        return false;
+
+    if (strcmp(descriptor->host, "shrout.org")) {
+        sprintf(buf2, "Connection attempt denied from [%s]", descriptor->host);
+        mudlog(buf2, NRM, LEVEL_GOD, TRUE);
+    }
+
+    return true;
+}
+
+int finish_proxy_header_if_ready(descriptor_data* descriptor)
+{
+    if (descriptor == nullptr || !descriptor->waiting_for_proxy_header)
+        return 1;
+
+    char* buffer = reinterpret_cast<char*>(&descriptor->proxy_peer_address);
+    while (descriptor->proxy_peer_bytes_read < sizeof(descriptor->proxy_peer_address)) {
+        const ssize_t bytes_read = read(descriptor->descriptor,
+            buffer + descriptor->proxy_peer_bytes_read,
+            sizeof(descriptor->proxy_peer_address) - descriptor->proxy_peer_bytes_read);
+        if (bytes_read > 0) {
+            descriptor->proxy_peer_bytes_read += static_cast<byte>(bytes_read);
+            continue;
+        }
+
+        if (bytes_read == 0) {
+            log("EOF encountered while reading proxy header.");
+            return -1;
+        }
+
+        if (errno == EWOULDBLOCK)
+            return 0;
+
+        perror("reading proxy header");
+        return -1;
+    }
+
+    populate_descriptor_host(descriptor, descriptor->proxy_peer_address);
+    if (reject_banned_descriptor_host(descriptor))
+        return -1;
+    descriptor->waiting_for_proxy_header = false;
+    return send_initial_login_output(descriptor);
+}
+
+} // namespace
 
 /* functions in this file */
 int get_from_q(struct txt_q* queue, char* dest);
@@ -114,6 +221,106 @@ void nonblock(SocketType s);
 int perform_subst(struct descriptor_data* t, char* orig, char* subst);
 void complete_delay(struct char_data* ch);
 void stat_update();
+
+bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::string* error_message)
+{
+    if (options == nullptr)
+        return false;
+
+    StartupOptions parsed_options {};
+    parsed_options.port = DFLT_PORT;
+    parsed_options.dir = DFLT_DIR;
+    parsed_options.mini_mud = false;
+    parsed_options.new_mud = false;
+    parsed_options.no_rent_check = false;
+    parsed_options.restrict_game = false;
+    parsed_options.no_specials = false;
+    parsed_options.has_proxy = false;
+
+    bool port_specified = false;
+    int pos = 1;
+
+    while ((pos < argc) && (*(argv[pos]) == '-')) {
+        switch (*(argv[pos] + 1)) {
+        case 'd':
+            if (*(argv[pos] + 2))
+                parsed_options.dir = argv[pos] + 2;
+            else if (++pos < argc)
+                parsed_options.dir = argv[pos];
+            else {
+                if (error_message)
+                    *error_message = "Directory arg expected after option -d.";
+                return false;
+            }
+            break;
+        case 'm':
+            parsed_options.mini_mud = true;
+            parsed_options.no_rent_check = true;
+            break;
+        case 'n':
+            parsed_options.new_mud = true;
+            parsed_options.no_rent_check = true;
+            break;
+        case 'q':
+            parsed_options.no_rent_check = true;
+            break;
+        case 'r':
+            parsed_options.restrict_game = true;
+            break;
+        case 's':
+            parsed_options.no_specials = true;
+            break;
+        case 'p': {
+            const char* port_text = nullptr;
+            if (*(argv[pos] + 2))
+                port_text = argv[pos] + 2;
+            else if (++pos < argc)
+                port_text = argv[pos];
+            else {
+                if (error_message)
+                    *error_message = "Port argument expected after option -p.";
+                return false;
+            }
+
+            if (!parse_port_value(port_text, &parsed_options.port, error_message))
+                return false;
+            port_specified = true;
+            break;
+        }
+        case 'x':
+            parsed_options.has_proxy = true;
+            break;
+        default:
+            if (error_message) {
+                char local_buf[128];
+                sprintf(local_buf, "SYSERR: Unknown option -%c in argument string.", *(argv[pos] + 1));
+                *error_message = local_buf;
+            }
+            return false;
+        }
+        pos++;
+    }
+
+    if (pos < argc) {
+        if (port_specified) {
+            if (error_message)
+                *error_message = "Unexpected extra argument after startup options.";
+            return false;
+        }
+        if (!parse_port_value(argv[pos], &parsed_options.port, error_message))
+            return false;
+        pos++;
+    }
+
+    if (pos < argc) {
+        if (error_message)
+            *error_message = "Unexpected extra argument after startup options.";
+        return false;
+    }
+
+    *options = parsed_options;
+    return true;
+}
 
 /* extern fcnts */
 void boot_db(void);
@@ -190,73 +397,40 @@ int main(int argc, char** argv)
     // initialize the random number generator
     std::srand(std::time(0));
 
-    sh_int port;
     char buf[512];
-    int pos = 1;
-    char* dir;
+    StartupOptions startup_options {};
+    std::string parse_error;
 
     /* lets put the rots process in rwxrwx--- file mode */
     umask(S_IRWXO);
 
-    port = DFLT_PORT;
-    dir = DFLT_DIR;
-
-    while ((pos < argc) && (*(argv[pos]) == '-')) {
-        switch (*(argv[pos] + 1)) {
-        case 'd':
-            if (*(argv[pos] + 2))
-                dir = argv[pos] + 2;
-            else if (++pos < argc)
-                dir = argv[pos];
-            else {
-                log("Directory arg expected after option -d.");
-                exit(0);
-            }
-            break;
-        case 'm':
-            mini_mud = 1;
-            no_rent_check = 1;
-            log("Running in minimized mode & with no rent check.");
-            break;
-        case 'n':
-            new_mud = 1;
-            no_rent_check = 1;
-            log("Running in pnew mode & with no rent check.");
-            break;
-        case 'q':
-            no_rent_check = 1;
-            log("Quick boot mode -- rent check supressed.");
-            break;
-        case 'r':
-            restrict = 1;
-            log("Restricting game -- no pnew players allowed.");
-            break;
-        case 's':
-            no_specials = 1;
-            log("Suppressing assignment of special routines.");
-            break;
-        case 'p':
-            has_proxy = 1;
-            log("Expecting proxy server.");
-            break;
-        default:
-            sprintf(buf, "SYSERR: Unknown option -%c in argument string.", *(argv[pos] + 1));
-            log(buf);
-            break;
-        }
-        pos++;
+    if (!parse_startup_options(argc, argv, &startup_options, &parse_error)) {
+        if (!parse_error.empty())
+            log(parse_error.c_str());
+        fprintf(stderr, "Usage: %s [-m] [-q] [-r] [-s] [-x] [-d pathname] [-p port #] [ port # ]\n",
+            argv[0]);
+        exit(0);
     }
 
-    if (pos < argc) {
-        if (!isdigit(*argv[pos])) {
-            fprintf(stderr, "Usage: %s [-m] [-q] [-r] [-s] [-p] [-d pathname] [ port # ]\n",
-                argv[0]);
-            exit(0);
-        } else if ((port = atoi(argv[pos])) <= 1024) {
-            printf("Illegal port #\n");
-            exit(0);
-        }
-    }
+    has_proxy = startup_options.has_proxy ? 1 : 0;
+    mini_mud = startup_options.mini_mud ? 1 : 0;
+    new_mud = startup_options.new_mud ? 1 : 0;
+    no_rent_check = startup_options.no_rent_check ? 1 : 0;
+    restrict = startup_options.restrict_game ? 1 : 0;
+    no_specials = startup_options.no_specials ? 1 : 0;
+
+    if (mini_mud)
+        log("Running in minimized mode & with no rent check.");
+    if (new_mud)
+        log("Running in pnew mode & with no rent check.");
+    if (!startup_options.mini_mud && !startup_options.new_mud && no_rent_check)
+        log("Quick boot mode -- rent check supressed.");
+    if (restrict)
+        log("Restricting game -- no pnew players allowed.");
+    if (no_specials)
+        log("Suppressing assignment of special routines.");
+    if (has_proxy)
+        log("Expecting proxy server.");
 
     /* Create the pidfile and log some info */
     sprintf(buf, "echo %d > .ageland.pid", getpid());
@@ -264,22 +438,22 @@ int main(int argc, char** argv)
     sprintf(buf, "Running game as pid %d.", getpid());
     log(buf);
 
-    sprintf(buf, "Running game on port %d.", port);
+    sprintf(buf, "Running game on port %d.", startup_options.port);
     log(buf);
 
-    if (chdir(dir) < 0) {
+    if (chdir(startup_options.dir.c_str()) < 0) {
         perror("Fatal error changing to data directory");
         exit(0);
     }
 
-    sprintf(buf, "Using %s as data directory.", dir);
+    sprintf(buf, "Using %s as data directory.", startup_options.dir.c_str());
     log(buf);
 
     // Open command log
     system("mv -f last_cmds crash_cmds");
     fpCommand = fopen("last_cmds", "w");
     srandom(time(0));
-    run_the_game(port);
+    run_the_game(startup_options.port);
     return (0);
 }
 #endif
@@ -1190,7 +1364,6 @@ SocketType pnew_descriptor(SocketType s)
     socklen_t size;
     int sockets_connected, sockets_playing, i;
     struct sockaddr_in sock;
-    struct hostent* from;
     extern char* GREETINGS;
 
     if ((desc = pnew_connection(s)) == 0) // here was <0, too bad
@@ -1222,44 +1395,25 @@ SocketType pnew_descriptor(SocketType s)
 
     int err = 0;
 
-    // The game is running behind a proxy; read the peer address from the connection
-    if (has_proxy) {
-        err = read(desc, &sock.sin_addr.s_addr, sizeof(sock.sin_addr.s_addr));
+    nonblock(desc);
 
-        if (err < 0) {
-            perror("reading proxy header");
-        }
-    } else {
+    // The game is running behind a proxy; defer proxy-header intake to the normal
+    // descriptor input path so a short header cannot block the whole server loop.
+    if (!has_proxy) {
         err = getpeername(desc, (struct sockaddr*)&sock, &size);
 
-        if (err < 0) {
+        if (err < 0)
             perror("getpeername");
-        }
     }
-
-    // Done with synchronous reading, switch to nonblocking
-    nonblock(desc);
 
     if (err < 0) {
         *pnewd->host = '\0';
-    } else if (nameserver_is_slow || !(from = gethostbyaddr((char*)&sock.sin_addr, sizeof(sock.sin_addr), AF_INET))) {
-        if (!nameserver_is_slow)
-            perror("gethostbyaddr");
-        i = sock.sin_addr.s_addr;
-        sprintf(pnewd->host, "%d.%d.%d.%d", (i & 0x000000FF), (i & 0x0000FF00) >> 8,
-            (i & 0x00FF0000) >> 16, (i & 0xFF000000) >> 24);
-    } else {
-        strncpy(pnewd->host, from->h_name, 49);
-        *(pnewd->host + 49) = '\0';
+    } else if (!has_proxy) {
+        populate_descriptor_host(pnewd, sock.sin_addr.s_addr);
     }
 
-    if (isbanned(pnewd->host) == BAN_ALL) {
+    if (!has_proxy && reject_banned_descriptor_host(pnewd)) {
         close(desc);
-        if (strcmp(pnewd->host, "shrout.org")) // Don't log if from shout.org.
-        {
-            sprintf(buf2, "Connection attempt denied from [%s]", pnewd->host);
-            mudlog(buf2, NRM, LEVEL_GOD, TRUE);
-        }
         RELEASE(pnewd);
         return (0);
     }
@@ -1275,6 +1429,9 @@ SocketType pnew_descriptor(SocketType s)
     pnewd->descriptor = desc;
     pnewd->connected = CON_NME;
     pnewd->bad_pws = 0;
+    pnewd->proxy_peer_address = 0;
+    pnewd->proxy_peer_bytes_read = 0;
+    pnewd->waiting_for_proxy_header = has_proxy ? true : false;
     *pnewd->account_name = '\0';
     *pnewd->account_email = '\0';
     *pnewd->account_password = '\0';
@@ -1300,6 +1457,7 @@ SocketType pnew_descriptor(SocketType s)
     pnewd->login_time = time(0);
     pnewd->dflags = 0;
     pnewd->last_input_time = pnewd->login_time;
+    pnewd->pProtocol = ProtocolCreate();
 
     if (++last_desc == 1000)
         last_desc = 1;
@@ -1311,8 +1469,10 @@ SocketType pnew_descriptor(SocketType s)
     descriptor_data* cur_list = descriptor_list;
     descriptor_list = pnewd;
 
-    SEND_TO_Q(GREETINGS, pnewd);
-    SEND_TO_Q("Account email: ", pnewd);
+    if (!pnewd->waiting_for_proxy_header && send_initial_login_output(pnewd) < 0) {
+        close_socket(pnewd, FALSE);
+        return (0);
+    }
 
     return (1);
 }
@@ -1506,6 +1666,10 @@ int process_input(struct descriptor_data* t)
 
     if (!t->descriptor)
         return (0);
+
+    const int proxy_header_result = finish_proxy_header_if_ready(t);
+    if (proxy_header_result <= 0)
+        return proxy_header_result;
 
     sofar = flag = 0;
     begin = strlen(t->buf);
@@ -1715,6 +1879,10 @@ void close_socket(descriptor_data* conn_descriptor, int drop_all)
     }
 
     flush_queues(conn_descriptor);
+    if (conn_descriptor->pProtocol) {
+        ProtocolDestroy(conn_descriptor->pProtocol);
+        conn_descriptor->pProtocol = nullptr;
+    }
     if (conn_descriptor->descriptor == maxdesc) {
         --maxdesc;
     }

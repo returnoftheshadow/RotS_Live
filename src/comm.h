@@ -11,9 +11,21 @@
 #ifndef COMM_H
 #define COMM_H
 
+#include <string>
 #include <stdarg.h>
 
 #include "utils.h" /* For the TRUE macro */
+
+struct StartupOptions {
+    sh_int port;
+    std::string dir;
+    bool mini_mud;
+    bool new_mud;
+    bool no_rent_check;
+    bool restrict_game;
+    bool no_specials;
+    bool has_proxy;
+};
 
 /* comm.c */
 void send_to_all(const char* messg);
@@ -49,6 +61,7 @@ int write_to_descriptor(int desc, char* txt);
 void write_to_q(char* txt, struct txt_q* queue);
 void write_to_output(const char* txt, struct descriptor_data* d);
 void page_string(struct descriptor_data* d, char* str, int keep_internal);
+bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::string* error_message);
 
 /* #define SEND_TO_Q(messg, desc)  write_to_q((messg), &(desc)->output) */
 #define SEND_TO_Q(messg, desc) write_to_output((messg), desc)

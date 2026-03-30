@@ -295,6 +295,8 @@ protocol_t* ProtocolCreate(void)
     pProtocol->bRenegotiate = false;
     pProtocol->bNeedMXPVersion = false;
     pProtocol->bBlockMXP = false;
+    pProtocol->PendingInputLength = 0;
+    memset(pProtocol->PendingInput, 0, sizeof(pProtocol->PendingInput));
     pProtocol->bTTYPE = false;
     pProtocol->bECHO = false;
     pProtocol->bNAWS = false;
@@ -358,8 +360,23 @@ void ProtocolInput(descriptor_t* apDescriptor, char* apData, int aSize, char* ap
     int Index;
 
     protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
+    if (pProtocol == NULL || apData == NULL || apOut == NULL || aSize <= 0)
+        return;
+
+    if (pProtocol->PendingInputLength > 0) {
+        char* combined = static_cast<char*>(alloca(pProtocol->PendingInputLength + aSize));
+        memcpy(combined, pProtocol->PendingInput, pProtocol->PendingInputLength);
+        memcpy(combined + pProtocol->PendingInputLength, apData, aSize);
+        apData = combined;
+        aSize += pProtocol->PendingInputLength;
+        pProtocol->PendingInputLength = 0;
+    }
 
     for (Index = 0; Index < aSize; ++Index) {
+        const bool has_next = (Index + 1) < aSize;
+        const bool has_two_more = (Index + 2) < aSize;
+        const bool has_three_more = (Index + 3) < aSize;
+
         /* If we'd overflow the buffer, we just ignore the input */
         if (CmdIndex >= MAX_PROTOCOL_BUFFER || IacIndex >= MAX_PROTOCOL_BUFFER) {
             ReportBug("ProtocolInput: Too much incoming data to store in the buffer.\n");
@@ -367,7 +384,7 @@ void ProtocolInput(descriptor_t* apDescriptor, char* apData, int aSize, char* ap
         }
 
         /* IAC IAC is treated as a single value of 255 */
-        if (apData[Index] == (char)IAC && apData[Index + 1] == (char)IAC) {
+        if (apData[Index] == (char)IAC && has_next && apData[Index + 1] == (char)IAC) {
             if (pProtocol->bIACMode)
                 IacBuf[IacIndex++] = (char)IAC;
             else /* In-band command */
@@ -375,7 +392,7 @@ void ProtocolInput(descriptor_t* apDescriptor, char* apData, int aSize, char* ap
             Index++;
         } else if (pProtocol->bIACMode) {
             /* End subnegotiation. */
-            if (apData[Index] == (char)IAC && apData[Index + 1] == (char)SE) {
+            if (apData[Index] == (char)IAC && has_next && apData[Index + 1] == (char)SE) {
                 Index++;
                 pProtocol->bIACMode = false;
                 IacBuf[IacIndex] = '\0';
@@ -384,7 +401,16 @@ void ProtocolInput(descriptor_t* apDescriptor, char* apData, int aSize, char* ap
                 IacIndex = 0;
             } else
                 IacBuf[IacIndex++] = apData[Index];
-        } else if (apData[Index] == (char)27 && apData[Index + 1] == '[' && isdigit(apData[Index + 2]) && apData[Index + 3] == 'z') {
+        } else if (apData[Index] == (char)27 && !has_three_more) {
+            const int remaining = aSize - Index;
+            if (remaining == 1
+                || (remaining >= 2 && apData[Index + 1] == '[')
+                || (remaining >= 3 && apData[Index + 1] == '[' && isdigit(apData[Index + 2]))) {
+                memcpy(pProtocol->PendingInput, apData + Index, remaining);
+                pProtocol->PendingInputLength = remaining;
+                break;
+            }
+        } else if (apData[Index] == (char)27 && has_three_more && apData[Index + 1] == '[' && isdigit(apData[Index + 2]) && apData[Index + 3] == 'z') {
             char MXPBuffer[1024];
             char* pMXPTag = NULL;
             int i = 0; /* Loop counter */
@@ -447,6 +473,12 @@ void ProtocolInput(descriptor_t* apDescriptor, char* apData, int aSize, char* ap
         } else /* In-band command */
         {
             if (apData[Index] == (char)IAC) {
+                if (!has_next) {
+                    pProtocol->PendingInput[0] = apData[Index];
+                    pProtocol->PendingInputLength = 1;
+                    break;
+                }
+
                 switch (apData[Index + 1]) {
                 case (char)SB: /* Begin subnegotiation. */
                     Index++;
@@ -457,6 +489,12 @@ void ProtocolInput(descriptor_t* apDescriptor, char* apData, int aSize, char* ap
                 case (char)DONT:
                 case (char)WILL:
                 case (char)WONT:
+                    if (!has_two_more) {
+                        pProtocol->PendingInput[0] = apData[Index];
+                        pProtocol->PendingInput[1] = apData[Index + 1];
+                        pProtocol->PendingInputLength = 2;
+                        break;
+                    }
                     PerformHandshake(apDescriptor, apData[Index + 1], apData[Index + 2]);
                     Index += 2;
                     break;
@@ -470,8 +508,18 @@ void ProtocolInput(descriptor_t* apDescriptor, char* apData, int aSize, char* ap
                     Index++;
                     break;
                 }
+                if (pProtocol->PendingInputLength > 0)
+                    break;
             } else
                 CmdBuf[CmdIndex++] = apData[Index];
+            if (pProtocol->PendingInputLength > 0)
+                break;
+        }
+
+        if (pProtocol->bIACMode && apData[Index] == (char)IAC && !has_next) {
+            pProtocol->PendingInput[0] = apData[Index];
+            pProtocol->PendingInputLength = 1;
+            break;
         }
     }
 

@@ -134,10 +134,16 @@ make run
 Or if you want you can still run the binary directly from the root directory
 
 ```bash
-./bin/ageland -p 3791 &
+./bin/ageland -p 3791
 ```
 
-Either command will start the game up and put it in a background process.
+Either command will start the game in the foreground and keep it attached to your terminal until you stop it.
+
+If you want the game to expect the Rust proxy header, use the explicit proxy flag instead:
+
+```bash
+./bin/ageland -x 3791
+```
 
 ## Contributing
 

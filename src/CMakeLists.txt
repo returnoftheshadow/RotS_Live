@@ -100,17 +100,21 @@ set(ROTS_SERVER_SOURCES
 set(ROTS_TEST_SOURCES
     tests/battle_mage_handler_tests.cpp
     tests/account_management_tests.cpp
+    tests/act_wiz_tests.cpp
     tests/CharPlayerDataBuilder.cpp
     tests/char_utils_tests.cpp
     tests/character_json_tests.cpp
     tests/damage_tests.cpp
     tests/db_loader_tests.cpp
     tests/exploits_json_tests.cpp
+    tests/interpre_account_menu_tests.cpp
     tests/fight_proc_tests.cpp
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/objects_json_tests.cpp
+    tests/protocol_tests.cpp
+    tests/startup_options_tests.cpp
     tests/gtest_main.cpp
     tests/olog_hai_tests.cpp
     tests/obj_flag_data_tests.cpp
