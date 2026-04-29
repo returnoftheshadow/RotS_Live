@@ -216,6 +216,16 @@ char_file_u make_stored_character(const char* name = "aragorn")
     stored_character.profs.colors[COLOR_OBJ] = CCYN;
     stored_character.profs.colors[COLOR_MAGIC] = CBBLU;
     stored_character.profs.colors[COLOR_WEATHER] = CBYEL;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.mode = COLOR_VALUE_TRUECOLOR;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.ansi = CBBLU;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.red = 80;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.green = 90;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.blue = 255;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.mode = COLOR_VALUE_TRUECOLOR;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.ansi = CBLU;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.red = 10;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.green = 20;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.blue = 35;
     stored_character.profs.prof_level[PROF_WARRIOR] = 12;
     stored_character.profs.prof_coof[PROF_WARRIOR] = 34;
     return stored_character;
@@ -1381,6 +1391,16 @@ TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFile) {
     EXPECT_EQ(loaded.profs.colors[COLOR_OBJ], original.profs.colors[COLOR_OBJ]);
     EXPECT_EQ(loaded.profs.colors[COLOR_MAGIC], original.profs.colors[COLOR_MAGIC]);
     EXPECT_EQ(loaded.profs.colors[COLOR_WEATHER], original.profs.colors[COLOR_WEATHER]);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.ansi, original.profs.color_settings[COLOR_MAGIC].foreground.ansi);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.red, original.profs.color_settings[COLOR_MAGIC].foreground.red);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.green, original.profs.color_settings[COLOR_MAGIC].foreground.green);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.blue, original.profs.color_settings[COLOR_MAGIC].foreground.blue);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.ansi, original.profs.color_settings[COLOR_WEATHER].background.ansi);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.red, original.profs.color_settings[COLOR_WEATHER].background.red);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.green, original.profs.color_settings[COLOR_WEATHER].background.green);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.blue, original.profs.color_settings[COLOR_WEATHER].background.blue);
     EXPECT_EQ(loaded.profs.prof_level[PROF_WARRIOR], original.profs.prof_level[PROF_WARRIOR]);
     EXPECT_EQ(loaded.profs.prof_coof[PROF_WARRIOR], original.profs.prof_coof[PROF_WARRIOR]);
 }
@@ -1398,11 +1418,11 @@ TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFilePreservesCustomC
     const std::string stored_json = read_file_contents(account::account_character_player_path(temp_directory.path(), "alpha-admin", "aragorn"));
     EXPECT_NE(stored_json.find("\"color_mask\": 6636321"), std::string::npos);
     EXPECT_NE(stored_json.find("\"colors\": {"), std::string::npos);
-    EXPECT_NE(stored_json.find("\"chat\": 4"), std::string::npos);
-    EXPECT_NE(stored_json.find("\"roomname\": 3"), std::string::npos);
-    EXPECT_NE(stored_json.find("\"object\": 6"), std::string::npos);
-    EXPECT_NE(stored_json.find("\"magic\": 11"), std::string::npos);
-    EXPECT_NE(stored_json.find("\"weather\": 10"), std::string::npos);
+    EXPECT_NE(stored_json.find("\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 4}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
+    EXPECT_NE(stored_json.find("\"roomname\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 3}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
+    EXPECT_NE(stored_json.find("\"object\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 6}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
+    EXPECT_NE(stored_json.find("\"magic\": {\"foreground\": {\"mode\": \"truecolor\", \"value\": 11, \"r\": 80, \"g\": 90, \"b\": 255}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
+    EXPECT_NE(stored_json.find("\"weather\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 10}, \"background\": {\"mode\": \"truecolor\", \"value\": 4, \"r\": 10, \"g\": 20, \"b\": 35}}"), std::string::npos);
 
     char_file_u loaded {};
     ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded, &error_message)) << error_message;
@@ -1413,6 +1433,14 @@ TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFilePreservesCustomC
     EXPECT_EQ(loaded.profs.colors[COLOR_OBJ], original.profs.colors[COLOR_OBJ]);
     EXPECT_EQ(loaded.profs.colors[COLOR_MAGIC], original.profs.colors[COLOR_MAGIC]);
     EXPECT_EQ(loaded.profs.colors[COLOR_WEATHER], original.profs.colors[COLOR_WEATHER]);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.red, original.profs.color_settings[COLOR_MAGIC].foreground.red);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.green, original.profs.color_settings[COLOR_MAGIC].foreground.green);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.blue, original.profs.color_settings[COLOR_MAGIC].foreground.blue);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.red, original.profs.color_settings[COLOR_WEATHER].background.red);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.green, original.profs.color_settings[COLOR_WEATHER].background.green);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.blue, original.profs.color_settings[COLOR_WEATHER].background.blue);
 }
 
 TEST(AccountManagement, RejectsAccountNativeCharacterFileWithOutOfRangeColorValue) {
@@ -1427,7 +1455,9 @@ TEST(AccountManagement, RejectsAccountNativeCharacterFileWithOutOfRangeColorValu
 
     const std::string path = account::account_character_player_path(temp_directory.path(), "alpha-admin", "aragorn");
     std::string stored_json = read_file_contents(path);
-    stored_json.replace(stored_json.find("\"chat\": 4"), std::strlen("\"chat\": 4"), "\"chat\": 200");
+    stored_json.replace(stored_json.find("\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 4}, \"background\": {\"mode\": \"default\"}}"),
+        std::strlen("\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 4}, \"background\": {\"mode\": \"default\"}}"),
+        "\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 200}, \"background\": {\"mode\": \"default\"}}");
     write_text_file(path, stored_json);
 
     char_file_u loaded {};

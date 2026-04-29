@@ -138,6 +138,84 @@ namespace {
         "reserved_15",
     };
 
+    ColorValueData default_color_value()
+    {
+        return ColorValueData {};
+    }
+
+    ColorSettingData default_color_setting()
+    {
+        return ColorSettingData {};
+    }
+
+    ColorValueData color_value_from_store(const color_value_data& stored_value)
+    {
+        ColorValueData value;
+        value.mode = stored_value.mode;
+        value.value = stored_value.ansi;
+        value.red = stored_value.red;
+        value.green = stored_value.green;
+        value.blue = stored_value.blue;
+        return value;
+    }
+
+    color_value_data color_value_to_store(const ColorValueData& value)
+    {
+        color_value_data stored_value {};
+        stored_value.mode = static_cast<unsigned char>(value.mode);
+        stored_value.ansi = static_cast<unsigned char>(value.value);
+        stored_value.red = static_cast<unsigned char>(value.red);
+        stored_value.green = static_cast<unsigned char>(value.green);
+        stored_value.blue = static_cast<unsigned char>(value.blue);
+        return stored_value;
+    }
+
+    bool is_default_color_value(const ColorValueData& value)
+    {
+        return value.mode == COLOR_VALUE_DEFAULT;
+    }
+
+    bool is_default_color_setting(const ColorSettingData& setting)
+    {
+        return is_default_color_value(setting.foreground) && is_default_color_value(setting.background);
+    }
+
+    ColorSettingData color_setting_from_store(const char_prof_data& profs, int index)
+    {
+        ColorSettingData setting = default_color_setting();
+        if (index < 0 || index >= MAX_COLOR_FIELDS)
+            return setting;
+
+        setting.foreground = color_value_from_store(profs.color_settings[index].foreground);
+        setting.background = color_value_from_store(profs.color_settings[index].background);
+
+        if (setting.foreground.mode == COLOR_VALUE_DEFAULT) {
+            setting.foreground.mode = COLOR_VALUE_ANSI16;
+            setting.foreground.value = profs.colors[index];
+        }
+
+        if (setting.foreground.mode == COLOR_VALUE_TRUECOLOR && (setting.foreground.value < CNRM || setting.foreground.value > CBWHT))
+            setting.foreground.value = nearest_ansi_color(setting.foreground.red, setting.foreground.green, setting.foreground.blue);
+
+        return setting;
+    }
+
+    void normalize_color_setting(ColorSettingData* setting)
+    {
+        if (setting == nullptr)
+            return;
+
+        if (setting->foreground.mode == COLOR_VALUE_TRUECOLOR && (setting->foreground.value < CNRM || setting->foreground.value > CBWHT))
+            setting->foreground.value = nearest_ansi_color(setting->foreground.red, setting->foreground.green, setting->foreground.blue);
+        else if (setting->foreground.mode == COLOR_VALUE_DEFAULT)
+            setting->foreground.value = CNRM;
+
+        if (setting->background.mode == COLOR_VALUE_TRUECOLOR && (setting->background.value < CNRM || setting->background.value > CBWHT))
+            setting->background.value = nearest_ansi_color(setting->background.red, setting->background.green, setting->background.blue);
+        else if (setting->background.mode == COLOR_VALUE_DEFAULT)
+            setting->background.value = CNRM;
+    }
+
     AbilityData ability_from_store(const char_ability_data& ability)
     {
         AbilityData ability_data;
@@ -377,12 +455,47 @@ namespace {
         return true;
     }
 
+    bool validate_color_value_data(const ColorValueData& value, const char* field_name, std::string* error_message)
+    {
+        if (!require_integer_range(value.mode, COLOR_VALUE_DEFAULT, COLOR_VALUE_TRUECOLOR, field_name, error_message))
+            return false;
+
+        if (value.mode == COLOR_VALUE_DEFAULT)
+            return true;
+
+        if (value.mode == COLOR_VALUE_ANSI16)
+            return require_color_value_range(value.value, field_name, error_message);
+
+        return require_ubyte_range(value.red, (std::string(field_name) + ".red").c_str(), error_message)
+            && require_ubyte_range(value.green, (std::string(field_name) + ".green").c_str(), error_message)
+            && require_ubyte_range(value.blue, (std::string(field_name) + ".blue").c_str(), error_message);
+    }
+
+    bool validate_color_settings(const std::vector<ColorSettingData>& settings, std::string* error_message)
+    {
+        if (settings.size() != MAX_COLOR_FIELDS) {
+            set_error(error_message, "color_settings must contain exactly " + std::to_string(MAX_COLOR_FIELDS) + " entries.");
+            return false;
+        }
+
+        for (size_t index = 0; index < settings.size(); ++index) {
+            const std::string prefix = "colors[" + std::to_string(index) + "]";
+            if (!validate_color_value_data(settings[index].foreground, (prefix + ".foreground").c_str(), error_message))
+                return false;
+            if (!validate_color_value_data(settings[index].background, (prefix + ".background").c_str(), error_message))
+                return false;
+        }
+
+        return true;
+    }
+
     bool validate_character_collections(const CharacterData& character, std::string* error_message)
     {
         return validate_ability_data(character.temporary_abilities, "abilities.temporary", error_message)
             && validate_ability_data(character.rolled_abilities, "abilities.rolled", error_message)
             && validate_point_data(character.points, error_message)
             && validate_color_array_range(character.colors, error_message)
+            && validate_color_settings(character.color_settings, error_message)
             && validate_integer_array_range(character.talks, MAX_TOUNGE, "talks", true, error_message)
             && validate_integer_array_range(character.skills, MAX_SKILLS, "skills", false, error_message);
     }
@@ -574,6 +687,173 @@ namespace {
             output << "\"" << json_utils::escape_json_string(values[index].key) << "\": " << values[index].value;
         }
         output << "}";
+    }
+
+    void write_color_value(std::ostringstream& output, const ColorValueData& value)
+    {
+        output << "{";
+        if (value.mode == COLOR_VALUE_DEFAULT) {
+            output << "\"mode\": \"default\"";
+        } else if (value.mode == COLOR_VALUE_ANSI16) {
+            output << "\"mode\": \"ansi16\", \"value\": " << value.value;
+        } else {
+            output << "\"mode\": \"truecolor\", \"value\": " << value.value << ", \"r\": " << value.red << ", \"g\": " << value.green << ", \"b\": " << value.blue;
+        }
+        output << "}";
+    }
+
+    void write_color_setting(std::ostringstream& output, const ColorSettingData& setting)
+    {
+        output << "{\"foreground\": ";
+        write_color_value(output, setting.foreground);
+        output << ", \"background\": ";
+        write_color_value(output, setting.background);
+        output << "}";
+    }
+
+    std::vector<NamedValue> collect_non_default_color_slots(const CharacterData& character)
+    {
+        std::vector<NamedValue> named_values;
+        for (int index = 0; index < MAX_COLOR_FIELDS; ++index) {
+            ColorSettingData setting = default_color_setting();
+            if (index < static_cast<int>(character.color_settings.size()))
+                setting = character.color_settings[index];
+            if (is_default_color_value(setting.foreground) && index < static_cast<int>(character.colors.size()) && character.colors[index] != CNRM) {
+                setting.foreground.mode = COLOR_VALUE_ANSI16;
+                setting.foreground.value = character.colors[index];
+            }
+            normalize_color_setting(&setting);
+            if (is_default_color_setting(setting))
+                continue;
+            named_values.push_back({ color_key_for_index(index), index });
+        }
+        return named_values;
+    }
+
+    bool parse_color_value_object(json_utils::JsonReader* reader, ColorValueData* value, std::string* error_message)
+    {
+        if (reader == nullptr || value == nullptr) {
+            set_error(error_message, "Color value parser requires non-null parameters.");
+            return false;
+        }
+
+        ColorValueData parsed = default_color_value();
+        bool saw_mode = false;
+        bool saw_value = false;
+        bool saw_red = false;
+        bool saw_green = false;
+        bool saw_blue = false;
+        if (!reader->parse_object([&parsed, &saw_mode, &saw_value, &saw_red, &saw_green, &saw_blue](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+                if (key == "mode") {
+                    std::string mode;
+                    if (!nested_reader->parse_string(&mode, nested_error_message))
+                        return false;
+                    saw_mode = true;
+                    if (mode == "default")
+                        parsed.mode = COLOR_VALUE_DEFAULT;
+                    else if (mode == "ansi16")
+                        parsed.mode = COLOR_VALUE_ANSI16;
+                    else if (mode == "truecolor")
+                        parsed.mode = COLOR_VALUE_TRUECOLOR;
+                    else {
+                        set_error(nested_error_message, "Unknown color mode.");
+                        return false;
+                    }
+                    return true;
+                }
+                if (key == "value")
+                    return saw_value = true, nested_reader->parse_integer(&parsed.value, nested_error_message);
+                if (key == "r")
+                    return saw_red = true, nested_reader->parse_integer(&parsed.red, nested_error_message);
+                if (key == "g")
+                    return saw_green = true, nested_reader->parse_integer(&parsed.green, nested_error_message);
+                if (key == "b")
+                    return saw_blue = true, nested_reader->parse_integer(&parsed.blue, nested_error_message);
+                return nested_reader->skip_value(nested_error_message);
+            },
+                error_message))
+            return false;
+
+        if (!saw_mode) {
+            set_error(error_message, "Color value object must include mode.");
+            return false;
+        }
+        if (parsed.mode == COLOR_VALUE_ANSI16 && !saw_value) {
+            set_error(error_message, "ANSI16 color value object must include value.");
+            return false;
+        }
+        if (parsed.mode == COLOR_VALUE_TRUECOLOR && (!saw_red || !saw_green || !saw_blue)) {
+            set_error(error_message, "Truecolor value object must include r, g, and b.");
+            return false;
+        }
+
+        if (parsed.mode == COLOR_VALUE_TRUECOLOR) {
+            if (!saw_value)
+                parsed.value = nearest_ansi_color(parsed.red, parsed.green, parsed.blue);
+        } else if (parsed.mode == COLOR_VALUE_DEFAULT)
+            parsed.value = CNRM;
+        *value = parsed;
+        return true;
+    }
+
+    bool parse_color_setting_value(json_utils::JsonReader* reader, ColorSettingData* setting, std::vector<int>* colors, int index, std::string* error_message)
+    {
+        if (reader == nullptr || setting == nullptr || colors == nullptr) {
+            set_error(error_message, "Color setting parser requires non-null parameters.");
+            return false;
+        }
+
+        int legacy_color = 0;
+        if (reader->parse_integer(&legacy_color, error_message)) {
+            setting->foreground.mode = COLOR_VALUE_ANSI16;
+            setting->foreground.value = legacy_color;
+            setting->background = default_color_value();
+            (*colors)[index] = legacy_color;
+            return true;
+        }
+
+        *setting = default_color_setting();
+        bool saw_foreground = false;
+        bool saw_background = false;
+        if (!reader->parse_object([&saw_foreground, &saw_background, setting](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+                if (key == "foreground")
+                    return saw_foreground = true, parse_color_value_object(nested_reader, &setting->foreground, nested_error_message);
+                if (key == "background")
+                    return saw_background = true, parse_color_value_object(nested_reader, &setting->background, nested_error_message);
+                return nested_reader->skip_value(nested_error_message);
+            },
+                error_message))
+            return false;
+
+        if (!saw_foreground)
+            setting->foreground = default_color_value();
+        if (!saw_background)
+            setting->background = default_color_value();
+        normalize_color_setting(setting);
+        (*colors)[index] = (setting->foreground.mode == COLOR_VALUE_ANSI16)
+            ? setting->foreground.value
+            : (setting->foreground.mode == COLOR_VALUE_TRUECOLOR ? nearest_ansi_color(setting->foreground.red, setting->foreground.green, setting->foreground.blue) : CNRM);
+        return true;
+    }
+
+    bool parse_colors_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    {
+        if (reader == nullptr || character == nullptr) {
+            set_error(error_message, "Colors parser requires non-null parameters.");
+            return false;
+        }
+
+        character->colors.assign(MAX_COLOR_FIELDS, 0);
+        character->color_settings.assign(MAX_COLOR_FIELDS, default_color_setting());
+        return reader->parse_object([character](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+            const int index = color_index_for_key(key);
+            if (index < 0) {
+                set_error(nested_error_message, "Unknown color key.");
+                return false;
+            }
+            return parse_color_setting_value(nested_reader, &character->color_settings[index], &character->colors, index, nested_error_message);
+        },
+            error_message);
     }
 
     std::vector<NamedValue> collect_non_zero_named_values(const std::vector<int>& values, int expected_size, const std::function<std::string(int)>& key_for_index)
@@ -1256,8 +1536,11 @@ CharacterData character_data_from_store(const char_file_u& stored_character)
     character.color_mask = stored_character.profs.color_mask;
 
     character.colors.reserve(MAX_COLOR_FIELDS);
-    for (int index = 0; index < MAX_COLOR_FIELDS; ++index)
+    character.color_settings.reserve(MAX_COLOR_FIELDS);
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index) {
         character.colors.push_back(stored_character.profs.colors[index]);
+        character.color_settings.push_back(color_setting_from_store(stored_character.profs, index));
+    }
 
     character.talks.reserve(MAX_TOUNGE);
     for (int index = 0; index < MAX_TOUNGE; ++index)
@@ -1387,8 +1670,14 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
     apply_ability_to_store(json_character.rolled_abilities, &stored_character->constabilities);
     apply_point_data_to_store(json_character.points, &stored_character->points);
 
-    for (int index = 0; index < MAX_COLOR_FIELDS; ++index)
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index) {
+        const ColorSettingData setting = (index < static_cast<int>(json_character.color_settings.size()))
+            ? json_character.color_settings[index]
+            : default_color_setting();
+        stored_character->profs.color_settings[index].foreground = color_value_to_store(setting.foreground);
+        stored_character->profs.color_settings[index].background = color_value_to_store(setting.background);
         stored_character->profs.colors[index] = static_cast<char>((index < static_cast<int>(json_character.colors.size())) ? json_character.colors[index] : 0);
+    }
 
     for (int index = 0; index < MAX_TOUNGE; ++index)
         stored_character->talks[index] = static_cast<byte>((index < static_cast<int>(json_character.talks.size())) ? json_character.talks[index] : 0);
@@ -1518,9 +1807,24 @@ std::string serialize_character_to_json(const CharacterData& character)
     output << "    \"thirst\": " << character.conditions.thirst << "\n";
     output << "  },\n";
     output << "  \"color_mask\": " << character.color_mask << ",\n";
-    output << "  \"colors\": ";
-    write_named_integer_object(output, collect_non_zero_named_values(character.colors, MAX_COLOR_FIELDS, color_key_for_index));
-    output << ",\n";
+    output << "  \"colors\": {";
+    const std::vector<NamedValue> color_slots = collect_non_default_color_slots(character);
+    for (size_t index = 0; index < color_slots.size(); ++index) {
+        if (index > 0)
+            output << ", ";
+        const int slot_index = color_slots[index].value;
+        ColorSettingData setting = (slot_index < static_cast<int>(character.color_settings.size()))
+            ? character.color_settings[slot_index]
+            : default_color_setting();
+        if (is_default_color_value(setting.foreground) && slot_index < static_cast<int>(character.colors.size()) && character.colors[slot_index] != CNRM) {
+            setting.foreground.mode = COLOR_VALUE_ANSI16;
+            setting.foreground.value = character.colors[slot_index];
+        }
+        normalize_color_setting(&setting);
+        output << "\"" << json_utils::escape_json_string(color_slots[index].key) << "\": ";
+        write_color_setting(output, setting);
+    }
+    output << "},\n";
     output << "  \"timers\": {\n";
     output << "    \"birth\": " << character.timers.birth << ",\n";
     output << "    \"last_logon\": " << character.timers.last_logon << ",\n";
@@ -1591,6 +1895,7 @@ bool deserialize_character_from_json(const std::string& json, CharacterData* cha
     bool saw_skills = false;
     bool saw_affects = false;
     parsed_character.colors.assign(MAX_COLOR_FIELDS, 0);
+    parsed_character.color_settings.assign(MAX_COLOR_FIELDS, default_color_setting());
     if (!reader.parse_root_object([&parsed_character, &saw_schema_version, &saw_character_name, &saw_title, &saw_description, &saw_identity, &saw_progression, &saw_abilities, &saw_points, &saw_professions, &saw_flags, &saw_conditions, &saw_color_mask, &saw_colors, &saw_timers, &saw_perception, &saw_state, &saw_talks, &saw_skills, &saw_affects](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
             if (key == "schema_version")
                 return saw_schema_version = true, nested_reader->parse_integer(&parsed_character.schema_version, nested_error_message);
@@ -1617,7 +1922,7 @@ bool deserialize_character_from_json(const std::string& json, CharacterData* cha
             if (key == "color_mask")
                 return saw_color_mask = true, nested_reader->parse_long(&parsed_character.color_mask, nested_error_message);
             if (key == "colors")
-                return saw_colors = true, parse_named_integer_object(nested_reader, &parsed_character.colors, MAX_COLOR_FIELDS, "color", color_index_for_key, nested_error_message);
+                return saw_colors = true, parse_colors_object(nested_reader, &parsed_character, nested_error_message);
             if (key == "timers")
                 return saw_timers = true, parse_timers_object(nested_reader, &parsed_character.timers, nested_error_message);
             if (key == "perception")
@@ -1663,8 +1968,10 @@ bool deserialize_character_from_json(const std::string& json, CharacterData* cha
         return false;
     if (!saw_color_mask)
         parsed_character.color_mask = 0;
-    if (!saw_colors)
+    if (!saw_colors) {
         parsed_character.colors.assign(MAX_COLOR_FIELDS, 0);
+        parsed_character.color_settings.assign(MAX_COLOR_FIELDS, default_color_setting());
+    }
     if (!require_exact_array_size(parsed_character.colors, MAX_COLOR_FIELDS, "colors", error_message))
         return false;
     if (!require_exact_array_size(parsed_character.talks, MAX_TOUNGE, "talks", error_message))

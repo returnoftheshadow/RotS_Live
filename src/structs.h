@@ -1288,6 +1288,7 @@ struct char_prof_data {
 
     long color_mask;
     char colors[16];
+    color_slot_data color_settings[MAX_COLOR_FIELDS];
     int specialization;
 };
 

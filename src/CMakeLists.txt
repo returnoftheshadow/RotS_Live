@@ -112,6 +112,7 @@ set(ROTS_TEST_SOURCES
     tests/CharPlayerDataBuilder.cpp
     tests/char_utils_tests.cpp
     tests/character_json_tests.cpp
+    tests/color_tests.cpp
     tests/damage_tests.cpp
     tests/db_loader_tests.cpp
     tests/exploits_json_tests.cpp

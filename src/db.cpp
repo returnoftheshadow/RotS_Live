@@ -2144,6 +2144,41 @@ int load_player_from_text(char* name, const char* player_text, struct char_file_
             KEY_INT("conditions1", char_element->specials2.conditions[1]);
             KEY_INT("conditions2", char_element->specials2.conditions[2]);
             KEY_INT("color_mask", char_element->profs.color_mask);
+            if (!strcmp(line, "colorfg")) {
+                int index = 0;
+                int mode = 0;
+                int ansi = 0;
+                int red = 0;
+                int green = 0;
+                int blue = 0;
+                if (sscanf(value, "%d %d %d %d %d %d", &index, &mode, &ansi, &red, &green, &blue) == 6
+                    && index >= 0 && index < MAX_COLOR_FIELDS) {
+                    char_element->profs.color_settings[index].foreground.mode = static_cast<unsigned char>(mode);
+                    char_element->profs.color_settings[index].foreground.ansi = static_cast<unsigned char>(ansi);
+                    char_element->profs.color_settings[index].foreground.red = static_cast<unsigned char>(red);
+                    char_element->profs.color_settings[index].foreground.green = static_cast<unsigned char>(green);
+                    char_element->profs.color_settings[index].foreground.blue = static_cast<unsigned char>(blue);
+                    char_element->profs.colors[index] = static_cast<char>(ansi);
+                }
+                break;
+            }
+            if (!strcmp(line, "colorbg")) {
+                int index = 0;
+                int mode = 0;
+                int ansi = 0;
+                int red = 0;
+                int green = 0;
+                int blue = 0;
+                if (sscanf(value, "%d %d %d %d %d %d", &index, &mode, &ansi, &red, &green, &blue) == 6
+                    && index >= 0 && index < MAX_COLOR_FIELDS) {
+                    char_element->profs.color_settings[index].background.mode = static_cast<unsigned char>(mode);
+                    char_element->profs.color_settings[index].background.ansi = static_cast<unsigned char>(ansi);
+                    char_element->profs.color_settings[index].background.red = static_cast<unsigned char>(red);
+                    char_element->profs.color_settings[index].background.green = static_cast<unsigned char>(green);
+                    char_element->profs.color_settings[index].background.blue = static_cast<unsigned char>(blue);
+                }
+                break;
+            }
             KEY_ARRAY("color", char_element->profs.colors);
             break;
 
@@ -2850,6 +2885,14 @@ void save_player(struct char_data* ch, int load_room, int index_pos)
     for (tmp = 0; tmp < MAX_COLOR_FIELDS; ++tmp)
         if (chd.profs.colors[tmp] != CNRM)
             fprintf(pf, "color       %d %d\n", tmp, chd.profs.colors[tmp]);
+    for (tmp = 0; tmp < MAX_COLOR_FIELDS; ++tmp) {
+        const color_value_data& foreground = chd.profs.color_settings[tmp].foreground;
+        const color_value_data& background = chd.profs.color_settings[tmp].background;
+        if (foreground.mode != COLOR_VALUE_DEFAULT)
+            fprintf(pf, "colorfg     %d %d %d %d %d %d\n", tmp, foreground.mode, foreground.ansi, foreground.red, foreground.green, foreground.blue);
+        if (background.mode != COLOR_VALUE_DEFAULT)
+            fprintf(pf, "colorbg     %d %d %d %d %d %d\n", tmp, background.mode, background.ansi, background.red, background.green, background.blue);
+    }
 
     for (tmp = 0; tmp < MAX_TOUNGE; tmp++)
         fprintf(pf, "talks       %d %d\n", tmp, chd.talks[tmp]);

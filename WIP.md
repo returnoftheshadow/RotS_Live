@@ -2,6 +2,53 @@
 
 ## Current Status
 - In progress.
+- Active slice completed: the first true-color groundwork pass is now green, with the richer foreground/background color model compiling cleanly and round-tripping through runtime rendering, account-native `character.json`, and legacy text player saves.
+- Completed in this slice:
+  - added focused `Color` renderer regressions covering legacy ANSI foreground rendering, true-color foreground rendering, true-color background rendering, background clearing, and nearest-ANSI fallback mapping
+  - expanded `CharacterJson` coverage so structured color settings, legacy integer color compatibility, and out-of-range structured color validation are pinned directly
+  - expanded `AccountManagement` character-file coverage so account-native character JSON preserves structured color settings and rejects malformed color data
+  - expanded `DbLoader` legacy text-save coverage so `colorfg` / `colorbg` round-trip into live character rendering correctly
+  - preserved explicit ANSI fallback values for true-color entries in account-native JSON instead of always recomputing them from RGB
+- Validation for this slice:
+  - `cmake --build build --target ageland_tests -j16`
+  - `./bin/tests '--gtest_filter=Color.*'`
+  - `./bin/tests '--gtest_filter=CharacterJson.*'`
+  - `./bin/tests '--gtest_filter=AccountManagement.*CharacterFile*'`
+  - `./bin/tests '--gtest_filter=DbLoader.LegacyPlayerTextRoundTripPreservesStructuredColorSettings'`
+  - `make test` passed at `452/452`
+- Next recommended true-color step:
+  - add client-capability / downgrade behavior before exposing player-facing `color ... fg/bg rgb|hex` command syntax, so true-color selections do not become a user-facing footgun for non-truecolor terminals
+- Active slice completed: the player-facing `color` command now supports explicit foreground/background true-color selection, and the player help entry documents the new syntax.
+- Completed in this slice:
+  - kept the legacy shorthand `color <slot> <ansi colour>` syntax working
+  - added explicit command forms for:
+    - `color <slot> fg ansi <ansi colour>`
+    - `color <slot> fg rgb <red> <green> <blue>`
+    - `color <slot> fg hex #RRGGBB`
+    - `color <slot> fg default`
+    - `color <slot> bg ansi <ansi colour>`
+    - `color <slot> bg rgb <red> <green> <blue>`
+    - `color <slot> bg hex #RRGGBB`
+    - `color <slot> bg default`
+  - updated bare `color` output so it shows each slot as structured `fg ... bg ...` state instead of only the old single ANSI value
+  - added a new player help entry in `lib/text/help_tbl` covering the old shorthand, the new fg/bg forms, RGB/hex rules, and example commands
+- Added focused `Color` regressions proving:
+  - legacy ANSI syntax still works
+  - RGB foreground selection works
+  - hex background selection works
+  - background reset works
+  - the bare `color` listing shows structured foreground/background state
+  - invalid RGB input is rejected without changing the slot
+- Validation for this slice:
+  - `./bin/tests '--gtest_filter=Color.*'`
+  - `make test` passed at `458/458`
+- Follow-up fix completed: the interpreter command table now accepts `color` as a real alias for `colour`, so the documented American spelling and the implemented command surface match again.
+- Added a focused `Color.InterpreterAcceptsColorAsAliasForColour` regression to pin the command-table alias directly.
+- Active slice: beginning the true-color upgrade by replacing the legacy “single ANSI index per slot” assumption with a richer runtime/account-native color model that can carry foreground/background true-color values while still keeping ANSI fallback data.
+- Plan for this slice:
+  - expand the stored/runtime color representation so each slot can hold mode plus foreground/background values instead of only a single ANSI index
+  - keep legacy save/load and older account-native `character.json` color data backward compatible by treating existing numeric values as ANSI foreground selections
+  - add focused regressions for the new color model and compatibility paths before wiring it into `do_color`
 - Active slice: wiring the new `magic` color slot onto live spellcasting messages so incantations and pre-cast room announcements actually use the configurable magic color.
 - Plan for this slice:
   - add focused `spell_pa` regressions for room-visible spellcasting text with and without `PRF_COLOR`

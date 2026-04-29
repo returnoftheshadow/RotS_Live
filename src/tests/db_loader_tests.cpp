@@ -221,6 +221,18 @@ char_file_u make_stored_character(const char* name = "aragorn")
     stored_character.specials2.shooting = SHOOTING_FAST;
     stored_character.specials2.casting = CASTING_SLOW;
     stored_character.specials2.two_handed = 1;
+    stored_character.profs.colors[COLOR_MAGIC] = CBMAG;
+    stored_character.profs.colors[COLOR_WEATHER] = CBCYN;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.mode = COLOR_VALUE_TRUECOLOR;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.ansi = CBMAG;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.red = 180;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.green = 80;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.blue = 255;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.mode = COLOR_VALUE_TRUECOLOR;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.ansi = CBBLU;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.red = 10;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.green = 20;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.blue = 35;
     stored_character.profs.prof_level[PROF_WARRIOR] = 12;
     stored_character.profs.prof_coof[PROF_WARRIOR] = 34;
     return stored_character;
@@ -502,6 +514,42 @@ TEST(DbLoader, LegacyPlayerTextRoundTripPreservesCombatState)
     EXPECT_EQ(utils::get_shooting(live_character), original.specials2.shooting);
     EXPECT_EQ(utils::get_casting(live_character), original.specials2.casting);
     EXPECT_TRUE(IS_TWOHANDED(&live_character));
+}
+
+TEST(DbLoader, LegacyPlayerTextRoundTripPreservesStructuredColorSettings)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+
+    char_file_u original = make_stored_character("aragorn");
+    const std::string player_text = write_valid_legacy_player_file(temp_directory.path(), original);
+
+    char player_name[] = "aragorn";
+    char_file_u loaded {};
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ASSERT_EQ(load_player_from_text(player_name, player_text.c_str(), &loaded), 1);
+
+    EXPECT_EQ(loaded.profs.colors[COLOR_MAGIC], original.profs.colors[COLOR_MAGIC]);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.ansi, original.profs.color_settings[COLOR_MAGIC].foreground.ansi);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.red, original.profs.color_settings[COLOR_MAGIC].foreground.red);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.green, original.profs.color_settings[COLOR_MAGIC].foreground.green);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.blue, original.profs.color_settings[COLOR_MAGIC].foreground.blue);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.ansi, original.profs.color_settings[COLOR_WEATHER].background.ansi);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.red, original.profs.color_settings[COLOR_WEATHER].background.red);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.green, original.profs.color_settings[COLOR_WEATHER].background.green);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.blue, original.profs.color_settings[COLOR_WEATHER].background.blue);
+
+    char_data live_character {};
+    clear_char(&live_character, MOB_VOID);
+    store_to_char(&loaded, &live_character);
+
+    const std::string magic_sequence = get_color_sequence(&live_character, COLOR_MAGIC);
+    const std::string weather_sequence = get_color_sequence(&live_character, COLOR_WEATHER);
+    EXPECT_NE(magic_sequence.find("\x1B[38;2;180;80;255m"), std::string::npos) << magic_sequence;
+    EXPECT_NE(weather_sequence.find("\x1B[48;2;10;20;35m"), std::string::npos) << weather_sequence;
 }
 
 TEST(DbLoader, LegacyPlayerTextNormalizesOutOfRangeCombatStateValues)

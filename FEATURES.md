@@ -236,6 +236,85 @@ Proposed implementation slices:
   - Smoke test administrator workflows for block, password reset, character listing, and character linking.
   Status: focused unit coverage now includes unified legacy/account-native boot indexing, the shared `objects_json` and `exploits_json` round-trip modules, account-owned `objects.json` / `exploits.json` read/write helpers, account-backed object-save fallback, direct account-native exploit read/write preference, corrupt-authoritative-exploit fail-closed behavior, runtime-support-file clearing behavior, configurable verification-email delivery, versioned-player migration for freshly created characters, explicit precedence coverage proving a valid versioned legacy player save beats a stale flat file during migration, coverage proving that same migration still succeeds when the stale flat file is unreadable, boot-index coverage proving startup indexing prefers the versioned legacy save over a flat artifact even before migration runs, boot-index coverage proving successful migration also retires the stale flat artifact before startup indexing runs, direct account-native `character.json` file read/write/remove behavior, migration-time/backfill-time `character.json` hydration from real legacy player saves, cleanup-on-failure coverage proving stale-flat retirement failure removes partially written account-native outputs instead of leaving a duplicate boot hazard behind, direct account-native `character.json` plus `objects.json` staged-login coverage for equipped items, required-top-level-section enforcement for `character.json`, fail-closed nested `identity` / `progression` / `abilities` / `points` / `conditions` / `timers` / `perception` / `state` parsing in `character.json`, explicit missing-field regressions for each of those nested `character.json` sections, restore-path coverage proving mismatched migration identity does not overwrite stale runtime legacy files, coverage proving snapshot-only state no longer repairs a missing authoritative `character.json`, coverage proving corrupt snapshots do not block an already-authoritative `character.json`, legacy-file retirement immediately after successful migration into account-owned storage, rollback restoration when a later legacy retirement step fails after earlier files have already been removed, linked-character object/exploit loaders now using account-native JSON first and only still-present runtime legacy files second instead of decoding migration snapshot payloads, structured account-owned file inspection so unreadable authoritative character/object/exploit JSON fails closed instead of being misclassified as missing, runtime-legacy fallback coverage when account-native object/exploit JSON is absent, authority-order coverage proving account-native object/exploit JSON wins over conflicting runtime legacy data, fail-closed malformed-authoritative-object-JSON coverage that preserves the stale runtime file, fail-closed unreadable-authoritative-object/exploit coverage that preserves stale runtime files, save-path coverage proving already account-native linked characters do not attempt legacy snapshot refresh after migration retirement, that linked saves can repair a missing `character.json` directly from current store state, and that unreadable account records do not revive legacy player-file saves for account-native characters, legacy `cleric` rejection in favor of `mystic`, duplicate named `talks` rejection, unknown affected/hide flag rejection, missing structured-affect-field rejection, stored-object-path validation, narrowed `objects.json` field-range validation, empty/default `objects.json` round-trip coverage, required-top-level-section enforcement for `objects.json`, alias/follower truncation coverage, missing nested object/alias/follower field rejection in `objects.json`, missing nested object-affect field rejection in `objects.json`, stale verification-code rejection after resend, verified-account re-verification safety, and conflicting old/new-layout duplicate email record rejection. Focused `AccountManagement` is green at `100` tests, focused `DbLoader` is green at `28` tests, `make test` is now back to C++ unit-test coverage only and passes at `354/354`, and the proxy-backed Python smoke flow should be run manually via `make smoke-account` as a required separate validation step for account/login/authentication changes. Remaining work is broader interactive smoke coverage for legacy-character linking, the last migration-policy cleanup, and eventually tightening the flaky prompt-detection in the manual smoke harness.
 
+- [ ] Upgrade player colors to support true color selection:
+  - Keep the current per-category color slots, including `magic` and `weather`, but replace the legacy “small integer only” assumption with a richer internal color model.
+  - Define each stored color selection as a mode-aware value:
+    - `default`
+    - `ansi16`
+    - `truecolor`
+  - Preserve backward compatibility for older saved characters:
+    - existing integer color values should load as `ansi16`
+    - missing color data should still default safely
+    - old clients should still receive usable downgraded output
+  - Centralize color rendering so every colorized output path goes through one renderer that knows:
+    - the selected color slot
+    - the player’s configured foreground/background values
+    - the client’s supported color capability
+    - the required fallback behavior
+  - Support true color escape generation using standard terminal sequences:
+    - foreground: `ESC[38;2;R;G;Bm`
+    - background: `ESC[48;2;R;G;Bm`
+    - full reset at the end of colored segments: `ESC[0m`
+  - Introduce terminal-capability-aware fallback rules:
+    - no-color clients receive plain text
+    - ANSI-only clients receive nearest supported ANSI colors
+    - if an intermediate 256-color tier is added later, true color may downgrade to nearest 256-color before ANSI
+  - Extend account-native `character.json` color persistence from named integers to structured named objects.
+  - Proposed schema shape for future account-native color data:
+    - `foreground` and `background` should be stored independently per slot
+    - `background` should be optional and default to `default`
+    - example:
+      ```json
+      "colors": {
+        "magic": {
+          "foreground": { "mode": "truecolor", "r": 180, "g": 80, "b": 255 },
+          "background": { "mode": "default" }
+        },
+        "weather": {
+          "foreground": { "mode": "truecolor", "r": 90, "g": 170, "b": 255 },
+          "background": { "mode": "truecolor", "r": 10, "g": 20, "b": 35 }
+        }
+      }
+      ```
+  - Keep JSON deserialization backward compatible with the current integer form during the transition.
+  - For legacy text player-file compatibility:
+    - account-native JSON should remain authoritative
+    - legacy save compatibility should keep only the nearest ANSI fallback if needed
+    - true color should not require the legacy file format to become authoritative again
+  - Expand the `color` command UX without breaking existing syntax:
+    - keep `color <slot> <legacy-color>` working
+    - add forms like:
+      - `color magic fg hex #B450FF`
+      - `color magic bg hex #0A1423`
+      - `color weather fg rgb 90 170 255`
+      - `color magic bg default`
+    - validate RGB ranges and hex format strictly
+  - Update no-argument `color` output so it shows readable current values, for example:
+    - `magic: truecolor fg #B450FF bg default`
+    - `weather: truecolor fg #5AAAFF bg #0A1423`
+    - `chat: ansi bright magenta`
+  - Recommended rollout order:
+    1. introduce the internal color model and centralized renderer
+    2. add backward-compatible JSON read/write for the new schema
+    3. expose true color selection in the `color` command for foreground values
+    4. wire more message families through the centralized renderer
+    5. add optional background-color support after foreground behavior is proven stable
+  - Recommended implementation boundary for v1:
+    - design the model for both foreground and background now
+    - implement foreground first
+    - treat background as advanced/optional follow-up work even though the schema should already support it
+  - Unit tests for:
+    - ANSI legacy color migration into the new model
+    - true color JSON read/write
+    - invalid RGB and hex rejection
+    - exact escape-sequence rendering
+    - capability downgrade fallback
+    - no-color plain-text fallback
+  - Regression coverage for:
+    - older characters still loading correctly
+    - existing color categories like `magic` and `weather` continuing to work
+    - spellcasting and other migrated message families still rendering correctly after the renderer centralization
+
 - [ ] Document the feature:
   - Update help text/admin notes for account creation and linking.
   - Document administrator account-management commands/workflows.

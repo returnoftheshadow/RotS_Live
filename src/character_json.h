@@ -62,6 +62,19 @@ struct TimerData {
     int retired_on = 0;
 };
 
+struct ColorValueData {
+    int mode = COLOR_VALUE_DEFAULT;
+    int value = CNRM;
+    int red = 0;
+    int green = 0;
+    int blue = 0;
+};
+
+struct ColorSettingData {
+    ColorValueData foreground;
+    ColorValueData background;
+};
+
 struct AffectData {
     int type = 0;
     int duration = 0;
@@ -120,6 +133,7 @@ struct CharacterData {
     TimerData timers;
     long color_mask = 0;
     std::vector<int> colors;
+    std::vector<ColorSettingData> color_settings;
     std::vector<int> talks;
     std::vector<int> skills;
 

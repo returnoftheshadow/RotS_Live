@@ -59,6 +59,16 @@ char_file_u make_stored_character()
     stored.profs.colors[COLOR_DESC] = CGRN;
     stored.profs.colors[COLOR_MAGIC] = CBMAG;
     stored.profs.colors[COLOR_WEATHER] = CBCYN;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.mode = COLOR_VALUE_TRUECOLOR;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.ansi = CBMAG;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.red = 180;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.green = 80;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.blue = 255;
+    stored.profs.color_settings[COLOR_WEATHER].background.mode = COLOR_VALUE_TRUECOLOR;
+    stored.profs.color_settings[COLOR_WEATHER].background.ansi = CBBLU;
+    stored.profs.color_settings[COLOR_WEATHER].background.red = 10;
+    stored.profs.color_settings[COLOR_WEATHER].background.green = 20;
+    stored.profs.color_settings[COLOR_WEATHER].background.blue = 35;
 
     stored.tmpabilities.str = 18;
     stored.tmpabilities.lea = 11;
@@ -170,6 +180,63 @@ std::string first_named_object_key(const std::string& json, const std::string& l
     return json.substr(key_open + 1, key_close - key_open - 1);
 }
 
+std::string remove_json_field(std::string json, const std::string& key)
+{
+    const std::string marker = "  \"" + key + "\": ";
+    const size_t start = json.find(marker);
+    if (start == std::string::npos)
+        return json;
+
+    size_t index = start + marker.size();
+    int object_depth = 0;
+    int array_depth = 0;
+    bool in_string = false;
+    bool escaped = false;
+
+    for (; index < json.size(); ++index) {
+        const char current = json[index];
+        if (in_string) {
+            if (escaped)
+                escaped = false;
+            else if (current == '\\')
+                escaped = true;
+            else if (current == '"')
+                in_string = false;
+            continue;
+        }
+
+        if (current == '"') {
+            in_string = true;
+            continue;
+        }
+        if (current == '{') {
+            ++object_depth;
+            continue;
+        }
+        if (current == '}') {
+            if (object_depth > 0)
+                --object_depth;
+            continue;
+        }
+        if (current == '[') {
+            ++array_depth;
+            continue;
+        }
+        if (current == ']') {
+            if (array_depth > 0)
+                --array_depth;
+            continue;
+        }
+        if (current == '\n' && object_depth == 0 && array_depth == 0) {
+            ++index;
+            break;
+        }
+    }
+
+    json.erase(start, index - start);
+    return json;
+}
+
 TEST(CharacterJson, EncodesFlagBitvectorsAsReadableNames)
 {
     EXPECT_EQ(character_json::encode_player_flags(PLR_WRITING | PLR_INCOGNITO), (std::vector<std::string> { "writing", "incognito" }));
@@ -214,6 +281,17 @@ TEST(CharacterJson, BuildsCharacterDataFromStoredCharacterUsingMysticProfessionN
     EXPECT_EQ(character.colors[COLOR_ROOM], CRED);
     EXPECT_EQ(character.colors[COLOR_MAGIC], CBMAG);
     EXPECT_EQ(character.colors[COLOR_WEATHER], CBCYN);
+    ASSERT_EQ(character.color_settings.size(), static_cast<size_t>(MAX_COLOR_FIELDS));
+    EXPECT_EQ(character.color_settings[COLOR_MAGIC].foreground.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(character.color_settings[COLOR_MAGIC].foreground.value, CBMAG);
+    EXPECT_EQ(character.color_settings[COLOR_MAGIC].foreground.red, 180);
+    EXPECT_EQ(character.color_settings[COLOR_MAGIC].foreground.green, 80);
+    EXPECT_EQ(character.color_settings[COLOR_MAGIC].foreground.blue, 255);
+    EXPECT_EQ(character.color_settings[COLOR_WEATHER].background.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(character.color_settings[COLOR_WEATHER].background.value, CBBLU);
+    EXPECT_EQ(character.color_settings[COLOR_WEATHER].background.red, 10);
+    EXPECT_EQ(character.color_settings[COLOR_WEATHER].background.green, 20);
+    EXPECT_EQ(character.color_settings[COLOR_WEATHER].background.blue, 35);
     EXPECT_EQ(character.hide_flags, (std::vector<std::string> { "hiding_well", "snuck_in" }));
     EXPECT_EQ(character.skills[2], 95);
     EXPECT_EQ(character.player_flags, (std::vector<std::string> { "writing", "incognito" }));
@@ -246,6 +324,17 @@ TEST(CharacterJson, SerializesAndDeserializesCharacterJsonRoundTrip)
     EXPECT_EQ(parsed.two_handed, original.two_handed);
     EXPECT_EQ(parsed.color_mask, original.color_mask);
     EXPECT_EQ(parsed.colors, original.colors);
+    ASSERT_EQ(parsed.color_settings.size(), original.color_settings.size());
+    EXPECT_EQ(parsed.color_settings[COLOR_MAGIC].foreground.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(parsed.color_settings[COLOR_MAGIC].foreground.value, original.color_settings[COLOR_MAGIC].foreground.value);
+    EXPECT_EQ(parsed.color_settings[COLOR_MAGIC].foreground.red, original.color_settings[COLOR_MAGIC].foreground.red);
+    EXPECT_EQ(parsed.color_settings[COLOR_MAGIC].foreground.green, original.color_settings[COLOR_MAGIC].foreground.green);
+    EXPECT_EQ(parsed.color_settings[COLOR_MAGIC].foreground.blue, original.color_settings[COLOR_MAGIC].foreground.blue);
+    EXPECT_EQ(parsed.color_settings[COLOR_WEATHER].background.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(parsed.color_settings[COLOR_WEATHER].background.value, original.color_settings[COLOR_WEATHER].background.value);
+    EXPECT_EQ(parsed.color_settings[COLOR_WEATHER].background.red, original.color_settings[COLOR_WEATHER].background.red);
+    EXPECT_EQ(parsed.color_settings[COLOR_WEATHER].background.green, original.color_settings[COLOR_WEATHER].background.green);
+    EXPECT_EQ(parsed.color_settings[COLOR_WEATHER].background.blue, original.color_settings[COLOR_WEATHER].background.blue);
     EXPECT_EQ(parsed.hide_flags, original.hide_flags);
     EXPECT_EQ(parsed.talks, original.talks);
     EXPECT_EQ(parsed.skills, original.skills);
@@ -344,6 +433,16 @@ TEST(CharacterJson, ApplyCharacterDataToStorePreservesCustomColorSettings)
     EXPECT_EQ(stored.profs.colors[COLOR_DESC], CGRN);
     EXPECT_EQ(stored.profs.colors[COLOR_MAGIC], CBMAG);
     EXPECT_EQ(stored.profs.colors[COLOR_WEATHER], CBCYN);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_MAGIC].foreground.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_MAGIC].foreground.ansi, CBMAG);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_MAGIC].foreground.red, 180);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_MAGIC].foreground.green, 80);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_MAGIC].foreground.blue, 255);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_WEATHER].background.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_WEATHER].background.ansi, CBBLU);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_WEATHER].background.red, 10);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_WEATHER].background.green, 20);
+    EXPECT_EQ(stored.profs.color_settings[COLOR_WEATHER].background.blue, 35);
 }
 
 TEST(CharacterJson, RejectsProfessionPointCoeffMismatches)
@@ -398,7 +497,9 @@ TEST(CharacterJson, RejectsOutOfRangeNarrowedNumericFields)
 TEST(CharacterJson, RejectsOutOfRangeNamedColorValuesDuringDeserialization)
 {
     std::string json = make_valid_character_json();
-    json = replace_once(json, "\"chat\": 5", "\"chat\": 200");
+    json = replace_once(json,
+        "\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 5}, \"background\": {\"mode\": \"default\"}}",
+        "\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 200}, \"background\": {\"mode\": \"default\"}}");
 
     character_json::CharacterData parsed;
     std::string error_message;
@@ -422,18 +523,18 @@ TEST(CharacterJson, SerializesCustomColorsAsNamedObject)
 
     EXPECT_NE(json.find("\"color_mask\": 1193046"), std::string::npos);
     EXPECT_NE(json.find("\"colors\": {"), std::string::npos);
-    EXPECT_NE(json.find("\"narrate\": 3"), std::string::npos);
-    EXPECT_NE(json.find("\"chat\": 5"), std::string::npos);
-    EXPECT_NE(json.find("\"roomname\": 1"), std::string::npos);
-    EXPECT_NE(json.find("\"magic\": 12"), std::string::npos);
-    EXPECT_NE(json.find("\"weather\": 13"), std::string::npos);
+    EXPECT_NE(json.find("\"narrate\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 3}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
+    EXPECT_NE(json.find("\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 5}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
+    EXPECT_NE(json.find("\"roomname\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 1}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
+    EXPECT_NE(json.find("\"magic\": {\"foreground\": {\"mode\": \"truecolor\", \"value\": 12, \"r\": 180, \"g\": 80, \"b\": 255}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
+    EXPECT_NE(json.find("\"weather\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 13}, \"background\": {\"mode\": \"truecolor\", \"value\": 11, \"r\": 10, \"g\": 20, \"b\": 35}}"), std::string::npos);
 }
 
 TEST(CharacterJson, DeserializesLegacyCharacterJsonWithoutColorsAsDefaults)
 {
     std::string json = make_valid_character_json();
-    json = replace_once(json, "  \"color_mask\": 1193046,\n", "");
-    json = replace_once(json, "  \"colors\": {\"narrate\": 3, \"chat\": 5, \"roomname\": 1, \"description\": 2, \"magic\": 12, \"weather\": 13},\n", "");
+    json = remove_json_field(json, "color_mask");
+    json = remove_json_field(json, "colors");
 
     character_json::CharacterData parsed;
     std::string error_message;
@@ -443,6 +544,59 @@ TEST(CharacterJson, DeserializesLegacyCharacterJsonWithoutColorsAsDefaults)
     ASSERT_EQ(parsed.colors.size(), static_cast<size_t>(MAX_COLOR_FIELDS));
     for (int index = 0; index < MAX_COLOR_FIELDS; ++index)
         EXPECT_EQ(parsed.colors[index], 0) << "Expected legacy JSON without colors to default slot " << index << " to zero.";
+    ASSERT_EQ(parsed.color_settings.size(), static_cast<size_t>(MAX_COLOR_FIELDS));
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index) {
+        EXPECT_EQ(parsed.color_settings[index].foreground.mode, COLOR_VALUE_DEFAULT);
+        EXPECT_EQ(parsed.color_settings[index].background.mode, COLOR_VALUE_DEFAULT);
+    }
+}
+
+TEST(CharacterJson, DeserializesLegacyIntegerColorsAsAnsiForegroundSelections)
+{
+    const std::string json = R"({
+        "schema_version": 1,
+        "character_name": "aragorn",
+        "title": "the Ranger",
+        "description": "A tall ranger stands here.",
+        "identity": { "idnum": 1, "race": 1, "sex": 0, "bodytype": 1, "language": 1, "hometown": 1, "weight": 200, "height": 70 },
+        "progression": { "level": 1, "alignment": 0, "mini_level": 0, "max_mini_level": 0, "spells_to_learn": 0, "rerolls": 0 },
+        "abilities": {
+            "temporary": { "str": 1, "lea": 1, "intel": 1, "wil": 1, "dex": 1, "con": 1, "hit": 1, "mana": 1, "move": 1 },
+            "rolled": { "str": 1, "lea": 1, "intel": 1, "wil": 1, "dex": 1, "con": 1, "hit": 1, "mana": 1, "move": 1 }
+        },
+        "points": {
+            "bodypart_hit": [0,0,0,0,0,0,0,0,0,0,0],
+            "gold": 0, "experience": 0, "spirit": 0, "mana_regen": 0, "health_regen": 0, "move_regen": 0,
+            "ob": 0, "damage": 0, "energy_regen": 0, "parry": 0, "dodge": 0, "encumbrance": 0, "willpower": 0, "spell_pen": 0, "spell_power": 0
+        },
+        "professions": {
+            "mage": { "level": 0, "points": 0, "coeff": 0, "experience": 0 },
+            "mystic": { "level": 0, "points": 0, "coeff": 0, "experience": 0 },
+            "ranger": { "level": 0, "points": 0, "coeff": 0, "experience": 0 },
+            "warrior": { "level": 0, "points": 0, "coeff": 0, "experience": 0 }
+        },
+        "flags": { "player": [], "preferences": [], "affected": [], "hide": [] },
+        "conditions": { "drunk": 0, "full": 0, "thirst": 0 },
+        "color_mask": 0,
+        "colors": { "chat": 5, "magic": 12 },
+        "timers": { "birth": 0, "last_logon": 0, "played_seconds": 0, "retired_on": 0 },
+        "perception": { "raw": 0, "current": 0 },
+        "state": { "load_room": 0, "wimp_level": 0, "freeze_level": 0, "morale": 0, "owner": 0, "leg_encumbrance": 0, "rp_flag": 0, "will_teach": 0 },
+        "talks": {},
+        "skills": {},
+        "affects": []
+    })";
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    ASSERT_TRUE(character_json::deserialize_character_from_json(json, &parsed, &error_message)) << error_message;
+
+    EXPECT_EQ(parsed.colors[COLOR_CHAT], CMAG);
+    EXPECT_EQ(parsed.color_settings[COLOR_CHAT].foreground.mode, COLOR_VALUE_ANSI16);
+    EXPECT_EQ(parsed.color_settings[COLOR_CHAT].foreground.value, CMAG);
+    EXPECT_EQ(parsed.colors[COLOR_MAGIC], CBMAG);
+    EXPECT_EQ(parsed.color_settings[COLOR_MAGIC].foreground.mode, COLOR_VALUE_ANSI16);
+    EXPECT_EQ(parsed.color_settings[COLOR_MAGIC].foreground.value, CBMAG);
 }
 
 TEST(CharacterJson, RejectsUnknownNamedSkillOrTalkKeysDuringDeserialization)

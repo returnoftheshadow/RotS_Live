@@ -475,7 +475,7 @@ const char* command[] = {
     "next", /* prompt */
     "handbook",
     "policy",
-    "", /* 171 */
+    "color", /* 171 */
     "manual", /* nogossip */
     "findzone", /* noauction */
     "setfree", /* nograts */
@@ -2081,8 +2081,8 @@ void assign_command_pointers(void)
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(170, POSITION_DEAD, do_gen_ps, 0, TRUE, SCMD_POLICIES,
         FULL_TARGET, FULL_TARGET, 0);
-    COMMANDO(171, POSITION_DEAD, do_board, 0, TRUE, 0,
-        FULL_TARGET, FULL_TARGET, 0);
+    COMMANDO(171, POSITION_DEAD, do_color, 0, TRUE, 0,
+        FULL_TARGET, FULL_TARGET, CMD_MASK_NO_UNHIDE);
     COMMANDO(172, POSITION_DEAD, do_help, 0, TRUE, 1,
         FULL_TARGET, FULL_TARGET, CMD_MASK_NO_UNHIDE);
     COMMANDO(173, POSITION_DEAD, do_findzone, LEVEL_IMMORT, FALSE, 0,
