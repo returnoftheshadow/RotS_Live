@@ -79,3 +79,4 @@ target/
 
 # cmake
 .cache
+cmake_test_discovery*.json
