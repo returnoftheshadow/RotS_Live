@@ -2299,6 +2299,125 @@ void encrypt_line(unsigned char *line, int len);
 
 /* New player save (Fingolfin) under construction */
 
+// Serialize ch into scratch_path as the player text record. This is the exact block
+// that used to live inline in save_player (fopen + char_to_store + the fprintf list +
+// fclose); only the destination path is now a parameter. Uses the file-global pwdcrypt
+// (db.cpp:192). No-op (no crash) if the scratch file cannot be opened.
+void write_player_text(struct char_data *ch, int load_room, const char *scratch_path) {
+    FILE *pf = fopen(scratch_path, "w");
+    if (pf == NULL) {
+        return;
+    }
+
+    struct char_file_u chd;
+    int tmp;
+
+    char_to_store(ch, &chd);
+    strcpy(chd.pwd, ch->desc->pwd);
+    strncpy(chd.host, ch->desc->host, HOST_LEN);
+    if (!PLR_FLAGGED(ch, PLR_LOADROOM)) {
+        chd.specials2.load_room = load_room;
+    }
+
+    fprintf(pf, "#player\n"); // so we can have other #sections later...
+    fprintf(pf, "version     %d\n", SAVE_VERSION);
+    fprintf(pf, "name        %s\n", chd.name);
+    fprintf(pf, "sex         %d\n", chd.sex);
+    fprintf(pf, "prof        %d\n", chd.prof);
+    fprintf(pf, "race        %d\n", chd.race);
+    fprintf(pf, "bodytype    %d\n", chd.bodytype);
+    fprintf(pf, "level       %d\n", chd.level);
+    fprintf(pf, "language    %d\n", chd.language);
+    fprintf(pf, "birth       %ld\n", chd.birth);
+    fprintf(pf, "played      %d\n", chd.played);
+    fprintf(pf, "weight      %d\n", chd.weight);
+    fprintf(pf, "height      %d\n", chd.height);
+    fprintf(pf, "title       %s\n", chd.title);
+    fprintf(pf, "hometown    %d\n", chd.hometown);
+    fprintf(pf, "description \n%s~\n", chd.description);
+    fprintf(pf, "last_logon  %ld\n", chd.last_logon);
+    memcpy(pwdcrypt, chd.pwd, MAX_PWD_LENGTH);
+    encrypt_line((unsigned char *)pwdcrypt, MAX_PWD_LENGTH);
+    fprintf(pf, "password    %s\n", pwdcrypt);
+    fprintf(pf, "host        %s\n", chd.host);
+    fprintf(pf, "idnum       %ld\n", chd.specials2.idnum);
+    fprintf(pf, "load_room   %d\n", chd.specials2.load_room);
+    fprintf(pf, "sp_to_learn %d\n", chd.specials2.spells_to_learn);
+    fprintf(pf, "alignment   %d\n", chd.specials2.alignment);
+    fprintf(pf, "act         %ld\n", chd.specials2.act);
+    fprintf(pf, "pref        %ld\n", chd.specials2.pref);
+    fprintf(pf, "wimpy       %d\n", chd.specials2.wimp_level);
+    fprintf(pf, "freeze_lvl  %d\n", chd.specials2.freeze_level);
+    fprintf(pf, "bad_pws     %d\n", chd.specials2.bad_pws);
+    fprintf(pf, "conditions0 %d\n", chd.specials2.conditions[0]);
+    fprintf(pf, "conditions1 %d\n", chd.specials2.conditions[1]);
+    fprintf(pf, "conditions2 %d\n", chd.specials2.conditions[2]);
+    fprintf(pf, "mini_lvl    %d\n", chd.specials2.mini_level);
+    fprintf(pf, "morale      %d\n", chd.specials2.morale);
+    fprintf(pf, "owner       %d\n", chd.specials2.owner);
+    fprintf(pf, "rerolls     %d\n", chd.specials2.rerolls);
+    fprintf(pf, "max_mini_lv %d\n", chd.specials2.max_mini_level);
+    fprintf(pf, "perception  %d\n", chd.specials2.perception);
+    fprintf(pf, "rp_flag     %d\n", chd.specials2.rp_flag);
+    fprintf(pf, "retiredon   %d\n", chd.specials2.retiredon);
+    fprintf(pf, "ob          %d\n", chd.points.OB);
+    fprintf(pf, "damage      %d\n", chd.points.damage);
+    fprintf(pf, "ENE_regen   %d\n", chd.points.ENE_regen);
+    fprintf(pf, "parry       %d\n", chd.points.parry);
+    fprintf(pf, "dodge       %d\n", chd.points.dodge);
+    fprintf(pf, "gold        %d\n", chd.points.gold);
+    fprintf(pf, "exp         %d\n", chd.points.exp);
+    fprintf(pf, "encumb      %d\n", chd.points.encumb);
+    fprintf(pf, "spec        %d\n", chd.profs.specialization);
+
+    for (tmp = 0; tmp < MAX_COLOR_FIELDS; ++tmp)
+        if (chd.profs.colors[tmp] != CNRM)
+            fprintf(pf, "color       %d %d\n", tmp, chd.profs.colors[tmp]);
+
+    for (tmp = 0; tmp < MAX_TOUNGE; tmp++)
+        fprintf(pf, "talks       %d %d\n", tmp, chd.talks[tmp]);
+
+    for (tmp = 0; tmp < MAX_SKILLS; tmp++)
+        if (chd.skills[tmp])
+            fprintf(pf, "skills      %d %d\n", tmp, chd.skills[tmp]);
+
+    for (tmp = 0; tmp < MAX_AFFECT; tmp++)
+        if (chd.affected[tmp].duration != 0) {
+            fprintf(pf, "affect      %d %d %d %d %d %ld\n", tmp, chd.affected[tmp].type,
+                    chd.affected[tmp].duration, chd.affected[tmp].modifier,
+                    chd.affected[tmp].location, chd.affected[tmp].bitvector);
+        }
+
+    for (tmp = 0; tmp < MAX_BODYPARTS; tmp++)
+        fprintf(pf, "bodyparts   %d %d\n", tmp, chd.points.bodypart_hit[tmp]);
+
+    fprintf(pf, "tmpstats    %d %d %d %d %d %d\n", chd.tmpabilities.str, chd.tmpabilities.lea,
+            chd.tmpabilities.intel, chd.tmpabilities.wil, chd.tmpabilities.dex,
+            chd.tmpabilities.con);
+
+    fprintf(pf, "tmpabil     %d %d %d %d\n", chd.tmpabilities.hit, chd.tmpabilities.mana,
+            chd.tmpabilities.move, chd.points.spirit);
+
+    fprintf(pf, "permstats    %d %d %d %d %d %d\n", chd.constabilities.str,
+            chd.constabilities.lea, chd.constabilities.intel, chd.constabilities.wil,
+            chd.constabilities.dex, chd.constabilities.con);
+
+    fprintf(pf, "permabil     %d %d %d %d\n", chd.constabilities.hit, chd.constabilities.mana,
+            chd.constabilities.move, 0);
+
+    for (tmp = 0; tmp < MAX_PROFS + 1; tmp++)
+        fprintf(pf, "prof_coef   %d %d\n", tmp, chd.profs.prof_coof[tmp]);
+
+    for (tmp = 0; tmp < MAX_PROFS + 1; tmp++)
+        fprintf(pf, "prof_level  %d %d\n", tmp, chd.profs.prof_level[tmp]);
+
+    for (tmp = 0; tmp < MAX_PROFS + 1; tmp++)
+        fprintf(pf, "prof_exp    %d %ld\n", tmp, chd.profs.prof_exp[tmp]);
+
+    fprintf(pf, "end\n");
+    fclose(pf);
+}
+
 // Legacy finalize: shell out to rm (glob) + cp, exactly as save_player did historically.
 // Returns true if both system() calls were able to spawn (return code != -1).
 bool finalize_player_file_legacy(const char *scratch_path, const char *base_path,
@@ -2349,12 +2468,8 @@ bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
 
 void save_player(struct char_data *ch, int load_room, int index_pos) {
   char name[255];
-  char temp[255];
   char *tmpchar;
   char playerfname[100];
-  FILE *pf = NULL;
-  struct char_file_u chd;
-  int tmp;
 
   strcpy(name, GET_NAME(ch));
   for (tmpchar = name; *tmpchar; tmpchar++)
@@ -2402,122 +2517,15 @@ void save_player(struct char_data *ch, int load_room, int index_pos) {
     break;
   }
 
-  pf = fopen("players/temp", "w");
-  char_to_store(ch, &chd);
-  strcpy(chd.pwd, ch->desc->pwd);
-  strncpy(chd.host, ch->desc->host, HOST_LEN);
-  if (!PLR_FLAGGED(ch, PLR_LOADROOM))
-    chd.specials2.load_room = load_room;
+  write_player_text(ch, load_room, "players/temp");
 
-  fprintf(pf, "#player\n"); // so we can have other #sections later...
-  fprintf(pf, "version     %d\n", SAVE_VERSION);
-  fprintf(pf, "name        %s\n", chd.name);
-  fprintf(pf, "sex         %d\n", chd.sex);
-  fprintf(pf, "prof        %d\n", chd.prof);
-  fprintf(pf, "race        %d\n", chd.race);
-  fprintf(pf, "bodytype    %d\n", chd.bodytype);
-  fprintf(pf, "level       %d\n", chd.level);
-  fprintf(pf, "language    %d\n", chd.language);
-  fprintf(pf, "birth       %ld\n", chd.birth);
-  fprintf(pf, "played      %d\n", chd.played);
-  fprintf(pf, "weight      %d\n", chd.weight);
-  fprintf(pf, "height      %d\n", chd.height);
-  fprintf(pf, "title       %s\n", chd.title);
-  fprintf(pf, "hometown    %d\n", chd.hometown);
-  fprintf(pf, "description \n%s~\n", chd.description);
-  fprintf(pf, "last_logon  %ld\n", chd.last_logon);
-  memcpy(pwdcrypt, chd.pwd, MAX_PWD_LENGTH);
-  encrypt_line((unsigned char *)pwdcrypt, MAX_PWD_LENGTH);
-  fprintf(pf, "password    %s\n", pwdcrypt);
-  fprintf(pf, "host        %s\n", chd.host);
-  fprintf(pf, "idnum       %ld\n", chd.specials2.idnum);
-  fprintf(pf, "load_room   %d\n", chd.specials2.load_room);
-  fprintf(pf, "sp_to_learn %d\n", chd.specials2.spells_to_learn);
-  fprintf(pf, "alignment   %d\n", chd.specials2.alignment);
-  fprintf(pf, "act         %ld\n", chd.specials2.act);
-  fprintf(pf, "pref        %ld\n", chd.specials2.pref);
-  fprintf(pf, "wimpy       %d\n", chd.specials2.wimp_level);
-  fprintf(pf, "freeze_lvl  %d\n", chd.specials2.freeze_level);
-  fprintf(pf, "bad_pws     %d\n", chd.specials2.bad_pws);
-  fprintf(pf, "conditions0 %d\n", chd.specials2.conditions[0]);
-  fprintf(pf, "conditions1 %d\n", chd.specials2.conditions[1]);
-  fprintf(pf, "conditions2 %d\n", chd.specials2.conditions[2]);
-  fprintf(pf, "mini_lvl    %d\n", chd.specials2.mini_level);
-  fprintf(pf, "morale      %d\n", chd.specials2.morale);
-  fprintf(pf, "owner       %d\n", chd.specials2.owner);
-  fprintf(pf, "rerolls     %d\n", chd.specials2.rerolls);
-  fprintf(pf, "max_mini_lv %d\n", chd.specials2.max_mini_level);
-  fprintf(pf, "perception  %d\n", chd.specials2.perception);
-  fprintf(pf, "rp_flag     %d\n", chd.specials2.rp_flag);
-  fprintf(pf, "retiredon   %d\n", chd.specials2.retiredon);
-  fprintf(pf, "ob          %d\n", chd.points.OB);
-  fprintf(pf, "damage      %d\n", chd.points.damage);
-  fprintf(pf, "ENE_regen   %d\n", chd.points.ENE_regen);
-  fprintf(pf, "parry       %d\n", chd.points.parry);
-  fprintf(pf, "dodge       %d\n", chd.points.dodge);
-  fprintf(pf, "gold        %d\n", chd.points.gold);
-  fprintf(pf, "exp         %d\n", chd.points.exp);
-  fprintf(pf, "encumb      %d\n", chd.points.encumb);
-  fprintf(pf, "spec        %d\n", chd.profs.specialization);
-
-  for (tmp = 0; tmp < MAX_COLOR_FIELDS; ++tmp)
-    if (chd.profs.colors[tmp] != CNRM)
-      fprintf(pf, "color       %d %d\n", tmp, chd.profs.colors[tmp]);
-
-  for (tmp = 0; tmp < MAX_TOUNGE; tmp++)
-    fprintf(pf, "talks       %d %d\n", tmp, chd.talks[tmp]);
-
-  for (tmp = 0; tmp < MAX_SKILLS; tmp++)
-    if (chd.skills[tmp])
-      fprintf(pf, "skills      %d %d\n", tmp, chd.skills[tmp]);
-
-  for (tmp = 0; tmp < MAX_AFFECT; tmp++)
-    if (chd.affected[tmp].duration != 0) {
-      fprintf(pf, "affect      %d %d %d %d %d %ld\n", tmp,
-              chd.affected[tmp].type, chd.affected[tmp].duration,
-              chd.affected[tmp].modifier, chd.affected[tmp].location,
-              chd.affected[tmp].bitvector);
-    }
-
-  for (tmp = 0; tmp < MAX_BODYPARTS; tmp++)
-    fprintf(pf, "bodyparts   %d %d\n", tmp, chd.points.bodypart_hit[tmp]);
-
-  fprintf(pf, "tmpstats    %d %d %d %d %d %d\n", chd.tmpabilities.str,
-          chd.tmpabilities.lea, chd.tmpabilities.intel, chd.tmpabilities.wil,
-          chd.tmpabilities.dex, chd.tmpabilities.con);
-
-  fprintf(pf, "tmpabil     %d %d %d %d\n", chd.tmpabilities.hit,
-          chd.tmpabilities.mana, chd.tmpabilities.move, chd.points.spirit);
-
-  fprintf(pf, "permstats    %d %d %d %d %d %d\n", chd.constabilities.str,
-          chd.constabilities.lea, chd.constabilities.intel,
-          chd.constabilities.wil, chd.constabilities.dex,
-          chd.constabilities.con);
-
-  fprintf(pf, "permabil     %d %d %d %d\n", chd.constabilities.hit,
-          chd.constabilities.mana, chd.constabilities.move, 0);
-
-  for (tmp = 0; tmp < MAX_PROFS + 1; tmp++)
-    fprintf(pf, "prof_coef   %d %d\n", tmp, chd.profs.prof_coof[tmp]);
-
-  for (tmp = 0; tmp < MAX_PROFS + 1; tmp++)
-    fprintf(pf, "prof_level  %d %d\n", tmp, chd.profs.prof_level[tmp]);
-
-  for (tmp = 0; tmp < MAX_PROFS + 1; tmp++)
-    fprintf(pf, "prof_exp    %d %ld\n", tmp, chd.profs.prof_exp[tmp]);
-
-  fprintf(pf, "end\n");
-  fclose(pf);
-  sprintf(temp, "rm %s.*", playerfname);
-  system(temp);
-  sprintf(playerfname, "%s.%d.%d.%d.%ld.%ld", playerfname,
-          (player_table + index_pos)->level, (player_table + index_pos)->race,
-          (player_table + index_pos)->idnum,
-          (long)(player_table + index_pos)->log_time,
-          (player_table + index_pos)->flags);
-  sprintf(temp, "cp players/temp %s", playerfname);
-  system(temp);
-  sprintf((player_table + index_pos)->ch_file, "%s", playerfname);
+  char versioned[120];
+  snprintf(versioned, sizeof(versioned), "%s.%d.%d.%d.%ld.%ld", playerfname,
+           (player_table + index_pos)->level, (player_table + index_pos)->race,
+           (player_table + index_pos)->idnum, (long)(player_table + index_pos)->log_time,
+           (player_table + index_pos)->flags);
+  finalize_player_file_legacy("players/temp", playerfname, versioned);
+  sprintf((player_table + index_pos)->ch_file, "%s", versioned);
 }
 
 void save_char(struct char_data *ch, int load_room, int notify_char) {
