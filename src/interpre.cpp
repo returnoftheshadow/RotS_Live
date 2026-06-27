@@ -212,6 +212,7 @@ ACMD(do_wizutil);
 ACMD(do_color);
 ACMD(do_syslog);
 ACMD(do_show);
+ACMD(do_savebench);
 ACMD(do_ungroup);
 ACMD(do_page);
 ACMD(do_diagnose);
@@ -545,6 +546,7 @@ const char* command[] = {
     "defend",
     "renounce",
     "mob2csv",
+    "savebench",
     "\n"
 };
 
@@ -2220,6 +2222,8 @@ void assign_command_pointers(void)
         FULL_TARGET, TAR_IGNORE, 0);
     COMMANDO(248, POSITION_DEAD, do_mob_csv_extract, LEVEL_IMPL, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
+    COMMANDO(249, POSITION_DEAD, do_savebench, LEVEL_IMPL, FALSE, 0, FULL_TARGET, FULL_TARGET,
+        0);
 }
 
 /* *************************************************************************

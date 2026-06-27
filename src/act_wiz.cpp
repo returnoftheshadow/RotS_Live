@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #include "char_utils.h"
 #include "color.h"
@@ -3760,4 +3762,226 @@ ACMD(do_top)
             }
         }
     }
+}
+
+// --- savebench helpers (diagnostic command; see specs/2026-06-27-savebench-finalize-...) ---
+
+// Byte-for-byte copy src -> dst. Returns true on success.
+static bool sb_copy_file(const char *src, const char *dst) {
+    FILE *in = fopen(src, "rb");
+    if (!in) {
+        return false;
+    }
+    FILE *out = fopen(dst, "wb");
+    if (!out) {
+        fclose(in);
+        return false;
+    }
+    char chunk[4096];
+    size_t n;
+    bool ok = true;
+    while ((n = fread(chunk, 1, sizeof(chunk), in)) > 0) {
+        if (fwrite(chunk, 1, n, out) != n) {
+            ok = false;
+            break;
+        }
+    }
+    fclose(in);
+    fclose(out);
+    return ok;
+}
+
+// True if both files exist and have identical contents.
+static bool sb_files_identical(const char *a, const char *b) {
+    FILE *fa = fopen(a, "rb");
+    FILE *fb = fopen(b, "rb");
+    if (!fa || !fb) {
+        if (fa) {
+            fclose(fa);
+        }
+        if (fb) {
+            fclose(fb);
+        }
+        return false;
+    }
+    bool ok = true;
+    int ca, cb;
+    do {
+        ca = fgetc(fa);
+        cb = fgetc(fb);
+        if (ca != cb) {
+            ok = false;
+            break;
+        }
+    } while (ca != EOF);
+    fclose(fa);
+    fclose(fb);
+    return ok;
+}
+
+// Count non-dot entries in dir (-1 if it cannot be opened).
+static int sb_count_files(const char *dir) {
+    DIR *d = opendir(dir);
+    if (!d) {
+        return -1;
+    }
+    int count = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] != '.') {
+            count++;
+        }
+    }
+    closedir(d);
+    return count;
+}
+
+// Remove every non-dot entry in dir, then rmdir it.
+static void sb_remove_dir(const char *dir) {
+    DIR *d = opendir(dir);
+    if (d) {
+        struct dirent *e;
+        char path[512];
+        while ((e = readdir(d)) != NULL) {
+            if (e->d_name[0] == '.') {
+                continue;
+            }
+            snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+            unlink(path);
+        }
+        closedir(d);
+    }
+    rmdir(dir);
+}
+
+// Microseconds elapsed from t0 to t1.
+static long sb_usec_diff(const struct timeval *t0, const struct timeval *t1) {
+    return (long)(t1->tv_sec - t0->tv_sec) * 1000000L + (t1->tv_usec - t0->tv_usec);
+}
+
+ACMD(do_savebench) {
+    if (IS_NPC(ch) || !ch->desc) {
+        send_to_char("savebench is not available.\n\r", ch);
+        return;
+    }
+
+    int iterations = 100;
+    while (*argument == ' ') {
+        argument++;
+    }
+    if (*argument) {
+        int n = atoi(argument);
+        if (n > 0) {
+            iterations = n;
+        }
+    }
+    if (iterations < 1) {
+        iterations = 1;
+    }
+    if (iterations > 10000) {
+        iterations = 10000;
+    }
+
+    // All paths under players/ so rename() stays same-filesystem. base_name is synthetic
+    // ("probe") and dot-anchored; it can never match a real player's files.
+    const char *legacy_dir = "players/SAVEBENCH_LEGACY";
+    const char *new_dir = "players/SAVEBENCH_NEW";
+    const char *master = "players/savebench_master";
+    const char *legacy_scratch = "players/savebench_legacy_scratch";
+    const char *new_scratch = "players/savebench_new_scratch";
+    const char *base_name = "probe";
+
+    char legacy_base[128], legacy_versioned[200], new_versioned[200];
+    char stale_legacy[160], stale_new[160];
+    snprintf(legacy_base, sizeof(legacy_base), "%s/%s", legacy_dir, base_name);
+    snprintf(legacy_versioned, sizeof(legacy_versioned), "%s.%d.%d.%ld.0.0", legacy_base,
+             (int)GET_LEVEL(ch), (int)GET_RACE(ch), (long)GET_IDNUM(ch));
+    snprintf(new_versioned, sizeof(new_versioned), "%s/%s.%d.%d.%ld.0.0", new_dir, base_name,
+             (int)GET_LEVEL(ch), (int)GET_RACE(ch), (long)GET_IDNUM(ch));
+    snprintf(stale_legacy, sizeof(stale_legacy), "%s/%s.stale", legacy_dir, base_name);
+    snprintf(stale_new, sizeof(stale_new), "%s/%s.stale", new_dir, base_name);
+
+    mkdir(legacy_dir, 0775);
+    mkdir(new_dir, 0775);
+
+    // Serialize THIS character once; copy those exact bytes to each finalizer so the
+    // equivalence comparison is immune to any time-based field drift between serializations.
+    if (!write_player_text(ch, 0, master)) {
+        send_to_char("savebench: write_player_text failed.\n\r", ch);
+        sb_remove_dir(legacy_dir);
+        sb_remove_dir(new_dir);
+        return;
+    }
+
+    // ---- Equivalence check ----
+    sb_copy_file(master, stale_legacy); // stale, differently-suffixed seed the glob must remove
+    sb_copy_file(master, stale_new);
+    sb_copy_file(master, legacy_scratch);
+    sb_copy_file(master, new_scratch);
+
+    finalize_player_file_legacy(legacy_scratch, legacy_base, legacy_versioned);
+    finalize_player_file_rename(new_scratch, new_dir, base_name, new_versioned);
+
+    bool identical = sb_files_identical(legacy_versioned, new_versioned);
+    int legacy_count = sb_count_files(legacy_dir);
+    int new_count = sb_count_files(new_dir);
+
+    // ---- Profiling: time ONLY the finalize call; regenerate scratch outside timing. ----
+    long lmin = -1, lmax = 0, ltot = 0;
+    long nmin = -1, nmax = 0, ntot = 0;
+    struct timeval t0, t1;
+
+    for (int i = 0; i < iterations; i++) {
+        sb_copy_file(master, legacy_scratch);
+        gettimeofday(&t0, NULL);
+        finalize_player_file_legacy(legacy_scratch, legacy_base, legacy_versioned);
+        gettimeofday(&t1, NULL);
+        long us = sb_usec_diff(&t0, &t1);
+        ltot += us;
+        if (lmin < 0 || us < lmin) {
+            lmin = us;
+        }
+        if (us > lmax) {
+            lmax = us;
+        }
+    }
+
+    for (int i = 0; i < iterations; i++) {
+        sb_copy_file(master, new_scratch);
+        gettimeofday(&t0, NULL);
+        finalize_player_file_rename(new_scratch, new_dir, base_name, new_versioned);
+        gettimeofday(&t1, NULL);
+        long us = sb_usec_diff(&t0, &t1);
+        ntot += us;
+        if (nmin < 0 || us < nmin) {
+            nmin = us;
+        }
+        if (us > nmax) {
+            nmax = us;
+        }
+    }
+
+    double lavg = (double)ltot / iterations;
+    double navg = (double)ntot / iterations;
+
+    // ---- Report ----
+    sprintf(buf,
+            "savebench (self, N=%d)\n\r"
+            "  equivalence : %s\n\r"
+            "  files left  : legacy=%d  new=%d  (expect 1 each)\n\r"
+            "  legacy (system rm+cp) : min %ld / avg %.1f / max %ld usec\n\r"
+            "  new    (unlink+rename): min %ld / avg %.1f / max %ld usec\n\r",
+            iterations, identical ? "IDENTICAL" : "*** DIFFERENT ***", legacy_count, new_count,
+            lmin, lavg, lmax, nmin, navg, nmax);
+    if (navg > 0.0) {
+        sprintf(buf + strlen(buf), "  speedup     : ~%.0fx\n\r", lavg / navg);
+    }
+    send_to_char(buf, ch);
+
+    // ---- Cleanup (unconditional) ----
+    unlink(master);
+    unlink(legacy_scratch);
+    unlink(new_scratch);
+    sb_remove_dir(legacy_dir);
+    sb_remove_dir(new_dir);
 }
