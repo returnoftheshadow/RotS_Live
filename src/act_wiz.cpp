@@ -32,6 +32,7 @@
 #include "profs.h"
 #include "protos.h"
 #include "spells.h"
+#include "stopwatch.h"
 #include "structs.h"
 #include "utils.h"
 #include "warrior_spec_handlers.h"
@@ -3803,7 +3804,9 @@ static bool sb_files_identical(const char *a, const char *b) {
                       std::istreambuf_iterator<char>(fb));
 }
 
-// Count entries in dir via directory_iterator (-1 if the path cannot be opened).
+// Count entries in dir (-1 if it cannot be opened). Advances with the non-throwing
+// increment(ec) form: directory_iterator::operator++ throws on I/O error, which would
+// crash this no-exception MUD.
 static int sb_count_files(const char *dir) {
     std::error_code ec;
     fs::directory_iterator it(dir, ec);
@@ -3811,8 +3814,10 @@ static int sb_count_files(const char *dir) {
         return -1;
     }
     int count = 0;
-    for (auto &entry : it) {
-        (void)entry;
+    for (const fs::directory_iterator end; it != end; it.increment(ec)) {
+        if (ec) {
+            return -1;
+        }
         count++;
     }
     return count;
@@ -3897,13 +3902,14 @@ ACMD(do_savebench) {
     // ---- Profiling: time ONLY the finalize call; regenerate scratch outside timing. ----
     long lmin = -1, lmax = 0, ltot = 0;
     long nmin = -1, nmax = 0, ntot = 0;
+    Stopwatch sw;
 
     for (int i = 0; i < iterations; i++) {
         sb_copy_file(master, legacy_scratch);
-        auto t0 = std::chrono::steady_clock::now();
+        sw.start();
         finalize_player_file_legacy(legacy_scratch, legacy_base, legacy_versioned);
-        auto t1 = std::chrono::steady_clock::now();
-        long us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        sw.stop();
+        long us = sw.elapsed<std::chrono::microseconds>().count();
         ltot += us;
         if (lmin < 0 || us < lmin) {
             lmin = us;
@@ -3915,10 +3921,10 @@ ACMD(do_savebench) {
 
     for (int i = 0; i < iterations; i++) {
         sb_copy_file(master, new_scratch);
-        auto t0 = std::chrono::steady_clock::now();
+        sw.start();
         finalize_player_file_rename(new_scratch, new_dir, base_name, new_versioned);
-        auto t1 = std::chrono::steady_clock::now();
-        long us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        sw.stop();
+        long us = sw.elapsed<std::chrono::microseconds>().count();
         ntot += us;
         if (nmin < 0 || us < nmin) {
             nmin = us;
