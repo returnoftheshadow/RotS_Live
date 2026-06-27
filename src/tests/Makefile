@@ -72,7 +72,7 @@ act_soci.o : ../act_soci.cpp ../structs.h ../utils.h ../comm.h ../interpre.h \
 	../handler.h ../db.h ../spells.h
 	$(CXX) -c $(CXXFLAGS) ../act_soci.cpp
 act_wiz.o : ../act_wiz.cpp ../structs.h ../utils.h ../comm.h ../interpre.h \
-	../handler.h ../db.h ../spells.h ../limits.h ../profs.h
+	../handler.h ../db.h ../spells.h ../limits.h ../profs.h ../stopwatch.h
 	$(CXX) -c $(CXXFLAGS) ../act_wiz.cpp
 handler.o : ../handler.cpp ../structs.h ../utils.h ../comm.h ../db.h ../handler.h ../interpre.h
 	$(CXX) -c $(CXXFLAGS) ../handler.cpp

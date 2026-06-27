@@ -101,7 +101,7 @@ act_soci.o : act_soci.cpp structs.h utils.h comm.h interpre.h \
 	handler.h db.h spells.h
 	$(CC) -c $(CFLAGS) act_soci.cpp
 act_wiz.o : act_wiz.cpp structs.h utils.h comm.h interpre.h \
-	handler.h db.h spells.h limits.h profs.h
+	handler.h db.h spells.h limits.h profs.h stopwatch.h
 	$(CC) -c $(CFLAGS) act_wiz.cpp
 handler.o : handler.cpp structs.h utils.h comm.h db.h handler.h interpre.h
 	$(CC) -c $(CFLAGS) handler.cpp
