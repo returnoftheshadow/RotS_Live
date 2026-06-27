@@ -7,10 +7,11 @@
 # Build/run with docker compose (see docker-compose.yml) or scripts/rots-docker.sh.
 FROM --platform=linux/386 i386/debian:bullseye
 
-# g++ 10 (supports the Makefile's -std=c++1z) + make. The Makefile links no extra
-# libraries, so no other build deps are needed. telnet/procps are dev conveniences.
+# g++ 10 (supports the Makefile's -std=c++1z) + make. The game Makefile links no extra
+# libraries; libgtest-dev (prebuilt i386 static libs) is needed only by the unit-test
+# suite under src/tests (links -lgtest -lgtest_main). telnet/procps are dev conveniences.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        g++ make telnet procps ca-certificates \
+        g++ make telnet procps ca-certificates libgtest-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /rots
