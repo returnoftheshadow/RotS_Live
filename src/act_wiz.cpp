@@ -3908,6 +3908,7 @@ ACMD(do_savebench) {
     // equivalence comparison is immune to any time-based field drift between serializations.
     if (!write_player_text(ch, 0, master)) {
         send_to_char("savebench: write_player_text failed.\n\r", ch);
+        unlink(master);
         sb_remove_dir(legacy_dir);
         sb_remove_dir(new_dir);
         return;
