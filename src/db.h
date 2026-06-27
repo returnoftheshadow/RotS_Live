@@ -107,7 +107,7 @@ void save_char(struct char_data *, int, int);
  * MUST produce byte-identical results. legacy uses system("rm")/system("cp");
  * rename uses a portable readdir/unlink glob then rename(). */
 // Serialize one PC to scratch_path (the fopen + char_to_store + fprintf block).
-void write_player_text(struct char_data *ch, int load_room, const char *scratch_path);
+bool write_player_text(struct char_data *ch, int load_room, const char *scratch_path);
 bool finalize_player_file_legacy(const char *scratch_path, const char *base_path,
                                  const char *versioned_path);
 bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,

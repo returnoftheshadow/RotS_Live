@@ -2302,11 +2302,12 @@ void encrypt_line(unsigned char *line, int len);
 // Serialize ch into scratch_path as the player text record. This is the exact block
 // that used to live inline in save_player (fopen + char_to_store + the fprintf list +
 // fclose); only the destination path is now a parameter. Uses the file-global pwdcrypt
-// (db.cpp:192). No-op (no crash) if the scratch file cannot be opened.
-void write_player_text(struct char_data *ch, int load_room, const char *scratch_path) {
+// (db.cpp:192). Returns false (without writing) if the scratch file cannot be opened, so
+// callers can skip finalizing (which would delete the live file) when no scratch was written.
+bool write_player_text(struct char_data *ch, int load_room, const char *scratch_path) {
     FILE *pf = fopen(scratch_path, "w");
     if (pf == NULL) {
-        return;
+        return false;
     }
 
     struct char_file_u chd;
@@ -2416,6 +2417,7 @@ void write_player_text(struct char_data *ch, int load_room, const char *scratch_
 
     fprintf(pf, "end\n");
     fclose(pf);
+    return true;
 }
 
 // Legacy finalize: shell out to rm (glob) + cp, exactly as save_player did historically.
@@ -2517,7 +2519,11 @@ void save_player(struct char_data *ch, int load_room, int index_pos) {
     break;
   }
 
-  write_player_text(ch, load_room, "players/temp");
+  // If serialization fails, do not finalize: finalize would rm the live player file and
+  // then fail to write the new one, losing the save. Leave the existing file intact.
+  if (!write_player_text(ch, load_room, "players/temp")) {
+    return;
+  }
 
   char versioned[120];
   snprintf(versioned, sizeof(versioned), "%s.%d.%d.%d.%ld.%ld", playerfname,
