@@ -2322,18 +2322,27 @@ bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
     snprintf(prefix, sizeof(prefix), "%s.", base_name);
     size_t prefix_len = strlen(prefix);
 
+    // Treat opendir failure as a hard error: skipping the glob would let a stale,
+    // differently-suffixed file survive while we still claim success.
     DIR *dir = opendir(dir_path);
-    if (dir != NULL) {
-        struct dirent *entry;
-        char victim[512];
-        while ((entry = readdir(dir)) != NULL) {
-            if (strncmp(entry->d_name, prefix, prefix_len) == 0) {
-                snprintf(victim, sizeof(victim), "%s/%s", dir_path, entry->d_name);
-                unlink(victim);
+    if (dir == NULL) {
+        return false;
+    }
+
+    struct dirent *entry;
+    char victim[512];
+    while ((entry = readdir(dir)) != NULL) {
+        if (strncmp(entry->d_name, prefix, prefix_len) == 0) {
+            snprintf(victim, sizeof(victim), "%s/%s", dir_path, entry->d_name);
+            // A failed unlink would leave a stale duplicate; report it rather than
+            // returning success with the directory in an inconsistent state.
+            if (unlink(victim) != 0) {
+                closedir(dir);
+                return false;
             }
         }
-        closedir(dir);
     }
+    closedir(dir);
 
     return rename(scratch_path, versioned_path) == 0;
 }
