@@ -13,8 +13,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dirent.h>
-#include <sys/stat.h>
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <system_error>
 
 #include "char_utils.h"
 #include "color.h"
@@ -3764,94 +3767,60 @@ ACMD(do_top)
     }
 }
 
+namespace fs = std::filesystem;
+
 // --- savebench helpers (diagnostic command; see specs/2026-06-27-savebench-finalize-...) ---
 
-// Byte-for-byte copy src -> dst. Returns true on success.
+// Byte-for-byte copy src -> dst using std::filesystem. Returns true on success.
 static bool sb_copy_file(const char *src, const char *dst) {
-    FILE *in = fopen(src, "rb");
-    if (!in) {
-        return false;
-    }
-    FILE *out = fopen(dst, "wb");
-    if (!out) {
-        fclose(in);
-        return false;
-    }
-    char chunk[4096];
-    size_t n;
-    bool ok = true;
-    while ((n = fread(chunk, 1, sizeof(chunk), in)) > 0) {
-        if (fwrite(chunk, 1, n, out) != n) {
-            ok = false;
-            break;
-        }
-    }
-    fclose(in);
-    fclose(out);
-    return ok;
+    std::error_code ec;
+    fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
+    return !ec;
 }
 
 // True if both files exist and have identical contents.
 static bool sb_files_identical(const char *a, const char *b) {
-    FILE *fa = fopen(a, "rb");
-    FILE *fb = fopen(b, "rb");
-    if (!fa || !fb) {
-        if (fa) {
-            fclose(fa);
-        }
-        if (fb) {
-            fclose(fb);
-        }
+    std::error_code ec;
+    auto size_a = fs::file_size(a, ec);
+    if (ec) {
         return false;
     }
-    bool ok = true;
-    int ca, cb;
-    do {
-        ca = fgetc(fa);
-        cb = fgetc(fb);
-        if (ca != cb) {
-            ok = false;
-            break;
-        }
-    } while (ca != EOF);
-    fclose(fa);
-    fclose(fb);
-    return ok;
+    auto size_b = fs::file_size(b, ec);
+    if (ec) {
+        return false;
+    }
+    if (size_a != size_b) {
+        return false;
+    }
+    std::ifstream fa(a, std::ios::binary);
+    std::ifstream fb(b, std::ios::binary);
+    if (!fa || !fb) {
+        return false;
+    }
+    return std::equal(std::istreambuf_iterator<char>(fa),
+                      std::istreambuf_iterator<char>(),
+                      std::istreambuf_iterator<char>(fb));
 }
 
-// Count non-dot entries in dir (-1 if it cannot be opened).
+// Count entries in dir via directory_iterator (-1 if the path cannot be opened).
 static int sb_count_files(const char *dir) {
-    DIR *d = opendir(dir);
-    if (!d) {
+    std::error_code ec;
+    fs::directory_iterator it(dir, ec);
+    if (ec) {
         return -1;
     }
     int count = 0;
-    struct dirent *e;
-    while ((e = readdir(d)) != NULL) {
-        if (e->d_name[0] != '.') {
-            count++;
-        }
+    for (auto &entry : it) {
+        (void)entry;
+        count++;
     }
-    closedir(d);
     return count;
 }
 
-// Remove every non-dot entry in dir, then rmdir it.
+// Recursively remove dir and all its contents using std::filesystem.
 static void sb_remove_dir(const char *dir) {
-    DIR *d = opendir(dir);
-    if (d) {
-        struct dirent *e;
-        char path[512];
-        while ((e = readdir(d)) != NULL) {
-            if (e->d_name[0] == '.') {
-                continue;
-            }
-            snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
-            unlink(path);
-        }
-        closedir(d);
-    }
-    rmdir(dir);
+    std::error_code ec;
+    fs::remove_all(dir, ec);
 }
 
 // Microseconds elapsed from t0 to t1.
@@ -3901,14 +3870,15 @@ ACMD(do_savebench) {
     snprintf(stale_legacy, sizeof(stale_legacy), "%s/%s.stale", legacy_dir, base_name);
     snprintf(stale_new, sizeof(stale_new), "%s/%s.stale", new_dir, base_name);
 
-    mkdir(legacy_dir, 0775);
-    mkdir(new_dir, 0775);
+    std::error_code ec;
+    fs::create_directory(legacy_dir, ec);
+    fs::create_directory(new_dir, ec);
 
     // Serialize THIS character once; copy those exact bytes to each finalizer so the
     // equivalence comparison is immune to any time-based field drift between serializations.
     if (!write_player_text(ch, 0, master)) {
         send_to_char("savebench: write_player_text failed.\n\r", ch);
-        unlink(master);
+        fs::remove(master, ec);
         sb_remove_dir(legacy_dir);
         sb_remove_dir(new_dir);
         return;
@@ -3980,9 +3950,9 @@ ACMD(do_savebench) {
     send_to_char(buf, ch);
 
     // ---- Cleanup (unconditional) ----
-    unlink(master);
-    unlink(legacy_scratch);
-    unlink(new_scratch);
+    fs::remove(master, ec);
+    fs::remove(legacy_scratch, ec);
+    fs::remove(new_scratch, ec);
     sb_remove_dir(legacy_dir);
     sb_remove_dir(new_dir);
 }
