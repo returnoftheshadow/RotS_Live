@@ -101,6 +101,15 @@ void char_to_store(struct char_data *, struct char_file_u *);
 void store_to_char(struct char_file_u *, struct char_data *);
 int load_char(char *, struct char_file_u *);
 void save_char(struct char_data *, int, int);
+/* Player-file finalize helpers. See
+ * docs/superpowers/specs/2026-06-27-savebench-finalize-ab-test-design.md.
+ * Both move a fully-written scratch file into its versioned destination; they
+ * MUST produce byte-identical results. legacy uses system("rm")/system("cp");
+ * rename uses a portable readdir/unlink glob then rename(). */
+bool finalize_player_file_legacy(const char *scratch_path, const char *base_path,
+                                 const char *versioned_path);
+bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
+                                 const char *base_name, const char *versioned_path);
 int create_entry(char *);
 void init_char(struct char_data *);
 void clear_char(struct char_data *, int);

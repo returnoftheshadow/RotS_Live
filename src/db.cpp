@@ -2299,6 +2299,45 @@ void encrypt_line(unsigned char *line, int len);
 
 /* New player save (Fingolfin) under construction */
 
+// Legacy finalize: shell out to rm (glob) + cp, exactly as save_player did historically.
+// Returns true if both system() calls were able to spawn (return code != -1).
+bool finalize_player_file_legacy(const char *scratch_path, const char *base_path,
+                                 const char *versioned_path) {
+    char command[300];
+
+    snprintf(command, sizeof(command), "rm %s.*", base_path);
+    int rc_rm = system(command);
+    snprintf(command, sizeof(command), "cp %s %s", scratch_path, versioned_path);
+    int rc_cp = system(command);
+
+    return (rc_rm != -1) && (rc_cp != -1);
+}
+
+// New finalize: reproduce the legacy "rm <base>.*" glob with a portable directory scan
+// (unlink every entry whose name starts with base_name + '.'), then atomically move the
+// scratch into place with rename(). The dot anchor ensures "bob." never matches "bobby.".
+bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
+                                 const char *base_name, const char *versioned_path) {
+    char prefix[256];
+    snprintf(prefix, sizeof(prefix), "%s.", base_name);
+    size_t prefix_len = strlen(prefix);
+
+    DIR *dir = opendir(dir_path);
+    if (dir != NULL) {
+        struct dirent *entry;
+        char victim[512];
+        while ((entry = readdir(dir)) != NULL) {
+            if (strncmp(entry->d_name, prefix, prefix_len) == 0) {
+                snprintf(victim, sizeof(victim), "%s/%s", dir_path, entry->d_name);
+                unlink(victim);
+            }
+        }
+        closedir(dir);
+    }
+
+    return rename(scratch_path, versioned_path) == 0;
+}
+
 void save_player(struct char_data *ch, int load_room, int index_pos) {
   char name[255];
   char temp[255];

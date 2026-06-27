@@ -169,7 +169,7 @@ pkill.o: ../pkill.cpp ../pkill.h
 
 
 SRCS = CharPlayerDataBuilder.h CharPlayerDataBuilder.cpp ObjFlagDataBuilder.h ObjFlagDataBuilder.cpp \
- 	   obj_flag_data_tests.cpp gtest_main.cpp
+ 	   obj_flag_data_tests.cpp player_finalize_tests.cpp gtest_main.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 EXECUTABLE = ../../bin/tests
