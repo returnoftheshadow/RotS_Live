@@ -30,6 +30,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /**************************************************************************
@@ -2465,9 +2466,15 @@ bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
         return false;
     }
 
-    // 2. Remove any OTHER stale "<base>." entries, leaving the file we just wrote.
-    const std::string prefix = std::string(base_name) + ".";
-    const std::string keep = fs::path(versioned_path).filename().string();
+    // 2. Remove any OTHER stale "<base>." entries, leaving the file we just wrote. Match in
+    //    std::string_view over the iterator's existing path string to avoid per-entry
+    //    temporaries; the only retained allocations are the victim paths actually deleted.
+    const size_t base_len = std::char_traits<char>::length(base_name);
+    const std::string_view versioned_view(versioned_path);
+    const size_t v_slash = versioned_view.find_last_of('/');
+    const std::string_view keep_name =
+        (v_slash == std::string_view::npos) ? versioned_view : versioned_view.substr(v_slash + 1);
+
     std::vector<fs::path> victims;
     fs::directory_iterator it(dir_path, ec);
     if (ec) {
@@ -2477,8 +2484,14 @@ bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
     // Check ec right after each increment: on error libstdc++ resets the iterator to end,
     // so a top-of-loop check would be skipped and the error silently swallowed.
     while (it != end) {
-        const std::string name = it->path().filename().string();
-        if (name != keep && name.compare(0, prefix.size(), prefix) == 0) {
+        const std::string &full = it->path().native(); // reference, no copy (POSIX: char)
+        const size_t slash = full.find_last_of('/');
+        const std::string_view name = (slash == std::string::npos)
+                                          ? std::string_view(full)
+                                          : std::string_view(full).substr(slash + 1);
+        // Matches "<base_name>." and is not the file we just renamed into place.
+        if (name.size() > base_len && name.compare(0, base_len, base_name) == 0 &&
+            name[base_len] == '.' && name != keep_name) {
             victims.push_back(it->path());
         }
         it.increment(ec);
