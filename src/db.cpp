@@ -26,9 +26,11 @@
 #include "big_brother.h"
 #include "char_utils.h"
 #include "skill_timer.h"
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 /**************************************************************************
  *  declarations of most of the 'global' variables                         *
@@ -2416,7 +2418,17 @@ bool write_player_text(struct char_data *ch, int load_room, const char *scratch_
         fprintf(pf, "prof_exp    %d %ld\n", tmp, chd.profs.prof_exp[tmp]);
 
     fprintf(pf, "end\n");
-    fclose(pf);
+
+    // If any write failed or the close failed, the scratch is incomplete. Drop it and
+    // report failure so the caller does not finalize (which would delete the live file).
+    bool write_ok = (ferror(pf) == 0);
+    if (fclose(pf) != 0) {
+        write_ok = false;
+    }
+    if (!write_ok) {
+        remove(scratch_path);
+        return false;
+    }
     return true;
 }
 
@@ -2434,38 +2446,48 @@ bool finalize_player_file_legacy(const char *scratch_path, const char *base_path
     return (rc_rm != -1) && (rc_cp != -1);
 }
 
-// New finalize: reproduce the legacy "rm <base>.*" glob with a portable directory scan
-// (unlink every entry whose name starts with base_name + '.'), then atomically move the
-// scratch into place with rename(). The dot anchor ensures "bob." never matches "bobby.".
+// New finalize, crash-safe ordering: move the new data into place FIRST, then remove the
+// other stale "<base>." files. If the process dies mid-finalize, the freshly written file
+// already exists (worst case: a stale duplicate also lingers and is cleared on the next
+// save) -- never the total loss that delete-then-write risks, since the loader only scans
+// the bucket directory (build_directory, db.cpp) and never consults the scratch. The dot
+// anchor ensures "bob." never matches "bobby.". Uses non-throwing std::error_code overloads.
 bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
                                  const char *base_name, const char *versioned_path) {
-    char prefix[256];
-    snprintf(prefix, sizeof(prefix), "%s.", base_name);
-    size_t prefix_len = strlen(prefix);
+    namespace fs = std::filesystem;
+    std::error_code ec;
 
-    // Treat opendir failure as a hard error: skipping the glob would let a stale,
-    // differently-suffixed file survive while we still claim success.
-    DIR *dir = opendir(dir_path);
-    if (dir == NULL) {
+    // 1. Publish the new file first so a crash here cannot lose the save (atomic move).
+    fs::rename(scratch_path, versioned_path, ec);
+    if (ec) {
         return false;
     }
 
-    struct dirent *entry;
-    char victim[512];
-    while ((entry = readdir(dir)) != NULL) {
-        if (strncmp(entry->d_name, prefix, prefix_len) == 0) {
-            snprintf(victim, sizeof(victim), "%s/%s", dir_path, entry->d_name);
-            // A failed unlink would leave a stale duplicate; report it rather than
-            // returning success with the directory in an inconsistent state.
-            if (unlink(victim) != 0) {
-                closedir(dir);
-                return false;
-            }
+    // 2. Remove any OTHER stale "<base>." entries, leaving the file we just wrote.
+    const std::string prefix = std::string(base_name) + ".";
+    const std::string keep = fs::path(versioned_path).filename().string();
+    std::vector<fs::path> victims;
+    fs::directory_iterator it(dir_path, ec);
+    if (ec) {
+        return false;
+    }
+    const fs::directory_iterator end;
+    for (; it != end; it.increment(ec)) {
+        if (ec) {
+            return false;
+        }
+        const std::string name = it->path().filename().string();
+        if (name != keep && name.compare(0, prefix.size(), prefix) == 0) {
+            victims.push_back(it->path());
         }
     }
-    closedir(dir);
-
-    return rename(scratch_path, versioned_path) == 0;
+    for (const fs::path &victim : victims) {
+        fs::remove(victim, ec);
+        if (ec) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void save_player(struct char_data *ch, int load_room, int index_pos) {
