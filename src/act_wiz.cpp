@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -3823,10 +3824,6 @@ static void sb_remove_dir(const char *dir) {
     fs::remove_all(dir, ec);
 }
 
-// Microseconds elapsed from t0 to t1.
-static long sb_usec_diff(const struct timeval *t0, const struct timeval *t1) {
-    return (long)(t1->tv_sec - t0->tv_sec) * 1000000L + (t1->tv_usec - t0->tv_usec);
-}
 
 ACMD(do_savebench) {
     if (IS_NPC(ch) || !ch->desc) {
@@ -3900,14 +3897,13 @@ ACMD(do_savebench) {
     // ---- Profiling: time ONLY the finalize call; regenerate scratch outside timing. ----
     long lmin = -1, lmax = 0, ltot = 0;
     long nmin = -1, nmax = 0, ntot = 0;
-    struct timeval t0, t1;
 
     for (int i = 0; i < iterations; i++) {
         sb_copy_file(master, legacy_scratch);
-        gettimeofday(&t0, NULL);
+        auto t0 = std::chrono::steady_clock::now();
         finalize_player_file_legacy(legacy_scratch, legacy_base, legacy_versioned);
-        gettimeofday(&t1, NULL);
-        long us = sb_usec_diff(&t0, &t1);
+        auto t1 = std::chrono::steady_clock::now();
+        long us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
         ltot += us;
         if (lmin < 0 || us < lmin) {
             lmin = us;
@@ -3919,10 +3915,10 @@ ACMD(do_savebench) {
 
     for (int i = 0; i < iterations; i++) {
         sb_copy_file(master, new_scratch);
-        gettimeofday(&t0, NULL);
+        auto t0 = std::chrono::steady_clock::now();
         finalize_player_file_rename(new_scratch, new_dir, base_name, new_versioned);
-        gettimeofday(&t1, NULL);
-        long us = sb_usec_diff(&t0, &t1);
+        auto t1 = std::chrono::steady_clock::now();
+        long us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
         ntot += us;
         if (nmin < 0 || us < nmin) {
             nmin = us;
