@@ -3814,11 +3814,15 @@ static int sb_count_files(const char *dir) {
         return -1;
     }
     int count = 0;
-    for (const fs::directory_iterator end; it != end; it.increment(ec)) {
+    const fs::directory_iterator end;
+    // Check ec right after each increment: on error libstdc++ resets the iterator to end,
+    // so a top-of-loop check would be skipped and the failure silently swallowed.
+    while (it != end) {
+        count++;
+        it.increment(ec);
         if (ec) {
             return -1;
         }
-        count++;
     }
     return count;
 }

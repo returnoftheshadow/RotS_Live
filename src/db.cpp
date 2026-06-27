@@ -2452,6 +2452,8 @@ bool finalize_player_file_legacy(const char *scratch_path, const char *base_path
 // save) -- never the total loss that delete-then-write risks, since the loader only scans
 // the bucket directory (build_directory, db.cpp) and never consults the scratch. The dot
 // anchor ensures "bob." never matches "bobby.". Uses non-throwing std::error_code overloads.
+// Return contract: false before the rename means nothing changed; false AFTER the rename
+// means the new file IS written and only stale cleanup failed (a stale duplicate may remain).
 bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
                                  const char *base_name, const char *versioned_path) {
     namespace fs = std::filesystem;
@@ -2472,13 +2474,16 @@ bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
         return false;
     }
     const fs::directory_iterator end;
-    for (; it != end; it.increment(ec)) {
-        if (ec) {
-            return false;
-        }
+    // Check ec right after each increment: on error libstdc++ resets the iterator to end,
+    // so a top-of-loop check would be skipped and the error silently swallowed.
+    while (it != end) {
         const std::string name = it->path().filename().string();
         if (name != keep && name.compare(0, prefix.size(), prefix) == 0) {
             victims.push_back(it->path());
+        }
+        it.increment(ec);
+        if (ec) {
+            return false;
         }
     }
     for (const fs::path &victim : victims) {
