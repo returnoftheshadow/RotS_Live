@@ -1,0 +1,23 @@
+# Dockerized 32-bit build/run for RotS. See docs/BUILD.md.
+#
+#   docker compose build                       # build the i386 toolchain image
+#   docker compose run --rm --service-ports rots   # interactive shell in the repo
+#
+# The repo is bind-mounted at /rots, so build artifacts (bin/ageland, *.o) and any
+# source edits are shared with the host. The game listens on port 1024.
+services:
+  rots:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/386
+    image: rots-dev:bullseye-i386
+    container_name: rots
+    working_dir: /rots
+    volumes:
+      - .:/rots
+    ports:
+      - "1024:1024"
+    stdin_open: true
+    tty: true
+    command: bash
