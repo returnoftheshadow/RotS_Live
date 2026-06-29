@@ -110,3 +110,43 @@ TEST(PlayerFinalize, ByteIdenticalAndSingleFile) {
     rmdir(legacy_dir);
     rmdir(new_dir);
 }
+
+// finalize_save_file (used by the object/rent and exploits saves) must atomically replace
+// the destination with the temp's contents, leaving the destination untouched until the swap.
+TEST(SaveFileFinalize, AtomicReplaceExisting) {
+    write_file("sf_dest", "OLD-CONTENT");
+    write_file("sf_temp", "NEW-CONTENT");
+
+    // Crash-safety: writing the temp does not touch the live file before the swap.
+    EXPECT_EQ(read_file("sf_dest"), "OLD-CONTENT");
+
+    EXPECT_TRUE(finalize_save_file("sf_temp", "sf_dest"));
+
+    EXPECT_EQ(read_file("sf_dest"), "NEW-CONTENT"); // destination swapped to the new content
+    EXPECT_NE(access("sf_temp", F_OK), 0);          // temp consumed by the move
+
+    unlink("sf_dest");
+}
+
+// First save: the destination does not exist yet -- finalize creates it.
+TEST(SaveFileFinalize, CreatesWhenDestAbsent) {
+    unlink("sf_dest2");
+    write_file("sf_temp2", "FRESH");
+
+    EXPECT_TRUE(finalize_save_file("sf_temp2", "sf_dest2"));
+    EXPECT_EQ(read_file("sf_dest2"), "FRESH");
+    EXPECT_NE(access("sf_temp2", F_OK), 0);
+
+    unlink("sf_dest2");
+}
+
+// A missing temp is reported as failure and the existing destination is left intact.
+TEST(SaveFileFinalize, FailsAndPreservesDestWhenTempMissing) {
+    write_file("sf_dest3", "KEEP");
+    unlink("sf_missing_temp");
+
+    EXPECT_FALSE(finalize_save_file("sf_missing_temp", "sf_dest3"));
+    EXPECT_EQ(read_file("sf_dest3"), "KEEP"); // untouched on failure
+
+    unlink("sf_dest3");
+}
