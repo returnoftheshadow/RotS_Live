@@ -138,6 +138,26 @@ FILE* Crash_get_file_by_name(char* name, char* mode)
     return fp;
 }
 
+// Open the player's object file for a full atomic rewrite. Computes the real destination
+// (plrobjs/<bucket>/<name>.obj) plus a sibling ".tmp", opens the TEMP for binary write and
+// returns it. The caller writes the whole file to the temp, then calls finalize_save_file()
+// on success to atomically swap it in -- so a crash mid-write never corrupts the live file.
+static FILE* Crash_open_save_temp(char* name, char* dest_out, size_t dest_sz, char* temp_out,
+    size_t temp_sz)
+{
+    char path[MAX_INPUT_LENGTH];
+    if (!Crash_get_filename(name, path))
+        return 0;
+    snprintf(dest_out, dest_sz, "%s", path);
+    snprintf(temp_out, temp_sz, "%s.tmp", path);
+    FILE* fp = fopen(temp_out, "wb");
+    if (!fp) {
+        log("crashsave: could not open temp save file.");
+        return 0;
+    }
+    return fp;
+}
+
 int Crash_delete_file(char* name)
 {
 
@@ -1091,10 +1111,10 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
     if (IS_NPC(ch))
         return;
 
-    if (!(fp = Crash_get_file_by_name(GET_NAME(ch), "wb"))) {
-        log("Couldn't open save file.");
+    char dest[MAX_INPUT_LENGTH];
+    char temp[MAX_INPUT_LENGTH + 8];
+    if (!(fp = Crash_open_save_temp(GET_NAME(ch), dest, sizeof(dest), temp, sizeof(temp))))
         return;
-    }
     rent.rentcode = rent_code;
 
     rent.time = time(0);
@@ -1121,12 +1141,14 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
     Crash_alias_save(ch, fp);
     Crash_follower_save(ch, fp);
     fclose(fp);
+    finalize_save_file(temp, dest);
     REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
 }
 
 void Crash_idlesave(struct char_data* ch)
 {
     char buf[MAX_INPUT_LENGTH];
+    char temp[MAX_INPUT_LENGTH + 8];
     struct rent_info rent;
     int j;
     int cost;
@@ -1135,9 +1157,7 @@ void Crash_idlesave(struct char_data* ch)
     if (IS_NPC(ch))
         return;
 
-    if (!Crash_get_filename(GET_NAME(ch), buf))
-        return;
-    if (!(fp = fopen(buf, "w+b")))
+    if (!(fp = Crash_open_save_temp(GET_NAME(ch), buf, sizeof(buf), temp, sizeof(temp))))
         return;
 
     Crash_extract_norents(ch->carrying);
@@ -1170,6 +1190,7 @@ void Crash_idlesave(struct char_data* ch)
         }
     Crash_alias_save(ch, fp);
     fclose(fp);
+    finalize_save_file(temp, buf);
 
     Crash_extract_objs(ch->carrying);
 }
@@ -1177,6 +1198,7 @@ void Crash_idlesave(struct char_data* ch)
 void Crash_rentsave(struct char_data* ch, int cost)
 {
     char buf[MAX_INPUT_LENGTH];
+    char temp[MAX_INPUT_LENGTH + 8];
     struct rent_info rent;
     struct obj_data* tmpobj;
     int j;
@@ -1185,9 +1207,7 @@ void Crash_rentsave(struct char_data* ch, int cost)
     if (IS_NPC(ch))
         return;
 
-    if (!Crash_get_filename(GET_NAME(ch), buf))
-        return;
-    if (!(fp = fopen(buf, "w+b")))
+    if (!(fp = Crash_open_save_temp(GET_NAME(ch), buf, sizeof(buf), temp, sizeof(temp))))
         return;
 
     Crash_extract_norents(ch->carrying);
@@ -1219,6 +1239,7 @@ void Crash_rentsave(struct char_data* ch, int cost)
     Crash_follower_save(ch, fp);
     extract_followers(ch);
     fclose(fp);
+    finalize_save_file(temp, buf);
 
     Crash_extract_objs(ch->carrying);
 }
