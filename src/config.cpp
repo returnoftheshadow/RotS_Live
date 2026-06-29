@@ -35,9 +35,10 @@ int average_mob_life = 40;
 sh_int screen_width = 79; /* for line wrapping, if turned on */
 
 /* RENT/CRASHSAVE OPTIONS */
-/* if auto_save (above) is yes, how often (in minutes) should the MUD
-   Crash-save people's objects? */
-int autosave_time = 4;
+/* How often (in SECONDS) should the MUD crash-save connected players? Driven through
+   autosave_interval_pulses(); clamped to a 15s floor. Default 240s == the historical
+   4-minute cadence. */
+int autosave_time = 240;
 
 /* ROOM NUMBERS */
 
