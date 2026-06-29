@@ -2580,8 +2580,20 @@ void save_player(struct char_data *ch, int load_room, int index_pos) {
            (player_table + index_pos)->level, (player_table + index_pos)->race,
            (player_table + index_pos)->idnum, (long)(player_table + index_pos)->log_time,
            (player_table + index_pos)->flags);
-  finalize_player_file_legacy("players/temp", playerfname, versioned);
-  sprintf((player_table + index_pos)->ch_file, "%s", versioned);
+  // Crash-safe finalize: derive the bucket dir ("players/<BUCKET>/<name>" -> "players/<BUCKET>"),
+  // then write-new + atomic-swap + remove stale versions. ch_file is updated only on success, so
+  // a failed finalize leaves it pointing at the previous (still-present) save rather than a gap.
+  char dirpath[100];
+  snprintf(dirpath, sizeof(dirpath), "%s", playerfname);
+  char *dirslash = strrchr(dirpath, '/');
+  if (dirslash) {
+    *dirslash = '\0';
+  }
+  if (finalize_player_file_rename("players/temp", dirpath, name, versioned)) {
+    sprintf((player_table + index_pos)->ch_file, "%s", versioned);
+  } else {
+    log("save_player: could not finalize player file.");
+  }
 }
 
 void save_char(struct char_data *ch, int load_room, int notify_char) {
