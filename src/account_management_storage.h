@@ -27,6 +27,15 @@ bool read_account_file_by_identifier(const std::string& root_directory, const st
 std::string serialize_character_migration_to_json(const CharacterMigrationData& migration);
 bool deserialize_character_migration_from_json(const std::string& json, CharacterMigrationData* migration, std::string* error_message = nullptr);
 
+// Read an entire text file into *contents (POSIX-backed). Exposed for stage-timing the
+// LOAD pipeline's file-read step.
+bool read_text_file(const std::string& path, std::string* contents, std::string* error_message);
+
+// Atomic write: temp(path+".tmp") -> fwrite -> rename. Exposed for stage-timing the SAVE
+// pipeline's disk-write step against a throwaway path.
+bool write_text_file_atomically(const std::string& path, const std::string& text,
+                                std::string* error_message);
+
 } // namespace account
 
 #endif
