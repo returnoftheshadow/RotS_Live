@@ -1141,8 +1141,13 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
     Crash_alias_save(ch, fp);
     Crash_follower_save(ch, fp);
     fclose(fp);
-    finalize_save_file(temp, dest);
-    REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
+    // Only clear the pending-save flag if the atomic swap actually succeeded; otherwise the
+    // live file still holds the older save, so leave PLR_CRASH set to retry next autosave.
+    if (finalize_save_file(temp, dest)) {
+        REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
+    } else {
+        log("Crash_crashsave: could not finalize save file.");
+    }
 }
 
 void Crash_idlesave(struct char_data* ch)
@@ -1190,7 +1195,8 @@ void Crash_idlesave(struct char_data* ch)
         }
     Crash_alias_save(ch, fp);
     fclose(fp);
-    finalize_save_file(temp, buf);
+    if (!finalize_save_file(temp, buf))
+        log("Crash_idlesave: could not finalize save file.");
 
     Crash_extract_objs(ch->carrying);
 }
@@ -1239,7 +1245,8 @@ void Crash_rentsave(struct char_data* ch, int cost)
     Crash_follower_save(ch, fp);
     extract_followers(ch);
     fclose(fp);
-    finalize_save_file(temp, buf);
+    if (!finalize_save_file(temp, buf))
+        log("Crash_rentsave: could not finalize save file.");
 
     Crash_extract_objs(ch->carrying);
 }
