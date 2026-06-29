@@ -25,6 +25,7 @@
 
 extern struct player_index_element* player_table;
 extern struct char_data* character_list;
+extern struct descriptor_data* descriptor_list;
 extern struct room_data world;
 extern FILE* fpCommand;
 extern int iCommands;
@@ -177,6 +178,23 @@ public:
 private:
     player_index_element* m_previous_player_table;
     int m_previous_top_of_p_table;
+};
+
+class ScopedDescriptorListReset {
+public:
+    ScopedDescriptorListReset()
+        : m_previous_descriptor_list(descriptor_list)
+    {
+        descriptor_list = nullptr;
+    }
+
+    ~ScopedDescriptorListReset()
+    {
+        descriptor_list = m_previous_descriptor_list;
+    }
+
+private:
+    descriptor_data* m_previous_descriptor_list;
 };
 
 class ScopedStartRoomOverride {
@@ -351,17 +369,45 @@ void ensure_test_world_room(int room_number)
     world[0].description = strdup("A quiet room used for account-menu tests.\n\r");
 }
 
+void initialize_descriptor(descriptor_data* descriptor)
+{
+    *descriptor = {};
+    descriptor->output = descriptor->small_outbuf;
+    descriptor->small_outbuf[0] = '\0';
+    descriptor->bufptr = 0;
+    descriptor->bufspace = SMALL_BUFSIZE - 1;
+    descriptor->pos = -1;
+    descriptor->connected = CON_ACCTMENU;
+    std::snprintf(descriptor->account_name, sizeof(descriptor->account_name), "%s", "acct");
+}
+
 descriptor_data make_descriptor()
 {
     descriptor_data descriptor {};
-    descriptor.output = descriptor.small_outbuf;
-    descriptor.small_outbuf[0] = '\0';
-    descriptor.bufptr = 0;
-    descriptor.bufspace = SMALL_BUFSIZE - 1;
-    descriptor.pos = -1;
-    descriptor.connected = CON_ACCTMENU;
-    std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
+    initialize_descriptor(&descriptor);
     return descriptor;
+}
+
+descriptor_data* allocate_descriptor()
+{
+    descriptor_data* descriptor = nullptr;
+    CREATE(descriptor, descriptor_data, 1);
+    initialize_descriptor(descriptor);
+    return descriptor;
+}
+
+char_data* attach_active_character(
+    descriptor_data* descriptor, const char* name, int level, long idnum, int race = RACE_HUMAN)
+{
+    char_data* character = new char_data {};
+    clear_char(character, MOB_VOID);
+    character->player.name = strdup(name);
+    character->player.level = level;
+    character->player.race = race;
+    character->specials2.idnum = idnum;
+    character->desc = descriptor;
+    descriptor->character = character;
+    return character;
 }
 
 struct SnoopProbeResult {
@@ -632,6 +678,136 @@ TEST(InterpreAccountMenu, AccountMenuPlayChoiceWritesWhoStyleCharacterPromptToDe
         "\n\rCharacter number: ");
 }
 
+TEST(InterpreAccountMenu, ActiveAccountSessionShowsPlayingLinkedCharacterInAccountMenu)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    char invalid_choice[] = "x";
+    nanny(&descriptor, invalid_choice);
+
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("Active character: Aragorn (level 50, playing)\n\r"), std::string::npos) << output;
+    EXPECT_EQ(output.find("Different character selection is locked"), std::string::npos) << output;
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, ActiveAccountSessionShowsLinklessLinkedCharacterInAccountMenu)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_LINKLS;
+    active_descriptor.descriptor = 0;
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    char invalid_choice[] = "x";
+    nanny(&descriptor, invalid_choice);
+
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("Active character: Aragorn (level 50, linkless)\n\r"), std::string::npos) << output;
+    EXPECT_EQ(output.find("Different character selection is locked"), std::string::npos) << output;
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, ActiveAccountSessionIgnoresOtherAccountUnauthenticatedNpcAndUnlinkedDescriptors)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data other_account_descriptor = make_descriptor();
+    std::snprintf(other_account_descriptor.account_name, sizeof(other_account_descriptor.account_name), "%s", "other");
+    other_account_descriptor.connected = CON_PLYNG;
+    attach_active_character(&other_account_descriptor, "aragorn", 50, 4242);
+
+    descriptor_data unauthenticated_descriptor = make_descriptor();
+    unauthenticated_descriptor.connected = CON_ACCTPWD;
+    attach_active_character(&unauthenticated_descriptor, "aragorn", 50, 4242);
+
+    descriptor_data unlinked_descriptor = make_descriptor();
+    unlinked_descriptor.connected = CON_PLYNG;
+    attach_active_character(&unlinked_descriptor, "boromir", 50, 5252);
+
+    descriptor_data mismatched_owner_descriptor = make_descriptor();
+    mismatched_owner_descriptor.connected = CON_PLYNG;
+    attach_active_character(&mismatched_owner_descriptor, "aragorn", 50, 4242);
+    descriptor_data actual_owner_descriptor = make_descriptor();
+    mismatched_owner_descriptor.character->desc = &actual_owner_descriptor;
+
+    descriptor_data npc_descriptor = make_descriptor();
+    npc_descriptor.connected = CON_PLYNG;
+    attach_active_character(&npc_descriptor, "aragorn", 50, 4242);
+    npc_descriptor.character->specials2.act = MOB_ISNPC;
+
+    descriptor_data null_character_descriptor = make_descriptor();
+    null_character_descriptor.connected = CON_PLYNG;
+
+    other_account_descriptor.next = &unauthenticated_descriptor;
+    unauthenticated_descriptor.next = &unlinked_descriptor;
+    unlinked_descriptor.next = &mismatched_owner_descriptor;
+    mismatched_owner_descriptor.next = &npc_descriptor;
+    npc_descriptor.next = &null_character_descriptor;
+    descriptor_list = &other_account_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    char invalid_choice[] = "x";
+    nanny(&descriptor, invalid_choice);
+
+    const std::string output = descriptor.output;
+    EXPECT_EQ(output.find("Active character:"), std::string::npos) << output;
+    EXPECT_EQ(output.find("Different character selection is locked"), std::string::npos) << output;
+
+    free_char(other_account_descriptor.character);
+    free_char(unauthenticated_descriptor.character);
+    free_char(unlinked_descriptor.character);
+    free_char(mismatched_owner_descriptor.character);
+    npc_descriptor.character->specials2.act = 0;
+    free_char(npc_descriptor.character);
+    other_account_descriptor.character = nullptr;
+    unauthenticated_descriptor.character = nullptr;
+    unlinked_descriptor.character = nullptr;
+    mismatched_owner_descriptor.character = nullptr;
+    npc_descriptor.character = nullptr;
+}
+
 TEST(InterpreAccountMenu, AccountMenuPlayChoiceZeroReturnsToAccountMenu)
 {
     TemporaryDirectory temp_directory;
@@ -665,6 +841,532 @@ TEST(InterpreAccountMenu, AccountMenuPlayChoiceZeroReturnsToAccountMenu)
         "0) Log out\n\r"
         "\n\r"
         "Choice: ");
+}
+
+TEST(InterpreAccountMenu, ActiveLevelNinetyFiveBlocksDifferentLinkedCharacterBeforeSelectionSideEffects)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+    char_file_u legolas = make_stored_character("legolas", 45, RACE_HUMAN);
+    legolas.specials2.idnum = 5252;
+    legolas.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", legolas, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_object_file(".", "acct", "legolas", &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_exploit_file(".", "acct", "legolas", &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 95, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    char selection[] = "2";
+    nanny(&descriptor, selection);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTSLCT);
+    EXPECT_EQ(descriptor.character, nullptr);
+    EXPECT_EQ(descriptor.pos, -1);
+    EXPECT_EQ(top_of_p_table, -1)
+        << "Blocked selection should happen before creating or updating player-table entries.";
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("You are already connected as Aragorn."), std::string::npos) << output;
+    EXPECT_NE(output.find("\n\rCharacter number: "), std::string::npos) << output;
+
+    struct stat file_info {};
+    EXPECT_NE(stat("players", &file_info), 0);
+    EXPECT_NE(stat("plrobjs", &file_info), 0);
+    EXPECT_NE(stat("exploits", &file_info), 0);
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, ActiveOverLevelNinetyFiveStillShowsActiveCharacterWithoutLockMessage)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 96, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    char invalid_choice[] = "x";
+    nanny(&descriptor, invalid_choice);
+
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("Active character: Aragorn (level 96, playing)\n\r"), std::string::npos) << output;
+    EXPECT_EQ(output.find("Different character selection is locked"), std::string::npos) << output;
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, ActiveOverLevelNinetyFiveAllowsDifferentLinkedCharacterSelection)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    static char test_motd[] = "Test MOTD\r\n";
+    ScopedMotdOverride motd_override(test_motd);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    char_file_u aragorn = make_stored_character("aragorn", 96, RACE_HUMAN);
+    aragorn.specials2.idnum = 4242;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", aragorn, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_object_file(".", "acct", "aragorn", &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_exploit_file(".", "acct", "aragorn", &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+    char_file_u legolas = make_stored_character("legolas", 45, RACE_HUMAN);
+    legolas.specials2.idnum = 5252;
+    legolas.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", legolas, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_object_file(".", "acct", "legolas", &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_exploit_file(".", "acct", "legolas", &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 96, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
+    char selection[] = "2";
+    nanny(&descriptor, selection);
+
+    EXPECT_EQ(descriptor.connected, CON_SLCT);
+    ASSERT_NE(descriptor.character, nullptr);
+    ASSERT_NE(descriptor.character->player.name, nullptr);
+    EXPECT_STREQ(descriptor.character->player.name, "legolas");
+    EXPECT_NE(std::string(descriptor.output).find("0) Back to Account Menu.\n\r"), std::string::npos);
+    EXPECT_EQ(std::string(descriptor.output).find("You are already connected as Aragorn."), std::string::npos);
+
+    free_char(descriptor.character);
+    descriptor.character = nullptr;
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, MultipleActiveSessionsShowAllAndLowLevelOneStillRestrictsSelection)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "boromir", 1700010202, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
+
+    descriptor_data high_level_descriptor = make_descriptor();
+    high_level_descriptor.connected = CON_PLYNG;
+    high_level_descriptor.descriptor = 7;
+    attach_active_character(&high_level_descriptor, "aragorn", 96, 4242);
+
+    descriptor_data low_level_descriptor = make_descriptor();
+    low_level_descriptor.connected = CON_PLYNG;
+    low_level_descriptor.descriptor = 8;
+    attach_active_character(&low_level_descriptor, "boromir", 50, 5252);
+    high_level_descriptor.next = &low_level_descriptor;
+    descriptor_list = &high_level_descriptor;
+
+    descriptor_data menu_descriptor = make_descriptor();
+    char invalid_choice[] = "x";
+    nanny(&menu_descriptor, invalid_choice);
+
+    const std::string menu_output = menu_descriptor.output;
+    EXPECT_NE(menu_output.find("Active characters:\n\r"), std::string::npos) << menu_output;
+    EXPECT_NE(menu_output.find("- Aragorn (level 96, playing)\n\r"), std::string::npos) << menu_output;
+    EXPECT_NE(menu_output.find("- Boromir (level 50, playing)\n\r"), std::string::npos) << menu_output;
+    EXPECT_EQ(menu_output.find("Different character selection is locked"), std::string::npos) << menu_output;
+
+    descriptor_data select_descriptor = make_descriptor();
+    select_descriptor.connected = CON_ACCTSLCT;
+    char selection[] = "3";
+    nanny(&select_descriptor, selection);
+
+    EXPECT_EQ(select_descriptor.connected, CON_ACCTSLCT);
+    EXPECT_EQ(select_descriptor.character, nullptr);
+    EXPECT_EQ(select_descriptor.pos, -1);
+    const std::string selection_output = select_descriptor.output;
+    EXPECT_NE(selection_output.find("You are already connected as Boromir."), std::string::npos) << selection_output;
+    EXPECT_NE(selection_output.find("\n\rCharacter number: "), std::string::npos) << selection_output;
+
+    free_char(high_level_descriptor.character);
+    free_char(low_level_descriptor.character);
+    high_level_descriptor.character = nullptr;
+    low_level_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, SelectingSameLinklessActiveCharacterReconnectsExistingBody)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ensure_test_world_room(1200);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    char_file_u aragorn = make_stored_character("aragorn", 95, RACE_HUMAN);
+    aragorn.specials2.idnum = 4242;
+    aragorn.specials2.load_room = 1200;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", aragorn, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_object_file(".", "acct", "aragorn", &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_exploit_file(".", "acct", "aragorn", &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data* active_descriptor = allocate_descriptor();
+    active_descriptor->connected = CON_LINKLS;
+    active_descriptor->descriptor = 0;
+    char_data* active_character = attach_active_character(active_descriptor, "aragorn", 95, 4242);
+    active_character->in_room = 0;
+    register_pc_char(active_character);
+    active_character->next = nullptr;
+    character_list = active_character;
+    descriptor_list = active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
+    char selection[] = "1";
+    nanny(&descriptor, selection);
+
+    EXPECT_EQ(descriptor.connected, CON_PLYNG);
+    EXPECT_EQ(descriptor.character, active_character);
+    EXPECT_EQ(active_character->desc, &descriptor);
+    EXPECT_EQ(descriptor_list, nullptr);
+    EXPECT_NE(std::string(descriptor.output).find("Reconnecting."), std::string::npos);
+
+    character_list = nullptr;
+    free_char(descriptor.character);
+    descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, SelectingSameActivePlayingCharacterUsurpsExistingDescriptor)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ensure_test_world_room(1200);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    char_file_u aragorn = make_stored_character("aragorn", 95, RACE_HUMAN);
+    aragorn.specials2.idnum = 4242;
+    aragorn.specials2.load_room = 1200;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", aragorn, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_object_file(".", "acct", "aragorn", &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_exploit_file(".", "acct", "aragorn", &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    char_data* active_character = attach_active_character(&active_descriptor, "aragorn", 95, 4242);
+    active_character->in_room = 0;
+    register_pc_char(active_character);
+    active_character->next = nullptr;
+    character_list = active_character;
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
+    char selection[] = "1";
+    nanny(&descriptor, selection);
+
+    EXPECT_EQ(descriptor.connected, CON_PLYNG);
+    EXPECT_EQ(descriptor.character, active_character);
+    EXPECT_EQ(active_character->desc, &descriptor);
+    EXPECT_EQ(active_descriptor.connected, CON_CLOSE);
+    EXPECT_EQ(active_descriptor.character, nullptr);
+    EXPECT_NE(std::string(descriptor.output).find("You take over your own body, already in use!"), std::string::npos);
+
+    character_list = nullptr;
+    free_char(descriptor.character);
+    descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuBlocksDifferentActiveLowLevelCharacter)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_SLCT;
+    descriptor.character = new char_data {};
+    clear_char(descriptor.character, MOB_VOID);
+    descriptor.character->player.name = strdup("legolas");
+    descriptor.character->player.level = 45;
+    descriptor.character->specials2.idnum = 5252;
+    descriptor.character->desc = &descriptor;
+    descriptor.pos = 2;
+
+    char enter_choice[] = "1";
+    nanny(&descriptor, enter_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    EXPECT_EQ(descriptor.character, nullptr);
+    EXPECT_EQ(descriptor.pos, -1);
+    EXPECT_EQ(top_of_p_table, -1);
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("You are already connected as Aragorn."), std::string::npos) << output;
+    EXPECT_NE(output.find("Choice: "), std::string::npos) << output;
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, RestrictedActiveCharacterBlocksNewCharacterCreation)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    char new_character_choice[] = "4";
+    nanny(&descriptor, new_character_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("You are already connected as Aragorn."), std::string::npos) << output;
+    EXPECT_EQ(output.find("New character name:"), std::string::npos) << output;
+    EXPECT_NE(output.find("Choice: "), std::string::npos) << output;
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, StaleAccountCreationWizardBlocksBirthWhenLowLevelCharacterBecomesActive)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_CREATE;
+    descriptor.character = new char_data {};
+    clear_char(descriptor.character, MOB_VOID);
+    descriptor.character->player.name = strdup("legolas");
+    descriptor.character->player.race = RACE_HUMAN;
+    descriptor.character->player.sex = SEX_MALE;
+    descriptor.character->desc = &descriptor;
+    descriptor.pos = -1;
+
+    introduce_char(&descriptor);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    EXPECT_EQ(descriptor.character, nullptr);
+    EXPECT_EQ(descriptor.pos, -1);
+    EXPECT_EQ(top_of_p_table, -1)
+        << "Stale creation guard should run before create_entry().";
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("You are already connected as Aragorn."), std::string::npos) << output;
+    EXPECT_NE(output.find("New character creation cancelled."), std::string::npos) << output;
+
+    struct stat file_info {};
+    EXPECT_NE(stat(account::account_character_player_path(".", "acct", "legolas").c_str(), &file_info), 0);
+    EXPECT_NE(stat(account::account_character_object_path(".", "acct", "legolas").c_str(), &file_info), 0);
+    EXPECT_NE(stat(account::account_character_exploits_path(".", "acct", "legolas").c_str(), &file_info), 0);
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, StaleAccountCreationWizardCannotOverwriteSameNameActiveCharacterAssets)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    char_file_u stored_aragorn = make_stored_character("aragorn", 50, RACE_HUMAN);
+    stored_aragorn.specials2.idnum = 4242;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", stored_aragorn, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_object_file(".", "acct", "aragorn", &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_exploit_file(".", "acct", "aragorn", &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_CREATE;
+    descriptor.character = new char_data {};
+    clear_char(descriptor.character, MOB_VOID);
+    descriptor.character->player.name = strdup("aragorn");
+    descriptor.character->player.race = RACE_HUMAN;
+    descriptor.character->player.sex = SEX_MALE;
+    descriptor.character->desc = &descriptor;
+    descriptor.pos = -1;
+
+    introduce_char(&descriptor);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    EXPECT_EQ(descriptor.character, nullptr);
+    EXPECT_EQ(descriptor.pos, -1);
+    EXPECT_EQ(top_of_p_table, -1)
+        << "Stale same-name creation guard should run before create_entry().";
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("That character name is already linked to an account."), std::string::npos) << output;
+    EXPECT_NE(output.find("New character creation cancelled."), std::string::npos) << output;
+
+    char_file_u reloaded_aragorn {};
+    ASSERT_TRUE(account::read_account_character_file(".", "acct", "aragorn", &reloaded_aragorn, &error_message)) << error_message;
+    EXPECT_EQ(reloaded_aragorn.specials2.idnum, stored_aragorn.specials2.idnum);
+    struct stat file_info {};
+    EXPECT_EQ(stat(account::account_character_object_path(".", "acct", "aragorn").c_str(), &file_info), 0);
+    EXPECT_EQ(stat(account::account_character_exploits_path(".", "acct", "aragorn").c_str(), &file_info), 0);
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(InterpreAccountMenu, RestrictedActiveCharacterStillAllowsListResetAndLogout)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("aragorn", 50, RACE_HUMAN), &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data list_descriptor = make_descriptor();
+    char list_choice[] = "1";
+    nanny(&list_descriptor, list_choice);
+    EXPECT_EQ(list_descriptor.connected, CON_ACCTMENU);
+    std::string output = list_descriptor.output;
+    EXPECT_NE(output.find("\n\rLinked characters:\n\r"), std::string::npos) << output;
+    EXPECT_NE(output.find("1) [ 50 Hum] Aragorn"), std::string::npos) << output;
+    EXPECT_NE(output.find("Active character: Aragorn (level 50, playing)\n\r"), std::string::npos) << output;
+
+    descriptor_data reset_descriptor = make_descriptor();
+    char reset_choice[] = "5";
+    nanny(&reset_descriptor, reset_choice);
+    EXPECT_EQ(reset_descriptor.connected, CON_ACCTRESETOLD);
+    EXPECT_NE(std::string(reset_descriptor.output).find("Current account password: "), std::string::npos);
+
+    descriptor_data link_descriptor = make_descriptor();
+    char link_choice[] = "3";
+    nanny(&link_descriptor, link_choice);
+    EXPECT_EQ(link_descriptor.connected, CON_ACCTLINKNAME);
+    EXPECT_NE(std::string(link_descriptor.output).find("Legacy character name: "), std::string::npos);
+
+    descriptor_data logout_descriptor = make_descriptor();
+    char logout_choice[] = "0";
+    nanny(&logout_descriptor, logout_choice);
+    EXPECT_EQ(logout_descriptor.connected, CON_NME);
+    EXPECT_STREQ(logout_descriptor.account_name, "");
+    EXPECT_STREQ(logout_descriptor.account_email, "");
+    EXPECT_NE(std::string(logout_descriptor.output).find("Account email: "), std::string::npos);
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
 }
 
 TEST(InterpreAccountMenu, AccountMenuLinkChoiceUsesPlayerFacingSuccessMessage)
@@ -2758,7 +3460,7 @@ TEST(InterpreAccountMenu, IntroduceCharRollbackDoesNotLeaveLegacyOrAccountNative
     descriptor.character = nullptr;
 }
 
-TEST(InterpreAccountMenu, IntroduceCharRollbackAfterLinkFailureRemovesWrittenAccountNativeFiles)
+TEST(InterpreAccountMenu, IntroduceCharRejectsNameLinkedToAnotherAccountBeforeWritingAssets)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -2770,6 +3472,7 @@ TEST(InterpreAccountMenu, IntroduceCharRollbackAfterLinkFailureRemovesWrittenAcc
     ensure_test_world_room(1200);
     create_entry(const_cast<char*>("existingplayer"));
     create_entry(const_cast<char*>("secondplayer"));
+    const int top_of_p_table_before_birth = top_of_p_table;
     static char test_motd[] = "Test MOTD\r\n";
     ScopedMotdOverride motd_override(test_motd);
 
@@ -2806,8 +3509,14 @@ TEST(InterpreAccountMenu, IntroduceCharRollbackAfterLinkFailureRemovesWrittenAcc
 
     introduce_char(&descriptor);
 
-    EXPECT_EQ(descriptor.connected, CON_CLOSE);
-    EXPECT_NE(std::string(descriptor.output).find("rolled back"), std::string::npos);
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    EXPECT_EQ(descriptor.character, nullptr);
+    EXPECT_EQ(descriptor.pos, -1);
+    EXPECT_EQ(top_of_p_table, top_of_p_table_before_birth)
+        << "Linked-name rejection should run before create_entry().";
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("That character name is already linked to an account."), std::string::npos) << output;
+    EXPECT_NE(output.find("New character creation cancelled."), std::string::npos) << output;
 
     struct stat file_info {};
     EXPECT_NE(stat("players", &file_info), 0);
@@ -2842,13 +3551,6 @@ TEST(InterpreAccountMenu, IntroduceCharRollbackAfterLinkFailureRemovesWrittenAcc
     ASSERT_EQ(preserved_owner_exploits.size(), 1u);
     EXPECT_EQ(preserved_owner_exploits[0].type, EXPLOIT_LEVEL);
     EXPECT_EQ(preserved_owner_exploits[0].iIntParam, 20);
-
-    ASSERT_GE(descriptor.pos, 0);
-    EXPECT_TRUE(IS_SET(player_table[descriptor.pos].flags, PLR_DELETED));
-    EXPECT_EQ(player_table[descriptor.pos].ch_file[0], '\0');
-
-    free_char(descriptor.character);
-    descriptor.character = nullptr;
 }
 
 TEST(InterpreAccountMenu, AdvanceLevelStillPersistsWhenAccountOwnershipLookupFails)

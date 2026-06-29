@@ -1306,6 +1306,65 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
         expect_account_character_links(account_file, [play_character_name.lower(), legacy_character_name.lower()])
         expect_account_native_character_assets(account_file, legacy_character_name)
 
+        with socket.create_connection((LOOPBACK_HOST, args.proxy_port), timeout=5) as active_sock:
+            active_reader = BufferedPromptReader(active_sock)
+            active_reader.recv_until(["Account email:"], 8.0)
+            send_line(active_sock, account_email)
+
+            active_reader.recv_until(["Account password:"], 8.0)
+            send_line(active_sock, DEFAULT_RESET_PASSWORD)
+
+            wait_for_account_menu(active_reader, 8.0)
+            send_line(active_sock, "2")
+
+            active_reader.recv_until(["Character number:"], 8.0)
+            send_line(active_sock, "1")
+
+            wait_for_character_menu(active_reader, 8.0)
+            send_line(active_sock, "1")
+            active_reader.recv_until(["Here we go..."], 8.0)
+
+            with socket.create_connection((LOOPBACK_HOST, args.proxy_port), timeout=5) as second_sock:
+                second_reader = BufferedPromptReader(second_sock)
+                second_reader.recv_until(["Account email:"], 8.0)
+                send_line(second_sock, account_email)
+
+                second_reader.recv_until(["Account password:"], 8.0)
+                send_line(second_sock, DEFAULT_RESET_PASSWORD)
+
+                second_menu = wait_for_account_menu(second_reader, 8.0)
+                require_markers(
+                    second_menu,
+                    [
+                        f"Active character: {play_character_name[:1].upper() + play_character_name[1:].lower()}",
+                    ],
+                    "Second account login active-character menu",
+                )
+                send_line(second_sock, "2")
+
+                second_reader.recv_until(["Character number:"], 8.0)
+                send_line(second_sock, "2")
+                blocked_selection = second_reader.recv_until(["Character number:"], 8.0)
+                require_markers(
+                    blocked_selection,
+                    [
+                        f"You are already connected as {play_character_name[:1].upper() + play_character_name[1:].lower()}.",
+                        "Linked characters for your account:",
+                        "Character number:",
+                    ],
+                    "Second account login blocked different-character selection",
+                )
+
+                send_line(second_sock, "1")
+                usurp_output = second_reader.recv_until(["You take over your own body, already in use!"], 8.0)
+                require_markers(
+                    usurp_output,
+                    ["You take over your own body, already in use!"],
+                    "Second account login same-character reconnect",
+                )
+                send_line(second_sock, "quit")
+                second_reader.recv_until(["As you quit, all your posessions drop to the ground!", "Goodbye"], 8.0)
+
         with socket.create_connection((LOOPBACK_HOST, args.proxy_port), timeout=5) as sock:
             reader = BufferedPromptReader(sock)
             reader.recv_until(["Account email:"], 8.0)
@@ -1399,7 +1458,7 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
                 raise RuntimeError("Deleted character still appeared in the final linked-character list.")
 
         print(
-            "Smoke test passed: create -> verify -> login -> list -> reset password -> re-login -> create play character -> account-backed play -> save color persistence -> relogin color verification -> link legacy character -> account-backed legacy play -> create delete character -> delete back to account menu -> relogin-roster-check succeeded."
+            "Smoke test passed: create -> verify -> login -> list -> reset password -> re-login -> create play character -> account-backed play -> save color persistence -> relogin color verification -> link legacy character -> second-login active-character guard -> account-backed legacy play -> create delete character -> delete back to account menu -> relogin-roster-check succeeded."
         )
         passed = True
         return 0

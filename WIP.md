@@ -1,6 +1,60 @@
 # Work In Progress
 
 ## Current Status
+- Active slice in progress: add an immortal account command to unlock linked-character selection for a stuck active account session.
+- Planned command behavior:
+  - add `account unlockselect <email-or-account>` to the existing `LEVEL_GRGOD` account-management command surface
+  - grant a runtime-only, account-scoped, one-shot linked-character selection unlock
+  - require the account to currently have a restricting active linked character session before granting the unlock
+  - let linked-character selection and the final account-backed character-menu entry guard honor the unlock
+  - keep new-character creation and stale account-backed birth blocked even when an unlock is pending
+  - consume the unlock when it is used to pass the final character-entry guard
+- Follow-up complete: suppress the account-menu level-95 lock hint while keeping active-character display and blocked-action enforcement intact.
+- Current follow-up changes:
+  - removed the "Different character selection is locked until ... is over level 95" line from the account menu active-session status
+  - kept the blocked-selection message shown when a player actually tries to enter as a different restricted character
+  - updated focused unit and smoke expectations to assert the menu only shows the active character, not the lock hint
+- Current follow-up validation:
+  - `clang-format -i -style=WebKit src/interpre.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `69` tests
+  - `python3 -m py_compile tools/account_smoke.py tools/account_smoke_tests.py` passed
+  - `python3 tools/account_smoke_tests.py` passed at `51` tests
+  - `git diff --check` passed
+  - `make test` passed unsandboxed at `497/497` tests
+  - `make smoke-account` passed with the menu hint removed and blocked-selection enforcement intact
+- Current follow-up reviewer status:
+  - `Magus`: clear; residual risk is only that smoke does not explicitly assert absence of the removed hint, while unit tests do
+  - `Vincent`: clear; the removal is UI-only and blocked paths still send the enforcement message
+  - `Bazarat`: clear; menu omission and active-character display are unit-covered, and smoke still covers second-login enforcement
+- Active slice complete: active account-session/reconnect guard is implemented for account-backed character selection.
+- Completed in this slice:
+  - reviewed the current account menu, linked-character selection, reconnect, linkless descriptor, and `whoacct` account-session code paths
+  - added the requested active account-session behavior and implementation checklist to `FEATURES.md`
+  - added an account-scoped active-session helper that scans `descriptor_list` for same-account linked characters in `CON_PLYNG` and `CON_LINKLS`
+  - updated the account menu to show the active linked character and whether it is playing or linkless
+  - blocked selecting a different linked character and blocked new-character creation while the active account character is level 95 or below
+  - kept same-character reconnect/usurp behavior intact, including the second-session takeover path
+  - addressed review findings by adding guard rechecks for descriptors already sitting at the account-backed character menu or the final account-backed character birth path
+  - tightened active-session discovery so a character must point back to the descriptor that claims it
+  - preserved the over-level-95 exception so a different linked character can still be selected when the active character is level 96 or higher
+  - made the restricted-linking decision explicit: account-menu legacy linking remains allowed because it changes the roster but does not enter the game as another character
+  - expanded `InterpreAccountMenu` coverage for active playing/linkless display, false-positive descriptor filtering, descriptor/character back-pointer mismatches, level 95 vs 96 behavior, plural active-session display/restriction, side-effect-free blocking, same-character usurp, linkless reconnect/descriptor cleanup, stale character-menu and stale creation-wizard races, new-character blocking, and list/reset/link/logout allowance
+  - updated the duplicate-owner account-backed birth regression to assert the new fail-early behavior, so an already-linked name is rejected before player-index or account-native asset writes
+  - expanded `make smoke-account` so the proxy-backed flow opens a second account connection while the low-level account-born character is active, proves the different linked character is blocked, and then reconnects the same active character
+- Validation for this slice:
+  - `clang-format -i -style=WebKit src/interpre.cpp src/tests/interpre_account_menu_tests.cpp`
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `69` tests
+  - `python3 -m py_compile tools/account_smoke.py tools/account_smoke_tests.py` passed
+  - `python3 tools/account_smoke_tests.py` passed at `51` tests
+  - `git diff --check` passed
+  - `make test` passed unsandboxed at `497/497` tests
+  - `make smoke-account` passed with the new second-login active-character guard flow
+- Reviewer status:
+  - `Magus`: clear; noted that live smoke covers second-connection usurp while linkless reconnect is unit-covered
+  - `Vincent`: clear; duplicate-owner stale birth, descriptor filtering, staged cleanup, and same-character reconnect boundaries are acceptable
+  - `Bazarat`: clear; unit coverage covers the linkless path, with residual risk limited to no full socket-drop e2e for `CON_LINKLS`
 - Active slice complete: legacy account-link object conversion accepts older save files without follower sections.
 - Completed in this slice:
   - `maga` legacy linking reaches object migration and fails with `Truncated objects data while reading follower record.`

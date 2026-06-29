@@ -36,6 +36,18 @@ I'd currently like to add an account management system to the game. Accounts sho
    - each character should likewise have its own dedicated `objects.json` file and `exploits.json` file
    - the account file should reference that character's separate files so an operator can inspect the account file and see exactly which assets are linked
    - legacy `lib/players`, `lib/plrobjs`, and `lib/exploits` files should be treated as migration/backward-compatibility inputs, not the authoritative home for newly created account characters
+13. Active account-session/reconnect rule:
+   - if an authenticated account already has a character still connected to the game, the account menu should show which linked character is currently active
+   - this must cover both linkless characters left in-game after a socket disconnect and a second connection to the same account while another descriptor is actively playing
+   - while the active character is not over level 95, the account must not be able to enter the game as a different character
+   - treat "over level 95" as `GET_LEVEL(active_character) > 95`; level 95 and below remain restricted
+   - the account should still be able to resume or reconnect to that same active character through the existing character reconnect behavior
+   - if the active character is over level 95, selecting another linked character remains allowed
+14. Administrator active-session unlock rule:
+   - high-level account administrators need an `account unlockselect <email-or-account>` style command for cases where a low-level linked character is stuck active and blocks the account from selecting another character
+   - the unlock should be account-scoped, runtime-only, and one-shot so it fixes the stuck-session case without permanently weakening the active-session guard
+   - the unlock should allow linked-character selection only; it must not unlock account-menu new-character creation
+   - the command should only grant an unlock when the account currently has a restricting active linked character session, and it should be logged like the other immortal account-management commands
 
 ## Execution Breakdown
 
@@ -199,6 +211,56 @@ Proposed implementation slices:
   Update: account-menu new-character creation now smoke-tests cleanly against the account-backed play path because migration resolves the real versioned player-save filename written by fresh character creation.
   Update: account-backed selection now prefers direct `character.json` load and only falls back to migration when the authoritative account-native character file is absent.
 
+- [x] Implement active account-session/reconnect guard:
+  - Add an account-scoped active-session lookup for the live descriptor list:
+    - match the authenticated normalized account on descriptors with the same account identity
+    - ignore the current descriptor and unauthenticated/login-in-progress descriptors
+    - include descriptors in `CON_PLYNG` so a second account connection sees an already-playing character
+    - include descriptors in `CON_LINKLS` so a reconnect after a dropped socket sees the linkless character still in-game
+    - require a live non-NPC character and verify that character is still linked to the authenticated account before treating it as the account's active character
+    - return the active character name, level, connection state (`playing` vs `linkless`), and whether selecting a different character is allowed
+  - Update the account menu display:
+    - show the currently active linked character when one exists, including enough state for the player to understand whether it is still playing or linkless
+    - keep the normal linked-character count and menu options visible
+    - do not show the level-95 lock hint in the account menu when no over-level-95 choice is relevant; keep the menu focused on which character is active
+  - Gate account-menu actions while an active character is level 95 or below:
+    - allow listing linked characters, password reset, and logout
+    - allow selecting/resuming the same active character so the existing reconnect/usurp path can take over that body
+    - reject selecting any different linked character with a clear message and return to the account menu or account character prompt
+    - reject account-menu new-character creation because it would enter the game as a different character
+    - allow adding/linking an existing character while restricted because it changes the account roster but does not enter the game as another character
+  - Preserve high-level exception behavior:
+    - when the active character is over level 95, keep the existing ability to select a different linked character
+    - still show the active character in the account menu so the player understands that another body is in-game
+  - Keep existing same-character reconnect semantics intact:
+    - do not duplicate live `char_data` records for the same active character
+    - continue to close or usurp the old descriptor using the current `complete_existing_character_login(...)` / `CON_SLCT` reconnect logic
+    - preserve account fields on the new descriptor so returning to the account menu still works after reconnect
+  - Add focused unit coverage, with `Bazarat` pressure-testing the cases:
+    - account menu shows an active linked character for a `CON_PLYNG` descriptor on the same account
+    - account menu shows an active linked character for a `CON_LINKLS` descriptor on the same account
+    - active sessions from another account, unauthenticated descriptors, NPCs, and unlinked characters are ignored
+    - a level-95-or-below active character blocks selection of a different linked character
+    - the same active character can still be selected to reconnect
+    - an over-level-95 active character does not block selecting a different linked character
+    - restricted accounts cannot create a new character from the account menu
+    - selected-character failures leave descriptor state clean and do not strand staged account/object data
+  - Add smoke/e2e coverage after the unit path is stable:
+    - extend `make smoke-account` or add a targeted proxy-backed flow with two simultaneous connections to the same account
+    - prove a second login sees the active character and cannot enter a different low-level character
+    - prove reconnecting the same linkless account-backed character succeeds without corrupting account-native character/object/exploit storage
+  Status: account-menu display and linked-character selection now scan live descriptors for same-account linked characters in `CON_PLYNG` and `CON_LINKLS`, show the active character in the account menu without a level-95 lock hint, block different-character selection and new-character creation while the active character is level 95 or below, recheck stale character-menu and creation-wizard states before entering/birthing a character, preserve same-character reconnect/usurp behavior, and allow different-character selection when the active character is over level 95. Focused unit coverage pins playing vs linkless display, absence of the menu lock hint, false-positive descriptor filtering, the level 95/96 boundary, same-character usurp and linkless reconnect, side-effect-free blocking, stale-state races, and allowed list/reset/link/logout actions. The proxy-backed account smoke now includes a two-connection guard flow that proves a second login sees the active character, blocks selecting a different low-level character, and can reconnect the same active character.
+
+- [ ] Add administrator account-selection unlock:
+  - Add `account unlockselect <email-or-account>` to the existing high-level account-management command surface.
+  - Reuse the current account identifier lookup so either email or internal account name works.
+  - Grant only a runtime, account-scoped, one-shot linked-character selection unlock.
+  - Refuse to grant an unlock if the account does not currently have a restricting active linked character session.
+  - Make linked-character selection and stale account-backed character-menu entry honor the unlock.
+  - Keep account-menu new-character creation and stale character birth blocked even when an unlock is pending.
+  - Consume the unlock when the account uses it to pass the final account-backed character-menu entry guard.
+  - Log the administrative grant and add focused unit coverage for command behavior, unlock consumption, non-use when no restriction exists, and the new-character non-bypass.
+
 - [ ] Handle migration and backward compatibility:
   - New characters created through the account flow must be created directly under account-owned JSON storage, not legacy player/object/exploit files.
   - Decide how renamed/deleted characters affect linked account data.
@@ -329,6 +391,7 @@ Proposed implementation slices:
 5. Build the account menu, password reset flow, and simple character listing.
 6. Implement character link + migration flow plus their unit tests.
 7. Wire play-character and new-character creation into the account menu flow plus unit tests where practical.
-8. Replace new-character legacy birth writes with direct account-native JSON persistence for `character.json` / `objects.json` / `exploits.json`.
-9. Implement administrator account-management tools plus their unit tests.
-10. Add docs, smoke tests, and close any remaining test gaps.
+8. Implement the active account-session/reconnect guard so second logins and linkless reconnects cannot branch into another low-level character.
+9. Replace new-character legacy birth writes with direct account-native JSON persistence for `character.json` / `objects.json` / `exploits.json`.
+10. Implement administrator account-management tools plus their unit tests.
+11. Add docs, smoke tests, and close any remaining test gaps.
