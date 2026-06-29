@@ -24,6 +24,7 @@
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
+#include "crashsave_schedule.h"
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
@@ -688,7 +689,8 @@ void game_loop(SocketType s)
     char* pptr;
     struct descriptor_data *point, *next_point;
     struct char_data *wait_ch, *wait_tmp;
-    int mins_since_crashsave = 0, mask;
+    int mask;
+    AutosaveTimer autosave_timer;
     int sockets_connected, sockets_playing;
     int tmp, was_updated;
     char disp, tmpflag;
@@ -1044,12 +1046,11 @@ void game_loop(SocketType s)
 
         msdp_update();
 
-        if (!(pulse % (60 * 4))) /* one minute */
-        {
-            if (++mins_since_crashsave >= autosave_time) {
-                mins_since_crashsave = 0;
-                Crash_save_all();
-            }
+        // Periodic crash-save snapshot cadence, driven by the configurable seconds interval
+        // (autosave_time) through the unit-tested scheduler. Default 240s == 960 pulses ==
+        // the historical 4-minute cadence. Crash_save_all itself is unchanged here.
+        if (autosave_timer.tick(autosave_interval_pulses(autosave_time, TICS_PER_SECOND))) {
+            Crash_save_all();
         }
 
         if (!(pulse % 4)) {
