@@ -23,6 +23,72 @@
 
 ---
 
+## Verification convention (READ FIRST)
+
+All builds/tests run in the **i386 Docker container** via the wrapper:
+
+```bash
+scripts/rots-docker.sh test --gtest_filter=<Filter>
+```
+
+This builds `ageland`/`ageland_tests` in the container and then runs `./bin/tests` with the given args. **Wherever a task step says `make test` (meaning "build") or `./bin/tests --gtest_filter=X`, run it as `scripts/rots-docker.sh test --gtest_filter=X`.** (Do not use `ctest`/`make test`'s test phase: `gtest_discover_tests` PRE_TEST mode finds 0 tests under the container's cmake 3.18 — harmless, but it means ctest never runs anything. The binary runs fine directly.)
+
+**Known 32-bit baseline — NOT regressions.** The i386 image builds the test binary 32-bit; CI builds `ageland_tests` 64-bit (no `-m32` on that target, lines 155-174 of `src/CMakeLists.txt`). So **~163 pre-existing tests fail in the container purely on 32-bit-vs-64-bit expectation differences** (integer ranges, `size_t`/`long` width, RNG scaling) in suites this plan does NOT touch (`JsonUtils`, `OlogHai*`, `TestRandomUtils`, the account-native-JSON `DbLoader` tests, …). They are green on CI's 64-bit runner. **Do not try to "fix" them.**
+
+**The gate is therefore per-test, not per-suite.** Each task verifies (a) its NEW filtered tests pass, and (b) the SPECIFIC named existing tests it touches still pass. Recorded 32-bit baselines for the tests this plan touches (confirmed):
+- Component A (`save_player`) regression → **`DbLoader.LegacyPlayerText*`** (3 tests) — all PASS on 32-bit. Gate Task 4 on this filter, NOT the whole `DbLoader` suite (27/36 of which fail on 32-bit for unrelated int-parsing reasons).
+- New suites this plan adds — `PlayerFinalize.*`, `CrashsaveSchedule.*`, `SaveBenchmark.*` — are not 32-bit-sensitive and must pass.
+
+A task is "green" when its new tests pass and its named touched tests still pass — ignore the unrelated 32-bit baseline failures.
+
+---
+
+## Task 0: Fix the local Docker build environment (prerequisite for all verification)
+
+**Why:** The plan's TDD steps verify via `make test` (CMake + GoogleTest), which CI runs on a native Ubuntu multilib runner. Locally on Apple Silicon the only `-m32` path is the i386 Docker image, but its `Dockerfile` shipped only `g++ make` (no `cmake`/`libgtest-dev`) and `scripts/rots-docker.sh` drove the legacy `src/Makefile` — so the gtest suite could not be built or run locally. This task makes the container able to run `make test`.
+
+**Files:**
+- Modify: `Dockerfile`
+- Modify: `scripts/rots-docker.sh`
+
+- [ ] **Step 1: Add the CMake/GTest build deps to the image** — in `Dockerfile`, extend the `apt-get install` line (the i386 base needs no multilib):
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        g++ make cmake libgtest-dev libcrypt-dev pkg-config telnet procps ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+- [ ] **Step 2: Add a `test` wrapper command** — in `scripts/rots-docker.sh`, add a case driving the CMake flow:
+
+```bash
+  test)
+    # CMake build of ageland + ageland_tests, then ctest. Matches the CI test path.
+    docker compose run --rm rots bash -lc 'cd /rots && make test'
+    ;;
+```
+
+(and add `test` to the usage comment and the unknown-command hint).
+
+- [ ] **Step 3: Build the image**
+
+Run: `docker compose build`
+Expected: the i386 image builds with cmake + libgtest-dev installed (QEMU-emulated on Apple Silicon; first build is slow).
+
+- [ ] **Step 4: Confirm the gtest binary builds and runs (record the 32-bit baseline)**
+
+Run: `scripts/rots-docker.sh test --gtest_filter=DbLoader.LegacyPlayerText*`
+Expected: CMake configures, `ageland` + `ageland_tests` compile (slow first time under QEMU), and the 3 `DbLoader.LegacyPlayerText*` tests PASS. (A full `scripts/rots-docker.sh test` run shows ~163 of 497 failing — the documented 32-bit baseline from the Verification convention, NOT a regression.) This confirms the per-test gate works for the suites this plan touches.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Dockerfile scripts/rots-docker.sh
+git commit -m "build: make the i386 Docker image run the CMake/gtest suite (make test)"
+```
+
+---
+
 ## Task 1: Prep — markers, gitignore, clean build
 
 **Files:**
@@ -413,8 +479,8 @@ If the fixture lacks a counter helper, add a small local one (same `opendir` pat
 
 - [ ] **Step 2: Run it to verify the new assertion is exercised (and currently passes on the pre-rewire body)**
 
-Run: `./bin/tests --gtest_filter=*SavePlayer*` (use the existing test's suite/name)
-Expected: builds and runs; the new count assertion passes (legacy `system("cp")` also leaves one file in the clean fixture). This pins behavior before the swap.
+Run: `scripts/rots-docker.sh test --gtest_filter=DbLoader.LegacyPlayerText*`
+Expected: builds and runs; the 3 `DbLoader.LegacyPlayerText*` tests pass and the new count assertion passes (legacy `system("cp")` also leaves one file in the clean fixture). This pins behavior before the swap. (The `save_player` call lives in a shared helper used by these three tests — `db_loader_tests.cpp:361`.)
 
 - [ ] **Step 3: Replace `save_player`'s body with the atomic finalize**
 
@@ -482,8 +548,7 @@ Near db.cpp's other local includes, add:
 
 - [ ] **Step 5: Build and run the save tests (Docker)**
 
-Run: `make test`
-Then: `./bin/tests --gtest_filter=*SavePlayer*:PlayerFinalize.*`
+Run: `scripts/rots-docker.sh test --gtest_filter=DbLoader.LegacyPlayerText*:PlayerFinalize.*`
 Expected: PASS — round-trip identical, exactly one file remains.
 
 - [ ] **Step 6: Commit**
