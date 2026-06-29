@@ -20,7 +20,7 @@ crashsave_schedule.o : ../crashsave_schedule.cpp ../crashsave_schedule.h
 	$(CXX) -c $(CXXFLAGS) ../crashsave_schedule.cpp
 
 comm.o : ../comm.cpp ../structs.h ../utils.h ../comm.h ../interpre.h ../handler.h ../db.h \
-	../limits.h ../clock.h
+	../limits.h ../clock.h ../crashsave_schedule.h
 	$(CXX) -c $(CXXFLAGS) $(COMMFLAGS) ../comm.cpp
 char_utils.o : ../char_utils.cpp ../base_utils.h ../char_utils.h ../object_utils.h \
 	../environment_utils.h ../structs.h ../handler.h

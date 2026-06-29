@@ -11,6 +11,7 @@ TEST(CrashsaveSchedule, IntervalPulsesClampsNonPositive) {
     EXPECT_EQ(autosave_interval_pulses(0, 4), 4);   // seconds clamped to >= 1
     EXPECT_EQ(autosave_interval_pulses(-5, 4), 4);
     EXPECT_EQ(autosave_interval_pulses(30, 0), 30); // tics clamped to >= 1
+    EXPECT_EQ(autosave_interval_pulses(0, 0), 1);   // both args clamped -> 1*1 = 1
 }
 
 TEST(CrashsaveSchedule, TimerFiresOnIntervalAndResets) {
@@ -34,4 +35,5 @@ TEST(CrashsaveSchedule, TimerIntervalOfOneFiresEveryPulse) {
 TEST(CrashsaveSchedule, TimerClampsNonPositiveInterval) {
     AutosaveTimer t;
     EXPECT_TRUE(t.tick(0)); // clamped to 1 -> fires every pulse
+    EXPECT_TRUE(t.tick(0)); // still fires every pulse after clamped reset
 }
