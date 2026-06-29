@@ -1301,10 +1301,6 @@ void group_gain(char_data* killer, char_data* dead_man)
         player_spec::wild_fighting_handler wild_fighting(character);
         wild_fighting.on_unit_killed(dead_man);
 
-        /* save only 10% of the time to avoid lag in big groups */
-        if (number(0, 9) == 0) {
-            save_char(character, NOWHERE, 1);
-        }
     }
 }
 
