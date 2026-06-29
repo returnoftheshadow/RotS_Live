@@ -1696,6 +1696,13 @@ void Crash_save_all(void)
     // re-converge next cycle (Crash_crashsave clears PLR_CRASH only on success); it
     // never aborts the whole batch.
     for (d = descriptor_list; d; d = d->next) {
+        // CON_PLYNG only -- link-dead (CON_LINKLS) players are deliberately excluded.
+        // RotS does NOT null ch->desc on link-loss (the detach in close_socket is
+        // commented out) and the descriptor lingers in descriptor_list, so save_char
+        // would in fact work for them; this exclusion is a design choice, not a
+        // limitation. A link-dead character is on its way out -- it was already saved
+        // at link-loss (close_socket), and its death/idle-out paths save it directly --
+        // so it does not need to ride along in the periodic snapshot.
         if ((d->connected == CON_PLYNG) && !IS_NPC(d->character)) {
             Crash_crashsave(d->character);
             save_char(d->character, NOWHERE, 0);

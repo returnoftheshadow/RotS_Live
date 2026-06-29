@@ -78,7 +78,7 @@ Leave it best-effort and per-player. It runs from `SIGSEGV/SIGBUS` signal handle
 |---|---|
 | A player's save fails mid-cycle (missing bucket dir, disk error) | Skip + log loudly with the player name; continue; player re-converges next cycle. |
 | One of a player's two files commits, the other fails (char rename OK, object rename fails — different buckets/dirs) | Accepted residual: that one player is internally split for one cycle (char at T, objects at T−1). Log the partial failure; the player re-converges next cycle. Rare (rename failure, not a crash); same risk class as the accepted crash-mid-rename window. |
-| Link-dead participant (no `descriptor`) | Not saved by `descriptor_list` iteration → restored to their last real save. **Known residual gap for v1** — document it. Including them would require iterating the in-world PC list and decoupling the save from `ch->desc` (`write_player_text` reads `ch->desc->pwd/host`); defer unless group-boss link-death is deemed common. |
+| Link-dead participant (`CON_LINKLS`) | **Deliberately not snapshotted** — the `CON_PLYNG` filter in `Crash_save_all` excludes them. Note (corrected): RotS does *not* null `ch->desc` on link-loss — the `d->character->desc = 0;` detach in `close_socket` (comm.cpp:1689) is commented out, and the descriptor lingers in `descriptor_list` marked `CON_LINKLS` — so `save_char` would actually work for them. Including them would therefore be a one-line filter change (accept `CON_LINKLS`), **not** the `character_list`-iteration / `ch->desc`-decoupling rewrite an earlier draft assumed. It is left out by choice: a link-dead character was already saved at link-loss, and its death and idle-out paths save it directly, so it does not need the periodic snapshot. |
 | Configured cadence finer than the gate granularity | Clamp/round the configured seconds up to a multiple of the gate's pulse boundary. |
 | "Same moment" definition | Means same **room + HP + XP + stats** — combat posture/position is not persisted today and is **out of scope**. |
 | Legitimate mid-fight level-up / death | Their immediate (exploit-hook + anchor) save commits them at the level-up / respawn moment, so they intentionally do **not** match the group's pre-event location. This is desired anti-exploit behavior, not the desync being fixed. |
@@ -104,7 +104,7 @@ Where a behavior needs a live `char_data`/`descriptor` (the batch loop), prefer 
 ## Out of scope
 
 - Live runtime cadence-tuning admin command (config + restart only).
-- Including link-dead players in the snapshot (would require `character_list` iteration + `ch->desc` decoupling).
+- Including link-dead (`CON_LINKLS`) players in the snapshot — a deliberate exclusion. (It would be a one-line filter change, since `ch->desc` is retained on link-loss, but link-dead players are already covered by their link-loss save plus the death/idle-out saves, so they are intentionally left out of the periodic snapshot.)
 - Persisting combat posture/position.
 - Fully removing the now-vestigial `PLR_CRASH` bit.
 - Converting `Emergency_save` / the shutdown loop to the snapshot path.
