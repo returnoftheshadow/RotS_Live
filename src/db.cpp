@@ -3683,6 +3683,13 @@ void write_exploits(char_data *ch, exploit_record *record) {
   if (!finalize_save_file(tempfname, playerfname)) {
     mudlog("**ERROR: Could not move temp exploit file into place.", NRM, LEVEL_IMMORT, TRUE);
   }
+  // An exploit record means an impactful, crash-sensitive event happened to this
+  // character (PK trophy, death, level-up, stat gain, birth, achievement...).
+  // Persist the character immediately so it cannot be undone by deliberately
+  // crashing the game before the next periodic snapshot. ch is the character the
+  // record belongs to (the killer for EXPLOIT_PK), and add_exploit_record already
+  // gated out NPCs/immortals; save_char additionally guards IS_NPC/!ch->desc.
+  save_char(ch, NOWHERE, 0);
   return;
 }
 
