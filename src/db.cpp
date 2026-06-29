@@ -2508,6 +2508,16 @@ bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
     return true;
 }
 
+// Atomically replace dest_path with the fully-written temp_path. Crash-safe: a crash before
+// this rename leaves the previous dest intact, and rename is atomic, so dest is never seen
+// half-written. Shell-free replacement for the old system("cp")/truncate-in-place finalizes.
+bool finalize_save_file(const char *temp_path, const char *dest_path) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::rename(temp_path, dest_path, ec);
+    return !ec;
+}
+
 void save_player(struct char_data *ch, int load_room, int index_pos) {
   char name[255];
   char *tmpchar;
@@ -3572,7 +3582,6 @@ void write_exploits(char_data *ch, exploit_record *record) {
   FILE *exploit_player_file = NULL;
   exploit_record temprec;
   char playerfname[100];
-  char temp[255];
   char name[255];
   char *tmpchar;
   // Open a temp file for this record
@@ -3658,9 +3667,10 @@ void write_exploits(char_data *ch, exploit_record *record) {
   // close the temp file. this temp file contains entire trophy
   fclose(exploit_file);
 
-  // mv the temp file to the new one
-  sprintf(temp, "cp %s %s", tempfname, playerfname);
-  system(temp);
+  // Atomically move the fully-written temp into place (no shell-out; crash-safe).
+  if (!finalize_save_file(tempfname, playerfname)) {
+    mudlog("**ERROR: Could not move temp exploit file into place.", NRM, LEVEL_IMMORT, TRUE);
+  }
   return;
 }
 

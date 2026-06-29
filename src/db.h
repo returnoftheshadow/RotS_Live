@@ -112,6 +112,10 @@ bool finalize_player_file_legacy(const char *scratch_path, const char *base_path
                                  const char *versioned_path);
 bool finalize_player_file_rename(const char *scratch_path, const char *dir_path,
                                  const char *base_name, const char *versioned_path);
+// Atomically replace dest_path with the already-written temp_path (rename). True on success.
+// Crash-safe: dest is never left partial, and an aborted write to temp leaves dest untouched.
+// Used by the object/rent (objsave.cpp) and exploits (write_exploits) saves.
+bool finalize_save_file(const char *temp_path, const char *dest_path);
 int create_entry(char *);
 void init_char(struct char_data *);
 void clear_char(struct char_data *, int);
