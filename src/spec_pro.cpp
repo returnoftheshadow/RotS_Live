@@ -2690,6 +2690,10 @@ SPECIAL(resetter) {
             send_to_char("Rerolling statistics...\n\r", ch);
             roll_abilities(ch, 80, 93);
             ch->specials2.rerolls += 1;
+            // Persist the reroll immediately so a player cannot crash the game to
+            // undo an unlucky roll and refund a capped reroll attempt. No exploit
+            // record is written here -- rerolls are too frequent to log (per design).
+            save_char(ch, NOWHERE, 0);
             reroll_count = 41 - ch->specials2.rerolls;
             sprintf(buf, "You have %d reroll attempts left.\n\r", reroll_count);
             send_to_char(buf, ch);
