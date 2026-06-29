@@ -80,6 +80,7 @@ set(ROTS_SERVER_SOURCES
     profs.cpp
     protocol.cpp
     ranger.cpp
+    save_benchmark.cpp
     script.cpp
     shapemdl.cpp
     shapemob.cpp
@@ -127,6 +128,7 @@ set(ROTS_TEST_SOURCES
     tests/objects_json_tests.cpp
     tests/player_finalize_tests.cpp
     tests/protocol_tests.cpp
+    tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp
     tests/gtest_main.cpp
