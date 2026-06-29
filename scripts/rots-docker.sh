@@ -24,12 +24,16 @@ case "$cmd" in
     docker compose run --rm rots bash -lc 'cd /rots/src && make setup && make all'
     ;;
   test)
-    # Build, then run the gtest binary directly and pass any extra args through, e.g.:
+    # Build the TEST target (ageland_tests, not just ageland) and run the gtest binary
+    # directly, passing any extra args through, e.g.:
     #   scripts/rots-docker.sh test --gtest_filter=PlayerFinalize.*
-    # (ctest's gtest_discover_tests PRE_TEST mode finds 0 tests under bullseye's cmake 3.18,
-    #  but the i386 test binary itself runs fine under QEMU, so we invoke it directly.)
+    # (`make build` only builds `ageland`; the test binary is the `ageland_tests` target.
+    #  ctest's gtest_discover_tests PRE_TEST mode finds 0 tests under bullseye's cmake 3.18,
+    #  but the i386 test binary itself runs fine under QEMU, so we invoke ./bin/tests directly.)
     shift || true
-    docker compose run --rm rots bash -lc 'cd /rots && make build && ./bin/tests "$@"' _ "$@"
+    docker compose run --rm rots bash -lc \
+      'cd /rots && cmake -S src -B build && cmake --build build --target ageland_tests -j16 && ./bin/tests "$@"' \
+      _ "$@"
     ;;
   boot)
     if [ ! -d lib/world ]; then
