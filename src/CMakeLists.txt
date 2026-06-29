@@ -81,6 +81,7 @@ set(ROTS_SERVER_SOURCES
     protocol.cpp
     ranger.cpp
     save_benchmark.cpp
+    savebench.cpp
     script.cpp
     shapemdl.cpp
     shapemob.cpp

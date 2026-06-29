@@ -25,6 +25,7 @@
 #include "limits.h"
 #include "mail.h"
 #include "mob_csv_extract.h"
+#include "savebench.h"
 #include "pkill.h"
 #include "profs.h"
 #include "protos.h"
@@ -555,6 +556,7 @@ const char* command[] = {
     "defend",
     "renounce",
     "mob2csv",
+    "savebench", // 249
     "\n"
 };
 
@@ -2236,6 +2238,8 @@ void assign_command_pointers(void)
         FULL_TARGET, TAR_IGNORE, 0);
     COMMANDO(248, POSITION_DEAD, do_mob_csv_extract, LEVEL_IMPL, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
+    COMMANDO(249, POSITION_DEAD, do_savebench, LEVEL_IMPL, FALSE, 0,
+        TAR_IGNORE, TAR_IGNORE, 0);
 }
 
 /* *************************************************************************
