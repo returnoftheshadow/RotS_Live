@@ -1,8 +1,17 @@
+# macOS Finder metadata
+.DS_Store
+
 # Compiled Object files
 *.slo
 *.lo
 *.o
 *.obj
+
+# Make auto-generated header dependency files (-MMD -MP)
+*.d
+
+# Makefile intermediate build artifacts (.o/.d output dir)
+/intermediate/
 
 # Precompiled Headers
 *.gch
@@ -34,10 +43,23 @@ bin/
 .idea/
 lib/last_cmds
 lib/crash_cmds
+
+# Imported world & player data — kept OUT of the core repo on purpose.
+# World comes from a separate source (RotS-WorldFiles, or an old server backup
+# via scripts/import-world-data.sh); player data is per-deployment and may
+# contain PII. None of it is ever committed here.
+# (.gitignore does not allow trailing inline comments, so notes go above.)
+#   lib/world/    -> rooms, mobs, objects (items), zones, shops, scripts, mudlle
+#   lib/players/  -> player account files (A-E/F-J/K-O/P-T/U-Z/ZZZ buckets)
+#   lib/plrobjs/  -> per-player saved objects / equipment
+#   lib/exploits/ -> per-player exploit-tracking files
+#   mobs/         -> scratch dir created by `make setup`
 lib/world/
 lib/players/
 lib/plrobjs/
 lib/exploits/
+mobs/
+
 lib/misc/pklist
 lib/core
 lib/boards
@@ -53,6 +75,7 @@ lib/misc/mudlle.keys
 lib/misc/oldcrimelist
 lib/misc/pk*
 lib/misc/repair*
+lib/misc/xnames*
 core/
 *~
 autorun4000
