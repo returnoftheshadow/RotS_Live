@@ -54,6 +54,7 @@ set(ROTS_SERVER_SOURCES
     comm.cpp
     config.cpp
     consts.cpp
+    crashsave_schedule.cpp
     db.cpp
     delayed_command_interpreter.cpp
     environment_utils.cpp
@@ -114,6 +115,7 @@ set(ROTS_TEST_SOURCES
     tests/char_utils_tests.cpp
     tests/character_json_tests.cpp
     tests/color_tests.cpp
+    tests/crashsave_schedule_tests.cpp
     tests/damage_tests.cpp
     tests/db_loader_tests.cpp
     tests/exploits_json_tests.cpp
