@@ -6,8 +6,9 @@
 // docs/superpowers/specs/2026-06-29-consistent-snapshot-autosave-design.md.
 
 // Convert a configured crash-save interval (seconds) into game-loop pulses.
-// Clamped so a mis-set 0/negative interval (or tic rate) still yields at least
-// a one-second cadence rather than firing every pulse.
+// The interval is clamped up to a 15-second minimum (and the tic rate to >= 1),
+// so a mis-set or too-small configured value cannot make the snapshot run too
+// frequently.
 int autosave_interval_pulses(int interval_seconds, int tics_per_second);
 
 // Per-pulse accumulator for the periodic crash-save. The game loop calls tick()

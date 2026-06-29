@@ -2,16 +2,18 @@
 #include <gtest/gtest.h>
 
 TEST(CrashsaveSchedule, IntervalPulsesBasic) {
-    EXPECT_EQ(autosave_interval_pulses(30, 4), 120);
-    EXPECT_EQ(autosave_interval_pulses(1, 4), 4);
+    EXPECT_EQ(autosave_interval_pulses(30, 4), 120); // default 30s
+    EXPECT_EQ(autosave_interval_pulses(15, 4), 60);  // exactly the 15s floor
     EXPECT_EQ(autosave_interval_pulses(60, 4), 240);
 }
 
-TEST(CrashsaveSchedule, IntervalPulsesClampsNonPositive) {
-    EXPECT_EQ(autosave_interval_pulses(0, 4), 4);   // seconds clamped to >= 1
-    EXPECT_EQ(autosave_interval_pulses(-5, 4), 4);
-    EXPECT_EQ(autosave_interval_pulses(30, 0), 30); // tics clamped to >= 1
-    EXPECT_EQ(autosave_interval_pulses(0, 0), 1);   // both args clamped -> 1*1 = 1
+TEST(CrashsaveSchedule, IntervalPulsesClampsBelowMinimum) {
+    EXPECT_EQ(autosave_interval_pulses(14, 4), 60); // just below the 15s floor
+    EXPECT_EQ(autosave_interval_pulses(1, 4), 60);
+    EXPECT_EQ(autosave_interval_pulses(0, 4), 60);
+    EXPECT_EQ(autosave_interval_pulses(-5, 4), 60);
+    EXPECT_EQ(autosave_interval_pulses(30, 0), 30); // tics clamped to >= 1; 30s kept
+    EXPECT_EQ(autosave_interval_pulses(0, 0), 15);  // both clamped -> 15s * 1 tic
 }
 
 TEST(CrashsaveSchedule, TimerFiresOnIntervalAndResets) {

@@ -1,11 +1,16 @@
 #include "crashsave_schedule.h"
 
+// The shortest interval the periodic snapshot may run at: a floor so a mis-set or
+// deliberately tiny configured value cannot hammer the disk by saving every
+// connected player too frequently.
+static constexpr int MIN_AUTOSAVE_INTERVAL_SECONDS = 15;
+
 int autosave_interval_pulses(int interval_seconds, int tics_per_second) {
     if (tics_per_second < 1) {
         tics_per_second = 1;
     }
-    if (interval_seconds < 1) {
-        interval_seconds = 1; // never faster than once per second
+    if (interval_seconds < MIN_AUTOSAVE_INTERVAL_SECONDS) {
+        interval_seconds = MIN_AUTOSAVE_INTERVAL_SECONDS; // floor: never faster than every 15s
     }
     return interval_seconds * tics_per_second;
 }
