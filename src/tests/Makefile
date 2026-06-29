@@ -8,13 +8,16 @@ OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
 	pkill.o profs.o protocol.o ranger.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
-	wild_fighting_handler.o weather.o zone.o
+	wild_fighting_handler.o weather.o zone.o crashsave_schedule.o
 
 
 # Dependencies for the main mud
 
 clock.o : ../clock.cpp ../clock.h
 	$(CXX) -c $(CXXFLAGS) ../clock.cpp
+
+crashsave_schedule.o : ../crashsave_schedule.cpp ../crashsave_schedule.h
+	$(CXX) -c $(CXXFLAGS) ../crashsave_schedule.cpp
 
 comm.o : ../comm.cpp ../structs.h ../utils.h ../comm.h ../interpre.h ../handler.h ../db.h \
 	../limits.h ../clock.h
@@ -169,7 +172,7 @@ pkill.o: ../pkill.cpp ../pkill.h
 
 
 SRCS = CharPlayerDataBuilder.h CharPlayerDataBuilder.cpp ObjFlagDataBuilder.h ObjFlagDataBuilder.cpp \
- 	   obj_flag_data_tests.cpp player_finalize_tests.cpp gtest_main.cpp
+ 	   obj_flag_data_tests.cpp player_finalize_tests.cpp crashsave_schedule_tests.cpp gtest_main.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 EXECUTABLE = ../../bin/tests
