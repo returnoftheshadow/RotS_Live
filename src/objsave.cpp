@@ -1687,16 +1687,18 @@ ACMD(do_rent)
 void Crash_save_all(void)
 {
     struct descriptor_data* d;
+    // Point-in-time snapshot: save EVERY connected player each cycle (not just
+    // PLR_CRASH-dirty ones), so PvP/smob participants are recovered at the same
+    // moment regardless of who looted or gained XP last interval. Single-threaded,
+    // so this one pass is an atomic capture. notify=0: silent background save (no
+    // "Saving X." spam at the 30s cadence). Saves are per-player and independent --
+    // a failure inside save_char/Crash_crashsave logs and leaves that one player to
+    // re-converge next cycle (Crash_crashsave clears PLR_CRASH only on success); it
+    // never aborts the whole batch.
     for (d = descriptor_list; d; d = d->next) {
         if ((d->connected == CON_PLYNG) && !IS_NPC(d->character)) {
-            if (PLR_FLAGGED(d->character, PLR_CRASH)) {
-                Crash_crashsave(d->character);
-                if (GET_LEVEL(d->character) < LEVEL_IMMORT)
-                    save_char(d->character, NOWHERE, 1);
-                else
-                    save_char(d->character, NOWHERE, 0);
-                REMOVE_BIT(PLR_FLAGS(d->character), PLR_CRASH);
-            }
+            Crash_crashsave(d->character);
+            save_char(d->character, NOWHERE, 0);
         }
     }
 }
