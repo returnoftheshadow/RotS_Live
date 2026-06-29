@@ -30,6 +30,7 @@
 #include "limits.h"
 #include "protocol.h"
 #include "script.h"
+#include "crashsave_schedule.h"
 #include "skill_timer.h"
 #include "spells.h"
 #include "structs.h"
@@ -476,7 +477,11 @@ void game_loop(SocketType s) {
     char *pptr;
     struct descriptor_data *point, *next_point;
     struct char_data *wait_ch, *wait_tmp;
-    int mins_since_crashsave = 0, mask;
+    int mask;
+    // Accumulates heartbeat pulses and fires the periodic crash-save snapshot
+    // once per configured interval (autosave_time seconds). Persists across the
+    // game-loop iterations below.
+    AutosaveTimer autosave_timer;
     int sockets_connected, sockets_playing;
     int tmp, was_updated;
     char disp, tmpflag;
@@ -839,12 +844,10 @@ void game_loop(SocketType s) {
 
         msdp_update();
 
-        if (!(pulse % (60 * 4))) /* one minute */
-        {
-            if (++mins_since_crashsave >= autosave_time) {
-                mins_since_crashsave = 0;
-                Crash_save_all();
-            }
+        // Periodic point-in-time snapshot of all connected players. Fires every
+        // autosave_time seconds (clamped to >= 1s); see crashsave_schedule.h.
+        if (autosave_timer.tick(autosave_interval_pulses(autosave_time, TICS_PER_SECOND))) {
+            Crash_save_all();
         }
 
         if (!(pulse % 4)) {

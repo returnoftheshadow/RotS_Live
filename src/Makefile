@@ -49,7 +49,7 @@ crashsave_schedule.o : crashsave_schedule.cpp crashsave_schedule.h
 	$(CC) -c $(CFLAGS) crashsave_schedule.cpp
 
 comm.o : comm.cpp structs.h utils.h comm.h interpre.h handler.h db.h \
-	limits.h clock.h protocol.h
+	limits.h clock.h protocol.h crashsave_schedule.h
 	$(CC) -c $(CFLAGS) $(COMMFLAGS) comm.cpp
 char_utils.o : char_utils.cpp base_utils.h char_utils.h object_utils.h \
 	environment_utils.h structs.h handler.h
