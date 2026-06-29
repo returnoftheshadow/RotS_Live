@@ -30,7 +30,9 @@
 #include "char_utils.h"
 #include "character_json.h"
 #include "exploits_json.h"
+#include "player_file_finalize.h"
 #include "skill_timer.h"
+#include <cstdio>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -2795,65 +2797,20 @@ void delete_character_file(struct char_data* ch)
 
 void encrypt_line(unsigned char* line, int len);
 
-/* New player save (Fingolfin) under construction */
-
-void save_player(struct char_data* ch, int load_room, int index_pos)
+// Serialize ch to scratch_path in the legacy versioned-text format. Returns false and
+// removes the partial scratch on any write/close error, so the caller skips finalize and
+// never destroys the live file. Body is the former save_player serialization, unchanged,
+// so its bytes stay identical to the legacy path (pinned by the A/B oracle + round-trip test).
+bool write_player_text(struct char_data* ch, int load_room, const char* scratch_path)
 {
-    char name[255];
-    char temp[255];
-    char* tmpchar;
-    char playerfname[100];
-    FILE* pf = NULL;
     struct char_file_u chd;
     int tmp;
 
-    strcpy(name, GET_NAME(ch));
-    for (tmpchar = name; *tmpchar; tmpchar++)
-        *tmpchar = tolower(*tmpchar);
-
-    switch (tolower(*name)) {
-    case 'a':
-    case 'b':
-    case 'c':
-    case 'd':
-    case 'e':
-        sprintf(playerfname, "players/A-E/%s", name);
-        break;
-    case 'f':
-    case 'g':
-    case 'h':
-    case 'i':
-    case 'j':
-        sprintf(playerfname, "players/F-J/%s", name);
-        break;
-    case 'k':
-    case 'l':
-    case 'm':
-    case 'n':
-    case 'o':
-        sprintf(playerfname, "players/K-O/%s", name);
-        break;
-    case 'p':
-    case 'q':
-    case 'r':
-    case 's':
-    case 't':
-        sprintf(playerfname, "players/P-T/%s", name);
-        break;
-    case 'u':
-    case 'v':
-    case 'w':
-    case 'x':
-    case 'y':
-    case 'z':
-        sprintf(playerfname, "players/U-Z/%s", name);
-        break;
-    default:
-        sprintf(playerfname, "players/ZZZ/%s", name);
-        break;
+    FILE* pf = fopen(scratch_path, "w");
+    if (!pf) {
+        return false;
     }
 
-    pf = fopen("players/temp", "w");
     char_to_store(ch, &chd);
     strcpy(chd.pwd, ch->desc->pwd);
     strncpy(chd.host, ch->desc->host, HOST_LEN);
@@ -2970,17 +2927,97 @@ void save_player(struct char_data* ch, int load_room, int index_pos)
         fprintf(pf, "prof_exp    %d %ld\n", tmp, chd.profs.prof_exp[tmp]);
 
     fprintf(pf, "end\n");
-    fclose(pf);
-    sprintf(temp, "rm %s.*", playerfname);
-    system(temp);
-    sprintf(playerfname, "%s.%d.%d.%d.%ld.%ld", playerfname,
+
+    if (ferror(pf)) {
+        fclose(pf);
+        std::remove(scratch_path);
+        return false;
+    }
+    if (fclose(pf) != 0) {
+        std::remove(scratch_path);
+        return false;
+    }
+    return true;
+}
+
+/* New player save (Fingolfin) under construction */
+
+void save_player(struct char_data* ch, int load_room, int index_pos)
+{
+    char name[255];
+    char* tmpchar;
+    char playerfname[100];
+
+    strcpy(name, GET_NAME(ch));
+    for (tmpchar = name; *tmpchar; tmpchar++)
+        *tmpchar = tolower(*tmpchar);
+
+    switch (tolower(*name)) {
+    case 'a':
+    case 'b':
+    case 'c':
+    case 'd':
+    case 'e':
+        sprintf(playerfname, "players/A-E/%s", name);
+        break;
+    case 'f':
+    case 'g':
+    case 'h':
+    case 'i':
+    case 'j':
+        sprintf(playerfname, "players/F-J/%s", name);
+        break;
+    case 'k':
+    case 'l':
+    case 'm':
+    case 'n':
+    case 'o':
+        sprintf(playerfname, "players/K-O/%s", name);
+        break;
+    case 'p':
+    case 'q':
+    case 'r':
+    case 's':
+    case 't':
+        sprintf(playerfname, "players/P-T/%s", name);
+        break;
+    case 'u':
+    case 'v':
+    case 'w':
+    case 'x':
+    case 'y':
+    case 'z':
+        sprintf(playerfname, "players/U-Z/%s", name);
+        break;
+    default:
+        sprintf(playerfname, "players/ZZZ/%s", name);
+        break;
+    }
+
+    // If serialization fails, do NOT finalize: a failed finalize must never destroy the
+    // live file. Leave the existing save intact and retry next cycle.
+    if (!write_player_text(ch, load_room, "players/temp")) {
+        return;
+    }
+
+    char versioned[120];
+    snprintf(versioned, sizeof(versioned), "%s.%d.%d.%d.%ld.%ld", playerfname,
         (player_table + index_pos)->level, (player_table + index_pos)->race,
         (player_table + index_pos)->idnum,
         (long)(player_table + index_pos)->log_time,
         (player_table + index_pos)->flags);
-    sprintf(temp, "cp players/temp %s", playerfname);
-    system(temp);
-    sprintf((player_table + index_pos)->ch_file, "%s", playerfname);
+
+    char dirpath[100];
+    snprintf(dirpath, sizeof(dirpath), "%s", playerfname);
+    char* dirslash = strrchr(dirpath, '/');
+    if (dirslash) {
+        *dirslash = '\0';
+    }
+    if (finalize_player_file_rename("players/temp", dirpath, name, versioned)) {
+        sprintf((player_table + index_pos)->ch_file, "%s", versioned);
+    } else {
+        log("save_player: could not finalize player file.");
+    }
 }
 
 void save_char(struct char_data* ch, int load_room, int notify_char)
