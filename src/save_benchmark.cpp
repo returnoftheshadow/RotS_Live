@@ -39,23 +39,26 @@ StageTiming time_stage(const std::string& name, int iterations,
     return t;
 }
 
-// Fill each stage's share and the "other" remainder = total - sum(named), then totals' share.
+// Fill each stage's share and the "other" remainder = max(0, end-to-end total - sum(named)).
+// The share denominator is stage_sum + other_us so per-stage and other shares always sum to
+// ~100%, allowing a reader to reconcile every share% against the printed footer denominator.
 void finalize_shares(PipelineReport* r) {
-    long named = 0;
-    for (const StageTiming& s : r->stages) named += s.avg_us;
+    long stage_sum = 0;
+    for (const StageTiming& s : r->stages) stage_sum += s.avg_us;
     r->other.name = "other (validate/mkdir/path/owner/index)";
-    long other_avg = r->total.avg_us - named;
-    if (other_avg < 0) other_avg = 0; // the combined loop can measure below the stage sum
-    r->other.avg_us = other_avg;
-    // Use the measured parts (named stages + remainder) as the share denominator so the
-    // per-stage and "other" shares always sum to ~100%, independent of timing noise between
-    // the separately-timed stages and the combined end-to-end loop.
-    const long measured = named + other_avg;
-    const double denom = (measured > 0) ? static_cast<double>(measured) : 1.0;
+    // other_us: uninstrumented middle steps — the part of the end-to-end pass NOT covered by
+    // named stages. Clamped to zero when per-stage instrumentation overhead causes stage_sum to
+    // exceed the combined pass (routine under QEMU emulation).
+    long other_us = r->total.avg_us - stage_sum;
+    if (other_us < 0) other_us = 0;
+    r->other.avg_us = other_us;
+    const long denom_us = stage_sum + other_us;
+    const double denom = (denom_us > 0) ? static_cast<double>(denom_us) : 1.0;
     for (StageTiming& s : r->stages) s.share = 100.0 * s.avg_us / denom;
-    r->other.share = 100.0 * other_avg / denom;
-    r->total.share = 100.0;
-    r->total.name = "TOTAL";
+    r->other.share = 100.0 * other_us / denom;
+    // r->total.avg_us retains the end-to-end single-pass average; format_report prints it
+    // in a second footer line alongside the share denominator so both figures and their
+    // difference (per-stage instrumentation overhead) are visible.
 }
 
 } // namespace
@@ -130,8 +133,11 @@ bool profile_load(const std::string& root, const std::string& account_name,
         character_json::apply_character_data_to_store(cd, &chd, &err);
     }));
     // L5: char_file_u -> live char (OFFLINE only; store_to_char allocates into the char).
-    // Build the scratch char the project's way and reuse one instance across iterations so
-    // only the final struct needs releasing; freed once after the loop.
+    // Build the scratch char the project's way and reuse one struct across iterations.
+    // NOTE: store_to_char unconditionally CREATE()s title/description/profs/name on every
+    // call with no prior free, so per-iteration inner allocations leak; delete scratch frees
+    // only the struct shell. The leak is bounded and acceptable for a short-lived offline
+    // benchmark — matches the existing db_loader_tests idiom.
     if (include_store_to_char) {
         char_data* scratch = new char_data {};
         clear_char(scratch, MOB_VOID);
@@ -167,8 +173,25 @@ std::string format_report(const std::string& title, const PipelineReport& r) {
     snprintf(line, sizeof(line), "  %-38s %6ld  %6ld  %6ld   %5.1f\n",
              r.other.name.c_str(), r.other.min_us, r.other.avg_us, r.other.max_us, r.other.share);
     out += line;
-    snprintf(line, sizeof(line), "  %-38s %6ld  %6ld  %6ld   %5.1f\n",
-             r.total.name.c_str(), r.total.min_us, r.total.avg_us, r.total.max_us, r.total.share);
+    // Footer 1: share denominator (stage_sum + other_us) — every share% reconciles against
+    // this value: share% = stage.avg_us / denom * 100, and all shares together sum to ~100%.
+    long stage_sum = 0;
+    for (const StageTiming& s : r.stages) stage_sum += s.avg_us;
+    const long denom_us = stage_sum + r.other.avg_us;
+    const long end_to_end_us = r.total.avg_us;
+    snprintf(line, sizeof(line),
+             "  sum of stages (+other)   = %ld us  (share denominator; sums to 100%%)\n", denom_us);
+    out += line;
+    // Footer 2: end-to-end single-pass average. Append an overhead note when per-stage
+    // instrumentation causes stage_sum to exceed the combined pass (gap is NOT hidden).
+    if (stage_sum > end_to_end_us) {
+        snprintf(line, sizeof(line),
+                 "  end-to-end single pass   = %ld us  (per-stage timing overhead ~%ld us)\n",
+                 end_to_end_us, stage_sum - end_to_end_us);
+    } else {
+        snprintf(line, sizeof(line),
+                 "  end-to-end single pass   = %ld us\n", end_to_end_us);
+    }
     out += line;
     return out;
 }

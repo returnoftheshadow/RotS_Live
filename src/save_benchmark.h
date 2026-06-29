@@ -18,7 +18,8 @@ struct StageTiming {
     long avg_us = 0;
     // Slowest observed single-iteration time, in microseconds.
     long max_us = 0;
-    // Percent of the end-to-end total this stage's avg_us represents.
+    // Percent of the share denominator (sum of named stages + other) this stage's avg_us
+    // represents; all per-stage shares and other.share together sum to ~100%.
     double share = 0.0;
 };
 
