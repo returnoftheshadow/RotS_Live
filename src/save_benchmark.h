@@ -37,10 +37,12 @@ struct PipelineReport {
 // end-to-end total; writes ONLY to scratch_path (a throwaway). Never touches live files.
 // Returns false (and sets *error) if the data-transform/IO stage (S5) fails; an S2
 // account-read miss is non-fatal (still timed) and does NOT cause a false return.
+// When `compare` is non-null, a SEPARATE A/B report is also populated (cache + serialize v1-vs-v2
+// variants), leaving the canonical `out` breakdown untouched; default nullptr skips it.
 bool profile_save(const char_file_u& chd, const std::string& root,
                   const std::string& account_name, const std::string& character_name,
                   const std::string& scratch_path, int iterations,
-                  PipelineReport* out, std::string* error);
+                  PipelineReport* out, std::string* error, PipelineReport* compare = nullptr);
 
 // Profile the LOAD pipeline for an account-owned character. Times L1-L4 (+ L5 store_to_char
 // when include_store_to_char is true; offline-only, since it allocates into a scratch char).
@@ -48,7 +50,8 @@ bool profile_save(const char_file_u& chd, const std::string& root,
 // L1 account-read miss is non-fatal (still timed) and does NOT cause a false return.
 bool profile_load(const std::string& root, const std::string& account_name,
                   const std::string& character_name, int iterations,
-                  bool include_store_to_char, PipelineReport* out, std::string* error);
+                  bool include_store_to_char, PipelineReport* out, std::string* error,
+                  PipelineReport* compare = nullptr);
 
 // Render a report as a fixed-width table (stage | min | avg | max | share%).
 std::string format_report(const std::string& title, const PipelineReport& report);

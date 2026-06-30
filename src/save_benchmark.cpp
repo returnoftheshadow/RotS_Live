@@ -1,5 +1,6 @@
 #include "save_benchmark.h"
 
+#include "account_cache.h"
 #include "account_management.h"
 #include "character_json.h"
 #include "db.h"
@@ -66,7 +67,7 @@ void finalize_shares(PipelineReport* r) {
 bool profile_save(const char_file_u& chd, const std::string& root,
                   const std::string& account_name, const std::string& character_name,
                   const std::string& scratch_path, int iterations,
-                  PipelineReport* out, std::string* error) {
+                  PipelineReport* out, std::string* error, PipelineReport* compare) {
     if (iterations < 1) iterations = 1;
     std::string err;
     account::AccountData account;
@@ -99,6 +100,39 @@ bool profile_save(const char_file_u& chd, const std::string& root,
         account::write_text_file_atomically(scratch_path, j, &err);
     });
     std::remove(scratch_path.c_str()); // clean up the throwaway
+    // COMPARE (opt-in): A/B the parallel cache + serialize variants against v1 in a SEPARATE report
+    // so finalize_shares/format_report stay valid on the canonical breakdown above. Pure in-memory:
+    // the resolvers read read-only; serialize is a string transform -- no live write. compare->total
+    // runs every compared item once so its shares reconcile to ~100%.
+    if (compare) {
+        std::string cmp_err;
+        account::AccountData cmp_account;
+        compare->stages.push_back(time_stage("S2  read_account_file        (v1)", iterations, [&]() {
+            account::read_account_file(root, account_name, &cmp_account, &cmp_err);
+        }));
+        compare->stages.push_back(time_stage("S2c read_account_file_cached", iterations, [&]() {
+            account_cache::read_account_file_cached(root, account_name, &cmp_account, &cmp_err);
+        }));
+        std::string cmp_json;
+        compare->stages.push_back(time_stage("S4  serialize_character_to_json     (v1)", iterations, [&]() {
+            cmp_json = character_json::serialize_character_to_json(cd);
+        }));
+        compare->stages.push_back(time_stage("S4a serialize_character_to_json_v2a", iterations, [&]() {
+            cmp_json = character_json::serialize_character_to_json_v2a(cd);
+        }));
+        compare->stages.push_back(time_stage("S4b serialize_character_to_json_v2b", iterations, [&]() {
+            cmp_json = character_json::serialize_character_to_json_v2b(cd);
+        }));
+        compare->total = time_stage("TOTAL save compare", iterations, [&]() {
+            account::AccountData a;
+            account::read_account_file(root, account_name, &a, &cmp_err);
+            account_cache::read_account_file_cached(root, account_name, &a, &cmp_err);
+            const std::string j1 = character_json::serialize_character_to_json(cd);
+            const std::string j2 = character_json::serialize_character_to_json_v2a(cd);
+            const std::string j3 = character_json::serialize_character_to_json_v2b(cd);
+        });
+        finalize_shares(compare);
+    }
     finalize_shares(out);
     (void)character_name;
     if (!err_S5.empty()) {
@@ -110,7 +144,8 @@ bool profile_save(const char_file_u& chd, const std::string& root,
 
 bool profile_load(const std::string& root, const std::string& account_name,
                   const std::string& character_name, int iterations,
-                  bool include_store_to_char, PipelineReport* out, std::string* error) {
+                  bool include_store_to_char, PipelineReport* out, std::string* error,
+                  PipelineReport* compare) {
     if (iterations < 1) iterations = 1;
     std::string err;
     account::AccountData account;
@@ -164,6 +199,44 @@ bool profile_load(const std::string& root, const std::string& account_name,
         character_json::apply_character_data_to_store(c, &s, &err);
     });
     finalize_shares(out);
+    // COMPARE (opt-in): A/B the cache + deserialize variants against v1 in a SEPARATE report. Pure
+    // in-memory (deserialize over the already-read `json`); compare->total runs each item once so its
+    // shares reconcile to ~100%. Canonical out/* error semantics are unchanged.
+    if (compare) {
+        std::string cmp_err;
+        account::AccountData cmp_account;
+        compare->stages.push_back(time_stage("L1  read_account_file        (v1)", iterations, [&]() {
+            account::read_account_file(root, account_name, &cmp_account, &cmp_err);
+        }));
+        compare->stages.push_back(time_stage("L1c read_account_file_cached", iterations, [&]() {
+            account_cache::read_account_file_cached(root, account_name, &cmp_account, &cmp_err);
+        }));
+        character_json::CharacterData cmp_cd;
+        compare->stages.push_back(time_stage("L3  deserialize_character_from_json     (v1)", iterations, [&]() {
+            cmp_cd = character_json::CharacterData {};
+            character_json::deserialize_character_from_json(json, &cmp_cd, &cmp_err);
+        }));
+        compare->stages.push_back(time_stage("L3a deserialize_character_from_json_v2a", iterations, [&]() {
+            cmp_cd = character_json::CharacterData {};
+            character_json::deserialize_character_from_json_v2a(json, &cmp_cd, &cmp_err);
+        }));
+        compare->stages.push_back(time_stage("L3b deserialize_character_from_json_v2b", iterations, [&]() {
+            cmp_cd = character_json::CharacterData {};
+            character_json::deserialize_character_from_json_v2b(json, &cmp_cd, &cmp_err);
+        }));
+        compare->total = time_stage("TOTAL load compare", iterations, [&]() {
+            account::AccountData a;
+            account::read_account_file(root, account_name, &a, &cmp_err);
+            account_cache::read_account_file_cached(root, account_name, &a, &cmp_err);
+            character_json::CharacterData c1 {};
+            character_json::deserialize_character_from_json(json, &c1, &cmp_err);
+            character_json::CharacterData c2 {};
+            character_json::deserialize_character_from_json_v2a(json, &c2, &cmp_err);
+            character_json::CharacterData c3 {};
+            character_json::deserialize_character_from_json_v2b(json, &c3, &cmp_err);
+        });
+        finalize_shares(compare);
+    }
     if (!err_L2.empty()) {
         if (error) *error = err_L2;
         return false;

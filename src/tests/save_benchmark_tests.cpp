@@ -1,5 +1,6 @@
 #include "../save_benchmark.h"
 
+#include "../account_cache.h"
 #include "../account_management.h"
 #include "../character_json.h"
 #include "../color.h"
@@ -175,4 +176,72 @@ TEST(SaveBenchmark, ProfilesBothDirectionsAndRoundTrips)
     // Human-readable output for the engineer running the suite.
     printf("%s", savebench::format_report("SAVE", save_report).c_str());
     printf("%s", savebench::format_report("LOAD", load_report).c_str());
+}
+
+// Exercises the opt-in COMPARE report: profile_save/profile_load populate a SEPARATE report with the
+// cache + serialize/deserialize A/B stages (byte-exact labels), leave the canonical breakdown
+// untouched, and the compare report's own shares reconcile to ~100% because its TOTAL runs each
+// compared item exactly once. Timing is not asserted (QEMU-flaky).
+TEST(SaveBenchmark, CompareReportPopulatesVariantStages)
+{
+    account_cache::clear(); // contract: clear the memo maps for test isolation
+    TemporaryDirectory temp;
+    const std::string root = temp.path();
+    const std::string account = "alpha-admin";
+    const std::string character = "aragorn";
+    std::string err;
+
+    make_account_character_directory(root, account, character);
+    const std::string character_path = account::account_character_player_path(root, account, character);
+    const char_file_u original = make_stored_character("aragorn");
+    const std::string json =
+        character_json::serialize_character_to_json(character_json::character_data_from_store(original));
+    ASSERT_TRUE(account::write_text_file_atomically(character_path, json, &err)) << err;
+
+    char_file_u source {};
+    ASSERT_TRUE(read_character_file_directly(character_path, &source, &err)) << err;
+
+    savebench::PipelineReport save_report, load_report;
+    savebench::PipelineReport save_compare, load_compare;
+    ASSERT_TRUE(savebench::profile_save(source, root, account, character, root + "/sb_scratch.json",
+                    3, &save_report, &err, &save_compare))
+        << err;
+    ASSERT_TRUE(savebench::profile_load(root, account, character, 3, /*include_store_to_char=*/false,
+                    &load_report, &err, &load_compare))
+        << err;
+
+    // Canonical report is unaffected by the compare opt-in (still S2,S3,S4,S5).
+    EXPECT_EQ(save_report.stages.size(), 4u);
+
+    // Compare reports carry exactly the five A/B stages with the contract's labels.
+    ASSERT_EQ(save_compare.stages.size(), 5u);
+    EXPECT_EQ(save_compare.stages[0].name, "S2  read_account_file        (v1)");
+    EXPECT_EQ(save_compare.stages[1].name, "S2c read_account_file_cached");
+    EXPECT_EQ(save_compare.stages[2].name, "S4  serialize_character_to_json     (v1)");
+    EXPECT_EQ(save_compare.stages[3].name, "S4a serialize_character_to_json_v2a");
+    EXPECT_EQ(save_compare.stages[4].name, "S4b serialize_character_to_json_v2b");
+
+    ASSERT_EQ(load_compare.stages.size(), 5u);
+    EXPECT_EQ(load_compare.stages[0].name, "L1  read_account_file        (v1)");
+    EXPECT_EQ(load_compare.stages[1].name, "L1c read_account_file_cached");
+    EXPECT_EQ(load_compare.stages[2].name, "L3  deserialize_character_from_json     (v1)");
+    EXPECT_EQ(load_compare.stages[3].name, "L3a deserialize_character_from_json_v2a");
+    EXPECT_EQ(load_compare.stages[4].name, "L3b deserialize_character_from_json_v2b");
+
+    // The compare report's per-stage + other shares reconcile to ~100% (its TOTAL runs each once).
+    double save_cmp_share = save_compare.other.share;
+    for (const auto& s : save_compare.stages)
+        save_cmp_share += s.share;
+    EXPECT_NEAR(save_cmp_share, 100.0, 1.0);
+    double load_cmp_share = load_compare.other.share;
+    for (const auto& s : load_compare.stages)
+        load_cmp_share += s.share;
+    EXPECT_NEAR(load_cmp_share, 100.0, 1.0);
+
+    // Opt-in only: a report not passed as the compare arg stays empty.
+    savebench::PipelineReport plain_report, never_filled;
+    ASSERT_TRUE(savebench::profile_save(source, root, account, character, root + "/sb_scratch2.json",
+                    3, &plain_report, &err))
+        << err;
+    EXPECT_TRUE(never_filled.stages.empty());
 }
