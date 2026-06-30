@@ -1,5 +1,12 @@
 # Account-Cache + Parallel JSON Perf — Implementation Plan
 
+> **STATUS: IMPLEMENTED 2026-06-30.** All 9 tasks landed across 5 commits (`3d904cf` cache, `bae643f` JsonReaderV2, `cbc3fd7` deserialize v2a/v2b, `d241671` serialize v2a/v2b, `5f3a304` savebench compare wiring). Full suite green: `AccountCache.*` (7), `JsonPerf.*` (12), `SaveBenchmark.*` (2), `CharacterJson.*` all pass; the only red is the pre-existing 32-bit baseline `JsonUtils.RejectsIntegersOutsideIntRange`. Three deviations from the drafted tasks (all improvements):
+> 1. **Cache tests use a `set_backing_resolvers_for_testing` DI seam** (counting fakes) instead of a disk fixture — the real account-directory `readdir` scan does not resolve under QEMU i386 (the `AccountManagement.*` on-disk suites are baseline reds for the same reason); call counts make "served from cache, no rescan" directly observable.
+> 2. **Deserialize equivalence gates compare v1/v2 *outcomes*** (success-with-identical-struct OR identical rejection) rather than asserting success — the all-skills "heavy" tier intentionally produces duplicate slugified skill keys that v1 itself rejects, so this is a stronger gate covering the rejection path.
+> 3. **`serialize_*_v2b` reuses v1's `collect_*` intermediates** (guaranteeing identical order/filtering → byte-equality) and differs only by the escape fast-path + cached keys, rather than the riskier inline-iteration rewrite.
+>
+> **Gated follow-ups (NOT done here, per the behavior-neutral scope):** run `savebench compare 500` on `drelibench` and record the A/B numbers in the perf-findings doc (spec §9.3); then adoption — route live callers through the winners + add the `write_account_file` invalidation hook + re-measure (spec §4.3/§9.4).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add profileable, parallel (v2) implementations of account-file resolution and character JSON serialize/deserialize beside the untouched originals, wired into the savebench A/B "COMPARE" report, so each optimization is measured head-to-head before any live path adopts it.
