@@ -4094,6 +4094,12 @@ void write_exploits(char_data* ch, exploit_record* record)
     if (!write_exploit_record_for_character(".", GET_NAME(ch), *record, &error_message)) {
         snprintf(buf, sizeof(buf), "**ERROR: Could not persist exploit file for character: %s", error_message.c_str());
         mudlog(buf, NRM, LEVEL_IMMORT, TRUE);
+    } else {
+        // Anti-rollback: an exploit record (PK -> killer; death/level/stat/birth/... -> victim) marks a
+        // state-changing event. Persist the character immediately after the CONFIRMED write so a crash
+        // before the next autosave snapshot cannot roll the event back. Gated on the successful write
+        // only -- not the orphaned-account early return above, nor a logged write failure.
+        save_char(ch, NOWHERE, 0);
     }
 }
 
