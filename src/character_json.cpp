@@ -8,6 +8,7 @@
 #include <cctype>
 #include <limits>
 #include <sstream>
+#include <unordered_map>
 
 extern byte language_number;
 extern byte language_skills[];
@@ -678,6 +679,34 @@ namespace {
         return -1;
     }
 
+    int skill_index_for_key_memoized(const std::string& key)
+    {
+        // Lazy slug->index map for skills; built once, INSERT-IF-ABSENT so the LOWEST index wins on a
+        // slug collision -- exactly matching skill_index_for_key's first-match linear scan.
+        static const std::unordered_map<std::string, int> index_by_key = [] {
+            std::unordered_map<std::string, int> table;
+            table.reserve(MAX_SKILLS * 2);
+            for (int index = 0; index < MAX_SKILLS; ++index)
+                table.emplace(skill_key_for_index(index), index);
+            return table;
+        }();
+        const auto found = index_by_key.find(key);
+        return found != index_by_key.end() ? found->second : -1;
+    }
+
+    int talk_index_for_key_memoized(const std::string& key)
+    {
+        // Lazy slug->index map for talks; INSERT-IF-ABSENT (lowest index wins) like talk_index_for_key.
+        static const std::unordered_map<std::string, int> index_by_key = [] {
+            std::unordered_map<std::string, int> table;
+            for (int index = 0; index < MAX_TOUNGE; ++index)
+                table.emplace(talk_key_for_index(index), index);
+            return table;
+        }();
+        const auto found = index_by_key.find(key);
+        return found != index_by_key.end() ? found->second : -1;
+    }
+
     void write_named_integer_object(std::ostringstream& output, const std::vector<NamedValue>& values)
     {
         output << "{";
@@ -730,7 +759,8 @@ namespace {
         return named_values;
     }
 
-    bool parse_color_value_object(json_utils::JsonReader* reader, ColorValueData* value, std::string* error_message)
+    template <class Reader>
+    bool parse_color_value_object(Reader* reader, ColorValueData* value, std::string* error_message)
     {
         if (reader == nullptr || value == nullptr) {
             set_error(error_message, "Color value parser requires non-null parameters.");
@@ -743,7 +773,7 @@ namespace {
         bool saw_red = false;
         bool saw_green = false;
         bool saw_blue = false;
-        if (!reader->parse_object([&parsed, &saw_mode, &saw_value, &saw_red, &saw_green, &saw_blue](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([&parsed, &saw_mode, &saw_value, &saw_red, &saw_green, &saw_blue](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
                 if (key == "mode") {
                     std::string mode;
                     if (!nested_reader->parse_string(&mode, nested_error_message))
@@ -796,7 +826,8 @@ namespace {
         return true;
     }
 
-    bool parse_color_setting_value(json_utils::JsonReader* reader, ColorSettingData* setting, std::vector<int>* colors, int index, std::string* error_message)
+    template <class Reader>
+    bool parse_color_setting_value(Reader* reader, ColorSettingData* setting, std::vector<int>* colors, int index, std::string* error_message)
     {
         if (reader == nullptr || setting == nullptr || colors == nullptr) {
             set_error(error_message, "Color setting parser requires non-null parameters.");
@@ -815,7 +846,7 @@ namespace {
         *setting = default_color_setting();
         bool saw_foreground = false;
         bool saw_background = false;
-        if (!reader->parse_object([&saw_foreground, &saw_background, setting](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([&saw_foreground, &saw_background, setting](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
                 if (key == "foreground")
                     return saw_foreground = true, parse_color_value_object(nested_reader, &setting->foreground, nested_error_message);
                 if (key == "background")
@@ -836,7 +867,8 @@ namespace {
         return true;
     }
 
-    bool parse_colors_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_colors_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         if (reader == nullptr || character == nullptr) {
             set_error(error_message, "Colors parser requires non-null parameters.");
@@ -845,7 +877,7 @@ namespace {
 
         character->colors.assign(MAX_COLOR_FIELDS, 0);
         character->color_settings.assign(MAX_COLOR_FIELDS, default_color_setting());
-        return reader->parse_object([character](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_object([character](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             const int index = color_index_for_key(key);
             if (index < 0) {
                 set_error(nested_error_message, "Unknown color key.");
@@ -906,7 +938,8 @@ namespace {
         output << "}";
     }
 
-    bool parse_string_array(json_utils::JsonReader* reader, std::vector<std::string>* values, std::string* error_message)
+    template <class Reader>
+    bool parse_string_array(Reader* reader, std::vector<std::string>* values, std::string* error_message)
     {
         if (reader == nullptr || values == nullptr) {
             set_error(error_message, "String array parser requires reader and output parameters.");
@@ -915,7 +948,8 @@ namespace {
         return reader->parse_string_array(values, error_message);
     }
 
-    bool parse_integer_array(json_utils::JsonReader* reader, std::vector<int>* values, size_t max_values, const char* field_name, std::string* error_message)
+    template <class Reader>
+    bool parse_integer_array(Reader* reader, std::vector<int>* values, size_t max_values, const char* field_name, std::string* error_message)
     {
         if (reader == nullptr || values == nullptr) {
             set_error(error_message, "Integer array parser requires reader and output parameters.");
@@ -923,7 +957,7 @@ namespace {
         }
 
         values->clear();
-        return reader->parse_array([values, max_values, field_name](json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_array([values, max_values, field_name](Reader* nested_reader, std::string* nested_error_message) {
             if (values->size() >= max_values) {
                 set_error(nested_error_message, std::string(field_name) + " exceeds the supported entry count.");
                 return false;
@@ -937,7 +971,8 @@ namespace {
             error_message);
     }
 
-    bool parse_named_integer_object(json_utils::JsonReader* reader, std::vector<int>* values, size_t expected_size, const char* field_name, const std::function<int(const std::string&)>& index_for_key, std::string* error_message)
+    template <class Reader>
+    bool parse_named_integer_object(Reader* reader, std::vector<int>* values, size_t expected_size, const char* field_name, const std::function<int(const std::string&)>& index_for_key, std::string* error_message)
     {
         if (reader == nullptr || values == nullptr) {
             set_error(error_message, "Named integer object parser requires reader and output parameters.");
@@ -947,7 +982,7 @@ namespace {
         values->assign(expected_size, 0);
         std::vector<bool> seen(expected_size, false);
 
-        return reader->parse_object([&](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_object([&](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             const int index = index_for_key(key);
             if (index < 0 || index >= static_cast<int>(expected_size)) {
                 set_error(nested_error_message, std::string("Unknown ") + field_name + " key '" + key + "'.");
@@ -969,7 +1004,8 @@ namespace {
             error_message);
     }
 
-    bool parse_ability_object(json_utils::JsonReader* reader, AbilityData* ability, std::string* error_message)
+    template <class Reader>
+    bool parse_ability_object(Reader* reader, AbilityData* ability, std::string* error_message)
     {
         if (reader == nullptr || ability == nullptr) {
             set_error(error_message, "Ability parser requires reader and output parameters.");
@@ -985,7 +1021,7 @@ namespace {
         bool saw_hit = false;
         bool saw_mana = false;
         bool saw_move = false;
-        if (!reader->parse_object([ability, &saw_str, &saw_lea, &saw_intel, &saw_wil, &saw_dex, &saw_con, &saw_hit, &saw_mana, &saw_move](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([ability, &saw_str, &saw_lea, &saw_intel, &saw_wil, &saw_dex, &saw_con, &saw_hit, &saw_mana, &saw_move](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "str")
                 return saw_str = true, nested_reader->parse_integer(&ability->str, nested_error_message);
             if (key == "lea")
@@ -1017,7 +1053,8 @@ namespace {
         return true;
     }
 
-    bool parse_points_object(json_utils::JsonReader* reader, PointData* points, std::string* error_message)
+    template <class Reader>
+    bool parse_points_object(Reader* reader, PointData* points, std::string* error_message)
     {
         if (reader == nullptr || points == nullptr) {
             set_error(error_message, "Points parser requires reader and output parameters.");
@@ -1040,7 +1077,7 @@ namespace {
         bool saw_willpower = false;
         bool saw_spell_pen = false;
         bool saw_spell_power = false;
-        if (!reader->parse_object([points, &saw_bodypart_hit, &saw_gold, &saw_experience, &saw_spirit, &saw_mana_regen, &saw_health_regen, &saw_move_regen, &saw_ob, &saw_damage, &saw_energy_regen, &saw_parry, &saw_dodge, &saw_encumbrance, &saw_willpower, &saw_spell_pen, &saw_spell_power](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([points, &saw_bodypart_hit, &saw_gold, &saw_experience, &saw_spirit, &saw_mana_regen, &saw_health_regen, &saw_move_regen, &saw_ob, &saw_damage, &saw_energy_regen, &saw_parry, &saw_dodge, &saw_encumbrance, &saw_willpower, &saw_spell_pen, &saw_spell_power](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "bodypart_hit")
                 return saw_bodypart_hit = true, parse_integer_array(nested_reader, &points->bodypart_hit, MAX_BODYPARTS, "points.bodypart_hit", nested_error_message);
             if (key == "gold")
@@ -1086,7 +1123,8 @@ namespace {
         return true;
     }
 
-    bool parse_conditions_object(json_utils::JsonReader* reader, ConditionData* conditions, std::string* error_message)
+    template <class Reader>
+    bool parse_conditions_object(Reader* reader, ConditionData* conditions, std::string* error_message)
     {
         if (reader == nullptr || conditions == nullptr) {
             set_error(error_message, "Conditions parser requires reader and output parameters.");
@@ -1096,7 +1134,7 @@ namespace {
         bool saw_drunk = false;
         bool saw_full = false;
         bool saw_thirst = false;
-        if (!reader->parse_object([conditions, &saw_drunk, &saw_full, &saw_thirst](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([conditions, &saw_drunk, &saw_full, &saw_thirst](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "drunk")
                 return saw_drunk = true, nested_reader->parse_integer(&conditions->drunk, nested_error_message);
             if (key == "full")
@@ -1116,7 +1154,8 @@ namespace {
         return true;
     }
 
-    bool parse_timers_object(json_utils::JsonReader* reader, TimerData* timers, std::string* error_message)
+    template <class Reader>
+    bool parse_timers_object(Reader* reader, TimerData* timers, std::string* error_message)
     {
         if (reader == nullptr || timers == nullptr) {
             set_error(error_message, "Timers parser requires reader and output parameters.");
@@ -1127,7 +1166,7 @@ namespace {
         bool saw_last_logon = false;
         bool saw_played_seconds = false;
         bool saw_retired_on = false;
-        if (!reader->parse_object([timers, &saw_birth, &saw_last_logon, &saw_played_seconds, &saw_retired_on](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([timers, &saw_birth, &saw_last_logon, &saw_played_seconds, &saw_retired_on](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "birth")
                 return saw_birth = true, nested_reader->parse_long(&timers->birth, nested_error_message);
             if (key == "last_logon")
@@ -1149,14 +1188,15 @@ namespace {
         return true;
     }
 
-    bool parse_profession_object(json_utils::JsonReader* reader, ProfessionData* profession, std::string* error_message)
+    template <class Reader>
+    bool parse_profession_object(Reader* reader, ProfessionData* profession, std::string* error_message)
     {
         if (reader == nullptr || profession == nullptr) {
             set_error(error_message, "Profession parser requires reader and output parameters.");
             return false;
         }
 
-        return reader->parse_object([profession](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_object([profession](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "level")
                 return nested_reader->parse_integer(&profession->level, nested_error_message);
             if (key == "points")
@@ -1170,7 +1210,8 @@ namespace {
             error_message);
     }
 
-    bool parse_affect_object(json_utils::JsonReader* reader, AffectData* affect, std::string* error_message)
+    template <class Reader>
+    bool parse_affect_object(Reader* reader, AffectData* affect, std::string* error_message)
     {
         if (reader == nullptr || affect == nullptr) {
             set_error(error_message, "Affect parser requires reader and output parameters.");
@@ -1184,7 +1225,7 @@ namespace {
         bool saw_location = false;
         bool saw_counter = false;
         bool saw_flags = false;
-        if (!reader->parse_object([affect, &saw_type, &saw_duration, &saw_time_phase, &saw_modifier, &saw_location, &saw_counter, &saw_flags](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([affect, &saw_type, &saw_duration, &saw_time_phase, &saw_modifier, &saw_location, &saw_counter, &saw_flags](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "type")
                 return saw_type = true, nested_reader->parse_integer(&affect->type, nested_error_message);
             if (key == "duration")
@@ -1212,7 +1253,8 @@ namespace {
         return true;
     }
 
-    bool parse_affects_array(json_utils::JsonReader* reader, std::vector<AffectData>* affects, std::string* error_message)
+    template <class Reader>
+    bool parse_affects_array(Reader* reader, std::vector<AffectData>* affects, std::string* error_message)
     {
         if (reader == nullptr || affects == nullptr) {
             set_error(error_message, "Affects parser requires reader and output parameters.");
@@ -1220,7 +1262,7 @@ namespace {
         }
 
         affects->clear();
-        return reader->parse_array([affects](json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_array([affects](Reader* nested_reader, std::string* nested_error_message) {
             if (affects->size() >= MAX_AFFECT) {
                 set_error(nested_error_message, "affects exceeds the supported entry count.");
                 return false;
@@ -1234,7 +1276,8 @@ namespace {
             error_message);
     }
 
-    bool parse_identity_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_identity_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_idnum = false;
         bool saw_race = false;
@@ -1244,7 +1287,7 @@ namespace {
         bool saw_hometown = false;
         bool saw_weight = false;
         bool saw_height = false;
-        if (!reader->parse_object([character, &saw_idnum, &saw_race, &saw_sex, &saw_bodytype, &saw_language, &saw_hometown, &saw_weight, &saw_height](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_idnum, &saw_race, &saw_sex, &saw_bodytype, &saw_language, &saw_hometown, &saw_weight, &saw_height](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "idnum")
                 return saw_idnum = true, nested_reader->parse_long(&character->idnum, nested_error_message);
             if (key == "race")
@@ -1274,7 +1317,8 @@ namespace {
         return true;
     }
 
-    bool parse_progression_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_progression_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_level = false;
         bool saw_alignment = false;
@@ -1282,7 +1326,7 @@ namespace {
         bool saw_max_mini_level = false;
         bool saw_spells_to_learn = false;
         bool saw_rerolls = false;
-        if (!reader->parse_object([character, &saw_level, &saw_alignment, &saw_mini_level, &saw_max_mini_level, &saw_spells_to_learn, &saw_rerolls](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_level, &saw_alignment, &saw_mini_level, &saw_max_mini_level, &saw_spells_to_learn, &saw_rerolls](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "level")
                 return saw_level = true, nested_reader->parse_integer(&character->level, nested_error_message);
             if (key == "alignment")
@@ -1308,11 +1352,12 @@ namespace {
         return true;
     }
 
-    bool parse_abilities_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_abilities_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_temporary = false;
         bool saw_rolled = false;
-        if (!reader->parse_object([character, &saw_temporary, &saw_rolled](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_temporary, &saw_rolled](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "temporary")
                 return saw_temporary = true, parse_ability_object(nested_reader, &character->temporary_abilities, nested_error_message);
             if (key == "rolled")
@@ -1330,13 +1375,14 @@ namespace {
         return true;
     }
 
-    bool parse_professions_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_professions_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_mage = false;
         bool saw_mystic = false;
         bool saw_ranger = false;
         bool saw_warrior = false;
-        if (!reader->parse_object([character, &saw_mage, &saw_mystic, &saw_ranger, &saw_warrior](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_mage, &saw_mystic, &saw_ranger, &saw_warrior](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "mage")
                 return saw_mage = true, parse_profession_object(nested_reader, &character->mage, nested_error_message);
             if (key == "mystic")
@@ -1362,13 +1408,14 @@ namespace {
         return true;
     }
 
-    bool parse_flags_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_flags_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_player = false;
         bool saw_preferences = false;
         bool saw_affected = false;
         bool saw_hide = false;
-        if (!reader->parse_object([character, &saw_player, &saw_preferences, &saw_affected, &saw_hide](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_player, &saw_preferences, &saw_affected, &saw_hide](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "player")
                 return saw_player = true, parse_string_array(nested_reader, &character->player_flags, nested_error_message);
             if (key == "preferences")
@@ -1390,11 +1437,12 @@ namespace {
         return true;
     }
 
-    bool parse_perception_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_perception_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_raw = false;
         bool saw_current = false;
-        if (!reader->parse_object([character, &saw_raw, &saw_current](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_raw, &saw_current](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "raw")
                 return saw_raw = true, nested_reader->parse_integer(&character->raw_perception, nested_error_message);
             if (key == "current")
@@ -1412,7 +1460,8 @@ namespace {
         return true;
     }
 
-    bool parse_state_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_state_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_load_room = false;
         bool saw_wimp_level = false;
@@ -1422,7 +1471,7 @@ namespace {
         bool saw_leg_encumbrance = false;
         bool saw_rp_flag = false;
         bool saw_will_teach = false;
-        if (!reader->parse_object([character, &saw_load_room, &saw_wimp_level, &saw_freeze_level, &saw_morale, &saw_owner, &saw_leg_encumbrance, &saw_rp_flag, &saw_will_teach](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_load_room, &saw_wimp_level, &saw_freeze_level, &saw_morale, &saw_owner, &saw_leg_encumbrance, &saw_rp_flag, &saw_will_teach](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "load_room")
                 return saw_load_room = true, nested_reader->parse_integer(&character->load_room, nested_error_message);
             if (key == "wimp_level")
@@ -1986,6 +2035,139 @@ bool deserialize_character_from_json(const std::string& json, CharacterData* cha
     *character = std::move(parsed_character);
     set_error(error_message, "");
     return true;
+}
+
+template <class Reader>
+bool deserialize_character_v2_dispatch(const std::string& json, CharacterData* character, std::string* error_message)
+{
+    if (character == nullptr) {
+        set_error(error_message, "Character output parameter must not be null.");
+        return false;
+    }
+
+    CharacterData parsed_character;
+    Reader reader(json);
+    bool saw_schema_version = false;
+    bool saw_character_name = false;
+    bool saw_title = false;
+    bool saw_description = false;
+    bool saw_identity = false;
+    bool saw_progression = false;
+    bool saw_abilities = false;
+    bool saw_points = false;
+    bool saw_professions = false;
+    bool saw_flags = false;
+    bool saw_conditions = false;
+    bool saw_color_mask = false;
+    bool saw_colors = false;
+    bool saw_timers = false;
+    bool saw_perception = false;
+    bool saw_state = false;
+    bool saw_talks = false;
+    bool saw_skills = false;
+    bool saw_affects = false;
+    parsed_character.colors.assign(MAX_COLOR_FIELDS, 0);
+    parsed_character.color_settings.assign(MAX_COLOR_FIELDS, default_color_setting());
+    if (!reader.parse_root_object([&parsed_character, &saw_schema_version, &saw_character_name, &saw_title, &saw_description, &saw_identity, &saw_progression, &saw_abilities, &saw_points, &saw_professions, &saw_flags, &saw_conditions, &saw_color_mask, &saw_colors, &saw_timers, &saw_perception, &saw_state, &saw_talks, &saw_skills, &saw_affects](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
+            if (key == "schema_version")
+                return saw_schema_version = true, nested_reader->parse_integer(&parsed_character.schema_version, nested_error_message);
+            if (key == "character_name")
+                return saw_character_name = true, nested_reader->parse_string(&parsed_character.character_name, nested_error_message);
+            if (key == "title")
+                return saw_title = true, nested_reader->parse_string(&parsed_character.title, nested_error_message);
+            if (key == "description")
+                return saw_description = true, nested_reader->parse_string(&parsed_character.description, nested_error_message);
+            if (key == "identity")
+                return saw_identity = true, parse_identity_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "progression")
+                return saw_progression = true, parse_progression_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "abilities")
+                return saw_abilities = true, parse_abilities_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "points")
+                return saw_points = true, parse_points_object(nested_reader, &parsed_character.points, nested_error_message);
+            if (key == "professions")
+                return saw_professions = true, parse_professions_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "flags")
+                return saw_flags = true, parse_flags_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "conditions")
+                return saw_conditions = true, parse_conditions_object(nested_reader, &parsed_character.conditions, nested_error_message);
+            if (key == "color_mask")
+                return saw_color_mask = true, nested_reader->parse_long(&parsed_character.color_mask, nested_error_message);
+            if (key == "colors")
+                return saw_colors = true, parse_colors_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "timers")
+                return saw_timers = true, parse_timers_object(nested_reader, &parsed_character.timers, nested_error_message);
+            if (key == "perception")
+                return saw_perception = true, parse_perception_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "state")
+                return saw_state = true, parse_state_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "talks")
+                return saw_talks = true, parse_named_integer_object(nested_reader, &parsed_character.talks, MAX_TOUNGE, "talk", talk_index_for_key_memoized, nested_error_message);
+            if (key == "skills")
+                return saw_skills = true, parse_named_integer_object(nested_reader, &parsed_character.skills, MAX_SKILLS, "skill", skill_index_for_key_memoized, nested_error_message);
+            if (key == "affects")
+                return saw_affects = true, parse_affects_array(nested_reader, &parsed_character.affects, nested_error_message);
+            return nested_reader->skip_value(nested_error_message);
+        },
+            error_message))
+        return false;
+
+    if (!has_all_required_character_sections(saw_schema_version, saw_character_name, saw_title, saw_description, saw_identity, saw_progression, saw_abilities, saw_points, saw_professions, saw_flags, saw_conditions, saw_timers, saw_perception, saw_state, saw_talks, saw_skills, saw_affects)) {
+        set_error(error_message, "Character JSON was missing one or more required sections.");
+        return false;
+    }
+
+    if (parsed_character.schema_version != CHARACTER_JSON_SCHEMA_VERSION) {
+        set_error(error_message, "Unsupported character schema version.");
+        return false;
+    }
+
+    if (!validate_character_scalar_ranges(parsed_character, error_message))
+        return false;
+    if (!validate_character_collections(parsed_character, error_message))
+        return false;
+
+    long ignored_flags = 0;
+    if (!decode_player_flags(parsed_character.player_flags, &ignored_flags, error_message))
+        return false;
+    if (!decode_preference_flags(parsed_character.preference_flags, &ignored_flags, error_message))
+        return false;
+    if (!decode_affected_flags(parsed_character.affected_flags, &ignored_flags, error_message))
+        return false;
+    if (!decode_hide_flags(parsed_character.hide_flags, &ignored_flags, error_message))
+        return false;
+    if (!require_exact_array_size(parsed_character.points.bodypart_hit, MAX_BODYPARTS, "points.bodypart_hit", error_message))
+        return false;
+    if (!saw_color_mask)
+        parsed_character.color_mask = 0;
+    if (!saw_colors) {
+        parsed_character.colors.assign(MAX_COLOR_FIELDS, 0);
+        parsed_character.color_settings.assign(MAX_COLOR_FIELDS, default_color_setting());
+    }
+    if (!require_exact_array_size(parsed_character.colors, MAX_COLOR_FIELDS, "colors", error_message))
+        return false;
+    if (!require_exact_array_size(parsed_character.talks, MAX_TOUNGE, "talks", error_message))
+        return false;
+    if (!require_exact_array_size(parsed_character.skills, MAX_SKILLS, "skills", error_message))
+        return false;
+    for (const AffectData& affect : parsed_character.affects) {
+        if (!decode_affected_flags(affect.flags, &ignored_flags, error_message))
+            return false;
+    }
+
+    *character = std::move(parsed_character);
+    set_error(error_message, "");
+    return true;
+}
+
+bool deserialize_character_from_json_v2a(const std::string& json, CharacterData* character, std::string* error_message)
+{
+    return deserialize_character_v2_dispatch<json_utils::JsonReader>(json, character, error_message);
+}
+
+bool deserialize_character_from_json_v2b(const std::string& json, CharacterData* character, std::string* error_message)
+{
+    return deserialize_character_v2_dispatch<json_utils::JsonReaderV2>(json, character, error_message);
 }
 
 std::vector<std::string> encode_player_flags(long flags)
