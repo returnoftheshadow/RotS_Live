@@ -1969,7 +1969,12 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
     stored_character->specials2.alignment = json_character.alignment;
     stored_character->specials2.load_room = json_character.load_room;
     stored_character->specials2.spells_to_learn = json_character.spells_to_learn;
-    stored_character->specials2.act = player_flags;
+    // Neutralize the persisted PLR_CRASH "inventory-dirty" bit on load. It now round-trips through
+    // the character JSON, but it is a transient runtime marker (set on inventory change in handler.cpp,
+    // cleared by Crash_crashsave) and must never be restored from disk -- otherwise a character saved
+    // mid-change reloads as already-dirty. The kPlayerFlags "crash" entry is kept so existing files
+    // that persisted it still decode without rejection; the bit is simply masked off here.
+    stored_character->specials2.act = player_flags & ~PLR_CRASH;
     stored_character->specials2.pref = preference_flags;
     stored_character->specials2.wimp_level = json_character.wimp_level;
     stored_character->specials2.freeze_level = static_cast<byte>(json_character.freeze_level);

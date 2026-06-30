@@ -373,6 +373,29 @@ TEST(CharacterJson, AppliesCharacterDataBackToStoredCharacter)
     EXPECT_EQ(stored.affected[0].bitvector, AFF_INVISIBLE | AFF_DETECT_MAGIC);
 }
 
+TEST(CharacterJson, StripsPersistedPlrCrashFlagOnLoad)
+{
+    // PLR_CRASH is a transient inventory-dirty marker that now round-trips through the character JSON.
+    // A character saved while dirty must NOT reload as already-dirty, so the load path masks it off.
+    // Serialize a character with PLR_CRASH set, deserialize + apply, and confirm the bit is cleared
+    // while the other persisted player flags (e.g. PLR_WRITING) survive.
+    char_file_u source = make_stored_character();
+    source.specials2.act |= PLR_CRASH;
+
+    const std::string json =
+        character_json::serialize_character_to_json(character_json::character_data_from_store(source));
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    ASSERT_TRUE(character_json::deserialize_character_from_json(json, &parsed, &error_message)) << error_message;
+
+    char_file_u reloaded {};
+    ASSERT_TRUE(character_json::apply_character_data_to_store(parsed, &reloaded, &error_message)) << error_message;
+
+    EXPECT_EQ(0, reloaded.specials2.act & PLR_CRASH) << "PLR_CRASH must be stripped on load";
+    EXPECT_TRUE((reloaded.specials2.act & PLR_WRITING) != 0) << "other player flags must survive";
+}
+
 TEST(CharacterJson, DefaultsCombatStateWhenOlderJsonOmitsNewStateFields)
 {
     std::string json = make_valid_character_json();
