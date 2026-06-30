@@ -146,12 +146,21 @@ The benchmark yields the per-stage SAVE/LOAD breakdown and the end-to-end totals
 - `per-player µs × max connected players ≤ heartbeat budget` (single-threaded; the snapshot runs inline on the game loop) — sizes a safe cadence and the `≥15s` floor.
 - Whether `read_account_file` per save is large enough to justify caching the owner→account link before a save-all pass.
 
-We reconvene with numbers before porting any frequency change.
+**Measured (initial run) — see `2026-06-29-savebench-pipeline-performance-findings.md` for the full tables and method.** On a live i386/QEMU server, per character: **SAVE ≈ 2.1 ms, LOAD ≈ 3.7 ms**. The breakdown answers the second bullet decisively:
+- **`read_account_file` is the dominant cost and is *redundant* — 57.5% of SAVE and 30.9% of LOAD**, re-parsing the same `account.json` every operation. So **caching the owner→account link is the #1 lever and must come before any cadence reduction** (it roughly halves per-player save cost; pure upside).
+- `deserialize_character_from_json` is the LOAD bottleneck (48.6%, ~5× the serialize side) — the secondary target if load latency matters.
+- (Absolute µs are inflated by emulation; treat the *relative* breakdown as the signal — re-measure on native i386 for production latencies.)
+
+Sequence for the next branch: **(1) add the owner→account-link cache → (2) re-measure → (3) only then** de-gate `Crash_save_all` / lower the cadence, sized against the reduced per-player cost.
 
 ## 12. Deferred to a later branch (explicitly out of scope here)
 
-Each is part of the original Feature 2 and is held pending benchmark data:
-- **Save-all snapshot** — de-gate `Crash_save_all` (`src/objsave.cpp:1860-1875`) from the `PLR_CRASH` dirty bit to save every `CON_PLYNG` non-NPC player in one pass; handle the now-JSON-persisted stale `PLR_CRASH` flag (`character_json.cpp:34`). *(The cadence scheduler this would lean on is already brought in by Component C; only the de-gating is deferred.)*
+Most are part of the original Feature 2 and were held pending benchmark data; the **account load/save optimization is new — surfaced by the benchmark — and is the prerequisite the cost-bearing F2 items now depend on:**
+- **Optimize account loading/saving (DO THIS FIRST).** The benchmark (see `2026-06-29-savebench-pipeline-performance-findings.md`) shows `read_account_file` is the dominant *and redundant* cost — **57.5% of SAVE, 30.9% of LOAD** — re-parsing the same `account.json` on every operation.
+  - **Primary: cache the owner→account-link resolution** per character (the result of `find_linked_character_owner_account` + `read_account_file`, `src/account_management.cpp` / `account_management_storage.cpp`), invalidated on account mutation. Roughly halves per-player save cost; pure upside, and the precondition for any cadence reduction or save-all pass over many players.
+  - **Secondary (only if load latency matters): speed up `deserialize_character_from_json`** (`character_json.cpp`) — the LOAD bottleneck at 48.6%, ~5× the serialize side.
+  - Re-measure with `savebench` after the cache lands (ideally on native i386) before sizing cadence.
+- **Save-all snapshot** — de-gate `Crash_save_all` (`src/objsave.cpp:1860-1875`) from the `PLR_CRASH` dirty bit to save every `CON_PLYNG` non-NPC player in one pass; handle the now-JSON-persisted stale `PLR_CRASH` flag (`character_json.cpp:34`). *(The cadence scheduler this would lean on is already brought in by Component C; only the de-gating is deferred — and it should follow the account-link cache so the per-player cost is already minimized.)*
 - **Cadence reduction** — lowering `autosave_time` below the 240s default (toward the source's 30s). The scheduler mechanism is in place (Component C); reducing the interval is the cost-increasing move held for benchmark data.
 - **`notify=0`** for the periodic batch (`objsave.cpp:1868`) — only needed once the cadence tightens or the snapshot de-gates; harmless to leave at the unchanged 4-minute cadence.
 - **Anti-rollback hooks** — `save_char` after the exploit finalize in `write_exploits` (`db.cpp:4045`); **angel-reroll** direct save (`spec_pro.cpp:2678`); **remove the 10% kill-XP save** (`group_gain` `fight.cpp:1304-1306`) — note this must stay bundled with the snapshot, since removing it alone *reduces* XP-persistence frequency and increases rollback exposure.
