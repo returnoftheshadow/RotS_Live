@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
+#include <cstddef>
 #include <limits>
 #include <sstream>
 #include <unordered_map>
@@ -937,6 +939,286 @@ namespace {
         write_string_array(output, affect.flags);
         output << "}";
     }
+
+    // ---- v2 string-appending serialize support (parallel to the ostringstream write_* helpers) ----
+
+    // Initial reserve() size for the v2 serialize buffer; a perf hint only (the buffer grows if a
+    // character serializes larger), so it never affects output bytes.
+    constexpr std::size_t kSerializeReserveHint = 8192;
+
+    // Reusable JSON text accumulator for the v2 serializers: owns the growing output buffer and one
+    // scratch buffer reused for every integer->text conversion, so a serialize pass does no per-field
+    // heap churn (v1's ostringstream + .str() double-allocates). One instance per serialize call.
+    class JsonWriter {
+    public:
+        // reserve_hint pre-sizes the buffer to a typical serialized document so growth reallocs are rare.
+        explicit JsonWriter(std::size_t reserve_hint)
+        {
+            m_out.reserve(reserve_hint);
+        }
+
+        // Appends a NUL-terminated literal fragment verbatim (punctuation, field names, bool literals).
+        void raw(const char* literal)
+        {
+            m_out.append(literal);
+        }
+
+        // Appends a single character verbatim.
+        void raw(char character)
+        {
+            m_out.push_back(character);
+        }
+
+        // Appends a std::string fragment verbatim (no escaping).
+        void raw(const std::string& fragment)
+        {
+            m_out.append(fragment);
+        }
+
+        // Appends the decimal text of a signed integer via std::to_chars (locale-free, allocation-free),
+        // reusing m_scratch. Templated so int and long share one body; integer overloads only (g++ 9.4).
+        template <class IntT>
+        void number(IntT value)
+        {
+            const std::to_chars_result result = std::to_chars(m_scratch, m_scratch + sizeof(m_scratch), value);
+            m_out.append(m_scratch, result.ptr);
+        }
+
+        // Direct buffer access for in-place escape helpers (append_escaped_json_string).
+        std::string& buffer()
+        {
+            return m_out;
+        }
+
+        // Hands the finished buffer to the caller by move (no final whole-buffer copy like v1's .str()).
+        std::string take()
+        {
+            return std::move(m_out);
+        }
+
+    private:
+        // The growing serialized-JSON text; reserved up front, returned by take() at the end.
+        std::string m_out;
+        // Reusable scratch for std::to_chars; 24 bytes covers any 64-bit value plus sign.
+        char m_scratch[24];
+    };
+
+    void write_ability_v2(JsonWriter& writer, const AbilityData& ability)
+    {
+        writer.raw("{\n");
+        writer.raw("      \"str\": ");
+        writer.number(ability.str);
+        writer.raw(",\n");
+        writer.raw("      \"lea\": ");
+        writer.number(ability.lea);
+        writer.raw(",\n");
+        writer.raw("      \"intel\": ");
+        writer.number(ability.intel);
+        writer.raw(",\n");
+        writer.raw("      \"wil\": ");
+        writer.number(ability.wil);
+        writer.raw(",\n");
+        writer.raw("      \"dex\": ");
+        writer.number(ability.dex);
+        writer.raw(",\n");
+        writer.raw("      \"con\": ");
+        writer.number(ability.con);
+        writer.raw(",\n");
+        writer.raw("      \"hit\": ");
+        writer.number(ability.hit);
+        writer.raw(",\n");
+        writer.raw("      \"mana\": ");
+        writer.number(ability.mana);
+        writer.raw(",\n");
+        writer.raw("      \"move\": ");
+        writer.number(ability.move);
+        writer.raw("\n");
+        writer.raw("    }");
+    }
+
+    void write_profession_v2(JsonWriter& writer, const char* name, const ProfessionData& profession)
+    {
+        writer.raw("    \"");
+        writer.raw(name);
+        writer.raw("\": {\n");
+        writer.raw("      \"level\": ");
+        writer.number(profession.level);
+        writer.raw(",\n");
+        writer.raw("      \"points\": ");
+        writer.number(profession.points);
+        writer.raw(",\n");
+        writer.raw("      \"coeff\": ");
+        writer.number(profession.coeff);
+        writer.raw(",\n");
+        writer.raw("      \"experience\": ");
+        writer.number(profession.experience);
+        writer.raw("\n");
+        writer.raw("    }");
+    }
+
+    void write_integer_array_v2(JsonWriter& writer, const std::vector<int>& values)
+    {
+        writer.raw('[');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.number(values[index]);
+        }
+        writer.raw(']');
+    }
+
+    void write_color_value_v2(JsonWriter& writer, const ColorValueData& value)
+    {
+        writer.raw('{');
+        if (value.mode == COLOR_VALUE_DEFAULT) {
+            writer.raw("\"mode\": \"default\"");
+        } else if (value.mode == COLOR_VALUE_ANSI16) {
+            writer.raw("\"mode\": \"ansi16\", \"value\": ");
+            writer.number(value.value);
+        } else {
+            writer.raw("\"mode\": \"truecolor\", \"value\": ");
+            writer.number(value.value);
+            writer.raw(", \"r\": ");
+            writer.number(value.red);
+            writer.raw(", \"g\": ");
+            writer.number(value.green);
+            writer.raw(", \"b\": ");
+            writer.number(value.blue);
+        }
+        writer.raw('}');
+    }
+
+    void write_color_setting_v2(JsonWriter& writer, const ColorSettingData& setting)
+    {
+        writer.raw("{\"foreground\": ");
+        write_color_value_v2(writer, setting.foreground);
+        writer.raw(", \"background\": ");
+        write_color_value_v2(writer, setting.background);
+        writer.raw('}');
+    }
+
+    // Cached skill key slugs (one per index); each equals skill_key_for_index(i) exactly, built once
+    // and reused so the v2b serializer never re-runs slugify_key per field. Index in [0, MAX_SKILLS).
+    const std::string& skill_key_for_index_cached(int index)
+    {
+        static const std::vector<std::string> table = [] {
+            std::vector<std::string> built;
+            built.reserve(MAX_SKILLS);
+            for (int slug_index = 0; slug_index < MAX_SKILLS; ++slug_index)
+                built.push_back(skill_key_for_index(slug_index));
+            return built;
+        }();
+        return table[index];
+    }
+
+    // Cached talk key slugs; each equals talk_key_for_index(i) (which reads language tables fixed after
+    // boot). Index in [0, MAX_TOUNGE).
+    const std::string& talk_key_for_index_cached(int index)
+    {
+        static const std::vector<std::string> table = [] {
+            std::vector<std::string> built;
+            built.reserve(MAX_TOUNGE);
+            for (int slug_index = 0; slug_index < MAX_TOUNGE; ++slug_index)
+                built.push_back(talk_key_for_index(slug_index));
+            return built;
+        }();
+        return table[index];
+    }
+
+    // v2a string-array writer: keys/values escaped via escape_json_string (slow path, like v1).
+    void write_string_array_v2a(JsonWriter& writer, const std::vector<std::string>& values)
+    {
+        writer.raw('[');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.raw('"');
+            writer.raw(json_utils::escape_json_string(values[index]));
+            writer.raw('"');
+        }
+        writer.raw(']');
+    }
+
+    // v2b string-array writer: escapes in place via append_escaped_json_string (fast path).
+    void write_string_array_v2b(JsonWriter& writer, const std::vector<std::string>& values)
+    {
+        writer.raw('[');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.raw('"');
+            json_utils::append_escaped_json_string(writer.buffer(), values[index]);
+            writer.raw('"');
+        }
+        writer.raw(']');
+    }
+
+    void write_named_integer_object_v2a(JsonWriter& writer, const std::vector<NamedValue>& values)
+    {
+        writer.raw('{');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.raw('"');
+            writer.raw(json_utils::escape_json_string(values[index].key));
+            writer.raw("\": ");
+            writer.number(values[index].value);
+        }
+        writer.raw('}');
+    }
+
+    void write_named_integer_object_v2b(JsonWriter& writer, const std::vector<NamedValue>& values)
+    {
+        writer.raw('{');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.raw('"');
+            json_utils::append_escaped_json_string(writer.buffer(), values[index].key);
+            writer.raw("\": ");
+            writer.number(values[index].value);
+        }
+        writer.raw('}');
+    }
+
+    void write_affect_v2a(JsonWriter& writer, const AffectData& affect)
+    {
+        writer.raw("{\"type\": ");
+        writer.number(affect.type);
+        writer.raw(", \"duration\": ");
+        writer.number(affect.duration);
+        writer.raw(", \"time_phase\": ");
+        writer.number(affect.time_phase);
+        writer.raw(", \"modifier\": ");
+        writer.number(affect.modifier);
+        writer.raw(", \"location\": ");
+        writer.number(affect.location);
+        writer.raw(", \"counter\": ");
+        writer.number(affect.counter);
+        writer.raw(", \"flags\": ");
+        write_string_array_v2a(writer, affect.flags);
+        writer.raw('}');
+    }
+
+    void write_affect_v2b(JsonWriter& writer, const AffectData& affect)
+    {
+        writer.raw("{\"type\": ");
+        writer.number(affect.type);
+        writer.raw(", \"duration\": ");
+        writer.number(affect.duration);
+        writer.raw(", \"time_phase\": ");
+        writer.number(affect.time_phase);
+        writer.raw(", \"modifier\": ");
+        writer.number(affect.modifier);
+        writer.raw(", \"location\": ");
+        writer.number(affect.location);
+        writer.raw(", \"counter\": ");
+        writer.number(affect.counter);
+        writer.raw(", \"flags\": ");
+        write_string_array_v2b(writer, affect.flags);
+        writer.raw('}');
+    }
+
 
     template <class Reader>
     bool parse_string_array(Reader* reader, std::vector<std::string>* values, std::string* error_message)
@@ -1913,6 +2195,510 @@ std::string serialize_character_to_json(const CharacterData& character)
     output << "]\n";
     output << "}\n";
     return output.str();
+}
+
+std::string serialize_character_to_json_v2a(const CharacterData& character)
+{
+    JsonWriter writer(kSerializeReserveHint);
+    writer.raw("{\n");
+    writer.raw("  \"schema_version\": ");
+    writer.number(character.schema_version);
+    writer.raw(",\n");
+    writer.raw("  \"character_name\": \"");
+    writer.raw(json_utils::escape_json_string(character.character_name));
+    writer.raw("\",\n");
+    writer.raw("  \"title\": \"");
+    writer.raw(json_utils::escape_json_string(character.title));
+    writer.raw("\",\n");
+    writer.raw("  \"description\": \"");
+    writer.raw(json_utils::escape_json_string(character.description));
+    writer.raw("\",\n");
+    writer.raw("  \"identity\": {\n");
+    writer.raw("    \"idnum\": ");
+    writer.number(character.idnum);
+    writer.raw(",\n");
+    writer.raw("    \"race\": ");
+    writer.number(character.race);
+    writer.raw(",\n");
+    writer.raw("    \"sex\": ");
+    writer.number(character.sex);
+    writer.raw(",\n");
+    writer.raw("    \"bodytype\": ");
+    writer.number(character.bodytype);
+    writer.raw(",\n");
+    writer.raw("    \"language\": ");
+    writer.number(character.language);
+    writer.raw(",\n");
+    writer.raw("    \"hometown\": ");
+    writer.number(character.hometown);
+    writer.raw(",\n");
+    writer.raw("    \"weight\": ");
+    writer.number(character.weight);
+    writer.raw(",\n");
+    writer.raw("    \"height\": ");
+    writer.number(character.height);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"progression\": {\n");
+    writer.raw("    \"level\": ");
+    writer.number(character.level);
+    writer.raw(",\n");
+    writer.raw("    \"alignment\": ");
+    writer.number(character.alignment);
+    writer.raw(",\n");
+    writer.raw("    \"mini_level\": ");
+    writer.number(character.mini_level);
+    writer.raw(",\n");
+    writer.raw("    \"max_mini_level\": ");
+    writer.number(character.max_mini_level);
+    writer.raw(",\n");
+    writer.raw("    \"spells_to_learn\": ");
+    writer.number(character.spells_to_learn);
+    writer.raw(",\n");
+    writer.raw("    \"rerolls\": ");
+    writer.number(character.rerolls);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"abilities\": {\n");
+    writer.raw("    \"temporary\": ");
+    write_ability_v2(writer, character.temporary_abilities);
+    writer.raw(",\n");
+    writer.raw("    \"rolled\": ");
+    write_ability_v2(writer, character.rolled_abilities);
+    writer.raw("\n  },\n");
+    writer.raw("  \"points\": {\n");
+    writer.raw("    \"bodypart_hit\": ");
+    write_integer_array_v2(writer, character.points.bodypart_hit);
+    writer.raw(",\n");
+    writer.raw("    \"gold\": ");
+    writer.number(character.points.gold);
+    writer.raw(",\n");
+    writer.raw("    \"experience\": ");
+    writer.number(character.points.experience);
+    writer.raw(",\n");
+    writer.raw("    \"spirit\": ");
+    writer.number(character.points.spirit);
+    writer.raw(",\n");
+    writer.raw("    \"mana_regen\": ");
+    writer.number(character.points.mana_regen);
+    writer.raw(",\n");
+    writer.raw("    \"health_regen\": ");
+    writer.number(character.points.health_regen);
+    writer.raw(",\n");
+    writer.raw("    \"move_regen\": ");
+    writer.number(character.points.move_regen);
+    writer.raw(",\n");
+    writer.raw("    \"ob\": ");
+    writer.number(character.points.ob);
+    writer.raw(",\n");
+    writer.raw("    \"damage\": ");
+    writer.number(character.points.damage);
+    writer.raw(",\n");
+    writer.raw("    \"energy_regen\": ");
+    writer.number(character.points.energy_regen);
+    writer.raw(",\n");
+    writer.raw("    \"parry\": ");
+    writer.number(character.points.parry);
+    writer.raw(",\n");
+    writer.raw("    \"dodge\": ");
+    writer.number(character.points.dodge);
+    writer.raw(",\n");
+    writer.raw("    \"encumbrance\": ");
+    writer.number(character.points.encumbrance);
+    writer.raw(",\n");
+    writer.raw("    \"willpower\": ");
+    writer.number(character.points.willpower);
+    writer.raw(",\n");
+    writer.raw("    \"spell_pen\": ");
+    writer.number(character.points.spell_pen);
+    writer.raw(",\n");
+    writer.raw("    \"spell_power\": ");
+    writer.number(character.points.spell_power);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"professions\": {\n");
+    write_profession_v2(writer, "mage", character.mage);
+    writer.raw(",\n");
+    write_profession_v2(writer, "mystic", character.mystic);
+    writer.raw(",\n");
+    write_profession_v2(writer, "ranger", character.ranger);
+    writer.raw(",\n");
+    write_profession_v2(writer, "warrior", character.warrior);
+    writer.raw("\n  },\n");
+    writer.raw("  \"flags\": {\n");
+    writer.raw("    \"player\": ");
+    write_string_array_v2a(writer, character.player_flags);
+    writer.raw(",\n");
+    writer.raw("    \"preferences\": ");
+    write_string_array_v2a(writer, character.preference_flags);
+    writer.raw(",\n");
+    writer.raw("    \"affected\": ");
+    write_string_array_v2a(writer, character.affected_flags);
+    writer.raw(",\n");
+    writer.raw("    \"hide\": ");
+    write_string_array_v2a(writer, character.hide_flags);
+    writer.raw("\n  },\n");
+    writer.raw("  \"conditions\": {\n");
+    writer.raw("    \"drunk\": ");
+    writer.number(character.conditions.drunk);
+    writer.raw(",\n");
+    writer.raw("    \"full\": ");
+    writer.number(character.conditions.full);
+    writer.raw(",\n");
+    writer.raw("    \"thirst\": ");
+    writer.number(character.conditions.thirst);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"color_mask\": ");
+    writer.number(character.color_mask);
+    writer.raw(",\n");
+    writer.raw("  \"colors\": {");
+    const std::vector<NamedValue> color_slots = collect_non_default_color_slots(character);
+    for (size_t index = 0; index < color_slots.size(); ++index) {
+        if (index > 0)
+            writer.raw(", ");
+        const int slot_index = color_slots[index].value;
+        ColorSettingData setting = (slot_index < static_cast<int>(character.color_settings.size()))
+            ? character.color_settings[slot_index]
+            : default_color_setting();
+        if (is_default_color_value(setting.foreground) && slot_index < static_cast<int>(character.colors.size()) && character.colors[slot_index] != CNRM) {
+            setting.foreground.mode = COLOR_VALUE_ANSI16;
+            setting.foreground.value = character.colors[slot_index];
+        }
+        normalize_color_setting(&setting);
+        writer.raw('"');
+        writer.raw(json_utils::escape_json_string(color_slots[index].key));
+        writer.raw("\": ");
+        write_color_setting_v2(writer, setting);
+    }
+    writer.raw("},\n");
+    writer.raw("  \"timers\": {\n");
+    writer.raw("    \"birth\": ");
+    writer.number(character.timers.birth);
+    writer.raw(",\n");
+    writer.raw("    \"last_logon\": ");
+    writer.number(character.timers.last_logon);
+    writer.raw(",\n");
+    writer.raw("    \"played_seconds\": ");
+    writer.number(character.timers.played_seconds);
+    writer.raw(",\n");
+    writer.raw("    \"retired_on\": ");
+    writer.number(character.timers.retired_on);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"perception\": {\n");
+    writer.raw("    \"raw\": ");
+    writer.number(character.raw_perception);
+    writer.raw(",\n");
+    writer.raw("    \"current\": ");
+    writer.number(character.perception);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"state\": {\n");
+    writer.raw("    \"load_room\": ");
+    writer.number(character.load_room);
+    writer.raw(",\n");
+    writer.raw("    \"wimp_level\": ");
+    writer.number(character.wimp_level);
+    writer.raw(",\n");
+    writer.raw("    \"freeze_level\": ");
+    writer.number(character.freeze_level);
+    writer.raw(",\n");
+    writer.raw("    \"morale\": ");
+    writer.number(character.morale);
+    writer.raw(",\n");
+    writer.raw("    \"owner\": ");
+    writer.number(character.owner);
+    writer.raw(",\n");
+    writer.raw("    \"leg_encumbrance\": ");
+    writer.number(character.leg_encumbrance);
+    writer.raw(",\n");
+    writer.raw("    \"rp_flag\": ");
+    writer.number(character.rp_flag);
+    writer.raw(",\n");
+    writer.raw("    \"will_teach\": ");
+    writer.number(character.will_teach);
+    writer.raw(",\n");
+    writer.raw("    \"tactics\": ");
+    writer.number(character.tactics);
+    writer.raw(",\n");
+    writer.raw("    \"shooting\": ");
+    writer.number(character.shooting);
+    writer.raw(",\n");
+    writer.raw("    \"casting\": ");
+    writer.number(character.casting);
+    writer.raw(",\n");
+    writer.raw("    \"two_handed\": ");
+    writer.raw(character.two_handed ? "true" : "false");
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"talks\": ");
+    write_named_integer_object_v2a(writer, collect_non_zero_named_values(character.talks, MAX_TOUNGE, talk_key_for_index));
+    writer.raw(",\n");
+    writer.raw("  \"skills\": ");
+    write_named_integer_object_v2a(writer, collect_non_zero_named_values(character.skills, MAX_SKILLS, skill_key_for_index));
+    writer.raw(",\n");
+    writer.raw("  \"affects\": [");
+    for (size_t index = 0; index < character.affects.size(); ++index) {
+        if (index > 0)
+            writer.raw(", ");
+        write_affect_v2a(writer, character.affects[index]);
+    }
+    writer.raw("]\n");
+    writer.raw("}\n");
+    return writer.take();
+}
+
+std::string serialize_character_to_json_v2b(const CharacterData& character)
+{
+    JsonWriter writer(kSerializeReserveHint);
+    writer.raw("{\n");
+    writer.raw("  \"schema_version\": ");
+    writer.number(character.schema_version);
+    writer.raw(",\n");
+    writer.raw("  \"character_name\": \"");
+    json_utils::append_escaped_json_string(writer.buffer(), character.character_name);
+    writer.raw("\",\n");
+    writer.raw("  \"title\": \"");
+    json_utils::append_escaped_json_string(writer.buffer(), character.title);
+    writer.raw("\",\n");
+    writer.raw("  \"description\": \"");
+    json_utils::append_escaped_json_string(writer.buffer(), character.description);
+    writer.raw("\",\n");
+    writer.raw("  \"identity\": {\n");
+    writer.raw("    \"idnum\": ");
+    writer.number(character.idnum);
+    writer.raw(",\n");
+    writer.raw("    \"race\": ");
+    writer.number(character.race);
+    writer.raw(",\n");
+    writer.raw("    \"sex\": ");
+    writer.number(character.sex);
+    writer.raw(",\n");
+    writer.raw("    \"bodytype\": ");
+    writer.number(character.bodytype);
+    writer.raw(",\n");
+    writer.raw("    \"language\": ");
+    writer.number(character.language);
+    writer.raw(",\n");
+    writer.raw("    \"hometown\": ");
+    writer.number(character.hometown);
+    writer.raw(",\n");
+    writer.raw("    \"weight\": ");
+    writer.number(character.weight);
+    writer.raw(",\n");
+    writer.raw("    \"height\": ");
+    writer.number(character.height);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"progression\": {\n");
+    writer.raw("    \"level\": ");
+    writer.number(character.level);
+    writer.raw(",\n");
+    writer.raw("    \"alignment\": ");
+    writer.number(character.alignment);
+    writer.raw(",\n");
+    writer.raw("    \"mini_level\": ");
+    writer.number(character.mini_level);
+    writer.raw(",\n");
+    writer.raw("    \"max_mini_level\": ");
+    writer.number(character.max_mini_level);
+    writer.raw(",\n");
+    writer.raw("    \"spells_to_learn\": ");
+    writer.number(character.spells_to_learn);
+    writer.raw(",\n");
+    writer.raw("    \"rerolls\": ");
+    writer.number(character.rerolls);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"abilities\": {\n");
+    writer.raw("    \"temporary\": ");
+    write_ability_v2(writer, character.temporary_abilities);
+    writer.raw(",\n");
+    writer.raw("    \"rolled\": ");
+    write_ability_v2(writer, character.rolled_abilities);
+    writer.raw("\n  },\n");
+    writer.raw("  \"points\": {\n");
+    writer.raw("    \"bodypart_hit\": ");
+    write_integer_array_v2(writer, character.points.bodypart_hit);
+    writer.raw(",\n");
+    writer.raw("    \"gold\": ");
+    writer.number(character.points.gold);
+    writer.raw(",\n");
+    writer.raw("    \"experience\": ");
+    writer.number(character.points.experience);
+    writer.raw(",\n");
+    writer.raw("    \"spirit\": ");
+    writer.number(character.points.spirit);
+    writer.raw(",\n");
+    writer.raw("    \"mana_regen\": ");
+    writer.number(character.points.mana_regen);
+    writer.raw(",\n");
+    writer.raw("    \"health_regen\": ");
+    writer.number(character.points.health_regen);
+    writer.raw(",\n");
+    writer.raw("    \"move_regen\": ");
+    writer.number(character.points.move_regen);
+    writer.raw(",\n");
+    writer.raw("    \"ob\": ");
+    writer.number(character.points.ob);
+    writer.raw(",\n");
+    writer.raw("    \"damage\": ");
+    writer.number(character.points.damage);
+    writer.raw(",\n");
+    writer.raw("    \"energy_regen\": ");
+    writer.number(character.points.energy_regen);
+    writer.raw(",\n");
+    writer.raw("    \"parry\": ");
+    writer.number(character.points.parry);
+    writer.raw(",\n");
+    writer.raw("    \"dodge\": ");
+    writer.number(character.points.dodge);
+    writer.raw(",\n");
+    writer.raw("    \"encumbrance\": ");
+    writer.number(character.points.encumbrance);
+    writer.raw(",\n");
+    writer.raw("    \"willpower\": ");
+    writer.number(character.points.willpower);
+    writer.raw(",\n");
+    writer.raw("    \"spell_pen\": ");
+    writer.number(character.points.spell_pen);
+    writer.raw(",\n");
+    writer.raw("    \"spell_power\": ");
+    writer.number(character.points.spell_power);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"professions\": {\n");
+    write_profession_v2(writer, "mage", character.mage);
+    writer.raw(",\n");
+    write_profession_v2(writer, "mystic", character.mystic);
+    writer.raw(",\n");
+    write_profession_v2(writer, "ranger", character.ranger);
+    writer.raw(",\n");
+    write_profession_v2(writer, "warrior", character.warrior);
+    writer.raw("\n  },\n");
+    writer.raw("  \"flags\": {\n");
+    writer.raw("    \"player\": ");
+    write_string_array_v2b(writer, character.player_flags);
+    writer.raw(",\n");
+    writer.raw("    \"preferences\": ");
+    write_string_array_v2b(writer, character.preference_flags);
+    writer.raw(",\n");
+    writer.raw("    \"affected\": ");
+    write_string_array_v2b(writer, character.affected_flags);
+    writer.raw(",\n");
+    writer.raw("    \"hide\": ");
+    write_string_array_v2b(writer, character.hide_flags);
+    writer.raw("\n  },\n");
+    writer.raw("  \"conditions\": {\n");
+    writer.raw("    \"drunk\": ");
+    writer.number(character.conditions.drunk);
+    writer.raw(",\n");
+    writer.raw("    \"full\": ");
+    writer.number(character.conditions.full);
+    writer.raw(",\n");
+    writer.raw("    \"thirst\": ");
+    writer.number(character.conditions.thirst);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"color_mask\": ");
+    writer.number(character.color_mask);
+    writer.raw(",\n");
+    writer.raw("  \"colors\": {");
+    const std::vector<NamedValue> color_slots = collect_non_default_color_slots(character);
+    for (size_t index = 0; index < color_slots.size(); ++index) {
+        if (index > 0)
+            writer.raw(", ");
+        const int slot_index = color_slots[index].value;
+        ColorSettingData setting = (slot_index < static_cast<int>(character.color_settings.size()))
+            ? character.color_settings[slot_index]
+            : default_color_setting();
+        if (is_default_color_value(setting.foreground) && slot_index < static_cast<int>(character.colors.size()) && character.colors[slot_index] != CNRM) {
+            setting.foreground.mode = COLOR_VALUE_ANSI16;
+            setting.foreground.value = character.colors[slot_index];
+        }
+        normalize_color_setting(&setting);
+        writer.raw('"');
+        json_utils::append_escaped_json_string(writer.buffer(), color_slots[index].key);
+        writer.raw("\": ");
+        write_color_setting_v2(writer, setting);
+    }
+    writer.raw("},\n");
+    writer.raw("  \"timers\": {\n");
+    writer.raw("    \"birth\": ");
+    writer.number(character.timers.birth);
+    writer.raw(",\n");
+    writer.raw("    \"last_logon\": ");
+    writer.number(character.timers.last_logon);
+    writer.raw(",\n");
+    writer.raw("    \"played_seconds\": ");
+    writer.number(character.timers.played_seconds);
+    writer.raw(",\n");
+    writer.raw("    \"retired_on\": ");
+    writer.number(character.timers.retired_on);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"perception\": {\n");
+    writer.raw("    \"raw\": ");
+    writer.number(character.raw_perception);
+    writer.raw(",\n");
+    writer.raw("    \"current\": ");
+    writer.number(character.perception);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"state\": {\n");
+    writer.raw("    \"load_room\": ");
+    writer.number(character.load_room);
+    writer.raw(",\n");
+    writer.raw("    \"wimp_level\": ");
+    writer.number(character.wimp_level);
+    writer.raw(",\n");
+    writer.raw("    \"freeze_level\": ");
+    writer.number(character.freeze_level);
+    writer.raw(",\n");
+    writer.raw("    \"morale\": ");
+    writer.number(character.morale);
+    writer.raw(",\n");
+    writer.raw("    \"owner\": ");
+    writer.number(character.owner);
+    writer.raw(",\n");
+    writer.raw("    \"leg_encumbrance\": ");
+    writer.number(character.leg_encumbrance);
+    writer.raw(",\n");
+    writer.raw("    \"rp_flag\": ");
+    writer.number(character.rp_flag);
+    writer.raw(",\n");
+    writer.raw("    \"will_teach\": ");
+    writer.number(character.will_teach);
+    writer.raw(",\n");
+    writer.raw("    \"tactics\": ");
+    writer.number(character.tactics);
+    writer.raw(",\n");
+    writer.raw("    \"shooting\": ");
+    writer.number(character.shooting);
+    writer.raw(",\n");
+    writer.raw("    \"casting\": ");
+    writer.number(character.casting);
+    writer.raw(",\n");
+    writer.raw("    \"two_handed\": ");
+    writer.raw(character.two_handed ? "true" : "false");
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"talks\": ");
+    write_named_integer_object_v2b(writer, collect_non_zero_named_values(character.talks, MAX_TOUNGE, talk_key_for_index_cached));
+    writer.raw(",\n");
+    writer.raw("  \"skills\": ");
+    write_named_integer_object_v2b(writer, collect_non_zero_named_values(character.skills, MAX_SKILLS, skill_key_for_index_cached));
+    writer.raw(",\n");
+    writer.raw("  \"affects\": [");
+    for (size_t index = 0; index < character.affects.size(); ++index) {
+        if (index > 0)
+            writer.raw(", ");
+        write_affect_v2b(writer, character.affects[index]);
+    }
+    writer.raw("]\n");
+    writer.raw("}\n");
+    return writer.take();
 }
 
 bool deserialize_character_from_json(const std::string& json, CharacterData* character, std::string* error_message)

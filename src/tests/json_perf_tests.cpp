@@ -310,3 +310,125 @@ TEST(JsonPerf, UnknownSkillKeyFailsIdenticallyForV1AndV2a)
     EXPECT_FALSE(character_json::deserialize_character_from_json_v2a(json, &parsed, &e2));
     EXPECT_EQ(e1, e2);
 }
+
+namespace {
+
+// Minimal stored character: name only, every collection empty. Exercises the empty-object
+// ("colors"/"talks"/"skills" == {}) and empty-array ("affects" == []) serialize paths.
+character_json::CharacterData make_light_data()
+{
+    char_file_u stored {};
+    std::snprintf(stored.name, sizeof(stored.name), "%s", "frodo");
+    return character_json::character_data_from_store(stored);
+}
+
+// Fully-populated stored character: all skills + talks non-zero, truecolor color settings,
+// preference/tactics flags, and a description carrying ", \, \n, \t so the escape slow path is
+// exercised. Two affects are appended afterward (one with flags, one empty).
+character_json::CharacterData make_heavy_data()
+{
+    char_file_u stored {};
+    std::snprintf(stored.name, sizeof(stored.name), "%s", "aragorn");
+    std::snprintf(stored.title, sizeof(stored.title), "%s", "the Ranger");
+    std::snprintf(stored.description, sizeof(stored.description), "%s",
+        "Quote: \" Backslash: \\ Newline:\n Tab:\t done.");
+    stored.sex = SEX_MALE;
+    stored.race = RACE_HUMAN;
+    stored.bodytype = 1;
+    stored.level = 12;
+    stored.language = LANG_HUMAN;
+    stored.birth = 1700000000;
+    stored.played = 456;
+    stored.weight = 190;
+    stored.height = 72;
+    stored.hometown = 7;
+    stored.last_logon = 1700000100;
+    stored.points.gold = 1234;
+    stored.points.exp = 5678;
+    stored.specials2.idnum = 4242;
+    stored.specials2.load_room = 3001;
+    stored.specials2.act = 0;
+    stored.specials2.pref = 1L << 5;
+    stored.specials2.tactics = TACTICS_BERSERK;
+    stored.specials2.shooting = SHOOTING_FAST;
+    stored.specials2.casting = CASTING_SLOW;
+    stored.specials2.two_handed = 1;
+    stored.profs.colors[COLOR_MAGIC] = CBMAG;
+    stored.profs.colors[COLOR_WEATHER] = CBCYN;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.mode = COLOR_VALUE_TRUECOLOR;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.ansi = CBMAG;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.red = 180;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.green = 80;
+    stored.profs.color_settings[COLOR_MAGIC].foreground.blue = 255;
+    stored.profs.color_settings[COLOR_WEATHER].background.mode = COLOR_VALUE_TRUECOLOR;
+    stored.profs.color_settings[COLOR_WEATHER].background.ansi = CBBLU;
+    stored.profs.color_settings[COLOR_WEATHER].background.red = 10;
+    stored.profs.color_settings[COLOR_WEATHER].background.green = 20;
+    stored.profs.color_settings[COLOR_WEATHER].background.blue = 35;
+    stored.profs.prof_level[PROF_WARRIOR] = 12;
+    stored.profs.prof_coof[PROF_WARRIOR] = 34;
+    for (int index = 0; index < MAX_SKILLS; ++index)
+        stored.skills[index] = static_cast<byte>((index % 200) + 1);
+    for (int index = 0; index < MAX_TOUNGE; ++index)
+        stored.talks[index] = static_cast<byte>((index * 30) + 5);
+
+    character_json::CharacterData character = character_json::character_data_from_store(stored);
+
+    character_json::AffectData first_affect;
+    first_affect.type = 5;
+    first_affect.duration = 10;
+    first_affect.time_phase = 1;
+    first_affect.modifier = -2;
+    first_affect.location = 3;
+    first_affect.counter = 4;
+    first_affect.flags = { "detect_hidden", "infrared" };
+    character.affects.push_back(first_affect);
+
+    character_json::AffectData second_affect;
+    second_affect.type = 9;
+    second_affect.duration = -1;
+    second_affect.time_phase = 0;
+    second_affect.modifier = 7;
+    second_affect.location = 1;
+    second_affect.counter = 0;
+    character.affects.push_back(second_affect);
+
+    return character;
+}
+
+} // namespace
+
+TEST(JsonPerf, SerializeV2aMatchesV1Light)
+{
+    const character_json::CharacterData character = make_light_data();
+    EXPECT_EQ(character_json::serialize_character_to_json(character),
+        character_json::serialize_character_to_json_v2a(character));
+}
+
+TEST(JsonPerf, SerializeV2aMatchesV1Heavy)
+{
+    const character_json::CharacterData character = make_heavy_data();
+    EXPECT_EQ(character_json::serialize_character_to_json(character),
+        character_json::serialize_character_to_json_v2a(character));
+}
+
+TEST(JsonPerf, SerializeV2bMatchesV1Light)
+{
+    const character_json::CharacterData character = make_light_data();
+    EXPECT_EQ(character_json::serialize_character_to_json(character),
+        character_json::serialize_character_to_json_v2b(character));
+}
+
+TEST(JsonPerf, SerializeV2bMatchesV1Heavy)
+{
+    const character_json::CharacterData character = make_heavy_data();
+    EXPECT_EQ(character_json::serialize_character_to_json(character),
+        character_json::serialize_character_to_json_v2b(character));
+}
+
+TEST(JsonPerf, SerializeV2aEqualsV2bHeavy)
+{
+    const character_json::CharacterData character = make_heavy_data();
+    EXPECT_EQ(character_json::serialize_character_to_json_v2a(character),
+        character_json::serialize_character_to_json_v2b(character));
+}
