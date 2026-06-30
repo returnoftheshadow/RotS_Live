@@ -71,7 +71,7 @@ bool profile_save(const char_file_u& chd, const std::string& root,
     std::string err;
     account::AccountData account;
 
-    // S2: read + parse account.json.
+    // S2: read + parse account.json (non-fatal: may miss in test/degraded environments).
     out->stages.push_back(time_stage("S2 read_account_file", iterations, [&]() {
         account::read_account_file(root, account_name, &account, &err);
     }));
@@ -86,8 +86,9 @@ bool profile_save(const char_file_u& chd, const std::string& root,
         json = character_json::serialize_character_to_json(cd);
     }));
     // S5: atomic temp-write + rename to a THROWAWAY path (never a live file).
+    std::string err_S5;
     out->stages.push_back(time_stage("S5 write_text_file_atomically", iterations, [&]() {
-        account::write_text_file_atomically(scratch_path, json, &err);
+        account::write_text_file_atomically(scratch_path, json, &err_S5);
     }));
     // Total: the whole serialize-to-disk operation, end to end, into the throwaway path.
     out->total = time_stage("TOTAL save", iterations, [&]() {
@@ -100,7 +101,10 @@ bool profile_save(const char_file_u& chd, const std::string& root,
     std::remove(scratch_path.c_str()); // clean up the throwaway
     finalize_shares(out);
     (void)character_name;
-    (void)error;
+    if (!err_S5.empty()) {
+        if (error) *error = err_S5;
+        return false;
+    }
     return true;
 }
 
@@ -112,25 +116,28 @@ bool profile_load(const std::string& root, const std::string& account_name,
     account::AccountData account;
     const std::string path = account::account_character_player_path(root, account_name, character_name);
 
-    // L1: read + parse account.json.
+    // L1: read + parse account.json (non-fatal: may miss in test/degraded environments).
     out->stages.push_back(time_stage("L1 read_account_file", iterations, [&]() {
         account::read_account_file(root, account_name, &account, &err);
     }));
     // L2: read character.json bytes.
     std::string json;
+    std::string err_L2;
     out->stages.push_back(time_stage("L2 read_text_file", iterations, [&]() {
-        account::read_text_file(path, &json, &err);
+        account::read_text_file(path, &json, &err_L2);
     }));
     // L3: JSON -> CharacterData.
     character_json::CharacterData cd;
+    std::string err_L3;
     out->stages.push_back(time_stage("L3 deserialize_character_from_json", iterations, [&]() {
         cd = character_json::CharacterData {};
-        character_json::deserialize_character_from_json(json, &cd, &err);
+        character_json::deserialize_character_from_json(json, &cd, &err_L3);
     }));
     // L4: CharacterData -> char_file_u.
     char_file_u chd {};
+    std::string err_L4;
     out->stages.push_back(time_stage("L4 apply_character_data_to_store", iterations, [&]() {
-        character_json::apply_character_data_to_store(cd, &chd, &err);
+        character_json::apply_character_data_to_store(cd, &chd, &err_L4);
     }));
     // L5: char_file_u -> live char (OFFLINE only; store_to_char allocates into the char).
     // Build the scratch char the project's way and reuse one struct across iterations.
@@ -157,7 +164,18 @@ bool profile_load(const std::string& root, const std::string& account_name,
         character_json::apply_character_data_to_store(c, &s, &err);
     });
     finalize_shares(out);
-    (void)error;
+    if (!err_L2.empty()) {
+        if (error) *error = err_L2;
+        return false;
+    }
+    if (!err_L3.empty()) {
+        if (error) *error = err_L3;
+        return false;
+    }
+    if (!err_L4.empty()) {
+        if (error) *error = err_L4;
+        return false;
+    }
     return true;
 }
 

@@ -23,6 +23,7 @@ ACMD(do_savebench)
 
     int iterations = 100;
     if (argument && *argument) {
+        while (*argument == ' ') ++argument;
         iterations = atoi(argument);
     }
     if (iterations < 1)

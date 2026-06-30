@@ -97,6 +97,7 @@ TEST(PlayerFinalize, ByteIdenticalAndSingleFile) {
     unlink("pf_test_legacy/probename.7.1.124.0.0");
     unlink("pf_test_new/probename.7.1.124.0.0");
     unlink("pf_test_legacy_scratch");
+    unlink("pf_test_new_scratch");
     rmdir(legacy_dir);
     rmdir(new_dir);
 }
