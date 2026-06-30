@@ -1861,16 +1861,22 @@ void Crash_save_all(void)
 {
     struct descriptor_data* d;
     for (d = descriptor_list; d; d = d->next) {
-        if ((d->connected == CON_PLYNG) && !IS_NPC(d->character)) {
-            if (PLR_FLAGGED(d->character, PLR_CRASH)) {
-                Crash_crashsave(d->character);
-                if (GET_LEVEL(d->character) < LEVEL_IMMORT)
-                    save_char(d->character, NOWHERE, 1);
-                else
-                    save_char(d->character, NOWHERE, 0);
-                REMOVE_BIT(PLR_FLAGS(d->character), PLR_CRASH);
-            }
+        if (d->connected != CON_PLYNG)
+            continue;
+        if (d->character == nullptr) {
+            // Defensive: a CON_PLYNG descriptor should always have a character. Skip and log a
+            // broken one rather than aborting the whole point-in-time snapshot for everyone else.
+            log("Crash_save_all: CON_PLYNG descriptor with no character; skipping its snapshot.");
+            continue;
         }
+        if (IS_NPC(d->character))
+            continue;
+        // Point-in-time snapshot: save EVERY connected player each cadence (no PLR_CRASH dirty
+        // gate) so PvP/group participants recover to the same moment, silently (notify=0) so a
+        // routine snapshot does not spam "Saving X.". Crash_crashsave also clears PLR_CRASH, so
+        // the previous explicit REMOVE_BIT here is now redundant. Modeled on Emergency_save below.
+        Crash_crashsave(d->character);
+        save_char(d->character, NOWHERE, 0);
     }
 }
 
