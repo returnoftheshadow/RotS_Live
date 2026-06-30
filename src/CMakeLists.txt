@@ -37,6 +37,7 @@ set(ROTS_SERVER_SOURCES
     act_soci.cpp
     act_wiz.cpp
     account_management.cpp
+    account_cache.cpp
     character_json.cpp
     exploits_json.cpp
     json_utils.cpp
@@ -106,6 +107,7 @@ set(ROTS_SERVER_SOURCES
 set(ROTS_TEST_SOURCES
     tests/battle_mage_handler_tests.cpp
     tests/account_management_tests.cpp
+    tests/account_cache_tests.cpp
     tests/account_management_assets_header_compile.cpp
     tests/account_management_identity_header_compile.cpp
     tests/account_management_migration_header_compile.cpp
