@@ -59,4 +59,25 @@ ACMD(do_savebench)
     report += savebench::format_report("SAVE", save_report);
     report += savebench::format_report("LOAD (L1-L4; L5 offline-only)", load_report);
     page_string(ch->desc, const_cast<char*>(report.c_str()), 1);
+
+    // Mirror the report to the MUD syslog (one entry per line) so it can be followed
+    // server-side, not just by the invoking player. Empty lines are skipped; CR is stripped.
+    log("savebench: ---- begin report ----");
+    std::string log_line;
+    for (char report_char : report) {
+        if (report_char == '\n') {
+            if (!log_line.empty() && log_line.back() == '\r')
+                log_line.pop_back();
+            if (!log_line.empty())
+                log(log_line.c_str());
+            log_line.clear();
+        } else {
+            log_line.push_back(report_char);
+        }
+    }
+    if (!log_line.empty() && log_line.back() == '\r')
+        log_line.pop_back();
+    if (!log_line.empty())
+        log(log_line.c_str());
+    log("savebench: ---- end report ----");
 }
