@@ -54,6 +54,7 @@ lib/misc/mudlle.keys
 lib/misc/oldcrimelist
 lib/misc/pk*
 lib/misc/repair*
+lib/misc/xnames*
 tools/__pycache__/
 core/
 *~
