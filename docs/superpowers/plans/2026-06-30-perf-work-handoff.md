@@ -18,7 +18,9 @@
 
 ## 1. What is DONE (committed on `feature/savebench-port`)
 
-Three optimizations, each built as a **parallel function beside the untouched original**, profiled head-to-head, and pinned by an equivalence test. **The branch is behavior-neutral — no live caller is routed to the new code yet.**
+Three optimizations, each built as a **parallel function beside the untouched original**, profiled head-to-head, and pinned by an equivalence test.
+
+> **UPDATE 2026-07-01:** the **account cache is now ADOPTED / live** (commit `c8f8877`) — `read_account_file` / `find_linked_character_owner_account` delegate to it (enabled at `boot_db`; default-OFF so the test binary is unchanged, proven by a stash-diff), flushed on every `write_account_file`. The **JSON serialize/deserialize v2 winners remain switched OFF** (v1 is still the live path; §2b below still applies to them only). So the branch is no longer fully behavior-neutral: the account-read path is cached in the live server.
 
 **Commits (this work, oldest→newest):**
 
