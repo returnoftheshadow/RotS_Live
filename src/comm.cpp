@@ -1047,9 +1047,9 @@ void game_loop(SocketType s)
         msdp_update();
 
         // Periodic point-in-time crash-save snapshot cadence, driven by the configurable seconds
-        // interval (autosave_time) through the unit-tested scheduler. Default 240s == 960 pulses ==
-        // the historical 4-minute cadence. Crash_save_all now saves EVERY connected player each
-        // cadence (a consistent point-in-time snapshot), not only inventory-dirty ones.
+        // interval (autosave_time) through the unit-tested scheduler. Default 30s == 120 pulses (the
+        // source's original cadence). Crash_save_all now saves EVERY connected player each cadence
+        // (a consistent point-in-time snapshot), not only inventory-dirty ones.
         if (autosave_timer.tick(autosave_interval_pulses(autosave_time, TICS_PER_SECOND))) {
             Crash_save_all();
         }

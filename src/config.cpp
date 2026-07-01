@@ -36,9 +36,10 @@ sh_int screen_width = 79; /* for line wrapping, if turned on */
 
 /* RENT/CRASHSAVE OPTIONS */
 /* How often (in SECONDS) should the MUD crash-save connected players? Driven through
-   autosave_interval_pulses(); clamped to a 15s floor. Default 240s == the historical
-   4-minute cadence. */
-int autosave_time = 240;
+   autosave_interval_pulses(); clamped to a 15s floor. 30s is the source's original cadence,
+   restored now that the point-in-time save-all snapshot + the adopted account-resolution cache
+   make a tight cadence affordable (deferred Task 2.5). */
+int autosave_time = 30;
 
 /* ROOM NUMBERS */
 
