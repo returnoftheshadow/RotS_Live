@@ -87,6 +87,7 @@ protected:
     void SetUp() override
     {
         account_cache::clear();
+        account_cache::set_enabled(false); // start each case with the base functions NOT delegating
         g_account_reader_calls = 0;
         g_account_reader_succeeds = true;
         g_account_reader_result = account::AccountData{};
@@ -98,6 +99,7 @@ protected:
 
     void TearDown() override
     {
+        account_cache::set_enabled(false); // never leak enabled state to other suites' base reads
         account_cache::set_backing_resolvers_for_testing(nullptr, nullptr);
     }
 };
@@ -211,4 +213,54 @@ TEST_F(AccountCache, ClearResetsBothMapsSoNextResolveRescans) {
     ASSERT_TRUE(account_cache::find_linked_character_owner_account_cached("root", "aragorn", &owner_out, &error_message)) << error_message;
     EXPECT_EQ(g_account_reader_calls, 2) << "clear() must drop the account entry so it rescans.";
     EXPECT_EQ(g_owner_resolver_calls, 2) << "clear() must drop the owner entry so it rescans.";
+}
+
+TEST_F(AccountCache, InvalidateAllDropsBothMapsAfterAccountWrite) {
+    // invalidate_all() is the live hook fired after a successful write_account_file: any cached
+    // account/owner data must be dropped so subsequent reads see the new state.
+    g_account_reader_result.normalized_email = "before-write";
+    g_owner_resolver_owner = "alpha-admin";
+    std::string error_message;
+
+    account::AccountData account_out;
+    ASSERT_TRUE(account_cache::read_account_file_cached("root", "alpha-admin", &account_out, &error_message)) << error_message;
+    std::string owner_out;
+    ASSERT_TRUE(account_cache::find_linked_character_owner_account_cached("root", "aragorn", &owner_out, &error_message)) << error_message;
+    EXPECT_EQ(g_account_reader_calls, 1);
+    EXPECT_EQ(g_owner_resolver_calls, 1);
+
+    account_cache::invalidate_all();
+
+    ASSERT_TRUE(account_cache::read_account_file_cached("root", "alpha-admin", &account_out, &error_message)) << error_message;
+    ASSERT_TRUE(account_cache::find_linked_character_owner_account_cached("root", "aragorn", &owner_out, &error_message)) << error_message;
+    EXPECT_EQ(g_account_reader_calls, 2) << "invalidate_all() must drop the account entry so it re-reads.";
+    EXPECT_EQ(g_owner_resolver_calls, 2) << "invalidate_all() must drop the owner entry so it re-reads.";
+}
+
+TEST_F(AccountCache, BaseReadDelegatesToCacheOnlyWhenEnabled) {
+    // The adoption seam: account::read_account_file (the BASE function all live callers use) delegates
+    // to the cache when enabled, and behaves as the uncached read when not. With the counting fake as
+    // the backing resolver, a delegated read is memoized (second call does not hit the resolver).
+    g_account_reader_result.normalized_email = "delegated@example.com";
+    std::string error_message;
+
+    account_cache::set_enabled(true);
+    account::AccountData first;
+    ASSERT_TRUE(account::read_account_file("root", "alpha-admin", &first, &error_message)) << error_message;
+    EXPECT_EQ(first.normalized_email, "delegated@example.com");
+    EXPECT_EQ(g_account_reader_calls, 1);
+
+    account::AccountData second;
+    ASSERT_TRUE(account::read_account_file("root", "alpha-admin", &second, &error_message)) << error_message;
+    EXPECT_EQ(g_account_reader_calls, 1) << "when enabled, the base read must delegate to the cache and be memoized.";
+
+    // Owner resolver delegates the same way.
+    g_owner_resolver_owner = "alpha-admin";
+    std::string owner;
+    ASSERT_TRUE(account::find_linked_character_owner_account("root", "aragorn", &owner, &error_message)) << error_message;
+    ASSERT_TRUE(account::find_linked_character_owner_account("root", "aragorn", &owner, &error_message)) << error_message;
+    EXPECT_EQ(owner, "alpha-admin");
+    EXPECT_EQ(g_owner_resolver_calls, 1) << "when enabled, the base owner resolve must delegate to the cache.";
+
+    // TearDown disables again so this never leaks to other suites.
 }

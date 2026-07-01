@@ -17,8 +17,22 @@ bool read_account_file_cached(const std::string& root_directory, const std::stri
 bool find_linked_character_owner_account_cached(const std::string& root_directory, const std::string& character_name,
                                                 std::string* owner_account_name, std::string* error_message);
 
-// Empties both memo maps. Call in test-fixture SetUp() for isolation; no live invalidation in this branch.
+// Empties both memo maps. Call in test-fixture SetUp() for isolation.
 void clear();
+
+// Whether the BASE account resolvers (account::read_account_file / find_linked_character_owner_account)
+// delegate to this cache. Default OFF, so the test binary and any non-server caller keep the exact
+// uncached behavior; the live server calls set_enabled(true) once at boot. The explicit *_cached entry
+// points above always cache regardless of this flag.
+void set_enabled(bool enabled);
+bool is_enabled();
+
+// Coarse live invalidation: empties BOTH memo maps. Called after a successful account.json write (the
+// single mutation chokepoint). Account mutations (create/link/block/verify/reset/delete/email-verify)
+// are rare and never happen on the hot save/load path, so a full flush is provably free of the
+// relink/rename/normalization staleness traps a targeted invalidation must handle, at negligible cost
+// (the cache re-warms on the next reads; worst case degrades to no-cache, never a regression).
+void invalidate_all();
 
 // Signatures of the two on-disk resolvers the cache delegates to on a miss; default to the real
 // account:: functions. They are seams (below) only because the on-disk account-directory readdir

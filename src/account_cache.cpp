@@ -46,13 +46,17 @@ std::string compose_key(const std::string& root_directory, const std::string& na
     return key;
 }
 
-// Backing resolver the cache calls on an account-map miss; defaults to the real on-disk reader and is
-// overridden only by set_backing_resolvers_for_testing (the on-disk scan does not resolve under QEMU).
-AccountReaderFn g_account_reader = &account::read_account_file;
+// Whether the base account resolvers delegate to this cache (see account_cache.h). Default OFF so the
+// test binary and non-server callers keep the exact uncached behavior; the live server flips it on.
+bool g_enabled = false;
 
-// Backing resolver the cache calls on an owner-map miss; defaults to the real on-disk resolver and is
+// Backing resolver the cache calls on an account-map miss; defaults to the UNCACHED on-disk reader
+// (never the public read_account_file, which would recurse via the enabled delegation) and is
 // overridden only by set_backing_resolvers_for_testing.
-OwnerResolverFn g_owner_resolver = &account::find_linked_character_owner_account;
+AccountReaderFn g_account_reader = &account::read_account_file_uncached;
+
+// Backing resolver the cache calls on an owner-map miss; defaults to the UNCACHED on-disk resolver.
+OwnerResolverFn g_owner_resolver = &account::find_linked_character_owner_account_uncached;
 
 } // namespace
 
@@ -134,10 +138,28 @@ void clear()
     g_owner_cache.clear();
 }
 
+void set_enabled(bool enabled)
+{
+    g_enabled = enabled;
+}
+
+bool is_enabled()
+{
+    return g_enabled;
+}
+
+void invalidate_all()
+{
+    // Coarse but correct: any account mutation flushes the whole cache (see account_cache.h). Mutations
+    // are rare and off the hot path, so this never regresses the read-heavy save/load traffic.
+    g_account_cache.clear();
+    g_owner_cache.clear();
+}
+
 void set_backing_resolvers_for_testing(AccountReaderFn account_reader, OwnerResolverFn owner_resolver)
 {
-    g_account_reader = (account_reader != nullptr) ? account_reader : &account::read_account_file;
-    g_owner_resolver = (owner_resolver != nullptr) ? owner_resolver : &account::find_linked_character_owner_account;
+    g_account_reader = (account_reader != nullptr) ? account_reader : &account::read_account_file_uncached;
+    g_owner_resolver = (owner_resolver != nullptr) ? owner_resolver : &account::find_linked_character_owner_account_uncached;
 }
 
 } // namespace account_cache

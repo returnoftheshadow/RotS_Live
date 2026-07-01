@@ -21,6 +21,9 @@ bool deserialize_account_from_json(const std::string& json, AccountData* account
 
 bool write_account_file(const std::string& root_directory, const AccountData& account, std::string* error_message = nullptr);
 bool read_account_file(const std::string& root_directory, const std::string& account_name, AccountData* account, std::string* error_message = nullptr);
+// Uncached on-disk read (the real scan). read_account_file delegates here when the cache is disabled,
+// and it is the cache's backing resolver on a miss. Call directly to bypass the cache.
+bool read_account_file_uncached(const std::string& root_directory, const std::string& account_name, AccountData* account, std::string* error_message = nullptr);
 bool read_account_file_by_email(const std::string& root_directory, const std::string& email, AccountData* account, std::string* error_message = nullptr);
 bool read_account_file_by_identifier(const std::string& root_directory, const std::string& identifier, AccountData* account, std::string* error_message = nullptr);
 

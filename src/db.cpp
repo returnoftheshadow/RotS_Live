@@ -25,6 +25,7 @@
 #include "utils.h"
 #include "zone.h"
 
+#include "account_cache.h"
 #include "account_management.h"
 #include "big_brother.h"
 #include "char_utils.h"
@@ -302,6 +303,13 @@ void boot_db(void)
 
     log("Boot db -- BEGIN.");
     boot_mode = 1;
+
+    // Enable the account-resolution cache for the live server (it stays OFF in the test binary, which
+    // never calls boot_db). read_account_file / find_linked_character_owner_account now memoize their
+    // O(N) directory scans, with a full flush on every account.json write (write_account_file). See
+    // account_cache.h. This is the adopted Phase-1 optimization; JSON serialize/deserialize stay on v1.
+    account_cache::set_enabled(true);
+    log("Account-resolution cache: enabled.");
 
     log("Resetting the game time:");
     reset_time();
