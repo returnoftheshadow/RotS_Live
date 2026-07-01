@@ -6,8 +6,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
+#include <cstddef>
 #include <limits>
 #include <sstream>
+#include <unordered_map>
 
 extern byte language_number;
 extern byte language_skills[];
@@ -678,6 +681,34 @@ namespace {
         return -1;
     }
 
+    int skill_index_for_key_memoized(const std::string& key)
+    {
+        // Lazy slug->index map for skills; built once, INSERT-IF-ABSENT so the LOWEST index wins on a
+        // slug collision -- exactly matching skill_index_for_key's first-match linear scan.
+        static const std::unordered_map<std::string, int> index_by_key = [] {
+            std::unordered_map<std::string, int> table;
+            table.reserve(MAX_SKILLS * 2);
+            for (int index = 0; index < MAX_SKILLS; ++index)
+                table.emplace(skill_key_for_index(index), index);
+            return table;
+        }();
+        const auto found = index_by_key.find(key);
+        return found != index_by_key.end() ? found->second : -1;
+    }
+
+    int talk_index_for_key_memoized(const std::string& key)
+    {
+        // Lazy slug->index map for talks; INSERT-IF-ABSENT (lowest index wins) like talk_index_for_key.
+        static const std::unordered_map<std::string, int> index_by_key = [] {
+            std::unordered_map<std::string, int> table;
+            for (int index = 0; index < MAX_TOUNGE; ++index)
+                table.emplace(talk_key_for_index(index), index);
+            return table;
+        }();
+        const auto found = index_by_key.find(key);
+        return found != index_by_key.end() ? found->second : -1;
+    }
+
     void write_named_integer_object(std::ostringstream& output, const std::vector<NamedValue>& values)
     {
         output << "{";
@@ -730,7 +761,8 @@ namespace {
         return named_values;
     }
 
-    bool parse_color_value_object(json_utils::JsonReader* reader, ColorValueData* value, std::string* error_message)
+    template <class Reader>
+    bool parse_color_value_object(Reader* reader, ColorValueData* value, std::string* error_message)
     {
         if (reader == nullptr || value == nullptr) {
             set_error(error_message, "Color value parser requires non-null parameters.");
@@ -743,7 +775,7 @@ namespace {
         bool saw_red = false;
         bool saw_green = false;
         bool saw_blue = false;
-        if (!reader->parse_object([&parsed, &saw_mode, &saw_value, &saw_red, &saw_green, &saw_blue](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([&parsed, &saw_mode, &saw_value, &saw_red, &saw_green, &saw_blue](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
                 if (key == "mode") {
                     std::string mode;
                     if (!nested_reader->parse_string(&mode, nested_error_message))
@@ -796,7 +828,8 @@ namespace {
         return true;
     }
 
-    bool parse_color_setting_value(json_utils::JsonReader* reader, ColorSettingData* setting, std::vector<int>* colors, int index, std::string* error_message)
+    template <class Reader>
+    bool parse_color_setting_value(Reader* reader, ColorSettingData* setting, std::vector<int>* colors, int index, std::string* error_message)
     {
         if (reader == nullptr || setting == nullptr || colors == nullptr) {
             set_error(error_message, "Color setting parser requires non-null parameters.");
@@ -815,7 +848,7 @@ namespace {
         *setting = default_color_setting();
         bool saw_foreground = false;
         bool saw_background = false;
-        if (!reader->parse_object([&saw_foreground, &saw_background, setting](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([&saw_foreground, &saw_background, setting](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
                 if (key == "foreground")
                     return saw_foreground = true, parse_color_value_object(nested_reader, &setting->foreground, nested_error_message);
                 if (key == "background")
@@ -836,7 +869,8 @@ namespace {
         return true;
     }
 
-    bool parse_colors_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_colors_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         if (reader == nullptr || character == nullptr) {
             set_error(error_message, "Colors parser requires non-null parameters.");
@@ -845,7 +879,7 @@ namespace {
 
         character->colors.assign(MAX_COLOR_FIELDS, 0);
         character->color_settings.assign(MAX_COLOR_FIELDS, default_color_setting());
-        return reader->parse_object([character](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_object([character](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             const int index = color_index_for_key(key);
             if (index < 0) {
                 set_error(nested_error_message, "Unknown color key.");
@@ -906,7 +940,288 @@ namespace {
         output << "}";
     }
 
-    bool parse_string_array(json_utils::JsonReader* reader, std::vector<std::string>* values, std::string* error_message)
+    // ---- v2 string-appending serialize support (parallel to the ostringstream write_* helpers) ----
+
+    // Initial reserve() size for the v2 serialize buffer; a perf hint only (the buffer grows if a
+    // character serializes larger), so it never affects output bytes.
+    constexpr std::size_t kSerializeReserveHint = 8192;
+
+    // Reusable JSON text accumulator for the v2 serializers: owns the growing output buffer and one
+    // scratch buffer reused for every integer->text conversion, so a serialize pass does no per-field
+    // heap churn (v1's ostringstream + .str() double-allocates). One instance per serialize call.
+    class JsonWriter {
+    public:
+        // reserve_hint pre-sizes the buffer to a typical serialized document so growth reallocs are rare.
+        explicit JsonWriter(std::size_t reserve_hint)
+        {
+            m_out.reserve(reserve_hint);
+        }
+
+        // Appends a NUL-terminated literal fragment verbatim (punctuation, field names, bool literals).
+        void raw(const char* literal)
+        {
+            m_out.append(literal);
+        }
+
+        // Appends a single character verbatim.
+        void raw(char character)
+        {
+            m_out.push_back(character);
+        }
+
+        // Appends a std::string fragment verbatim (no escaping).
+        void raw(const std::string& fragment)
+        {
+            m_out.append(fragment);
+        }
+
+        // Appends the decimal text of a signed integer via std::to_chars (locale-free, allocation-free),
+        // reusing m_scratch. Templated so int and long share one body; integer overloads only (g++ 9.4).
+        template <class IntT>
+        void number(IntT value)
+        {
+            const std::to_chars_result result = std::to_chars(m_scratch, m_scratch + sizeof(m_scratch), value);
+            m_out.append(m_scratch, result.ptr);
+        }
+
+        // Direct buffer access for in-place escape helpers (append_escaped_json_string).
+        std::string& buffer()
+        {
+            return m_out;
+        }
+
+        // Hands the finished buffer to the caller by move (no final whole-buffer copy like v1's .str()).
+        std::string take()
+        {
+            return std::move(m_out);
+        }
+
+    private:
+        // The growing serialized-JSON text; reserved up front, returned by take() at the end.
+        std::string m_out;
+        // Reusable scratch for std::to_chars; 24 bytes covers any 64-bit value plus sign.
+        char m_scratch[24];
+    };
+
+    void write_ability_v2(JsonWriter& writer, const AbilityData& ability)
+    {
+        writer.raw("{\n");
+        writer.raw("      \"str\": ");
+        writer.number(ability.str);
+        writer.raw(",\n");
+        writer.raw("      \"lea\": ");
+        writer.number(ability.lea);
+        writer.raw(",\n");
+        writer.raw("      \"intel\": ");
+        writer.number(ability.intel);
+        writer.raw(",\n");
+        writer.raw("      \"wil\": ");
+        writer.number(ability.wil);
+        writer.raw(",\n");
+        writer.raw("      \"dex\": ");
+        writer.number(ability.dex);
+        writer.raw(",\n");
+        writer.raw("      \"con\": ");
+        writer.number(ability.con);
+        writer.raw(",\n");
+        writer.raw("      \"hit\": ");
+        writer.number(ability.hit);
+        writer.raw(",\n");
+        writer.raw("      \"mana\": ");
+        writer.number(ability.mana);
+        writer.raw(",\n");
+        writer.raw("      \"move\": ");
+        writer.number(ability.move);
+        writer.raw("\n");
+        writer.raw("    }");
+    }
+
+    void write_profession_v2(JsonWriter& writer, const char* name, const ProfessionData& profession)
+    {
+        writer.raw("    \"");
+        writer.raw(name);
+        writer.raw("\": {\n");
+        writer.raw("      \"level\": ");
+        writer.number(profession.level);
+        writer.raw(",\n");
+        writer.raw("      \"points\": ");
+        writer.number(profession.points);
+        writer.raw(",\n");
+        writer.raw("      \"coeff\": ");
+        writer.number(profession.coeff);
+        writer.raw(",\n");
+        writer.raw("      \"experience\": ");
+        writer.number(profession.experience);
+        writer.raw("\n");
+        writer.raw("    }");
+    }
+
+    void write_integer_array_v2(JsonWriter& writer, const std::vector<int>& values)
+    {
+        writer.raw('[');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.number(values[index]);
+        }
+        writer.raw(']');
+    }
+
+    void write_color_value_v2(JsonWriter& writer, const ColorValueData& value)
+    {
+        writer.raw('{');
+        if (value.mode == COLOR_VALUE_DEFAULT) {
+            writer.raw("\"mode\": \"default\"");
+        } else if (value.mode == COLOR_VALUE_ANSI16) {
+            writer.raw("\"mode\": \"ansi16\", \"value\": ");
+            writer.number(value.value);
+        } else {
+            writer.raw("\"mode\": \"truecolor\", \"value\": ");
+            writer.number(value.value);
+            writer.raw(", \"r\": ");
+            writer.number(value.red);
+            writer.raw(", \"g\": ");
+            writer.number(value.green);
+            writer.raw(", \"b\": ");
+            writer.number(value.blue);
+        }
+        writer.raw('}');
+    }
+
+    void write_color_setting_v2(JsonWriter& writer, const ColorSettingData& setting)
+    {
+        writer.raw("{\"foreground\": ");
+        write_color_value_v2(writer, setting.foreground);
+        writer.raw(", \"background\": ");
+        write_color_value_v2(writer, setting.background);
+        writer.raw('}');
+    }
+
+    // Cached skill key slugs (one per index); each equals skill_key_for_index(i) exactly, built once
+    // and reused so the v2b serializer never re-runs slugify_key per field. Index in [0, MAX_SKILLS).
+    const std::string& skill_key_for_index_cached(int index)
+    {
+        static const std::vector<std::string> table = [] {
+            std::vector<std::string> built;
+            built.reserve(MAX_SKILLS);
+            for (int slug_index = 0; slug_index < MAX_SKILLS; ++slug_index)
+                built.push_back(skill_key_for_index(slug_index));
+            return built;
+        }();
+        return table[index];
+    }
+
+    // Cached talk key slugs; each equals talk_key_for_index(i) (which reads language tables fixed after
+    // boot). Index in [0, MAX_TOUNGE).
+    const std::string& talk_key_for_index_cached(int index)
+    {
+        static const std::vector<std::string> table = [] {
+            std::vector<std::string> built;
+            built.reserve(MAX_TOUNGE);
+            for (int slug_index = 0; slug_index < MAX_TOUNGE; ++slug_index)
+                built.push_back(talk_key_for_index(slug_index));
+            return built;
+        }();
+        return table[index];
+    }
+
+    // v2a string-array writer: keys/values escaped via escape_json_string (slow path, like v1).
+    void write_string_array_v2a(JsonWriter& writer, const std::vector<std::string>& values)
+    {
+        writer.raw('[');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.raw('"');
+            writer.raw(json_utils::escape_json_string(values[index]));
+            writer.raw('"');
+        }
+        writer.raw(']');
+    }
+
+    // v2b string-array writer: escapes in place via append_escaped_json_string (fast path).
+    void write_string_array_v2b(JsonWriter& writer, const std::vector<std::string>& values)
+    {
+        writer.raw('[');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.raw('"');
+            json_utils::append_escaped_json_string(writer.buffer(), values[index]);
+            writer.raw('"');
+        }
+        writer.raw(']');
+    }
+
+    void write_named_integer_object_v2a(JsonWriter& writer, const std::vector<NamedValue>& values)
+    {
+        writer.raw('{');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.raw('"');
+            writer.raw(json_utils::escape_json_string(values[index].key));
+            writer.raw("\": ");
+            writer.number(values[index].value);
+        }
+        writer.raw('}');
+    }
+
+    void write_named_integer_object_v2b(JsonWriter& writer, const std::vector<NamedValue>& values)
+    {
+        writer.raw('{');
+        for (size_t index = 0; index < values.size(); ++index) {
+            if (index > 0)
+                writer.raw(", ");
+            writer.raw('"');
+            json_utils::append_escaped_json_string(writer.buffer(), values[index].key);
+            writer.raw("\": ");
+            writer.number(values[index].value);
+        }
+        writer.raw('}');
+    }
+
+    void write_affect_v2a(JsonWriter& writer, const AffectData& affect)
+    {
+        writer.raw("{\"type\": ");
+        writer.number(affect.type);
+        writer.raw(", \"duration\": ");
+        writer.number(affect.duration);
+        writer.raw(", \"time_phase\": ");
+        writer.number(affect.time_phase);
+        writer.raw(", \"modifier\": ");
+        writer.number(affect.modifier);
+        writer.raw(", \"location\": ");
+        writer.number(affect.location);
+        writer.raw(", \"counter\": ");
+        writer.number(affect.counter);
+        writer.raw(", \"flags\": ");
+        write_string_array_v2a(writer, affect.flags);
+        writer.raw('}');
+    }
+
+    void write_affect_v2b(JsonWriter& writer, const AffectData& affect)
+    {
+        writer.raw("{\"type\": ");
+        writer.number(affect.type);
+        writer.raw(", \"duration\": ");
+        writer.number(affect.duration);
+        writer.raw(", \"time_phase\": ");
+        writer.number(affect.time_phase);
+        writer.raw(", \"modifier\": ");
+        writer.number(affect.modifier);
+        writer.raw(", \"location\": ");
+        writer.number(affect.location);
+        writer.raw(", \"counter\": ");
+        writer.number(affect.counter);
+        writer.raw(", \"flags\": ");
+        write_string_array_v2b(writer, affect.flags);
+        writer.raw('}');
+    }
+
+
+    template <class Reader>
+    bool parse_string_array(Reader* reader, std::vector<std::string>* values, std::string* error_message)
     {
         if (reader == nullptr || values == nullptr) {
             set_error(error_message, "String array parser requires reader and output parameters.");
@@ -915,7 +1230,8 @@ namespace {
         return reader->parse_string_array(values, error_message);
     }
 
-    bool parse_integer_array(json_utils::JsonReader* reader, std::vector<int>* values, size_t max_values, const char* field_name, std::string* error_message)
+    template <class Reader>
+    bool parse_integer_array(Reader* reader, std::vector<int>* values, size_t max_values, const char* field_name, std::string* error_message)
     {
         if (reader == nullptr || values == nullptr) {
             set_error(error_message, "Integer array parser requires reader and output parameters.");
@@ -923,7 +1239,7 @@ namespace {
         }
 
         values->clear();
-        return reader->parse_array([values, max_values, field_name](json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_array([values, max_values, field_name](Reader* nested_reader, std::string* nested_error_message) {
             if (values->size() >= max_values) {
                 set_error(nested_error_message, std::string(field_name) + " exceeds the supported entry count.");
                 return false;
@@ -937,7 +1253,8 @@ namespace {
             error_message);
     }
 
-    bool parse_named_integer_object(json_utils::JsonReader* reader, std::vector<int>* values, size_t expected_size, const char* field_name, const std::function<int(const std::string&)>& index_for_key, std::string* error_message)
+    template <class Reader>
+    bool parse_named_integer_object(Reader* reader, std::vector<int>* values, size_t expected_size, const char* field_name, const std::function<int(const std::string&)>& index_for_key, std::string* error_message)
     {
         if (reader == nullptr || values == nullptr) {
             set_error(error_message, "Named integer object parser requires reader and output parameters.");
@@ -947,7 +1264,7 @@ namespace {
         values->assign(expected_size, 0);
         std::vector<bool> seen(expected_size, false);
 
-        return reader->parse_object([&](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_object([&](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             const int index = index_for_key(key);
             if (index < 0 || index >= static_cast<int>(expected_size)) {
                 set_error(nested_error_message, std::string("Unknown ") + field_name + " key '" + key + "'.");
@@ -969,7 +1286,8 @@ namespace {
             error_message);
     }
 
-    bool parse_ability_object(json_utils::JsonReader* reader, AbilityData* ability, std::string* error_message)
+    template <class Reader>
+    bool parse_ability_object(Reader* reader, AbilityData* ability, std::string* error_message)
     {
         if (reader == nullptr || ability == nullptr) {
             set_error(error_message, "Ability parser requires reader and output parameters.");
@@ -985,7 +1303,7 @@ namespace {
         bool saw_hit = false;
         bool saw_mana = false;
         bool saw_move = false;
-        if (!reader->parse_object([ability, &saw_str, &saw_lea, &saw_intel, &saw_wil, &saw_dex, &saw_con, &saw_hit, &saw_mana, &saw_move](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([ability, &saw_str, &saw_lea, &saw_intel, &saw_wil, &saw_dex, &saw_con, &saw_hit, &saw_mana, &saw_move](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "str")
                 return saw_str = true, nested_reader->parse_integer(&ability->str, nested_error_message);
             if (key == "lea")
@@ -1017,7 +1335,8 @@ namespace {
         return true;
     }
 
-    bool parse_points_object(json_utils::JsonReader* reader, PointData* points, std::string* error_message)
+    template <class Reader>
+    bool parse_points_object(Reader* reader, PointData* points, std::string* error_message)
     {
         if (reader == nullptr || points == nullptr) {
             set_error(error_message, "Points parser requires reader and output parameters.");
@@ -1040,7 +1359,7 @@ namespace {
         bool saw_willpower = false;
         bool saw_spell_pen = false;
         bool saw_spell_power = false;
-        if (!reader->parse_object([points, &saw_bodypart_hit, &saw_gold, &saw_experience, &saw_spirit, &saw_mana_regen, &saw_health_regen, &saw_move_regen, &saw_ob, &saw_damage, &saw_energy_regen, &saw_parry, &saw_dodge, &saw_encumbrance, &saw_willpower, &saw_spell_pen, &saw_spell_power](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([points, &saw_bodypart_hit, &saw_gold, &saw_experience, &saw_spirit, &saw_mana_regen, &saw_health_regen, &saw_move_regen, &saw_ob, &saw_damage, &saw_energy_regen, &saw_parry, &saw_dodge, &saw_encumbrance, &saw_willpower, &saw_spell_pen, &saw_spell_power](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "bodypart_hit")
                 return saw_bodypart_hit = true, parse_integer_array(nested_reader, &points->bodypart_hit, MAX_BODYPARTS, "points.bodypart_hit", nested_error_message);
             if (key == "gold")
@@ -1086,7 +1405,8 @@ namespace {
         return true;
     }
 
-    bool parse_conditions_object(json_utils::JsonReader* reader, ConditionData* conditions, std::string* error_message)
+    template <class Reader>
+    bool parse_conditions_object(Reader* reader, ConditionData* conditions, std::string* error_message)
     {
         if (reader == nullptr || conditions == nullptr) {
             set_error(error_message, "Conditions parser requires reader and output parameters.");
@@ -1096,7 +1416,7 @@ namespace {
         bool saw_drunk = false;
         bool saw_full = false;
         bool saw_thirst = false;
-        if (!reader->parse_object([conditions, &saw_drunk, &saw_full, &saw_thirst](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([conditions, &saw_drunk, &saw_full, &saw_thirst](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "drunk")
                 return saw_drunk = true, nested_reader->parse_integer(&conditions->drunk, nested_error_message);
             if (key == "full")
@@ -1116,7 +1436,8 @@ namespace {
         return true;
     }
 
-    bool parse_timers_object(json_utils::JsonReader* reader, TimerData* timers, std::string* error_message)
+    template <class Reader>
+    bool parse_timers_object(Reader* reader, TimerData* timers, std::string* error_message)
     {
         if (reader == nullptr || timers == nullptr) {
             set_error(error_message, "Timers parser requires reader and output parameters.");
@@ -1127,7 +1448,7 @@ namespace {
         bool saw_last_logon = false;
         bool saw_played_seconds = false;
         bool saw_retired_on = false;
-        if (!reader->parse_object([timers, &saw_birth, &saw_last_logon, &saw_played_seconds, &saw_retired_on](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([timers, &saw_birth, &saw_last_logon, &saw_played_seconds, &saw_retired_on](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "birth")
                 return saw_birth = true, nested_reader->parse_long(&timers->birth, nested_error_message);
             if (key == "last_logon")
@@ -1149,14 +1470,15 @@ namespace {
         return true;
     }
 
-    bool parse_profession_object(json_utils::JsonReader* reader, ProfessionData* profession, std::string* error_message)
+    template <class Reader>
+    bool parse_profession_object(Reader* reader, ProfessionData* profession, std::string* error_message)
     {
         if (reader == nullptr || profession == nullptr) {
             set_error(error_message, "Profession parser requires reader and output parameters.");
             return false;
         }
 
-        return reader->parse_object([profession](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_object([profession](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "level")
                 return nested_reader->parse_integer(&profession->level, nested_error_message);
             if (key == "points")
@@ -1170,7 +1492,8 @@ namespace {
             error_message);
     }
 
-    bool parse_affect_object(json_utils::JsonReader* reader, AffectData* affect, std::string* error_message)
+    template <class Reader>
+    bool parse_affect_object(Reader* reader, AffectData* affect, std::string* error_message)
     {
         if (reader == nullptr || affect == nullptr) {
             set_error(error_message, "Affect parser requires reader and output parameters.");
@@ -1184,7 +1507,7 @@ namespace {
         bool saw_location = false;
         bool saw_counter = false;
         bool saw_flags = false;
-        if (!reader->parse_object([affect, &saw_type, &saw_duration, &saw_time_phase, &saw_modifier, &saw_location, &saw_counter, &saw_flags](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([affect, &saw_type, &saw_duration, &saw_time_phase, &saw_modifier, &saw_location, &saw_counter, &saw_flags](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "type")
                 return saw_type = true, nested_reader->parse_integer(&affect->type, nested_error_message);
             if (key == "duration")
@@ -1212,7 +1535,8 @@ namespace {
         return true;
     }
 
-    bool parse_affects_array(json_utils::JsonReader* reader, std::vector<AffectData>* affects, std::string* error_message)
+    template <class Reader>
+    bool parse_affects_array(Reader* reader, std::vector<AffectData>* affects, std::string* error_message)
     {
         if (reader == nullptr || affects == nullptr) {
             set_error(error_message, "Affects parser requires reader and output parameters.");
@@ -1220,7 +1544,7 @@ namespace {
         }
 
         affects->clear();
-        return reader->parse_array([affects](json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        return reader->parse_array([affects](Reader* nested_reader, std::string* nested_error_message) {
             if (affects->size() >= MAX_AFFECT) {
                 set_error(nested_error_message, "affects exceeds the supported entry count.");
                 return false;
@@ -1234,7 +1558,8 @@ namespace {
             error_message);
     }
 
-    bool parse_identity_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_identity_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_idnum = false;
         bool saw_race = false;
@@ -1244,7 +1569,7 @@ namespace {
         bool saw_hometown = false;
         bool saw_weight = false;
         bool saw_height = false;
-        if (!reader->parse_object([character, &saw_idnum, &saw_race, &saw_sex, &saw_bodytype, &saw_language, &saw_hometown, &saw_weight, &saw_height](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_idnum, &saw_race, &saw_sex, &saw_bodytype, &saw_language, &saw_hometown, &saw_weight, &saw_height](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "idnum")
                 return saw_idnum = true, nested_reader->parse_long(&character->idnum, nested_error_message);
             if (key == "race")
@@ -1274,7 +1599,8 @@ namespace {
         return true;
     }
 
-    bool parse_progression_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_progression_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_level = false;
         bool saw_alignment = false;
@@ -1282,7 +1608,7 @@ namespace {
         bool saw_max_mini_level = false;
         bool saw_spells_to_learn = false;
         bool saw_rerolls = false;
-        if (!reader->parse_object([character, &saw_level, &saw_alignment, &saw_mini_level, &saw_max_mini_level, &saw_spells_to_learn, &saw_rerolls](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_level, &saw_alignment, &saw_mini_level, &saw_max_mini_level, &saw_spells_to_learn, &saw_rerolls](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "level")
                 return saw_level = true, nested_reader->parse_integer(&character->level, nested_error_message);
             if (key == "alignment")
@@ -1308,11 +1634,12 @@ namespace {
         return true;
     }
 
-    bool parse_abilities_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_abilities_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_temporary = false;
         bool saw_rolled = false;
-        if (!reader->parse_object([character, &saw_temporary, &saw_rolled](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_temporary, &saw_rolled](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "temporary")
                 return saw_temporary = true, parse_ability_object(nested_reader, &character->temporary_abilities, nested_error_message);
             if (key == "rolled")
@@ -1330,13 +1657,14 @@ namespace {
         return true;
     }
 
-    bool parse_professions_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_professions_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_mage = false;
         bool saw_mystic = false;
         bool saw_ranger = false;
         bool saw_warrior = false;
-        if (!reader->parse_object([character, &saw_mage, &saw_mystic, &saw_ranger, &saw_warrior](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_mage, &saw_mystic, &saw_ranger, &saw_warrior](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "mage")
                 return saw_mage = true, parse_profession_object(nested_reader, &character->mage, nested_error_message);
             if (key == "mystic")
@@ -1362,13 +1690,14 @@ namespace {
         return true;
     }
 
-    bool parse_flags_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_flags_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_player = false;
         bool saw_preferences = false;
         bool saw_affected = false;
         bool saw_hide = false;
-        if (!reader->parse_object([character, &saw_player, &saw_preferences, &saw_affected, &saw_hide](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_player, &saw_preferences, &saw_affected, &saw_hide](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "player")
                 return saw_player = true, parse_string_array(nested_reader, &character->player_flags, nested_error_message);
             if (key == "preferences")
@@ -1390,11 +1719,12 @@ namespace {
         return true;
     }
 
-    bool parse_perception_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_perception_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_raw = false;
         bool saw_current = false;
-        if (!reader->parse_object([character, &saw_raw, &saw_current](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_raw, &saw_current](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "raw")
                 return saw_raw = true, nested_reader->parse_integer(&character->raw_perception, nested_error_message);
             if (key == "current")
@@ -1412,7 +1742,8 @@ namespace {
         return true;
     }
 
-    bool parse_state_object(json_utils::JsonReader* reader, CharacterData* character, std::string* error_message)
+    template <class Reader>
+    bool parse_state_object(Reader* reader, CharacterData* character, std::string* error_message)
     {
         bool saw_load_room = false;
         bool saw_wimp_level = false;
@@ -1422,7 +1753,7 @@ namespace {
         bool saw_leg_encumbrance = false;
         bool saw_rp_flag = false;
         bool saw_will_teach = false;
-        if (!reader->parse_object([character, &saw_load_room, &saw_wimp_level, &saw_freeze_level, &saw_morale, &saw_owner, &saw_leg_encumbrance, &saw_rp_flag, &saw_will_teach](const std::string& key, json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([character, &saw_load_room, &saw_wimp_level, &saw_freeze_level, &saw_morale, &saw_owner, &saw_leg_encumbrance, &saw_rp_flag, &saw_will_teach](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
             if (key == "load_room")
                 return saw_load_room = true, nested_reader->parse_integer(&character->load_room, nested_error_message);
             if (key == "wimp_level")
@@ -1638,7 +1969,12 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
     stored_character->specials2.alignment = json_character.alignment;
     stored_character->specials2.load_room = json_character.load_room;
     stored_character->specials2.spells_to_learn = json_character.spells_to_learn;
-    stored_character->specials2.act = player_flags;
+    // Neutralize the persisted PLR_CRASH "inventory-dirty" bit on load. It now round-trips through
+    // the character JSON, but it is a transient runtime marker (set on inventory change in handler.cpp,
+    // cleared by Crash_crashsave) and must never be restored from disk -- otherwise a character saved
+    // mid-change reloads as already-dirty. The kPlayerFlags "crash" entry is kept so existing files
+    // that persisted it still decode without rejection; the bit is simply masked off here.
+    stored_character->specials2.act = player_flags & ~PLR_CRASH;
     stored_character->specials2.pref = preference_flags;
     stored_character->specials2.wimp_level = json_character.wimp_level;
     stored_character->specials2.freeze_level = static_cast<byte>(json_character.freeze_level);
@@ -1866,6 +2202,510 @@ std::string serialize_character_to_json(const CharacterData& character)
     return output.str();
 }
 
+std::string serialize_character_to_json_v2a(const CharacterData& character)
+{
+    JsonWriter writer(kSerializeReserveHint);
+    writer.raw("{\n");
+    writer.raw("  \"schema_version\": ");
+    writer.number(character.schema_version);
+    writer.raw(",\n");
+    writer.raw("  \"character_name\": \"");
+    writer.raw(json_utils::escape_json_string(character.character_name));
+    writer.raw("\",\n");
+    writer.raw("  \"title\": \"");
+    writer.raw(json_utils::escape_json_string(character.title));
+    writer.raw("\",\n");
+    writer.raw("  \"description\": \"");
+    writer.raw(json_utils::escape_json_string(character.description));
+    writer.raw("\",\n");
+    writer.raw("  \"identity\": {\n");
+    writer.raw("    \"idnum\": ");
+    writer.number(character.idnum);
+    writer.raw(",\n");
+    writer.raw("    \"race\": ");
+    writer.number(character.race);
+    writer.raw(",\n");
+    writer.raw("    \"sex\": ");
+    writer.number(character.sex);
+    writer.raw(",\n");
+    writer.raw("    \"bodytype\": ");
+    writer.number(character.bodytype);
+    writer.raw(",\n");
+    writer.raw("    \"language\": ");
+    writer.number(character.language);
+    writer.raw(",\n");
+    writer.raw("    \"hometown\": ");
+    writer.number(character.hometown);
+    writer.raw(",\n");
+    writer.raw("    \"weight\": ");
+    writer.number(character.weight);
+    writer.raw(",\n");
+    writer.raw("    \"height\": ");
+    writer.number(character.height);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"progression\": {\n");
+    writer.raw("    \"level\": ");
+    writer.number(character.level);
+    writer.raw(",\n");
+    writer.raw("    \"alignment\": ");
+    writer.number(character.alignment);
+    writer.raw(",\n");
+    writer.raw("    \"mini_level\": ");
+    writer.number(character.mini_level);
+    writer.raw(",\n");
+    writer.raw("    \"max_mini_level\": ");
+    writer.number(character.max_mini_level);
+    writer.raw(",\n");
+    writer.raw("    \"spells_to_learn\": ");
+    writer.number(character.spells_to_learn);
+    writer.raw(",\n");
+    writer.raw("    \"rerolls\": ");
+    writer.number(character.rerolls);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"abilities\": {\n");
+    writer.raw("    \"temporary\": ");
+    write_ability_v2(writer, character.temporary_abilities);
+    writer.raw(",\n");
+    writer.raw("    \"rolled\": ");
+    write_ability_v2(writer, character.rolled_abilities);
+    writer.raw("\n  },\n");
+    writer.raw("  \"points\": {\n");
+    writer.raw("    \"bodypart_hit\": ");
+    write_integer_array_v2(writer, character.points.bodypart_hit);
+    writer.raw(",\n");
+    writer.raw("    \"gold\": ");
+    writer.number(character.points.gold);
+    writer.raw(",\n");
+    writer.raw("    \"experience\": ");
+    writer.number(character.points.experience);
+    writer.raw(",\n");
+    writer.raw("    \"spirit\": ");
+    writer.number(character.points.spirit);
+    writer.raw(",\n");
+    writer.raw("    \"mana_regen\": ");
+    writer.number(character.points.mana_regen);
+    writer.raw(",\n");
+    writer.raw("    \"health_regen\": ");
+    writer.number(character.points.health_regen);
+    writer.raw(",\n");
+    writer.raw("    \"move_regen\": ");
+    writer.number(character.points.move_regen);
+    writer.raw(",\n");
+    writer.raw("    \"ob\": ");
+    writer.number(character.points.ob);
+    writer.raw(",\n");
+    writer.raw("    \"damage\": ");
+    writer.number(character.points.damage);
+    writer.raw(",\n");
+    writer.raw("    \"energy_regen\": ");
+    writer.number(character.points.energy_regen);
+    writer.raw(",\n");
+    writer.raw("    \"parry\": ");
+    writer.number(character.points.parry);
+    writer.raw(",\n");
+    writer.raw("    \"dodge\": ");
+    writer.number(character.points.dodge);
+    writer.raw(",\n");
+    writer.raw("    \"encumbrance\": ");
+    writer.number(character.points.encumbrance);
+    writer.raw(",\n");
+    writer.raw("    \"willpower\": ");
+    writer.number(character.points.willpower);
+    writer.raw(",\n");
+    writer.raw("    \"spell_pen\": ");
+    writer.number(character.points.spell_pen);
+    writer.raw(",\n");
+    writer.raw("    \"spell_power\": ");
+    writer.number(character.points.spell_power);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"professions\": {\n");
+    write_profession_v2(writer, "mage", character.mage);
+    writer.raw(",\n");
+    write_profession_v2(writer, "mystic", character.mystic);
+    writer.raw(",\n");
+    write_profession_v2(writer, "ranger", character.ranger);
+    writer.raw(",\n");
+    write_profession_v2(writer, "warrior", character.warrior);
+    writer.raw("\n  },\n");
+    writer.raw("  \"flags\": {\n");
+    writer.raw("    \"player\": ");
+    write_string_array_v2a(writer, character.player_flags);
+    writer.raw(",\n");
+    writer.raw("    \"preferences\": ");
+    write_string_array_v2a(writer, character.preference_flags);
+    writer.raw(",\n");
+    writer.raw("    \"affected\": ");
+    write_string_array_v2a(writer, character.affected_flags);
+    writer.raw(",\n");
+    writer.raw("    \"hide\": ");
+    write_string_array_v2a(writer, character.hide_flags);
+    writer.raw("\n  },\n");
+    writer.raw("  \"conditions\": {\n");
+    writer.raw("    \"drunk\": ");
+    writer.number(character.conditions.drunk);
+    writer.raw(",\n");
+    writer.raw("    \"full\": ");
+    writer.number(character.conditions.full);
+    writer.raw(",\n");
+    writer.raw("    \"thirst\": ");
+    writer.number(character.conditions.thirst);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"color_mask\": ");
+    writer.number(character.color_mask);
+    writer.raw(",\n");
+    writer.raw("  \"colors\": {");
+    const std::vector<NamedValue> color_slots = collect_non_default_color_slots(character);
+    for (size_t index = 0; index < color_slots.size(); ++index) {
+        if (index > 0)
+            writer.raw(", ");
+        const int slot_index = color_slots[index].value;
+        ColorSettingData setting = (slot_index < static_cast<int>(character.color_settings.size()))
+            ? character.color_settings[slot_index]
+            : default_color_setting();
+        if (is_default_color_value(setting.foreground) && slot_index < static_cast<int>(character.colors.size()) && character.colors[slot_index] != CNRM) {
+            setting.foreground.mode = COLOR_VALUE_ANSI16;
+            setting.foreground.value = character.colors[slot_index];
+        }
+        normalize_color_setting(&setting);
+        writer.raw('"');
+        writer.raw(json_utils::escape_json_string(color_slots[index].key));
+        writer.raw("\": ");
+        write_color_setting_v2(writer, setting);
+    }
+    writer.raw("},\n");
+    writer.raw("  \"timers\": {\n");
+    writer.raw("    \"birth\": ");
+    writer.number(character.timers.birth);
+    writer.raw(",\n");
+    writer.raw("    \"last_logon\": ");
+    writer.number(character.timers.last_logon);
+    writer.raw(",\n");
+    writer.raw("    \"played_seconds\": ");
+    writer.number(character.timers.played_seconds);
+    writer.raw(",\n");
+    writer.raw("    \"retired_on\": ");
+    writer.number(character.timers.retired_on);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"perception\": {\n");
+    writer.raw("    \"raw\": ");
+    writer.number(character.raw_perception);
+    writer.raw(",\n");
+    writer.raw("    \"current\": ");
+    writer.number(character.perception);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"state\": {\n");
+    writer.raw("    \"load_room\": ");
+    writer.number(character.load_room);
+    writer.raw(",\n");
+    writer.raw("    \"wimp_level\": ");
+    writer.number(character.wimp_level);
+    writer.raw(",\n");
+    writer.raw("    \"freeze_level\": ");
+    writer.number(character.freeze_level);
+    writer.raw(",\n");
+    writer.raw("    \"morale\": ");
+    writer.number(character.morale);
+    writer.raw(",\n");
+    writer.raw("    \"owner\": ");
+    writer.number(character.owner);
+    writer.raw(",\n");
+    writer.raw("    \"leg_encumbrance\": ");
+    writer.number(character.leg_encumbrance);
+    writer.raw(",\n");
+    writer.raw("    \"rp_flag\": ");
+    writer.number(character.rp_flag);
+    writer.raw(",\n");
+    writer.raw("    \"will_teach\": ");
+    writer.number(character.will_teach);
+    writer.raw(",\n");
+    writer.raw("    \"tactics\": ");
+    writer.number(character.tactics);
+    writer.raw(",\n");
+    writer.raw("    \"shooting\": ");
+    writer.number(character.shooting);
+    writer.raw(",\n");
+    writer.raw("    \"casting\": ");
+    writer.number(character.casting);
+    writer.raw(",\n");
+    writer.raw("    \"two_handed\": ");
+    writer.raw(character.two_handed ? "true" : "false");
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"talks\": ");
+    write_named_integer_object_v2a(writer, collect_non_zero_named_values(character.talks, MAX_TOUNGE, talk_key_for_index));
+    writer.raw(",\n");
+    writer.raw("  \"skills\": ");
+    write_named_integer_object_v2a(writer, collect_non_zero_named_values(character.skills, MAX_SKILLS, skill_key_for_index));
+    writer.raw(",\n");
+    writer.raw("  \"affects\": [");
+    for (size_t index = 0; index < character.affects.size(); ++index) {
+        if (index > 0)
+            writer.raw(", ");
+        write_affect_v2a(writer, character.affects[index]);
+    }
+    writer.raw("]\n");
+    writer.raw("}\n");
+    return writer.take();
+}
+
+std::string serialize_character_to_json_v2b(const CharacterData& character)
+{
+    JsonWriter writer(kSerializeReserveHint);
+    writer.raw("{\n");
+    writer.raw("  \"schema_version\": ");
+    writer.number(character.schema_version);
+    writer.raw(",\n");
+    writer.raw("  \"character_name\": \"");
+    json_utils::append_escaped_json_string(writer.buffer(), character.character_name);
+    writer.raw("\",\n");
+    writer.raw("  \"title\": \"");
+    json_utils::append_escaped_json_string(writer.buffer(), character.title);
+    writer.raw("\",\n");
+    writer.raw("  \"description\": \"");
+    json_utils::append_escaped_json_string(writer.buffer(), character.description);
+    writer.raw("\",\n");
+    writer.raw("  \"identity\": {\n");
+    writer.raw("    \"idnum\": ");
+    writer.number(character.idnum);
+    writer.raw(",\n");
+    writer.raw("    \"race\": ");
+    writer.number(character.race);
+    writer.raw(",\n");
+    writer.raw("    \"sex\": ");
+    writer.number(character.sex);
+    writer.raw(",\n");
+    writer.raw("    \"bodytype\": ");
+    writer.number(character.bodytype);
+    writer.raw(",\n");
+    writer.raw("    \"language\": ");
+    writer.number(character.language);
+    writer.raw(",\n");
+    writer.raw("    \"hometown\": ");
+    writer.number(character.hometown);
+    writer.raw(",\n");
+    writer.raw("    \"weight\": ");
+    writer.number(character.weight);
+    writer.raw(",\n");
+    writer.raw("    \"height\": ");
+    writer.number(character.height);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"progression\": {\n");
+    writer.raw("    \"level\": ");
+    writer.number(character.level);
+    writer.raw(",\n");
+    writer.raw("    \"alignment\": ");
+    writer.number(character.alignment);
+    writer.raw(",\n");
+    writer.raw("    \"mini_level\": ");
+    writer.number(character.mini_level);
+    writer.raw(",\n");
+    writer.raw("    \"max_mini_level\": ");
+    writer.number(character.max_mini_level);
+    writer.raw(",\n");
+    writer.raw("    \"spells_to_learn\": ");
+    writer.number(character.spells_to_learn);
+    writer.raw(",\n");
+    writer.raw("    \"rerolls\": ");
+    writer.number(character.rerolls);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"abilities\": {\n");
+    writer.raw("    \"temporary\": ");
+    write_ability_v2(writer, character.temporary_abilities);
+    writer.raw(",\n");
+    writer.raw("    \"rolled\": ");
+    write_ability_v2(writer, character.rolled_abilities);
+    writer.raw("\n  },\n");
+    writer.raw("  \"points\": {\n");
+    writer.raw("    \"bodypart_hit\": ");
+    write_integer_array_v2(writer, character.points.bodypart_hit);
+    writer.raw(",\n");
+    writer.raw("    \"gold\": ");
+    writer.number(character.points.gold);
+    writer.raw(",\n");
+    writer.raw("    \"experience\": ");
+    writer.number(character.points.experience);
+    writer.raw(",\n");
+    writer.raw("    \"spirit\": ");
+    writer.number(character.points.spirit);
+    writer.raw(",\n");
+    writer.raw("    \"mana_regen\": ");
+    writer.number(character.points.mana_regen);
+    writer.raw(",\n");
+    writer.raw("    \"health_regen\": ");
+    writer.number(character.points.health_regen);
+    writer.raw(",\n");
+    writer.raw("    \"move_regen\": ");
+    writer.number(character.points.move_regen);
+    writer.raw(",\n");
+    writer.raw("    \"ob\": ");
+    writer.number(character.points.ob);
+    writer.raw(",\n");
+    writer.raw("    \"damage\": ");
+    writer.number(character.points.damage);
+    writer.raw(",\n");
+    writer.raw("    \"energy_regen\": ");
+    writer.number(character.points.energy_regen);
+    writer.raw(",\n");
+    writer.raw("    \"parry\": ");
+    writer.number(character.points.parry);
+    writer.raw(",\n");
+    writer.raw("    \"dodge\": ");
+    writer.number(character.points.dodge);
+    writer.raw(",\n");
+    writer.raw("    \"encumbrance\": ");
+    writer.number(character.points.encumbrance);
+    writer.raw(",\n");
+    writer.raw("    \"willpower\": ");
+    writer.number(character.points.willpower);
+    writer.raw(",\n");
+    writer.raw("    \"spell_pen\": ");
+    writer.number(character.points.spell_pen);
+    writer.raw(",\n");
+    writer.raw("    \"spell_power\": ");
+    writer.number(character.points.spell_power);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"professions\": {\n");
+    write_profession_v2(writer, "mage", character.mage);
+    writer.raw(",\n");
+    write_profession_v2(writer, "mystic", character.mystic);
+    writer.raw(",\n");
+    write_profession_v2(writer, "ranger", character.ranger);
+    writer.raw(",\n");
+    write_profession_v2(writer, "warrior", character.warrior);
+    writer.raw("\n  },\n");
+    writer.raw("  \"flags\": {\n");
+    writer.raw("    \"player\": ");
+    write_string_array_v2b(writer, character.player_flags);
+    writer.raw(",\n");
+    writer.raw("    \"preferences\": ");
+    write_string_array_v2b(writer, character.preference_flags);
+    writer.raw(",\n");
+    writer.raw("    \"affected\": ");
+    write_string_array_v2b(writer, character.affected_flags);
+    writer.raw(",\n");
+    writer.raw("    \"hide\": ");
+    write_string_array_v2b(writer, character.hide_flags);
+    writer.raw("\n  },\n");
+    writer.raw("  \"conditions\": {\n");
+    writer.raw("    \"drunk\": ");
+    writer.number(character.conditions.drunk);
+    writer.raw(",\n");
+    writer.raw("    \"full\": ");
+    writer.number(character.conditions.full);
+    writer.raw(",\n");
+    writer.raw("    \"thirst\": ");
+    writer.number(character.conditions.thirst);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"color_mask\": ");
+    writer.number(character.color_mask);
+    writer.raw(",\n");
+    writer.raw("  \"colors\": {");
+    const std::vector<NamedValue> color_slots = collect_non_default_color_slots(character);
+    for (size_t index = 0; index < color_slots.size(); ++index) {
+        if (index > 0)
+            writer.raw(", ");
+        const int slot_index = color_slots[index].value;
+        ColorSettingData setting = (slot_index < static_cast<int>(character.color_settings.size()))
+            ? character.color_settings[slot_index]
+            : default_color_setting();
+        if (is_default_color_value(setting.foreground) && slot_index < static_cast<int>(character.colors.size()) && character.colors[slot_index] != CNRM) {
+            setting.foreground.mode = COLOR_VALUE_ANSI16;
+            setting.foreground.value = character.colors[slot_index];
+        }
+        normalize_color_setting(&setting);
+        writer.raw('"');
+        json_utils::append_escaped_json_string(writer.buffer(), color_slots[index].key);
+        writer.raw("\": ");
+        write_color_setting_v2(writer, setting);
+    }
+    writer.raw("},\n");
+    writer.raw("  \"timers\": {\n");
+    writer.raw("    \"birth\": ");
+    writer.number(character.timers.birth);
+    writer.raw(",\n");
+    writer.raw("    \"last_logon\": ");
+    writer.number(character.timers.last_logon);
+    writer.raw(",\n");
+    writer.raw("    \"played_seconds\": ");
+    writer.number(character.timers.played_seconds);
+    writer.raw(",\n");
+    writer.raw("    \"retired_on\": ");
+    writer.number(character.timers.retired_on);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"perception\": {\n");
+    writer.raw("    \"raw\": ");
+    writer.number(character.raw_perception);
+    writer.raw(",\n");
+    writer.raw("    \"current\": ");
+    writer.number(character.perception);
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"state\": {\n");
+    writer.raw("    \"load_room\": ");
+    writer.number(character.load_room);
+    writer.raw(",\n");
+    writer.raw("    \"wimp_level\": ");
+    writer.number(character.wimp_level);
+    writer.raw(",\n");
+    writer.raw("    \"freeze_level\": ");
+    writer.number(character.freeze_level);
+    writer.raw(",\n");
+    writer.raw("    \"morale\": ");
+    writer.number(character.morale);
+    writer.raw(",\n");
+    writer.raw("    \"owner\": ");
+    writer.number(character.owner);
+    writer.raw(",\n");
+    writer.raw("    \"leg_encumbrance\": ");
+    writer.number(character.leg_encumbrance);
+    writer.raw(",\n");
+    writer.raw("    \"rp_flag\": ");
+    writer.number(character.rp_flag);
+    writer.raw(",\n");
+    writer.raw("    \"will_teach\": ");
+    writer.number(character.will_teach);
+    writer.raw(",\n");
+    writer.raw("    \"tactics\": ");
+    writer.number(character.tactics);
+    writer.raw(",\n");
+    writer.raw("    \"shooting\": ");
+    writer.number(character.shooting);
+    writer.raw(",\n");
+    writer.raw("    \"casting\": ");
+    writer.number(character.casting);
+    writer.raw(",\n");
+    writer.raw("    \"two_handed\": ");
+    writer.raw(character.two_handed ? "true" : "false");
+    writer.raw("\n");
+    writer.raw("  },\n");
+    writer.raw("  \"talks\": ");
+    write_named_integer_object_v2b(writer, collect_non_zero_named_values(character.talks, MAX_TOUNGE, talk_key_for_index_cached));
+    writer.raw(",\n");
+    writer.raw("  \"skills\": ");
+    write_named_integer_object_v2b(writer, collect_non_zero_named_values(character.skills, MAX_SKILLS, skill_key_for_index_cached));
+    writer.raw(",\n");
+    writer.raw("  \"affects\": [");
+    for (size_t index = 0; index < character.affects.size(); ++index) {
+        if (index > 0)
+            writer.raw(", ");
+        write_affect_v2b(writer, character.affects[index]);
+    }
+    writer.raw("]\n");
+    writer.raw("}\n");
+    return writer.take();
+}
+
 bool deserialize_character_from_json(const std::string& json, CharacterData* character, std::string* error_message)
 {
     if (character == nullptr) {
@@ -1986,6 +2826,139 @@ bool deserialize_character_from_json(const std::string& json, CharacterData* cha
     *character = std::move(parsed_character);
     set_error(error_message, "");
     return true;
+}
+
+template <class Reader>
+bool deserialize_character_v2_dispatch(const std::string& json, CharacterData* character, std::string* error_message)
+{
+    if (character == nullptr) {
+        set_error(error_message, "Character output parameter must not be null.");
+        return false;
+    }
+
+    CharacterData parsed_character;
+    Reader reader(json);
+    bool saw_schema_version = false;
+    bool saw_character_name = false;
+    bool saw_title = false;
+    bool saw_description = false;
+    bool saw_identity = false;
+    bool saw_progression = false;
+    bool saw_abilities = false;
+    bool saw_points = false;
+    bool saw_professions = false;
+    bool saw_flags = false;
+    bool saw_conditions = false;
+    bool saw_color_mask = false;
+    bool saw_colors = false;
+    bool saw_timers = false;
+    bool saw_perception = false;
+    bool saw_state = false;
+    bool saw_talks = false;
+    bool saw_skills = false;
+    bool saw_affects = false;
+    parsed_character.colors.assign(MAX_COLOR_FIELDS, 0);
+    parsed_character.color_settings.assign(MAX_COLOR_FIELDS, default_color_setting());
+    if (!reader.parse_root_object([&parsed_character, &saw_schema_version, &saw_character_name, &saw_title, &saw_description, &saw_identity, &saw_progression, &saw_abilities, &saw_points, &saw_professions, &saw_flags, &saw_conditions, &saw_color_mask, &saw_colors, &saw_timers, &saw_perception, &saw_state, &saw_talks, &saw_skills, &saw_affects](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
+            if (key == "schema_version")
+                return saw_schema_version = true, nested_reader->parse_integer(&parsed_character.schema_version, nested_error_message);
+            if (key == "character_name")
+                return saw_character_name = true, nested_reader->parse_string(&parsed_character.character_name, nested_error_message);
+            if (key == "title")
+                return saw_title = true, nested_reader->parse_string(&parsed_character.title, nested_error_message);
+            if (key == "description")
+                return saw_description = true, nested_reader->parse_string(&parsed_character.description, nested_error_message);
+            if (key == "identity")
+                return saw_identity = true, parse_identity_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "progression")
+                return saw_progression = true, parse_progression_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "abilities")
+                return saw_abilities = true, parse_abilities_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "points")
+                return saw_points = true, parse_points_object(nested_reader, &parsed_character.points, nested_error_message);
+            if (key == "professions")
+                return saw_professions = true, parse_professions_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "flags")
+                return saw_flags = true, parse_flags_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "conditions")
+                return saw_conditions = true, parse_conditions_object(nested_reader, &parsed_character.conditions, nested_error_message);
+            if (key == "color_mask")
+                return saw_color_mask = true, nested_reader->parse_long(&parsed_character.color_mask, nested_error_message);
+            if (key == "colors")
+                return saw_colors = true, parse_colors_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "timers")
+                return saw_timers = true, parse_timers_object(nested_reader, &parsed_character.timers, nested_error_message);
+            if (key == "perception")
+                return saw_perception = true, parse_perception_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "state")
+                return saw_state = true, parse_state_object(nested_reader, &parsed_character, nested_error_message);
+            if (key == "talks")
+                return saw_talks = true, parse_named_integer_object(nested_reader, &parsed_character.talks, MAX_TOUNGE, "talk", talk_index_for_key_memoized, nested_error_message);
+            if (key == "skills")
+                return saw_skills = true, parse_named_integer_object(nested_reader, &parsed_character.skills, MAX_SKILLS, "skill", skill_index_for_key_memoized, nested_error_message);
+            if (key == "affects")
+                return saw_affects = true, parse_affects_array(nested_reader, &parsed_character.affects, nested_error_message);
+            return nested_reader->skip_value(nested_error_message);
+        },
+            error_message))
+        return false;
+
+    if (!has_all_required_character_sections(saw_schema_version, saw_character_name, saw_title, saw_description, saw_identity, saw_progression, saw_abilities, saw_points, saw_professions, saw_flags, saw_conditions, saw_timers, saw_perception, saw_state, saw_talks, saw_skills, saw_affects)) {
+        set_error(error_message, "Character JSON was missing one or more required sections.");
+        return false;
+    }
+
+    if (parsed_character.schema_version != CHARACTER_JSON_SCHEMA_VERSION) {
+        set_error(error_message, "Unsupported character schema version.");
+        return false;
+    }
+
+    if (!validate_character_scalar_ranges(parsed_character, error_message))
+        return false;
+    if (!validate_character_collections(parsed_character, error_message))
+        return false;
+
+    long ignored_flags = 0;
+    if (!decode_player_flags(parsed_character.player_flags, &ignored_flags, error_message))
+        return false;
+    if (!decode_preference_flags(parsed_character.preference_flags, &ignored_flags, error_message))
+        return false;
+    if (!decode_affected_flags(parsed_character.affected_flags, &ignored_flags, error_message))
+        return false;
+    if (!decode_hide_flags(parsed_character.hide_flags, &ignored_flags, error_message))
+        return false;
+    if (!require_exact_array_size(parsed_character.points.bodypart_hit, MAX_BODYPARTS, "points.bodypart_hit", error_message))
+        return false;
+    if (!saw_color_mask)
+        parsed_character.color_mask = 0;
+    if (!saw_colors) {
+        parsed_character.colors.assign(MAX_COLOR_FIELDS, 0);
+        parsed_character.color_settings.assign(MAX_COLOR_FIELDS, default_color_setting());
+    }
+    if (!require_exact_array_size(parsed_character.colors, MAX_COLOR_FIELDS, "colors", error_message))
+        return false;
+    if (!require_exact_array_size(parsed_character.talks, MAX_TOUNGE, "talks", error_message))
+        return false;
+    if (!require_exact_array_size(parsed_character.skills, MAX_SKILLS, "skills", error_message))
+        return false;
+    for (const AffectData& affect : parsed_character.affects) {
+        if (!decode_affected_flags(affect.flags, &ignored_flags, error_message))
+            return false;
+    }
+
+    *character = std::move(parsed_character);
+    set_error(error_message, "");
+    return true;
+}
+
+bool deserialize_character_from_json_v2a(const std::string& json, CharacterData* character, std::string* error_message)
+{
+    return deserialize_character_v2_dispatch<json_utils::JsonReader>(json, character, error_message);
+}
+
+bool deserialize_character_from_json_v2b(const std::string& json, CharacterData* character, std::string* error_message)
+{
+    return deserialize_character_v2_dispatch<json_utils::JsonReaderV2>(json, character, error_message);
 }
 
 std::vector<std::string> encode_player_flags(long flags)

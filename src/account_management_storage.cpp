@@ -237,11 +237,15 @@ bool write_account_file(const std::string& root_directory, const AccountData& ac
         return false;
     }
 
+    // Single account.json write chokepoint: flush the cache so subsequent reads see the new state.
+    if (account_cache::is_enabled())
+        account_cache::invalidate_all();
+
     set_error(error_message, "");
     return true;
 }
 
-bool read_account_file(const std::string& root_directory, const std::string& account_name, AccountData* account, std::string* error_message)
+bool read_account_file_uncached(const std::string& root_directory, const std::string& account_name, AccountData* account, std::string* error_message)
 {
     if (account == nullptr) {
         set_error(error_message, "Account output parameter must not be null.");
@@ -256,6 +260,16 @@ bool read_account_file(const std::string& root_directory, const std::string& acc
         return false;
 
     return read_account_file_from_path(account_path, account, error_message);
+}
+
+bool read_account_file(const std::string& root_directory, const std::string& account_name, AccountData* account, std::string* error_message)
+{
+    // When the cache is enabled (live server) route through it; otherwise (tests, non-server callers)
+    // behave exactly as the uncached read. read_account_file_cached's backing resolver is the uncached
+    // read above, so there is no recursion.
+    if (account_cache::is_enabled())
+        return account_cache::read_account_file_cached(root_directory, account_name, account, error_message);
+    return read_account_file_uncached(root_directory, account_name, account, error_message);
 }
 
 bool read_account_file_by_email(const std::string& root_directory, const std::string& email, AccountData* account, std::string* error_message)

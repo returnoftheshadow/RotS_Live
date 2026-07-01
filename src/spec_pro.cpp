@@ -2677,6 +2677,9 @@ SPECIAL(resetter)
             send_to_char("Rerolling statistics...\n\r", ch);
             roll_abilities(ch, 80, 93);
             ch->specials2.rerolls += 1;
+            // Anti-rollback: a reroll records no exploit and triggers no other save, so persist
+            // immediately to close the crash-to-reroll exploit (crashing after a bad reroll to retry).
+            save_char(ch, NOWHERE, 0);
             reroll_count = 41 - ch->specials2.rerolls;
             sprintf(buf, "You have %d reroll attempts left.\n\r", reroll_count);
             send_to_char(buf, ch);

@@ -54,6 +54,7 @@ lib/misc/mudlle.keys
 lib/misc/oldcrimelist
 lib/misc/pk*
 lib/misc/repair*
+lib/misc/xnames*
 tools/__pycache__/
 core/
 *~
@@ -80,3 +81,7 @@ target/
 # cmake
 .cache
 cmake_test_discovery*.json
+
+# macOS
+.DS_Store
+**/.DS_Store

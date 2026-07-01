@@ -13,9 +13,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <filesystem>
 #include <limits.h>
 #include <string>
+#include <string_view>
 #include <sys/stat.h>
+#include <system_error>
 #include <unistd.h>
 #include <vector>
 
@@ -331,6 +334,34 @@ void write_file(const std::string& path, const std::string& contents)
     ASSERT_EQ(fclose(file), 0);
 }
 
+// Count files in dir whose names begin with "<base_name>." (dot-anchored, matching
+// save_player's versioned-file naming convention). Uses std::filesystem::directory_iterator
+// for consistency with finalize_player_file_rename's rename-then-enumerate behavior.
+int count_versioned_files_for(const std::string& dir, const std::string& base_name)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::directory_iterator it(dir, ec);
+    if (ec) {
+        return -1;
+    }
+    int count = 0;
+    const std::string prefix = base_name + ".";
+    const fs::directory_iterator end;
+    while (it != end) {
+        const std::string filename = it->path().filename().native();
+        if (filename.size() >= prefix.size() &&
+            std::string_view(filename).substr(0, prefix.size()) == prefix) {
+            ++count;
+        }
+        it.increment(ec);
+        if (ec) {
+            return -1;
+        }
+    }
+    return count;
+}
+
 std::string write_valid_legacy_player_file(const std::string& root_directory, const char_file_u& stored_character, const std::string& destination_path = "")
 {
     ScopedWorkingDirectory working_directory(root_directory);
@@ -360,6 +391,19 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
 
     save_player(character, stored_character.specials2.load_room, 0);
     const std::string generated_path = player_table[0].ch_file;
+
+    // After save_player, the bucket dir must hold exactly ONE versioned file for this
+    // character (the atomic finalize pruned stale siblings).
+    {
+        const std::size_t slash = generated_path.rfind('/');
+        if (slash != std::string::npos) {
+            const std::string bucket_dir = generated_path.substr(0, slash);
+            std::string base_lower = stored_character.name;
+            for (char& c : base_lower)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            EXPECT_EQ(count_versioned_files_for(bucket_dir, base_lower), 1);
+        }
+    }
 
     const std::string player_text = read_file_contents(generated_path);
     const std::string final_path = destination_path.empty() ? account::legacy_player_file_path(root_directory, stored_character.name) : destination_path;

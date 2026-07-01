@@ -24,6 +24,7 @@
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
+#include "crashsave_schedule.h"
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
@@ -688,7 +689,8 @@ void game_loop(SocketType s)
     char* pptr;
     struct descriptor_data *point, *next_point;
     struct char_data *wait_ch, *wait_tmp;
-    int mins_since_crashsave = 0, mask;
+    int mask;
+    AutosaveTimer autosave_timer;
     int sockets_connected, sockets_playing;
     int tmp, was_updated;
     char disp, tmpflag;
@@ -1044,12 +1046,12 @@ void game_loop(SocketType s)
 
         msdp_update();
 
-        if (!(pulse % (60 * 4))) /* one minute */
-        {
-            if (++mins_since_crashsave >= autosave_time) {
-                mins_since_crashsave = 0;
-                Crash_save_all();
-            }
+        // Periodic point-in-time crash-save snapshot cadence, driven by the configurable seconds
+        // interval (autosave_time) through the unit-tested scheduler. Default 30s == 120 pulses (the
+        // source's original cadence). Crash_save_all now saves EVERY connected player each cadence
+        // (a consistent point-in-time snapshot), not only inventory-dirty ones.
+        if (autosave_timer.tick(autosave_interval_pulses(autosave_time, TICS_PER_SECOND))) {
+            Crash_save_all();
         }
 
         if (!(pulse % 4)) {
@@ -1909,6 +1911,11 @@ void close_socket(descriptor_data* conn_descriptor, int drop_all)
             mudlog(buf, NRM, std::max(LEVEL_IMMORT, GET_INVIS_LEV(conn_descriptor->character)),
                 TRUE);
             //	 d->character->desc = 0;
+            // Deliberate: this player was just flushed by the save_char above, then moved to
+            // CON_LINKLS. The point-in-time autosave snapshot (Crash_save_all) filters on CON_PLYNG,
+            // so link-dead players are correctly excluded -- the exclusion is the CON_PLYNG state
+            // filter, NOT the (commented-out) `desc = 0` detach. If that detach is ever re-enabled,
+            // revisit the snapshot's reliance on connection state rather than a null desc.
             conn_descriptor->connected = CON_LINKLS;
         } else {
             if (conn_descriptor->character->player.name) {

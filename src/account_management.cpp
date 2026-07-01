@@ -1,4 +1,5 @@
 #include "account_management.h"
+#include "account_cache.h"
 #include "character_json.h"
 #include "exploits_json.h"
 #include "json_utils.h"
@@ -550,67 +551,6 @@ namespace {
 
         std::fclose(file);
         return deserialize_account_from_json(json, account, error_message);
-    }
-
-    bool read_text_file(const std::string& path, std::string* contents, std::string* error_message)
-    {
-        if (contents == nullptr) {
-            set_error(error_message, "Text-file output parameter must not be null.");
-            return false;
-        }
-
-        FILE* file = std::fopen(path.c_str(), "r");
-        if (file == nullptr) {
-            set_error(error_message, "Failed to open file '" + path + "': " + std::strerror(errno));
-            return false;
-        }
-
-        std::string text;
-        char buffer[1024];
-        while (true) {
-            const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
-            if (bytes_read > 0)
-                text.append(buffer, bytes_read);
-
-            if (bytes_read < sizeof(buffer)) {
-                if (std::ferror(file)) {
-                    std::fclose(file);
-                    set_error(error_message, "Failed to read file '" + path + "'.");
-                    return false;
-                }
-                break;
-            }
-        }
-
-        std::fclose(file);
-        *contents = std::move(text);
-        set_error(error_message, "");
-        return true;
-    }
-
-    bool write_text_file_atomically(const std::string& path, const std::string& text, std::string* error_message)
-    {
-        const std::string temp_path = path + ".tmp";
-        FILE* file = open_secure_output_file(temp_path, error_message);
-        if (file == nullptr)
-            return false;
-
-        const size_t written_length = std::fwrite(text.data(), sizeof(char), text.size(), file);
-        const int close_result = std::fclose(file);
-        if (written_length != text.size() || close_result != 0) {
-            std::remove(temp_path.c_str());
-            set_error(error_message, "Failed to write temporary file '" + temp_path + "'.");
-            return false;
-        }
-
-        if (std::rename(temp_path.c_str(), path.c_str()) != 0) {
-            std::remove(temp_path.c_str());
-            set_error(error_message, "Failed to move temporary file into place: " + std::string(std::strerror(errno)));
-            return false;
-        }
-
-        set_error(error_message, "");
-        return true;
     }
 
     std::string account_directory_path_from_email(const std::string& root_directory, const std::string& email)
@@ -1418,6 +1358,71 @@ namespace {
     }
 
 } // namespace
+
+// Read an entire text file into *contents (POSIX-backed). Exposed for stage-timing the
+// LOAD pipeline's file-read step.
+bool read_text_file(const std::string& path, std::string* contents, std::string* error_message)
+{
+    if (contents == nullptr) {
+        set_error(error_message, "Text-file output parameter must not be null.");
+        return false;
+    }
+
+    FILE* file = std::fopen(path.c_str(), "r");
+    if (file == nullptr) {
+        set_error(error_message, "Failed to open file '" + path + "': " + std::strerror(errno));
+        return false;
+    }
+
+    std::string text;
+    char buffer[1024];
+    while (true) {
+        const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+        if (bytes_read > 0)
+            text.append(buffer, bytes_read);
+
+        if (bytes_read < sizeof(buffer)) {
+            if (std::ferror(file)) {
+                std::fclose(file);
+                set_error(error_message, "Failed to read file '" + path + "'.");
+                return false;
+            }
+            break;
+        }
+    }
+
+    std::fclose(file);
+    *contents = std::move(text);
+    set_error(error_message, "");
+    return true;
+}
+
+// Atomic write: temp(path+".tmp") -> fwrite -> rename. Exposed for stage-timing the SAVE
+// pipeline's disk-write step against a throwaway path.
+bool write_text_file_atomically(const std::string& path, const std::string& text, std::string* error_message)
+{
+    const std::string temp_path = path + ".tmp";
+    FILE* file = open_secure_output_file(temp_path, error_message);
+    if (file == nullptr)
+        return false;
+
+    const size_t written_length = std::fwrite(text.data(), sizeof(char), text.size(), file);
+    const int close_result = std::fclose(file);
+    if (written_length != text.size() || close_result != 0) {
+        std::remove(temp_path.c_str());
+        set_error(error_message, "Failed to write temporary file '" + temp_path + "'.");
+        return false;
+    }
+
+    if (std::rename(temp_path.c_str(), path.c_str()) != 0) {
+        std::remove(temp_path.c_str());
+        set_error(error_message, "Failed to move temporary file into place: " + std::string(std::strerror(errno)));
+        return false;
+    }
+
+    set_error(error_message, "");
+    return true;
+}
 
 // Keep the internal helper fragment before the public fragments. The split is
 // intentionally low-risk and still shares one translation unit for now.

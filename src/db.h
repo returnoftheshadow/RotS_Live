@@ -102,6 +102,7 @@ static const int mortal_maze_room[MAX_MAZE_RENT_MAPPINGS][2] = {
 void boot_db(void);
 void char_to_store(struct char_data*, struct char_file_u*);
 void store_to_char(struct char_file_u*, struct char_data*);
+bool write_player_text(struct char_data* ch, int load_room, const char* scratch_path);
 int load_char(char*, struct char_file_u*);
 int load_char_from_text(char*, const char*, struct char_file_u*);
 void save_char(struct char_data*, int, int);

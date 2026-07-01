@@ -5,7 +5,9 @@
 #include <cstring>
 
 #include <cctype>
+#include <charconv>
 #include <limits>
+#include <utility>
 
 namespace json_utils {
 namespace {
@@ -40,6 +42,16 @@ namespace {
     {
         if (error_message)
             *error_message = message;
+    }
+
+    inline bool is_json_space(char character)
+    {
+        return character == ' ' || character == '\t' || character == '\n' || character == '\r';
+    }
+
+    inline bool is_json_digit(char character)
+    {
+        return character >= '0' && character <= '9';
     }
 
 } // namespace
@@ -85,6 +97,57 @@ std::string escape_json_string(const std::string& value)
     }
 
     return escaped;
+}
+
+void append_escaped_json_string(std::string& out, const std::string& value)
+{
+    bool needs_escape = false;
+    for (char character : value) {
+        if (character == '"' || character == '\\' || static_cast<unsigned char>(character) < 0x20) {
+            needs_escape = true;
+            break;
+        }
+    }
+
+    if (!needs_escape) {
+        out += value;
+        return;
+    }
+
+    for (char character : value) {
+        switch (character) {
+        case '\\':
+            out += "\\\\";
+            break;
+        case '"':
+            out += "\\\"";
+            break;
+        case '\b':
+            out += "\\b";
+            break;
+        case '\f':
+            out += "\\f";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            if (static_cast<unsigned char>(character) < 0x20) {
+                out += "\\u00";
+                out += hex_digit((static_cast<unsigned char>(character) >> 4) & 0x0f);
+                out += hex_digit(static_cast<unsigned char>(character) & 0x0f);
+            } else {
+                out += character;
+            }
+            break;
+        }
+    }
 }
 
 JsonReader::JsonReader(const std::string& input)
@@ -452,6 +515,395 @@ void JsonReader::skip_whitespace()
 }
 
 bool JsonReader::is_at_end() const
+{
+    return m_position >= m_input.size();
+}
+
+JsonReaderV2::JsonReaderV2(const std::string& input)
+    : m_input(input)
+{
+}
+
+bool JsonReaderV2::parse_root_object(const ObjectPropertyParser& property_parser, std::string* error_message)
+{
+    if (!parse_object(property_parser, error_message))
+        return false;
+
+    skip_whitespace();
+    if (!is_at_end()) {
+        set_error(error_message, "Unexpected trailing characters after JSON object.");
+        return false;
+    }
+
+    return true;
+}
+
+bool JsonReaderV2::parse_object(const ObjectPropertyParser& property_parser, std::string* error_message)
+{
+    skip_whitespace();
+    if (!consume('{')) {
+        set_error(error_message, "Expected JSON object.");
+        return false;
+    }
+
+    return parse_object_body(property_parser, error_message);
+}
+
+bool JsonReaderV2::parse_array(const ArrayValueParser& value_parser, std::string* error_message)
+{
+    if (!consume('[')) {
+        set_error(error_message, "Expected array value.");
+        return false;
+    }
+
+    bool first_value = true;
+    while (true) {
+        skip_whitespace();
+        if (consume(']'))
+            return true;
+
+        if (!first_value) {
+            if (!consume(',')) {
+                set_error(error_message, "Expected ',' between array values.");
+                return false;
+            }
+            skip_whitespace();
+        }
+
+        if (!value_parser(this, error_message))
+            return false;
+
+        first_value = false;
+    }
+}
+
+bool JsonReaderV2::parse_string(std::string* value, std::string* error_message)
+{
+    if (value == nullptr) {
+        set_error(error_message, "String output parameter must not be null.");
+        return false;
+    }
+
+    if (!consume('"')) {
+        set_error(error_message, "Expected string value.");
+        return false;
+    }
+
+    // Fast path: scan to the closing quote; if the whole span holds no escape ('\') or control
+    // character, assign it in one shot rather than appending character by character.
+    const size_t size = m_input.size();
+    size_t scan = m_position;
+    while (scan < size) {
+        const char character = m_input[scan];
+        if (character == '"') {
+            value->assign(m_input, m_position, scan - m_position);
+            m_position = scan + 1;
+            return true;
+        }
+        if (character == '\\' || static_cast<unsigned char>(character) < 0x20)
+            break;
+        ++scan;
+    }
+
+    // Slow path: an escape (or a control char, which is an error) is present. Seed the buffer with
+    // the clean prefix already scanned, then resume the original character-by-character loop.
+    std::string parsed;
+    parsed.reserve((scan - m_position) + 16);
+    parsed.assign(m_input, m_position, scan - m_position);
+    m_position = scan;
+    while (!is_at_end()) {
+        const char character = m_input[m_position++];
+        if (character == '"') {
+            *value = std::move(parsed);
+            return true;
+        }
+
+        if (character == '\\') {
+            if (is_at_end()) {
+                set_error(error_message, "Unexpected end of input in string escape sequence.");
+                return false;
+            }
+
+            const char escaped = m_input[m_position++];
+            switch (escaped) {
+            case '"':
+            case '\\':
+            case '/':
+                parsed += escaped;
+                break;
+            case 'b':
+                parsed += '\b';
+                break;
+            case 'f':
+                parsed += '\f';
+                break;
+            case 'n':
+                parsed += '\n';
+                break;
+            case 'r':
+                parsed += '\r';
+                break;
+            case 't':
+                parsed += '\t';
+                break;
+            case 'u': {
+                if (m_position + 4 > m_input.size()) {
+                    set_error(error_message, "Incomplete unicode escape sequence in JSON string.");
+                    return false;
+                }
+
+                unsigned int code_point = 0;
+                for (int index = 0; index < 4; ++index) {
+                    unsigned int nibble = 0;
+                    if (!parse_hex_digit(m_input[m_position + index], &nibble)) {
+                        set_error(error_message, "Invalid unicode escape sequence in JSON string.");
+                        return false;
+                    }
+                    code_point = (code_point << 4) | nibble;
+                }
+                m_position += 4;
+
+                if (code_point > 0x7f) {
+                    set_error(error_message, "Unsupported unicode escape sequence in JSON string.");
+                    return false;
+                }
+
+                parsed += static_cast<char>(code_point);
+                break;
+            }
+            default:
+                set_error(error_message, "Unsupported escape sequence in JSON string.");
+                return false;
+            }
+        } else {
+            if (static_cast<unsigned char>(character) < 0x20) {
+                set_error(error_message, "JSON strings must escape control characters.");
+                return false;
+            }
+            parsed += character;
+        }
+    }
+
+    set_error(error_message, "Unterminated JSON string.");
+    return false;
+}
+
+bool JsonReaderV2::parse_bool(bool* value, std::string* error_message)
+{
+    if (value == nullptr) {
+        set_error(error_message, "Boolean output parameter must not be null.");
+        return false;
+    }
+
+    if (match_literal("true", 4)) {
+        *value = true;
+        return true;
+    }
+
+    if (match_literal("false", 5)) {
+        *value = false;
+        return true;
+    }
+
+    set_error(error_message, "Expected boolean value.");
+    return false;
+}
+
+bool JsonReaderV2::parse_integer(int* value, std::string* error_message)
+{
+    if (value == nullptr) {
+        set_error(error_message, "Integer output parameter must not be null.");
+        return false;
+    }
+
+    long parsed = 0;
+    if (!parse_long(&parsed, error_message))
+        return false;
+
+    if (parsed < std::numeric_limits<int>::min() || parsed > std::numeric_limits<int>::max()) {
+        set_error(error_message, "Integer value is out of range.");
+        return false;
+    }
+
+    *value = static_cast<int>(parsed);
+    return true;
+}
+
+bool JsonReaderV2::parse_long(long* value, std::string* error_message)
+{
+    if (value == nullptr) {
+        set_error(error_message, "Long output parameter must not be null.");
+        return false;
+    }
+
+    if (is_at_end()) {
+        set_error(error_message, "Expected integer value.");
+        return false;
+    }
+
+    const size_t start = m_position;
+    if (m_input[m_position] == '-')
+        ++m_position;
+
+    if (m_position >= m_input.size() || !is_json_digit(m_input[m_position])) {
+        set_error(error_message, "Expected integer value.");
+        return false;
+    }
+
+    while (m_position < m_input.size() && is_json_digit(m_input[m_position]))
+        ++m_position;
+
+    const char* const first = m_input.data() + start;
+    const char* const last = m_input.data() + m_position;
+    long parsed = 0;
+    const std::from_chars_result result = std::from_chars(first, last, parsed, 10);
+    if (result.ec != std::errc() || result.ptr != last) {
+        set_error(error_message, "Invalid integer value.");
+        return false;
+    }
+
+    *value = parsed;
+    return true;
+}
+
+bool JsonReaderV2::parse_string_array(std::vector<std::string>* values, std::string* error_message)
+{
+    if (values == nullptr) {
+        set_error(error_message, "Array output parameter must not be null.");
+        return false;
+    }
+
+    values->clear();
+    return parse_array([values](JsonReaderV2* reader, std::string* nested_error_message) {
+        std::string value;
+        if (!reader->parse_string(&value, nested_error_message))
+            return false;
+        values->push_back(std::move(value));
+        return true;
+    },
+        error_message);
+}
+
+bool JsonReaderV2::skip_value(std::string* error_message)
+{
+    skip_whitespace();
+    if (is_at_end()) {
+        set_error(error_message, "Expected JSON value.");
+        return false;
+    }
+
+    const char current = m_input[m_position];
+    if (current == '"') {
+        std::string ignored;
+        return parse_string(&ignored, error_message);
+    }
+
+    if (current == '{') {
+        ++m_position;
+        return parse_object_body([](const std::string&, JsonReaderV2* reader, std::string* nested_error_message) {
+            return reader->skip_value(nested_error_message);
+        },
+            error_message);
+    }
+
+    if (current == '[') {
+        ++m_position;
+        bool first_value = true;
+        while (true) {
+            skip_whitespace();
+            if (consume(']'))
+                return true;
+
+            if (!first_value) {
+                if (!consume(',')) {
+                    set_error(error_message, "Expected ',' between nested array values.");
+                    return false;
+                }
+                skip_whitespace();
+            }
+
+            if (!skip_value(error_message))
+                return false;
+
+            first_value = false;
+        }
+    }
+
+    if (current == 't' || current == 'f') {
+        bool ignored = false;
+        return parse_bool(&ignored, error_message);
+    }
+
+    if (current == '-' || is_json_digit(current)) {
+        long ignored = 0;
+        return parse_long(&ignored, error_message);
+    }
+
+    set_error(error_message, "Unsupported JSON value.");
+    return false;
+}
+
+bool JsonReaderV2::parse_object_body(const ObjectPropertyParser& property_parser, std::string* error_message)
+{
+    bool first_property = true;
+    while (true) {
+        skip_whitespace();
+
+        if (consume('}'))
+            return true;
+
+        if (!first_property) {
+            if (!consume(',')) {
+                set_error(error_message, "Expected ',' between object properties.");
+                return false;
+            }
+
+            skip_whitespace();
+        }
+
+        std::string key;
+        if (!parse_string(&key, error_message))
+            return false;
+
+        skip_whitespace();
+        if (!consume(':')) {
+            set_error(error_message, "Expected ':' after object key.");
+            return false;
+        }
+
+        skip_whitespace();
+        if (!property_parser(key, this, error_message))
+            return false;
+
+        first_property = false;
+    }
+}
+
+bool JsonReaderV2::consume(char expected)
+{
+    if (m_position >= m_input.size() || m_input[m_position] != expected)
+        return false;
+
+    ++m_position;
+    return true;
+}
+
+bool JsonReaderV2::match_literal(const char* literal, size_t literal_length)
+{
+    if (m_input.compare(m_position, literal_length, literal) != 0)
+        return false;
+
+    m_position += literal_length;
+    return true;
+}
+
+void JsonReaderV2::skip_whitespace()
+{
+    while (m_position < m_input.size() && is_json_space(m_input[m_position]))
+        ++m_position;
+}
+
+bool JsonReaderV2::is_at_end() const
 {
     return m_position >= m_input.size();
 }

@@ -37,6 +37,7 @@ set(ROTS_SERVER_SOURCES
     act_soci.cpp
     act_wiz.cpp
     account_management.cpp
+    account_cache.cpp
     character_json.cpp
     exploits_json.cpp
     json_utils.cpp
@@ -54,6 +55,7 @@ set(ROTS_SERVER_SOURCES
     comm.cpp
     config.cpp
     consts.cpp
+    crashsave_schedule.cpp
     db.cpp
     delayed_command_interpreter.cpp
     environment_utils.cpp
@@ -75,9 +77,12 @@ set(ROTS_SERVER_SOURCES
     objsave.cpp
     olog_hai.cpp
     pkill.cpp
+    player_file_finalize.cpp
     profs.cpp
     protocol.cpp
     ranger.cpp
+    save_benchmark.cpp
+    savebench.cpp
     script.cpp
     shapemdl.cpp
     shapemob.cpp
@@ -102,6 +107,7 @@ set(ROTS_SERVER_SOURCES
 set(ROTS_TEST_SOURCES
     tests/battle_mage_handler_tests.cpp
     tests/account_management_tests.cpp
+    tests/account_cache_tests.cpp
     tests/account_management_assets_header_compile.cpp
     tests/account_management_identity_header_compile.cpp
     tests/account_management_migration_header_compile.cpp
@@ -113,6 +119,7 @@ set(ROTS_TEST_SOURCES
     tests/char_utils_tests.cpp
     tests/character_json_tests.cpp
     tests/color_tests.cpp
+    tests/crashsave_schedule_tests.cpp
     tests/damage_tests.cpp
     tests/db_loader_tests.cpp
     tests/exploits_json_tests.cpp
@@ -121,8 +128,11 @@ set(ROTS_TEST_SOURCES
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
+    tests/json_perf_tests.cpp
     tests/objects_json_tests.cpp
+    tests/player_finalize_tests.cpp
     tests/protocol_tests.cpp
+    tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp
     tests/gtest_main.cpp

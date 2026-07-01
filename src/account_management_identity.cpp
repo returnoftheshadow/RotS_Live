@@ -644,12 +644,21 @@ bool complete_email_verification(const std::string& root_directory, const std::s
     return true;
 }
 
-bool find_linked_character_owner_account(const std::string& root_directory, const std::string& character_name, std::string* owner_account_name, std::string* error_message)
+bool find_linked_character_owner_account_uncached(const std::string& root_directory, const std::string& character_name, std::string* owner_account_name, std::string* error_message)
 {
     if (!validate_identifier_for_path(character_name, "Character name", error_message))
         return false;
 
     return find_character_owner_account(root_directory, character_name, owner_account_name, error_message);
+}
+
+bool find_linked_character_owner_account(const std::string& root_directory, const std::string& character_name, std::string* owner_account_name, std::string* error_message)
+{
+    // Route through the owner cache when enabled (live server); otherwise behave as the uncached
+    // resolver. The cache's backing resolver is the uncached function above (no recursion).
+    if (account_cache::is_enabled())
+        return account_cache::find_linked_character_owner_account_cached(root_directory, character_name, owner_account_name, error_message);
+    return find_linked_character_owner_account_uncached(root_directory, character_name, owner_account_name, error_message);
 }
 
 bool admin_link_character(const std::string& root_directory, const std::string& account_name, const std::string& character_name, long updated_at, AccountData* account, std::string* error_message)
