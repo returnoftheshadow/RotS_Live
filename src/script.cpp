@@ -1547,6 +1547,7 @@ void continue_char_script(char_data* ch)
 
     initialise_script_info_char(ch, -1); // Invalidates all pointers, but its safter this way
     ch->specials.script_info->ch[0] = ch;
+    ch->delay.cmd = 0;
     return_value = run_script(ch->specials.script_info, ch->specials.script_info->next_command);
 }
 

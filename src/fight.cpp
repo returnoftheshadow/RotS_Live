@@ -878,7 +878,7 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
 {
     waiting_type tmpwtl;
 
-    if ((dead_man->delay.wait_value >= 0) && (dead_man->delay.cmd > 0)) {
+    if ((dead_man->delay.wait_value > 0) && (dead_man->delay.cmd > 0)) {
         dead_man->delay.subcmd = -1;
         complete_delay(dead_man);
     }
