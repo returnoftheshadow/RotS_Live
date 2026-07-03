@@ -440,16 +440,18 @@ void show_equipment_to_char(struct char_data *from, struct char_data *to) {
 extern struct prompt_type health_diagnose[];
 
 void report_char_health(struct char_data *ch, struct char_data *i, char *str) {
-    int tmp, percent;
+    int tmp;
+    long long percent; // widen so 1000 * GET_HIT(i) cannot signed-overflow
+    const int max_index = 7; // health_diagnose[] has 8 entries (consts.cpp)
 
     strcpy(str, PERS(i, ch, TRUE, FALSE));
 
     if (GET_MAX_HIT(i) > 0)
-        percent = (1000 * GET_HIT(i)) / GET_MAX_HIT(i);
+        percent = (1000LL * GET_HIT(i)) / GET_MAX_HIT(i);
     else
         percent = -1;
 
-    for (tmp = 0; health_diagnose[tmp].value < percent; tmp++)
+    for (tmp = 0; tmp < max_index && health_diagnose[tmp].value < percent; tmp++)
         ;
 
     strcat(str, health_diagnose[tmp].message);
@@ -3016,7 +3018,7 @@ void add_prompt(char *prompt, struct char_data *ch, long flag) {
     }
     if (GET_MAX_HIT(ch))
         if (flag & PROMPT_HIT) {
-            for (tmp = 0; (1000 * GET_HIT(ch)) / GET_MAX_HIT(ch) > prompt_hit[tmp].value; tmp++)
+            for (tmp = 0; tmp < 7 && (1000LL * GET_HIT(ch)) / GET_MAX_HIT(ch) > prompt_hit[tmp].value; tmp++)
                 ;
             if ((GET_HIT(ch) != GET_MAX_HIT(ch)) || (ch->specials.position == POSITION_FIGHTING))
                 sprintf(prompt, "%s%s%c", prompt, prompt_hit[tmp].message, 0);
