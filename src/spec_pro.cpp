@@ -14,6 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
+#include <iostream>
+#include <regex>
 
 #include "comm.h"
 #include "db.h"
@@ -203,10 +205,37 @@ void recalc_skills(struct char_data *ch) {
     }
 }
 
-SPECIAL(guild) {
+// split string on SEPERATOR_CHAR
+std::vector<std::string> split(const std::string str, const std::string regex_str) {
+    std::regex regexz(regex_str);
+    return {std::sregex_token_iterator(str.begin(), str.end(), regexz, -1),
+    std::sregex_token_iterator()};
+}
 
+bool handle_pracs(char_data* host, char_data* ch, int request, int prog) {
+    ch->skills[request]++;
+    ch->specials2.spells_to_learn--;
+    recalc_skills(ch);
+    recalc_abilities(ch);
+
+    act(guildmasters[prog].practice_message, FALSE, host, 0, ch, TO_NOTVICT);
+    act(guildmasters[prog].practice_msg_to_char, FALSE, host, 0, ch, TO_VICT);
+
+    if (ch->knowledge[request] > guildmasters[prog].knowledge[request]) {
+        ch->knowledge[request] = guildmasters[prog].knowledge[request];
+        act(guildmasters[prog].limit_message, FALSE, host, 0, ch, TO_VICT);
+        return TRUE;
+    } else {
+        return FALSE;
+    }
+}
+
+SPECIAL(guild) {
     int tmp, prog, len, request, level;
-    char str[255];
+    int times = 1;
+    bool res = false;
+    char str[255], str2[255]; 
+    char arg2[255] = "";
 
     if (IS_NPC(ch) || ((cmd != CMD_PRACTICE) && (cmd != CMD_PRACTISE)))
         return (FALSE);
@@ -259,10 +288,30 @@ SPECIAL(guild) {
             }
         }
     } else {
-        len = strlen(arg);
-        for (request = 0; request < MAX_SKILLS; request++)
-            if (!strncmp(arg, skills[request].name, len))
+        std::string regex_str = " ";
+        std::string input_str;
+        input_str.append(arg);
+
+        auto tokens = split(input_str, regex_str);
+        for (auto& item: tokens) {
+            memcpy(str2, item.c_str(), 255);
+            if(is_number(str2)) {
+                times = atoi(str2);
+            } else if(!strncmp(str2, "all",  strlen(str2)) ) {
+                times = 200;
+            } else {
+                sprintf(str, " %s", str2);
+                strcat(arg2, str);
+            }
+        }
+        memmove(arg2, arg2 + 1, strlen(arg2)); // remove leading space
+
+        len = strlen(arg2);
+        for (request = 0; request < MAX_SKILLS; request++) {
+            if (!strncmp(arg2, skills[request].name, len)) {
                 break;
+            }
+        }
 
         if (request == MAX_SKILLS) {
             act("There is no such skill as you seek.", FALSE, host, 0, ch, TO_VICT);
@@ -302,18 +351,20 @@ SPECIAL(guild) {
             send_to_char("You are not experienced enough for this.\n\r", ch);
             return TRUE;
         }
-        ch->skills[request]++;
-        ch->specials2.spells_to_learn--;
-        recalc_skills(ch);
-        recalc_abilities(ch);
 
-        act(guildmasters[prog].practice_message, FALSE, host, 0, ch, TO_NOTVICT);
-        act(guildmasters[prog].practice_msg_to_char, FALSE, host, 0, ch, TO_VICT);
-
-        if (ch->knowledge[request] > guildmasters[prog].knowledge[request]) {
-            ch->knowledge[request] = guildmasters[prog].knowledge[request];
-            act(guildmasters[prog].limit_message, FALSE, host, 0, ch, TO_VICT);
-            return TRUE;
+        for (tmp = 0; tmp < times; tmp++) {
+            if (ch->skills[request] > 50) {
+                act("You studied this for too long. Enough for you.\n\r", FALSE, host, 0, ch, TO_VICT);
+                return TRUE;
+            }
+            if (ch->specials2.spells_to_learn <= 0) {
+                act("You have no practice sessions left now.\n\r", FALSE, host, 0, ch, TO_VICT);
+                return TRUE;
+            }
+            res = handle_pracs(host, ch, request, prog);
+            if(res) {
+                return TRUE;
+            }
         }
     }
     return TRUE;
