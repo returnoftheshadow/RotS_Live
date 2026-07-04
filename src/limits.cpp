@@ -730,9 +730,19 @@ void point_update(void) {
              * without ever going through damage()'s own die() call.
              * Pick that up here instead of leaving a character stuck
              * "dead" forever: safe to call die() with NULL killer from
-             * this loop (next_dude is already captured above, and
-             * fast_update()'s regen-death path already establishes the
-             * same NULL-killer pattern).
+             * this loop (next_dude is already captured above, the same
+             * mid-walk-deletion safety fight.cpp's combat_next_dude
+             * relies on). do_quit() (act_othe.cpp) already calls
+             * die(ch, 0, 0) for a player who quits below
+             * POSITION_STUNNED - the same "no external killer, character
+             * just expires from their own state" case - so that's the
+             * precedent here, not fast_update()'s regen-death branch
+             * (which calls raw_kill() directly and skips the ON_DIE
+             * trigger and exp/PK/exploit bookkeeping die() performs).
+             * Going through die() here is intentional: scripted damage
+             * that lands someone at POSITION_DEAD should still be able
+             * to trigger ON_DIE side effects, same as an ordinary
+             * combat death.
              *
              * Re-derive position from current hit first: fast_update()'s
              * passive regen never calls update_pos(), so a character
