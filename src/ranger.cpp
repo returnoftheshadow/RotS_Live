@@ -74,6 +74,7 @@ enum class Item : int {
 ACMD(do_move);
 ACMD(do_hit);
 ACMD(do_gen_com);
+ACMD(do_flee);
 
 ACMD(do_ride) {
 
@@ -1679,8 +1680,19 @@ ACMD(do_whistle) {
             else
                 act("You hear a powerful whistle nearby.", FALSE, ch, 0, 0, TO_ROOM);
 
-            for (tmpch = rm->people; tmpch; tmpch = tmpch->next_in_room) {
+            struct char_data *next_tmpch;
+
+            for (tmpch = rm->people; tmpch; tmpch = next_tmpch) {
+                next_tmpch = tmpch->next_in_room;
+
                 if (MOB_FLAGGED(tmpch, MOB_PET) && (tmpch->master == ch)) {
+                    if (GET_POS(tmpch) == POSITION_FIGHTING) {
+                        /* in combat: just try to disengage this whistle; the
+                         * normal recall runs next time it's whistled while not fighting */
+                        do_flee(tmpch, "", 0, 0, 0);
+                        continue;
+                    }
+
                     /*
                      * this is the guy we need to come to ch
                      * Make him stand up
