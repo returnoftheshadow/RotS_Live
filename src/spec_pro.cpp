@@ -2108,9 +2108,12 @@ SPECIAL(mob_ranger_new)
     tmpch = 0;
     const bool is_engaged = host->specials.fighting != nullptr;
     const bool is_not_engaged = !is_engaged;
+
     if (is_not_engaged) {
         // hide here for pop or after fighting and didnt move
-        if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) || IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) && host->delay.wait_value == 0) {
+        if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) ||
+             IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) &&
+            host->delay.wait_value == 0 && has_alias(host, "p_hide")) {
             do_hide(host, "", 0, 0, 0);
         }
 
@@ -2127,7 +2130,8 @@ SPECIAL(mob_ranger_new)
     }
 
     /* Ambush */
-    if (tmpch && tmpch != host && strstr(ch->player.name, "stab") && is_not_engaged && !tmpch->specials.fighting && !is_wimpy) {
+    if (tmpch && tmpch != host && has_alias(host, "p_stab") && is_not_engaged &&
+        !tmpch->specials.fighting && !is_wimpy) {
         do_spec_ambush(host, tmpch);
         return 1;
     }
@@ -2162,7 +2166,8 @@ SPECIAL(mob_ranger_new)
                 forget(ch, vict);
                 // below needed: these attacks only occurr if mob_memory and not otherwise aggr to
             } else {
-                if (should_attack(host, tmpch) && strstr(ch->player.name, "stab") && is_not_engaged && !vict->specials.fighting) {
+                if (should_attack(host, tmpch) && has_alias(host, "p_stab") &&
+                    is_not_engaged && !vict->specials.fighting) {
                     do_spec_ambush(host, tmpch);
                     return 1;
                 }
@@ -2186,7 +2191,9 @@ SPECIAL(mob_ranger_new)
                 }
                 if (tmp >= 0) {
                     do_move(ch, "", 0, tmp + 1, 0);
-                    do_hide(host, "", 0, 0, 0);
+                    if(has_alias(host, "p_hide")) {
+                        do_hide(host, "", 0, 0, 0);
+                    }
                     host->spec_busy = false;
                     return 1;
                 }
@@ -2199,7 +2206,7 @@ SPECIAL(mob_ranger_new)
     mintmp = NUM_OF_TRACKS;
     if (ch->delay.wait_value == 0 && is_not_engaged) {
         // TRACKING
-        if (strstr(ch->player.name, "hunt") && !is_wimpy) {
+        if (has_alias(host, "p_hunt") && !is_wimpy) {
             for (tmp = 0; tmp < NUM_OF_TRACKS; tmp++) {
                 tmp2 = (24 + time_info.hours - tmproom->room_track[tmp].data / 8) % 24;
                 dir = (tmproom->room_track[tmp].data & 7); // the direction
@@ -2221,7 +2228,9 @@ SPECIAL(mob_ranger_new)
                 tmpwtl.cmd = (tmproom->room_track[mintmp].data & 7) + 1;
                 tmpwtl.subcmd = 0;
                 do_move(host, "", &tmpwtl, tmpwtl.cmd, 0);
-                if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) || IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) && host->delay.wait_value == 0) {
+                if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) ||
+                     IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) &&
+                    host->delay.wait_value == 0 && has_alias(host, "p_hide")) {
                     do_hide(host, "", 0, 0, 0);
                 }
                 tmpwtl.targ1.cleanup();
@@ -2236,7 +2245,9 @@ SPECIAL(mob_ranger_new)
             tmpwtl.subcmd = 0;
             if (CAN_GO(host, tmpwtl.cmd - 1)) {
                 do_move(host, "", &tmpwtl, tmpwtl.cmd, tmpwtl.subcmd);
-                if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) || IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) && host->delay.wait_value == 0) {
+                if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) ||
+                     IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) &&
+                    host->delay.wait_value == 0 && has_alias(host, "p_hide")) {
                     do_hide(host, "", 0, 0, 0);
                 }
                 tmpwtl.targ1.cleanup();

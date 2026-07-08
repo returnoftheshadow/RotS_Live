@@ -142,6 +142,176 @@ The smoke harness creates and removes temporary ignored runtime data under
 preserve their `/tmp/rots-account-smoke-*` logs for debugging, and
 `--keep-artifacts` also preserves the temporary account files.
 
+### Production Account Verification Email
+
+The account system sends verification codes through a local sendmail-compatible
+command. By default the game executes:
+
+```bash
+/usr/sbin/sendmail -t -oi
+```
+
+You can override that command with `ROTS_SENDMAIL_COMMAND`, but the usual Ubuntu
+VPS setup is to install `msmtp` as the local sendmail bridge and have it relay
+through the no-reply Gmail or Google Workspace account.
+
+#### Gmail Account Setup
+
+1. Enable 2-Step Verification on the no-reply Google account.
+2. Create an app password for the VPS mail sender.
+3. Use the full no-reply email address as the SMTP username.
+4. Store only the app password on the VPS; do not commit it to this repository.
+
+Google currently requires an app password for this type of username/password SMTP
+setup when 2-Step Verification is enabled. App passwords can be unavailable for
+some accounts, including organization accounts with policy restrictions,
+Advanced Protection, or security-key-only 2-Step Verification. Google Workspace
+documents `smtp.gmail.com` with TLS port `587`, SSL port `465`, and app-password
+authentication for app/device SMTP sending:
+
+* https://support.google.com/accounts/answer/185833
+* https://knowledge.workspace.google.com/admin/gmail/send-email-from-a-printer-scanner-or-app
+
+#### Ubuntu VPS Setup With msmtp
+
+Install the sendmail-compatible bridge:
+
+```bash
+sudo apt update
+sudo apt install msmtp msmtp-mta ca-certificates
+```
+
+Create the config where the user that runs `/usr/sbin/sendmail` can read it.
+For a system-wide config, create `/etc/msmtprc`:
+
+```bash
+sudo install -m 600 -o root -g root /dev/null /etc/msmtprc
+sudo nano /etc/msmtprc
+```
+
+Example config:
+
+```ini
+defaults
+auth           on
+tls            on
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+logfile        /var/log/msmtp.log
+
+account        gmail
+host           smtp.gmail.com
+port           587
+from           no-reply@example.com
+user           no-reply@example.com
+password       YOUR_16_CHARACTER_APP_PASSWORD
+
+account default : gmail
+```
+
+Keep the config and log file locked down, but readable by the runtime user. If
+the game runs as root, mode `600` is enough:
+
+```bash
+sudo chmod 600 /etc/msmtprc
+sudo touch /var/log/msmtp.log
+sudo chmod 660 /var/log/msmtp.log
+sudo chown root:adm /var/log/msmtp.log
+```
+
+If the game runs as a dedicated non-root user, the safest setup is usually a
+per-user config owned by that game user:
+
+```bash
+sudo -u rots install -m 600 /dev/null /home/rots/.msmtprc
+sudo -u rots nano /home/rots/.msmtprc
+```
+
+Use the same config body shown above. The file must include
+`account default : gmail`. If the user running `/usr/sbin/sendmail` cannot read
+any config file with that default account, `msmtp` reports:
+
+```text
+sendmail: account default not found: no configuration file available
+```
+
+Alternatively, keep `/etc/msmtprc` and grant a tightly scoped group read path to
+that file for the game user.
+
+For per-user configs, also make the `logfile` path writable by that same user.
+For example:
+
+```ini
+logfile        /home/rots/.logs/msmtp.log
+```
+
+```bash
+sudo -u rots mkdir -p /home/rots/.logs
+sudo -u rots touch /home/rots/.logs/msmtp.log
+sudo -u rots chmod 700 /home/rots/.logs
+sudo -u rots chmod 600 /home/rots/.logs/msmtp.log
+```
+
+#### Validation
+
+Send a direct test message from the VPS:
+
+```bash
+printf 'To: your-test-address@example.com\nFrom: no-reply@example.com\nSubject: RotS mail test\n\nTest from RotS VPS.\n' | /usr/sbin/sendmail -t -oi
+```
+
+Also run the same test as the actual game service user:
+
+```bash
+sudo -u rots sh -c "printf 'To: your-test-address@example.com\nFrom: no-reply@example.com\nSubject: RotS mail test\n\nTest from RotS game user.\n' | /usr/sbin/sendmail -t -oi"
+```
+
+Check delivery and the local msmtp log:
+
+```bash
+tail -n 50 /var/log/msmtp.log
+```
+
+Then run the normal account smoke flow:
+
+```bash
+make smoke-account
+```
+
+For a systemd service, the default command usually needs no environment
+override. If you want the service file to be explicit, add:
+
+```ini
+Environment="ROTS_SENDMAIL_COMMAND=/usr/sbin/sendmail -t -oi"
+```
+
+#### Troubleshooting
+
+If no verification email arrives:
+
+1. Run the direct `/usr/sbin/sendmail -t -oi` test above from the same user that
+   runs the game.
+2. If you see `account default not found: no configuration file available`,
+   create `~/.msmtprc` for the game user or make `/etc/msmtprc` readable by that
+   user, and confirm the config includes `account default : gmail`.
+3. If you see `cannot log to ... Permission denied`, change the `logfile` path
+   to a file writable by the same user running `/usr/sbin/sendmail`, create its
+   parent directory, or temporarily remove the `logfile` line while testing.
+4. Check `/var/log/msmtp.log` or the configured per-user log file for
+   authentication, TLS, or quota errors.
+5. Confirm the Google account still has 2-Step Verification enabled and that the
+   app password has not been revoked. Google revokes app passwords after the
+   account password changes.
+6. Confirm the VPS can make outbound TCP connections to `smtp.gmail.com:587`.
+7. Check spam filtering on the receiving mailbox.
+
+Gmail and Google Workspace apply sending limits and may reject suspicious
+messages. Google Workspace currently documents a rolling 24-hour sending limit
+for Gmail SMTP users and recommends SMTP relay for organization app/device
+sending at higher scale:
+
+* https://support.google.com/a/answer/166852
+* https://knowledge.workspace.google.com/admin/gmail/send-email-from-a-printer-scanner-or-app
+
 ## GitHub Actions
 
 This repository includes a GitHub Actions workflow that runs on pushes to

@@ -8,14 +8,14 @@ CMAKE_CACHE := $(BUILD_DIR)/CMakeCache.txt
 
 help:
 	@printf "Available targets:\n"
-	@printf "  make configure  Configure the CMake build in %s\n" "$(BUILD_DIR)"
-	@printf "  make setup      Create runtime directories and bootstrap files\n"
-	@printf "  make build      Build the ageland server binary\n"
-	@printf "  make test       Run the C++ unit tests\n"
+	@printf "  make configure      Configure the CMake build in %s\n" "$(BUILD_DIR)"
+	@printf "  make setup          Create runtime directories and bootstrap files\n"
+	@printf "  make build          Build the ageland server binary\n"
+	@printf "  make test           Run the C++ unit tests\n"
 	@printf "  make smoke-account  Build the game/proxy and run the account smoke flow\n"
-	@printf "  make format     Run clang-format via the CMake target\n"
-	@printf "  make run        Build and start the server in the foreground\n"
-	@printf "  make clean      Clean the configured CMake build tree\n"
+	@printf "  make format         Run clang-format via the CMake target\n"
+	@printf "  make run            Build and start the server in the foreground\n"
+	@printf "  make clean          Clean the configured CMake build tree\n"
 
 $(CMAKE_CACHE):
 	$(CMAKE) -S $(SRC_DIR) -B $(BUILD_DIR) $(CMAKE_CONFIGURE_ARGS)

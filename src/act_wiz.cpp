@@ -182,7 +182,7 @@ ACMD(do_echo)
         sprintf(buf, "%s\n\r", argument + i);
         //      send_to_room_except(buf, ch->in_room, ch);
         for (tmpch = world[ch->in_room].people; tmpch;
-             tmpch = tmpch->next_in_room)
+            tmpch = tmpch->next_in_room)
             if (tmpch != ch)
                 send_to_char(buf, tmpch);
 
@@ -3166,7 +3166,7 @@ ACMD(do_account)
     half_chop(buf, account_identifier, value);
 
     if (!*subcommand) {
-        send_to_char("Usage: account <show|verify|unverify|block|unblock|passwd|addchar|migratechar> <email-or-account> [value]\n\r", ch);
+        send_to_char("Usage: account <show|verify|unverify|block|unblock|passwd|addchar|migratechar|unlockselect> <email-or-account> [value]\n\r", ch);
         return;
     }
 
@@ -3319,6 +3319,22 @@ ACMD(do_account)
 
         vmudlog(BRF, "%s migrated character %s into account %s", GET_NAME(ch), value, account_data.account_name.c_str());
         send_to_char("Character migrated into account storage.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "unlockselect")) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!grant_account_character_selection_unlock(account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s unlocked one linked-character selection for account %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account linked-character selection unlocked once.\n\r", ch);
         return;
     }
 

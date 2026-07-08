@@ -218,7 +218,15 @@ Don't know how to do that... just don't use it.
 ACCOUNT
 
 Usage:
-> account <show|verify|unverify|block|unblock|passwd|addchar|migratechar> <email-or-account> [value]
+> account show <email-or-account>
+> account verify <email-or-account>
+> account unverify <email-or-account>
+> account block <email-or-account> <reason...>
+> account unblock <email-or-account>
+> account passwd <email-or-account> <new-password>
+> account addchar <email-or-account> <character>
+> account migratechar <email-or-account> <character>
+> account unlockselect <email-or-account>
 
 Use this command to inspect and manage player accounts. The account identifier
 may be either the account email address or the generated internal account name.
@@ -229,16 +237,34 @@ Subcommands:
   unverify    - clear the account email verification flag
   block       - block the account and record a reason
   unblock     - remove the blocked state from the account
-  passwd      - reset the account password to a new value
+  passwd      - set a temporary replacement account password
   addchar     - link an existing character to the account without migration
   migratechar - link and migrate an existing legacy character into account storage
+  unlockselect - allow one linked-character selection while a low-level linked character is active
+
+Arguments:
+  <email-or-account> - account email address or generated internal account name
+  <reason...>        - block reason stored in the account record
+  <new-password>     - temporary replacement password; must satisfy account policy
+  <character>        - character name to link or migrate
+
+Do not put PII, payment details, or private investigation notes in block
+reasons. They are persisted in the account record and shown by account show.
+The passwd subcommand takes the replacement password inline; treat it as
+temporary, share it out-of-band, and have the player reset it after login.
+The unlockselect subcommand is runtime-only and one-use. It allows linked
+character selection only; it does not unlock new-character creation.
 
 Examples:
 > account show player@example.com
-> account block player@example.com Chargeback
+> account verify player@example.com
+> account unverify player@example.com
+> account block player@example.com AdminReview
+> account unblock player@example.com
 > account passwd player@example.com NewValid9
 > account addchar player@example.com aragorn
 > account migratechar player@example.com aragorn
+> account unlockselect player@example.com
 #
 WHOACCT
 
@@ -254,10 +280,5 @@ as the `account` management command.
 Examples:
 > whoacct
 #~
-
-
-
-
-
 
 

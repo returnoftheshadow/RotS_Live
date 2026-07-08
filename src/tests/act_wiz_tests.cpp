@@ -137,6 +137,20 @@ descriptor_data make_descriptor()
     return descriptor;
 }
 
+char_data* attach_active_character(
+    descriptor_data* descriptor, const char* name, int level, long idnum, int race = RACE_HUMAN)
+{
+    char_data* character = new char_data {};
+    clear_char(character, MOB_VOID);
+    character->player.name = strdup(name);
+    character->player.level = level;
+    character->player.race = race;
+    character->specials2.idnum = idnum;
+    character->desc = descriptor;
+    descriptor->character = character;
+    return character;
+}
+
 std::string read_file_contents(const std::string& path)
 {
     FILE* file = std::fopen(path.c_str(), "rb");
@@ -366,6 +380,209 @@ TEST(ActWiz, AccountCommandUsesIdentifierLookupForAdditionalMutatingSubcommands)
     EXPECT_TRUE(account::account_has_character(linked_account, "aragorn"));
 
     free(admin.player.name);
+}
+
+TEST(ActWiz, AccountUnlockSelectGrantsForRestrictingActiveLinkedSessionByEmail)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorList descriptor_list_scope;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-unlock-email", "unlock-email@example.com", "ValidPass1", 1700010200, &created_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-unlock-email", "aragorn", 1700010201, &created_account, &error_message)) << error_message;
+    const std::string account_json_before = read_file_contents(account::account_file_path(".", "unlock-email@example.com"));
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    std::snprintf(active_descriptor.account_name, sizeof(active_descriptor.account_name), "%s", "alpha-unlock-email");
+    std::snprintf(active_descriptor.account_email, sizeof(active_descriptor.account_email), "%s", "unlock-email@example.com");
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data admin_descriptor = make_descriptor();
+    char_data admin {};
+    admin.desc = &admin_descriptor;
+    admin.player.name = strdup("tester");
+
+    char unlock_command[] = "unlockselect unlock-email@example.com";
+    do_account(&admin, unlock_command, nullptr, 0, 0);
+
+    EXPECT_EQ(std::string(admin_descriptor.output), "Account linked-character selection unlocked once.\n\r");
+    EXPECT_EQ(read_file_contents(account::account_file_path(".", "unlock-email@example.com")), account_json_before)
+        << "Unlock state must stay runtime-only and out of account.json.";
+
+    free(admin.player.name);
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(ActWiz, AccountUnlockSelectGrantsForRestrictingLinklessSessionByAccountName)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorList descriptor_list_scope;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-linkless", "unlock-linkless@example.com", "ValidPass1", 1700010200, &created_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-linkless", "aragorn", 1700010201, &created_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_LINKLS;
+    std::snprintf(active_descriptor.account_name, sizeof(active_descriptor.account_name), "%s", "alpha-linkless");
+    std::snprintf(active_descriptor.account_email, sizeof(active_descriptor.account_email), "%s", "unlock-linkless@example.com");
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data admin_descriptor = make_descriptor();
+    char_data admin {};
+    admin.desc = &admin_descriptor;
+    admin.player.name = strdup("tester");
+
+    char unlock_command[] = "unlockselect alpha-linkless";
+    do_account(&admin, unlock_command, nullptr, 0, 0);
+
+    EXPECT_EQ(std::string(admin_descriptor.output), "Account linked-character selection unlocked once.\n\r");
+
+    free(admin.player.name);
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+}
+
+TEST(ActWiz, AccountUnlockSelectRejectsWhenNoRestrictingActiveSessionExists)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorList descriptor_list_scope;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-unlock-reject", "unlock-reject@example.com", "ValidPass1", 1700010200, &created_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-unlock-reject", "aragorn", 1700010201, &created_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-unlock-reject", "boromir", 1700010202, &created_account, &error_message)) << error_message;
+
+    descriptor_data admin_descriptor = make_descriptor();
+    char_data admin {};
+    admin.desc = &admin_descriptor;
+    admin.player.name = strdup("tester");
+
+    char no_session_command[] = "unlockselect unlock-reject@example.com";
+    do_account(&admin, no_session_command, nullptr, 0, 0);
+    EXPECT_EQ(std::string(admin_descriptor.output),
+        "That account does not currently have a restricting active linked character session.\n\r");
+
+    admin_descriptor.output[0] = '\0';
+    admin_descriptor.bufptr = 0;
+    admin_descriptor.bufspace = SMALL_BUFSIZE - 1;
+
+    descriptor_data high_level_descriptor = make_descriptor();
+    high_level_descriptor.connected = CON_PLYNG;
+    std::snprintf(high_level_descriptor.account_name, sizeof(high_level_descriptor.account_name), "%s", "alpha-unlock-reject");
+    attach_active_character(&high_level_descriptor, "aragorn", 92, 4242);
+    descriptor_list = &high_level_descriptor;
+
+    char high_session_command[] = "unlockselect alpha-unlock-reject";
+    do_account(&admin, high_session_command, nullptr, 0, 0);
+    EXPECT_EQ(std::string(admin_descriptor.output),
+        "That account does not currently have a restricting active linked character session.\n\r");
+
+    admin_descriptor.output[0] = '\0';
+    admin_descriptor.bufptr = 0;
+    admin_descriptor.bufspace = SMALL_BUFSIZE - 1;
+
+    descriptor_data unlinked_descriptor = make_descriptor();
+    unlinked_descriptor.connected = CON_PLYNG;
+    std::snprintf(unlinked_descriptor.account_name, sizeof(unlinked_descriptor.account_name), "%s", "alpha-unlock-reject");
+    attach_active_character(&unlinked_descriptor, "legolas", 50, 5252);
+    descriptor_list = &unlinked_descriptor;
+
+    char unlinked_command[] = "unlockselect unlock-reject@example.com";
+    do_account(&admin, unlinked_command, nullptr, 0, 0);
+    EXPECT_EQ(std::string(admin_descriptor.output),
+        "That account does not currently have a restricting active linked character session.\n\r");
+
+    admin_descriptor.output[0] = '\0';
+    admin_descriptor.bufptr = 0;
+    admin_descriptor.bufspace = SMALL_BUFSIZE - 1;
+
+    descriptor_data other_account_descriptor = make_descriptor();
+    other_account_descriptor.connected = CON_PLYNG;
+    std::snprintf(other_account_descriptor.account_name, sizeof(other_account_descriptor.account_name), "%s", "other");
+    attach_active_character(&other_account_descriptor, "aragorn", 50, 6262);
+    descriptor_list = &other_account_descriptor;
+
+    char other_account_command[] = "unlockselect alpha-unlock-reject";
+    do_account(&admin, other_account_command, nullptr, 0, 0);
+    EXPECT_EQ(std::string(admin_descriptor.output),
+        "That account does not currently have a restricting active linked character session.\n\r");
+
+    free(admin.player.name);
+    free_char(high_level_descriptor.character);
+    free_char(unlinked_descriptor.character);
+    free_char(other_account_descriptor.character);
+    high_level_descriptor.character = nullptr;
+    unlinked_descriptor.character = nullptr;
+    other_account_descriptor.character = nullptr;
+}
+
+TEST(ActWiz, AccountUnlockSelectReplacesStalePendingUnlockForLaterRestriction)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorList descriptor_list_scope;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-stalegrant", "stale-grant@example.com", "ValidPass1", 1700010200, &created_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-stalegrant", "aragorn", 1700010201, &created_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-stalegrant", "boromir", 1700010202, &created_account, &error_message)) << error_message;
+
+    descriptor_data admin_descriptor = make_descriptor();
+    char_data admin {};
+    admin.desc = &admin_descriptor;
+    admin.player.name = strdup("tester");
+
+    descriptor_data original_active_descriptor = make_descriptor();
+    original_active_descriptor.connected = CON_PLYNG;
+    std::snprintf(original_active_descriptor.account_name, sizeof(original_active_descriptor.account_name), "%s", "alpha-stalegrant");
+    attach_active_character(&original_active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &original_active_descriptor;
+
+    char first_unlock_command[] = "unlockselect stale-grant@example.com";
+    do_account(&admin, first_unlock_command, nullptr, 0, 0);
+    EXPECT_EQ(std::string(admin_descriptor.output), "Account linked-character selection unlocked once.\n\r");
+
+    descriptor_list = nullptr;
+    free_char(original_active_descriptor.character);
+    original_active_descriptor.character = nullptr;
+
+    admin_descriptor.output[0] = '\0';
+    admin_descriptor.bufptr = 0;
+    admin_descriptor.bufspace = SMALL_BUFSIZE - 1;
+
+    descriptor_data later_active_descriptor = make_descriptor();
+    later_active_descriptor.connected = CON_PLYNG;
+    std::snprintf(later_active_descriptor.account_name, sizeof(later_active_descriptor.account_name), "%s", "alpha-stalegrant");
+    attach_active_character(&later_active_descriptor, "boromir", 50, 5252);
+    descriptor_list = &later_active_descriptor;
+
+    char second_unlock_command[] = "unlockselect alpha-stalegrant";
+    do_account(&admin, second_unlock_command, nullptr, 0, 0);
+    EXPECT_EQ(std::string(admin_descriptor.output), "Account linked-character selection unlocked once.\n\r");
+
+    free(admin.player.name);
+    free_char(later_active_descriptor.character);
+    later_active_descriptor.character = nullptr;
 }
 
 TEST(ActWiz, AccountCommandAcceptsEmailForMigrateChar)

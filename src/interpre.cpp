@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "account_management.h"
@@ -1987,7 +1988,7 @@ void assign_command_pointers(void)
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(121, POSITION_DEAD, do_poofset, LEVEL_GOD, TRUE, SCMD_POOFOUT,
         FULL_TARGET, FULL_TARGET, 0);
-    COMMANDO(122, POSITION_DEAD, do_teleport, LEVEL_AREAGOD, FALSE, 0,
+    COMMANDO(122, POSITION_DEAD, do_teleport, LEVEL_GOD, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(123, POSITION_DEAD, do_gecho, LEVEL_GRGOD, TRUE, 0,
         FULL_TARGET, FULL_TARGET, 0);
@@ -2282,7 +2283,13 @@ namespace {
 
 const char* kAccountStorageRoot = ".";
 const char* kAccountOnlyPasswordMarker = "*ACCOUNT*";
-const int kAccountActiveSessionAlternateCharacterLevel = 95;
+const int kAccountActiveSessionAlternateCharacterLevel = 91;
+
+struct AccountCharacterSelectionUnlock {
+    std::vector<std::string> restricting_character_names;
+};
+
+std::unordered_map<std::string, AccountCharacterSelectionUnlock> g_account_character_selection_unlocks;
 
 struct ActiveAccountCharacterSession {
     std::string normalized_character_name;
@@ -2409,6 +2416,11 @@ const ActiveAccountCharacterSession* first_restricting_active_account_session(
     const std::vector<ActiveAccountCharacterSession>& sessions)
 {
     for (const ActiveAccountCharacterSession& session : sessions) {
+        if (session.level > kAccountActiveSessionAlternateCharacterLevel)
+            return nullptr;
+    }
+
+    for (const ActiveAccountCharacterSession& session : sessions) {
         if (session.level <= kAccountActiveSessionAlternateCharacterLevel)
             return &session;
     }
@@ -2428,6 +2440,51 @@ bool selected_character_is_active_account_session(
     return false;
 }
 
+std::string account_character_selection_unlock_key(const account::AccountData& account_data)
+{
+    return account::normalize_account_name(account_data.account_name);
+}
+
+bool account_has_usable_character_selection_unlock(
+    const account::AccountData& account_data,
+    const std::vector<ActiveAccountCharacterSession>& sessions)
+{
+    const std::string unlock_key = account_character_selection_unlock_key(account_data);
+    const auto unlock = g_account_character_selection_unlocks.find(unlock_key);
+    if (unlock == g_account_character_selection_unlocks.end())
+        return false;
+
+    if (first_restricting_active_account_session(sessions) == nullptr) {
+        g_account_character_selection_unlocks.erase(unlock);
+        return false;
+    }
+
+    for (const ActiveAccountCharacterSession& session : sessions) {
+        if (session.level > kAccountActiveSessionAlternateCharacterLevel)
+            continue;
+
+        for (const std::string& granted_character_name : unlock->second.restricting_character_names) {
+            if (session.normalized_character_name == granted_character_name)
+                return true;
+        }
+    }
+
+    g_account_character_selection_unlocks.erase(unlock);
+    return false;
+}
+
+AccountCharacterSelectionUnlock build_account_character_selection_unlock(
+    const std::vector<ActiveAccountCharacterSession>& sessions)
+{
+    AccountCharacterSelectionUnlock unlock;
+    for (const ActiveAccountCharacterSession& session : sessions) {
+        if (session.level <= kAccountActiveSessionAlternateCharacterLevel)
+            unlock.restricting_character_names.push_back(session.normalized_character_name);
+    }
+
+    return unlock;
+}
+
 bool account_session_allows_character_selection(
     const std::vector<ActiveAccountCharacterSession>& sessions, const std::string& selected_character_name)
 {
@@ -2435,6 +2492,34 @@ bool account_session_allows_character_selection(
         return true;
 
     return selected_character_is_active_account_session(sessions, selected_character_name);
+}
+
+bool account_session_allows_character_selection_with_unlock(
+    const account::AccountData& account_data,
+    const std::vector<ActiveAccountCharacterSession>& sessions,
+    const std::string& selected_character_name)
+{
+    if (account_session_allows_character_selection(sessions, selected_character_name))
+        return true;
+
+    return account_has_usable_character_selection_unlock(account_data, sessions);
+}
+
+bool consume_account_character_selection_unlock(
+    const account::AccountData& account_data,
+    const std::vector<ActiveAccountCharacterSession>& sessions,
+    const std::string& selected_character_name)
+{
+    if (account_session_allows_character_selection(sessions, selected_character_name))
+        return true;
+
+    if (!account_has_usable_character_selection_unlock(account_data, sessions))
+        return false;
+
+    g_account_character_selection_unlocks.erase(account_character_selection_unlock_key(account_data));
+    vmudlog(BRF, "Account linked-character selection unlock consumed for %s selecting %s",
+        account_data.account_name.c_str(), selected_character_name.c_str());
+    return true;
 }
 
 std::string active_account_session_restriction_message(
@@ -2663,6 +2748,37 @@ void start_account_login(struct descriptor_data* d, const char* email)
 }
 
 } // namespace
+
+bool account_has_restricting_active_linked_session(const account::AccountData& account_data)
+{
+    return first_restricting_active_account_session(active_account_character_sessions(nullptr, account_data)) != nullptr;
+}
+
+bool grant_account_character_selection_unlock(
+    const account::AccountData& account_data, std::string* error_message)
+{
+    const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(nullptr, account_data);
+    if (first_restricting_active_account_session(active_sessions) == nullptr) {
+        if (error_message != nullptr)
+            *error_message = "That account does not currently have a restricting active linked character session.";
+        return false;
+    }
+
+    const std::string unlock_key = account_character_selection_unlock_key(account_data);
+    if (g_account_character_selection_unlocks.find(unlock_key) != g_account_character_selection_unlocks.end()) {
+        if (!account_has_usable_character_selection_unlock(account_data, active_sessions)) {
+            g_account_character_selection_unlocks[unlock_key] = build_account_character_selection_unlock(active_sessions);
+            return true;
+        }
+
+        if (error_message != nullptr)
+            *error_message = "That account already has a pending linked-character selection unlock.";
+        return false;
+    }
+
+    g_account_character_selection_unlocks[unlock_key] = build_account_character_selection_unlock(active_sessions);
+    return true;
+}
 
 void show_character_menu(struct descriptor_data* d)
 {
@@ -2989,7 +3105,7 @@ void nanny(struct descriptor_data* d, char* arg)
             }
 
             const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(d, account_data);
-            if (!account_session_allows_character_selection(active_sessions, selected_character_name)) {
+            if (!account_session_allows_character_selection_with_unlock(account_data, active_sessions, selected_character_name)) {
                 SEND_TO_Q(active_account_session_restriction_message(active_sessions).c_str(), d);
                 show_account_character_prompt(d, account_data);
                 return;
@@ -3788,7 +3904,7 @@ void nanny(struct descriptor_data* d, char* arg)
                 }
 
                 const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(d, account_data);
-                if (!account_session_allows_character_selection(active_sessions, GET_NAME(d->character))) {
+                if (!consume_account_character_selection_unlock(account_data, active_sessions, GET_NAME(d->character))) {
                     SEND_TO_Q(active_account_session_restriction_message(active_sessions).c_str(), d);
                     discard_descriptor_character_selection(d);
                     show_account_menu(d, account_data);

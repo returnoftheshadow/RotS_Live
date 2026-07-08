@@ -1,7 +1,89 @@
 # Work In Progress
 
+## Current Documentation Task
+- Active slice complete: documented production verification-email setup for operators.
+- Scope:
+  - capture Gmail/Google Workspace app-password setup requirements
+  - document an Ubuntu `msmtp` sendmail-compatible bridge for the game's existing `/usr/sbin/sendmail -t -oi` integration
+  - include validation and troubleshooting steps without storing secrets in the repository
+- Follow-up:
+  - clarify that `msmtp` must be configured for the same user that runs `/usr/sbin/sendmail`, otherwise it reports `account default not found: no configuration file available`
+- Validation:
+  - `git diff --check` passed
+
+## Current Behavior Task
+- Active slice complete: lowered the active account-session alternate-character exception threshold.
+- Scope:
+  - accounts with an active linked character above level 91 can select a different linked character
+  - level 91 and below remain restricted to reconnecting/resuming the active character
+  - update active-session guard tests and planning docs from the old level 95/96 boundary to the new level 91/92 boundary
+- Follow-up:
+  - if any active linked character on the account is above level 91, do not block linked-character selection for that account, even when another active linked character is level 91 or below
+  - this keeps builders and implementors able to test builds and scripting from alternate linked characters
+  - `first_restricting_active_account_session(...)` now treats any active level-92+ linked character as an account-wide selection override
+  - `InterpreAccountMenu.MultipleActiveSessionsAllowSelectionWhenAnyActiveCharacterIsOverLevelNinetyOne` proves a mixed active-session account can select a third linked character
+- Validation:
+  - `clang-format -i -style=WebKit src/interpre.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - `git diff --check` passed
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*Active*:*SelectingSameActive*:*SelectingSameLinkless*'` passed at `14` tests
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `69` tests
+  - sandboxed `make test` passed `493/497` and failed only the local-socket `AcceptPathTest.*` cases with `Operation not permitted`
+  - unsandboxed `make test` passed at `497/497`
+  - sandboxed `make smoke-account` failed with local-socket `Operation not permitted`
+  - unsandboxed `make smoke-account` passed the full proxy-backed account flow, including the second-login active-character guard
+  - follow-up `clang-format -i -style=WebKit src/interpre.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - follow-up `git diff --check` passed
+  - follow-up `cmake --build build --target ageland_tests -j16` passed
+  - follow-up `./bin/tests '--gtest_filter=InterpreAccountMenu.*Active*:*SelectingSameActive*:*SelectingSameLinkless*'` passed at `14` tests
+  - follow-up `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `69` tests
+  - follow-up sandboxed `make test` passed `493/497` and failed only the local-socket `AcceptPathTest.*` cases with `Operation not permitted`
+  - follow-up unsandboxed `make test` passed at `497/497`
+  - follow-up unsandboxed `make smoke-account` passed the full proxy-backed account flow, including the second-login active-character guard
+  - reviewer follow-up added all-low plural restriction coverage, linkless level-92 override coverage, stale `CON_SLCT` final guard coverage, and quoted the README systemd environment example
+  - post-review `git diff --check` passed
+  - post-review focused active/stale `InterpreAccountMenu` filter passed at `17` tests
+  - post-review full `InterpreAccountMenu.*` passed at `72` tests
+  - post-review `make test` passed at `500/500`
+  - post-review `make smoke-account` passed the full proxy-backed account flow
+  - `Magus`: clear after all-low plural restriction regression and final re-check
+  - `Vincent`: clear after README systemd quoting fix; audit-log suggestion is non-blocking
+  - `Bazarat`: clear after all-low, linkless high-level, and stale final-guard regressions
+
+## Current Help Documentation Task
+- Active slice complete: updated immortal help for account-management arguments.
+- Scope:
+  - inspect the live `do_account` command surface
+  - update `lib/text/wizh_tbl` so `ACCOUNT` documents all implemented account-management subcommands and argument forms
+- Validation:
+  - `git diff --check` passed
+  - reviewer pass requested from `Magus`, `Vincent`, and `Bazarat`
+  - addressed `Magus` feedback by documenting block reasons as `<reason...>`
+  - addressed `Vincent` feedback by using a neutral block example, warning against PII/payment/private notes in persisted block reasons, and documenting inline passwords as temporary
+  - `Magus`: clear after re-check
+  - `Vincent`: clear after re-check
+  - `Bazarat`: clear after re-check
+
+## Current Release Notes Task
+- Active slice complete: generated end-user patch notes for `release-notes/1.5.9/README.md`.
+- Scope:
+  - compare `origin/release-frodo` to the current working tree
+  - match the sectioned release-note format of `release-notes/1.5.7/README.md`
+  - focus on end-user visible changes, not internal test/build churn
+- Validation:
+  - `git diff --check -- release-notes/1.5.9/README.md WIP.md` passed
+  - reformatted `release-notes/1.5.9/README.md` from the 1.5.8 flat bullet style to the 1.5.7 sectioned style
+  - reviewer pass requested from `Magus`, `Vincent`, and `Bazarat`
+  - addressed `Magus` feedback by documenting still-unverified account verification, new-character blocking under active-session restrictions, and the staff account command as a real management feature
+  - addressed `Vincent` feedback by replacing broad staff wording with eligible account administrators and removing builder/implementor rationale from the active-session bullet
+  - addressed `Bazarat` feedback by documenting legacy character migration explicitly and narrowing account-backed persistence wording to migration/storage preservation
+  - `Magus`: clear after re-check
+  - `Vincent`: no blocking security/trust-boundary findings remain; exact 91/92 active-session boundary retained for behavior clarity
+  - `Bazarat`: clear after re-check
+  - sectioned-format re-check addressed reviewer wording feedback by softening mail-delivery phrasing, tightening account-backed preservation wording, and making account-administration text public-note appropriate
+
 ## Current Status
-- Active slice in progress: add an immortal account command to unlock linked-character selection for a stuck active account session.
+- Active slice complete: added an immortal account command to unlock linked-character selection for a stuck active account session.
 - Planned command behavior:
   - add `account unlockselect <email-or-account>` to the existing `LEVEL_GRGOD` account-management command surface
   - grant a runtime-only, account-scoped, one-shot linked-character selection unlock
@@ -9,9 +91,32 @@
   - let linked-character selection and the final account-backed character-menu entry guard honor the unlock
   - keep new-character creation and stale account-backed birth blocked even when an unlock is pending
   - consume the unlock when it is used to pass the final character-entry guard
-- Follow-up complete: suppress the account-menu level-95 lock hint while keeping active-character display and blocked-action enforcement intact.
+- Completed in this slice:
+  - added `account unlockselect <email-or-account>` to `do_account`
+  - reused the active-session helper boundary for grant eligibility instead of duplicating descriptor checks in the command handler
+  - stored unlocks in runtime-only normalized account-name state
+  - let pending unlocks pass the linked-character selection prompt without consuming early
+  - consumed unlocks at the final account-backed character-menu entry guard and logged consumption
+  - discarded stale pending unlocks if the restricting active session is gone before use
+  - tied pending unlocks to the restricting character names present at grant time so they cannot apply to a later unrelated stuck session
+  - allowed a fresh admin grant to replace a stale pending unlock once the original restricting session is gone
+  - kept account-menu new-character creation and stale account-backed birth on the strict restriction path
+  - updated `lib/text/wizh_tbl` with usage, subcommand description, example, and runtime-only/one-use selection-only warning
+- Validation so far:
+  - `clang-format -i -style=WebKit src/interpre.cpp src/interpre.h src/act_wiz.cpp src/tests/act_wiz_tests.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=ActWiz.AccountUnlockSelect*:InterpreAccountMenu.UnlockSelect*'` passed at `8` tests
+  - `./bin/tests '--gtest_filter=ActWiz.*:InterpreAccountMenu.*'` passed at `89` tests
+  - `git diff --check` passed
+  - `make test` passed at `508/508` tests
+  - `make smoke-account` passed the full proxy-backed account flow after the stale-unlock lifecycle fixes
+- Reviewer status:
+  - `Magus`: clear after stale-pending unlock replacement fix
+  - `Vincent`: clear; richer grant audit context is non-blocking and deferred
+  - `Bazarat`: clear after stale-use and stale-grant lifecycle regressions
+- Follow-up complete: suppress the account-menu level-91 lock hint while keeping active-character display and blocked-action enforcement intact.
 - Current follow-up changes:
-  - removed the "Different character selection is locked until ... is over level 95" line from the account menu active-session status
+  - removed the "Different character selection is locked until ... is over level 91" line from the account menu active-session status
   - kept the blocked-selection message shown when a player actually tries to enter as a different restricted character
   - updated focused unit and smoke expectations to assert the menu only shows the active character, not the lock hint
 - Current follow-up validation:
@@ -33,13 +138,13 @@
   - added the requested active account-session behavior and implementation checklist to `FEATURES.md`
   - added an account-scoped active-session helper that scans `descriptor_list` for same-account linked characters in `CON_PLYNG` and `CON_LINKLS`
   - updated the account menu to show the active linked character and whether it is playing or linkless
-  - blocked selecting a different linked character and blocked new-character creation while the active account character is level 95 or below
+  - blocked selecting a different linked character and blocked new-character creation while the active account character is level 91 or below
   - kept same-character reconnect/usurp behavior intact, including the second-session takeover path
   - addressed review findings by adding guard rechecks for descriptors already sitting at the account-backed character menu or the final account-backed character birth path
   - tightened active-session discovery so a character must point back to the descriptor that claims it
-  - preserved the over-level-95 exception so a different linked character can still be selected when the active character is level 96 or higher
+  - preserved the over-level-91 exception so a different linked character can still be selected when the active character is level 92 or higher
   - made the restricted-linking decision explicit: account-menu legacy linking remains allowed because it changes the roster but does not enter the game as another character
-  - expanded `InterpreAccountMenu` coverage for active playing/linkless display, false-positive descriptor filtering, descriptor/character back-pointer mismatches, level 95 vs 96 behavior, plural active-session display/restriction, side-effect-free blocking, same-character usurp, linkless reconnect/descriptor cleanup, stale character-menu and stale creation-wizard races, new-character blocking, and list/reset/link/logout allowance
+  - expanded `InterpreAccountMenu` coverage for active playing/linkless display, false-positive descriptor filtering, descriptor/character back-pointer mismatches, level 91 vs 92 behavior, plural active-session display/restriction, side-effect-free blocking, same-character usurp, linkless reconnect/descriptor cleanup, stale character-menu and stale creation-wizard races, new-character blocking, and list/reset/link/logout allowance
   - updated the duplicate-owner account-backed birth regression to assert the new fail-early behavior, so an already-linked name is rejected before player-index or account-native asset writes
   - expanded `make smoke-account` so the proxy-backed flow opens a second account connection while the low-level account-born character is active, proves the different linked character is blocked, and then reconnects the same active character
 - Validation for this slice:

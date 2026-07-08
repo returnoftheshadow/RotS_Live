@@ -17,6 +17,7 @@
 // returns 1 if program should continue as normal, 0 if not (eg on_die 0 == do not kill char)
 
 #include "platdef.h"
+#include <algorithm>
 #include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -260,6 +261,17 @@ int is_int_param_writable(int param)
 }
 
 /*
+ * A script may write directly into a character's hit points via
+ * SET_INT_VALUE (chX.hit), bypassing update_pos()/normal death
+ * processing entirely.  Clamp to a range far beyond any real
+ * character's hit points but well inside int range, so downstream
+ * code that scales GET_HIT() (e.g. report_char_health(), add_prompt())
+ * can't be handed a pathological value.
+ */
+static const int MIN_SCRIPT_HIT_VALUE = -1000000;
+static const int MAX_SCRIPT_HIT_VALUE = 1000000;
+
+/*
  * Set dest to val if dest is a valid destination.  dest
  * should refer to one of the settable variables in a script,
  * such as chx.hit.
@@ -274,9 +286,55 @@ void set_int_value(struct info_script* info, int param, int val)
     if (x == NULL)
         return;
 
-    if (is_int_param_writable(param))
+    if (is_int_param_writable(param)) {
+        char_data* affected_ch = NULL;
+
+        switch (param) {
+        case SCRIPT_PARAM_CH1_HIT:
+            val = std::max(MIN_SCRIPT_HIT_VALUE, std::min(val, MAX_SCRIPT_HIT_VALUE));
+            affected_ch = info->ch[0];
+            break;
+        case SCRIPT_PARAM_CH2_HIT:
+            val = std::max(MIN_SCRIPT_HIT_VALUE, std::min(val, MAX_SCRIPT_HIT_VALUE));
+            affected_ch = info->ch[1];
+            break;
+        case SCRIPT_PARAM_CH3_HIT:
+            val = std::max(MIN_SCRIPT_HIT_VALUE, std::min(val, MAX_SCRIPT_HIT_VALUE));
+            affected_ch = info->ch[2];
+            break;
+        default:
+            break;
+        }
+
         *x = val;
-    else
+
+        /* Keep GET_POS() consistent with the new hit value instead of
+         * leaving a character "alive" per position but lethally
+         * wounded per hit (see update_pos(), fight.cpp). Only resync
+         * when the write pushes hit non-positive, or when the
+         * character was already sitting at DEAD/INCAP/STUNNED from an
+         * earlier script write and needs releasing now that they've
+         * been healed - not on every positive write, since update_pos()
+         * forces STANDING/FIGHTING whenever hit > 0, which would
+         * wrongly yank a resting/sitting/sleeping character to their
+         * feet just because a script topped up their hit (e.g. a heal
+         * effect). Without the second condition, a character healed
+         * back to positive from a prior scripted DEAD/INCAP/STUNNED
+         * would stay stuck at that stale position - and since the
+         * command dispatcher requires position above it for nearly
+         * everything, that's a soft-lock until the next point_update()
+         * sweep happens to notice and release them. POSITION_SHAPING is
+         * deliberately excluded here - it's the OLC "shape" editor
+         * state (interpre.cpp), unrelated to dying, and shouldn't be
+         * disturbed by a positive hit write. */
+        if (affected_ch) {
+            bool already_dying = GET_POS(affected_ch) == POSITION_DEAD ||
+                GET_POS(affected_ch) == POSITION_INCAP ||
+                GET_POS(affected_ch) == POSITION_STUNNED;
+            if (val <= 0 || already_dying)
+                update_pos(affected_ch);
+        }
+    } else
         vmudlog(BRF, "Script #%d tried to write to unwritable "
                      "integer parameter %s",
             script_table[info->index].number,
@@ -307,9 +365,11 @@ int int_binary_op(struct info_script* info, int command, int* a, int* b)
     case SCRIPT_SET_INT_DIV:
         if (*b != 0)
             return *a / *b;
-        else
+        else {
             vmudlog(BRF, "Script #%d tried to divide by 0.",
                 script_table[info->index].number);
+            return 0;
+        }
     case SCRIPT_SET_INT_RANDOM:
         return number(*a, *b);
     default:
@@ -1547,6 +1607,7 @@ void continue_char_script(char_data* ch)
 
     initialise_script_info_char(ch, -1); // Invalidates all pointers, but its safter this way
     ch->specials.script_info->ch[0] = ch;
+    ch->delay.cmd = 0;
     return_value = run_script(ch->specials.script_info, ch->specials.script_info->next_command);
 }
 

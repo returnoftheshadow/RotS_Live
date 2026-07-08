@@ -400,7 +400,9 @@ void print_group_leader(const char_data* leader)
 
     // For loop just gets prompt indices to the correct spot.
     for (health_prompt_index = 0;
-         (1000 * GET_HIT(leader)) / GET_MAX_HIT(leader) > prompt_hit[health_prompt_index].value;
+         health_prompt_index < 7 &&
+         (1000LL * GET_HIT(leader)) / (GET_MAX_HIT(leader) == 0 ? 1 : GET_MAX_HIT(leader)) >
+             prompt_hit[health_prompt_index].value;
          health_prompt_index++)
         ;
 
@@ -435,7 +437,10 @@ void print_group_member(const char_data* group_member)
 
     // For loop just gets prompt indices to the correct spot.
     for (health_prompt_index = 0;
-         (1000 * GET_HIT(group_member)) / (GET_MAX_HIT(group_member) == 0 ? 1 : GET_MAX_HIT(group_member)) > prompt_hit[health_prompt_index].value;
+         health_prompt_index < 7 &&
+         (1000LL * GET_HIT(group_member)) /
+             (GET_MAX_HIT(group_member) == 0 ? 1 : GET_MAX_HIT(group_member)) >
+         prompt_hit[health_prompt_index].value;
          health_prompt_index++)
         ;
 
@@ -656,7 +661,7 @@ ACMD(do_report)
         return;
     }
 
-    for (tmp1 = 0; (1000 * GET_HIT(ch)) / GET_MAX_HIT(ch) > prompt_hit[tmp1].value; tmp1++)
+    for (tmp1 = 0; tmp1 < 7 && (1000LL * GET_HIT(ch)) / (GET_MAX_HIT(ch) == 0 ? 1 : GET_MAX_HIT(ch)) > prompt_hit[tmp1].value; tmp1++)
         ;
     for (tmp2 = 0; (1000 * GET_MANA(ch)) / GET_MAX_MANA(ch) > prompt_mana[tmp2].value; tmp2++)
         ;

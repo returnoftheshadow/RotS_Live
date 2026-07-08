@@ -14,6 +14,12 @@
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "structs.h" /* For the NOWHERE macro */
 
+#include <string>
+
+namespace account {
+struct AccountData;
+}
+
 #define STATE(d) ((d)->connected)
 
 #define MAX_CMD_LIST 350
@@ -89,6 +95,9 @@ int is_number(char* str);
 
 void virt_assignmob(struct char_data*);
 void virt_assignobj(struct obj_data* obj);
+bool grant_account_character_selection_unlock(
+    const account::AccountData& account_data, std::string* error_message);
+bool account_has_restricting_active_linked_session(const account::AccountData& account_data);
 
 struct command_info {
     void (*command_pointer)(struct char_data* ch, char* argument, struct waiting_type*, int cmd,
