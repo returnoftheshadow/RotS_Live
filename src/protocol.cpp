@@ -26,6 +26,8 @@
 #include <string.h>
 #include <time.h>
 
+#include <string>
+
 #include "protocol.h"
 
 /******************************************************************************
@@ -1251,14 +1253,56 @@ void MSDPSetNumber(descriptor_t *apDescriptor, variable_t aMSDP, int aValue) {
     }
 }
 
+std::string MSDPSanitizeValue(const char *apValue) {
+    std::string Result;
+
+    if (apValue == NULL) {
+        return Result;
+    }
+
+    Result.reserve(strlen(apValue));
+
+    for (const unsigned char *p = (const unsigned char *)apValue; *p != '\0'; ++p) {
+        switch (*p) {
+        case '\"':
+            Result += "\\\"";
+            break;
+        case '\\':
+            Result += "\\\\";
+            break;
+        case '\n':
+            Result += "\\n";
+            break;
+        case '\r':
+            Result += "\\r";
+            break;
+        case '\t':
+            Result += "\\t";
+            break;
+        default:
+            if (*p < 0x20) {
+                char Escape[8];
+                sprintf(Escape, "\\u%04x", *p);
+                Result += Escape;
+            } else {
+                Result += (char)*p;
+            }
+        }
+    }
+
+    return Result;
+}
+
 void MSDPSetString(descriptor_t *apDescriptor, variable_t aMSDP, const char *apValue) {
     protocol_t *pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
 
     if (pProtocol != NULL && apValue != NULL) {
         if (VariableNameTable[aMSDP].bString) {
-            if (strcmp(pProtocol->pVariables[aMSDP]->pValueString, apValue)) {
+            std::string SanitizedValue = MSDPSanitizeValue(apValue);
+
+            if (strcmp(pProtocol->pVariables[aMSDP]->pValueString, SanitizedValue.c_str())) {
                 free(pProtocol->pVariables[aMSDP]->pValueString);
-                pProtocol->pVariables[aMSDP]->pValueString = AllocString(apValue);
+                pProtocol->pVariables[aMSDP]->pValueString = AllocString(SanitizedValue.c_str());
                 pProtocol->pVariables[aMSDP]->bDirty = true;
             }
         }

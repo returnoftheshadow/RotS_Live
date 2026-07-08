@@ -598,7 +598,7 @@ void msdp_room_update(char_data *ch) {
     msdp_room += (char)MSDP_VAR;
     msdp_room += "NAME";
     msdp_room += (char)MSDP_VAL;
-    msdp_room += world[ch->in_room].name;
+    msdp_room += MSDPSanitizeValue(world[ch->in_room].name);
     msdp_room += (char)MSDP_VAR;
     msdp_room += "EXITS";
     msdp_room += (char)MSDP_VAL;

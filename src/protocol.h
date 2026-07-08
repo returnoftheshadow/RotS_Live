@@ -10,6 +10,8 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
+#include <string>
+
 /******************************************************************************
  Set your MUD_NAME, and change descriptor_t if necessary.
  ******************************************************************************/
@@ -483,8 +485,22 @@ void MSDPSetNumber( descriptor_t *apDescriptor, variable_t aMSDP, int aValue );
  * approach is to send every MSDP variable within an update function (and
  * this is what the snippet does by default), but if the variable is only
  * set in one place you can just move its MDSPSend() call to there.
+ *
+ * The value is passed through MSDPSanitizeValue() first, so it stays a
+ * valid JSON string for clients that convert MSDP into JSON.
  */
 void MSDPSetString( descriptor_t *apDescriptor, variable_t aMSDP, const char *apValue );
+
+/* Function: MSDPSanitizeValue
+ *
+ * Returns a copy of apValue with characters that are illegal inside a bare
+ * JSON string ('"', '\', and control characters such as \n and \r) replaced
+ * by their standard JSON escape sequence. MSDPSetString() applies this
+ * automatically; call it directly when hand-building a table/array value
+ * (see MSDPSetTable) that embeds freeform text, since those bypass
+ * MSDPSetString().
+ */
+std::string MSDPSanitizeValue( const char *apValue );
 
 /* Function: MSDPSetTable
  *

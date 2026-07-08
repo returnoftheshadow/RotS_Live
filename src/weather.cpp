@@ -157,6 +157,17 @@ void weather_to_char(char_data* ch);
 
 extern char* moon_phase[];
 
+// weather_messages[] entries end in "\n\r" for direct display to the
+// terminal; MSDP values are discrete data, not display text, so strip it.
+std::string strip_trailing_line_break(const char* text)
+{
+    std::string result(text);
+    while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
+        result.pop_back();
+    }
+    return result;
+}
+
 void send_msdp_function(void (*func)(descriptor_data* desc))
 {
     extern struct descriptor_data *descriptor_list;
@@ -551,7 +562,8 @@ void weather_change(void)
         auto sector_type = world[desc->character->in_room].sector_type;
         auto weather_type = weather_info.sky[sector_type];
         if (OUTSIDE(desc->character)) {
-            MSDPSetString(desc, eMDSP_WEATHER, weather_messages[weather_type + 2][sector_type]);
+            MSDPSetString(desc, eMDSP_WEATHER,
+                strip_trailing_line_break(weather_messages[weather_type + 2][sector_type]).c_str());
         } else {
             MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
         }

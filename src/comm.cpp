@@ -440,9 +440,11 @@ void msdp_update() {
         auto sector_type = world[desc->character->in_room].sector_type;
         auto weather_type = weather_info.sky[sector_type];
         extern char *weather_messages[8][13];
+        extern std::string strip_trailing_line_break(const char* text);
 
         if (OUTSIDE(desc->character)) {
-            MSDPSetString(desc, eMDSP_WEATHER, weather_messages[weather_type + 2][sector_type]);
+            MSDPSetString(desc, eMDSP_WEATHER,
+                strip_trailing_line_break(weather_messages[weather_type + 2][sector_type]).c_str());
         } else {
             MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
         }
