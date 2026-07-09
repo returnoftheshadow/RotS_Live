@@ -85,3 +85,4 @@ cmake_test_discovery*.json
 # macOS
 .DS_Store
 **/.DS_Store
+docs/.DS_Store
