@@ -1,7 +1,7 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added read-only live game-struct adapters that snapshot real `char_data`, `obj_data`, room, and zone data into the existing JavaScript game context fixture shape without retaining pointers, executing scripts, or wiring trigger dispatch.
+- Active slice complete: added a deterministic server-side JavaScript manifest/API export that the future TypeScript editor, documentation generator, offline runner, and publish validator can consume without scraping C++ headers or executing scripts.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -69,8 +69,12 @@
   - Live game adapter slice artifact added: `JsGameAdapterOptions` supplies explicit active character/object pointer sets, world bounds/count, mobile/object index tables, zone table metadata, and race names so tests can run without booting the world and later live dispatch can provide authoritative liveness data. Missing liveness tables now fail closed.
   - Live game adapter slice artifact added: adapter ids are invocation-local role labels in assembled contexts and do not include player idnums, mob abs numbers, object owners, touched state, or pointer-looking values. Standalone unresolved ids use non-authoritative labels such as `mob:unresolved` and `object:unresolved`.
   - Live game adapter slice artifact added: adapter string copies are bounded, unresolved object vnums are nullable in the public API contract/runtime literal, and object relationship pointers are not dereferenced by the object snapshot path.
+  - Manifest export slice artifact added: `src/js_manifest_export.{h,cpp}` serializes the server-owned trigger manifest and API contract into deterministic JSON for builder tooling without reading package files, executing QuickJS, dispatching triggers, or touching live game pointers.
+  - Manifest export slice artifact added: the combined builder manifest exports schema metadata, compatibility fields, runtime identity, manifest/API checksums, generated typings/documentation versions, trigger entries, denied legacy API permissions, API types/members, and bounded documentation strings.
+  - Manifest export slice artifact added: trigger context fields now include a structured `contextFields` array plus legacy display text, and compact exports omit docs, notes, and denial reasons for lower-noise consumers.
+  - Manifest export slice artifact added: `src/tests/js_manifest_export_tests.cpp` covers JSON parseability for default/compact exports, every trigger/API entry, compact omission behavior, structured context field export, compatibility metadata, raw C++ type avoidance, documentation bounds, and raw/CMake/test Makefile wiring.
   - Live game adapter slice artifact added: `src/tests/js_game_adapter_tests.cpp` covers approved-field snapshots, player/mobile vnum behavior, fail-closed liveness defaults, stale pointer rejection, object/room/zone snapshots, invalid room/zone bounds, partial context construction, copied/bounded strings, unresolved metadata, relationship pointer non-use, rejection sentinel preservation, and ids that avoid pointer-looking/internal type text.
-  - Current adapter slice scope:
+  - Previous adapter slice scope:
     - Add `js_game_adapter` as a read-only mapper from real game structs into `JsGameTriggerContextFixture`.
     - Keep liveness checks explicit and table-driven so unit tests can run without booting the full world and live dispatch can later supply real active pointer sets.
     - Snapshot approved public fields only: opaque ids, display names, race name, level, hit points, object vnum/name, room vnum/name, zone vnum/name, trigger metadata, and optional text.
@@ -146,6 +150,11 @@
   - [x] Live game adapter slice: wire the adapter into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
   - [x] Live game adapter slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
   - [x] Live game adapter slice: validate with focused JavaScript adapter tests, `make test`, raw test build path, raw server build path, `git diff --check`, and commit the completed slice under the configured git identity.
+  - [x] Manifest export slice: add `js_manifest_export` as a read-only JSON exporter over `js_scripting_manifest` and `js_api_contract`.
+  - [x] Manifest export slice: include schema/compatibility metadata, runtime identity, manifest/API checksums, generated typings/documentation versions, trigger entries, denied legacy API permissions, API types/members, structured trigger context field names, and bounded documentation.
+  - [x] Manifest export slice: add compact export behavior that omits documentation fields, notes, and denied API reasons while preserving machine-readable compatibility data.
+  - [x] Manifest export slice: add focused tests for JSON parseability, all manifest/API entries, compact builder exports, raw C++ type avoidance, documentation bounds, and build wiring.
+  - [x] Manifest export slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
   - [ ] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [ ] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
   - [ ] Client planning gate before implementation: define CLI-first project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
@@ -193,6 +202,12 @@
   - Raw `make -C src/tests clean tests` rebuilt successfully after adding explicit JavaScript test header dependencies, and the raw-built focused JavaScript test set passed at `90/90`.
   - Raw `make -C src ageland` passed after adding `js_game_adapter.o`.
   - `git diff --check` passed after the live game adapter slice.
+  - Focused `./bin/tests '--gtest_filter=JsManifestExport.*'` passed at `7/7` tests after reviewer-driven JSON export hardening.
+  - Focused `./bin/tests '--gtest_filter=JsManifestExport.*:JsApiContract.*:JsScriptingManifest.*:JsScriptPackage.*:JsScriptRegistry.*:JsGameRuntime.*:JsGameAdapter.*'` passed at `86/86` tests after the manifest export slice.
+  - `make test` passed at `685/685` tests after adding the manifest export slice.
+  - Raw `make -C src/tests clean tests` rebuilt successfully after adding `js_manifest_export` to the raw test path, and the raw-built focused JavaScript test set passed at `86/86`.
+  - Raw `make -C src ageland` passed after adding `js_manifest_export.o`.
+  - `git diff --check` passed after the manifest export slice.
 - Reviewer status:
   - `Magus`: reviewed; findings incorporated into `FEATURES.md` around room support accuracy, trigger matrix/ordering, say/yell compatibility, wait/continuation policy, script registry/cache ownership, deny-by-default API shape, and exact legacy call-site regressions.
   - `Vincent`: reviewed; findings incorporated into `FEATURES.md` around deny-by-default host APIs, resource and recursion budgets, opaque non-persistent handles, JS-specific sandbox escape surfaces, reload path trust boundaries, dependency pinning/supply-chain controls, redacted diagnostics, and security acceptance tests.
@@ -218,6 +233,9 @@
   - `Vincent` host API contract review: requested a separate JavaScript-visible allowlist, no raw pointer/internal-state exposure, structured side-effect and permission metadata, liveness/nullability modeling, disabled output/mutation helpers, and actor-controlled text handling; addressed in `js_api_contract` metadata and tests.
   - `Bazarat` host API contract review: requested documentation coverage, duplicate symbol checks, deny-by-default permission tests, nullability/liveness tests, trigger-context coverage against the manifest, stable metadata, and enum string tests; addressed in `src/tests/js_api_contract_tests.cpp`. Generated TypeScript/docs drift tests remain deferred until the generator slice exists.
   - `Magus` host API contract review: returned after validation with a summary and no new findings; implementation already covers duplicate symbol checks, docs completeness, manifest context coverage, and metadata tests.
+  - `Magus` manifest export review: requested compact-mode metadata cleanup, structured context fields, parser-backed JSON validity coverage, and stale WIP wording cleanup; addressed with compact `notes` omission, `contextFields` arrays, `json_utils::JsonReader` tests, and WIP refresh.
+  - `Vincent` manifest export review: requested compact metadata omission, structured context fields to avoid client-side parsing of human text, and JSON parse coverage; addressed while keeping the export read-only and non-authoritative for server publish validation.
+  - `Bazarat` manifest export review: requested compact builder export checks, JSON validity tests, stronger escaping coverage via existing JSON utilities, and structured context field coverage; addressed in `src/tests/js_manifest_export_tests.cpp`.
   - `Magus` game-context execution review: requested null-prototype context objects, prototype-pollution coverage, stronger string encoding, broader freeze tests, future API-contract alignment, and WIP checklist updates; addressed with null-prototype deep freeze, non-ASCII byte escaping, mutation/prototype tests, and this WIP update. Contract-derived fixture schemas remain deferred to the API/types generator slice.
   - `Vincent` game-context execution review: requested prototype hardening, clear warning against relying on textual wrapping for live host binding, diagnostics that do not leak actor text, and hostile byte/string coverage; addressed with prototype hardening, wrapper breakout rejection tests, diagnostic redaction, and expanded escaping tests. QuickJS C-API value injection remains required before live host binding.
   - `Bazarat` game-context execution review: requested adversarial tests for wrapper breakout, constructor-chain escape attempts, broader freeze/mutation behavior, fixture-field escaping, state isolation, missing handles, and wrapper-level return semantics; addressed in `src/tests/js_game_runtime_tests.cpp`.

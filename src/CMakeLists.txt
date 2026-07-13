@@ -44,6 +44,7 @@ set(ROTS_SERVER_SOURCES
     js_api_contract.cpp
     js_game_adapter.cpp
     js_game_runtime.cpp
+    js_manifest_export.cpp
     js_runtime.cpp
     js_script_package.cpp
     js_script_registry.cpp
@@ -152,6 +153,7 @@ set(ROTS_TEST_SOURCES
     tests/js_api_contract_tests.cpp
     tests/js_game_adapter_tests.cpp
     tests/js_game_runtime_tests.cpp
+    tests/js_manifest_export_tests.cpp
     tests/js_runtime_tests.cpp
     tests/js_script_package_tests.cpp
     tests/js_script_registry_tests.cpp
