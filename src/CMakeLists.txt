@@ -42,6 +42,7 @@ set(ROTS_SERVER_SOURCES
     exploits_json.cpp
     json_utils.cpp
     js_api_contract.cpp
+    js_builder_artifacts.cpp
     js_game_adapter.cpp
     js_game_runtime.cpp
     js_manifest_export.cpp
@@ -151,6 +152,7 @@ set(ROTS_TEST_SOURCES
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/js_api_contract_tests.cpp
+    tests/js_builder_artifacts_tests.cpp
     tests/js_game_adapter_tests.cpp
     tests/js_game_runtime_tests.cpp
     tests/js_manifest_export_tests.cpp
