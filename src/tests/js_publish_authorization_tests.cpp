@@ -350,6 +350,19 @@ TEST(JsPublishAuthorization, RejectsActivationManifestChecksumMismatch)
     EXPECT_TRUE(has_code(result, JsPublishDiagnosticCode::PackagePreconditionMismatch));
 }
 
+TEST(JsPublishAuthorization, RejectsActivationForAnotherBuildersPackage)
+{
+    JsPublishRequest request = make_request(JsPublishOperation::PackageActivate);
+    JsPublishAuthorizationOptions options = make_options();
+    options.allow_mutating_operations = true;
+    options.authority.package_owner_builder_account_id = "account:other";
+
+    JsPublishAuthorizationResult result = js_publish_authorization_preflight(request, options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
 TEST(JsPublishAuthorization, DistinguishesOwnAndAdminSourceView)
 {
     JsPublishRequest own_request = make_request(JsPublishOperation::SourceView);

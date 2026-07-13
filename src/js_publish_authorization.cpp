@@ -190,6 +190,10 @@ void validate_authority(const JsPublishRequest& request,
         && !authority.allow_admin_source_view)
         add_diagnostic(result, JsPublishDiagnosticCode::PermissionMismatch, request,
             "admin source-view authority is required");
+    if (request.operation == JsPublishOperation::PackageActivate
+        && authority.package_owner_builder_account_id != request.builder_account_id)
+        add_diagnostic(result, JsPublishDiagnosticCode::PermissionMismatch, request,
+            "package activation requires package ownership");
     if (request.operation == JsPublishOperation::PackageRollbackOwn
         && authority.package_owner_builder_account_id != request.builder_account_id)
         add_diagnostic(result, JsPublishDiagnosticCode::PermissionMismatch, request,
