@@ -21,6 +21,7 @@ struct JsPublishStagedPackageStatus {
     std::string digest_algorithm;
     int canonical_format_version = 0;
     int package_format_version = 0;
+    long long staged_at_epoch_seconds = 0;
     std::string base_live_checksum;
     std::string manifest_checksum;
     std::string compiled_javascript_checksum;

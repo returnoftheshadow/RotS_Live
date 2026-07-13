@@ -1,8 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: connected staged repository lookups to publish authorization request assembly/status metadata while keeping package activation disabled.
-- Next slice: add persistence/audit metadata for staged package records while preserving disabled live activation.
+- Active slice complete: added persistence-ready audit metadata for staged package records while preserving disabled live activation.
+- Next slice: add the live package pointer/store model while keeping activation disabled.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -141,6 +141,14 @@
     - Status helpers are documented as internal post-authorization metadata helpers until a caller/owner/workspace endpoint boundary is implemented.
     - Added `src/tests/js_publish_staging_tests.cpp` with focused coverage for exact/latest status metadata, source redaction, whitespace/missing lookups, disabled activation by default, explicit mutation-gate preflight success, cross-builder activation rejection, expected/current live checksum conflicts, rollback-own and rollback-any authority, option propagation, diagnostic names, and build wiring.
     - Reviewer follow-up addressed: Magus's missing-current-live-checksum finding now fails assembly, Vincent's integration-boundary concerns led to explicit post-auth status documentation and separate assembly/preflight result state, and Bazarat's test gaps added full status-field assertions plus rollback-any/option/whitespace coverage.
+  - Staged record audit metadata slice artifact added:
+    - Extended `JsStagedPackageRecord` with persistence-ready creation audit metadata: stage timestamp, request id, actor id, permission snapshot id, audit id, source-policy decision, validation-report digest, and transport/source identifier.
+    - Added `JsStagedPackageStageOptions` for explicit server-derived stage metadata while keeping the previous identity-options overload as a compatibility path with legacy placeholder metadata.
+    - Audit metadata is bounded to 160 bytes per field, requires identifier-like characters only, requires a positive stage timestamp, and rejects missing/whitespace/unsafe metadata before any staged record is inserted.
+    - Duplicate package-version idempotency now requires matching audit metadata as well as matching canonical package identity/bytes; changed audit context returns `duplicate-version-conflict` and leaves the original staged record unchanged.
+    - Staged publish status continues to omit audit fields so future endpoints must add explicit caller/owner/workspace authorization before exposing audit details.
+    - Added repository/status regression coverage for explicit audit storage, immutable copies, exact-audit idempotency, changed-audit rejection, required/unsafe/overlong/positive timestamp validation, maximum length acceptance, status source redaction, and status metadata stability.
+    - Reviewer follow-up addressed: Vincent and Bazarat findings removed audit metadata from status output, required positive timestamps and complete audit metadata, restricted audit text shape, and documented that repository metadata must be server-derived at the publish/stage boundary; Magus's legacy-overload concern is documented as compatibility-only pending real endpoint wiring.
   - Documentation generation planning slice artifact added:
     - `FEATURES.md` now defines manifest-driven documentation generation as a deterministic server-owned artifact set covering markdown API docs, TypeScript doc comments, hover/help JSON, in-game help source, CLI reference output, diagnostics, examples, compatibility summaries, coverage reports, and release-note metadata.
     - Required documentation fields now include stable documentation ids, anchors, support/publishability status, host eligibility, trigger kind/value, context-field type/nullability/liveness metadata, return semantics, permissions, side effects, resource budgets, diagnostics, examples, and unsupported/deferred reason codes.
@@ -278,6 +286,11 @@
   - [x] Staged publish assembly slice: add focused tests for status metadata, source redaction, missing/whitespace inputs, disabled activation, explicit mutation-gate preflight, cross-builder activation, rollback-own/rollback-any authority, option propagation, current-live conflicts, and build wiring.
   - [x] Staged publish assembly slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
   - [x] Staged publish assembly slice: validate with focused staging tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
+  - [x] Staged record audit metadata slice: add persistence-ready creation audit metadata to staged package records without exposing source bytes or enabling live activation.
+  - [x] Staged record audit metadata slice: require positive timestamp and complete bounded identifier-like request/actor/permission/audit/source-policy/validation/transport metadata on the explicit staging path.
+  - [x] Staged record audit metadata slice: keep audit fields out of staged status output and document that future endpoint code must derive audit metadata from verified server request/token/transport/permission/validation state.
+  - [x] Staged record audit metadata slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
+  - [x] Staged record audit metadata slice: validate with focused staged repository/status tests, `make test`, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.

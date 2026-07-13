@@ -1,9 +1,11 @@
 #include "js_staged_package_repository.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace {
 
+constexpr std::size_t MaxAuditFieldBytes = 160;
 void add_diagnostic(JsStagedPackageStageResult &result,
                     JsStagedPackageRepositoryDiagnosticCode code, const std::string &message) {
     result.diagnostics.push_back({code, message});
@@ -27,6 +29,14 @@ bool same_identity_record(const JsStagedPackageRecord &left, const JsStagedPacka
         left.identity.runtime_name != right.identity.runtime_name ||
         left.identity.runtime_version != right.identity.runtime_version ||
         left.identity.generated_typings_version != right.identity.generated_typings_version ||
+        left.audit.staged_at_epoch_seconds != right.audit.staged_at_epoch_seconds ||
+        left.audit.request_id != right.audit.request_id ||
+        left.audit.actor_id != right.audit.actor_id ||
+        left.audit.permission_snapshot_id != right.audit.permission_snapshot_id ||
+        left.audit.audit_id != right.audit.audit_id ||
+        left.audit.source_policy_decision != right.audit.source_policy_decision ||
+        left.audit.validation_report_digest != right.audit.validation_report_digest ||
+        left.audit.transport_source_identifier != right.audit.transport_source_identifier ||
         left.package.vnum != right.package.vnum || left.package.host != right.package.host ||
         left.package.compiled_javascript != right.package.compiled_javascript ||
         left.package.trigger_bindings.size() != right.package.trigger_bindings.size())
@@ -62,6 +72,44 @@ bool is_blank(const std::string &value) {
     });
 }
 
+bool is_bounded_single_line_field(const std::string &value) {
+    if (value.size() > MaxAuditFieldBytes)
+        return false;
+    return std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+        return std::isalnum(ch) || ch == ':' || ch == '_' || ch == '-' || ch == '.';
+    });
+}
+
+void validate_audit_field(JsStagedPackageStageResult &result, const std::string &value,
+                          const char *field_name, bool required) {
+    if (required && is_blank(value)) {
+        add_diagnostic(result, JsStagedPackageRepositoryDiagnosticCode::InvalidRequest,
+                       std::string(field_name) + " is required for staged package audit metadata.");
+        return;
+    }
+    if (!value.empty() && !is_bounded_single_line_field(value)) {
+        add_diagnostic(result, JsStagedPackageRepositoryDiagnosticCode::InvalidRequest,
+                       std::string(field_name) +
+                           " must be a bounded single-line audit metadata value.");
+    }
+}
+
+bool validate_audit_metadata(JsStagedPackageStageResult &result,
+                             const JsStagedPackageAuditMetadata &audit) {
+    if (audit.staged_at_epoch_seconds <= 0)
+        add_diagnostic(result, JsStagedPackageRepositoryDiagnosticCode::InvalidRequest,
+                       "staged_at_epoch_seconds must be positive.");
+    validate_audit_field(result, audit.request_id, "request_id", true);
+    validate_audit_field(result, audit.actor_id, "actor_id", true);
+    validate_audit_field(result, audit.permission_snapshot_id, "permission_snapshot_id", true);
+    validate_audit_field(result, audit.audit_id, "audit_id", true);
+    validate_audit_field(result, audit.source_policy_decision, "source_policy_decision", true);
+    validate_audit_field(result, audit.validation_report_digest, "validation_report_digest", true);
+    validate_audit_field(result, audit.transport_source_identifier, "transport_source_identifier",
+                         true);
+    return result.diagnostics.empty();
+}
+
 } // namespace
 
 JsStagedPackageRepository::JsStagedPackageRepository() = default;
@@ -73,8 +121,27 @@ JsStagedPackageRepository::JsStagedPackageRepository(
 JsStagedPackageStageResult
 JsStagedPackageRepository::stage_package(const JsScriptPackage &package,
                                          const JsStagedPackageIdentityOptions &options) {
+    JsStagedPackageStageOptions stage_options;
+    stage_options.identity_options = options;
+    stage_options.audit.staged_at_epoch_seconds = 1;
+    stage_options.audit.request_id = "legacy-stage";
+    stage_options.audit.actor_id = "legacy-stage-actor";
+    stage_options.audit.permission_snapshot_id = "legacy-permission-snapshot";
+    stage_options.audit.audit_id = "legacy-audit";
+    stage_options.audit.source_policy_decision = "legacy-source-policy";
+    stage_options.audit.validation_report_digest = "legacy-validation-report";
+    stage_options.audit.transport_source_identifier = "legacy-transport";
+    return stage_package(package, stage_options);
+}
+
+JsStagedPackageStageResult
+JsStagedPackageRepository::stage_package(const JsScriptPackage &package,
+                                         const JsStagedPackageStageOptions &options) {
     JsStagedPackageStageResult result;
-    result.identity_result = js_staged_package_identity_build(package, options);
+    if (!validate_audit_metadata(result, options.audit))
+        return result;
+
+    result.identity_result = js_staged_package_identity_build(package, options.identity_options);
     if (!result.identity_result.ok) {
         add_diagnostic(result, JsStagedPackageRepositoryDiagnosticCode::IdentityBuildFailed,
                        "Staged package identity creation failed.");
@@ -83,6 +150,7 @@ JsStagedPackageRepository::stage_package(const JsScriptPackage &package,
 
     JsStagedPackageRecord candidate;
     candidate.identity = result.identity_result.identity;
+    candidate.audit = options.audit;
     candidate.package = package;
 
     const auto existing =

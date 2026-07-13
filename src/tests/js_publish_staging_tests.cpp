@@ -178,6 +178,7 @@ TEST(JsPublishStaging, ReportsExactStagedPackageStatusWithoutSourceBody)
     EXPECT_EQ(record.identity.canonical_format_version,
         result.status.canonical_format_version);
     EXPECT_EQ(record.identity.package_format_version, result.status.package_format_version);
+    EXPECT_EQ(record.audit.staged_at_epoch_seconds, result.status.staged_at_epoch_seconds);
     EXPECT_EQ(record.identity.base_live_checksum, result.status.base_live_checksum);
     EXPECT_EQ(record.identity.manifest_checksum, result.status.manifest_checksum);
     EXPECT_EQ(record.identity.compiled_javascript_checksum,

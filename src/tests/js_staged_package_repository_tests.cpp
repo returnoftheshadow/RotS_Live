@@ -39,6 +39,20 @@ make_identity_options(const std::string &base_live_checksum = "live:old") {
     return options;
 }
 
+JsStagedPackageStageOptions make_stage_options(const std::string &base_live_checksum = "live:old") {
+    JsStagedPackageStageOptions options;
+    options.identity_options = make_identity_options(base_live_checksum);
+    options.audit.staged_at_epoch_seconds = 123456;
+    options.audit.request_id = "request:stage-1";
+    options.audit.actor_id = "actor:42";
+    options.audit.permission_snapshot_id = "permission:snapshot-1";
+    options.audit.audit_id = "audit:stage-1";
+    options.audit.source_policy_decision = "source-policy:accepted";
+    options.audit.validation_report_digest = "validation:sha256:abc";
+    options.audit.transport_source_identifier = "transport:tls";
+    return options;
+}
+
 bool has_code(const JsStagedPackageStageResult &result,
               JsStagedPackageRepositoryDiagnosticCode code) {
     return std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
@@ -132,6 +146,24 @@ TEST(JsStagedPackageRepository, StagesValidatedPackageIdentity) {
     EXPECT_EQ(package.compiled_javascript, result.record.package.compiled_javascript);
 }
 
+TEST(JsStagedPackageRepository, StagesAuditMetadataWithValidatedPackage) {
+    JsStagedPackageRepository repository;
+    JsStagedPackageStageOptions options = make_stage_options();
+
+    JsStagedPackageStageResult result = repository.stage_package(make_package(), options);
+
+    ASSERT_TRUE(result.ok);
+    EXPECT_TRUE(result.inserted);
+    EXPECT_EQ(123456, result.record.audit.staged_at_epoch_seconds);
+    EXPECT_EQ("request:stage-1", result.record.audit.request_id);
+    EXPECT_EQ("actor:42", result.record.audit.actor_id);
+    EXPECT_EQ("permission:snapshot-1", result.record.audit.permission_snapshot_id);
+    EXPECT_EQ("audit:stage-1", result.record.audit.audit_id);
+    EXPECT_EQ("source-policy:accepted", result.record.audit.source_policy_decision);
+    EXPECT_EQ("validation:sha256:abc", result.record.audit.validation_report_digest);
+    EXPECT_EQ("transport:tls", result.record.audit.transport_source_identifier);
+}
+
 TEST(JsStagedPackageRepository, RepeatedStageOfSameVersionIsIdempotent) {
     JsStagedPackageRepository repository;
     JsScriptPackage package = make_package();
@@ -148,6 +180,40 @@ TEST(JsStagedPackageRepository, RepeatedStageOfSameVersionIsIdempotent) {
     EXPECT_EQ(first.record.identity.package_version_id, second.record.identity.package_version_id);
 }
 
+TEST(JsStagedPackageRepository, RepeatedStageWithSameAuditMetadataIsIdempotent) {
+    JsStagedPackageRepository repository;
+    JsScriptPackage package = make_package();
+    JsStagedPackageStageOptions options = make_stage_options();
+
+    JsStagedPackageStageResult first = repository.stage_package(package, options);
+    JsStagedPackageStageResult second = repository.stage_package(package, options);
+
+    ASSERT_TRUE(first.ok);
+    ASSERT_TRUE(second.ok);
+    EXPECT_TRUE(second.idempotent);
+    EXPECT_EQ("request:stage-1", second.record.audit.request_id);
+    EXPECT_EQ("audit:stage-1", second.record.audit.audit_id);
+    EXPECT_EQ(1u, repository.size());
+}
+
+TEST(JsStagedPackageRepository, RejectsRepeatedStageWithChangedAuditMetadata) {
+    JsStagedPackageRepository repository;
+    JsScriptPackage package = make_package();
+    JsStagedPackageStageOptions first_options = make_stage_options();
+    JsStagedPackageStageOptions second_options = make_stage_options();
+    second_options.audit.request_id = "request:stage-2";
+    second_options.audit.audit_id = "audit:stage-2";
+
+    JsStagedPackageStageResult first = repository.stage_package(package, first_options);
+    JsStagedPackageStageResult second = repository.stage_package(package, second_options);
+
+    ASSERT_TRUE(first.ok);
+    EXPECT_FALSE(second.ok);
+    EXPECT_TRUE(
+        has_code(second, JsStagedPackageRepositoryDiagnosticCode::DuplicateVersionConflict));
+    EXPECT_EQ(1u, repository.size());
+}
+
 TEST(JsStagedPackageRepository, StoresImmutableCopyOfPackageAndIdentity) {
     JsStagedPackageRepository repository;
     JsScriptPackage package = make_package();
@@ -156,6 +222,7 @@ TEST(JsStagedPackageRepository, StoresImmutableCopyOfPackageAndIdentity) {
 
     package.compiled_javascript = "function onEnter(ctx) { return false; }";
     staged.record.package.compiled_javascript = "mutated copy";
+    staged.record.audit.audit_id = "mutated audit";
 
     JsStagedPackageLookupResult lookup = repository.find_by_version(
         staged.record.identity.package_id, staged.record.identity.package_version_id);
@@ -164,6 +231,90 @@ TEST(JsStagedPackageRepository, StoresImmutableCopyOfPackageAndIdentity) {
     EXPECT_NE(package.compiled_javascript, lookup.record.package.compiled_javascript);
     EXPECT_NE(staged.record.package.compiled_javascript, lookup.record.package.compiled_javascript);
     EXPECT_EQ("function onEnter(ctx) { return true; }", lookup.record.package.compiled_javascript);
+    EXPECT_NE("mutated audit", lookup.record.audit.audit_id);
+}
+
+TEST(JsStagedPackageRepository, RejectsMissingRequiredAuditMetadata) {
+    JsStagedPackageRepository repository;
+    JsStagedPackageStageOptions options = make_stage_options();
+    options.audit.request_id.clear();
+
+    JsStagedPackageStageResult result = repository.stage_package(make_package(), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsStagedPackageRepositoryDiagnosticCode::InvalidRequest));
+    EXPECT_TRUE(repository.empty());
+}
+
+TEST(JsStagedPackageRepository, RejectsWhitespaceOnlyRequiredAuditMetadata) {
+    JsStagedPackageRepository repository;
+    JsStagedPackageStageOptions options = make_stage_options();
+    options.audit.permission_snapshot_id = " \t\n";
+
+    JsStagedPackageStageResult result = repository.stage_package(make_package(), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsStagedPackageRepositoryDiagnosticCode::InvalidRequest));
+    EXPECT_TRUE(repository.empty());
+}
+
+TEST(JsStagedPackageRepository, RejectsUnsafeAuditMetadataText) {
+    JsStagedPackageRepository repository;
+    JsStagedPackageStageOptions options = make_stage_options();
+    options.audit.audit_id = "audit/path";
+
+    JsStagedPackageStageResult result = repository.stage_package(make_package(), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsStagedPackageRepositoryDiagnosticCode::InvalidRequest));
+    EXPECT_TRUE(repository.empty());
+}
+
+TEST(JsStagedPackageRepository, AllowsAuditMetadataAtMaximumFieldLength) {
+    JsStagedPackageRepository repository;
+    JsStagedPackageStageOptions options = make_stage_options();
+    options.audit.permission_snapshot_id.assign(160, 'p');
+
+    JsStagedPackageStageResult result = repository.stage_package(make_package(), options);
+
+    ASSERT_TRUE(result.ok);
+    EXPECT_EQ(160u, result.record.audit.permission_snapshot_id.size());
+}
+
+TEST(JsStagedPackageRepository, RejectsOverlongAuditMetadataText) {
+    JsStagedPackageRepository repository;
+    JsStagedPackageStageOptions options = make_stage_options();
+    options.audit.permission_snapshot_id.assign(161, 'p');
+
+    JsStagedPackageStageResult result = repository.stage_package(make_package(), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsStagedPackageRepositoryDiagnosticCode::InvalidRequest));
+    EXPECT_TRUE(repository.empty());
+}
+
+TEST(JsStagedPackageRepository, RejectsMissingAuditTimestamp) {
+    JsStagedPackageRepository repository;
+    JsStagedPackageStageOptions options = make_stage_options();
+    options.audit.staged_at_epoch_seconds = 0;
+
+    JsStagedPackageStageResult result = repository.stage_package(make_package(), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsStagedPackageRepositoryDiagnosticCode::InvalidRequest));
+    EXPECT_TRUE(repository.empty());
+}
+
+TEST(JsStagedPackageRepository, RejectsNegativeAuditTimestamp) {
+    JsStagedPackageRepository repository;
+    JsStagedPackageStageOptions options = make_stage_options();
+    options.audit.staged_at_epoch_seconds = -1;
+
+    JsStagedPackageStageResult result = repository.stage_package(make_package(), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsStagedPackageRepositoryDiagnosticCode::InvalidRequest));
+    EXPECT_TRUE(repository.empty());
 }
 
 TEST(JsStagedPackageRepository, StagesMultipleImmutableVersionsForSamePackage) {
