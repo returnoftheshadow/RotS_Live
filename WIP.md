@@ -1,8 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added an in-memory staged package repository/service that stores immutable validated package identities for later activate/rollback preflight, still without live activation.
-- Next slice: connect staged repository lookups to publish authorization request assembly/status metadata while keeping package activation disabled.
+- Active slice complete: connected staged repository lookups to publish authorization request assembly/status metadata while keeping package activation disabled.
+- Next slice: add persistence/audit metadata for staged package records while preserving disabled live activation.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -135,6 +135,12 @@
     - Preflight now fails closed without verified server-derived token claims, explicit server audience/workspace, authorization clock, matching transport/token audience, matching package authority zone/vnum/host/package id, base live checksum for stage, server-loaded staged record for activation/rollback, and manifest checksum binding for activation/rollback.
     - Live mutation remains opt-in through `allow_mutating_operations`, and tests prove all mutating operations report `publishing-disabled` by default while read-only operations remain non-mutating.
     - Added `src/tests/js_publish_authorization_tests.cpp` with focused coverage for scope separation, wrong-scope rejection, disabled mutation, package metadata mismatches, base/current live checksum conflicts, staged-record preconditions, source-view ownership/admin separation, rollback ownership, transport downgrade/redirect/wrong-server rejection, token lifecycle failures, workspace mismatch, generic rate-limit diagnostics, redacted diagnostic identifiers, public status strings, and build wiring.
+  - Staged publish assembly slice artifact added:
+    - Added `src/js_publish_staging.{h,cpp}` to expose metadata-only staged package status helpers and assemble activate/rollback publish preflight requests from server-owned staged repository records without exposing source bytes or mutating live package state.
+    - Assembly now uses repository identity metadata for package id, package version id, staged digest, manifest checksum, host, zone, and vnum; requires current live checksum before staged mutations; and runs publish authorization preflight immediately so callers receive an explicit authorization result separate from assembly success.
+    - Status helpers are documented as internal post-authorization metadata helpers until a caller/owner/workspace endpoint boundary is implemented.
+    - Added `src/tests/js_publish_staging_tests.cpp` with focused coverage for exact/latest status metadata, source redaction, whitespace/missing lookups, disabled activation by default, explicit mutation-gate preflight success, cross-builder activation rejection, expected/current live checksum conflicts, rollback-own and rollback-any authority, option propagation, diagnostic names, and build wiring.
+    - Reviewer follow-up addressed: Magus's missing-current-live-checksum finding now fails assembly, Vincent's integration-boundary concerns led to explicit post-auth status documentation and separate assembly/preflight result state, and Bazarat's test gaps added full status-field assertions plus rollback-any/option/whitespace coverage.
   - Documentation generation planning slice artifact added:
     - `FEATURES.md` now defines manifest-driven documentation generation as a deterministic server-owned artifact set covering markdown API docs, TypeScript doc comments, hover/help JSON, in-game help source, CLI reference output, diagnostics, examples, compatibility summaries, coverage reports, and release-note metadata.
     - Required documentation fields now include stable documentation ids, anchors, support/publishability status, host eligibility, trigger kind/value, context-field type/nullability/liveness metadata, return semantics, permissions, side effects, resource budgets, diagnostics, examples, and unsupported/deferred reason codes.
@@ -267,6 +273,11 @@
   - [x] Publish preflight slice: wire `js_publish_authorization` into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
   - [x] Publish preflight slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
   - [x] Publish preflight slice: validate with focused publish authorization tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
+  - [x] Staged publish assembly slice: connect staged repository lookup metadata to activate/rollback publish request assembly and status metadata without enabling live activation.
+  - [x] Staged publish assembly slice: require current live checksum, run preflight during assembly, document status helpers as internal post-authorization metadata helpers, and keep source-bearing staged records out of public results.
+  - [x] Staged publish assembly slice: add focused tests for status metadata, source redaction, missing/whitespace inputs, disabled activation, explicit mutation-gate preflight, cross-builder activation, rollback-own/rollback-any authority, option propagation, current-live conflicts, and build wiring.
+  - [x] Staged publish assembly slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
+  - [x] Staged publish assembly slice: validate with focused staging tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
