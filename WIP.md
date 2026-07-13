@@ -1,7 +1,7 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added a strict JavaScript package bundle loader that reads server-owned compiled package JSON from disk into `JsScriptPackage` objects and can atomically replace the registry through the existing validator, without enabling builder publishing or wiring live gameplay trigger call sites.
+- Active slice complete: added a JavaScript package reload service that wraps the package bundle loader with a canonical server-owned package root, rejects unsafe paths/symlinks, preserves the active registry on reload failure, and exposes reload diagnostics without enabling builder publishing or wiring live gameplay trigger call sites.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -100,6 +100,24 @@
     - This slice did not enable publish mode, builder upload, filesystem watching, or live trigger call-site wiring.
     - Added `src/tests/js_script_package_loader_tests.cpp` with focused coverage for valid bundle parsing, malformed/missing/wrong-typed fields, unknown and duplicate fields, host/kind parsing, file and string limits, package/binding count limits, atomic registry replacement, validation-result clearing, empty-bundle policy, diagnostic redaction/bounding, current Unicode escape behavior, and raw/CMake Makefile wiring.
     - `Magus`, `Vincent`, and `Bazarat` completed final review with no remaining blocking findings.
+  - Current reload service slice scope:
+    - Add a server-side JavaScript package service that owns a `JsScriptPackageRegistry` and loads one bundle from a configured package root through the package parser and registry validator.
+    - Canonicalize the package root and requested bundle path, reject empty paths, absolute request paths, `..` traversal, directories, missing files, symlinks, and files outside the configured root.
+    - Keep the low-level loader as a trusted-path primitive; put user/admin-facing path boundary checks in the service wrapper before any future reload command can call it.
+    - Preserve the active registry snapshot and last successful bundle path/count on failed reloads, including path failures, parse failures, and validation failures.
+    - Return bounded diagnostics for path/reload failures without exposing full source text or uncontrolled absolute local paths.
+    - Keep publish mode, builder upload, filesystem watching, and live trigger call-site wiring out of this slice.
+    - Add focused tests for root creation, canonical path rejection, symlink rejection, missing/directory files, successful reload, failed reload rollback, empty bundle policy, legacy-vnum conflict rollback, diagnostic bounding, registry lookup through the service, and build wiring.
+    - Review the implementation with `Magus`, `Vincent`, and `Bazarat` before final validation and commit.
+  - Reload service slice artifact added:
+    - Added `src/js_script_package_reload_service.{h,cpp}` as a server-owned service that owns a `JsScriptPackageRegistry`, canonicalizes a configured package root, securely reads one relative bundle path, parses it in memory, and replaces the registry only through existing registry validation.
+    - Request paths now fail closed before loading when empty, absolute, traversal-based, missing, directories, symlinks in any path component, non-regular files, or outside the canonical root.
+    - Root creation is explicit through `create_package_root`; missing roots remain invalid by default, and existing intermediate root components must be real non-symlink directories.
+    - Bundle reading uses an `openat` walk from the canonical root with `O_DIRECTORY`/`O_NOFOLLOW` on the root and intermediate directories, plus `O_NOFOLLOW` on the final bundle file before `fstat`/read/parse.
+    - Failed path checks, parse failures, validation failures, empty-bundle rejection, and legacy-vnum conflicts preserve the active registry plus the last successful request path/package count.
+    - Service diagnostics are bounded and single-line, and path diagnostics avoid source text and uncontrolled absolute local paths.
+    - Added `src/tests/js_script_package_reload_service_tests.cpp` with focused coverage for successful load/lookups, unsafe path rejection, symlink rejection, missing/directory handling, invalid/missing roots, explicit root creation, symlinked intermediate root rejection, post-construction root symlink swaps, parse/validation/file-size rollback, empty-bundle policy, legacy-vnum conflict rollback, status strings, diagnostic bounding, and build wiring.
+    - Magus, Vincent, and Bazarat reviewed the slice; Magus findings led to non-symlink root-creation checks and the `openat` descriptor walk, Vincent findings led to `O_NOFOLLOW` on the root fd and a root-swap regression, and Bazarat findings led to service-owned file-size rollback coverage before final validation.
   - Live game adapter slice artifact added: `src/tests/js_game_adapter_tests.cpp` covers approved-field snapshots, player/mobile vnum behavior, fail-closed liveness defaults, stale pointer rejection, object/room/zone snapshots, invalid room/zone bounds, partial context construction, copied/bounded strings, unresolved metadata, relationship pointer non-use, rejection sentinel preservation, and ids that avoid pointer-looking/internal type text.
   - Previous adapter slice scope:
     - Add `js_game_adapter` as a read-only mapper from real game structs into `JsGameTriggerContextFixture`.
@@ -193,6 +211,12 @@
   - [x] Package loader slice: add focused tests for valid parsing, malformed schemas, rollback, validation failures, diagnostics, limits, and build wiring.
   - [x] Package loader slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
   - [x] Package loader slice: validate with focused loader tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
+  - [x] Reload service slice: add a JavaScript package service that owns a registry and reloads one bundle from a canonical server-owned root.
+  - [x] Reload service slice: reject unsafe paths, traversal, symlinks, directories, missing files, and out-of-root canonical paths before securely reading and parsing bundle JSON.
+  - [x] Reload service slice: preserve the active registry and last successful metadata on path, parse, and validation failures.
+  - [x] Reload service slice: add focused tests for path trust boundaries, successful reload, rollback, empty-bundle policy, diagnostics, lookups, and build wiring.
+  - [x] Reload service slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
+  - [x] Reload service slice: validate with focused service tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [ ] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [ ] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
@@ -258,6 +282,11 @@
   - Raw `make -C src/tests js_script_package_loader.o js_script_package_loader_tests.o` passed after wiring the loader tests into the raw test Makefile path.
   - `make test` passed at `719/719` tests after the package loader slice.
   - `git diff --check` passed after the package loader slice.
+  - Focused `bin/tests '--gtest_filter=JsScriptPackageReloadService.*'` passed at `14/14` tests after reviewer-driven reload service hardening.
+  - Raw `make -C src js_script_package_reload_service.o` passed after wiring the reload service into the server Makefile path.
+  - Raw `make -C src/tests js_script_package_reload_service.o js_script_package_reload_service_tests.o` passed after wiring the reload service tests into the raw test Makefile path.
+  - `make test` passed at `733/733` tests after the reload service slice.
+  - `git diff --check` passed after the reload service slice.
 - Reviewer status:
   - `Magus`: reviewed; findings incorporated into `FEATURES.md` around room support accuracy, trigger matrix/ordering, say/yell compatibility, wait/continuation policy, script registry/cache ownership, deny-by-default API shape, and exact legacy call-site regressions.
   - `Vincent`: reviewed; findings incorporated into `FEATURES.md` around deny-by-default host APIs, resource and recursion budgets, opaque non-persistent handles, JS-specific sandbox escape surfaces, reload path trust boundaries, dependency pinning/supply-chain controls, redacted diagnostics, and security acceptance tests.
