@@ -9,6 +9,7 @@ struct JsGameCharacterFixture {
     std::string id;
     std::string name;
     std::string race;
+    int vnum = -1;
     int level = 0;
     int hit_points = 0;
     int max_hit_points = 0;

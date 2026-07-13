@@ -67,7 +67,7 @@ constexpr JsApiMember GameObjectMembers[] = {
     { "id", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
         JsApiMemberStatus::PlannedReadOnly, "read-only",
         "Stable invocation-local object handle id for diagnostics and offline fixtures." },
-    { "vnum", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+    { "vnum", JsApiMemberKind::Property, "number | null", "", true, true, JsApiSideEffect::None,
         JsApiMemberStatus::PlannedReadOnly, "read-only", "Object prototype vnum." },
     { "name", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
         JsApiMemberStatus::PlannedReadOnly, "read-only", "Object display name." },

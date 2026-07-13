@@ -1,7 +1,7 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice in progress: add a minimal JavaScript game-context execution harness and tests so scripts can run against controlled, read-only fixture data for characters, objects, rooms, and triggers before live C++ game dispatch or mutable APIs exist.
+- Active slice complete: added read-only live game-struct adapters that snapshot real `char_data`, `obj_data`, room, and zone data into the existing JavaScript game context fixture shape without retaining pointers, executing scripts, or wiring trigger dispatch.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -65,6 +65,18 @@
   - Game-context execution slice artifact added: context objects are converted to null-prototype objects before freezing, `Object.prototype` and the active function prototype are hardened for the invocation, wrapper-breakout-looking bodies are rejected before evaluation, non-ASCII fixture bytes are escaped in generated JavaScript string literals, and game-runtime error diagnostics are bounded/redacted to avoid leaking thrown actor text.
   - Game-context execution slice artifact added: `src/tests/js_game_runtime_tests.cpp` covers read-only context access, allow/block/undefined/object return normalization, wrapper breakout rejection, mutation rejection, prototype pollution attempts, optional/null handles, fixture string escaping, inherited runtime limits, per-call state isolation, no raw pointer/process/constructor surfaces, thrown text redaction, and stable context literal shape.
   - Game-context execution slice limitation: this remains fixture-backed source wrapping, not the final live QuickJS host-binding design. Before live trigger dispatch, `ctx` should be injected through the QuickJS C API or equivalent host-created values, and the fixture field schema should be derived from or checked against `js_api_contract` to prevent drift.
+  - Live game adapter slice artifact added: `src/js_game_adapter.{h,cpp}` maps real `char_data`, `obj_data`, room, and zone data into the read-only `JsGameTriggerContextFixture` shape without executing JavaScript, dispatching triggers, retaining pointers, or exposing mutation/output helpers.
+  - Live game adapter slice artifact added: `JsGameAdapterOptions` supplies explicit active character/object pointer sets, world bounds/count, mobile/object index tables, zone table metadata, and race names so tests can run without booting the world and later live dispatch can provide authoritative liveness data. Missing liveness tables now fail closed.
+  - Live game adapter slice artifact added: adapter ids are invocation-local role labels in assembled contexts and do not include player idnums, mob abs numbers, object owners, touched state, or pointer-looking values. Standalone unresolved ids use non-authoritative labels such as `mob:unresolved` and `object:unresolved`.
+  - Live game adapter slice artifact added: adapter string copies are bounded, unresolved object vnums are nullable in the public API contract/runtime literal, and object relationship pointers are not dereferenced by the object snapshot path.
+  - Live game adapter slice artifact added: `src/tests/js_game_adapter_tests.cpp` covers approved-field snapshots, player/mobile vnum behavior, fail-closed liveness defaults, stale pointer rejection, object/room/zone snapshots, invalid room/zone bounds, partial context construction, copied/bounded strings, unresolved metadata, relationship pointer non-use, rejection sentinel preservation, and ids that avoid pointer-looking/internal type text.
+  - Current adapter slice scope:
+    - Add `js_game_adapter` as a read-only mapper from real game structs into `JsGameTriggerContextFixture`.
+    - Keep liveness checks explicit and table-driven so unit tests can run without booting the full world and live dispatch can later supply real active pointer sets.
+    - Snapshot approved public fields only: opaque ids, display names, race name, level, hit points, object vnum/name, room vnum/name, zone vnum/name, trigger metadata, and optional text.
+    - Do not expose raw pointers, retain live handles, call QuickJS, load packages, mutate world state, or dispatch triggers in this slice.
+    - Add unit tests proving null/stale pointers are omitted, room/zone bounds are respected, object/character vnums are resolved only from supplied index tables, strings are copied not aliased, and generated ids do not contain pointer-looking values.
+    - Wire the adapter and tests into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
   - Previous execution-test slice scope:
     - Add a fixture-backed game script runner that wraps `js_runtime` and injects a deeply frozen `ctx` object with opaque ids plus read-only character/player/mob/object/room/zone/trigger fields.
     - Keep the runner disconnected from live world state, script registry dispatch, filesystem loading, and mutation/output helpers.
@@ -128,6 +140,12 @@
   - [x] Game-context execution slice: wire the runner into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
   - [x] Game-context execution slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
   - [x] Game-context execution slice: validate with focused JavaScript game-context tests, `make test`, raw test build path, raw server build path, and `git diff --check`.
+  - [x] Live game adapter slice: add read-only `js_game_adapter` mapping from real `char_data`, `obj_data`, `room_data`, and `zone_data` to JavaScript context fixtures.
+  - [x] Live game adapter slice: add explicit liveness/options model for active character/object pointers, world bounds, object/mobile index tables, and zone table metadata.
+  - [x] Live game adapter slice: add tests for approved-field snapshots, null/stale pointer handling, room/zone bounds, vnum resolution, copied strings, no raw pointer/id leakage, and no runtime/dispatch side effects.
+  - [x] Live game adapter slice: wire the adapter into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
+  - [x] Live game adapter slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
+  - [x] Live game adapter slice: validate with focused JavaScript adapter tests, `make test`, raw test build path, raw server build path, `git diff --check`, and commit the completed slice under the configured git identity.
   - [ ] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [ ] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
   - [ ] Client planning gate before implementation: define CLI-first project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
@@ -170,6 +188,11 @@
   - Raw `make -C src/tests tests` linked successfully and the raw-built focused JavaScript test set passed at `76/76`.
   - Raw `make -C src ageland` passed after adding `js_game_runtime.o`.
   - `git diff --check` passed after the game-context execution slice.
+  - Focused `./bin/tests '--gtest_filter=JsGameAdapter.*:JsGameRuntime.*:JsApiContract.*'` passed at `38/38` tests after reviewer-driven live adapter hardening.
+  - `make test` passed at `678/678` tests after the live game adapter slice.
+  - Raw `make -C src/tests clean tests` rebuilt successfully after adding explicit JavaScript test header dependencies, and the raw-built focused JavaScript test set passed at `90/90`.
+  - Raw `make -C src ageland` passed after adding `js_game_adapter.o`.
+  - `git diff --check` passed after the live game adapter slice.
 - Reviewer status:
   - `Magus`: reviewed; findings incorporated into `FEATURES.md` around room support accuracy, trigger matrix/ordering, say/yell compatibility, wait/continuation policy, script registry/cache ownership, deny-by-default API shape, and exact legacy call-site regressions.
   - `Vincent`: reviewed; findings incorporated into `FEATURES.md` around deny-by-default host APIs, resource and recursion budgets, opaque non-persistent handles, JS-specific sandbox escape surfaces, reload path trust boundaries, dependency pinning/supply-chain controls, redacted diagnostics, and security acceptance tests.
@@ -198,6 +221,9 @@
   - `Magus` game-context execution review: requested null-prototype context objects, prototype-pollution coverage, stronger string encoding, broader freeze tests, future API-contract alignment, and WIP checklist updates; addressed with null-prototype deep freeze, non-ASCII byte escaping, mutation/prototype tests, and this WIP update. Contract-derived fixture schemas remain deferred to the API/types generator slice.
   - `Vincent` game-context execution review: requested prototype hardening, clear warning against relying on textual wrapping for live host binding, diagnostics that do not leak actor text, and hostile byte/string coverage; addressed with prototype hardening, wrapper breakout rejection tests, diagnostic redaction, and expanded escaping tests. QuickJS C-API value injection remains required before live host binding.
   - `Bazarat` game-context execution review: requested adversarial tests for wrapper breakout, constructor-chain escape attempts, broader freeze/mutation behavior, fixture-field escaping, state isolation, missing handles, and wrapper-level return semantics; addressed in `src/tests/js_game_runtime_tests.cpp`.
+  - `Magus` live adapter review: requested fail-closed liveness defaults, nullable unresolved object vnums or omitted handles, and invocation-local ids that do not include internal gameplay fields; addressed with required live pointer tables, nullable `GameObject.vnum`, context role ids, and non-authoritative unresolved labels.
+  - `Vincent` live adapter review: requested fail-closed liveness, removal of internal identifiers from ids, bounded C-string/text copies, and a safer room count model; addressed with membership-required live tables, role ids, bounded copies, and `world_count` support.
+  - `Bazarat` live adapter review: requested tests for missing liveness tables, internal id leakage, object relationship states, invalid room-zone metadata, unresolved index fallback, rejection sentinel preservation, and adapter purity; addressed with expanded adapter tests. Adapter purity remains architectural in this slice: the module has no runtime/registry/dispatch dependency and only snapshots data.
 
 ## Current Feature Planning Task - MSDP Unit Test Coverage
 - Active implementation slice complete: `msdp_update()` game-state emitter coverage now includes descriptor safety, broad character stat emission, weather branches, and opponent branches.

@@ -59,6 +59,12 @@ std::string character_literal(const JsGameCharacterFixture &character)
         << "\"id\":" << js_quote(character.id) << ","
         << "\"name\":" << js_quote(character.name) << ","
         << "\"race\":" << js_quote(character.race) << ","
+        << "\"vnum\":";
+    if (character.vnum >= 0)
+        out << character.vnum;
+    else
+        out << "null";
+    out << ","
         << "\"level\":" << character.level << ","
         << "\"hitPoints\":" << character.hit_points << ","
         << "\"maxHitPoints\":" << character.max_hit_points << ","
@@ -73,7 +79,12 @@ std::string object_literal(const JsGameObjectFixture &object)
     out << "{"
         << "\"id\":" << js_quote(object.id) << ","
         << "\"name\":" << js_quote(object.name) << ","
-        << "\"vnum\":" << object.vnum << "}";
+        << "\"vnum\":";
+    if (object.vnum >= 0)
+        out << object.vnum;
+    else
+        out << "null";
+    out << "}";
     return out.str();
 }
 
