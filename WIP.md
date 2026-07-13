@@ -1,7 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: defined the Electron/client manifest compatibility gate for the JavaScript scripting engine, including the server-owned API/trigger manifest schema, compatibility rules, checksum/versioning policy, generated TypeScript package versioning, and CI drift checks before Electron implementation begins.
+- Active slice complete: defined documentation generation from the JavaScript API/trigger manifest, including required documentation fields for every public entry, example validation, in-game help generation, stale-documentation CI failure behavior, version-locking, artifact coverage, and safety checks before Electron implementation begins.
+- Next slice: define the CLI-first JavaScript builder workflow, including project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -118,6 +119,15 @@
     - Service diagnostics are bounded and single-line, and path diagnostics avoid source text and uncontrolled absolute local paths.
     - Added `src/tests/js_script_package_reload_service_tests.cpp` with focused coverage for successful load/lookups, unsafe path rejection, symlink rejection, missing/directory handling, invalid/missing roots, explicit root creation, symlinked intermediate root rejection, post-construction root symlink swaps, parse/validation/file-size rollback, empty-bundle policy, legacy-vnum conflict rollback, status strings, diagnostic bounding, and build wiring.
     - Magus, Vincent, and Bazarat reviewed the slice; Magus findings led to non-symlink root-creation checks and the `openat` descriptor walk, Vincent findings led to `O_NOFOLLOW` on the root fd and a root-swap regression, and Bazarat findings led to service-owned file-size rollback coverage before final validation.
+  - Documentation generation planning slice artifact added:
+    - `FEATURES.md` now defines manifest-driven documentation generation as a deterministic server-owned artifact set covering markdown API docs, TypeScript doc comments, hover/help JSON, in-game help source, CLI reference output, diagnostics, examples, compatibility summaries, coverage reports, and release-note metadata.
+    - Required documentation fields now include stable documentation ids, anchors, support/publishability status, host eligibility, trigger kind/value, context-field type/nullability/liveness metadata, return semantics, permissions, side effects, resource budgets, diagnostics, examples, and unsupported/deferred reason codes.
+    - Example validation requirements now distinguish typecheck-only, offline-run, negative-typecheck, negative-validate, and documentation-only examples, with fixture schema versions, expected return/diagnostic/output assertions, and stable reason-code checks.
+    - In-game help generation now has explicit generated-topic requirements, checksum/version metadata, staff-visible stale-help identification, unsupported/deferred visibility rules, and sensitive-data exclusions.
+    - Documentation drift gates now require `make js-docs`, `make js-docs-check`, and CMake equivalents to catch stale markdown, TypeScript comments, hover docs, in-game help, CLI reference output, diagnostic catalog, example index, compatibility summary, release-note metadata, and docs-only checksum changes.
+    - Documentation trust boundaries now require authenticated server provenance for downloaded docs/manifests, non-authoritative cached/offline docs, bounded/redacted diagnostics, and synthetic fixture/example data with no secrets or production-like private text.
+    - Acceptance tests must table-drive docs coverage and stale-artifact failures across every trigger, ASIMA/Mudlle call flag, API type/member, context field, enum/literal domain, diagnostic code, resource limit, fixture field, and publish workflow state.
+    - Reviewer concerns recorded for this planning slice: Magus focus on complete artifact ownership and build-path parity, Vincent focus on provenance/redaction/non-authoritative docs metadata, and Bazarat focus on stale-doc scenarios, weak example assertions, in-game help drift, and exact artifact diagnostics.
   - Client manifest compatibility planning slice artifact added:
     - Expanded `FEATURES.md` with a concrete server-owned builder manifest contract covering deterministic serialization, exact metadata fields, structured trigger context metadata, per-trigger and per-API entries, compatibility ranges, and checksum separation.
     - Added manifest provenance/authenticity requirements for authenticated server downloads, cache provenance labels, optional signature/MAC support for shared offline manifests, and server-side checksum recomputation authority.
@@ -227,7 +237,7 @@
   - [x] Reload service slice: validate with focused service tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
-  - [ ] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
+  - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
   - [ ] Client planning gate before implementation: define CLI-first project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
   - [ ] Client planning gate before implementation: define package integrity model with server-computed canonical digest, immutable package/version id, manifest checksum, base live checksum, replay protection, and activation by exact staged digest.
   - [ ] Client planning gate before implementation: define publish authentication/authorization with scoped short-lived credentials, transport security, separate stage/activate/rollback/source-view permissions, revocation, rate limiting, and audit ids.

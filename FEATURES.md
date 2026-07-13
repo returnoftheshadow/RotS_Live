@@ -261,6 +261,15 @@ Minimal JavaScript API v1:
 Builder-facing JavaScript API documentation:
 - Treat API documentation as a required deliverable for every JavaScript scripting slice, not as optional release polish.
 - Generate or version-lock the public documentation from the same server-owned API/trigger manifest and TypeScript definition source used by the Electron client so docs, typings, and runtime allowlists cannot drift silently.
+- Documentation generation must be manifest-driven and deterministic:
+  - source all public documentation from the server-owned trigger manifest, API contract metadata, package/runtime metadata, fixture schema metadata, diagnostic catalog, and generated TypeScript declarations
+  - do not maintain separate hand-authored reference tables for trigger names, handler signatures, API members, support status, permissions, side effects, resource limits, or diagnostic codes
+  - every generated documentation section must declare its source metadata owner: `js_scripting_manifest`, `js_api_contract`, manifest/export metadata, diagnostic catalog, fixture schema metadata, package/runtime metadata, or generated TypeScript declarations
+  - hand-authored prose is allowed only for named migration and operational guide files; those files must have separate documentation checksums and cannot define API/trigger facts
+  - emit checked-in generated artifacts for long-form markdown, compact hover text, in-game help source, CLI reference output, example index, diagnostic catalog, and documentation coverage reports
+  - generated docs artifacts should use explicit paths such as `lib/text/generated/js/docs/api.md`, `lib/text/generated/js/docs/hover.json`, `lib/text/generated/js/docs/cli-reference.json`, `lib/text/generated/js/docs/diagnostics.json`, `lib/text/generated/js/docs/examples.json`, and `lib/text/generated/js/docs/coverage.json`
+  - include `validation_manifest_checksum`, `api_contract_checksum`, `trigger_manifest_checksum`, `typings_checksum`, `documentation_checksum`, `fixture_schema_checksum`, generator version, and generated-at server build/revision metadata in every generated documentation artifact header
+  - sort generated sections by stable manifest ids, not display names, so diffs remain reviewable and deterministic
 - Documentation should cover every exposed public API item:
   - global script helpers and namespace layout
   - trigger function names, host eligibility, blocking behavior, context fields, and return semantics
@@ -269,12 +278,31 @@ Builder-facing JavaScript API documentation:
   - handle liveness rules, invalid-handle behavior, null/absent context fields, extraction behavior, and cross-invocation lifetime rules
   - output/action helpers, what they emit, who can see the output, whether they can trigger other scripts, and what limits apply
   - unsupported APIs and deliberately absent capabilities so builders do not infer that raw server commands, filesystem access, network access, timers, persistence, dynamic imports, or direct pointer/state mutation are available
+- Required documentation fields for each public trigger entry:
+  - stable trigger id, legacy kind/value, JavaScript handler name, host eligibility, publishability, support status, blocking/handled return semantics, dispatch ordering, exception/fail-open/fail-closed policy, context fields with TypeScript types and nullability, required permissions, resource-budget category, offline runner support, fixture requirements, example ids, and stable diagnostic codes
+- Required documentation fields for each public API type/member:
+  - stable type/member id, display name, TypeScript declaration, parameters, return type, nullability, liveness requirement, side-effect category, permission status, support status, resource-budget impact, possible diagnostics, safe usage notes, unsupported alternatives if relevant, example ids, and generated hover summary
+- Required documentation fields must be structured and individually validated, not just non-empty prose:
+  - each entry needs summary, lifecycle/liveness notes, nullability rules, side-effect description, permission requirement, return semantics, diagnostic code links, example links, related trigger/API links, support status, and unsupported/deferred reason when applicable
+  - structured context fields must render with field id, role, TypeScript type, nullability, liveness requirement, host availability, support status, and documentation id; prose-only context strings are not sufficient source data
+- Required documentation fields for diagnostics and limits:
+  - stable diagnostic code, severity, whether it can appear during typecheck/offline run/package/stage/activation/live execution, sanitized message template, remediation guidance, redaction policy, and linked examples
+  - memory, runtime/instruction, stack, output/action, recursion, package-size, source-size, and fixture-size limits with enforcement phase and failure behavior
 - Documentation should include builder-oriented examples for each supported trigger:
   - minimal allow/block examples
   - read-only inspection examples
   - allowed output/action examples
   - examples showing how to handle missing actors, objects, rooms, and invalid handles
   - examples for local fixture tests and expected assertions in the offline runner
+- Example validation requirements:
+  - every example must have a manifest-linked example id, supported host type, trigger binding, expected return behavior, required fixture schema version, and expected diagnostics/output assertions
+  - examples must be stored as machine-readable fixtures with explicit mode: `typecheck-only`, `offline-run`, `negative-typecheck`, `negative-validate`, or `documentation-only`
+  - runnable example fixtures must declare expected allow/block/error status, expected diagnostic code, expected emitted output/action budget behavior, unsupported/deferred status where relevant, and fixture inputs
+  - TypeScript examples must compile against the generated `rots.d.ts` with strict settings and the supported TypeScript version range
+  - runnable examples must execute through the offline runner or server-side test harness where practical and assert return value, diagnostics, resource-limit behavior, and allowed emitted output
+  - negative examples must prove unsupported/deferred/reserved APIs, wrong host types, stale manifest checksums, invalid handles, and unsafe source-policy constructs fail with stable diagnostic codes
+  - CI must fail when an example references an API, trigger, context field, diagnostic code, enum literal, or fixture field absent from the generated manifest/typings
+  - examples that are documentation-only must be explicitly marked non-runnable with a reason and still pass syntax/type validation when possible
 - Documentation should include a migration guide for builders familiar with legacy ASIMA-style scripts:
   - mapping legacy trigger concepts to JavaScript trigger functions
   - differences in return values, ordering, wait/continuation behavior, and say/yell compatibility
@@ -290,13 +318,57 @@ Builder-facing JavaScript API documentation:
   - generated TypeScript doc comments and editor hover text in the Electron app
   - in-game help entries for the supported JavaScript script layout, trigger names, return values, and high-level API rules
   - CLI help/reference output for offline validation and publishing commands
+- In-game help generation requirements:
+  - generate help source from the same documentation metadata used for markdown and TypeScript hover docs, then format it for existing MUD help constraints such as line width, section size, and terminal-safe text
+  - write generated help topics under an explicit read-only generated path such as `lib/text/generated/js/help/`, with one topic per stable help topic id and a generated index file
+  - generated help topics must include header metadata with documentation checksum, manifest checksum, generator version, topic id, source metadata ids, and generated artifact version
+  - generated JavaScript help must not overwrite hand-maintained general help files directly; runtime help should either read generated topics read-only or copy them through an explicit build/install step
+  - include high-level topics for JavaScript project layout, trigger handlers, context fields, return values, resource limits, diagnostics, offline testing, package validation, staging, activation, rollback, and unsupported capabilities
+  - include per-trigger help entries only for authorable triggers; reserved/unsupported/deferred entries should appear in compatibility/reference help but not as normal builder-authoring commands
+  - in-game help must include manifest/documentation version and checksum metadata so immortals can identify stale help after reloads or deployments
+  - generated help text must avoid raw source snippets, local paths, live player names/speech, account identifiers, auth tokens, and server-local filenames
+- CLI help/reference output should consume the generated docs index or compact CLI reference artifact, not a separate hand-authored command reference, so CLI help cannot drift from markdown, hover docs, and in-game help.
 - Add documentation quality gates:
   - CI fails when a public API manifest entry or TypeScript declaration lacks documentation text
   - docs examples compile under the generated TypeScript definitions
   - runnable examples execute in the offline runner where practical
   - documentation generated from the manifest includes the manifest checksum/API version it describes
   - stale documentation is rejected when the API/trigger manifest changes without regenerated docs
+- Documentation drift CI requirements:
+  - add generator/check targets such as `make js-docs`, `make js-docs-check`, and CMake equivalents that regenerate markdown, TypeScript doc comments, hover summaries, in-game help source, CLI reference output, diagnostic catalog, and example validation reports
+  - CI must fail when generated docs, in-game help, CLI reference output, diagnostic catalog, example index, or TypeScript doc comments differ from server metadata
+  - CI must include tamper tests that alter one generated artifact at a time and assert the check target fails with the artifact name and stable diagnostic code
+  - CI must include stale-doc fixtures for missing documentation id, stale documentation checksum, changed trigger signature, changed API member signature, changed nullability/liveness, changed permission/side-effect status, changed diagnostic code, changed resource limit, changed fixture schema, changed API docs without regenerated markdown, changed trigger notes without updated in-game help, changed example source without updated expected diagnostics, tampered generated help topic, and docs-only prose changes
+  - docs-only prose changes must update `documentation_checksum` and generated docs while leaving `validation_manifest_checksum` unchanged; validation-relevant metadata changes must update the validation checksum and fail stale docs until regenerated
+  - in-game help, markdown, TypeScript hovers, CLI reference output, and Electron help panels must be checked for matching documentation ids and checksums
+  - generated documentation release notes must be derived from a machine-readable documentation diff summary so builder-facing release notes cannot claim unsupported compatibility
+- Documentation checksum blocking rules:
+  - documentation checksum mismatches fail docs CI, generated artifact checks, in-game help publication, and release-note generation
+  - documentation checksum mismatches warn in Electron editor hovers/help panels and in-game help metadata, but do not grant or deny server scripting capabilities by themselves
+  - package creation and offline run should warn on stale docs but block only when typings, fixture schema, runtime, or validation manifest compatibility is also stale/incompatible
+  - stage and activation decisions are controlled by validation manifest, package, runtime, permission, and live-state checks; docs checksum is audit/display metadata unless documentation is being published
+  - stale generated docs must never be used to infer support for an API/trigger that the validation manifest marks unsupported, deferred, reserved, or host-ineligible
 - Keep documentation safe to publish: examples, diagnostics, and generated reference output must not include live player data, account identifiers, private logs, local filesystem paths, credentials, or raw production speech.
+- Documentation safety tests must scan generated markdown, TypeScript doc comments, hover JSON, in-game help, CLI reference output, examples, fixture docs, diagnostic catalogs, editor config, and documentation release-note summaries for account ids, local absolute paths, source snippets, server filenames, raw player speech, credentials, auth tokens, raw C++ identifiers, and live log fragments.
+- Documentation compatibility summaries must include docs version/checksum changes so release notes cannot claim documentation/API compatibility that generated metadata does not advertise.
+- Documentation trust boundaries:
+  - downloaded documentation, manifests, and compatibility summaries must come from authenticated server endpoints; cached/offline copies need provenance metadata with server identity, manifest checksum, documentation checksum, compatibility table revision, generated server revision, and optional signature/MAC status
+  - cached or checked-in docs may support offline reading and editing, but the client must not treat them as publish authority without a fresh server compatibility check
+  - generated diagnostics shown in docs, examples, Electron panels, CLI output, or in-game help must be bounded and redacted: no full source text, absolute local paths, account ids, auth tokens, live player text, private speech, descriptor data, server-local filenames, or uncontrolled control characters
+  - documentation examples must use synthetic fixture names and stable fake ids only; examples that intentionally demonstrate rejection must not include realistic secrets or production-like private text
+- Documentation generation acceptance tests required before Electron implementation:
+  - table-drive documentation coverage over every manifest trigger, ASIMA/Mudlle call flag, API type, API member, context field, enum/literal domain, diagnostic code, resource limit, fixture schema field, and publish workflow state
+  - require exact artifact coverage for markdown reference, generated TypeScript doc comments, hover/help JSON, in-game help topics, CLI reference output, diagnostic catalog, example index, compatibility summary, and release-note metadata
+  - verify every generated artifact carries the same manifest checksum, trigger/API checksum pair, documentation checksum, typings checksum, runtime identity, engine ABI version, fixture schema version, and generator version where applicable
+  - verify stale artifacts fail independently: changed API docs without markdown regeneration, changed TypeScript declaration comments without hover regeneration, changed trigger docs without in-game help regeneration, changed diagnostic text without CLI reference regeneration, changed example expectation without example index regeneration, and changed compatibility table without release-note summary regeneration
+  - verify docs-only changes update `documentation_checksum` but do not change `validation_manifest_checksum`, while validation-relevant metadata changes update the validation checksum and force documentation regeneration before the check target passes
+  - verify examples compile/run by mode: compile-positive TypeScript examples, compile-negative unsupported API examples, offline-run examples with fixture assertions, offline-run negative examples for invalid handles/resource limits, and documentation-only examples with explicit non-runnable reasons
+  - verify generated in-game help has a topic for each supported trigger and public API type, includes concise high-level help for return values/diagnostics/resource limits, and keeps unsupported/deferred entries visible only as unavailable compatibility/reference entries
+  - verify Electron help/search index entries link back to stable documentation ids and surface the same support status/reason codes as local validation and server validation
+  - verify stale documentation diagnostics identify the artifact id, expected checksum/version, and actual checksum/version without dumping absolute paths, source text, account ids, auth tokens, private player text, local server filenames, or raw C++ symbols
+  - verify generated release notes and compatibility summaries are derived from the same machine-readable documentation diff and compatibility table, including tests that tampered release-note compatibility claims fail the docs check
+  - verify unsupported, deferred, reserved, host-ineligible, wrong-host, wrong-kind, and room-owned-nonpublishable cases keep the same stable reason code across generated docs, TypeScript comments, local validator docs, offline runner docs, package validation docs, staging docs, and activation docs
+  - verify raw Makefile and CMake paths expose equivalent docs generation/check targets so generated documentation drift cannot be missed by one build path
 
 Sandbox and safety requirements:
 - Disable or omit JavaScript access to filesystem, sockets, process execution, native module loading, timers, dynamic imports, and host environment data.
