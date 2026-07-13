@@ -1,8 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: defined the CLI-first JavaScript builder workflow, including shared CLI/core ownership before Electron, project layout, compiler settings, offline runner, validator, package format, publish protocol, generated-file ownership, local/staged/live conflict workflow, credential/cache safety, and Electron-as-UI boundaries.
-- Next slice: define the package integrity model with server-computed canonical digest, immutable package/version id, manifest checksum, base live checksum, replay protection, and activation by exact staged digest.
+- Active slice complete: defined the JavaScript package integrity model for builder packages, including server-computed canonical digest authority, immutable package/version ids, manifest checksum binding, base live checksum gating, replay/idempotency rules, staged package identity, exact-digest activation, rollback integrity, crash/partial-failure behavior, redacted diagnostics, and package integrity acceptance tests before Electron implementation begins.
+- Next slice: define publish authentication and authorization with scoped short-lived credentials, transport security, separate stage/activate/rollback/source-view permissions, revocation, rate limiting, and audit ids.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -250,11 +250,12 @@
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
   - [x] Client planning gate before implementation: define CLI-first project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
-  - [ ] Client planning gate before implementation: define package integrity model with server-computed canonical digest, immutable package/version id, manifest checksum, base live checksum, replay protection, and activation by exact staged digest.
+  - [x] Client planning gate before implementation: define package integrity model with server-computed canonical digest, immutable package/version id, manifest checksum, base live checksum, replay protection, and activation by exact staged digest.
   - [ ] Client planning gate before implementation: define publish authentication/authorization with scoped short-lived credentials, transport security, separate stage/activate/rollback/source-view permissions, revocation, rate limiting, and audit ids.
   - [ ] Client planning gate before implementation: define Electron hardening, desktop credential storage, dependency pinning, code signing, and supply-chain scanning requirements.
   - [ ] Client planning gate before implementation: define golden offline/server parity tests, hostile fixture tests, package mismatch/sourcemap leak tests, unsupported-trigger tests, and publish/activation race/rollback tests.
 - Validation so far:
+  - `git diff --check -- FEATURES.md WIP.md` passed after the JavaScript package integrity planning slice documented server-computed canonical digest authority, immutable package/version identity, base live checksum gating, replay/idempotency rules, exact staged-digest activation, rollback integrity, partial-failure behavior, redacted diagnostics, and adversarial integrity acceptance tests.
   - `git diff --check -- FEATURES.md WIP.md` passed after builder-facing JavaScript API documentation scope was added.
   - Focused `./bin/tests '--gtest_filter=JsScriptingManifest.*'` passed at `18/18` tests after reviewer-driven manifest policy coverage was tightened.
   - `make test` passed at `606/606` tests after the manifest and build wiring changes.
