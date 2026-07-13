@@ -407,6 +407,8 @@ Electron TypeScript authoring client:
   - create a shared builder core library plus a `rots-script` CLI; Electron may shell out to the CLI or call the same library APIs, but must not contain separate compiler, validator, runner, packaging, or publish authority logic
   - keep command behavior deterministic and CI-friendly: every command must support machine-readable JSON output, stable diagnostic codes, non-interactive mode, bounded diagnostics, and no ANSI/progress noise unless explicitly requested
   - start with these commands: `init`, `manifest sync`, `typecheck`, `build`, `validate`, `fixture run`, `package`, `publish stage`, `publish activate`, `publish rollback`, `status`, `diff`, `docs`, and `doctor`
+  - every command must define stable exit-code classes: success, local validation failure, stale manifest, stale live state, permission failure, server rejection, transport failure, and internal tool error
+  - command JSON must include command name, schema version, request id where applicable, input artifact ids, output artifact ids, diagnostics, warnings, and whether any local or server state changed
   - require `--project`/workspace-root arguments to resolve under the local project root; commands must reject path traversal, symlink escapes for generated/package output, absolute paths in package metadata, and shell-command interpolation from project files
   - CLI command execution must not run arbitrary project scripts, npm lifecycle hooks, TypeScript transformers, postinstall commands, or fixture-defined commands unless a future explicit allowlist and prompt/audit model is added
   - all local cache and generated output writes must be atomic and recoverable: write to temp files under the project cache/output tree, fsync where practical, rename into place, and preserve the previous generated package on failure
@@ -416,6 +418,7 @@ Electron TypeScript authoring client:
   - compiled JavaScript and sanitized sourcemaps live under `dist/`; package bundles and local validation reports live under `packages/`; local fixtures and expected results live under `fixtures/`; local CLI cache lives under `.rots-cache/`
   - generated files must be reproducible and reviewable: stable formatting, stable ordering, no timestamps in validation artifacts, no local absolute paths, no hostnames/usernames, and no builder account ids in checked-in files
   - Git-friendly defaults should check in `src/`, `fixtures/`, project metadata, and deterministic generated declarations/manifest snapshots; ignore `.rots-cache/`, transient diagnostics, auth state, temporary publish receipts, and unsanitized local logs
+  - project templates must include checked-in sample fixtures and expected assertions for each supported host type, plus negative examples for unsupported/deferred triggers that prove the local validator returns the same reason code as server validation
   - fixture and package metadata must never include live player speech, account emails, passwords, auth tokens, local filesystem paths, raw logs, server-local filenames, or production descriptor/session data
 - TypeScript compiler settings:
   - pin a supported TypeScript version range in the manifest and CLI lockfile; Electron/LSP must use the same compiler version selected by the CLI
@@ -424,18 +427,23 @@ Electron TypeScript authoring client:
   - prohibit custom transformers, plugins that execute project code, compiler options that inject imports, and polyfills that require timers, filesystem, network, process, native modules, or dynamic code generation
   - sourcemaps are optional and disabled by default for publish; when enabled for local debugging or authorized server review, reject `sourcesContent`, absolute source paths, private path segments, and source-map URLs in compiled JavaScript
   - the validator must compare TypeScript source metadata, compiled JavaScript bytes, sourcemap policy, generated typings checksum, and package metadata before package creation
+  - static validation tests must include mismatched TypeScript source vs compiled JavaScript, stale generated typings, stale manifest cache, changed handler names, missing handler exports, unsupported host contexts, and obfuscated source-policy attempts
 - Local validator and offline runner:
   - `rots-script validate` must run the same static package policy as the server where practical: manifest compatibility, trigger host eligibility, unsupported/deferred/reserved reason codes, source policy, size limits, checksum checks, fixture schema compatibility, and diagnostic redaction
   - `rots-script fixture run` must execute compiled JavaScript with the same runtime identity, resource limits, trigger context shape, return normalization, sandbox policy, and read-only fixture semantics as the server harness
   - offline execution is advisory only; it may prove a package is locally plausible, but it cannot grant publish, staging, activation, or rollback permission
   - local diagnostics must carry phase, stable code, artifact id, trigger/package id, expected/actual checksum where relevant, and sanitized message; diagnostics must not echo full source text, private fixture text, absolute paths, credentials, account ids, or auth headers
   - fixture tests must be machine-readable and include mode, host type, trigger binding, fixture schema version, expected allow/block/error result, expected diagnostic codes, expected output/action budget behavior, and unsupported/deferred status where relevant
+  - fixture tests must cover stale-but-editable fixture schema, stale-and-non-runnable fixture schema, removed enum values, renamed context fields, nullability changes, liveness changes, malformed assertions, oversized fixture strings, and unsupported trigger bindings
+  - runner regression tests must prove failed fixture execution leaves compiled artifacts, package bundles, and local status cache unchanged unless an explicit update command is run
   - Electron problems panels, hover warnings, and run results must read these CLI/library diagnostics directly instead of reinterpreting server/client mismatch rules
 - Package format:
   - package bundles are deterministic JSON with a canonical field order and a `packageFormatVersion`, `packageId`, `packageVersionId`, `scriptVnum`, `hostType`, `zone`, `manifestChecksum`, `triggerCatalogRevision`, `apiContractVersion`, `runtimeIdentity`, `generatedTypingsChecksum`, `compiledJavaScriptChecksum`, `sourcePolicyChecksum`, trigger bindings, and validation report reference
   - compiled JavaScript bytes are the artifact the server validates and executes; TypeScript source, docs, local reports, and sourcemaps are optional review artifacts and must not change what the server executes
   - source and sourcemaps must be separately permissioned for upload/view/download; server logs and diagnostics should reference package ids and digests, not source snippets or local filenames
   - package creation must fail when source, compiled JavaScript, manifest snapshot, generated typings, fixture schema, or validation report disagree; every mismatch gets a stable reason code
+  - package validation must reject mismatches between package metadata and compiled JavaScript checksum, TypeScript source checksum, validation report digest, fixture schema checksum, manifest checksum, trigger catalog revision, runtime identity, host type, package vnum, handler names, and sourcemap policy
+  - package mismatch tests must assert rejected packages cannot update local staged status, overwrite the prior package artifact, or be submitted for activation without a fresh successful package command
   - package bundles must not include executable install hooks, dependencies, native modules, local cache files, credentials, hidden dotfile auth state, crash reports, or unsanitized TypeScript compiler traces
 - Publish protocol and server authority:
   - use a two-step stage/activate protocol over an authenticated server channel; generic file transfer to the live JavaScript package directory is not a valid publish path
@@ -446,6 +454,7 @@ Electron TypeScript authoring client:
   - rollback is also server-authorized and names an immutable prior package digest/version id; it must follow the same permission, ownership, audit, and live-state checks as activation
   - every publish, stage, activate, rollback, reject, and source-view action must produce a sanitized audit record with request id, package id/version, actor, account id where allowed by policy, zone/vnum, remote endpoint class, current live digest, staged digest, decision code, and bounded diagnostics
   - credentials must be short-lived and scoped by capability; the CLI stores persistent auth only through OS credential storage, falls back to memory-only credentials when unavailable, supports explicit logout/revocation, and must never write tokens into project files, packages, logs, validation reports, crash dumps, or Electron IPC payloads
+  - publish protocol tests must cover replayed request id, expired request id, stale staged digest, stale live checksum, permission revoked between stage and activate, manifest changed between stage and activate, stage accepted but activation rejected, rollback target deleted, rollback target incompatible, and retry after transport failure
 - Local, staged, and live conflict workflow:
   - `status` must fetch current server manifest compatibility, current live checksum, current staged package digest, package owner, permissions, and any pending activation/rollback locks before publish actions
   - `diff` must compare local source, compiled JavaScript, package metadata, staged package digest, and live package digest without exposing server-private source unless the user has source-view permission
@@ -454,12 +463,22 @@ Electron TypeScript authoring client:
   - local cache state must never be treated as server truth; stale cached staged/live metadata can be used for display only and must be refreshed before stage, activate, rollback, or source-view
   - conflict resolution should offer explicit choices: pull latest metadata, keep editing locally, rebuild against latest manifest, restage new package, activate reviewed staged package if still current, or rollback to an authorized prior digest
   - failed stage/activation/rollback must preserve local source, local package artifacts, server live package, and previous staged/live metadata; partial server writes must be recoverable through immutable package/version records
+  - state-machine tests must assert rejected publish leaves staged and live unchanged, activation failure preserves last live package and metadata, rollback failure preserves current live package, stale local cache cannot activate an older staged package, concurrent builders cannot activate the wrong digest, and conflict resolution never mutates local source without explicit command intent
 - Electron over shared CLI/libraries:
   - Electron provides VS Code-style editing, problems/output panels, fixture controls, status/diff views, and publish/activation UI, but all compile, validate, run, package, publish, conflict, and auth state-machine behavior must come from the shared CLI/core library
   - Electron must display the exact CLI/server diagnostic code and artifact id for every problem; it may add UI explanation but cannot downgrade a server error to a warning or convert an unsupported API into an allowed API
   - Electron can cache manifests, docs, typings, fixture schemas, and status snapshots for offline editing, but must label provenance and refresh server state before package creation, stage, activation, rollback, or source viewing
   - Electron IPC messages should use typed schemas over explicit commands such as compile, validate, run fixture, package, status, stage, activate, rollback, and credential actions; IPC must not expose arbitrary command execution or arbitrary filesystem read/write
   - editor/LSP cache invalidation must use the CLI-generated manifest/typings/fixture/runtime checksums so Electron and non-Electron CLI runs see the same drift behavior
+- CLI-first builder workflow acceptance tests required before Electron implementation:
+  - project-layout fixture tests for valid projects, missing manifests, generated-file ownership violations, absolute/local paths, traversal, stale generated files, dirty build outputs, and cache-only manifests
+  - compiler fixture tests for strict type failures, unsupported APIs, forbidden globals, forbidden imports/code generation, deterministic output, sourcemap policy, and TypeScript/LSP version drift
+  - validator tests for every package manifest field, trigger binding, host eligibility, checksum mismatch, unsupported/deferred/reserved trigger, fixture schema drift, package-size/source-size limit, and diagnostic redaction
+  - offline runner tests for allow/block/error normalization, fixture liveness, null handles, resource limits, output/action budgets, unsupported host APIs, hostile fixtures, and golden server parity
+  - package format tests for deterministic bundle bytes, duplicate/unknown fields, malformed archives, path traversal, symlinks, oversized entries, wrong checksums, optional source/sourcemap policy, and local validation report mismatch
+  - publish protocol tests for stage success, stage rejection rollback, activation success, activation precondition failure, stale staged digest, stale live checksum, rollback success/failure, replayed request id, retry/idempotency, and concurrent builder conflicts
+  - state-machine tests proving rejected publish leaves staged/live unchanged, activation failure preserves the last live package and metadata, rollback failure preserves current live package, stale local cache cannot activate an older staged package, and conflict resolution never mutates local source without explicit command intent
+  - Electron integration tests proving the UI is a consumer of shared CLI/library state, not a second validator with divergent rules
 - Create a server-owned API/trigger manifest as a first implementation artifact. The manifest should include:
   - `schema_version`
   - `api_version`
