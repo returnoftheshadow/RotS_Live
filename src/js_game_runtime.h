@@ -70,6 +70,9 @@ class JsGameRuntime {
 
     JsRuntimeEvalResult evaluate_trigger_body(const std::string &source,
         const JsGameTriggerContextFixture &context, const char *filename = "game-script.js");
+    JsRuntimeEvalResult evaluate_trigger_package_handler(const std::string &package_source,
+        const std::string &handler_name, const JsGameTriggerContextFixture &context,
+        const char *filename = "game-script.js");
 
   private:
     JsRuntimeLimits m_limits;

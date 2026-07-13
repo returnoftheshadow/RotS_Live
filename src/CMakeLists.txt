@@ -49,6 +49,7 @@ set(ROTS_SERVER_SOURCES
     js_runtime.cpp
     js_script_package.cpp
     js_script_registry.cpp
+    js_trigger_dispatch.cpp
     objects_json.cpp
     ban.cpp
     battle_mage_handler.cpp
@@ -159,6 +160,7 @@ set(ROTS_TEST_SOURCES
     tests/js_runtime_tests.cpp
     tests/js_script_package_tests.cpp
     tests/js_script_registry_tests.cpp
+    tests/js_trigger_dispatch_tests.cpp
     tests/js_scripting_manifest_tests.cpp
     tests/json_perf_tests.cpp
     tests/objects_json_tests.cpp

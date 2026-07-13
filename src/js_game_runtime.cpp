@@ -206,6 +206,38 @@ bool source_has_unsafe_wrapper_boundary(const std::string &source)
            bracket_depth != 0;
 }
 
+std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
+{
+    std::ostringstream wrapped;
+    wrapped << "'use strict';\n"
+            << "delete Object.prototype.constructor;\n"
+            << "const __rotsFunctionPrototype = Object.getPrototypeOf(function() {});\n"
+            << "delete __rotsFunctionPrototype.constructor;\n"
+            << "Object.freeze(Object.prototype);\n"
+            << "Object.freeze(__rotsFunctionPrototype);\n"
+            << "function __rotsDeepFreeze(value) {\n"
+            << "  if (value && typeof value === 'object' && !Object.isFrozen(value)) {\n"
+            << "    Object.setPrototypeOf(value, null);\n"
+            << "    Object.freeze(value);\n"
+            << "    for (const key of Object.keys(value)) __rotsDeepFreeze(value[key]);\n"
+            << "  }\n"
+            << "  return value;\n"
+            << "}\n"
+            << "const ctx = __rotsDeepFreeze(" << js_game_trigger_context_literal(context) << ");\n";
+    return wrapped.str();
+}
+
+JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result)
+{
+    if (result.status == JsRuntimeStatus::Error && result.diagnostic.size() > MaxGameDiagnosticLength)
+        result.diagnostic.resize(MaxGameDiagnosticLength);
+    if (result.status == JsRuntimeStatus::Error && result.diagnostic.find("TypeError:") != 0 &&
+        result.diagnostic.find("SyntaxError:") != 0) {
+        result.diagnostic = "JavaScript game script failed";
+    }
+    return result;
+}
+
 } // namespace
 
 JsGameRuntime::JsGameRuntime(const JsRuntimeLimits &limits)
@@ -224,35 +256,29 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string &sour
     }
 
     std::ostringstream wrapped;
-    wrapped << "'use strict';\n"
-            << "delete Object.prototype.constructor;\n"
-            << "const __rotsFunctionPrototype = Object.getPrototypeOf(function() {});\n"
-            << "delete __rotsFunctionPrototype.constructor;\n"
-            << "Object.freeze(Object.prototype);\n"
-            << "Object.freeze(__rotsFunctionPrototype);\n"
-            << "function __rotsDeepFreeze(value) {\n"
-            << "  if (value && typeof value === 'object' && !Object.isFrozen(value)) {\n"
-            << "    Object.setPrototypeOf(value, null);\n"
-            << "    Object.freeze(value);\n"
-            << "    for (const key of Object.keys(value)) __rotsDeepFreeze(value[key]);\n"
-            << "  }\n"
-            << "  return value;\n"
-            << "}\n"
-            << "const ctx = __rotsDeepFreeze(" << js_game_trigger_context_literal(context) << ");\n"
+    wrapped << trigger_context_preamble(context)
             << "(function(ctx) {\n"
             << "  'use strict';\n"
             << source << "\n"
             << "})(ctx);";
 
     JsRuntime runtime(m_limits);
-    JsRuntimeEvalResult result = runtime.evaluate(wrapped.str(), filename);
-    if (result.status == JsRuntimeStatus::Error && result.diagnostic.size() > MaxGameDiagnosticLength)
-        result.diagnostic.resize(MaxGameDiagnosticLength);
-    if (result.status == JsRuntimeStatus::Error && result.diagnostic.find("TypeError:") != 0 &&
-        result.diagnostic.find("SyntaxError:") != 0) {
-        result.diagnostic = "JavaScript game script failed";
-    }
-    return result;
+    return sanitize_game_result(runtime.evaluate(wrapped.str(), filename));
+}
+
+JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
+    const std::string &package_source, const std::string &handler_name,
+    const JsGameTriggerContextFixture &context, const char *filename)
+{
+    std::ostringstream wrapped;
+    wrapped << trigger_context_preamble(context)
+            << package_source << "\n"
+            << "if (typeof " << handler_name
+            << " !== 'function') throw new TypeError('JavaScript game handler is not callable');\n"
+            << handler_name << "(ctx);";
+
+    JsRuntime runtime(m_limits);
+    return sanitize_game_result(runtime.evaluate(wrapped.str(), filename));
 }
 
 std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture &context)
