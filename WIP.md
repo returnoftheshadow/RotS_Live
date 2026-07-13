@@ -7,6 +7,7 @@
   - follow the current scripting engine and trigger model
   - keep the JavaScript engine working alongside the current scripting engine instead of replacing it
   - add an Electron app for offline TypeScript script authoring, local trigger testing, and publishing compiled JavaScript to the server
+  - make the Electron editor look and behave like Visual Studio Code, including a VS Code-style workspace, IntelliSense, and LSP-backed TypeScript configuration
   - the client should load the full trigger catalog and expose strongly typed classes/interfaces for script authors
   - fully document the JavaScript API engine so builders understand how every API class, handle, method, property, trigger, return value, side effect, and safety limit should be used
   - identify every legacy `.scr` trigger and every ASIMA/Mudlle call-flag trigger path, then require JavaScript equivalents or explicit unsupported/deferred manifest entries
@@ -33,6 +34,7 @@
   - Vincent found that the v1 JavaScript API must be deny-by-default and should start read-only plus narrowly audited output/actions rather than inheriting broad legacy mutation commands.
   - Vincent and Bazarat called for stronger sandbox/resource/reload tests, including host-action loops, stale handles after mid-invocation extraction, no module/filesystem/process access, reload rollback, and redacted diagnostics.
   - The Electron client should treat TypeScript as authoring-only, compile to JavaScript artifacts, and rely on server-side revalidation before activation.
+  - The Electron client editor should use a Visual Studio Code-like layout and interaction model with file explorer, tabs, command palette, problems/output panels, status bar, keyboard shortcuts, IntelliSense, hover docs, signature help, inline diagnostics, formatting, and LSP-backed TypeScript language service configuration.
   - The typed client API should be generated from, or version-locked to, the same server host API/trigger manifest used by the JavaScript engine.
   - Builder-facing JavaScript API documentation should be generated from, or version-locked to, the same manifest and TypeScript declaration source as the runtime allowlist so docs, typings, and server behavior stay aligned.
   - API documentation must cover every public class/interface, handle lifetime rule, trigger context, return value, side effect, resource limit, diagnostic, unsupported capability, and publish/test workflow builders need to use scripts correctly.
@@ -155,6 +157,7 @@
   - [x] Manifest export slice: add compact export behavior that omits documentation fields, notes, and denied API reasons while preserving machine-readable compatibility data.
   - [x] Manifest export slice: add focused tests for JSON parseability, all manifest/API entries, compact builder exports, raw C++ type avoidance, documentation bounds, and build wiring.
   - [x] Manifest export slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
+  - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [ ] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [ ] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
   - [ ] Client planning gate before implementation: define CLI-first project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.

@@ -320,6 +320,12 @@ Builder/admin workflow:
 Electron TypeScript authoring client:
 - Build a companion Electron app for builders to author game scripts locally in TypeScript, test them offline, and publish approved compiled JavaScript artifacts to the server.
 - Treat TypeScript as an authoring language only. The game server should execute compiled JavaScript and should never require a TypeScript compiler at runtime.
+- The primary editor experience should look and behave like Visual Studio Code rather than a custom text box:
+  - use a VS Code-style activity/sidebar, file explorer, tabbed editor, problems panel, output/terminal panels, command palette, status bar, theme support, and keyboard shortcuts where practical
+  - support IntelliSense for all generated game scripting APIs, trigger context objects, enum/literal domains, fixtures, package metadata, and script-result helpers
+  - provide hover documentation, go-to-definition, find references where practical, signature help, inline diagnostics, quick fixes, symbol search, rename support, formatting, and semantic highlighting through an LSP-compatible TypeScript language service configuration
+  - load generated TypeScript declarations, trigger manifests, fixture schemas, and docs into the editor workspace so completions and diagnostics match the server-owned manifest/API contract exactly
+  - keep editor diagnostics separate from server publish authority: local IntelliSense/LSP feedback helps builders iterate, but the server still revalidates compiled JavaScript and package metadata before activation
 - Build the reusable builder workflow before the Electron shell:
   - define the project layout, manifest format, compiler settings, validator, offline runner, package format, and publish protocol first
   - expose that workflow through a CLI so CI and server-side validation can run it without Electron
@@ -359,6 +365,7 @@ Electron TypeScript authoring client:
   - simulate handle liveness, extraction, invalid handles, and action/output budgets
   - support fixture libraries for common objects, mobs, rooms, zones, and player states
 - Define the TypeScript compiler target, module format, forbidden transforms/polyfills, sourcemap policy, and allowed built-ins before client implementation starts.
+- Define the LSP/editor configuration before client implementation starts, including TypeScript version, generated declaration roots, workspace layout, path aliases, diagnostic severity mapping, formatter/linter integration, and how manifest/API drift invalidates editor caches.
 - Define a versioned fixture schema generated from the same manifest, including fixture schema version, manifest checksum, world/build revision metadata, enum domains, and handle-liveness semantics.
 - The offline runner must not be the authority for production safety. Publishing must send a package to the server, and the server must revalidate before activation.
 - Publishing workflow:
