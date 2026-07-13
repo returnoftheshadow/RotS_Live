@@ -1,7 +1,7 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: defined the JavaScript package integrity model for builder packages, including server-computed canonical digest authority, immutable package/version ids, manifest checksum binding, base live checksum gating, replay/idempotency rules, staged package identity, exact-digest activation, rollback integrity, crash/partial-failure behavior, redacted diagnostics, and package integrity acceptance tests before Electron implementation begins.
+- Active slice complete: defined the JavaScript package integrity model for builder packages, including server-computed canonical digest/envelope authority, immutable package/version ids, manifest/runtime/checksum binding, base live checksum gating, replay/idempotency and downgrade rules, staged package identity, exact-digest activation, rollback integrity, confused-deputy permission separation, source/sourcemap privacy, crash/partial-failure recovery, redacted diagnostics, auditability, and package integrity acceptance tests before Electron implementation begins.
 - Next slice: define publish authentication and authorization with scoped short-lived credentials, transport security, separate stage/activate/rollback/source-view permissions, revocation, rate limiting, and audit ids.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
