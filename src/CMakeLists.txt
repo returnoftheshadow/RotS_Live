@@ -46,6 +46,7 @@ set(ROTS_SERVER_SOURCES
     js_game_adapter.cpp
     js_game_runtime.cpp
     js_manifest_export.cpp
+    js_publish_authorization.cpp
     js_runtime.cpp
     js_script_package_loader.cpp
     js_script_package_reload_service.cpp
@@ -159,6 +160,7 @@ set(ROTS_TEST_SOURCES
     tests/js_game_adapter_tests.cpp
     tests/js_game_runtime_tests.cpp
     tests/js_manifest_export_tests.cpp
+    tests/js_publish_authorization_tests.cpp
     tests/js_runtime_tests.cpp
     tests/js_script_package_loader_tests.cpp
     tests/js_script_package_reload_service_tests.cpp

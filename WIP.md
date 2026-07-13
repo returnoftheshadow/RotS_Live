@@ -1,8 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: finished the remaining client planning gates before Electron implementation by documenting publish authentication/authorization, Electron hardening and supply-chain controls, and the golden offline/server parity plus hostile publish/activation/rollback test plan.
-- Next slice: add server-owned JavaScript publish/stage request metadata and authorization preflight types around the existing package model, without enabling live builder publishing yet.
+- Active slice complete: added server-owned JavaScript publish/stage request metadata and authorization preflight types around the existing package model, while keeping live builder publishing disabled.
+- Next slice: add canonical staged package digest/version identity helpers for JavaScript packages and connect them to the publish preflight metadata without live activation.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -122,6 +122,11 @@
     - Service diagnostics are bounded and single-line, and path diagnostics avoid source text and uncontrolled absolute local paths.
     - Added `src/tests/js_script_package_reload_service_tests.cpp` with focused coverage for successful load/lookups, unsafe path rejection, symlink rejection, missing/directory handling, invalid/missing roots, explicit root creation, symlinked intermediate root rejection, post-construction root symlink swaps, parse/validation/file-size rollback, empty-bundle policy, legacy-vnum conflict rollback, status strings, diagnostic bounding, and build wiring.
     - Magus, Vincent, and Bazarat reviewed the slice; Magus findings led to non-symlink root-creation checks and the `openat` descriptor walk, Vincent findings led to `O_NOFOLLOW` on the root fd and a root-swap regression, and Bazarat findings led to service-owned file-size rollback coverage before final validation.
+  - Publish preflight slice artifact added:
+    - Added `src/js_publish_authorization.{h,cpp}` with server-owned JavaScript publish operations, operation scopes, verified token-claim metadata, transport metadata, package authority context, request preconditions, redacted diagnostics, and a pure preflight validator that does not stage, activate, reload, write files, or mutate registries.
+    - Preflight now fails closed without verified server-derived token claims, explicit server audience/workspace, authorization clock, matching transport/token audience, matching package authority zone/vnum/host/package id, base live checksum for stage, server-loaded staged record for activation/rollback, and manifest checksum binding for activation/rollback.
+    - Live mutation remains opt-in through `allow_mutating_operations`, and tests prove all mutating operations report `publishing-disabled` by default while read-only operations remain non-mutating.
+    - Added `src/tests/js_publish_authorization_tests.cpp` with focused coverage for scope separation, wrong-scope rejection, disabled mutation, package metadata mismatches, base/current live checksum conflicts, staged-record preconditions, source-view ownership/admin separation, rollback ownership, transport downgrade/redirect/wrong-server rejection, token lifecycle failures, workspace mismatch, generic rate-limit diagnostics, redacted diagnostic identifiers, public status strings, and build wiring.
   - Documentation generation planning slice artifact added:
     - `FEATURES.md` now defines manifest-driven documentation generation as a deterministic server-owned artifact set covering markdown API docs, TypeScript doc comments, hover/help JSON, in-game help source, CLI reference output, diagnostics, examples, compatibility summaries, coverage reports, and release-note metadata.
     - Required documentation fields now include stable documentation ids, anchors, support/publishability status, host eligibility, trigger kind/value, context-field type/nullability/liveness metadata, return semantics, permissions, side effects, resource budgets, diagnostics, examples, and unsupported/deferred reason codes.
@@ -249,6 +254,11 @@
   - [x] Reload service slice: add focused tests for path trust boundaries, successful reload, rollback, empty-bundle policy, diagnostics, lookups, and build wiring.
   - [x] Reload service slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
   - [x] Reload service slice: validate with focused service tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
+  - [x] Publish preflight slice: add server-owned JavaScript publish/stage request metadata and authorization preflight types around the existing package model without enabling live builder publishing.
+  - [x] Publish preflight slice: add tests for operation scopes, verified token claims, transport identity, workspace/package authority, base live checksum, staged record/manifest preconditions, source-view/admin separation, rollback ownership, redacted diagnostics, disabled mutating operations, and build wiring.
+  - [x] Publish preflight slice: wire `js_publish_authorization` into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
+  - [x] Publish preflight slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
+  - [x] Publish preflight slice: validate with focused publish authorization tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
@@ -258,6 +268,10 @@
   - [x] Client planning gate before implementation: define Electron hardening, desktop credential storage, dependency pinning, code signing, and supply-chain scanning requirements.
   - [x] Client planning gate before implementation: define golden offline/server parity tests, hostile fixture tests, package mismatch/sourcemap leak tests, unsupported-trigger tests, and publish/activation race/rollback tests.
 - Validation so far:
+  - Focused `bin/tests '--gtest_filter=JsPublishAuthorization.*'` passed at `24/24` tests after reviewer-driven publish preflight hardening.
+  - `make test` passed at `758/758` tests after adding `js_publish_authorization` and its tests.
+  - Raw `make -C src js_publish_authorization.o` and `make -C src/tests js_publish_authorization.o js_publish_authorization_tests.o` passed after raw Makefile wiring.
+  - `git diff --check` passed after the JavaScript publish preflight slice.
   - `git diff --check -- FEATURES.md WIP.md` passed after the remaining client planning gates documented publish auth/authz, Electron hardening/supply-chain controls, golden offline/server parity, hostile fixtures/packages, sourcemap leak tests, unsupported-trigger parity, publish/activation/rollback races, and reviewer-driven transport/credential/IPC/audit hardening.
   - `git diff --check -- FEATURES.md WIP.md` passed after the JavaScript package integrity planning slice documented server-computed canonical digest authority, immutable package/version identity, base live checksum gating, replay/idempotency rules, exact staged-digest activation, rollback integrity, partial-failure behavior, redacted diagnostics, and adversarial integrity acceptance tests.
   - `git diff --check -- FEATURES.md WIP.md` passed after builder-facing JavaScript API documentation scope was added.
