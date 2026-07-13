@@ -79,6 +79,8 @@ class JsLivePackageStore {
     JsLivePackageStoreRecordResult find_record(const std::string &package_id,
                                                const std::string &package_version_id) const;
 
+    JsLivePackagePointerResult activate_staged_record_pointer(const JsStagedPackageRecord &record,
+                                                              const JsLivePackagePointer &pointer);
     JsLivePackagePointerResult load_live_pointer(const JsLivePackagePointer &pointer);
     JsLivePackagePointerResult find_live_pointer(const std::string &package_id) const;
     JsLivePackagePointerResult find_live_pointer(int zone, JsScriptPackageHost host,
@@ -98,5 +100,6 @@ class JsLivePackageStore {
 };
 
 const char *js_live_package_store_diagnostic_code_name(JsLivePackageStoreDiagnosticCode code);
+std::string js_live_package_current_checksum_for_identity(const JsStagedPackageIdentity &identity);
 
 #endif

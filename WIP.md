@@ -1,8 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added the live package pointer/store model while keeping activation disabled.
-- Next slice: implement gated activation/rollback preflight integration on top of the live pointer store without exposing it to live gameplay.
+- Active slice complete: implemented gated activation/rollback preflight integration on top of the live pointer store without exposing it to live gameplay.
+- Next slice: add a server startup/admin reload path that can build a JavaScript registry snapshot from the live package store while keeping trigger call sites disconnected.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -156,6 +156,15 @@
     - Registry snapshots include only current live pointers, not every stored package record, and empty live stores intentionally produce empty registries.
     - Added `src/tests/js_live_package_store_tests.cpp` with focused coverage for immutable record storage, duplicate conflicts, server-owned id normalization, malformed record rejection, pointer load/replace/stale rejection, derived checksum rejection, pointer metadata validation, record/pointer limits, empty and populated registry snapshots, validation failure preservation, diagnostic names, and build wiring.
     - Reviewer follow-up addressed: Vincent/Magus/Bazarat findings added package-id normalization, staged record revalidation, derived live checksums, stale replacement checks, bounded pointer metadata, empty snapshot coverage, and source-bearing lookup caveats.
+  - Gated activation/rollback preflight integration slice artifact added:
+    - Added `src/js_publish_activation.{h,cpp}` as an internal helper that assembles staged activate/rollback requests, runs publish authorization preflight, requires both the publish mutation gate and a separate live-pointer update gate, and applies the staged package through the live package store without touching live gameplay dispatch.
+    - Added atomic `JsLivePackageStore::activate_staged_record_pointer(...)` so staged record validation, pointer validation, duplicate record consistency, record/pointer capacity, stale replacement checks, and live pointer mutation are checked before either live records or live pointers change.
+    - Extended staged package identity metadata with `server_instance_id` so live-store record ingestion can recompute server-owned canonical identity from package bytes plus staging authority metadata and reject forged canonical digest/package-version pairs.
+    - Added `src/tests/js_publish_activation_tests.cpp` with focused coverage for disabled publishing, the default closed live-pointer gate, successful authorized activation, registry snapshot population without dispatch, cross-builder rejection, stale pointer conflicts, rollback-own/rollback-any authorization gates, required apply audit metadata, pointer metadata/capacity atomicity, package record capacity atomicity, diagnostic names, and build wiring.
+    - Added live-store regression coverage for forged canonical digest/version rejection and reviewer-driven activation failure preservation.
+    - Reviewer follow-up addressed: Magus's partial mutation and diagnostic coverage findings led to the atomic live-store operation plus store-vs-pointer failure diagnostics; Vincent's forged digest finding led to canonical identity recomputation and server-instance metadata; Bazarat's adversarial test findings added pointer-limit, unsafe-audit, package-record-limit, and second-version replacement failure preservation coverage.
+    - Residual publish workflow work: endpoint-level activation retry/idempotency semantics, durable audit write ordering, rollback target policy, server-instance binding for persisted records, and reduced endpoint-facing result DTOs remain deferred to later server publish/admin slices.
+    - Gated activation slice validation: `make test` passed all 858 CMake/CTest tests, and raw `make -C src/tests js_staged_package_identity.o js_staged_package_repository.o js_live_package_store.o js_publish_activation.o js_live_package_store_tests.o js_publish_activation_tests.o && make -C src/tests tests -j2 && ./bin/tests --gtest_filter='JsLivePackageStore.*:JsPublishActivation.*:JsStagedPackageIdentity.*:JsStagedPackageRepository.*'` passed all 79 focused raw-built tests.
   - Documentation generation planning slice artifact added:
     - `FEATURES.md` now defines manifest-driven documentation generation as a deterministic server-owned artifact set covering markdown API docs, TypeScript doc comments, hover/help JSON, in-game help source, CLI reference output, diagnostics, examples, compatibility summaries, coverage reports, and release-note metadata.
     - Required documentation fields now include stable documentation ids, anchors, support/publishability status, host eligibility, trigger kind/value, context-field type/nullability/liveness metadata, return semantics, permissions, side effects, resource budgets, diagnostics, examples, and unsupported/deferred reason codes.
@@ -303,6 +312,11 @@
   - [x] Live package pointer/store slice: add focused tests for malformed records, stale pointer replacement, pointer metadata validation, empty/live-only registry snapshots, build wiring, and reviewer-driven source/status boundaries.
   - [x] Live package pointer/store slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
   - [x] Live package pointer/store slice: validate with focused live store tests, `make test`, `git diff --check`, and commit the completed slice under the configured git identity.
+  - [x] Gated activation/rollback slice: add an internal activation helper that assembles staged requests, runs preflight, and requires an explicit live-pointer update gate before mutating the live package store.
+  - [x] Gated activation/rollback slice: make staged record plus live pointer application atomic, revalidate canonical staged identity during live-store ingestion, and keep failed activation/rollback attempts from changing live records or pointers.
+  - [x] Gated activation/rollback slice: add focused tests for closed gates, successful activation, authorization failures, stale live conflicts, rollback authority gates, audit metadata, capacity failures, forged identity rejection, and build wiring.
+  - [x] Gated activation/rollback slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
+  - [x] Gated activation/rollback slice: validate with focused live-store/activation/staging tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.

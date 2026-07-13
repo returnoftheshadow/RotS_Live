@@ -87,20 +87,16 @@ JsScriptRegistryReplaceOptions internal_registry_options() {
     return options;
 }
 
-bool has_code(const JsLivePackageStoreRecordResult &result,
-              JsLivePackageStoreDiagnosticCode code) {
-    return std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
-                       [code](const JsLivePackageStoreDiagnostic &diagnostic) {
-                           return diagnostic.code == code;
-                       });
+bool has_code(const JsLivePackageStoreRecordResult &result, JsLivePackageStoreDiagnosticCode code) {
+    return std::any_of(
+        result.diagnostics.begin(), result.diagnostics.end(),
+        [code](const JsLivePackageStoreDiagnostic &diagnostic) { return diagnostic.code == code; });
 }
 
-bool has_code(const JsLivePackagePointerResult &result,
-              JsLivePackageStoreDiagnosticCode code) {
-    return std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
-                       [code](const JsLivePackageStoreDiagnostic &diagnostic) {
-                           return diagnostic.code == code;
-                       });
+bool has_code(const JsLivePackagePointerResult &result, JsLivePackageStoreDiagnosticCode code) {
+    return std::any_of(
+        result.diagnostics.begin(), result.diagnostics.end(),
+        [code](const JsLivePackageStoreDiagnostic &diagnostic) { return diagnostic.code == code; });
 }
 
 std::string read_first_available_file(std::initializer_list<const char *> paths) {
@@ -212,6 +208,20 @@ TEST(JsLivePackageStore, RejectsMalformedRecordWithStalePackageChecksum) {
     EXPECT_TRUE(has_code(result, JsLivePackageStoreDiagnosticCode::InvalidRequest));
 }
 
+TEST(JsLivePackageStore, RejectsRecordWithForgedCanonicalDigestAndVersion) {
+    JsLivePackageStore store;
+    JsStagedPackageRecord staged = stage_record();
+    staged.identity.canonical_digest =
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    staged.identity.package_version_id = js_staged_package_version_id(staged.identity);
+
+    JsLivePackageStoreRecordResult result = store.store_staged_record(staged);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsLivePackageStoreDiagnosticCode::InvalidRequest));
+    EXPECT_EQ(0u, store.package_record_count());
+}
+
 TEST(JsLivePackageStore, StoredRecordsAreCopied) {
     JsLivePackageStore store;
     JsStagedPackageRecord staged = stage_record();
@@ -221,8 +231,8 @@ TEST(JsLivePackageStore, StoredRecordsAreCopied) {
     staged.package.compiled_javascript = "mutated";
     stored.record.package.compiled_javascript = "mutated copy";
 
-    JsLivePackageStoreRecordResult lookup =
-        store.find_record(stored.record.identity.package_id, stored.record.identity.package_version_id);
+    JsLivePackageStoreRecordResult lookup = store.find_record(
+        stored.record.identity.package_id, stored.record.identity.package_version_id);
 
     ASSERT_TRUE(lookup.ok);
     EXPECT_EQ("function onEnter(ctx) { return true; }", lookup.record.package.compiled_javascript);
@@ -354,18 +364,18 @@ TEST(JsLivePackageStore, RejectsInvalidLivePointerSlotAndWhitespaceFields) {
 
     JsLivePackagePointer bad_slot = make_pointer(staged);
     bad_slot.vnum = 0;
-    EXPECT_TRUE(
-        has_code(store.load_live_pointer(bad_slot), JsLivePackageStoreDiagnosticCode::InvalidRequest));
+    EXPECT_TRUE(has_code(store.load_live_pointer(bad_slot),
+                         JsLivePackageStoreDiagnosticCode::InvalidRequest));
 
     JsLivePackagePointer blank_id = make_pointer(staged);
     blank_id.package_id = " \t";
-    EXPECT_TRUE(
-        has_code(store.load_live_pointer(blank_id), JsLivePackageStoreDiagnosticCode::InvalidRequest));
+    EXPECT_TRUE(has_code(store.load_live_pointer(blank_id),
+                         JsLivePackageStoreDiagnosticCode::InvalidRequest));
 
     JsLivePackagePointer missing_timestamp = make_pointer(staged);
     missing_timestamp.loaded_at_epoch_seconds = 0;
     EXPECT_TRUE(has_code(store.load_live_pointer(missing_timestamp),
-        JsLivePackageStoreDiagnosticCode::InvalidRequest));
+                         JsLivePackageStoreDiagnosticCode::InvalidRequest));
 }
 
 TEST(JsLivePackageStore, RejectsUnsafeLivePointerMetadataText) {
@@ -444,7 +454,7 @@ TEST(JsLivePackageStore, RegistrySnapshotReportsValidationFailureWithoutMutating
 
 TEST(JsLivePackageStore, PublicDiagnosticNamesAreStable) {
     EXPECT_STREQ("invalid-request", js_live_package_store_diagnostic_code_name(
-                                         JsLivePackageStoreDiagnosticCode::InvalidRequest));
+                                        JsLivePackageStoreDiagnosticCode::InvalidRequest));
     EXPECT_STREQ("duplicate-package-record-conflict",
                  js_live_package_store_diagnostic_code_name(
                      JsLivePackageStoreDiagnosticCode::DuplicatePackageRecordConflict));

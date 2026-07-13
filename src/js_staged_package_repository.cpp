@@ -24,6 +24,7 @@ bool same_identity_record(const JsStagedPackageRecord &left, const JsStagedPacka
         left.identity.canonical_digest != right.identity.canonical_digest ||
         left.identity.digest_algorithm != right.identity.digest_algorithm ||
         left.identity.builder_account_id != right.identity.builder_account_id ||
+        left.identity.server_instance_id != right.identity.server_instance_id ||
         left.identity.base_live_checksum != right.identity.base_live_checksum ||
         left.identity.manifest_checksum != right.identity.manifest_checksum ||
         left.identity.runtime_name != right.identity.runtime_name ||

@@ -34,6 +34,7 @@ struct JsStagedPackageIdentity {
     int canonical_format_version = 1;
     int package_format_version = 1;
     std::string builder_account_id;
+    std::string server_instance_id;
     std::string base_live_checksum;
     std::string manifest_checksum;
     std::string compiled_javascript_checksum;

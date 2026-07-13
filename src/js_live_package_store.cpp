@@ -19,8 +19,7 @@ std::string digest_body(const std::string &digest) {
 }
 
 std::string live_checksum_for_record(const JsLivePackageRecord &record) {
-    return std::string("live:") + record.identity.digest_algorithm + ":" +
-           digest_body(record.identity.canonical_digest);
+    return js_live_package_current_checksum_for_identity(record.identity);
 }
 
 bool is_bounded_identifier(const std::string &value) {
@@ -31,8 +30,8 @@ bool is_bounded_identifier(const std::string &value) {
     });
 }
 
-void add_diagnostic(JsLivePackageStoreRecordResult &result,
-                    JsLivePackageStoreDiagnosticCode code, const std::string &message) {
+void add_diagnostic(JsLivePackageStoreRecordResult &result, JsLivePackageStoreDiagnosticCode code,
+                    const std::string &message) {
     result.diagnostics.push_back({code, message});
 }
 
@@ -80,6 +79,7 @@ bool same_identity(const JsStagedPackageIdentity &left, const JsStagedPackageIde
            left.canonical_format_version == right.canonical_format_version &&
            left.package_format_version == right.package_format_version &&
            left.builder_account_id == right.builder_account_id &&
+           left.server_instance_id == right.server_instance_id &&
            left.base_live_checksum == right.base_live_checksum &&
            left.manifest_checksum == right.manifest_checksum &&
            left.compiled_javascript_checksum == right.compiled_javascript_checksum &&
@@ -127,10 +127,11 @@ bool validate_live_record_shape(JsLivePackageStoreRecordResult &result,
         return false;
     }
     if (record.identity.zone <= 0 || record.identity.vnum <= 0 ||
-        record.identity.vnum != record.package.vnum || record.identity.host != record.package.host ||
-        record.identity.package_id !=
-            js_staged_package_logical_package_id(record.identity.zone, record.identity.host,
-                                                record.identity.vnum) ||
+        record.identity.vnum != record.package.vnum ||
+        record.identity.host != record.package.host ||
+        record.identity.package_id != js_staged_package_logical_package_id(record.identity.zone,
+                                                                           record.identity.host,
+                                                                           record.identity.vnum) ||
         record.identity.package_version_id != js_staged_package_version_id(record.identity) ||
         record.identity.manifest_checksum != record.package.manifest_checksum ||
         record.identity.compiled_javascript_checksum !=
@@ -159,7 +160,66 @@ bool validate_live_record_shape(JsLivePackageStoreRecordResult &result,
                        "Live package record package validation failed.");
         return false;
     }
+    JsStagedPackageIdentityOptions identity_options;
+    identity_options.zone = record.identity.zone;
+    identity_options.builder_account_id = record.identity.builder_account_id;
+    identity_options.base_live_checksum = record.identity.base_live_checksum;
+    identity_options.server_instance_id = record.identity.server_instance_id;
+    identity_options.canonical_format_version = record.identity.canonical_format_version;
+    identity_options.package_validation_options = validation_options;
+    JsStagedPackageIdentityResult rebuilt_identity =
+        js_staged_package_identity_build(record.package, identity_options);
+    if (!rebuilt_identity.ok || !same_identity(record.identity, rebuilt_identity.identity)) {
+        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::InvalidRequest,
+                       "Live package record canonical identity verification failed.");
+        return false;
+    }
     return true;
+}
+
+bool validate_live_pointer_shape(JsLivePackagePointerResult &result,
+                                 const JsLivePackagePointer &pointer) {
+    if (pointer.zone < 0 || pointer.vnum <= 0 || is_blank(pointer.package_id) ||
+        is_blank(pointer.package_version_id) || is_blank(pointer.staged_digest) ||
+        is_blank(pointer.current_live_checksum) || !is_bounded_identifier(pointer.package_id) ||
+        !is_bounded_identifier(pointer.package_version_id) ||
+        !is_bounded_identifier(pointer.staged_digest) ||
+        !is_bounded_identifier(pointer.current_live_checksum) ||
+        (!pointer.expected_previous_live_checksum.empty() &&
+         !is_bounded_identifier(pointer.expected_previous_live_checksum)) ||
+        !is_bounded_identifier(pointer.load_audit_id) || pointer.loaded_at_epoch_seconds <= 0 ||
+        is_blank(pointer.load_audit_id)) {
+        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::InvalidRequest,
+                       "Live package pointer requires slot, package version, digest, checksum, "
+                       "timestamp, and audit id.");
+        return false;
+    }
+    return true;
+}
+
+bool validate_pointer_matches_record(JsLivePackagePointerResult &result,
+                                     const JsLivePackagePointer &pointer,
+                                     const JsLivePackageRecord &record) {
+    if (record.identity.zone != pointer.zone || record.identity.vnum != pointer.vnum ||
+        record.identity.host != pointer.host ||
+        record.identity.canonical_digest != pointer.staged_digest) {
+        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::InvalidRequest,
+                       "Live pointer does not match the stored package record.");
+        return false;
+    }
+    const std::string derived_live_checksum = live_checksum_for_record(record);
+    if (pointer.current_live_checksum != derived_live_checksum) {
+        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::InvalidRequest,
+                       "Live pointer checksum does not match the stored package record.");
+        return false;
+    }
+    return true;
+}
+
+void copy_record_diagnostics(JsLivePackagePointerResult &result,
+                             const JsLivePackageStoreRecordResult &record_result) {
+    for (const JsLivePackageStoreDiagnostic &diagnostic : record_result.diagnostics)
+        add_diagnostic(result, diagnostic.code, diagnostic.message);
 }
 
 } // namespace
@@ -233,22 +293,84 @@ JsLivePackageStore::find_record(const std::string &package_id,
 }
 
 JsLivePackagePointerResult
-JsLivePackageStore::load_live_pointer(const JsLivePackagePointer &pointer) {
+JsLivePackageStore::activate_staged_record_pointer(const JsStagedPackageRecord &record,
+                                                   const JsLivePackagePointer &pointer) {
     JsLivePackagePointerResult result;
-    if (pointer.zone < 0 || pointer.vnum <= 0 || is_blank(pointer.package_id) ||
-        is_blank(pointer.package_version_id) || is_blank(pointer.staged_digest) ||
-        is_blank(pointer.current_live_checksum) || !is_bounded_identifier(pointer.package_id) ||
-        !is_bounded_identifier(pointer.package_version_id) ||
-        !is_bounded_identifier(pointer.staged_digest) ||
-        !is_bounded_identifier(pointer.current_live_checksum) ||
-        (!pointer.expected_previous_live_checksum.empty() &&
-         !is_bounded_identifier(pointer.expected_previous_live_checksum)) ||
-        !is_bounded_identifier(pointer.load_audit_id) || pointer.loaded_at_epoch_seconds <= 0 ||
-        is_blank(pointer.load_audit_id)) {
-        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::InvalidRequest,
-                       "Live package pointer requires slot, package version, digest, checksum, timestamp, and audit id.");
+    JsLivePackageStoreRecordResult record_validation;
+    JsLivePackageRecord candidate = live_record_from_staged(record);
+    if (!validate_live_record_shape(record_validation, candidate)) {
+        copy_record_diagnostics(result, record_validation);
         return result;
     }
+    if (!validate_live_pointer_shape(result, pointer) ||
+        !validate_pointer_matches_record(result, pointer, candidate))
+        return result;
+
+    bool insert_record = false;
+    const auto existing_record =
+        std::find_if(m_records.begin(), m_records.end(), [&](const JsLivePackageRecord &stored) {
+            return stored.identity.package_id == candidate.identity.package_id &&
+                   stored.identity.package_version_id == candidate.identity.package_version_id;
+        });
+    if (existing_record != m_records.end()) {
+        if (!same_record(*existing_record, candidate)) {
+            add_diagnostic(result, JsLivePackageStoreDiagnosticCode::DuplicatePackageRecordConflict,
+                           "Live package record already exists with different metadata.");
+            return result;
+        }
+    } else {
+        if (m_records.size() >= m_options.maximum_package_records) {
+            add_diagnostic(result, JsLivePackageStoreDiagnosticCode::PackageRecordLimitExceeded,
+                           "Live package record limit exceeded.");
+            return result;
+        }
+        insert_record = true;
+    }
+    const std::string derived_live_checksum = live_checksum_for_record(candidate);
+
+    const auto existing = std::find_if(
+        m_live_pointers.begin(), m_live_pointers.end(),
+        [&](const JsLivePackagePointer &stored) { return same_live_slot(stored, pointer); });
+    if (existing == m_live_pointers.end()) {
+        if (m_live_pointers.size() >= m_options.maximum_live_pointers) {
+            add_diagnostic(result, JsLivePackageStoreDiagnosticCode::LivePointerLimitExceeded,
+                           "Live package pointer limit exceeded.");
+            return result;
+        }
+        if (insert_record)
+            m_records.push_back(candidate);
+        JsLivePackagePointer stored_pointer = pointer;
+        stored_pointer.current_live_checksum = derived_live_checksum;
+        m_live_pointers.push_back(stored_pointer);
+        result.ok = true;
+        result.inserted = true;
+        result.pointer = stored_pointer;
+        return result;
+    }
+
+    if (pointer.expected_previous_live_checksum != existing->current_live_checksum) {
+        add_diagnostic(
+            result, JsLivePackageStoreDiagnosticCode::LivePointerConflict,
+            "Live pointer replacement expected checksum does not match current live pointer.");
+        return result;
+    }
+
+    if (insert_record)
+        m_records.push_back(candidate);
+    JsLivePackagePointer stored_pointer = pointer;
+    stored_pointer.current_live_checksum = derived_live_checksum;
+    *existing = stored_pointer;
+    result.ok = true;
+    result.replaced = true;
+    result.pointer = stored_pointer;
+    return result;
+}
+
+JsLivePackagePointerResult
+JsLivePackageStore::load_live_pointer(const JsLivePackagePointer &pointer) {
+    JsLivePackagePointerResult result;
+    if (!validate_live_pointer_shape(result, pointer))
+        return result;
 
     JsLivePackageStoreRecordResult record =
         find_record(pointer.package_id, pointer.package_version_id);
@@ -257,24 +379,13 @@ JsLivePackageStore::load_live_pointer(const JsLivePackagePointer &pointer) {
                        "Live pointer package record was not found.");
         return result;
     }
-    if (record.record.identity.zone != pointer.zone || record.record.identity.vnum != pointer.vnum ||
-        record.record.identity.host != pointer.host ||
-        record.record.identity.canonical_digest != pointer.staged_digest) {
-        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::InvalidRequest,
-                       "Live pointer does not match the stored package record.");
+    if (!validate_pointer_matches_record(result, pointer, record.record))
         return result;
-    }
     const std::string derived_live_checksum = live_checksum_for_record(record.record);
-    if (pointer.current_live_checksum != derived_live_checksum) {
-        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::InvalidRequest,
-                       "Live pointer checksum does not match the stored package record.");
-        return result;
-    }
 
-    const auto existing = std::find_if(m_live_pointers.begin(), m_live_pointers.end(),
-                                       [&](const JsLivePackagePointer &stored) {
-                                           return same_live_slot(stored, pointer);
-                                       });
+    const auto existing = std::find_if(
+        m_live_pointers.begin(), m_live_pointers.end(),
+        [&](const JsLivePackagePointer &stored) { return same_live_slot(stored, pointer); });
     if (existing == m_live_pointers.end()) {
         if (m_live_pointers.size() >= m_options.maximum_live_pointers) {
             add_diagnostic(result, JsLivePackageStoreDiagnosticCode::LivePointerLimitExceeded,
@@ -291,8 +402,9 @@ JsLivePackageStore::load_live_pointer(const JsLivePackagePointer &pointer) {
     }
 
     if (pointer.expected_previous_live_checksum != existing->current_live_checksum) {
-        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::LivePointerConflict,
-                       "Live pointer replacement expected checksum does not match current live pointer.");
+        add_diagnostic(
+            result, JsLivePackageStoreDiagnosticCode::LivePointerConflict,
+            "Live pointer replacement expected checksum does not match current live pointer.");
         return result;
     }
 
@@ -314,10 +426,9 @@ JsLivePackageStore::find_live_pointer(const std::string &package_id) const {
         return result;
     }
 
-    const auto existing = std::find_if(m_live_pointers.begin(), m_live_pointers.end(),
-                                       [&](const JsLivePackagePointer &stored) {
-                                           return stored.package_id == package_id;
-                                       });
+    const auto existing = std::find_if(
+        m_live_pointers.begin(), m_live_pointers.end(),
+        [&](const JsLivePackagePointer &stored) { return stored.package_id == package_id; });
     if (existing == m_live_pointers.end()) {
         add_diagnostic(result, JsLivePackageStoreDiagnosticCode::LivePointerNotFound,
                        "Live package pointer was not found.");
@@ -329,8 +440,8 @@ JsLivePackageStore::find_live_pointer(const std::string &package_id) const {
     return result;
 }
 
-JsLivePackagePointerResult
-JsLivePackageStore::find_live_pointer(int zone, JsScriptPackageHost host, int vnum) const {
+JsLivePackagePointerResult JsLivePackageStore::find_live_pointer(int zone, JsScriptPackageHost host,
+                                                                 int vnum) const {
     JsLivePackagePointerResult result;
     if (zone < 0 || vnum <= 0) {
         add_diagnostic(result, JsLivePackageStoreDiagnosticCode::InvalidRequest,
@@ -338,11 +449,10 @@ JsLivePackageStore::find_live_pointer(int zone, JsScriptPackageHost host, int vn
         return result;
     }
 
-    const auto existing = std::find_if(m_live_pointers.begin(), m_live_pointers.end(),
-                                       [&](const JsLivePackagePointer &stored) {
-                                           return stored.zone == zone && stored.host == host &&
-                                                  stored.vnum == vnum;
-                                       });
+    const auto existing = std::find_if(
+        m_live_pointers.begin(), m_live_pointers.end(), [&](const JsLivePackagePointer &stored) {
+            return stored.zone == zone && stored.host == host && stored.vnum == vnum;
+        });
     if (existing == m_live_pointers.end()) {
         add_diagnostic(result, JsLivePackageStoreDiagnosticCode::LivePointerNotFound,
                        "Live package pointer was not found.");
@@ -354,8 +464,8 @@ JsLivePackageStore::find_live_pointer(int zone, JsScriptPackageHost host, int vn
     return result;
 }
 
-JsLivePackageRegistrySnapshotResult
-JsLivePackageStore::build_live_registry_snapshot(const JsScriptRegistryReplaceOptions &options) const {
+JsLivePackageRegistrySnapshotResult JsLivePackageStore::build_live_registry_snapshot(
+    const JsScriptRegistryReplaceOptions &options) const {
     JsLivePackageRegistrySnapshotResult result;
     std::vector<JsScriptPackage> live_packages;
     for (const JsLivePackagePointer &pointer : m_live_pointers) {
@@ -377,9 +487,7 @@ std::size_t JsLivePackageStore::package_record_count() const { return m_records.
 
 std::size_t JsLivePackageStore::live_pointer_count() const { return m_live_pointers.size(); }
 
-bool JsLivePackageStore::empty() const {
-    return m_records.empty() && m_live_pointers.empty();
-}
+bool JsLivePackageStore::empty() const { return m_records.empty() && m_live_pointers.empty(); }
 
 const char *js_live_package_store_diagnostic_code_name(JsLivePackageStoreDiagnosticCode code) {
     switch (code) {
@@ -399,4 +507,9 @@ const char *js_live_package_store_diagnostic_code_name(JsLivePackageStoreDiagnos
         return "live-pointer-conflict";
     }
     return "unknown";
+}
+
+std::string js_live_package_current_checksum_for_identity(const JsStagedPackageIdentity &identity) {
+    return std::string("live:") + identity.digest_algorithm + ":" +
+           digest_body(identity.canonical_digest);
 }

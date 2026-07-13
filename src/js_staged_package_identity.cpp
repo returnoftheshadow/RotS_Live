@@ -228,6 +228,7 @@ js_staged_package_identity_build(const JsScriptPackage &package,
     result.identity.canonical_format_version = options.canonical_format_version;
     result.identity.package_format_version = package.package_format_version;
     result.identity.builder_account_id = options.builder_account_id;
+    result.identity.server_instance_id = options.server_instance_id;
     result.identity.base_live_checksum = options.base_live_checksum;
     result.identity.manifest_checksum = package.manifest_checksum;
     result.identity.compiled_javascript_checksum = package.compiled_javascript_checksum;
