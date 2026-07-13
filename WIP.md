@@ -1,5 +1,204 @@
 # Work In Progress
 
+## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice in progress: add a minimal JavaScript game-context execution harness and tests so scripts can run against controlled, read-only fixture data for characters, objects, rooms, and triggers before live C++ game dispatch or mutable APIs exist.
+- User requirement:
+  - integrate a JavaScript scripting engine for the game
+  - follow the current scripting engine and trigger model
+  - keep the JavaScript engine working alongside the current scripting engine instead of replacing it
+  - add an Electron app for offline TypeScript script authoring, local trigger testing, and publishing compiled JavaScript to the server
+  - the client should load the full trigger catalog and expose strongly typed classes/interfaces for script authors
+  - fully document the JavaScript API engine so builders understand how every API class, handle, method, property, trigger, return value, side effect, and safety limit should be used
+  - identify every legacy `.scr` trigger and every ASIMA/Mudlle call-flag trigger path, then require JavaScript equivalents or explicit unsupported/deferred manifest entries
+  - update `FEATURES.md` with the feature scope and work list
+  - update `WIP.md` with the active task
+  - send the outlined work to subagents for review and additional implementation concerns
+- Current scripting surface inspected:
+  - `src/script.h` defines trigger constants and legacy script command/parameter ids.
+  - `src/script.cpp` owns `call_trigger(...)`, trigger dispatch, legacy script execution, and continuation handling.
+  - `src/protos.h` defines `script_head`, `script_data`, `info_script`, and script shaping structures.
+  - `src/db.cpp` loads `script_table` and attaches script vnums to mobs/objects.
+  - `src/shapescript.cpp` implements the current builder-facing script editor and `.scr` writer.
+  - Trigger callers already exist in movement, combat, object, communication, and look flows.
+- Planning notes:
+  - JavaScript must be an explicit new script engine/language choice, not a changed interpretation of existing `.scr` files.
+  - The shared integration point should be the existing trigger dispatch path, not duplicated trigger call sites.
+  - Blocking trigger semantics must be preserved for movement/death/damage/wear/pull flows.
+  - Scripts need stable handles and a narrow game API rather than raw C/C++ pointer exposure.
+  - The engine needs sandboxing: no filesystem/network/process/native module access, bounded memory/runtime, recursion guards, safe exception handling, and precise logging.
+  - Initial engine candidates are QuickJS/QuickJS-ng and Duktape; the first coding slice should select one and document vendored vs system-linked build strategy.
+  - Magus found that the initial plan overstated current room script support: inspected storage shows script vnums on characters/mobs and objects, while room-owned script storage is not currently present and `trigger_room_enter()` is effectively a stub.
+  - Magus and Bazarat both found that trigger ordering needs an explicit matrix because `call_trigger(...)` delegates through layered paths with short-circuit behavior rather than one uniform handler per trigger.
+  - Magus and Bazarat both called out the legacy say/yell compatibility quirk: the hear helper checks both `ON_HEAR_SAY` and `ON_HEAR_YELL` sections regardless of which hear trigger entered it.
+  - Vincent found that the v1 JavaScript API must be deny-by-default and should start read-only plus narrowly audited output/actions rather than inheriting broad legacy mutation commands.
+  - Vincent and Bazarat called for stronger sandbox/resource/reload tests, including host-action loops, stale handles after mid-invocation extraction, no module/filesystem/process access, reload rollback, and redacted diagnostics.
+  - The Electron client should treat TypeScript as authoring-only, compile to JavaScript artifacts, and rely on server-side revalidation before activation.
+  - The typed client API should be generated from, or version-locked to, the same server host API/trigger manifest used by the JavaScript engine.
+  - Builder-facing JavaScript API documentation should be generated from, or version-locked to, the same manifest and TypeScript declaration source as the runtime allowlist so docs, typings, and server behavior stay aligned.
+  - API documentation must cover every public class/interface, handle lifetime rule, trigger context, return value, side effect, resource limit, diagnostic, unsupported capability, and publish/test workflow builders need to use scripts correctly.
+  - Active `.scr` triggers found in `src/script.h`, `src/script.cpp`, `src/shapescript.cpp`, and `docs/shape_script.md` that need JavaScript equivalents: `ON_ENTER`, `ON_BEFORE_ENTER`, `ON_DIE`, `ON_RECEIVE`, `ON_EXAMINE_OBJECT`, `ON_HEAR_SAY`, `ON_DAMAGE`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, `ON_PULL`, and `ON_HEAR_YELL`.
+  - `ON_BEFORE_DIE` is defined in `src/script.h`, but it is not dispatched by `call_trigger()` and should be marked reserved/unsupported in the JavaScript manifest until deliberately implemented or removed from scope.
+  - ASIMA/Mudlle programs are a separate legacy scripting path from `.scr` triggers. They use `SPECIAL_*` call flags from `src/interpre.h` and `CALL_MASK(host)`, with builder docs currently describing command/self/enter-room bits.
+  - ASIMA/Mudlle call flags requiring JavaScript parity decisions or explicit unsupported/deferred manifest entries: `SPECIAL_COMMAND`, `SPECIAL_SELF`, `SPECIAL_ENTER`, `SPECIAL_DELAY`, `SPECIAL_TARGET`, `SPECIAL_DAMAGE`, and `SPECIAL_DEATH`.
+  - `SPECIAL_NONE` is a default/no-callflag path and should not be exposed as a builder JavaScript trigger unless a specific hard-coded-special behavior is deliberately ported.
+  - The JavaScript trigger manifest needs to record legacy numeric id or callflag value, handler name, host eligibility, blocking/handled behavior, dispatch ordering, context fields/nullability, support status, and parity-test coverage for each trigger/call flag.
+  - First implementation decision: target upstream QuickJS `2026-06-04` for v1 runtime embedding, with actual vendoring/build integration still gated behind checksum/provenance, CMake/raw Makefile support, sandbox/resource limits, and disabled shell/module/filesystem/network/process features.
+  - First implementation artifact added: `src/js_scripting_manifest.{h,cpp}` now defines the server-owned JavaScript trigger/call-flag manifest plus a deny-by-default legacy mutation API permission table.
+  - Manifest entries are currently non-publishable: active entries are `deferred`, `ON_BEFORE_DIE` is `reserved`, and `SPECIAL_DELAY`/`SPECIAL_NONE` are `unsupported`.
+  - Manifest fields now encode support status, builder status, host eligibility, room-owned publishability, Mudlle call-mask requirements, blocking/handled semantics, exception policy, dispatch ordering, context fields, and notes.
+  - Follow-up reviewer tightening added manifest metadata, explicit publishability helpers, fail-closed behavior for missing API permission entries, exact per-entry host/semantics tests, per-entry context-field tests, and complete public enum string coverage.
+  - Next runtime slice should vendor upstream QuickJS `2026-06-04`, build only the embeddable engine files, avoid QuickJS libc/shell/repl helpers, add a wrapper with memory/stack/instruction limits, and prove safe evaluation/error behavior before exposing game handles.
+  - Runtime slice artifact added: upstream QuickJS `2026-06-04` is vendored under `third_party/quickjs` with provenance and checksum notes in `third_party/quickjs/README.rots.md`.
+  - Runtime slice artifact added: `src/js_runtime.{h,cpp}` creates a fresh QuickJS runtime/context for each evaluation, sets memory/stack/blocking/debug-strip/module-loader/interrupt limits, removes direct `eval`/`Function` globals, rejects dynamic import before evaluation, rejects Promise/async results, evaluates strict global scripts, normalizes allow/block results, and returns sanitized diagnostics.
+  - Runtime slice artifact added: `src/tests/js_runtime_tests.cpp` covers truthy/undefined allow, false block, syntax/runtime diagnostics, diagnostic bounding, infinite loop interruption, per-evaluation budget reset, memory-limit failure, missing host/OS globals, dynamic/static import rejection, mutable-state isolation, Promise/async rejection, post-failure health, and public string names.
+  - Runtime reviewer follow-up added: remaining gates before trigger dispatch now include parser/validator-backed import rejection, full runtime-code-generation constructor policy, stack/regexp/proxy/host-callback adversarial budget tests, vendored QuickJS hash verification, and an explicit decision on whether live execution needs an external watchdog beyond the QuickJS interrupt guard.
+  - Runtime remains intentionally disconnected from script loading, trigger dispatch, and game-object/player/room/zone APIs.
+  - Package validator slice artifact added: `src/js_script_package.{h,cpp}` defines the server-owned in-memory package shape for compiled JavaScript artifacts, trigger bindings, host type, manifest/runtime/typings compatibility fields, machine-readable diagnostics, validation modes, registry-level duplicate-vnum checks, and stable server-computed compiled-JavaScript checksums.
+  - Package validator slice artifact added: publish validation rejects every current manifest trigger because all entries remain deferred/reserved/unsupported, while internal validation mode allows deferred entries only so package shape and future compatibility behavior can be tested without enabling live builder publishing.
+  - Package validator slice artifact added: static validation rejects manifest/runtime/typings drift, checksum mismatch, empty/malformed metadata, wrong host bindings, room-owned publishing, unknown triggers, handler mismatches, duplicate trigger/handler bindings, duplicate package vnums/ids, source-map references, static/dynamic imports, direct/bracketed eval, Function/constructor code generation, async, Promise, and timer APIs before runtime execution.
+  - Package validator slice limitation: the checksum is a stable server-computed validation checksum, not final publish-grade cryptographic signing. The later publish workflow still needs cryptographic package integrity, staged activation, auth, rollback, and audit controls.
+  - Registry/cache slice artifact added: `src/js_script_registry.{h,cpp}` defines an in-memory validated package snapshot with atomic full replacement, explicit empty-replacement policy, server-provided legacy `.scr` vnum conflict checks, duplicate package id/vnum rejection, const lookup by vnum/id, host-aware trigger binding lookup, and host-aware trigger package lookup for later dispatch integration.
+  - Registry/cache slice artifact added: `src/tests/js_script_registry_tests.cpp` covers empty lookup misses, successful internal replacements, failed replacement rollback, duplicate vnum/id rejection, legacy vnum conflicts, host/kind-aware trigger lookup, stable multi-package lookup, snapshot isolation from caller mutation, explicit empty replacement behavior, and aggregated bounded diagnostics.
+  - Host API contract slice artifact added: `src/js_api_contract.{h,cpp}` defines static server-owned metadata for JavaScript-visible handle classes, trigger context interfaces, read-only properties, disabled mutation/output helpers, side-effect and permission statuses, liveness/nullability rules, docs text, and stable TypeScript/doc-generation metadata before any C++ host binding exists.
+  - Host API contract slice artifact added: `src/tests/js_api_contract_tests.cpp` covers stable metadata, expected public types, documentation completeness, duplicate type/member detection, no raw C++ pointer/internal struct exposure, side-effect API denial/deferment, nullable/live-handle modeling, trigger context coverage against `js_scripting_manifest`, sanitized actor text docs, lookup helpers, and enum string names.
+  - Game-context execution slice artifact added: `src/js_game_runtime.{h,cpp}` wraps `js_runtime` with a fixture-backed trigger body runner that injects a deeply frozen `ctx` object containing approved read-only character, actor, object, room, zone, trigger, and text fields.
+  - Game-context execution slice artifact added: context objects are converted to null-prototype objects before freezing, `Object.prototype` and the active function prototype are hardened for the invocation, wrapper-breakout-looking bodies are rejected before evaluation, non-ASCII fixture bytes are escaped in generated JavaScript string literals, and game-runtime error diagnostics are bounded/redacted to avoid leaking thrown actor text.
+  - Game-context execution slice artifact added: `src/tests/js_game_runtime_tests.cpp` covers read-only context access, allow/block/undefined/object return normalization, wrapper breakout rejection, mutation rejection, prototype pollution attempts, optional/null handles, fixture string escaping, inherited runtime limits, per-call state isolation, no raw pointer/process/constructor surfaces, thrown text redaction, and stable context literal shape.
+  - Game-context execution slice limitation: this remains fixture-backed source wrapping, not the final live QuickJS host-binding design. Before live trigger dispatch, `ctx` should be injected through the QuickJS C API or equivalent host-created values, and the fixture field schema should be derived from or checked against `js_api_contract` to prevent drift.
+  - Previous execution-test slice scope:
+    - Add a fixture-backed game script runner that wraps `js_runtime` and injects a deeply frozen `ctx` object with opaque ids plus read-only character/player/mob/object/room/zone/trigger fields.
+    - Keep the runner disconnected from live world state, script registry dispatch, filesystem loading, and mutation/output helpers.
+    - Use this as the first automated proof that builder JavaScript can execute against game-shaped context data while preserving runtime sandboxing, allow/block return normalization, missing-handle nullability, string escaping, and no raw pointer exposure.
+    - Add focused unit tests for read-only context access, blocking return values, mutation rejection, optional handles, escaped actor text, runtime limit inheritance, and absence of process/raw pointer surfaces.
+    - Wire the harness and tests into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
+  - Host API contract slice handoff:
+    - Add `src/js_api_contract.{h,cpp}` as static metadata only; do not bind QuickJS host functions, dispatch triggers, or expose raw C++ pointers.
+    - Model public builder classes/interfaces for `Character`, `Player`, `Mob`, `GameObject`, `Room`, `Zone`, `ScriptContext`, `TriggerInfo`, and script-result helpers.
+    - Include property/method names, TypeScript type strings, return types, nullability, liveness requirements, side-effect category, permission status, documentation text, and version metadata.
+    - Keep v1 read-only by default. Mutation and output helpers should be absent or explicitly deferred/unsupported until permission and liveness tests exist.
+    - Add tests for stable metadata, duplicate class/member symbols, complete documentation fields, no raw pointer/internal C++ types in public signatures, nullability/liveness coverage, deny-by-default side effects, trigger context coverage against `js_scripting_manifest`, and enum string names.
+    - Wire the new module into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
+  - Magus found that the API/trigger manifest needs to be a server-owned first artifact with schema/API/engine ABI versions, compatibility ranges, checksum, trigger catalog revision, runtime feature flags, and generated TypeScript package version.
+  - Magus found that the durable builder workflow should be CLI/project-format first, with Electron as a shell over shared compiler, runner, validator, package, and publish-protocol libraries.
+  - Magus and Bazarat both found that offline/server parity needs golden tests that run the same compiled package, manifest, and fixture through both the offline runner and server validator.
+  - Vincent found that publish security needs implementation-grade package integrity, scoped credentials, transport security, separate stage/activate/rollback permissions, Electron hardening, desktop credential handling, and supply-chain controls.
+  - Bazarat found that the Electron test plan needs adversarial coverage for manifest/type drift, artifact mismatches, sourcemap leaks, hostile fixtures, unsupported triggers, permission failures, stale staged/live versions, and UI failure workflows.
+- Work items now recorded in `FEATURES.md`:
+  - [x] Add a feature section describing goals, current integration points, engine candidates, script representation, execution model, JavaScript API v1, sandboxing, builder workflow, tests, open decisions, and delivery order.
+  - [x] Add Electron TypeScript authoring-client scope covering local fixtures, full trigger catalog loading, strong API typings, offline testing, compiled JavaScript packaging, staged publishing, server-side validation, activation, and rollback.
+  - [x] Add builder-facing JavaScript API documentation scope covering generated reference docs, examples, migration guidance, in-game help, Electron editor docs, CLI reference output, and documentation quality gates.
+  - [x] Add the `.scr` trigger inventory and require JavaScript equivalents for every active legacy trigger, with `ON_BEFORE_DIE` marked as reserved/unsupported pending an explicit product decision.
+  - [x] Add the ASIMA/Mudlle `SPECIAL_*` call-flag inventory and require JavaScript equivalents or explicit unsupported/deferred manifest entries for each engine-reachable call flag.
+  - [x] Review the plan with `Magus` for quality/correctness/testability gaps.
+  - [x] Review the plan with `Vincent` for sandboxing/security/build-supply-chain gaps.
+  - [x] Review the test approach with `Bazarat` for missing adversarial regression coverage.
+  - [x] Incorporate reviewer findings into `FEATURES.md` and this WIP log.
+  - [x] Review the Electron/TypeScript client plan with `Magus` for product fit, maintainability, API-versioning, and workflow gaps.
+  - [x] Review the Electron/TypeScript client plan with `Vincent` for publishing, authentication, package integrity, desktop-app, and server-validation risks.
+  - [x] Review the Electron/TypeScript client test strategy with `Bazarat` for missing offline/online parity, fixture, type, and publish-regression coverage.
+  - [x] Incorporate Electron client reviewer findings into `FEATURES.md` and this WIP log.
+  - [x] First implementation slice: select the embedded JavaScript engine and document pinned version/provenance/build strategy.
+  - [x] First implementation slice: add a server-owned JavaScript scripting manifest that records all active `.scr` triggers and ASIMA/Mudlle call flags, JavaScript handler names, room-script v1 policy, `ON_BEFORE_DIE` reserved/unsupported behavior, ASIMA/Mudlle unsupported/deferred callflag behavior, say/yell compatibility policy, JavaScript registry/cache ownership, and wait/continuation policy before runtime embedding.
+  - [x] First implementation slice: add focused unit tests proving the manifest has no missing trigger/call-flag entries, duplicate legacy ids, missing handler names, or accidental supported statuses before the runtime exists.
+  - [ ] First implementation slice: design the deny-by-default JavaScript API allowlist and sandbox/resource budget acceptance tests.
+  - [x] Runtime slice: vendor QuickJS `2026-06-04` with provenance, checksum, license, and disabled-feature notes.
+  - [x] Runtime slice: wire QuickJS engine sources into CMake and raw Makefile/test Makefile paths without compiling shell, compiler, REPL, libc helper, filesystem, process, or module-loader surfaces.
+  - [x] Runtime slice: add `js_runtime` wrapper for per-evaluation runtime/context isolation, memory limit, stack limit, blocking disablement, module-loader denial, interrupt timeout, sanitized exception formatting, Promise/async rejection, and normalized return values.
+  - [x] Runtime slice: add focused tests for successful evaluation, `true`/`false`/`undefined` result normalization, syntax/runtime errors, infinite-loop interruption, per-evaluation budget reset, memory-limit failure, unavailable host/OS/module globals, mutable-state isolation, Promise/async rejection, and post-failure health.
+  - [x] Package validator slice: add server-owned JavaScript package metadata structs for vnum, engine/language, host type, manifest schema/catalog/runtime/typings compatibility, source text, compiled artifact hash, and trigger bindings.
+  - [x] Package validator slice: add validation that rejects unsupported/reserved/deferred publish attempts, wrong host bindings, room-owned script publishing, missing handler names, duplicate trigger bindings, duplicate package vnums, manifest/runtime/typings drift, empty or malformed package metadata, unsafe source-policy constructs, and oversized diagnostics.
+  - [x] Package validator slice: add focused unit tests for valid internal validation-only packages, manifest mismatch, runtime mismatch, typings mismatch, duplicate vnum, duplicate trigger binding, unknown trigger, unsupported trigger, wrong host, room-owned trigger, missing handler, dynamic import/static import/runtime-code-generation policy rejection, source hash mismatch, and diagnostic sanitization.
+  - [x] Package validator slice: wire the new validator into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
+  - [x] Package validator slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
+  - [x] Package validator slice: validate with focused JavaScript package tests, `make test`, raw test build path, raw server build path, and `git diff --check`.
+  - [x] Registry/cache slice: add `js_script_registry` types for validated package snapshots, lookup by package vnum, lookup by trigger binding, and atomic replace.
+  - [x] Registry/cache slice: add server-provided legacy `.scr` vnum ownership checks so JavaScript packages cannot shadow existing legacy script vnums until an explicit migration policy exists.
+  - [x] Registry/cache slice: add tests for successful internal registry replacement, failed update rollback, duplicate JS package vnums, duplicate package ids, legacy vnum conflicts, invalid package rejection, trigger lookup success/miss, and diagnostics.
+  - [x] Registry/cache slice: wire the registry into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
+  - [x] Registry/cache slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
+  - [x] Registry/cache slice: validate with focused JavaScript registry tests, `make test`, raw test build path, raw server build path, and `git diff --check`.
+  - [x] Host API contract slice: add `js_api_contract` metadata for classes/interfaces, members, types, nullability, liveness, side effects, permissions, and documentation text.
+  - [x] Host API contract slice: define v1 read-only handle classes for character/player/mob/object/room/zone plus script/trigger context types, while keeping mutation and output APIs disabled/deferred unless explicitly allowed.
+  - [x] Host API contract slice: add tests for stable metadata, duplicate symbols, complete docs, nullability/liveness fields, deny-by-default mutation/output permissions, no raw pointer/internal-state type exposure, and trigger context field coverage against the trigger manifest.
+  - [x] Host API contract slice: wire the contract into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
+  - [x] Host API contract slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
+  - [x] Host API contract slice: validate with focused JavaScript API contract tests, `make test`, raw test build path, raw server build path, and `git diff --check`.
+  - [x] Game-context execution slice: add a fixture-backed JavaScript runner that executes scripts with a read-only, deeply frozen `ctx` object containing opaque game handles and trigger metadata.
+  - [x] Game-context execution slice: add tests for reading character/object/room/trigger fields, allow/block return normalization, mutation failure, missing handles, text escaping, inherited sandbox/runtime limits, and no raw pointer/process exposure.
+  - [x] Game-context execution slice: wire the runner into CMake, raw `src/Makefile`, and raw `src/tests/Makefile`.
+  - [x] Game-context execution slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
+  - [x] Game-context execution slice: validate with focused JavaScript game-context tests, `make test`, raw test build path, raw server build path, and `git diff --check`.
+  - [ ] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
+  - [ ] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
+  - [ ] Client planning gate before implementation: define CLI-first project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
+  - [ ] Client planning gate before implementation: define package integrity model with server-computed canonical digest, immutable package/version id, manifest checksum, base live checksum, replay protection, and activation by exact staged digest.
+  - [ ] Client planning gate before implementation: define publish authentication/authorization with scoped short-lived credentials, transport security, separate stage/activate/rollback/source-view permissions, revocation, rate limiting, and audit ids.
+  - [ ] Client planning gate before implementation: define Electron hardening, desktop credential storage, dependency pinning, code signing, and supply-chain scanning requirements.
+  - [ ] Client planning gate before implementation: define golden offline/server parity tests, hostile fixture tests, package mismatch/sourcemap leak tests, unsupported-trigger tests, and publish/activation race/rollback tests.
+- Validation so far:
+  - `git diff --check -- FEATURES.md WIP.md` passed after builder-facing JavaScript API documentation scope was added.
+  - Focused `./bin/tests '--gtest_filter=JsScriptingManifest.*'` passed at `18/18` tests after reviewer-driven manifest policy coverage was tightened.
+  - `make test` passed at `606/606` tests after the manifest and build wiring changes.
+  - Focused `./bin/tests '--gtest_filter=JsRuntime.*:JsScriptingManifest.*'` passed at `29/29` tests after the runtime isolation follow-up.
+  - `make test` passed at `617/617` tests after the QuickJS runtime wrapper, manifest, and build wiring updates.
+  - Raw `make -C src/tests clean tests` initially exposed stale raw-test Makefile drift; after adding the missing include path and source objects, `make -C src/tests tests` linked successfully and the raw-built focused JavaScript tests passed at `29/29`.
+  - Raw `make -C src clean ageland` passed, including 32-bit QuickJS compilation and server link.
+  - `git diff --check` passed after the runtime follow-up.
+  - Focused `./bin/tests '--gtest_filter=JsRuntime.*'` passed at `11/11` tests after the runtime wrapper was updated for per-evaluation QuickJS isolation, per-evaluation budget reset, Promise/async rejection, and stronger sandbox assertions.
+  - Trigger inventory checked against `src/script.h`, `src/script.cpp`, `src/shapescript.cpp`, `docs/shape_script.md`, `src/interpre.h`, `src/interpre.cpp`, `src/mudlle.cpp`, `src/mobact.cpp`, `src/comm.cpp`, and `docs/shape_mudlle.md`.
+  - Runtime remains disconnected from script loading, trigger dispatch, and game-object/player/room/zone APIs.
+  - Focused `./bin/tests '--gtest_filter=JsScriptPackage.*:JsRuntime.*:JsScriptingManifest.*'` passed at `41/41` tests after the package validator slice.
+  - `make test` passed at `629/629` tests after the package validator slice.
+  - Raw `make -C src/tests tests` linked successfully and the raw-built focused JavaScript tests passed at `41/41`.
+  - Raw `make -C src ageland` passed after adding `js_script_package.o`.
+  - `git diff --check` passed after the package validator slice.
+  - Focused `./bin/tests '--gtest_filter=JsScriptRegistry.*:JsScriptPackage.*:JsRuntime.*:JsScriptingManifest.*'` passed at `52/52` tests after the registry/cache slice.
+  - `make test` passed at `640/640` tests after the registry/cache slice.
+  - Raw `make -C src/tests tests` linked successfully and the raw-built focused JavaScript tests passed at `52/52`.
+  - Raw `make -C src ageland` passed after adding `js_script_registry.o`.
+  - Focused `./bin/tests '--gtest_filter=JsApiContract.*'` passed at `11/11` tests after the host API contract slice.
+  - `make test` passed at `651/651` tests after the host API contract slice.
+  - Raw `make -C src/tests tests` linked successfully and the raw-built focused JavaScript tests passed at `63/63`.
+  - Raw `make -C src ageland` passed after adding `js_api_contract.o`.
+  - Focused `./bin/tests '--gtest_filter=JsApiContract.*'` passed at `11/11` tests after the host API contract slice.
+  - `make test` passed at `651/651` tests after the host API contract slice.
+  - Raw `make -C src/tests tests` linked successfully and the raw-built focused JavaScript API contract tests passed at `11/11`.
+  - Raw `make -C src ageland` passed after adding `js_api_contract.o`.
+  - `git diff --check` passed after the host API contract slice.
+  - Focused `./bin/tests '--gtest_filter=JsGameRuntime.*'` passed at `13/13` tests after reviewer-driven game-context hardening.
+  - `make test` passed at `664/664` tests after the game-context execution slice.
+  - Raw `make -C src/tests tests` linked successfully and the raw-built focused JavaScript test set passed at `76/76`.
+  - Raw `make -C src ageland` passed after adding `js_game_runtime.o`.
+  - `git diff --check` passed after the game-context execution slice.
+- Reviewer status:
+  - `Magus`: reviewed; findings incorporated into `FEATURES.md` around room support accuracy, trigger matrix/ordering, say/yell compatibility, wait/continuation policy, script registry/cache ownership, deny-by-default API shape, and exact legacy call-site regressions.
+  - `Vincent`: reviewed; findings incorporated into `FEATURES.md` around deny-by-default host APIs, resource and recursion budgets, opaque non-persistent handles, JS-specific sandbox escape surfaces, reload path trust boundaries, dependency pinning/supply-chain controls, redacted diagnostics, and security acceptance tests.
+  - `Bazarat`: reviewed; findings incorporated into `FEATURES.md` around blocking-trigger matrix tests, mid-invocation extraction, recursive host-action loops, say/yell regression coverage, reload/cache behavior, malformed metadata/layout cases, host-object resource exhaustion, coexistence edge cases, and null/invalid subject tests.
+  - `Magus` Electron review: complete; findings incorporated around server-owned manifest schema/versioning, same-runtime offline runner parity, CLI/project-format-first workflow, immutable version/concurrency model, versioned fixture schema, and room/zone publish eligibility.
+  - `Vincent` Electron review: complete; findings incorporated around package signing/digests, scoped publish auth, transport security, capability separation, Electron hardening, compiled artifact controls, client supply-chain controls, atomic activation/rollback, credential storage, and sanitized audit logging.
+  - `Bazarat` Electron review: complete; findings incorporated around golden offline/server parity tests, manifest/type drift checks, publish/activation rollback state-machine tests, compile artifact mismatch and sourcemap leak tests, permission failures, malformed fixtures, unsupported trigger negatives, and UI failure workflows.
+  - `Magus` first implementation review: requested `ON_BEFORE_DIE` reserved status, explicit host/order/short-circuit fields, say/yell policy, distinct `.scr` vs Mudlle call-flag modeling, killer-context caution, and CMake/raw Makefile/test Makefile wiring; addressed in the manifest and build files.
+  - `Vincent` first implementation review: requested a deny-by-default host API permission table, hard-coded-special/deferred boundary for Mudlle flags, manifest-owned exception policy, room-owned publish deferral, and all build paths updated; addressed in the manifest and build files.
+  - `Bazarat` first implementation review: requested duplicate id/handler tests, unsupported/reserved negatives, host eligibility checks, say/yell policy tests, `ON_DAMAGE` ordering assertions, and docs/types drift gates; addressed for the server manifest slice, with generated docs/types drift gates still pending the generator/client slice.
+  - `Magus` runtime review: found persistent QuickJS context state, lifetime-scoped interrupt budget, Promise truthiness, dynamic-import filtering, Atomics/blocking configuration, memory-status specificity, and raw Makefile dependency risks. This slice now creates a fresh runtime/context per evaluation, resets budgets per evaluation, rejects Promise/async results, disables blocking, installs a deny module loader, and expands tests; parser-level import validation, full code-generation constructor hardening, exact eval-time OOM classification, and raw dependency consolidation remain follow-ups before dispatch wiring.
+  - `Vincent` runtime review: found the same persistent-state and lifetime-budget trust-boundary issues, plus limitations in substring import filtering, interrupt guards as non-wall-clock timeouts, vendored-source verification, and script-controlled diagnostics. This slice addresses the immediate isolation/budget blockers and records parser validation, hash verification, external watchdog policy, and stronger diagnostic/redaction design as required follow-ups.
+  - `Bazarat` runtime test review: found missing per-invocation budget tests, mutable-state isolation tests, weak sandbox status assertions, untested runtime compilation/Promise behavior, dynamic-import variants, post-failure health, diagnostic bounding, stack limits, build-path drift, and unknown enum fallbacks. This slice adds focused coverage for the immediate runtime boundary risks; stack/regexp/proxy/host-callback adversarial tests and build-path drift checks remain pending.
+  - `Magus` final review: requested manifest metadata, explicit missing-API deny behavior, and object-host context clarity; addressed with metadata, `js_scripting_api_permission_is_allowed()`, and explicit `object` context fields.
+  - `Vincent` final review: requested publishability helpers and explicit default-deny behavior for absent API entries; addressed with `js_scripting_manifest_entry_publishable()`, `js_scripting_manifest_host_publishable()`, and missing-command deny tests.
+  - `Bazarat` final review: requested exhaustive host/semantics/context tests and complete enum string coverage; addressed with table-driven per-entry manifest assertions and expanded string-name tests.
+  - `Magus` package-validator review: requested a positive validation path without enabling publishing, validator-owned source policy instead of runtime substring checks, stronger manifest compatibility fields, and explicit package identity ownership; addressed with internal validation mode, static source policy checks, manifest checksum/package-format/API/runtime flag metadata, package ids, and registry duplicate checks. Structured context/nullability fields remain deferred to the API/types/docs generator slice.
+  - `Vincent` package-validator review: requested static validation without executing uploaded JavaScript, server-computed artifact checks, current manifest-driven publish rejection, bounded coded diagnostics, no package path authority, and stronger source policy tests; addressed in the validator and tests. Final cryptographic package signing/integrity remains deferred to the publish workflow slice.
+  - `Bazarat` package-validator review: requested rejection tests for all current non-publishable triggers, host mismatches, room publishing, manifest/type drift, source-policy bypasses, duplicate identities, checksum mismatch, and diagnostic quality; addressed for in-memory package validation. Legacy `.scr` vnum ownership and JSON-canonical package digest tests remain deferred until filesystem loading/package serialization exists.
+  - `Magus` registry/cache review: requested a separate registry module, atomic replace, explicit legacy `.scr` vnum ownership input, distinct duplicate package-id diagnostics, and trigger lookup that returns binding context; addressed with `js_script_registry`, local candidate validation before swap, legacy conflict diagnostics, `DuplicatePackageId`, and vnum/host/kind/value lookup.
+  - `Vincent` registry/cache review: requested server-owned legacy blocklist enforcement, no runtime execution or filesystem path resolution, host-aware trigger lookup, immutable lookup surfaces, and failed-replace rollback; addressed in the registry API and tests.
+  - `Bazarat` registry/cache review: requested adversarial coverage for failed replacement rollback, duplicate identities, legacy conflicts, host/kind trigger lookup, empty replacement policy, caller mutation isolation, aggregated diagnostics, and no partial mutation; addressed in `src/tests/js_script_registry_tests.cpp`.
+  - `Vincent` host API contract review: requested a separate JavaScript-visible allowlist, no raw pointer/internal-state exposure, structured side-effect and permission metadata, liveness/nullability modeling, disabled output/mutation helpers, and actor-controlled text handling; addressed in `js_api_contract` metadata and tests.
+  - `Bazarat` host API contract review: requested documentation coverage, duplicate symbol checks, deny-by-default permission tests, nullability/liveness tests, trigger-context coverage against the manifest, stable metadata, and enum string tests; addressed in `src/tests/js_api_contract_tests.cpp`. Generated TypeScript/docs drift tests remain deferred until the generator slice exists.
+  - `Magus` host API contract review: returned after validation with a summary and no new findings; implementation already covers duplicate symbol checks, docs completeness, manifest context coverage, and metadata tests.
+  - `Magus` game-context execution review: requested null-prototype context objects, prototype-pollution coverage, stronger string encoding, broader freeze tests, future API-contract alignment, and WIP checklist updates; addressed with null-prototype deep freeze, non-ASCII byte escaping, mutation/prototype tests, and this WIP update. Contract-derived fixture schemas remain deferred to the API/types generator slice.
+  - `Vincent` game-context execution review: requested prototype hardening, clear warning against relying on textual wrapping for live host binding, diagnostics that do not leak actor text, and hostile byte/string coverage; addressed with prototype hardening, wrapper breakout rejection tests, diagnostic redaction, and expanded escaping tests. QuickJS C-API value injection remains required before live host binding.
+  - `Bazarat` game-context execution review: requested adversarial tests for wrapper breakout, constructor-chain escape attempts, broader freeze/mutation behavior, fixture-field escaping, state isolation, missing handles, and wrapper-level return semantics; addressed in `src/tests/js_game_runtime_tests.cpp`.
+
 ## Current Feature Planning Task - MSDP Unit Test Coverage
 - Active implementation slice complete: `msdp_update()` game-state emitter coverage now includes descriptor safety, broad character stat emission, weather branches, and opponent branches.
 - User requirement:

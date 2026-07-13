@@ -7,7 +7,7 @@ if(NOT DEFINED CMAKE_CXX_COMPILER)
     endif()
 endif()
 
-project(RotS LANGUAGES CXX)
+project(RotS LANGUAGES C CXX)
 
 include(CTest)
 
@@ -41,6 +41,11 @@ set(ROTS_SERVER_SOURCES
     character_json.cpp
     exploits_json.cpp
     json_utils.cpp
+    js_api_contract.cpp
+    js_game_runtime.cpp
+    js_runtime.cpp
+    js_script_package.cpp
+    js_script_registry.cpp
     objects_json.cpp
     ban.cpp
     battle_mage_handler.cpp
@@ -63,6 +68,7 @@ set(ROTS_SERVER_SOURCES
     graph.cpp
     handler.cpp
     interpre.cpp
+    js_scripting_manifest.cpp
     limits.cpp
     mage.cpp
     mail.cpp
@@ -104,6 +110,20 @@ set(ROTS_SERVER_SOURCES
     zone.cpp
 )
 
+set(ROTS_QUICKJS_SOURCES
+    "${REPO_ROOT}/third_party/quickjs/quickjs.c"
+    "${REPO_ROOT}/third_party/quickjs/cutils.c"
+    "${REPO_ROOT}/third_party/quickjs/libregexp.c"
+    "${REPO_ROOT}/third_party/quickjs/libunicode.c"
+    "${REPO_ROOT}/third_party/quickjs/dtoa.c"
+)
+
+set_source_files_properties(${ROTS_QUICKJS_SOURCES}
+    PROPERTIES
+        COMPILE_DEFINITIONS "CONFIG_VERSION=\"2026-06-04\";_GNU_SOURCE"
+        COMPILE_OPTIONS "-std=gnu11"
+)
+
 set(ROTS_TEST_SOURCES
     tests/battle_mage_handler_tests.cpp
     tests/account_management_tests.cpp
@@ -128,6 +148,12 @@ set(ROTS_TEST_SOURCES
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
+    tests/js_api_contract_tests.cpp
+    tests/js_game_runtime_tests.cpp
+    tests/js_runtime_tests.cpp
+    tests/js_script_package_tests.cpp
+    tests/js_script_registry_tests.cpp
+    tests/js_scripting_manifest_tests.cpp
     tests/json_perf_tests.cpp
     tests/objects_json_tests.cpp
     tests/player_finalize_tests.cpp
@@ -144,7 +170,7 @@ set(ROTS_TEST_SOURCES
     tests/weapon_master_handler_tests.cpp
 )
 
-add_executable(ageland ${ROTS_SERVER_SOURCES})
+add_executable(ageland ${ROTS_SERVER_SOURCES} ${ROTS_QUICKJS_SOURCES})
 target_compile_options(ageland PRIVATE
     -m32
     -w
@@ -162,7 +188,7 @@ target_link_libraries(ageland PRIVATE crypt)
 find_package(GTest REQUIRED)
 include(GoogleTest)
 
-add_executable(ageland_tests ${ROTS_SERVER_SOURCES} ${ROTS_TEST_SOURCES})
+add_executable(ageland_tests ${ROTS_SERVER_SOURCES} ${ROTS_QUICKJS_SOURCES} ${ROTS_TEST_SOURCES})
 target_include_directories(ageland_tests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests"

@@ -1,5 +1,491 @@
 # Features to Add
 
+## JavaScript Game Scripting Engine
+
+Add a JavaScript scripting engine that runs alongside the current ASIMA-style script system rather than replacing it. The existing trigger entry points, script-number references on mobs/objects, and current world-building workflow should continue to work while JavaScript-backed scripts are introduced incrementally.
+
+Goals:
+- Keep the current scripting engine and trigger behavior operational for existing world content.
+- Add a JavaScript engine behind the same gameplay trigger concepts: enter, before-enter, die, receive, examine object, hear say/yell, damage, eat, drink, wear, pull, and future trigger types.
+- Let builders opt a script into JavaScript explicitly instead of changing the meaning of existing `.scr` files.
+- Provide a small, documented game API to scripts instead of exposing raw C/C++ pointers or unrestricted server internals.
+- Provide complete builder-facing documentation for the JavaScript API so script authors understand what each class, handle, method, trigger, return value, side effect, and safety limit does before they publish scripts.
+- Make script execution deterministic enough for live MUD use: bounded runtime, bounded memory, no filesystem/network/process access from world scripts, and safe failure behavior.
+- Preserve current trigger return semantics, especially blocking triggers such as `ON_BEFORE_ENTER`, `ON_DIE`, `ON_DAMAGE`, `ON_WEAR`, and `ON_PULL`.
+- Support unit-testable script execution without needing a live socket or full running game.
+- Treat room JavaScript support as an explicit design choice: current inspected storage has script vnums on characters/mobs and objects, while `trigger_room_enter()` is effectively a stub. V1 should either add room script storage/loading deliberately or defer room-owned JavaScript triggers while preserving the current room fan-out behavior.
+
+Current scripting surface to integrate with:
+- `src/script.h` defines the trigger constants and current script command/parameter model.
+- `src/script.cpp` owns `call_trigger(...)`, trigger dispatch, script execution, script-local context state, and continuation support for waiting scripts.
+- `src/protos.h` defines `script_head`, `script_data`, `info_script`, and shaping/editor structures.
+- `src/db.cpp` loads the current script table and attaches script vnums to mobs/objects.
+- `src/shapescript.cpp` implements in-game script shaping and writes `lib/world/scr/*.scr`.
+- Existing trigger callers live in movement, communication, combat, object, and look flows, so the new engine should reuse those call sites through a shared dispatcher instead of duplicating trigger plumbing.
+- Current room event handling fans out into room occupants and room objects, but room-owned script storage is not currently visible in the inspected structs/loaders.
+
+Engine selection and dependency plan:
+- Evaluate an embeddable C/C++ JavaScript runtime during the first implementation slice.
+- Prefer a small interpreter-style engine over V8/Node-style embedding so the game server build remains simple.
+- Initial candidates:
+  - QuickJS/QuickJS-ng: modern JavaScript support, small C embedding surface, runtime/context resource controls.
+  - Duktape: compact, portable, C-friendly embedding, older JavaScript feature level.
+- Choose and document vendoring/build strategy before production integration:
+  - source vendored under a third-party directory, or
+  - system package discovered by CMake, with clear build failure messaging.
+- Pin the selected engine by exact version or commit, document provenance and license, verify vendored-source checksums where practical, track security advisories, and fail closed if the build links an unexpected runtime/configuration.
+- Disable optional shell, module, filesystem, networking, process, and native-extension features in the selected engine configuration.
+- Update both CMake and the raw `src/Makefile` path so local and fallback builds stay aligned.
+
+Selected v1 runtime direction:
+- Use upstream QuickJS `2026-06-04` as the first embedded runtime target.
+- Rationale: the upstream engine is small, embeddable C code, MIT-licensed, and current enough for TypeScript-authored JavaScript output without bringing in a Node/V8 embedding stack.
+- Vendored exact release source under `third_party/quickjs`, with provenance, release date, license, source checksum, local configuration flags, and disabled optional features recorded in `third_party/quickjs/README.rots.md`.
+- Runtime engine files are wired into both CMake and raw Makefile paths. Shell, compiler, REPL, examples, tests, docs, and QuickJS libc helper files are not built into the server.
+- Runtime execution remains disconnected from game trigger dispatch until script registry/loading, package validation, manifest enforcement, and game-handle APIs are implemented.
+
+Proposed script representation:
+- Add an engine/language discriminator to script metadata, for example `legacy` vs `javascript`.
+- Keep legacy `.scr` loading unchanged.
+- Add a JavaScript script file convention under the same world script area or a sibling directory, for example `lib/world/js/<vnum>.js` or `lib/world/scr/<vnum>.js`.
+- Add a small metadata file or header syntax only if needed to map script vnums, names, descriptions, host types, and trigger functions.
+- Avoid mixing legacy command lists and JavaScript source in the same in-memory `script_data` chain unless a compatibility wrapper makes that safe and clear.
+- Decide whether JavaScript scripts occupy the global `script_table`, live in a parallel registry keyed by vnum, or require exclusive vnum ownership across engines.
+- Define duplicate-vnum behavior, wrong-host behavior, deleted-file reload behavior, cache lifetime, and free/reload ownership before wiring runtime dispatch.
+
+JavaScript execution model:
+- Initial QuickJS runtime wrapper implementation:
+  - `src/js_runtime.{h,cpp}` owns JavaScript execution configuration behind a C++ wrapper and creates a fresh QuickJS runtime/context for each evaluation so globals, prototypes, pending jobs, and builder-defined state do not persist across invocations.
+  - The wrapper sets memory, stack, blocking, debug-strip, module-loader, and interrupt budgets before each evaluation.
+  - The wrapper evaluates strict global scripts only and does not enable module loader, `std`, `os`, filesystem, process, worker, shell, or QuickJS libc helper surfaces.
+  - Direct global `eval` and `Function` are removed, and Promise/async results fail closed until async trigger semantics and runtime compilation policy are explicitly designed.
+  - Dynamic import is rejected before evaluation as a conservative fail-closed policy until a parser/validator layer exists.
+  - Results are normalized so `undefined` and truthy values allow, `false` blocks, and syntax/runtime/interrupt/memory failures return structured error statuses with sanitized single-line diagnostics.
+  - Focused runtime tests cover success, allow/block normalization, syntax/runtime errors, diagnostic bounding, infinite-loop interruption, per-evaluation budget reset, memory-limit failure, missing host/OS globals, dynamic/static import rejection, no mutable state persistence across evaluations, Promise/async rejection, post-failure health, and public status strings.
+  - Remaining before trigger dispatch: replace source-substring dynamic-import rejection with a parser/validator layer, harden all runtime-code-generation constructor paths, add stack/regexp/proxy/host-callback adversarial budget tests, add a vendored QuickJS hash verification target, and define whether live execution needs an external watchdog beyond the QuickJS interrupt guard.
+- Initial server-owned manifest implementation:
+  - `src/js_scripting_manifest.{h,cpp}` records every legacy `.scr` trigger and ASIMA/Mudlle call flag currently identified for JavaScript parity or explicit unsupported/deferred behavior.
+  - The manifest records trigger kind, legacy numeric value, JavaScript handler name, support status, builder publish status, host eligibility, room-owned publishability, Mudlle call-mask behavior, blocking/handled semantics, exception policy, dispatch ordering, context fields, and notes.
+  - The manifest also records an initial deny-by-default host API permission table for dangerous legacy mutation commands, including combat, load/extract, teleport, inventory/equipment mutation, exit mutation, raw kill, XP gain, and wait/continuation commands.
+  - All trigger/call-flag entries are currently `deferred`, `reserved`, or `unsupported`; no builder JavaScript trigger is publishable until the runtime, validator, and sandbox are implemented.
+  - Focused unit tests in `src/tests/js_scripting_manifest_tests.cpp` guard manifest completeness, duplicate ids, duplicate handler names, reserved/unsupported statuses, host eligibility, room-owned deferral, say/yell compatibility policy, blocking exception policy, Mudlle handled semantics, and the deny-by-default mutation API table.
+- Initial server-owned package validator implementation:
+  - `src/js_script_package.{h,cpp}` defines the in-memory package shape for compiled JavaScript artifacts before any filesystem loader, live trigger dispatch, or game-handle API exists.
+  - Package validation checks server manifest compatibility, package format version, trigger catalog revision, manifest checksum, runtime identity, generated typings version, host eligibility, trigger handler names, duplicate bindings, duplicate package vnums/ids, compiled-JavaScript checksum drift, and bounded machine-readable diagnostics.
+  - Publish-mode validation rejects every current manifest trigger because all entries remain deferred, reserved, or unsupported. Internal validation mode exists only to test package shape and future compatibility rules without enabling builder publication.
+  - Static source policy rejects source-map references, static/dynamic imports, direct/bracketed `eval`, `Function` and constructor-based code generation, async, Promise, and timer APIs before any JavaScript runtime evaluation.
+  - The current checksum is a stable server-computed validation checksum, not final publish-grade cryptographic signing. The publish workflow still needs cryptographic package integrity, scoped credentials, staged activation, rollback, and audit controls.
+- Initial server-owned package registry/cache implementation:
+  - `src/js_script_registry.{h,cpp}` stores validated package snapshots in memory before filesystem loading, live trigger dispatch, or game-handle APIs exist.
+  - Registry replacement validates the full candidate package set, checks server-provided legacy `.scr` vnum ownership, rejects duplicate package ids/vnums, and swaps the active snapshot only after every package and registry-level check passes.
+  - Failed replacement leaves the previous snapshot and trigger lookups intact. Empty replacement is controlled by an explicit option so intentional clearing is separate from failed reload behavior.
+  - Registry lookup is const and host-aware: callers can find by package vnum/id, find a trigger binding by vnum plus host/kind/legacy value, or find all packages matching a host/kind/legacy trigger for future dispatch wiring.
+  - The registry does not execute JavaScript, probe handler exports, derive filesystem paths from package metadata, or expose mutable package references.
+- Initial server-owned host API contract implementation:
+  - `src/js_api_contract.{h,cpp}` defines static metadata for JavaScript-visible builder API types before QuickJS host bindings or trigger dispatch exist.
+  - The contract currently covers read-only handle interfaces for `Character`, `Player`, `Mob`, `GameObject`, `Room`, and `Zone`, plus `TriggerInfo`, `ScriptContext`, `ScriptResult`, and `Script`.
+  - Each public member records a TypeScript-shaped signature, return type, nullability, live-handle requirement, side-effect category, permission/status string, and builder-facing documentation text.
+  - V1 remains deny-by-default: read-only fields and pure result helpers are planned, while output helpers are deferred and world mutation helpers are explicitly unsupported.
+  - Focused tests guard stable metadata, documentation completeness, duplicate symbols, raw C++ type leakage, side-effect permissions, nullability/liveness metadata, trigger-context field coverage against `js_scripting_manifest`, sanitized actor text docs, lookups, and enum string stability.
+- Initial fixture-backed game-context execution implementation:
+  - `src/js_game_runtime.{h,cpp}` wraps `js_runtime` to execute a trigger body with a generated, deeply frozen `ctx` object that resembles the planned builder API context.
+  - The context contains only approved public fixture fields for character/player/mob-style handles, object, room, zone, trigger metadata, actor text, and opaque ids. It does not expose raw C/C++ pointers, live world state, filesystem loading, registry dispatch, output helpers, or mutation APIs.
+  - Context objects are converted to null-prototype objects before freezing, object/function prototype constructor paths are hardened during the invocation, non-ASCII fixture bytes are escaped in generated literals, structurally unsafe wrapper-breakout-looking script bodies are rejected, and game-runtime diagnostics are bounded/redacted so thrown actor text is not logged by default.
+  - This is the first automated bridge between JavaScript execution and game-shaped context data. It is intentionally not the final live QuickJS host-binding layer; later slices still need C-API or equivalent host-created value injection, liveness checks, real entity adapters, trigger dispatch integration, fixture/API-contract drift checks, and parity tests at the legacy call sites.
+  - Focused tests in `src/tests/js_game_runtime_tests.cpp` cover reading context fields, allow/block return semantics, wrapper breakout rejection, mutation rejection on frozen context objects, prototype-pollution attempts, optional-handle nullability, actor/fixture string escaping, inherited runtime limits, state isolation, diagnostic redaction, and absence of raw pointer/process/constructor surfaces.
+- Add a new script engine facade, likely `script_engine.{h,cpp}`, that exposes:
+  - load/compile script by vnum and engine type
+  - execute trigger by trigger id and subject context
+  - return allow/block/handled status compatible with existing `call_trigger(...)`
+  - reset/reload script cache for builder/admin workflows
+  - collect/log script diagnostics with script vnum and trigger name
+- Update `call_trigger(...)` and the specific `trigger_*` helpers so they can dispatch to either legacy ASIMA scripts or JavaScript scripts attached to the same mob/object/room trigger.
+- Preserve ordering rules explicitly when both systems are attached to the same entity:
+  - define whether legacy runs before JavaScript, JavaScript before legacy, or only one engine can own a given script vnum
+  - fail closed for blocking triggers when script execution errors unless the trigger is explicitly non-blocking
+  - document the rule in builder help
+- Add a per-invocation context object with stable handles rather than raw pointers:
+  - `self`, `actor`, `target`, `object`, `room`, `text`, and trigger metadata as applicable
+  - entity handles should validate liveness before every API call
+  - scripts should not retain live C/C++ pointers across invocations
+- V1 JavaScript must not retain live entity handles or arbitrary mutable JS state across invocations. Any later persistence feature needs a separate audited storage design.
+- V1 should either explicitly forbid wait/continuation behavior or design it independently from legacy `SCRIPT_DO_WAIT`; in either case, legacy waiting suppression and `continue_char_script()` behavior must remain unchanged.
+- Define a trigger matrix before implementation, including subject mapping, dispatch order, short-circuit behavior, and return semantics:
+  - `ON_BEFORE_ENTER`: room-event path iterates room occupants and short-circuits on false.
+  - `ON_ENTER`: room-event path runs room handling, then occupants, then objects while the return value remains true.
+  - `ON_DAMAGE`: victim script runs first; wielded-object script runs only if the victim path allows damage.
+  - `ON_DIE`: target character script can block death.
+  - `ON_WEAR` and `ON_PULL`: object scripts can block the action.
+  - `ON_EXAMINE_OBJECT`, `ON_RECEIVE`, `ON_EAT`, and `ON_DRINK`: preserve current object/character subject mapping.
+  - `ON_HEAR_SAY` and `ON_HEAR_YELL`: make a deliberate compatibility decision because the legacy hear helper checks both sections regardless of which hear trigger entered it.
+
+Legacy `.scr` trigger inventory requiring JavaScript equivalents:
+- The `.scr` trigger system uses the following `ON_*` trigger constants. These are separate from the ASIMA/Mudlle mobile program call-mask flags listed below, but both systems need JavaScript parity planning because builders currently use both behaviors.
+- `ON_ENTER` (`11`):
+  - Create a JavaScript trigger equivalent for character/mob scripts reacting to another character entering the room.
+  - Create a JavaScript trigger equivalent for object scripts reacting when a character enters the room containing the object.
+  - Preserve current room-event ordering: room hook first, then room occupants other than the entering character, then room contents, short-circuiting while return remains true.
+  - JavaScript context should include at least `self`, `actor`, `room`, trigger metadata, and host type.
+- `ON_BEFORE_ENTER` (`12`):
+  - Create a JavaScript trigger equivalent for character/mob scripts that can block another character from entering the room.
+  - Preserve blocking behavior: false/block prevents entry.
+  - Preserve current fan-out across room occupants other than the entering character, short-circuiting on the first block.
+  - JavaScript context should include at least `self`, `actor`, `room`, trigger metadata, and host type.
+- `ON_BEFORE_DIE` (`13`):
+  - This trigger is defined in `src/script.h` but the inspected legacy dispatch path does not call it, and the header comment marks it as `implemented??`.
+  - Do not expose it as a supported JavaScript trigger until the product decision is made to either implement it deliberately or keep it reserved/unsupported.
+  - The trigger manifest should list it as reserved/unsupported with a clear diagnostic if a builder attempts to publish it.
+- `ON_DIE` (`14`):
+  - Create a JavaScript trigger equivalent for character/mob scripts on the dying target.
+  - Preserve blocking behavior: false/block prevents death.
+  - Current `call_trigger()` receives the killer as `subject2`, but `trigger_char_die()` does not pass that killer into legacy script context; decide whether JavaScript v1 preserves that limitation or deliberately adds a typed optional `killer` context field.
+  - JavaScript context should include at least `self`, optional `killer` if supported, trigger metadata, and host type.
+- `ON_RECEIVE` (`15`):
+  - Create a JavaScript trigger equivalent for character/mob scripts when the scripted character receives an object.
+  - Preserve current context mapping: receiver is `self`, giver/actor is the second character, received object is the object context.
+  - JavaScript context should include at least `self`, `actor`, `object`, trigger metadata, and host type.
+- `ON_EXAMINE_OBJECT` (`16`):
+  - Create a JavaScript trigger equivalent for object scripts when a character examines the object.
+  - Preserve current object-host behavior and return semantics used by the look/examine path.
+  - JavaScript context should include at least `self`/`object`, `actor`, trigger metadata, and host type.
+- `ON_HEAR_SAY` (`17`):
+  - Create a JavaScript trigger equivalent for character/mob scripts when another character says text the scripted character hears.
+  - Preserve or explicitly replace the current legacy compatibility behavior where `trigger_char_hear()` checks both `ON_HEAR_SAY` and `ON_HEAR_YELL` script sections regardless of which hear trigger entered the helper.
+  - JavaScript context should include at least `self`, `speaker`, sanitized/heard `text`, trigger metadata, and host type.
+- `ON_DAMAGE` (`18`):
+  - Create a JavaScript trigger equivalent for character/mob scripts on the victim before damage is applied.
+  - Create a JavaScript trigger equivalent for wielded-object scripts after the victim script allows damage.
+  - Preserve blocking behavior: false/block prevents the damage from being applied and prevents downstream weapon-object trigger dispatch when the victim script blocks.
+  - JavaScript context should include at least victim/`self`, `attacker`, optional weapon object for object-host dispatch, trigger metadata, and host type.
+- `ON_EAT` (`19`):
+  - Create a JavaScript trigger equivalent for object scripts when a character eats the object.
+  - Preserve current object-host context mapping.
+  - JavaScript context should include at least `self`/`object`, `actor`, trigger metadata, and host type.
+- `ON_DRINK` (`20`):
+  - Create a JavaScript trigger equivalent for object scripts when a character drinks from the object.
+  - Preserve current object-host context mapping.
+  - JavaScript context should include at least `self`/`object`, `actor`, trigger metadata, and host type.
+- `ON_WEAR` (`21`):
+  - Create a JavaScript trigger equivalent for object scripts before a character wears/equips the object.
+  - Preserve blocking behavior: false/block prevents the wear action.
+  - JavaScript context should include at least `self`/`object`, `actor`, trigger metadata, target wear slot when available, and host type.
+- `ON_PULL` (`22`):
+  - Create a JavaScript trigger equivalent for object scripts before a character pulls the object as a lever.
+  - Preserve blocking behavior: false/block prevents the pull action.
+  - JavaScript context should include at least `self`/`object`, `actor`, trigger metadata, and host type.
+- `ON_HEAR_YELL` (`23`):
+  - Create a JavaScript trigger equivalent for character/mob scripts when another character yells text the scripted character hears.
+  - Preserve or explicitly replace the current legacy compatibility behavior where `trigger_char_hear()` checks both hear-say and hear-yell script sections for both hear entry points.
+  - JavaScript context should include at least `self`, `speaker`, sanitized/heard `text`, trigger metadata, and host type.
+- Every active ASIMA trigger above must appear in the server-owned JavaScript trigger manifest with:
+  - legacy numeric id
+  - JavaScript handler name
+  - host eligibility
+  - blocking/non-blocking behavior
+  - dispatch ordering
+  - context fields and nullability
+  - whether the trigger is implemented, reserved, unsupported, or deferred in the current engine version
+  - parity tests proving the JavaScript trigger reaches the same gameplay call sites as the ASIMA trigger
+
+ASIMA/Mudlle mobile-program call flags requiring JavaScript parity decisions:
+- ASIMA/Mudlle programs use `SPECIAL_*` call flags from `src/interpre.h` and `CALL_MASK(host)` rather than the `.scr` `ON_*` constants.
+- The builder-facing ASIMA documentation currently describes the `I` call-mask bits for command, self, and enter-room only, but the engine can pass additional call flags through the generic special dispatcher. JavaScript planning must decide whether each flag gets a supported JavaScript equivalent, remains hard-coded-special-only, or is explicitly unsupported for builder scripts.
+- `SPECIAL_COMMAND` (`1`):
+  - Create a JavaScript equivalent for command-handler behavior when a player command is checked against specials in the room, inventory/equipment, or target path.
+  - Context should include `self`/host, `actor`, command id/name, raw/sanitized argument text, target data when available, source room, and trigger metadata.
+  - Preserve return semantics where true/handled blocks normal command flow.
+- `SPECIAL_SELF` (`2`):
+  - Create a JavaScript equivalent for mobile heartbeat/self activity.
+  - Context should include `self`, current room, tick/heartbeat metadata where available, and trigger metadata.
+  - Resource budgets need to be especially strict because this can run from periodic mobile activity.
+- `SPECIAL_ENTER` (`4`):
+  - Create a JavaScript equivalent for special-procedure enter-room behavior when a character enters a room containing the host or when movement code targets the entrant.
+  - Context should include `self`/host, `actor`/entrant, entering direction/reverse direction command id, room, and trigger metadata.
+  - Preserve return semantics where true/handled can block or consume the special path depending on the current caller.
+- `SPECIAL_DELAY` (`8`):
+  - Create a JavaScript parity decision for delayed ASIMA continuation behavior caused by the ASIMA `d` command.
+  - V1 JavaScript may deliberately not support continuations, but the manifest and docs must say so explicitly and the offline runner should reject scripts that try to use delayed continuation APIs until they exist.
+  - If supported later, continuation state must be independent from legacy `continue_char_script()` and must validate handles after the delay.
+- `SPECIAL_TARGET` (`16`):
+  - Decide whether JavaScript supports target-special behavior from command targeting paths.
+  - If supported, context should include `self`/target host, `actor`, command id/name, argument text, `targ1`, `targ2`, target types, and trigger metadata.
+  - If deferred, the manifest should mark it unsupported for builder-authored JavaScript even though hard-coded specials can receive it.
+- `SPECIAL_DAMAGE` (`32`):
+  - Decide whether JavaScript supports special-procedure damage hooks in addition to the `.scr` `ON_DAMAGE` trigger.
+  - If supported, context should distinguish this call flag from `.scr` `ON_DAMAGE`, include attacker/victim/target data, and preserve the special dispatcher's handled/blocking semantics.
+  - Add parity tests for combat call sites that invoke `special(..., SPECIAL_DAMAGE, ...)`.
+- `SPECIAL_DEATH` (`64`):
+  - Decide whether JavaScript supports special-procedure death hooks in addition to the `.scr` `ON_DIE` trigger.
+  - If supported, context should include dying character, killer/actor when available, target data from the waiting structure, and trigger metadata.
+  - Add parity tests for death call sites that invoke `special(..., SPECIAL_DEATH, ...)`.
+- `SPECIAL_NONE` (`0`):
+  - This is defined as a no-callflag/default path and is not enabled by `CALL_MASK`; do not expose it as a builder JavaScript trigger unless a specific existing hard-coded-special behavior is being ported.
+- Every ASIMA/Mudlle call flag above must appear in the server-owned JavaScript trigger manifest with:
+  - legacy callflag value
+  - JavaScript handler name if supported
+  - builder support status: supported, hard-coded-special-only, reserved, unsupported, or deferred
+  - host eligibility, initially mobile-only unless a broader special-procedure bridge is deliberately designed
+  - context fields and nullability
+  - handled/blocking semantics
+  - parity-test requirements for each supported call site
+
+Minimal JavaScript API v1:
+- Initial server-owned host API contract implementation:
+  - `src/js_api_contract.{h,cpp}` defines static metadata for builder-visible API types before any QuickJS host binding or trigger dispatch exists.
+  - The contract records schema/API revision, checksum, generated typings/documentation versions, public class/interface/namespace names, members, TypeScript type strings, return types, nullability, liveness requirements, side-effect category, permission status, and documentation text.
+  - Public v1 handle types are planned as read-only invocation-local handles: `Character`, `Player`, `Mob`, `GameObject`, `Room`, `Zone`, `ScriptContext`, and `TriggerInfo`.
+  - Pure return helpers are planned through `ScriptResult.allow()` and `ScriptResult.block()`.
+  - Output helpers and world-mutation helpers are explicitly deferred or unsupported in the contract until permission, recursion, liveness, and audit behavior are implemented and tested.
+- Read-only helpers:
+  - character name, level, race, room, NPC/player state, hit points, rank where already exposed to legacy scripts
+  - object name/vnum and room name/vnum
+  - current trigger name/type and spoken text for hear triggers
+- Controlled action helpers must be deny-by-default. V1 should start with read-only helpers plus a small audited output/action allowlist, then expand command-by-command only after security and liveness tests exist.
+- Initial allowed mutation/output candidates:
+  - send to char
+  - send to room
+  - send to room except actor
+  - say/emote/yell through existing command helpers where safe
+- Defer high-risk actions such as raw kill, extract char/object, direct stat writes, exit mutation, broad teleport/movement, load mob/object, forced combat/social/wear/remove, and inventory transfer until each has a specific permission model, liveness checks, rollback/partial-mutation policy, and unit coverage.
+- Return helpers:
+  - `return true` / `return false` for blocking trigger semantics
+  - explicit `Script.allow()` / `Script.block()` wrappers if the embedded engine needs a normalized return type
+- Defer broad mutation APIs until after v1 so the initial bridge is auditable.
+
+Builder-facing JavaScript API documentation:
+- Treat API documentation as a required deliverable for every JavaScript scripting slice, not as optional release polish.
+- Generate or version-lock the public documentation from the same server-owned API/trigger manifest and TypeScript definition source used by the Electron client so docs, typings, and runtime allowlists cannot drift silently.
+- Documentation should cover every exposed public API item:
+  - global script helpers and namespace layout
+  - trigger function names, host eligibility, blocking behavior, context fields, and return semantics
+  - character, player, mob, object, room, zone, and script-result handle classes/interfaces
+  - every readable property, method, argument, return type, thrown/returned diagnostic, side effect, permission requirement, and resource-budget impact
+  - handle liveness rules, invalid-handle behavior, null/absent context fields, extraction behavior, and cross-invocation lifetime rules
+  - output/action helpers, what they emit, who can see the output, whether they can trigger other scripts, and what limits apply
+  - unsupported APIs and deliberately absent capabilities so builders do not infer that raw server commands, filesystem access, network access, timers, persistence, dynamic imports, or direct pointer/state mutation are available
+- Documentation should include builder-oriented examples for each supported trigger:
+  - minimal allow/block examples
+  - read-only inspection examples
+  - allowed output/action examples
+  - examples showing how to handle missing actors, objects, rooms, and invalid handles
+  - examples for local fixture tests and expected assertions in the offline runner
+- Documentation should include a migration guide for builders familiar with legacy ASIMA-style scripts:
+  - mapping legacy trigger concepts to JavaScript trigger functions
+  - differences in return values, ordering, wait/continuation behavior, and say/yell compatibility
+  - examples of legacy patterns that should not be recreated in JavaScript because the new API is deny-by-default
+- Documentation should include operational guidance:
+  - script file/project layout
+  - TypeScript authoring and compiled JavaScript publishing flow
+  - local compile/test/package/publish steps
+  - staged vs live script states, activation, rollback, and common rejection reasons
+  - how to read syntax/runtime diagnostics, resource-limit errors, manifest mismatch errors, and publish validation failures
+- Documentation should be available in multiple builder-facing places:
+  - checked-in markdown/reference docs for review and long-form explanation
+  - generated TypeScript doc comments and editor hover text in the Electron app
+  - in-game help entries for the supported JavaScript script layout, trigger names, return values, and high-level API rules
+  - CLI help/reference output for offline validation and publishing commands
+- Add documentation quality gates:
+  - CI fails when a public API manifest entry or TypeScript declaration lacks documentation text
+  - docs examples compile under the generated TypeScript definitions
+  - runnable examples execute in the offline runner where practical
+  - documentation generated from the manifest includes the manifest checksum/API version it describes
+  - stale documentation is rejected when the API/trigger manifest changes without regenerated docs
+- Keep documentation safe to publish: examples, diagnostics, and generated reference output must not include live player data, account identifiers, private logs, local filesystem paths, credentials, or raw production speech.
+
+Sandbox and safety requirements:
+- Disable or omit JavaScript access to filesystem, sockets, process execution, native module loading, timers, dynamic imports, and host environment data.
+- Do not register QuickJS-style `std`/`os` modules, host module loaders, native extension hooks, or finalizers that can touch game pointers after extraction.
+- Freeze or minimize global objects, and define the policy for `eval`, `Function`, dynamic import, and runtime code compilation before enabling builder scripts.
+- Set memory and instruction/runtime limits per invocation, plus a per-game-tick script budget.
+- Guard recursive trigger entry and script-induced action loops with a maximum depth and action/output budget.
+- Define partial-mutation behavior for exceptions, timeouts, and memory failures. Blocking triggers should either run precondition-only JavaScript before mutation or have documented compensation behavior.
+- Validate all game handles before use and fail gracefully if an entity is extracted during script execution.
+- Log script errors with vnum, engine type, trigger type, sanitized error class/location, and stable entity ids/vnums without raw player speech, account email, descriptor data, full source text, or arbitrary argument values by default.
+- Ensure a JavaScript crash/exception cannot corrupt descriptor state, world lists, object lists, or combat state.
+
+Builder/admin workflow:
+- Extend script listing/inspection commands so immortals can see engine type and JavaScript source metadata.
+- Add a reload path for JavaScript scripts that does not require a full reboot.
+- Add help text for JavaScript script layout, supported trigger function names, return semantics, and API surface.
+- Add diagnostics that point builders at syntax/runtime errors with line/column information when the selected engine supports it.
+- Preserve existing shape/edit flows for legacy scripts; add JavaScript editing only if it can be done cleanly without destabilizing the current editor.
+- Treat reload/source paths as a trust boundary: canonicalize paths under the JavaScript script root, allow numeric-vnum filenames only unless a stricter metadata format is chosen, reject symlinks, enforce max source size, check zone/builder permissions, write atomically, and keep the last known good compiled script active or explicitly disabled according to a documented reload policy.
+
+Electron TypeScript authoring client:
+- Build a companion Electron app for builders to author game scripts locally in TypeScript, test them offline, and publish approved compiled JavaScript artifacts to the server.
+- Treat TypeScript as an authoring language only. The game server should execute compiled JavaScript and should never require a TypeScript compiler at runtime.
+- Build the reusable builder workflow before the Electron shell:
+  - define the project layout, manifest format, compiler settings, validator, offline runner, package format, and publish protocol first
+  - expose that workflow through a CLI so CI and server-side validation can run it without Electron
+  - make Electron a UI over the shared CLI/libraries rather than the owner of validation logic
+  - define generated-file ownership, formatter/linter commands, local Git-friendly review behavior, and conflict handling between local files and live/staged server versions
+- Create a server-owned API/trigger manifest as a first implementation artifact. The manifest should include:
+  - `schema_version`
+  - `api_version`
+  - `engine_abi_version`
+  - trigger catalog revision
+  - runtime feature flags
+  - compatibility ranges
+  - manifest checksum
+  - generated TypeScript package version
+  - host types, trigger names, trigger implementation status, blocking behavior, context fields, return semantics, and publish eligibility
+- Publishing should require an exact or explicitly compatible manifest checksum, not just a loose API version string.
+- Mark room-owned triggers and unresolved host types as unsupported/non-publishable in the manifest until the server-side room storage/dispatch policy is resolved. TypeScript can expose read-only room context where valid without implying room script authoring is supported.
+- Package the TypeScript API definitions with the client and keep them generated from, or version-locked to, the server-side JavaScript host API contract:
+  - strongly typed trigger context classes/interfaces
+  - strongly typed character, player, mob, object, room, zone, and script-result handles
+  - method/property documentation matching the server allowlist
+  - trigger function signatures for every supported trigger
+  - literal/enum types for trigger names, host types, directions, wear slots, races, positions, and other stable domain values exposed to scripts
+- The client should load the complete trigger catalog from a server-exported manifest or a checked-in API manifest, including trigger names, host eligibility, blocking behavior, context fields, return semantics, and whether the trigger is implemented in v1.
+- Regenerated TypeScript definitions, trigger manifests, and server host API allowlists must agree in CI; drift should fail the build.
+- The client should provide a local project model:
+  - script source files in TypeScript
+  - generated compiled JavaScript output
+  - script metadata such as vnum, name, description, host type, zone, allowed triggers, engine version, and API version
+  - local fixtures for player/mob/object/room/zone state
+  - expected test assertions for output messages, return values, diagnostics, and allowed state changes
+- The client should include an offline runner that uses the same script facade contract as the server where practical:
+  - compile TypeScript to JavaScript
+  - execute compiled JavaScript through the same selected JavaScript runtime as the server, preferably via a shared native/wasm runner or the same validation binary used server-side
+  - run any supported trigger against local fixtures
+  - show messages sent to actor/room, return allow/block value, diagnostics, resource-limit failures, and host API calls
+  - simulate handle liveness, extraction, invalid handles, and action/output budgets
+  - support fixture libraries for common objects, mobs, rooms, zones, and player states
+- Define the TypeScript compiler target, module format, forbidden transforms/polyfills, sourcemap policy, and allowed built-ins before client implementation starts.
+- Define a versioned fixture schema generated from the same manifest, including fixture schema version, manifest checksum, world/build revision metadata, enum domains, and handle-liveness semantics.
+- The offline runner must not be the authority for production safety. Publishing must send a package to the server, and the server must revalidate before activation.
+- Publishing workflow:
+  - authenticate the builder/admin against a server-side publishing endpoint or command using a dedicated publish credential/session with short-lived scoped tokens.
+  - require TLS or equivalent channel security, server-side rate limits, replay protection, audit ids, explicit logout/revocation behavior, and CSRF/session-binding protections if HTTP is used.
+  - upload compiled JavaScript, TypeScript source if desired for review, metadata, API version, manifest checksum, engine version, package manifest, and local validation report.
+  - upload to a staged server location first, not directly into the live script directory.
+  - server computes canonical digests over staged artifacts, metadata, optional source, and validation reports; the server must not trust a checksum supplied by the Electron client.
+  - server creates an immutable package id/version id and records the server-computed digest, manifest checksum, author, zone, vnum, host type, and base live checksum.
+  - package manifests should be signed or authenticated where practical and include replay protection/provenance data.
+  - server verifies builder permissions, zone ownership, vnum/host type, source size, metadata shape, package integrity, API/manifest compatibility, syntax/compile success under the server runtime, sandbox configuration, and trigger manifest compatibility.
+  - server rejects packages that use APIs outside the allowlist or target unsupported triggers.
+  - server rejects dynamic code-generation/import behavior according to the sandbox policy, including `eval`, `Function`, dynamic import, and bundled runtime dependencies unless explicitly approved.
+  - server validates the exact compiled JavaScript bytes it will execute, regardless of TypeScript source, sourcemaps, local validation reports, or client-side checksums.
+  - successful publish stores the package as staged; activation/reload is a separate explicit step that preserves the last known good compiled script on failure.
+  - distinguish capabilities for upload/stage, activate live, rollback live, view source, and administer other builders' scripts.
+  - activation must re-check permissions, zone/vnum ownership, current live checksum, manifest compatibility, and exact staged package digest.
+  - all publish, activate, rollback, and reject actions should be logged with request/package ids, builder identity, actor account id, connection/source identifier where appropriate, script vnum, zone, staged/live digest, decision reason code, and sanitized diagnostics.
+- The client should support rollback-aware publishing:
+  - always fetch current live/staged script versions before publish, activation, or rollback
+  - compare local compiled output against staged/live checksums
+  - include `base_live_checksum`, package digest, manifest checksum, and activation preconditions in publish/activation requests
+  - allow an authorized builder/admin to request activation or rollback through the server validation path
+  - use immutable version directories, per-vnum locking, atomic live-pointer swaps, rollback to a named prior digest, retention/garbage-collection policy, and documented crash/partial-failure behavior
+  - never write directly to `lib/world/js` over generic file transfer as the normal workflow
+- Keep the reusable validator/runner available outside Electron as a CLI so CI and server-side validation can run the same checks without the desktop app.
+- Client implementation should avoid bundling secrets in project files. Persistent authentication tokens must live in OS credential storage; if credential storage is unavailable, the client should fall back to memory-only tokens or require reauthentication. Do not store passwords at rest. Tokens need TTL/refresh behavior, logout clearing, and must not appear in logs, crash reports, exported packages, or local validation reports.
+- Harden the Electron app:
+  - `contextIsolation: true`
+  - `sandbox: true`
+  - `nodeIntegration: false`
+  - no `remote`
+  - strict Content Security Policy
+  - block unexpected external navigation/window creation
+  - validate IPC schemas
+  - avoid arbitrary local file execution
+  - harden custom protocol handling
+  - require signed auto-update packages if auto-update is added
+- Client supply-chain controls:
+  - commit lockfiles
+  - pin Electron, TypeScript, bundler, and runner dependencies
+  - run dependency review/vulnerability scanning
+  - prefer reproducible package builds where practical
+  - code-sign desktop builds
+  - disallow install-time scripts unless explicitly reviewed and approved
+- Package privacy rules:
+  - compiled JavaScript, optional TypeScript source, sourcemaps, diagnostics, and fixtures must not include account emails, passwords, verification codes, private player data, live logs, absolute local paths, auth headers, or raw source snippets in server logs
+  - sourcemaps are allowed only if sanitized according to policy; `sourcesContent` should be rejected unless explicitly approved
+- Client testing requirements:
+  - TypeScript type tests proving unsupported methods/properties fail at compile time
+  - CI regeneration tests proving TypeScript definitions, trigger manifest, manifest checksum, and server host API allowlist match
+  - documentation generation tests proving every public manifest entry, TypeScript declaration, trigger, context field, class, property, and method has builder-facing documentation
+  - documentation example tests proving checked-in and generated examples compile, and run through the offline runner where practical
+  - negative TypeScript tests for removed, renamed, unsupported, or host-ineligible methods/triggers
+  - trigger catalog loading, stale-manifest handling, manifest checksum compatibility, and API/engine version checks
+  - golden offline/server parity tests that run the same compiled package, manifest version, and fixture through both the offline runner and server validator, then diff return value, emitted messages, diagnostics, resource-limit behavior, and allowed state changes
+  - fixture validation for required context fields plus hostile fixtures: wrong host type, missing nested fields, invalid enum values, duplicate vnums, dangling exits, stale object references, extracted actor referenced by later assertions, malformed expectations, and fixture schema-version migration/rejection
+  - offline runner tests for every supported trigger signature
+  - manifest-driven negative tests for every unimplemented or host-ineligible trigger, proving type generation, runner selection, package validation, and server publish validation fail with the same diagnostic code
+  - compile-to-JavaScript artifact tests, including sourcemap/source-reference policy
+  - package mismatch tests where TypeScript source, compiled JavaScript, sourcemap, local validation report, manifest checksum, and server-computed digest intentionally disagree
+  - negative package tests for absolute local paths, `sourcesContent`, player names/log snippets, private filesystem paths, bundled dependencies, dynamic code generation, and obfuscated unsupported API calls
+  - publish package validation tests for server-computed digest, metadata, API version, manifest checksum, permissions, unsupported APIs, server rejection handling, replay protection, expired/revoked tokens, builder without zone ownership, stage-without-activate permission, admin rollback permission, and token expiry mid-flow
+  - publish/activation state-machine tests proving rejected publish leaves staged/live unchanged, activation failure restores compiled cache and metadata, rollback failure does not corrupt live, stale staged digest refuses activation, and concurrent builders cannot activate the wrong package
+  - UI workflow tests for edit, compile, run fixture, review diagnostics, package, publish staged, activate, rollback, stale manifest banner, compile failure preserving editor state, sanitized server rejection display, activation disabled on checksum/live mismatch, staged-vs-live conflict resolution, rollback confirmation, offline mode with cached manifest, and no secrets in exported packages or UI logs
+
+Testing plan:
+- Add focused unit tests around the new script engine facade:
+  - loading valid JavaScript script metadata/source
+  - rejecting missing, malformed, or oversized scripts
+  - executing simple allow/block triggers
+  - mapping each supported legacy trigger id to the correct JavaScript handler name
+  - exception handling and fail-open/fail-closed behavior per trigger category
+  - memory/runtime limit behavior where testable
+  - handle-liveness checks after extracted characters/objects
+- Add trigger-dispatch matrix tests:
+  - table-driven coverage for every blocking trigger with legacy allow plus JavaScript block, legacy block plus JavaScript allow, JavaScript exception, missing handler, and mixed char/object chains
+  - exact downstream invocation assertions for `ON_BEFORE_ENTER`, `ON_ENTER`, `ON_DAMAGE`, `ON_DIE`, `ON_WEAR`, and `ON_PULL`
+  - movement before-enter, movement enter fan-out, death blocking, damage victim-vs-weapon ordering, object examine, receive, eat/drink, wear/pull, and say/yell behavior through the existing call sites where practical
+  - explicit say/yell compatibility tests once the legacy double-check behavior is either preserved or corrected
+- Add API wrapper tests:
+  - send-to-char/room output capture
+  - read-only character/object/room property access
+  - action wrappers preserving existing command safety
+  - invalid vnum/entity/room inputs fail without mutating world state
+  - mid-invocation extraction of `self`, `actor`, `target`, objects, worn weapons, and room occupants followed by further API calls fails safely without use-after-free, skipped iteration, or duplicated iteration
+- Add coexistence regression tests:
+  - legacy scripts still execute unchanged
+  - JavaScript scripts execute from the same trigger call sites
+  - defined ordering when both script systems are present
+  - blocking trigger return values still affect movement, death, damage, wear, and pull flows
+  - same-vnum legacy/JavaScript conflicts follow the documented policy
+  - same-entity multiple-engine attachment follows the documented ordering policy if supported
+- Add malformed metadata/layout tests:
+  - duplicate vnum, unknown engine type, missing metadata, source without metadata, metadata without source, wrong host type, no matching handler, non-function handler, oversized metadata/source, deleted source followed by reload, and stale compiled cache behavior
+- Add sandbox/resource tests:
+  - filesystem/network/process/module access is unavailable
+  - `while(true)` interruption, memory exhaustion, runtime code-generation policy, and redacted diagnostics
+  - recursive host-action loops such as hear-say causing say, damage causing hit, wear causing wear, enter causing teleport/re-enter, and object enter causing load/move
+  - host API loops that repeatedly emit output or allocate/mutate C-side game state are bounded and leave no leaked mobs/objects after timeout
+- Add reload/cache tests:
+  - successful reload switches from old JavaScript source to new source
+  - malformed reload keeps the last good compiled script or disables it per documented policy
+  - reload during an active invocation does not invalidate the current frame
+  - legacy wait continuation still resumes correctly after JavaScript cache reload
+- Add null/invalid subject tests for the new facade and any hardened dispatcher paths:
+  - null subject/actor/object where feasible, invalid room index or `NOWHERE`, actor without descriptor, NPC actor, object not in room/inventory/equipment, and empty weapon slot during damage
+- Add build tests/coverage:
+  - CMake includes the selected engine and new source files
+  - raw `src/Makefile` includes the selected engine and new source files
+  - no generated binaries or world runtime data are committed
+- Run `make test` for all implementation slices.
+- Run targeted manual smoke tests on a local server with at least one mob, object, and room JavaScript trigger before finalizing the integration.
+
+Open product/implementation decisions before coding:
+- Which JavaScript engine should be selected for v1, and whether it is vendored or system-linked.
+- Exact on-disk JavaScript script layout and whether `.js` files use one exported `triggers` object, named global functions, or a small module wrapper.
+- Whether a single script vnum can contain both legacy and JavaScript behavior or whether engine type is exclusive per script vnum.
+- Ordering and error policy when multiple scripts or engines respond to the same trigger.
+- Whether JavaScript scripts can keep persistent per-script state, or whether v1 follows the current script model where script-local data is lost after execution.
+- Which legacy script commands are in the v1 JavaScript API and which are deferred.
+- Builder permissions for creating/reloading JavaScript scripts.
+
+Suggested delivery order:
+1. Select the embedded JavaScript engine and add a minimal build-only integration behind a compile-time feature flag if needed.
+2. Introduce the script engine facade and unit-testable trigger context model without changing existing legacy behavior.
+3. Add JavaScript script loading/metadata support and cache/reload plumbing.
+4. Wire JavaScript dispatch into `call_trigger(...)` while preserving all legacy script paths.
+5. Implement the v1 safe JavaScript game API wrappers.
+6. Add coexistence and blocking-trigger regression tests.
+7. Add builder/admin listing, reload diagnostics, and help text.
+8. Run full validation and smoke-test representative room, mob, and object JavaScript triggers.
+
 ## MSDP Unit Test Coverage Requirements
 
 Add broad unit-test coverage for the game's MSDP implementation. The goal is to test as much of the current MSDP behavior as practical without depending on a live server socket, live telnet client, or full interactive smoke flow.

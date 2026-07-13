@@ -1,5 +1,12 @@
 #compiler name
 CC = g++ -m32 -w -std=c++1z
+QJS_CC = gcc -m32 -std=gnu11
+QJS_CFLAGS = -D_GNU_SOURCE -DCONFIG_VERSION=\"2026-06-04\" -I../third_party/quickjs
+QJS_HEADERS = ../third_party/quickjs/quickjs.h ../third_party/quickjs/quickjs-atom.h \
+	../third_party/quickjs/quickjs-opcode.h ../third_party/quickjs/cutils.h \
+	../third_party/quickjs/list.h ../third_party/quickjs/libregexp.h \
+	../third_party/quickjs/libregexp-opcode.h ../third_party/quickjs/libunicode.h \
+	../third_party/quickjs/libunicode-table.h ../third_party/quickjs/dtoa.h
 
 #compiler flags you want to use (other than profiling, such as -Wall)
 MYFLAGS = -fstrict-aliasing -funsigned-char
@@ -26,11 +33,11 @@ CFLAGS = $(MYFLAGS) $(PROFILE) $(OSFLAGS)
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
-	comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o objects_json.o \
+	comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o js_api_contract.o js_game_runtime.o js_runtime.o js_script_package.o js_script_registry.o js_scripting_manifest.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
 	pkill.o player_file_finalize.o profs.o protocol.o ranger.o save_benchmark.o savebench.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
-	wild_fighting_handler.o weather.o zone.o
+	wild_fighting_handler.o weather.o zone.o quickjs.o cutils.o libregexp.o libunicode.o dtoa.o
 
 
 ageland:        ../bin/ageland
@@ -58,6 +65,39 @@ exploits_json.o : exploits_json.cpp exploits_json.h json_utils.h db.h
 
 json_utils.o : json_utils.cpp json_utils.h
 	$(CC) -c $(CFLAGS) json_utils.cpp
+
+js_api_contract.o : js_api_contract.cpp js_api_contract.h
+	$(CC) -c $(CFLAGS) js_api_contract.cpp
+
+js_game_runtime.o : js_game_runtime.cpp js_game_runtime.h js_runtime.h
+	$(CC) -c $(CFLAGS) js_game_runtime.cpp
+
+js_runtime.o : js_runtime.cpp js_runtime.h $(QJS_HEADERS)
+	$(CC) -c $(CFLAGS) js_runtime.cpp
+
+js_script_package.o : js_script_package.cpp js_script_package.h js_scripting_manifest.h
+	$(CC) -c $(CFLAGS) js_script_package.cpp
+
+js_script_registry.o : js_script_registry.cpp js_script_registry.h js_script_package.h js_scripting_manifest.h
+	$(CC) -c $(CFLAGS) js_script_registry.cpp
+
+js_scripting_manifest.o : js_scripting_manifest.cpp js_scripting_manifest.h interpre.h script.h
+	$(CC) -c $(CFLAGS) js_scripting_manifest.cpp
+
+quickjs.o : ../third_party/quickjs/quickjs.c $(QJS_HEADERS)
+	$(QJS_CC) -c $(QJS_CFLAGS) ../third_party/quickjs/quickjs.c
+
+cutils.o : ../third_party/quickjs/cutils.c $(QJS_HEADERS)
+	$(QJS_CC) -c $(QJS_CFLAGS) ../third_party/quickjs/cutils.c
+
+libregexp.o : ../third_party/quickjs/libregexp.c $(QJS_HEADERS)
+	$(QJS_CC) -c $(QJS_CFLAGS) ../third_party/quickjs/libregexp.c
+
+libunicode.o : ../third_party/quickjs/libunicode.c $(QJS_HEADERS)
+	$(QJS_CC) -c $(QJS_CFLAGS) ../third_party/quickjs/libunicode.c
+
+dtoa.o : ../third_party/quickjs/dtoa.c $(QJS_HEADERS)
+	$(QJS_CC) -c $(QJS_CFLAGS) ../third_party/quickjs/dtoa.c
 
 objects_json.o : objects_json.cpp objects_json.h json_utils.h structs.h
 	$(CC) -c $(CFLAGS) objects_json.cpp
