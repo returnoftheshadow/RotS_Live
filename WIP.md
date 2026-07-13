@@ -1,8 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: defined documentation generation from the JavaScript API/trigger manifest, including required documentation fields for every public entry, example validation, in-game help generation, stale-documentation CI failure behavior, version-locking, artifact coverage, and safety checks before Electron implementation begins.
-- Next slice: define the CLI-first JavaScript builder workflow, including project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
+- Active slice complete: defined the CLI-first JavaScript builder workflow, including shared CLI/core ownership before Electron, project layout, compiler settings, offline runner, validator, package format, publish protocol, generated-file ownership, local/staged/live conflict workflow, credential/cache safety, and Electron-as-UI boundaries.
+- Next slice: define the package integrity model with server-computed canonical digest, immutable package/version id, manifest checksum, base live checksum, replay protection, and activation by exact staged digest.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -128,6 +128,17 @@
     - Documentation trust boundaries now require authenticated server provenance for downloaded docs/manifests, non-authoritative cached/offline docs, bounded/redacted diagnostics, and synthetic fixture/example data with no secrets or production-like private text.
     - Acceptance tests must table-drive docs coverage and stale-artifact failures across every trigger, ASIMA/Mudlle call flag, API type/member, context field, enum/literal domain, diagnostic code, resource limit, fixture field, and publish workflow state.
     - Reviewer concerns recorded for this planning slice: Magus focus on complete artifact ownership and build-path parity, Vincent focus on provenance/redaction/non-authoritative docs metadata, and Bazarat focus on stale-doc scenarios, weak example assertions, in-game help drift, and exact artifact diagnostics.
+  - CLI-first builder workflow planning slice artifact added:
+    - `FEATURES.md` now defines `rots-script` as the shared CLI/core foundation for JavaScript builder projects before Electron implementation begins.
+    - The workflow covers deterministic commands for initialization, manifest sync, typecheck, build, validation, fixture execution, package creation, staging, activation, rollback, status, diff, docs, and diagnostics.
+    - The project layout separates TypeScript source, generated declarations/manifests/docs/editor config, compiled JavaScript, package bundles, fixtures, and local cache/auth state.
+    - Compiler policy pins TypeScript behavior, forbids custom transformers/polyfills/runtime imports, treats sourcemaps as opt-in and sanitized, and keeps the server runtime free of TypeScript.
+    - Validator and offline runner requirements state that local results are advisory only and must use the same manifest, static policy, fixture schema, runtime identity, resource limits, sandbox rules, and diagnostic codes as server validation where practical.
+    - Package format requirements define deterministic JSON metadata, compiled JavaScript as the executable authority, optional source/sourcemap review artifacts, mismatch diagnostics, and generated/package file exclusion rules.
+    - Publish workflow requires stage/activate/rollback through authenticated server authority, server recomputation of all package and manifest checks, exact staged digest activation, base-live conflict checks, scoped credentials, revocation, and sanitized audit records.
+    - Local/staged/live conflict handling requires status/diff refresh before publish actions, exact digest review, stale-cache warnings, explicit rebase/restage/activate/rollback choices, and no partial mutation of local or live artifacts on failure.
+    - Electron is documented as a VS Code-style UI over the shared CLI/library diagnostics and state machine, with typed IPC commands and checksum-driven LSP/cache invalidation instead of independent validation logic.
+    - Vincent security concerns were incorporated around trust boundaries, publish protocol risk, source/sourcemap leakage, credential handling, local cache safety, command execution safety, and server authority.
   - Client manifest compatibility planning slice artifact added:
     - Expanded `FEATURES.md` with a concrete server-owned builder manifest contract covering deterministic serialization, exact metadata fields, structured trigger context metadata, per-trigger and per-API entries, compatibility ranges, and checksum separation.
     - Added manifest provenance/authenticity requirements for authenticated server downloads, cache provenance labels, optional signature/MAC support for shared offline manifests, and server-side checksum recomputation authority.
@@ -238,7 +249,7 @@
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
-  - [ ] Client planning gate before implementation: define CLI-first project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
+  - [x] Client planning gate before implementation: define CLI-first project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
   - [ ] Client planning gate before implementation: define package integrity model with server-computed canonical digest, immutable package/version id, manifest checksum, base live checksum, replay protection, and activation by exact staged digest.
   - [ ] Client planning gate before implementation: define publish authentication/authorization with scoped short-lived credentials, transport security, separate stage/activate/rollback/source-view permissions, revocation, rate limiting, and audit ids.
   - [ ] Client planning gate before implementation: define Electron hardening, desktop credential storage, dependency pinning, code signing, and supply-chain scanning requirements.
