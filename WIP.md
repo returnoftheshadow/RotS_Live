@@ -1,8 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added persistence-ready audit metadata for staged package records while preserving disabled live activation.
-- Next slice: add the live package pointer/store model while keeping activation disabled.
+- Active slice complete: added the live package pointer/store model while keeping activation disabled.
+- Next slice: implement gated activation/rollback preflight integration on top of the live pointer store without exposing it to live gameplay.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -149,6 +149,13 @@
     - Staged publish status continues to omit audit fields so future endpoints must add explicit caller/owner/workspace authorization before exposing audit details.
     - Added repository/status regression coverage for explicit audit storage, immutable copies, exact-audit idempotency, changed-audit rejection, required/unsafe/overlong/positive timestamp validation, maximum length acceptance, status source redaction, and status metadata stability.
     - Reviewer follow-up addressed: Vincent and Bazarat findings removed audit metadata from status output, required positive timestamps and complete audit metadata, restricted audit text shape, and documented that repository metadata must be server-derived at the publish/stage boundary; Magus's legacy-overload concern is documented as compatibility-only pending real endpoint wiring.
+  - Live package pointer/store slice artifact added:
+    - Added `src/js_live_package_store.{h,cpp}` as an in-memory live package model with immutable package records, current live pointers, and a registry snapshot builder for future dispatch integration without wiring live gameplay or public activation.
+    - Live package records are accepted from staged records only after validation that package metadata/checksum, staged identity fields, package version id, and complete staged audit metadata are consistent. Stored package ids are normalized to server-owned staged identity ids before registry snapshots.
+    - Live pointers validate slot/package/digest shape, require bounded single-line metadata, derive current live checksum from the stored package digest, and require `expected_previous_live_checksum` when replacing an existing slot pointer to avoid stale pointer swaps.
+    - Registry snapshots include only current live pointers, not every stored package record, and empty live stores intentionally produce empty registries.
+    - Added `src/tests/js_live_package_store_tests.cpp` with focused coverage for immutable record storage, duplicate conflicts, server-owned id normalization, malformed record rejection, pointer load/replace/stale rejection, derived checksum rejection, pointer metadata validation, record/pointer limits, empty and populated registry snapshots, validation failure preservation, diagnostic names, and build wiring.
+    - Reviewer follow-up addressed: Vincent/Magus/Bazarat findings added package-id normalization, staged record revalidation, derived live checksums, stale replacement checks, bounded pointer metadata, empty snapshot coverage, and source-bearing lookup caveats.
   - Documentation generation planning slice artifact added:
     - `FEATURES.md` now defines manifest-driven documentation generation as a deterministic server-owned artifact set covering markdown API docs, TypeScript doc comments, hover/help JSON, in-game help source, CLI reference output, diagnostics, examples, compatibility summaries, coverage reports, and release-note metadata.
     - Required documentation fields now include stable documentation ids, anchors, support/publishability status, host eligibility, trigger kind/value, context-field type/nullability/liveness metadata, return semantics, permissions, side effects, resource budgets, diagnostics, examples, and unsupported/deferred reason codes.
@@ -291,6 +298,11 @@
   - [x] Staged record audit metadata slice: keep audit fields out of staged status output and document that future endpoint code must derive audit metadata from verified server request/token/transport/permission/validation state.
   - [x] Staged record audit metadata slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
   - [x] Staged record audit metadata slice: validate with focused staged repository/status tests, `make test`, `git diff --check`, and commit the completed slice under the configured git identity.
+  - [x] Live package pointer/store slice: add immutable live package records, live pointers, and registry snapshot generation without enabling live gameplay dispatch or public activation.
+  - [x] Live package pointer/store slice: normalize package ids to server-owned staged identities, derive live checksums from stored package records, and guard pointer replacement with expected previous checksum.
+  - [x] Live package pointer/store slice: add focused tests for malformed records, stale pointer replacement, pointer metadata validation, empty/live-only registry snapshots, build wiring, and reviewer-driven source/status boundaries.
+  - [x] Live package pointer/store slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
+  - [x] Live package pointer/store slice: validate with focused live store tests, `make test`, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
