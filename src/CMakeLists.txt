@@ -48,6 +48,7 @@ set(ROTS_SERVER_SOURCES
     js_manifest_export.cpp
     js_publish_authorization.cpp
     js_runtime.cpp
+    js_staged_package_identity.cpp
     js_script_package_loader.cpp
     js_script_package_reload_service.cpp
     js_script_package.cpp
@@ -162,6 +163,7 @@ set(ROTS_TEST_SOURCES
     tests/js_manifest_export_tests.cpp
     tests/js_publish_authorization_tests.cpp
     tests/js_runtime_tests.cpp
+    tests/js_staged_package_identity_tests.cpp
     tests/js_script_package_loader_tests.cpp
     tests/js_script_package_reload_service_tests.cpp
     tests/js_script_package_tests.cpp
