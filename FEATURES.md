@@ -342,6 +342,71 @@ Electron TypeScript authoring client:
   - generated TypeScript package version
   - host types, trigger names, trigger implementation status, blocking behavior, context fields, return semantics, and publish eligibility
 - Publishing should require an exact or explicitly compatible manifest checksum, not just a loose API version string.
+- The manifest schema must be treated as a server-owned contract with deterministic serialization:
+  - use stable field names, stable enum string values, sorted object/array ordering where applicable, and no timestamps, local paths, build-machine data, or nondeterministic formatting in the canonical manifest
+  - include a top-level schema identifier, manifest kind, schema version, trigger catalog revision, API contract version, engine ABI version, runtime identity, runtime feature flags, generated typings version, generated documentation version, and canonical manifest checksum
+  - add or expose these metadata fields from the server manifest/export before Electron implementation: `schema_id`, `manifest_kind`, `schema_version`, `api_contract_version`, `engine_abi_version`, `trigger_catalog_revision`, `runtime_name`, `runtime_version`, `runtime_feature_flags`, `generated_typings_version`, `generated_documentation_version`, `fixture_schema_version`, `package_format_version`, `validation_manifest_checksum`, `trigger_manifest_checksum`, `api_contract_checksum`, `typings_checksum`, `documentation_checksum`, `fixture_schema_checksum`, and `compatibility_table_revision`
+  - include per-trigger entries with stable id, legacy kind/value, handler name, host eligibility, publishability, blocking/handled semantics, exception policy, dispatch ordering, context fields with nullability, and support status
+  - include per-API entries with stable type/member ids, TypeScript signatures, documentation ids, permission/side-effect status, nullability/liveness rules, and support status
+  - structured trigger context metadata must live in the server source metadata, not be parsed from prose: each context field needs a stable field id, role name, TypeScript type, nullability, host availability, liveness requirement, documentation id, and support status
+  - include compatibility ranges separately from exact current versions so a client can explain stale-manifest problems before attempting publish, while the server remains the final authority
+- Manifest provenance and authenticity:
+  - manifests downloaded by Electron must come from authenticated server endpoints and include server identity, server build/revision id, generated-at timestamp for display only, manifest checksum, compatibility table revision, and transport/auth context in the local cache metadata
+  - checked-in or cached manifests may support offline editing, but the client must label their provenance and must not treat them as publish authority without a fresh server compatibility check
+  - if manifests are exported for sharing or long-lived offline use, support an optional server signature or MAC over the canonical manifest plus compatibility summary; invalid or missing signatures should warn for editing and fail staging/activation
+  - local manifest provenance metadata must not be included in the canonical validation checksum because server validation recomputes the canonical checksum from server-owned metadata
+- Compatibility rules for Electron/offline tooling:
+  - the Electron client may open projects with older compatible manifests for editing, but local validation must warn when the manifest checksum is not the current server checksum
+  - local offline execution may run only when runtime name, runtime version, engine ABI version, manifest schema version, trigger catalog revision, API contract version, generated typings version, and fixture schema version are exact or explicitly listed in the server compatibility table
+  - publish/stage requests must include the exact manifest checksum, trigger catalog revision, API contract version, generated typings version, runtime identity, package format version, and compiled artifact checksum used by the client
+  - the server must recompute the manifest checksum, compiled artifact checksum, static source policy result, package validation result, and registry compatibility result; client-supplied compatibility claims are advisory only
+  - unsupported, deferred, reserved, host-ineligible, or room-owned-nonpublishable manifest entries must fail with stable diagnostic codes during local validation and server validation
+  - downgrades are rejected unless the server advertises a specific compatibility window for that older manifest checksum and the package does not use newer APIs or triggers
+  - only the server's current compatibility table can authorize staging or activation; the Electron client may display compatibility hints, but cannot decide that an older manifest/runtime/typings set is publishable
+  - activation requests must bind manifest compatibility to live state: current live checksum, staged package digest, builder permission, package vnum/host, server compatibility window, and activation id must all match server state at activation time
+  - generated TypeScript package versions are derived from the server API/trigger manifest metadata, not manually edited in the Electron client, and they are diagnostic metadata only: server validation must never grant capability because a package claims a typings version
+- Compatibility table shape:
+  - include a server-owned `compatibility` section with revision, generated server version, accepted schema/API/runtime/typings/docs/fixture/package ranges, exact allowed manifest checksums, exact allowed trigger/API checksums, deprecation reason, expiration/removal version when known, and booleans for edit, typecheck, offline-run, stage, activate, rollback, and source-view eligibility
+  - every compatibility entry must be closed, explicit, and monotonic; no client-defined ranges, wildcards, open-ended downgrade windows, or publish/activation permissions without exact checksum allowlists
+  - removals and breaking changes must expire older publish/activation windows deliberately while still allowing read-only editing/source-view where safe
+- Generated TypeScript package identity and versioning:
+  - use a stable package id/name such as `@rots/scripting-api`, generated declaration path such as `generated/rots.d.ts`, and editor import path that the Electron/LSP workspace controls
+  - record supported TypeScript compiler version range, emitted module target, declaration format, generator version, and cache key in the manifest/export metadata
+  - version bump rules: breaking API/trigger removal, renamed handler, changed TypeScript signature, changed enum literal meaning, stricter nullability, stricter liveness, or permission/side-effect tightening bumps the major version
+  - additive publishable API/trigger/context fields bump the minor version
+  - docs-only changes bump the documentation checksum and may bump a patch/documentation version without changing validation compatibility
+  - deferred/unsupported explanatory text changes do not imply publish compatibility and must not change the compact validation manifest checksum unless a validation-relevant status changes
+  - Electron must invalidate LSP/type caches when typings checksum, TypeScript compiler compatibility, fixture schema checksum, runtime identity, or manifest checksum changes
+- Manifest checksum policy:
+  - compute `validation_manifest_checksum` over the canonical compact manifest that drives server validation and offline runner selection
+  - exclude explanatory prose that is not used for validation unless the prose is part of the generated documentation checksum
+  - store separate checksums for trigger manifest, API contract, combined builder manifest, generated TypeScript declarations, generated documentation, and fixture schema so drift diagnostics can point to the mismatched artifact
+  - never include TypeScript source text, compiled script source text, builder account identifiers, local absolute paths, server secrets, live player data, or audit tokens in manifest checksum input
+  - expose checksum values as read-only metadata in generated files and package manifests, then verify them server-side before staging or activation
+  - `validation_manifest_checksum` blocks offline run, stage, and activation when incompatible; `typings_checksum` blocks local typecheck/package creation when mismatched; `documentation_checksum` blocks documentation CI and warns in the editor; `fixture_schema_checksum` blocks offline execution when incompatible; none of these checks are bypassed by client-supplied package metadata
+- Manifest drift CI gate:
+  - add deterministic generator/check commands such as `make js-builder-artifacts`, `make js-builder-artifacts-check`, and CMake equivalents that write or verify the compact manifest, TypeScript declarations, API reference docs, editor/LSP config, compatibility summary, and fixture schema from the same server-owned metadata
+  - checked-in generated artifacts should live under an explicit generated builder-artifacts tree, for example `lib/text/generated/js/manifest.compact.json`, `lib/text/generated/js/rots.d.ts`, `lib/text/generated/js/api.md`, `lib/text/generated/js/editor-config.json`, `lib/text/generated/js/fixture.schema.json`, and `lib/text/generated/js/compatibility.json`
+  - CI must regenerate those artifacts and fail if any checked-in generated artifact differs from the source metadata
+  - CI must cover CMake and raw Makefile paths for generator and check targets, matching the repo's dual-build discipline
+  - CI must run JSON parse/round-trip tests, checksum stability tests, enum string stability tests, documentation coverage tests, TypeScript compiler smoke tests, and negative type tests for unsupported/deferred APIs
+  - CI must include stale-client fixtures: older compatible manifest, older incompatible manifest, newer manifest, wrong runtime, wrong typings version, wrong trigger catalog revision, wrong API checksum, wrong documentation checksum, and mismatched package checksum
+  - release notes for builder tooling must list manifest schema/API/typing/documentation version changes and whether the change is backward compatible for editing, offline validation, staging, and activation
+  - generated fixture schemas and cached offline test bundles must follow the same sensitive-data exclusion policy as manifests: no player account identifiers, private speech, local absolute paths, auth tokens, live logs, server-local filenames, or source snippets
+- Manifest compatibility acceptance tests must be table-driven before Electron implementation:
+  - for each compatibility dimension, cover exact match, older-compatible, older-incompatible, newer-unknown, malformed, missing, and tampered values with stable diagnostic codes
+  - dimensions must include combined manifest checksum, trigger catalog revision, API contract version/checksum, engine ABI version, runtime name/version, generated typings version/checksum, generated documentation version/checksum, fixture schema version/checksum, package format version, and compiled artifact checksum
+  - workflow states must be tested separately: open for editing, local typecheck, offline execution, package creation, stage request, activation request, rollback request, and source-view request
+  - stale compatible manifests may open for editing with warnings, but offline execution must require runtime/schema compatibility, staging must reject unsupported newer APIs, and activation must fail if the staged digest, live base checksum, or server manifest checksum changed after staging
+  - compatibility ranges must be closed and explicit: reject malformed ranges, open-ended ranges, overlapping contradictory ranges, downgrade windows without checksum allowlists, and combinations where the API version is compatible but the trigger catalog/runtime/fixture schema is not
+  - generated TypeScript package version and checksum must change when any public trigger handler signature, API type/member signature, enum domain, nullability, liveness, permission, or side-effect status changes
+  - generated documentation checksum must change when builder-facing API/trigger documentation changes, while non-validation prose must not change the compact validation manifest checksum
+  - drift tests must intentionally tamper with generated `rots.d.ts`, compact manifest JSON, API docs markdown, editor/LSP config, fixture schema, and package metadata, then prove the drift command fails and names the mismatched artifact
+  - checksum exclusion tests must prove timestamps, local absolute paths, builder identity, source comments, docs prose excluded from validation, and machine-local formatting do not affect the compact manifest checksum, while validation-relevant trigger/API/package fields do
+  - unsupported, deferred, reserved, host-ineligible, room-owned-nonpublishable, wrong-host, and wrong-kind cases must produce the same stable reason code across TypeScript generation, local validator, offline runner, server package validator, staging, and activation
+  - fixture drift tests must cover older editable fixtures, older non-runnable fixtures, removed enum values, renamed context fields, changed nullability, changed host liveness semantics, missing required fields, and fixture schema migration/rejection diagnostics
+  - stale-manifest diagnostics must name the mismatched artifact and expected/actual version or checksum, but must not include absolute paths, source text, account identifiers, auth tokens, live player text, or server-local filenames
+  - the generator should emit a machine-readable compatibility summary used by docs/release notes so release compatibility claims cannot drift from the manifest compatibility table
 - Mark room-owned triggers and unresolved host types as unsupported/non-publishable in the manifest until the server-side room storage/dispatch policy is resolved. TypeScript can expose read-only room context where valid without implying room script authoring is supported.
 - Package the TypeScript API definitions with the client and keep them generated from, or version-locked to, the server-side JavaScript host API contract:
   - strongly typed trigger context classes/interfaces

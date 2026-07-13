@@ -1,7 +1,7 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added a JavaScript package reload service that wraps the package bundle loader with a canonical server-owned package root, rejects unsafe paths/symlinks, preserves the active registry on reload failure, and exposes reload diagnostics without enabling builder publishing or wiring live gameplay trigger call sites.
+- Active slice complete: defined the Electron/client manifest compatibility gate for the JavaScript scripting engine, including the server-owned API/trigger manifest schema, compatibility rules, checksum/versioning policy, generated TypeScript package versioning, and CI drift checks before Electron implementation begins.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -118,6 +118,14 @@
     - Service diagnostics are bounded and single-line, and path diagnostics avoid source text and uncontrolled absolute local paths.
     - Added `src/tests/js_script_package_reload_service_tests.cpp` with focused coverage for successful load/lookups, unsafe path rejection, symlink rejection, missing/directory handling, invalid/missing roots, explicit root creation, symlinked intermediate root rejection, post-construction root symlink swaps, parse/validation/file-size rollback, empty-bundle policy, legacy-vnum conflict rollback, status strings, diagnostic bounding, and build wiring.
     - Magus, Vincent, and Bazarat reviewed the slice; Magus findings led to non-symlink root-creation checks and the `openat` descriptor walk, Vincent findings led to `O_NOFOLLOW` on the root fd and a root-swap regression, and Bazarat findings led to service-owned file-size rollback coverage before final validation.
+  - Client manifest compatibility planning slice artifact added:
+    - Expanded `FEATURES.md` with a concrete server-owned builder manifest contract covering deterministic serialization, exact metadata fields, structured trigger context metadata, per-trigger and per-API entries, compatibility ranges, and checksum separation.
+    - Added manifest provenance/authenticity requirements for authenticated server downloads, cache provenance labels, optional signature/MAC support for shared offline manifests, and server-side checksum recomputation authority.
+    - Defined Electron/offline compatibility rules for edit, typecheck, offline execution, package creation, staging, activation, rollback, and source-view workflows, including stale-client behavior and downgrade/replay binding to live state.
+    - Added a server-owned compatibility table shape with exact checksum allowlists, closed compatibility ranges, deprecation/expiration metadata, and per-workflow eligibility flags.
+    - Defined generated TypeScript package identity, version bump rules, compiler compatibility metadata, cache invalidation behavior, and the rule that typings metadata is diagnostic only and never grants server capability.
+    - Added manifest drift CI requirements for generator/check targets, checked-in generated artifact paths, CMake/raw Makefile coverage, tamper-negative fixtures, stale-client fixtures, checksum exclusion tests, cross-layer stable diagnostic codes, fixture drift tests, sanitized stale-manifest diagnostics, and machine-readable compatibility summaries for release notes.
+    - Magus, Vincent, and Bazarat reviewed the planning slice and reported no remaining blocking findings after the metadata, authenticity, and acceptance-test matrix gaps were addressed.
   - Live game adapter slice artifact added: `src/tests/js_game_adapter_tests.cpp` covers approved-field snapshots, player/mobile vnum behavior, fail-closed liveness defaults, stale pointer rejection, object/room/zone snapshots, invalid room/zone bounds, partial context construction, copied/bounded strings, unresolved metadata, relationship pointer non-use, rejection sentinel preservation, and ids that avoid pointer-looking/internal type text.
   - Previous adapter slice scope:
     - Add `js_game_adapter` as a read-only mapper from real game structs into `JsGameTriggerContextFixture`.
@@ -218,7 +226,7 @@
   - [x] Reload service slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
   - [x] Reload service slice: validate with focused service tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
-  - [ ] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
+  - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [ ] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
   - [ ] Client planning gate before implementation: define CLI-first project layout, compiler settings, runner, validator, package format, publish protocol, and local/staged/live conflict workflow.
   - [ ] Client planning gate before implementation: define package integrity model with server-computed canonical digest, immutable package/version id, manifest checksum, base live checksum, replay protection, and activation by exact staged digest.
