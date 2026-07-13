@@ -1,8 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: implemented gated activation/rollback preflight integration on top of the live pointer store without exposing it to live gameplay.
-- Next slice: add a server startup/admin reload path that can build a JavaScript registry snapshot from the live package store while keeping trigger call sites disconnected.
+- Active slice complete: added a server startup/admin reload path that builds a JavaScript registry snapshot and metadata-only status snapshot from the live package store while keeping trigger call sites disconnected.
+- Next slice: add a read-only admin/status inspection layer for JavaScript live package registry snapshots without exposing source bytes or live trigger dispatch.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -165,6 +165,14 @@
     - Reviewer follow-up addressed: Magus's partial mutation and diagnostic coverage findings led to the atomic live-store operation plus store-vs-pointer failure diagnostics; Vincent's forged digest finding led to canonical identity recomputation and server-instance metadata; Bazarat's adversarial test findings added pointer-limit, unsafe-audit, package-record-limit, and second-version replacement failure preservation coverage.
     - Residual publish workflow work: endpoint-level activation retry/idempotency semantics, durable audit write ordering, rollback target policy, server-instance binding for persisted records, and reduced endpoint-facing result DTOs remain deferred to later server publish/admin slices.
     - Gated activation slice validation: `make test` passed all 858 CMake/CTest tests, and raw `make -C src/tests js_staged_package_identity.o js_staged_package_repository.o js_live_package_store.o js_publish_activation.o js_live_package_store_tests.o js_publish_activation_tests.o && make -C src/tests tests -j2 && ./bin/tests --gtest_filter='JsLivePackageStore.*:JsPublishActivation.*:JsStagedPackageIdentity.*:JsStagedPackageRepository.*'` passed all 79 focused raw-built tests.
+  - Live registry reload service slice artifact added:
+    - Added `src/js_live_registry_reload_service.{h,cpp}` as an internal startup/admin reload service that owns a `JsScriptPackageRegistry` snapshot built from `JsLivePackageStore` current live pointers.
+    - Default construction uses internal live-package validation options so startup/admin refresh does not accidentally apply publish-mode validation.
+    - Successful refresh replaces the registry snapshot and a metadata-only package status snapshot containing package ids, package version ids, staged digests, live checksums, runtime/manifest metadata, and trigger binding metadata without compiled JavaScript source bytes.
+    - Failed live-store or registry validation refreshes preserve the last successful registry/status snapshots and return bounded single-line diagnostics without wiring gameplay dispatch.
+    - Added `src/tests/js_live_registry_reload_service_tests.cpp` with focused coverage for default empty startup refresh, default non-empty refresh, live-pointer-only snapshots, trigger binding lookups, empty-reload rollback, later valid-refresh recovery, same-slot replacement, legacy-vnum conflict rollback, source-safe status/diagnostics, and build wiring.
+    - Reviewer follow-up addressed: Magus's default-constructor finding now defaults to internal validation; Vincent's source-disclosure finding removed public source-bearing registry/package accessors and added metadata-only status helpers; Bazarat's reload-state findings added recovery, same-slot replacement, default empty startup, and source-sentinel status tests.
+    - Deferred hydration coverage: when persisted live-store loading exists, add a corrupt live-pointer/record test that proves `LiveStoreFailed` preserves registry/status snapshots, does not increment success count, and returns bounded diagnostics.
   - Documentation generation planning slice artifact added:
     - `FEATURES.md` now defines manifest-driven documentation generation as a deterministic server-owned artifact set covering markdown API docs, TypeScript doc comments, hover/help JSON, in-game help source, CLI reference output, diagnostics, examples, compatibility summaries, coverage reports, and release-note metadata.
     - Required documentation fields now include stable documentation ids, anchors, support/publishability status, host eligibility, trigger kind/value, context-field type/nullability/liveness metadata, return semantics, permissions, side effects, resource budgets, diagnostics, examples, and unsupported/deferred reason codes.
@@ -317,6 +325,11 @@
   - [x] Gated activation/rollback slice: add focused tests for closed gates, successful activation, authorization failures, stale live conflicts, rollback authority gates, audit metadata, capacity failures, forged identity rejection, and build wiring.
   - [x] Gated activation/rollback slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
   - [x] Gated activation/rollback slice: validate with focused live-store/activation/staging tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
+  - [x] Live registry reload service slice: add an internal startup/admin refresh service that builds a registry snapshot from current live package pointers without wiring live trigger call sites.
+  - [x] Live registry reload service slice: preserve the previous successful snapshot on live-store or registry validation failure and keep diagnostics bounded/source-safe.
+  - [x] Live registry reload service slice: add focused tests for empty startup snapshots, live-pointer-only snapshots, failed-refresh preservation, trigger lookup, diagnostics, and build wiring.
+  - [x] Live registry reload service slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
+  - [x] Live registry reload service slice: validate with focused reload-service tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
@@ -326,6 +339,9 @@
   - [x] Client planning gate before implementation: define Electron hardening, desktop credential storage, dependency pinning, code signing, and supply-chain scanning requirements.
   - [x] Client planning gate before implementation: define golden offline/server parity tests, hostile fixture tests, package mismatch/sourcemap leak tests, unsupported-trigger tests, and publish/activation race/rollback tests.
 - Validation so far:
+  - Focused raw `make -C src/tests js_live_registry_reload_service.o js_live_registry_reload_service_tests.o js_live_package_store.o js_live_package_store_tests.o js_publish_activation.o && make -C src/tests tests -j2 && ./bin/tests --gtest_filter='JsLiveRegistryReloadService.*:JsLivePackageStore.*'` passed at `36/36` tests after the live registry reload service slice.
+  - `make test` passed at `869/869` tests after the live registry reload service slice.
+  - `git diff --check` passed after the live registry reload service slice.
   - Focused `bin/tests '--gtest_filter=JsPublishAuthorization.*'` passed at `24/24` tests after reviewer-driven publish preflight hardening.
   - `make test` passed at `758/758` tests after adding `js_publish_authorization` and its tests.
   - Raw `make -C src js_publish_authorization.o` and `make -C src/tests js_publish_authorization.o js_publish_authorization_tests.o` passed after raw Makefile wiring.

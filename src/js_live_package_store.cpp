@@ -480,6 +480,8 @@ JsLivePackageRegistrySnapshotResult JsLivePackageStore::build_live_registry_snap
     }
 
     result.ok = result.registry.replace_all(live_packages, options, &result.package_validation);
+    if (result.ok)
+        result.packages = live_packages;
     return result;
 }
 

@@ -66,6 +66,8 @@ struct JsLivePackagePointerResult {
 struct JsLivePackageRegistrySnapshotResult {
     bool ok = false;
     JsScriptPackageRegistry registry;
+    // Source-bearing internal dispatch/reload input. Endpoint/status code must use a redacted DTO.
+    std::vector<JsScriptPackage> packages;
     std::vector<JsLivePackageStoreDiagnostic> diagnostics;
     JsScriptPackageValidationResult package_validation;
 };

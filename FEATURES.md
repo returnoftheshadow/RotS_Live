@@ -489,6 +489,15 @@ Electron TypeScript authoring client:
     - authorized activation/rollback can atomically place the staged package record and live pointer into `JsLivePackageStore`, but only internal callers/tests can invoke it today
     - failed authorization, closed activation gate, stale live pointer checksum, malformed audit metadata, pointer capacity, record capacity, and forged canonical identity failures leave live state unchanged
     - true endpoint-level activation idempotency, durable audit write ordering, rollback target policy, server-instance binding for persisted records, and reduced endpoint-facing result DTOs remain future publish/admin workflow work
+  - initial live registry reload service is implemented in `src/js_live_registry_reload_service.{h,cpp}` without live gameplay dispatch:
+    - service owns an internal `JsScriptPackageRegistry` snapshot built only from current live pointers in `JsLivePackageStore`
+    - default construction uses internal live-package validation options so startup/admin refresh does not accidentally apply publish-mode validation
+    - refresh preserves the previous successful snapshot on live-store or registry validation failure
+    - empty startup snapshots are allowed when configured, while admin reload policy can disallow empty replacement through registry options
+    - metadata-only package status helpers expose ids, live checksums, runtime/manifest metadata, and trigger binding metadata without compiled JavaScript source bytes
+    - source-bearing package vectors remain internal reload/dispatch input only; endpoint-facing status work must stay on the redacted status DTO unless source-view authorization is explicitly added
+    - live trigger call sites remain disconnected until an explicit dispatch-integration slice
+    - durable startup/hydration tests must add corrupt live-pointer/record coverage when persisted live stores can be loaded, proving `LiveStoreFailed` preserves registry and status snapshots, does not increment reload success count, and returns bounded diagnostics
 - Package integrity acceptance tests required before Electron implementation:
   - canonical digest tests must prove stable digests for equivalent canonical packages and changed digests for compiled-byte changes, trigger-binding changes, manifest checksum changes, runtime identity changes, package format changes, source-policy changes, and accepted optional review artifact changes
   - canonicalization negative tests must cover duplicate fields, unknown critical fields, malformed ids, path traversal-looking artifact names, unicode-confusable ids, reordered JSON, alternate numeric encodings, missing optional-vs-empty optional fields, oversized fields, source-map URL injection, sourcemap/source-content policy drift, unknown digest algorithms, truncated digests, digest case ambiguity, and envelope-version mismatches
