@@ -1,7 +1,7 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added a JavaScript trigger dispatch facade/scaffold that can look up validated packages for a trigger, build a read-only game context fixture, execute the selected handler through the existing game runtime, and report allow/block/no-match/error without changing legacy `.scr` trigger behavior or enabling builder publishing.
+- Active slice complete: added a strict JavaScript package bundle loader that reads server-owned compiled package JSON from disk into `JsScriptPackage` objects and can atomically replace the registry through the existing validator, without enabling builder publishing or wiring live gameplay trigger call sites.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -90,6 +90,16 @@
   - Dispatch facade slice artifact added: `src/tests/js_trigger_dispatch_tests.cpp` covers empty registry no-match, populated host/kind/value near misses, bound handler invocation from full package source, blocking return mapping, first-match ordering, attached package vnum filtering, stale required character/object rejection, object-host context shape, Mudlle NPC enforcement, runtime diagnostic redaction/bounds, top-level return bypass prevention, runtime limit propagation, missing handler fail-closed behavior, and build wiring through CMake/raw Makefiles.
   - Dispatch facade slice reviewer follow-up addressed: `Magus`, `Vincent`, and `Bazarat` findings led to the package-handler runtime API, Mudlle NPC enforcement, attached-vnum no-fallback coverage, stricter diagnostic assertions, stronger object-context assertions, first-match non-continuation coverage, runtime-limit propagation tests, and literal build-file wiring checks.
   - Dispatch facade slice validation: `bin/tests '--gtest_filter=JsTriggerDispatch.*'` passed 16/16, raw `make -C src js_game_runtime.o js_trigger_dispatch.o` passed, raw `make -C src/tests js_trigger_dispatch.o js_trigger_dispatch_tests.o` passed, and full `make test` passed 706/706.
+  - Current package loader slice scope:
+    - Added `src/js_script_package_loader.{h,cpp}` as a narrow server-side package bundle loader for deterministic JSON emitted by future builder/publish tooling.
+    - The loader parses package metadata, host, compatibility fields, compiled JavaScript, checksum, and trigger bindings into existing `JsScriptPackage` structures with strict known-field and duplicate-field rejection.
+    - Validation authority remains in `js_script_package`/`js_script_registry`; malformed JSON, missing fields, limit failures, and validation failures leave the existing registry snapshot intact.
+    - Empty bundle loading and registry clearing are explicit opt-ins, so failed reloads do not accidentally clear active packages.
+    - Loader diagnostics are bounded and sanitized, and source text is not copied into diagnostic package ids/messages.
+    - The low-level file loader accepts a trusted server-owned path; canonical root enforcement is deferred to the future admin/reload wrapper before any user-facing reload path is wired.
+    - This slice did not enable publish mode, builder upload, filesystem watching, or live trigger call-site wiring.
+    - Added `src/tests/js_script_package_loader_tests.cpp` with focused coverage for valid bundle parsing, malformed/missing/wrong-typed fields, unknown and duplicate fields, host/kind parsing, file and string limits, package/binding count limits, atomic registry replacement, validation-result clearing, empty-bundle policy, diagnostic redaction/bounding, current Unicode escape behavior, and raw/CMake Makefile wiring.
+    - `Magus`, `Vincent`, and `Bazarat` completed final review with no remaining blocking findings.
   - Live game adapter slice artifact added: `src/tests/js_game_adapter_tests.cpp` covers approved-field snapshots, player/mobile vnum behavior, fail-closed liveness defaults, stale pointer rejection, object/room/zone snapshots, invalid room/zone bounds, partial context construction, copied/bounded strings, unresolved metadata, relationship pointer non-use, rejection sentinel preservation, and ids that avoid pointer-looking/internal type text.
   - Previous adapter slice scope:
     - Add `js_game_adapter` as a read-only mapper from real game structs into `JsGameTriggerContextFixture`.
@@ -178,6 +188,11 @@
   - [x] Dispatch facade slice: add focused tests for no-match, near misses, allow/block, package-vnum filtering, host liveness rejection, Mudlle NPC enforcement, runtime diagnostics, top-level return bypass prevention, runtime limits, missing handlers, and build wiring.
   - [x] Dispatch facade slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
   - [x] Dispatch facade slice: validate with focused dispatch tests, `make test`, raw test build path, raw server build path, and commit the completed slice under the configured git identity.
+  - [x] Package loader slice: add a strict single-file JSON bundle parser for server-owned compiled JavaScript packages.
+  - [x] Package loader slice: support bounded file/string/package/binding limits, strict schema checks, explicit empty-bundle policy, and registry replacement through existing validation.
+  - [x] Package loader slice: add focused tests for valid parsing, malformed schemas, rollback, validation failures, diagnostics, limits, and build wiring.
+  - [x] Package loader slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address or document findings before final validation.
+  - [x] Package loader slice: validate with focused loader tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [ ] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [ ] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
@@ -238,6 +253,11 @@
   - Generated declaration smoke validation passed with `tsc --noEmit --strict --skipLibCheck --module preserve /tmp/rots-consumer.ts`.
   - Raw `make -C src ageland` passed after adding `js_builder_artifacts.o`.
   - `git diff --check` passed after the builder artifact generator slice.
+  - Focused `bin/tests '--gtest_filter=JsScriptPackageLoader.*'` passed at `13/13` tests after the package loader slice.
+  - Raw `make -C src js_script_package_loader.o` passed after wiring the loader into the server Makefile path.
+  - Raw `make -C src/tests js_script_package_loader.o js_script_package_loader_tests.o` passed after wiring the loader tests into the raw test Makefile path.
+  - `make test` passed at `719/719` tests after the package loader slice.
+  - `git diff --check` passed after the package loader slice.
 - Reviewer status:
   - `Magus`: reviewed; findings incorporated into `FEATURES.md` around room support accuracy, trigger matrix/ordering, say/yell compatibility, wait/continuation policy, script registry/cache ownership, deny-by-default API shape, and exact legacy call-site regressions.
   - `Vincent`: reviewed; findings incorporated into `FEATURES.md` around deny-by-default host APIs, resource and recursion budgets, opaque non-persistent handles, JS-specific sandbox escape surfaces, reload path trust boundaries, dependency pinning/supply-chain controls, redacted diagnostics, and security acceptance tests.
