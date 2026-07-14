@@ -46,6 +46,7 @@ set(ROTS_SERVER_SOURCES
     js_game_adapter.cpp
     js_game_runtime.cpp
     js_live_package_store.cpp
+    js_live_package_store_persistence.cpp
     js_live_registry_admin.cpp
     js_live_registry_reload_service.cpp
     js_live_registry_status.cpp
@@ -168,6 +169,7 @@ set(ROTS_TEST_SOURCES
     tests/js_game_adapter_tests.cpp
     tests/js_game_runtime_tests.cpp
     tests/js_live_package_store_tests.cpp
+    tests/js_live_package_store_persistence_tests.cpp
     tests/js_live_registry_admin_tests.cpp
     tests/js_live_registry_reload_service_tests.cpp
     tests/js_live_registry_status_tests.cpp
