@@ -1,8 +1,23 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added non-publish BuilderClient IPC validation.
-- Next slice: continue reviewer findings with parent/client tracking and publish DTO alignment.
+- Active slice complete: added parent/client tracking and publish DTO provenance alignment.
+- Next slice: continue remaining reviewer follow-up, starting with server publish endpoint compatibility/adapter work.
+- Completed slice progress:
+  - Added a stable BuilderClient provenance DTO to local publish packages and stage requests.
+  - Made stage IPC validation require client provenance that matches this BuilderClient's name, version, and package schema version before network calls, then re-stamp the canonical package with main-owned provenance.
+  - Canonicalized staged publish packages in IPC validation, including metadata, compatibility checksums, compiled-JavaScript checksum, trigger bindings, and fixture summaries before auth-bearing network calls.
+  - Added a version guard test proving BuilderClient publish provenance stays aligned with `package.json`.
+  - Updated publish tests to prove package assembly includes provenance, stage JSON sends it, missing provenance is rejected, spoofed/malformed provenance is rejected, checksum mismatches are rejected, and malformed bindings/summaries are rejected.
+  - Documented BuilderClient provenance and parent/nested-client revision tracking in `FEATURES.md` and the client README.
+  - Magus and Vincent reviewed this slice; findings led to real parent gitlink tracking, canonical stage-package validation, main-owned client provenance stamping, and package-version guard coverage. The Bazarat spawn was blocked by the subagent pool limit, so adversarial test review was performed locally.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test` (14 files, 55 tests), `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: added non-publish BuilderClient IPC validation.
+  - Next slice: continue reviewer findings with parent/client tracking and publish DTO alignment.
+- Previous slice progress:
+  - Active slice complete: added non-publish BuilderClient IPC validation.
+  - Next slice: continue reviewer findings with parent/client tracking and publish DTO alignment.
 - Completed slice progress:
   - Added bounded validation for renderer-controlled compile, offline fixture, local package, and artifact-root IPC requests.
   - Validated and canonicalized project metadata, files, fixtures, manifest triggers, API types, and package fixture summaries before trusted code consumes them.

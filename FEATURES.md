@@ -426,6 +426,8 @@ Electron TypeScript authoring client:
   - compiled JavaScript and sanitized sourcemaps live under `dist/`; package bundles and local validation reports live under `packages/`; local fixtures and expected results live under `fixtures/`; local CLI cache lives under `.rots-cache/`
   - generated files must be reproducible and reviewable: stable formatting, stable ordering, no timestamps in validation artifacts, no local absolute paths, no hostnames/usernames, and no builder account ids in checked-in files
   - Git-friendly defaults should check in `src/`, `fixtures/`, project metadata, and deterministic generated declarations/manifest snapshots; ignore `.rots-cache/`, transient diagnostics, auth state, temporary publish receipts, and unsanitized local logs
+  - publish packages must include bounded BuilderClient provenance, including client name, client version, and package schema version, so server-side audits can identify the client/tooling contract that produced the staged artifact
+  - the parent RotS repository must track the nested `BuilderClient/` git revision so server and client changes can be reviewed and resumed together even though the client is developed in its own repository root
   - project templates must include checked-in sample fixtures and expected assertions for each supported host type, plus negative examples for unsupported/deferred triggers that prove the local validator returns the same reason code as server validation
   - fixture and package metadata must never include live player speech, account emails, passwords, auth tokens, local filesystem paths, raw logs, server-local filenames, or production descriptor/session data
 - TypeScript compiler settings:
