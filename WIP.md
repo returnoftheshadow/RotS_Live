@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added bounded JSON parsing for activate and rollback requests.
-- Next slice: mount the publish transport adapter behind the concrete server command/HTTP listener when that transport exists.
+- Active slice complete: added an adapter-ready HTTP route layer for JavaScript publish endpoints.
+- Next slice: mount the HTTP route layer behind a concrete server listener or authenticated local admin command once that transport exists.
+- Completed slice progress:
+  - Added `JsPublishHttpEndpointRequest`, `JsPublishHttpEndpointOptions`, and `js_publish_http_endpoint_dispatch()` as a pure server-side route adapter for `POST /api/js-scripts/{status,stage,activate,rollback}`.
+  - Kept authentication, token verification, builder identity, live checksum, mutation gates, and audit metadata server-supplied through `JsPublishEndpointTransportContext`.
+  - Injected the route operation into the bounded JSON envelope expected by `js_publish_endpoint_dispatch_json()` so BuilderClient request bodies do not duplicate path state.
+  - Rejected unsupported methods, paths, content types, empty bodies, operation smuggling, and projected oversized injected envelopes before transport dispatch.
+  - Wired the new adapter and tests into CMake, the legacy server Makefile, and the legacy test Makefile.
+  - Added tests for BuilderClient-compatible stage/status/activate/rollback route dispatch, operation smuggling, unsupported method/path/media type, projected size enforcement, and server-supplied context authority.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to pre-injection projected size checks and legacy `src/tests/Makefile` coverage wiring.
+  - Validation passed: focused `JsPublishHttpEndpoint.*:JsPublishEndpointTransport.*:JsPublishEndpointService.*` tests (58 tests), `make test -j16` (1072 tests), legacy test Makefile database wiring check, and `git diff --check`.
+- Previous slice progress:
+  - Active slice complete: added bounded JSON parsing for activate and rollback requests.
+  - Next slice: mount the publish transport adapter behind the concrete server command/HTTP listener when that transport exists.
 - Completed slice progress:
   - Extend transport context with server-owned activation clock, live-pointer mutation gate, rollback-any policy, and persistence path.
   - Added `activate` parsing for `packageId`, `stagedDigest`, and `baseLiveChecksum`, deriving staged package version from the latest server-side staged record.
