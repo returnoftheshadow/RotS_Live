@@ -5,9 +5,11 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <fstream>
 #include <initializer_list>
 #include <string>
+#include <unistd.h>
 
 namespace {
 
@@ -120,6 +122,11 @@ std::string read_first_available_file(std::initializer_list<const char *> paths)
     return {};
 }
 
+std::string temp_file_path(const std::string &name) {
+    return "build/rots-js-live-registry-admin-" + std::to_string(static_cast<long>(getpid())) +
+        "-" + name + ".json";
+}
+
 } // namespace
 
 TEST(JsLiveRegistryAdmin, RefreshCommandReloadsLiveStoreAndPrintsRedactedStatus) {
@@ -213,6 +220,109 @@ TEST(JsLiveRegistryAdmin, StatusCommandReportsLookupFailuresWithoutRefreshing) {
     EXPECT_EQ(1u, service.reload_service().successful_reload_count());
 }
 
+TEST(JsLiveRegistryAdmin, StartupHydratesLiveStoreFromPersistedFileAndRefreshesRegistry) {
+    const std::string source_sentinel = "STARTUP_LOAD_SOURCE_SENTINEL";
+    const std::string path = temp_file_path("startup-load");
+    std::remove(path.c_str());
+    std::remove((path + ".tmp").c_str());
+    JsLiveRegistryAdminService writer;
+    JsStagedPackageRepository repository;
+    JsStagedPackageRecord record = activate_package(
+        writer, repository, make_package(8710, "return '" + source_sentinel + "'"));
+    ASSERT_TRUE(js_live_package_store_snapshot_save_file(path, writer.live_store().export_snapshot())
+                    .ok);
+
+    JsLiveRegistryAdminService reader;
+    JsLiveRegistryStartupLoadResult loaded = reader.hydrate_from_file(path);
+    JsLiveRegistryAdminCommandResult status =
+        js_live_registry_handle_reload_command(reader, "js status 8710");
+
+    ASSERT_TRUE(loaded.ok);
+    ASSERT_TRUE(loaded.file_load.ok);
+    EXPECT_TRUE(loaded.file_load.snapshot.records.empty());
+    EXPECT_TRUE(loaded.file_load.snapshot.live_pointers.empty());
+    ASSERT_TRUE(loaded.store_hydration.ok);
+    ASSERT_TRUE(loaded.reload.ok);
+    ASSERT_TRUE(status.ok) << status.output;
+    EXPECT_NE(std::string::npos, status.output.find(record.identity.package_id));
+    EXPECT_EQ(std::string::npos, status.output.find(source_sentinel));
+    EXPECT_EQ(1u, reader.live_store().package_record_count());
+    EXPECT_EQ(1u, reader.reload_service().successful_reload_count());
+    std::remove(path.c_str());
+}
+
+TEST(JsLiveRegistryAdmin, StartupLoadFailureDoesNotMutateExistingLiveStoreOrRegistry) {
+    JsLiveRegistryAdminService service;
+    JsStagedPackageRepository repository;
+    JsStagedPackageRecord record = activate_package(service, repository, make_package(8711));
+    ASSERT_TRUE(service.refresh().ok);
+    const std::size_t previous_success_count = service.reload_service().successful_reload_count();
+
+    JsLiveRegistryStartupLoadResult loaded =
+        service.hydrate_from_file(temp_file_path("missing-startup"));
+    JsLiveRegistryAdminCommandResult status =
+        js_live_registry_handle_reload_command(service, "js status 8711");
+
+    EXPECT_FALSE(loaded.ok);
+    EXPECT_FALSE(loaded.file_load.ok);
+    ASSERT_TRUE(status.ok) << status.output;
+    EXPECT_NE(std::string::npos, status.output.find(record.identity.package_id));
+    EXPECT_EQ(1u, service.live_store().package_record_count());
+    EXPECT_EQ(previous_success_count, service.reload_service().successful_reload_count());
+}
+
+TEST(JsLiveRegistryAdmin, StartupRefreshFailureRollsBackHydratedLiveStore) {
+    const std::string path = temp_file_path("startup-rollback");
+    std::remove(path.c_str());
+    std::remove((path + ".tmp").c_str());
+    JsLiveRegistryAdminService writer;
+    JsStagedPackageRepository writer_repository;
+    JsStagedPackageRecord persisted_record =
+        activate_package(writer, writer_repository, make_package(8713));
+    ASSERT_TRUE(js_live_package_store_snapshot_save_file(path, writer.live_store().export_snapshot())
+                    .ok);
+
+    JsLiveRegistryReloadOptions options = js_live_registry_server_reload_options();
+    options.replace_options.legacy_script_vnums.push_back(8713);
+    JsLiveRegistryAdminService service(options);
+    JsStagedPackageRepository repository;
+    JsStagedPackageRecord record = activate_package(service, repository, make_package(8712));
+    ASSERT_TRUE(service.refresh().ok);
+
+    JsLiveRegistryStartupLoadResult loaded = service.hydrate_from_file(path);
+    JsLiveRegistryAdminCommandResult status =
+        js_live_registry_handle_reload_command(service, "js status 8712");
+
+    EXPECT_FALSE(loaded.ok);
+    EXPECT_TRUE(loaded.file_load.ok);
+    EXPECT_TRUE(loaded.file_load.snapshot.records.empty());
+    EXPECT_TRUE(loaded.file_load.snapshot.live_pointers.empty());
+    EXPECT_TRUE(loaded.store_hydration.ok);
+    EXPECT_FALSE(loaded.reload.ok);
+    EXPECT_TRUE(loaded.rollback_hydration.ok);
+    ASSERT_TRUE(status.ok) << status.output;
+    EXPECT_NE(std::string::npos, status.output.find(record.identity.package_id));
+    EXPECT_EQ(std::string::npos, status.output.find(persisted_record.identity.package_id));
+    EXPECT_EQ(1u, service.live_store().package_record_count());
+    EXPECT_TRUE(service.live_store()
+                    .find_record(record.identity.package_id, record.identity.package_version_id)
+                    .ok);
+    EXPECT_FALSE(service.live_store()
+                     .find_record(persisted_record.identity.package_id,
+                                  persisted_record.identity.package_version_id)
+                     .ok);
+    EXPECT_TRUE(service.live_store()
+                    .find_live_pointer(record.identity.zone, record.identity.host,
+                                       record.identity.vnum)
+                    .ok);
+    EXPECT_FALSE(service.live_store()
+                     .find_live_pointer(persisted_record.identity.zone, persisted_record.identity.host,
+                                        persisted_record.identity.vnum)
+                     .ok);
+    EXPECT_EQ(1u, service.reload_service().successful_reload_count());
+    std::remove(path.c_str());
+}
+
 TEST(JsLiveRegistryAdmin, StatusCommandRejectsMalformedNumericLookupsWithoutRefreshing) {
     JsLiveRegistryAdminService service;
     ASSERT_TRUE(js_live_registry_handle_reload_command(service, "js refresh").ok);
@@ -260,6 +370,7 @@ TEST(JsLiveRegistryAdmin, DbIntegrationKeepsStartupAndReloadHooksInPlace) {
     ASSERT_FALSE(source.empty());
     EXPECT_NE(std::string::npos, source.find("js_live_registry_handle_reload_command"));
     EXPECT_NE(std::string::npos, source.find("js_live_registry_admin_service()"));
+    EXPECT_NE(std::string::npos, source.find("js_live_registry_startup_load_file"));
     EXPECT_NE(std::string::npos, source.find("js_live_registry_startup_refresh()"));
     EXPECT_EQ(std::string::npos, source.find("js_trigger_dispatch"));
 }

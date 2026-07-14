@@ -101,6 +101,30 @@ JsLiveRegistryReloadResult JsLiveRegistryAdminService::refresh() {
     return result;
 }
 
+JsLiveRegistryStartupLoadResult
+JsLiveRegistryAdminService::hydrate_from_file(const std::string &path) {
+    JsLiveRegistryStartupLoadResult result;
+    result.file_load = js_live_package_store_snapshot_load_file(path);
+    if (!result.file_load.ok)
+        return result;
+
+    JsLivePackageStoreSnapshot loaded_snapshot = result.file_load.snapshot;
+    result.file_load.snapshot = {};
+    const JsLivePackageStoreSnapshot previous_snapshot = m_live_store.export_snapshot();
+    result.store_hydration = m_live_store.hydrate_from_snapshot(loaded_snapshot);
+    if (!result.store_hydration.ok)
+        return result;
+
+    result.reload = refresh();
+    if (!result.reload.ok) {
+        result.rollback_hydration = m_live_store.hydrate_from_snapshot(previous_snapshot);
+        return result;
+    }
+
+    result.ok = true;
+    return result;
+}
+
 JsLiveRegistryStatusResult JsLiveRegistryAdminService::status_snapshot() const {
     return js_live_registry_status_snapshot(m_reload_service);
 }
@@ -134,6 +158,10 @@ JsLiveRegistryAdminService &js_live_registry_admin_service() {
 
 JsLiveRegistryReloadResult js_live_registry_startup_refresh() {
     return js_live_registry_admin_service().refresh();
+}
+
+JsLiveRegistryStartupLoadResult js_live_registry_startup_load_file(const std::string &path) {
+    return js_live_registry_admin_service().hydrate_from_file(path);
 }
 
 std::string js_live_registry_format_reload_result(const JsLiveRegistryReloadResult &reload) {

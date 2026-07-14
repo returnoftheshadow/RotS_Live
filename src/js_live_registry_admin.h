@@ -2,6 +2,7 @@
 #define JS_LIVE_REGISTRY_ADMIN_H
 
 #include "js_live_package_store.h"
+#include "js_live_package_store_persistence.h"
 #include "js_live_registry_reload_service.h"
 #include "js_live_registry_status.h"
 
@@ -13,6 +14,14 @@ struct JsLiveRegistryAdminCommandResult {
     std::string output;
 };
 
+struct JsLiveRegistryStartupLoadResult {
+    bool ok = false;
+    JsLivePackageStorePersistenceLoadResult file_load;
+    JsLivePackageStoreHydrationResult store_hydration;
+    JsLiveRegistryReloadResult reload;
+    JsLivePackageStoreHydrationResult rollback_hydration;
+};
+
 class JsLiveRegistryAdminService {
   public:
     JsLiveRegistryAdminService();
@@ -21,6 +30,7 @@ class JsLiveRegistryAdminService {
                                const JsLiveRegistryReloadOptions &reload_options);
 
     JsLiveRegistryReloadResult refresh();
+    JsLiveRegistryStartupLoadResult hydrate_from_file(const std::string &path);
     JsLiveRegistryStatusResult status_snapshot() const;
     JsLiveRegistryStatusResult status_for_package_id(const std::string &package_id) const;
     JsLiveRegistryStatusResult status_for_vnum(int vnum) const;
@@ -38,6 +48,7 @@ class JsLiveRegistryAdminService {
 JsLiveRegistryReloadOptions js_live_registry_server_reload_options();
 JsLiveRegistryAdminService &js_live_registry_admin_service();
 JsLiveRegistryReloadResult js_live_registry_startup_refresh();
+JsLiveRegistryStartupLoadResult js_live_registry_startup_load_file(const std::string &path);
 
 std::string js_live_registry_format_reload_result(const JsLiveRegistryReloadResult &reload);
 std::string js_live_registry_format_status_result(const JsLiveRegistryStatusResult &status);

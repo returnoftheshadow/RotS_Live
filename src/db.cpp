@@ -386,8 +386,19 @@ void boot_db(void)
     log("Loading objs and generating index.");
     index_boot(DB_BOOT_OBJ);
 
-    log("Refreshing JavaScript live registry.");
-    JsLiveRegistryReloadResult js_reload = js_live_registry_startup_refresh();
+    log("Loading JavaScript live registry.");
+    JsLiveRegistryStartupLoadResult js_startup_load =
+        js_live_registry_startup_load_file("world/js_live_store.json");
+    JsLiveRegistryReloadResult js_reload =
+        js_startup_load.ok ? js_startup_load.reload : js_live_registry_startup_refresh();
+    if (!js_startup_load.ok) {
+        for (const JsLivePackageStorePersistenceDiagnostic &diagnostic :
+             js_startup_load.file_load.diagnostics) {
+            sprintf(buf, "JavaScript live registry persistence diagnostic: %s",
+                diagnostic.message.c_str());
+            log(buf);
+        }
+    }
     sprintf(buf, "JavaScript live registry refresh: %s, %lu packages.",
         js_live_registry_reload_status_name(js_reload.status),
         static_cast<unsigned long>(js_reload.package_count));

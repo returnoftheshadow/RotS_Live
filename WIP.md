@@ -1,16 +1,23 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added hardened filesystem load/save hooks for JavaScript live package records and live pointers without enabling live trigger dispatch.
-- Next slice: hydrate the JavaScript live package store from persisted startup data through the admin/reload service while preserving failure rollback.
+- Active slice complete: hydrated the JavaScript live package store from persisted startup data through the admin/reload service while preserving failure rollback.
+- Next slice: persist the JavaScript live package store snapshot after successful activation/rollback so live package changes survive restart.
 - Active slice progress:
+  - Added `JsLiveRegistryStartupLoadResult`, `JsLiveRegistryAdminService::hydrate_from_file()`, and `js_live_registry_startup_load_file()` to load persisted live-store snapshots through the hardened persistence layer.
+  - Startup hydration loads the file, copies the source-bearing snapshot only into a local variable, clears the returned load snapshot for redaction, hydrates the live store, refreshes the registry, and rolls the live store back to the prior snapshot if refresh fails.
+  - Wired `boot_db()` to try `world/js_live_store.json` through `js_live_registry_startup_load_file()` before falling back to the previous in-memory startup refresh path.
+  - Added focused admin tests for successful persisted startup load, missing-file no-mutation fallback, result redaction, boot hook source coverage, and same-count A-vs-B refresh-failure rollback that proves the live store and registry remain on the old package.
+  - Magus, Vincent, and Bazarat reviewed the slice; their findings led to redacting successful file-load results, wiring the actual boot path, and strengthening rollback tests against same-count store/registry divergence.
+  - Validation passed: `make test` (925/925), `make -C src js_live_registry_admin.o db.o`, raw relinked `./bin/tests --gtest_filter='JsLiveRegistryAdmin.*'` (13 tests), and `git diff --check`.
+- Previous slice progress:
   - Added `js_live_package_store_snapshot_load_file()` and `js_live_package_store_snapshot_save_file()` on top of the strict JSON snapshot codec.
   - Load/save paths are relative-only, reject dot/traversal/absolute paths, require trusted non-world-writable parent directories, and reject symlink or non-regular final/temp paths.
   - Save validates the snapshot before writing, writes a private `0600` temp file with `O_CREAT | O_EXCL | O_NOFOLLOW`, fsyncs the temp file, atomically renames it, and fsyncs the parent directory.
   - Added focused tests for file round trip, corrupt/missing/empty-path load failures, invalid path rejection, failed-save preservation of the existing snapshot, temp cleanup, file permissions, and symlink load/temp-save rejection.
   - Magus, Vincent, and Bazarat reviewed the slice; Vincent's findings drove the descriptor-based temp-file write, safe relative path policy, private file mode, and fsync behavior.
   - Validation passed: `make test` (922/922), `make -C src js_live_package_store_persistence.o`, raw relinked `./bin/tests --gtest_filter='JsLivePackageStorePersistence.*'` (17 tests), and `git diff --check`.
-- Previous slice progress:
+- Earlier slice progress:
   - Added `src/js_live_package_store_persistence.{h,cpp}` to serialize source-bearing `JsLivePackageStoreSnapshot` records and live pointers with schema version `1`.
   - Decoder validates size limits, rejects missing/duplicate/unknown fields at the top level and every nested object, rejects unsupported enum values, validates trigger/source limits, and hydrates through `JsLivePackageStore` before returning success.
   - Failed decodes parse into a local candidate and return an empty snapshot on parse, schema, resource-limit, or hydration failures so source-bearing partial data is not exposed with `ok == false`.
