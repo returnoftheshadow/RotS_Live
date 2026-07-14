@@ -149,8 +149,12 @@ JsGameAdapterOptions js_game_adapter_options_from_world(
     return options;
 }
 
-int dispatch_javascript_char_enter(char_data* ch, char_data* vict, room_data* room)
+int dispatch_javascript_character_movement_entry_trigger(
+    char_data* ch, char_data* vict, room_data* room, int legacy_value)
 {
+    if (legacy_value != ON_ENTER && legacy_value != ON_BEFORE_ENTER)
+        return 1;
+
     if (!javascript_legacy_trigger_dispatch_enabled || ch == nullptr || vict == nullptr ||
         room == nullptr)
         return 1;
@@ -163,6 +167,10 @@ int dispatch_javascript_char_enter(char_data* ch, char_data* vict, room_data* ro
     const int room_index = room_index_from_world_pointer(room);
     if (room_index < 0)
         return 1;
+    if (ch->in_room != room_index)
+        return 1;
+    if (legacy_value == ON_ENTER && vict->in_room != room_index)
+        return 1;
 
     const std::vector<const obj_data*> objects = live_object_snapshot();
     const JsGameAdapterOptions adapter_options =
@@ -171,7 +179,7 @@ int dispatch_javascript_char_enter(char_data* ch, char_data* vict, room_data* ro
     JsTriggerDispatchRequest request;
     request.host = JsScriptPackageHost::Character;
     request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
-    request.legacy_value = ON_ENTER;
+    request.legacy_value = legacy_value;
     request.context_input.self = ch;
     request.context_input.actor = vict;
     request.context_input.room = room_index;
@@ -1762,6 +1770,9 @@ int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room)
             ch->specials.script_info->rm[0] = room;
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
+    if (return_value)
+        return_value =
+            dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_BEFORE_ENTER);
     return return_value;
 }
 
@@ -1820,7 +1831,8 @@ int trigger_char_enter(char_data* ch, char_data* vict, room_data* room)
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
     if (return_value)
-        return_value = dispatch_javascript_char_enter(ch, vict, room);
+        return_value =
+            dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_ENTER);
     return return_value;
 }
 

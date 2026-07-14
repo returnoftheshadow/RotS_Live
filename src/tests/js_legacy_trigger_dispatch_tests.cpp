@@ -15,6 +15,7 @@
 #include <vector>
 
 int trigger_char_enter(char_data *ch, char_data *vict, room_data *room);
+int trigger_before_char_enter(char_data *ch, char_data *vict, room_data *room);
 extern room_data world;
 extern int top_of_world;
 extern script_head *script_table;
@@ -72,7 +73,12 @@ JsTriggerDispatchRequest character_enter_request(const char_data *self) {
     return request;
 }
 
-JsScriptPackage make_package(int vnum, const std::string &source) {
+const char *handler_name_for_legacy_trigger(int legacy_value) {
+    return legacy_value == ON_BEFORE_ENTER ? "onBeforeEnter" : "onEnter";
+}
+
+JsScriptPackage make_package(int vnum, const std::string &source,
+                             int legacy_value = ON_ENTER) {
     const JsScriptingManifestMetadata &metadata = js_scripting_manifest_metadata();
     JsScriptPackage package;
     package.vnum = vnum;
@@ -87,7 +93,8 @@ JsScriptPackage make_package(int vnum, const std::string &source) {
     package.generated_typings_version = metadata.generated_typings_version;
     package.compiled_javascript = source;
     package.trigger_bindings.push_back(
-        {JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER, "onEnter"});
+        {JsScriptingManifestKind::LegacyScriptTrigger, legacy_value,
+         handler_name_for_legacy_trigger(legacy_value)});
     package.compiled_javascript_checksum = js_script_package_compiled_javascript_checksum(package);
     return package;
 }
@@ -177,6 +184,18 @@ bool contains(const std::string &value, const std::string &needle) {
 bool appears_before(const std::string &value, const std::string &first, const std::string &second) {
     const std::size_t first_position = value.find(first);
     const std::size_t second_position = value.find(second);
+    return first_position != std::string::npos && second_position != std::string::npos &&
+        first_position < second_position;
+}
+
+bool appears_before_after(
+    const std::string &value, const std::string &anchor, const std::string &first,
+    const std::string &second) {
+    const std::size_t anchor_position = value.find(anchor);
+    if (anchor_position == std::string::npos)
+        return false;
+    const std::size_t first_position = value.find(first, anchor_position);
+    const std::size_t second_position = value.find(second, anchor_position);
     return first_position != std::string::npos && second_position != std::string::npos &&
         first_position < second_position;
 }
@@ -343,6 +362,117 @@ TEST(JsLegacyTriggerDispatch, LegacyOnEnterBlockPreventsJavaScriptDispatch) {
     EXPECT_EQ(trigger_char_enter(&self, &actor, &world), 0);
 }
 
+TEST(JsLegacyTriggerDispatch, EnabledScriptBeforeEnterPathBlocksMovement) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6116, "function onBeforeEnter(ctx) { return false; }",
+                         ON_BEFORE_ENTER));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_before_char_enter(&self, &actor, &world), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptBeforeEnterRuntimeErrorBlocksMovement) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6118, "function onBeforeEnter(ctx) { throw 'block'; }",
+                         ON_BEFORE_ENTER));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_before_char_enter(&self, &actor, &world), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptBeforeEnterSkipsWhenObserverLeftTargetRoom) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6119, "function onBeforeEnter(ctx) { return false; }",
+                         ON_BEFORE_ENTER));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.in_room = -1;
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_before_char_enter(&self, &actor, &world), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, LegacyBeforeEnterBlockPreventsJavaScriptDispatch) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalScriptTableGuard script_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6117, "function onBeforeEnter(ctx) { return true; }",
+                         ON_BEFORE_ENTER));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    script_data before_enter {};
+    script_data return_false {};
+    before_enter.command_type = ON_BEFORE_ENTER;
+    before_enter.next = &return_false;
+    return_false.command_type = SCRIPT_RETURN_FALSE;
+    return_false.prev = &before_enter;
+    script_head script {};
+    script.number = 9012;
+    script.script = &before_enter;
+    script_table = &script;
+    top_of_script_table = 0;
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.specials.script_number = 9012;
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_before_char_enter(&self, &actor, &world), 0);
+}
+
 TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathAllowsWhenRegistryGenerationIsStale) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;
@@ -374,7 +504,7 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathAllowsWhenRegistryGenerati
     EXPECT_EQ(trigger_char_enter(&self, &actor, &world), 1);
 }
 
-TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathAllowsWhenRegistryIsNotReady) {
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathAllowsWhenRegistryIsEmpty) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;
     js_script_set_legacy_trigger_dispatch_enabled(true);
@@ -645,7 +775,7 @@ TEST(JsLegacyTriggerDispatch, BuildFilesReferenceFacadeSourcesAndTests) {
     EXPECT_TRUE(contains(test_makefile, "js_live_registry_reload_service.h"));
 }
 
-TEST(JsLegacyTriggerDispatch, OnlyCharacterOnEnterGameplayPathUsesFacade) {
+TEST(JsLegacyTriggerDispatch, CharacterMovementEntryPathsUseFacade) {
     const std::string script = read_first_available_file({"src/script.cpp", "../script.cpp"});
     const std::string act_move = read_first_available_file({"src/act_move.cpp", "../act_move.cpp"});
     const std::string act_obj1 = read_first_available_file({"src/act_obj1.cpp", "../act_obj1.cpp"});
@@ -654,13 +784,27 @@ TEST(JsLegacyTriggerDispatch, OnlyCharacterOnEnterGameplayPathUsesFacade) {
 
     ASSERT_FALSE(script.empty());
     EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 1u);
-    EXPECT_TRUE(contains(script, "dispatch_javascript_char_enter(ch, vict, room)"));
-    EXPECT_TRUE(contains(script, "request.legacy_value = ON_ENTER;"));
+    EXPECT_EQ(
+        count_occurrences(script, "dispatch_javascript_character_movement_entry_trigger(ch, vict, room,"),
+        2u);
+    EXPECT_TRUE(contains(script,
+        "dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_BEFORE_ENTER)"));
+    EXPECT_TRUE(contains(
+        script, "dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_ENTER)"));
+    EXPECT_TRUE(contains(script, "legacy_value != ON_ENTER && legacy_value != ON_BEFORE_ENTER"));
+    EXPECT_TRUE(contains(script, "request.legacy_value = legacy_value;"));
+    EXPECT_TRUE(contains(script, "request.context_input.room = room_index;"));
+    EXPECT_FALSE(contains(script, "request.context_input.room = ch->in_room;"));
+    EXPECT_TRUE(contains(script, "if (ch->in_room != room_index)"));
+    EXPECT_TRUE(contains(script, "if (legacy_value == ON_ENTER && vict->in_room != room_index)"));
     EXPECT_TRUE(contains(script, "request.host = JsScriptPackageHost::Character;"));
     EXPECT_TRUE(contains(script, "bool javascript_legacy_trigger_dispatch_enabled = false;"));
     EXPECT_TRUE(contains(script, "if (return_value)"));
+    EXPECT_TRUE(appears_before_after(script, "int trigger_before_char_enter",
+        "return_value = run_script(ch->specials.script_info",
+        "return_value =\n            dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_BEFORE_ENTER);"));
     EXPECT_TRUE(appears_before(script, "return_value = run_script(ch->specials.script_info",
-        "return_value = dispatch_javascript_char_enter(ch, vict, room);"));
+        "return_value =\n            dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_ENTER);"));
     EXPECT_FALSE(contains(act_move, "js_legacy_trigger_dispatch("));
     EXPECT_FALSE(contains(act_obj1, "js_legacy_trigger_dispatch("));
     EXPECT_FALSE(contains(act_obj2, "js_legacy_trigger_dispatch("));

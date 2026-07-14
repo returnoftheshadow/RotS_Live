@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: wired the default-closed JavaScript legacy-trigger facade into the first live gameplay path, character `ON_ENTER`, behind an explicit server-owned switch.
-- Next slice: extend the same guarded dispatch pattern to the next blocking legacy trigger path, likely `ON_BEFORE_ENTER`, with the same post-legacy liveness checks and stale-registry behavior.
+- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into the blocking character `ON_BEFORE_ENTER` gameplay path.
+- Next slice: wire the same guarded dispatch pattern into the next character-host trigger path after movement entry, likely `ON_DIE` or `ON_DAMAGE`, depending on which blocking semantics are safest to isolate next.
+- Active slice progress:
+  - Starting from the committed `ON_ENTER` wiring in `9ea00d1`.
+  - Preserve legacy `.scr` ordering: the legacy `ON_BEFORE_ENTER` script runs first, and JavaScript is only considered if legacy still allows movement.
+  - Preserve blocking semantics: a JavaScript `false`/block or runtime error on `ON_BEFORE_ENTER` should return `0` to block movement; disabled, stale-registry, registry-not-ready, no-match, stale-character, or detached-room cases should skip JavaScript and allow the legacy result.
+  - Reuse the post-legacy liveness and room-table validation added for `ON_ENTER` so JavaScript does not dereference characters extracted or moved by legacy scripts.
+  - Refactored the character movement trigger helper to accept the legacy trigger id, so `ON_ENTER` and `ON_BEFORE_ENTER` share the same generation, liveness, room-table, and dispatch-result handling.
+  - Constrained the shared helper to movement-entry triggers only and added post-legacy room-relationship checks so a live character that was moved away by legacy `.scr` does not run JavaScript for a stale room.
+  - Wired `trigger_before_char_enter()` to run JavaScript only after legacy `.scr` allows movement, preserving blocking return semantics for `false`/error JavaScript results.
+  - Added focused tests for JavaScript `ON_BEFORE_ENTER` blocking movement, JavaScript runtime error blocking movement, legacy `ON_BEFORE_ENTER` blocking before JavaScript can override the result, live-but-moved observer skip behavior, and source guards proving only the character movement entry paths are wired through the shared facade.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to the movement-entry-specific helper name/guard, runtime-error blocking coverage, `ON_BEFORE_ENTER` ordering guards, explicit room-index source guards, live-but-moved observer coverage, and a clarified empty-registry test name.
+  - Validation passed: `make -C src script.o`, raw relinked `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*'` (24 tests), path-limited `git diff --check`, and full `make test` (956/956) after the final Vincent room-relationship patch.
+- Previous slice progress:
 - Active slice progress:
   - Added `js_script_set_legacy_trigger_dispatch_enabled(...)`, `js_script_legacy_trigger_dispatch_enabled()`, and `js_script_capture_live_registry_generation()` to expose a server-owned startup/admin switch and freshness token capture for gameplay call-site wiring; generation capture now reports whether it captured a usable reload generation.
   - Added a `script.cpp` adapter snapshot helper that builds read-only live character/object/world/zone/index options for JavaScript trigger dispatch without exposing raw pointers to builder code.
