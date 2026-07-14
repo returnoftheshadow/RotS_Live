@@ -1,8 +1,16 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: enforced semantic TypeScript checks against generated API typings.
+- Active slice complete: fixed BuilderClient bottom panel resizing.
 - Next slice: continue reviewer findings with non-publish IPC validation, parent/client tracking, and publish DTO alignment.
+- Completed slice progress:
+  - Made resize splitters listen on the captured pointer element so drag events are not lost after pointer capture.
+  - Increased the bottom splitter's grab target and added keyboard sizing for the bottom panel.
+  - Added ARIA value metadata for the bottom panel separator.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: enforced semantic TypeScript checks against generated API typings.
+  - Next slice: continue reviewer findings with non-publish IPC validation, parent/client tracking, and publish DTO alignment.
 - Completed slice progress:
   - Added generated TypeScript declaration text to the client project model so compile/package paths use the same API typings loaded by the editor.
   - Replaced `transpileModule` with a real TypeScript program over project sources plus `generated/rots.d.ts`.
