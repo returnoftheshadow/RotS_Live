@@ -642,6 +642,11 @@ Electron TypeScript authoring client:
   - stale-manifest diagnostics must name the mismatched artifact and expected/actual version or checksum, but must not include absolute paths, source text, account identifiers, auth tokens, live player text, or server-local filenames
   - the generator should emit a machine-readable compatibility summary used by docs/release notes so release compatibility claims cannot drift from the manifest compatibility table
 - Mark room-owned triggers and unresolved host types as unsupported/non-publishable in the manifest until the server-side room storage/dispatch policy is resolved. TypeScript can expose read-only room context where valid without implying room script authoring is supported.
+- Store all Electron/TypeScript builder-client development under the top-level `BuilderClient/` directory:
+  - Electron main/preload/renderer source, TypeScript editor UI, VS Code-style shell, LSP/IntelliSense integration, client-side tests, package manager files, bundler config, Electron hardening config, and client documentation live under `BuilderClient/`.
+  - Do not spread builder-client implementation files into `src/`, `lib/`, `proxy/`, or unrelated game-server directories except for explicit server-owned generated artifacts and integration fixtures documented here.
+  - Treat server-generated builder artifacts as authoritative inputs to the client; the server-side generator may still emit checked-in manifest/type/doc outputs under the existing generated server artifact path, and `BuilderClient/` should consume or copy those through documented build steps rather than redefining them.
+  - The reusable CLI/core used by Electron should live under `BuilderClient/` unless a later server-owned component is deliberately added for shared validation/runtime execution; any such shared boundary must be documented before implementation.
 - Package the TypeScript API definitions with the client and keep them generated from, or version-locked to, the server-side JavaScript host API contract:
   - strongly typed trigger context classes/interfaces
   - strongly typed character, player, mob, object, room, zone, and script-result handles

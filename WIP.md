@@ -1,8 +1,16 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: expanded server-side JavaScript execution coverage into multi-package ordering and targeted-dispatch behavior.
+- Active slice complete: documented `BuilderClient/` as the home for Electron/TypeScript builder-client development.
 - Next slice: start the offline/server parity harness.
+- Completed slice progress:
+  - Start from committed multi-package ordering coverage in `1360c75`.
+  - Updated `FEATURES.md` so Electron main/preload/renderer source, TypeScript editor UI, VS Code-style shell, LSP/IntelliSense integration, client-side tests, package manager files, bundler config, Electron hardening config, and client docs live under top-level `BuilderClient/`.
+  - Documented that builder-client implementation should not be spread into `src/`, `lib/`, `proxy/`, or unrelated game-server directories, while server-owned generated artifacts remain authoritative inputs consumed by the client through documented build steps.
+  - Noted that `BuilderClient/` already exists as an untracked nested git repository and was not staged or modified in this slice.
+- Previous slice progress:
+  - Active slice complete: expanded server-side JavaScript execution coverage into multi-package ordering and targeted-dispatch behavior.
+  - Next slice: start the offline/server parity harness.
 - Completed slice progress:
   - Start from committed live-facade e2e test in `c63fdef`.
   - Add gameplay-facing facade tests for multiple live packages bound to the same trigger, proving first-match registry order and `matched_package_count` survive through `js_legacy_trigger_dispatch(...)`.
