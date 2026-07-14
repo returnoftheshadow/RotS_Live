@@ -1,9 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added a live-registry-backed JavaScript trigger dispatch bridge that resolves current live packages without wiring legacy gameplay call sites.
-- Next slice: add a narrow server-owned dispatch facade for legacy trigger call sites, gated off by default, so individual gameplay paths can opt in without changing legacy `.scr` behavior.
+- Active slice complete: added a narrow server-owned dispatch facade for legacy trigger call sites, gated off by default, so individual gameplay paths can opt in without changing legacy `.scr` behavior.
+- Next slice: wire the default-closed facade into one low-risk legacy trigger path behind an explicit server option, with parity tests proving legacy `.scr` behavior remains unchanged when disabled.
 - Active slice progress:
+  - Added `src/js_legacy_trigger_dispatch.{h,cpp}` as the default-closed gameplay-facing facade over the live-registry dispatch bridge.
+  - Facade options require explicit enablement, a successfully loaded live registry, and a matching successful-reload generation before JavaScript can execute.
+  - Added status names and result mapping for disabled, registry-not-ready, stale-registry, no-match, allow, block, and error outcomes.
+  - Replaced raw reload-count input with `JsLegacyTriggerReloadGeneration` captured through `js_legacy_trigger_reload_generation(service)` so missing or old generation tokens fail closed before JavaScript can execute.
+  - Added focused tests for default-disabled non-execution, registry-not-ready rejection, missing and stale generation rejection, freshness opt-out, fresh allow/block dispatch, no-match redaction, runtime error fail-closed behavior, diagnostic redaction, status names, build wiring, and source guards proving known legacy gameplay call sites remain unwired.
+  - This slice does not wire any legacy gameplay call site yet.
+  - Validation passed: `make -C src js_legacy_trigger_dispatch.o`, raw relinked `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*'` (12 tests), and path-limited `git diff --check`.
+  - Validation limitation: full `make test` remains blocked by unrelated existing account-management compile errors in `account_management_assets.cpp` and `account_management_identity.cpp`.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to the captured reload generation token, realistic stale-generation tests, allow and opt-out coverage, embedded diagnostic redaction assertions, raw dependency assertions, and source-level unwired call-site guards.
+  - Residual non-blocking risk: the lower-level live dispatch bridge remains public, but gameplay wiring must continue through the default-closed facade until a narrower internal linkage boundary is introduced.
+- Previous slice progress:
   - Added `js_trigger_dispatch_live_first_match()` as a narrow friend bridge into `JsLiveRegistryReloadService` so dispatch can use the service's private source-bearing registry without adding a general package/source accessor.
   - Kept the existing `js_trigger_dispatch_first_match()` registry path intact; the new bridge delegates to it after resolving the current service snapshot.
   - Added focused tests proving live packages activated into `JsLivePackageStore`, refreshed into `JsLiveRegistryReloadService`, and dispatched through QuickJS via the existing trigger dispatcher.

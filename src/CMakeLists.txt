@@ -45,6 +45,7 @@ set(ROTS_SERVER_SOURCES
     js_builder_artifacts.cpp
     js_game_adapter.cpp
     js_game_runtime.cpp
+    js_legacy_trigger_dispatch.cpp
     js_live_package_store.cpp
     js_live_package_store_persistence.cpp
     js_live_registry_admin.cpp
@@ -168,6 +169,7 @@ set(ROTS_TEST_SOURCES
     tests/js_builder_artifacts_tests.cpp
     tests/js_game_adapter_tests.cpp
     tests/js_game_runtime_tests.cpp
+    tests/js_legacy_trigger_dispatch_tests.cpp
     tests/js_live_package_store_tests.cpp
     tests/js_live_package_store_persistence_tests.cpp
     tests/js_live_registry_admin_tests.cpp
