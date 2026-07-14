@@ -99,6 +99,13 @@ bool has_code(const JsLivePackagePointerResult &result, JsLivePackageStoreDiagno
         [code](const JsLivePackageStoreDiagnostic &diagnostic) { return diagnostic.code == code; });
 }
 
+bool has_code(const JsLivePackageStoreHydrationResult &result,
+              JsLivePackageStoreDiagnosticCode code) {
+    return std::any_of(
+        result.diagnostics.begin(), result.diagnostics.end(),
+        [code](const JsLivePackageStoreDiagnostic &diagnostic) { return diagnostic.code == code; });
+}
+
 std::string read_first_available_file(std::initializer_list<const char *> paths) {
     for (const char *path : paths) {
         std::ifstream file(path);
@@ -450,6 +457,191 @@ TEST(JsLivePackageStore, RegistrySnapshotReportsValidationFailureWithoutMutating
     EXPECT_FALSE(result.package_validation.ok);
     EXPECT_EQ(1u, store.package_record_count());
     EXPECT_EQ(1u, store.live_pointer_count());
+}
+
+TEST(JsLivePackageStore, ExportsAndHydratesSnapshotAtomically) {
+    JsLivePackageStore source;
+    JsStagedPackageRecord staged = stage_record();
+    ASSERT_TRUE(source.store_staged_record(staged).ok);
+    ASSERT_TRUE(source.load_live_pointer(make_pointer(staged)).ok);
+
+    JsLivePackageStore target;
+    JsLivePackageStoreHydrationResult result = target.hydrate_from_snapshot(source.export_snapshot());
+
+    ASSERT_TRUE(result.ok);
+    EXPECT_EQ(1u, result.records_loaded);
+    EXPECT_EQ(1u, result.live_pointers_loaded);
+    EXPECT_EQ(1u, target.package_record_count());
+    EXPECT_EQ(1u, target.live_pointer_count());
+    EXPECT_TRUE(
+        target.find_record(staged.identity.package_id, staged.identity.package_version_id).ok);
+    EXPECT_TRUE(
+        target.find_live_pointer(staged.identity.zone, staged.identity.host, staged.identity.vnum)
+            .ok);
+}
+
+TEST(JsLivePackageStore, HydrationFailureLeavesExistingStateUnchanged) {
+    JsLivePackageStore source;
+    JsStagedPackageRecord existing = stage_record(3011);
+    ASSERT_TRUE(source.store_staged_record(existing).ok);
+    ASSERT_TRUE(source.load_live_pointer(make_pointer(existing)).ok);
+
+    JsLivePackageStore target;
+    ASSERT_TRUE(target.hydrate_from_snapshot(source.export_snapshot()).ok);
+
+    JsLivePackageStoreSnapshot invalid = source.export_snapshot();
+    invalid.records.front().identity.package_version_id = "version:forged";
+    JsLivePackageStoreHydrationResult result = target.hydrate_from_snapshot(invalid);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsLivePackageStoreDiagnosticCode::InvalidRequest));
+    EXPECT_EQ(1u, target.package_record_count());
+    EXPECT_EQ(1u, target.live_pointer_count());
+    EXPECT_TRUE(
+        target.find_record(existing.identity.package_id, existing.identity.package_version_id).ok);
+}
+
+TEST(JsLivePackageStore, HydrationPointerFailureLeavesExistingStateUnchanged) {
+    JsLivePackageStore existing_source;
+    JsStagedPackageRecord existing = stage_record(3031);
+    ASSERT_TRUE(existing_source.store_staged_record(existing).ok);
+    ASSERT_TRUE(existing_source.load_live_pointer(make_pointer(existing)).ok);
+
+    JsLivePackageStore target;
+    ASSERT_TRUE(target.hydrate_from_snapshot(existing_source.export_snapshot()).ok);
+
+    JsLivePackageStore new_source;
+    JsStagedPackageRecord newer = stage_record(3032);
+    ASSERT_TRUE(new_source.store_staged_record(newer).ok);
+    ASSERT_TRUE(new_source.load_live_pointer(make_pointer(newer)).ok);
+    JsLivePackageStoreSnapshot invalid = new_source.export_snapshot();
+    invalid.live_pointers.front().staged_digest = "sha256:forged";
+
+    JsLivePackageStoreHydrationResult result = target.hydrate_from_snapshot(invalid);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsLivePackageStoreDiagnosticCode::InvalidRequest));
+    EXPECT_EQ(1u, target.package_record_count());
+    EXPECT_EQ(1u, target.live_pointer_count());
+    EXPECT_TRUE(
+        target.find_record(existing.identity.package_id, existing.identity.package_version_id).ok);
+    EXPECT_TRUE(target.find_live_pointer(existing.identity.zone, existing.identity.host,
+                    existing.identity.vnum)
+                    .ok);
+    EXPECT_FALSE(target.find_live_pointer(newer.identity.zone, newer.identity.host,
+                       newer.identity.vnum)
+                     .ok);
+}
+
+TEST(JsLivePackageStore, HydrationReplacesExistingStateInsteadOfMerging) {
+    JsLivePackageStore first_source;
+    JsStagedPackageRecord first = stage_record(3041);
+    ASSERT_TRUE(first_source.store_staged_record(first).ok);
+    ASSERT_TRUE(first_source.load_live_pointer(make_pointer(first)).ok);
+
+    JsLivePackageStore second_source;
+    JsStagedPackageRecord second = stage_record(3042);
+    ASSERT_TRUE(second_source.store_staged_record(second).ok);
+    ASSERT_TRUE(second_source.load_live_pointer(make_pointer(second)).ok);
+
+    JsLivePackageStore target;
+    ASSERT_TRUE(target.hydrate_from_snapshot(first_source.export_snapshot()).ok);
+    JsLivePackageStoreHydrationResult result =
+        target.hydrate_from_snapshot(second_source.export_snapshot());
+
+    ASSERT_TRUE(result.ok);
+    EXPECT_EQ(1u, target.package_record_count());
+    EXPECT_EQ(1u, target.live_pointer_count());
+    EXPECT_FALSE(target.find_live_pointer(first.identity.zone, first.identity.host,
+                       first.identity.vnum)
+                     .ok);
+    EXPECT_TRUE(target.find_live_pointer(second.identity.zone, second.identity.host,
+                    second.identity.vnum)
+                    .ok);
+}
+
+TEST(JsLivePackageStore, HydrationEnforcesConfiguredLimitsBeforeMutating) {
+    JsLivePackageStore source;
+    ASSERT_TRUE(source.store_staged_record(stage_record(3021)).ok);
+    ASSERT_TRUE(source.store_staged_record(stage_record(3022)).ok);
+
+    JsLivePackageStoreOptions options;
+    options.maximum_package_records = 1;
+    JsLivePackageStore target(options);
+
+    JsLivePackageStoreHydrationResult result = target.hydrate_from_snapshot(source.export_snapshot());
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsLivePackageStoreDiagnosticCode::PackageRecordLimitExceeded));
+    EXPECT_TRUE(target.empty());
+}
+
+TEST(JsLivePackageStore, HydrationEnforcesLivePointerLimitBeforeMutating) {
+    JsLivePackageStore source;
+    JsStagedPackageRecord first = stage_record(3051);
+    JsStagedPackageRecord second = stage_record(3052);
+    ASSERT_TRUE(source.store_staged_record(first).ok);
+    ASSERT_TRUE(source.store_staged_record(second).ok);
+    ASSERT_TRUE(source.load_live_pointer(make_pointer(first)).ok);
+    ASSERT_TRUE(source.load_live_pointer(make_pointer(second)).ok);
+
+    JsLivePackageStoreOptions options;
+    options.maximum_live_pointers = 1;
+    JsLivePackageStore target(options);
+
+    JsLivePackageStoreHydrationResult result = target.hydrate_from_snapshot(source.export_snapshot());
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsLivePackageStoreDiagnosticCode::LivePointerLimitExceeded));
+    EXPECT_TRUE(target.empty());
+}
+
+TEST(JsLivePackageStore, HydrationCollapsesIdenticalRecordDuplicates) {
+    JsLivePackageStore source;
+    JsStagedPackageRecord staged = stage_record(3061);
+    ASSERT_TRUE(source.store_staged_record(staged).ok);
+    JsLivePackageStoreSnapshot snapshot = source.export_snapshot();
+    snapshot.records.push_back(snapshot.records.front());
+
+    JsLivePackageStore target;
+    JsLivePackageStoreHydrationResult result = target.hydrate_from_snapshot(snapshot);
+
+    ASSERT_TRUE(result.ok);
+    EXPECT_EQ(1u, result.records_loaded);
+    EXPECT_EQ(1u, target.package_record_count());
+}
+
+TEST(JsLivePackageStore, HydrationRejectsConflictingRecordDuplicates) {
+    JsLivePackageStore source;
+    JsStagedPackageRecord staged = stage_record(3062);
+    ASSERT_TRUE(source.store_staged_record(staged).ok);
+    JsLivePackageStoreSnapshot snapshot = source.export_snapshot();
+    snapshot.records.push_back(snapshot.records.front());
+    snapshot.records.back().staged_audit.audit_id = "audit:changed";
+
+    JsLivePackageStore target;
+    JsLivePackageStoreHydrationResult result = target.hydrate_from_snapshot(snapshot);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(
+        has_code(result, JsLivePackageStoreDiagnosticCode::DuplicatePackageRecordConflict));
+    EXPECT_TRUE(target.empty());
+}
+
+TEST(JsLivePackageStore, HydrationRejectsDuplicateLivePointerSlots) {
+    JsLivePackageStore source;
+    JsStagedPackageRecord staged = stage_record(3063);
+    ASSERT_TRUE(source.store_staged_record(staged).ok);
+    ASSERT_TRUE(source.load_live_pointer(make_pointer(staged)).ok);
+    JsLivePackageStoreSnapshot snapshot = source.export_snapshot();
+    snapshot.live_pointers.push_back(snapshot.live_pointers.front());
+
+    JsLivePackageStore target;
+    JsLivePackageStoreHydrationResult result = target.hydrate_from_snapshot(snapshot);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsLivePackageStoreDiagnosticCode::LivePointerConflict));
+    EXPECT_TRUE(target.empty());
 }
 
 TEST(JsLivePackageStore, PublicDiagnosticNamesAreStable) {

@@ -72,6 +72,19 @@ struct JsLivePackageRegistrySnapshotResult {
     JsScriptPackageValidationResult package_validation;
 };
 
+struct JsLivePackageStoreSnapshot {
+    // Source-bearing persistence/dispatch input; endpoint/status code must use redacted DTOs.
+    std::vector<JsLivePackageRecord> records;
+    std::vector<JsLivePackagePointer> live_pointers;
+};
+
+struct JsLivePackageStoreHydrationResult {
+    bool ok = false;
+    std::size_t records_loaded = 0;
+    std::size_t live_pointers_loaded = 0;
+    std::vector<JsLivePackageStoreDiagnostic> diagnostics;
+};
+
 class JsLivePackageStore {
   public:
     JsLivePackageStore();
@@ -90,6 +103,10 @@ class JsLivePackageStore {
 
     JsLivePackageRegistrySnapshotResult
     build_live_registry_snapshot(const JsScriptRegistryReplaceOptions &options) const;
+
+    JsLivePackageStoreSnapshot export_snapshot() const;
+    JsLivePackageStoreHydrationResult hydrate_from_snapshot(
+        const JsLivePackageStoreSnapshot &snapshot);
 
     std::size_t package_record_count() const;
     std::size_t live_pointer_count() const;

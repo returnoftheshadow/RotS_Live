@@ -45,6 +45,11 @@ void add_diagnostic(JsLivePackageRegistrySnapshotResult &result,
     result.diagnostics.push_back({code, message});
 }
 
+void add_diagnostic(JsLivePackageStoreHydrationResult &result,
+                    JsLivePackageStoreDiagnosticCode code, const std::string &message) {
+    result.diagnostics.push_back({code, message});
+}
+
 bool same_binding(const JsScriptTriggerBinding &left, const JsScriptTriggerBinding &right) {
     return left.kind == right.kind && left.legacy_value == right.legacy_value &&
            left.handler_name == right.handler_name;
@@ -482,6 +487,72 @@ JsLivePackageRegistrySnapshotResult JsLivePackageStore::build_live_registry_snap
     result.ok = result.registry.replace_all(live_packages, options, &result.package_validation);
     if (result.ok)
         result.packages = live_packages;
+    return result;
+}
+
+JsLivePackageStoreSnapshot JsLivePackageStore::export_snapshot() const {
+    JsLivePackageStoreSnapshot snapshot;
+    snapshot.records = m_records;
+    snapshot.live_pointers = m_live_pointers;
+    return snapshot;
+}
+
+JsLivePackageStoreHydrationResult
+JsLivePackageStore::hydrate_from_snapshot(const JsLivePackageStoreSnapshot &snapshot) {
+    JsLivePackageStoreHydrationResult result;
+    if (snapshot.records.size() > m_options.maximum_package_records) {
+        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::PackageRecordLimitExceeded,
+                       "Live package record limit exceeded during hydration.");
+        return result;
+    }
+    if (snapshot.live_pointers.size() > m_options.maximum_live_pointers) {
+        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::LivePointerLimitExceeded,
+                       "Live package pointer limit exceeded during hydration.");
+        return result;
+    }
+
+    JsLivePackageStore candidate(m_options);
+    for (const JsLivePackageRecord &record : snapshot.records) {
+        JsLivePackageStoreRecordResult record_result;
+        if (!validate_live_record_shape(record_result, record)) {
+            for (const JsLivePackageStoreDiagnostic &diagnostic : record_result.diagnostics)
+                add_diagnostic(result, diagnostic.code, diagnostic.message);
+            return result;
+        }
+
+        const auto existing = std::find_if(
+            candidate.m_records.begin(), candidate.m_records.end(),
+            [&](const JsLivePackageRecord &stored) {
+                return stored.identity.package_id == record.identity.package_id &&
+                       stored.identity.package_version_id == record.identity.package_version_id;
+            });
+        if (existing != candidate.m_records.end()) {
+            if (!same_record(*existing, record)) {
+                add_diagnostic(result,
+                               JsLivePackageStoreDiagnosticCode::DuplicatePackageRecordConflict,
+                               "Hydrated live package record duplicates an existing record with "
+                               "different metadata.");
+                return result;
+            }
+            continue;
+        }
+        candidate.m_records.push_back(record);
+    }
+
+    for (const JsLivePackagePointer &pointer : snapshot.live_pointers) {
+        JsLivePackagePointerResult pointer_result = candidate.load_live_pointer(pointer);
+        if (!pointer_result.ok) {
+            for (const JsLivePackageStoreDiagnostic &diagnostic : pointer_result.diagnostics)
+                add_diagnostic(result, diagnostic.code, diagnostic.message);
+            return result;
+        }
+    }
+
+    m_records = candidate.m_records;
+    m_live_pointers = candidate.m_live_pointers;
+    result.ok = true;
+    result.records_loaded = m_records.size();
+    result.live_pointers_loaded = m_live_pointers.size();
     return result;
 }
 
