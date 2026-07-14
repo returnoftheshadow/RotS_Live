@@ -1,8 +1,19 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: final trigger audit and documentation cleanup for the server-side JavaScript trigger wiring.
-- Next slice: begin end-to-end game execution testing for JavaScript trigger packages against the live server facade.
+- Active slice complete: added end-to-end game execution testing for JavaScript trigger packages against the live server facade.
+- Next slice: expand server-side JavaScript execution coverage into multi-package ordering/conflict behavior or start the offline/server parity harness, depending on the remaining risk after this test lands.
+- Completed slice progress:
+  - Start from committed trigger audit in `1878cb3`.
+  - Add a live-facade integration test that stages/activates source-bearing JavaScript packages, refreshes the live registry, captures the gameplay generation token, enables the default-closed switch, and executes real gameplay trigger entry points.
+  - Cover both character-host and object-host packages in one scenario so the test proves package activation and trigger dispatch work across host types rather than only one low-level dispatcher path.
+  - Added `JsLegacyTriggerDispatch.LiveServerFacadeExecutesActivatedPackagesAcrossGameplayTriggers` with one character-host multi-trigger package and one object-host multi-trigger package.
+  - Current e2e coverage executes activated JavaScript through real `call_trigger(...)` gameplay paths for `ON_BEFORE_ENTER`, `ON_DIE`, character-host `ON_DAMAGE`, weapon object-host `ON_DAMAGE`, `ON_RECEIVE`, `ON_EXAMINE_OBJECT`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, `ON_PULL`, and room-event object `ON_ENTER`.
+  - Attempted to spawn Magus, Vincent, and Bazarat for review, but the subagent thread pool was still at its limit; no fresh reviewer feedback was available for this test slice.
+  - Validation passed: CMake-built `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.LiveServerFacadeExecutesActivatedPackagesAcrossGameplayTriggers'`, raw `make -C src/tests -j16 js_legacy_trigger_dispatch_tests.o`, full `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*'` (66 tests), `git diff --check`, and CMake build plus CTest with `-j16` build parallelism (998/998).
+- Previous slice progress:
+  - Active slice complete: final trigger audit and documentation cleanup for the server-side JavaScript trigger wiring.
+  - Next slice: begin end-to-end game execution testing for JavaScript trigger packages against the live server facade.
 - Completed slice progress:
   - Start from committed hear-trigger wiring in `0bce388`.
   - Audit goal: prove every active legacy `.scr` trigger is either wired through the default-closed JavaScript facade or explicitly reserved/unsupported in the manifest.

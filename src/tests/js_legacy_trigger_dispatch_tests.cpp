@@ -154,6 +154,21 @@ JsScriptPackage make_package(int vnum, const std::string &source,
     return package;
 }
 
+JsScriptPackage make_package_with_triggers(int vnum, const std::string &source,
+                                           const std::vector<int> &legacy_values,
+                                           JsScriptPackageHost host) {
+    EXPECT_FALSE(legacy_values.empty());
+    JsScriptPackage package = make_package(vnum, source, legacy_values.front(), host);
+    package.trigger_bindings.clear();
+    for (int legacy_value : legacy_values) {
+        package.trigger_bindings.push_back(
+            {JsScriptingManifestKind::LegacyScriptTrigger, legacy_value,
+             handler_name_for_legacy_trigger(legacy_value)});
+    }
+    package.compiled_javascript_checksum = js_script_package_compiled_javascript_checksum(package);
+    return package;
+}
+
 JsStagedPackageStageOptions make_stage_options(const std::string &base_live = "live:old") {
     JsStagedPackageStageOptions options;
     options.identity_options.zone = 30;
@@ -378,6 +393,109 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathExecutesLiveJavaScriptPack
     js_script_set_legacy_trigger_dispatch_enabled(false);
     ASSERT_TRUE(service.live_store().hydrate_from_snapshot({}).ok);
     ASSERT_TRUE(service.refresh().ok);
+}
+
+TEST(JsLegacyTriggerDispatch, LiveServerFacadeExecutesActivatedPackagesAcrossGameplayTriggers) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+
+    activate_package(repository, service.live_store(),
+                     make_package_with_triggers(6170,
+                         "function onBeforeEnter(ctx) { "
+                         "return !(ctx.self.name === 'Guard' && ctx.actor.name === 'Actor' && "
+                         "ctx.room.vnum === 100); "
+                         "}\n"
+                         "function onDie(ctx) { return ctx.self.name !== 'Victim'; }\n"
+                         "function onDamage(ctx) { "
+                         "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker'); "
+                         "}\n"
+                         "function onReceive(ctx) { "
+                         "return !(ctx.self.name === 'Receiver' && ctx.actor.name === 'Giver' && "
+                         "ctx.object.name === 'Token'); "
+                         "}",
+                         {ON_BEFORE_ENTER, ON_DIE, ON_DAMAGE, ON_RECEIVE},
+                         JsScriptPackageHost::Character));
+    activate_package(repository, service.live_store(),
+                     make_package_with_triggers(6171,
+                         "function objectNamed(ctx, name, actorName) { "
+                         "return ctx.object && ctx.object.name === name && ctx.actor && "
+                         "ctx.actor.name === actorName; "
+                         "}\n"
+                         "function onEnter(ctx) { return !objectNamed(ctx, 'Totem', 'Actor'); }\n"
+                         "function onExamineObject(ctx) { return !objectNamed(ctx, 'Scroll', 'Actor'); }\n"
+                         "function onEat(ctx) { return !objectNamed(ctx, 'Ration', 'Actor'); }\n"
+                         "function onDrink(ctx) { return !objectNamed(ctx, 'Flask', 'Actor'); }\n"
+                         "function onWear(ctx) { return !objectNamed(ctx, 'Coat', 'Actor'); }\n"
+                         "function onPull(ctx) { return !objectNamed(ctx, 'Lever', 'Actor'); }\n"
+                         "function onDamage(ctx) { return !objectNamed(ctx, 'Blade', 'Attacker'); }",
+                         {ON_ENTER, ON_EXAMINE_OBJECT, ON_EAT, ON_DRINK, ON_WEAR, ON_PULL,
+                             ON_DAMAGE},
+                         JsScriptPackageHost::Object));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data guard_character = make_character("Guard");
+    char_data actor = make_character("Actor");
+    char_data victim = make_character("Victim");
+    char_data victim_for_object = make_character("VictimForObject");
+    char_data attacker = make_character("Attacker");
+    char_data receiver = make_character("Receiver");
+    char_data giver = make_character("Giver");
+    guard_character.next = &actor;
+    actor.next = &victim;
+    victim.next = &victim_for_object;
+    victim_for_object.next = &attacker;
+    attacker.next = &receiver;
+    receiver.next = &giver;
+    giver.next = nullptr;
+    character_list = &guard_character;
+
+    obj_data blade = make_object("Blade");
+    obj_data token = make_object("Token");
+    obj_data scroll = make_object("Scroll");
+    obj_data ration = make_object("Ration");
+    obj_data flask = make_object("Flask");
+    obj_data coat = make_object("Coat");
+    obj_data lever = make_object("Lever");
+    obj_data totem = make_object("Totem");
+    blade.next = &token;
+    token.next = &scroll;
+    scroll.next = &ration;
+    ration.next = &flask;
+    flask.next = &coat;
+    coat.next = &lever;
+    lever.next = &totem;
+    totem.next = nullptr;
+    object_list = &blade;
+    token.carried_by = &receiver;
+    attacker.equipment[WIELD] = &blade;
+
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    world.people = &guard_character;
+    guard_character.next_in_room = nullptr;
+    EXPECT_EQ(call_trigger(ON_BEFORE_ENTER, &world, &actor, nullptr), 0);
+
+    EXPECT_EQ(call_trigger(ON_DIE, &victim, &attacker, nullptr), 0);
+    EXPECT_EQ(call_trigger(ON_DAMAGE, &victim, &attacker, nullptr), 0);
+    EXPECT_EQ(call_trigger(ON_DAMAGE, &victim_for_object, &attacker, nullptr), 0);
+    EXPECT_EQ(call_trigger(ON_RECEIVE, &receiver, &giver, &token), 0);
+
+    EXPECT_EQ(call_trigger(ON_EXAMINE_OBJECT, &scroll, &actor, nullptr), 0);
+    EXPECT_EQ(call_trigger(ON_EAT, &ration, &actor, nullptr), 0);
+    EXPECT_EQ(call_trigger(ON_DRINK, &flask, &actor, nullptr), 0);
+    EXPECT_EQ(call_trigger(ON_WEAR, &coat, &actor, nullptr), 0);
+    EXPECT_EQ(call_trigger(ON_PULL, &lever, &actor, nullptr), 0);
+
+    world.people = &actor;
+    actor.next_in_room = nullptr;
+    world.contents = &totem;
+    totem.next_content = nullptr;
+    EXPECT_EQ(call_trigger(ON_ENTER, &world, &actor, nullptr), 0);
 }
 
 TEST(JsLegacyTriggerDispatch, LegacyOnEnterBlockPreventsJavaScriptDispatch) {
