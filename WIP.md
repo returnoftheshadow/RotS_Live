@@ -1,9 +1,19 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added a narrow server-owned dispatch facade for legacy trigger call sites, gated off by default, so individual gameplay paths can opt in without changing legacy `.scr` behavior.
-- Next slice: wire the default-closed facade into one low-risk legacy trigger path behind an explicit server option, with parity tests proving legacy `.scr` behavior remains unchanged when disabled.
+- Active slice complete: wired the default-closed JavaScript legacy-trigger facade into the first live gameplay path, character `ON_ENTER`, behind an explicit server-owned switch.
+- Next slice: extend the same guarded dispatch pattern to the next blocking legacy trigger path, likely `ON_BEFORE_ENTER`, with the same post-legacy liveness checks and stale-registry behavior.
 - Active slice progress:
+  - Added `js_script_set_legacy_trigger_dispatch_enabled(...)`, `js_script_legacy_trigger_dispatch_enabled()`, and `js_script_capture_live_registry_generation()` to expose a server-owned startup/admin switch and freshness token capture for gameplay call-site wiring; generation capture now reports whether it captured a usable reload generation.
+  - Added a `script.cpp` adapter snapshot helper that builds read-only live character/object/world/zone/index options for JavaScript trigger dispatch without exposing raw pointers to builder code.
+  - Wired `trigger_char_enter()` to run legacy `.scr` `ON_ENTER` first and call the JavaScript facade only if the legacy path still allows normal flow.
+  - Added post-legacy liveness checks before JavaScript dispatch so extracted/stale characters, missing actors, and detached room pointers skip JavaScript without dereferencing stale `char_data` state.
+  - The new `ON_ENTER` JavaScript path remains default-disabled and requires a successfully captured current live-registry generation before any package can execute.
+  - Added focused tests for the default-closed server switch, disabled and enabled `trigger_char_enter()` behavior, live JavaScript execution through the game trigger path, legacy `.scr` blocking before JavaScript dispatch, stale reload generation fallback, registry-not-ready fallback, stale-character skip, detached-room skip, and source guards proving only the character `ON_ENTER` path is currently wired.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to real legacy-block behavior coverage, call-site stale-generation coverage, RAII cleanup for global live-registry tests, post-legacy liveness checks before dereferencing character state, detached-room coverage, and a bool return from generation capture.
+  - Validation passed: `make -C src script.o`, raw relinked `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*'` (20 tests), path-limited `git diff --check`, and full `make test` (952/952) after the final reviewer-driven patches.
+  - Residual deferred server-complete work: future publish/admin activation wiring must refresh the live registry and recapture or invalidate the gameplay generation token atomically before leaving JavaScript trigger dispatch enabled, so live-store activation cannot silently leave gameplay on an older registry snapshot.
+- Previous slice progress:
   - Added `src/js_legacy_trigger_dispatch.{h,cpp}` as the default-closed gameplay-facing facade over the live-registry dispatch bridge.
   - Facade options require explicit enablement, a successfully loaded live registry, and a matching successful-reload generation before JavaScript can execute.
   - Added status names and result mapping for disabled, registry-not-ready, stale-registry, no-match, allow, block, and error outcomes.

@@ -28,6 +28,8 @@
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "js_legacy_trigger_dispatch.h"
+#include "js_live_registry_admin.h"
 #include "limits.h"
 #include "pkill.h"
 #include "protos.h"
@@ -35,6 +37,9 @@
 #include "structs.h"
 #include "utils.h"
 #include "zone.h"
+
+#include <cstddef>
+#include <vector>
 
 // External declarations
 ACMD(do_say);
@@ -58,6 +63,13 @@ int find_eq_pos(struct char_data* ch, struct obj_data* obj, char* arg);
 void perform_wear(struct char_data* ch, struct obj_data* obj, int where, bool wearall = false);
 int find_action(char* arg);
 extern struct index_data* obj_index;
+extern struct index_data* mob_index;
+extern int top_of_mobt;
+extern int top_of_objt;
+extern int top_of_world;
+extern struct char_data* character_list;
+extern struct obj_data* object_list;
+extern char* pc_races[];
 
 // Internal declarations
 int trigger_room_enter(room_data* room, char_data* ch);
@@ -75,6 +87,109 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text);
 int trigger_char_damage(char_data* vict, char_data* ch);
 int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch);
 
+namespace {
+
+bool javascript_legacy_trigger_dispatch_enabled = false;
+JsLegacyTriggerReloadGeneration javascript_legacy_trigger_reload_generation;
+
+std::vector<const char_data*> live_character_snapshot()
+{
+    std::vector<const char_data*> characters;
+    for (const char_data* character = character_list; character; character = character->next)
+        characters.push_back(character);
+    return characters;
+}
+
+std::vector<const obj_data*> live_object_snapshot()
+{
+    std::vector<const obj_data*> objects;
+    for (const obj_data* object = object_list; object; object = object->next)
+        objects.push_back(object);
+    return objects;
+}
+
+bool live_character_snapshot_contains(
+    const std::vector<const char_data*>& characters, const char_data* character)
+{
+    return std::find(characters.begin(), characters.end(), character) != characters.end();
+}
+
+int room_index_from_world_pointer(const room_data* room)
+{
+    if (room == nullptr || top_of_world < 0)
+        return -1;
+
+    const room_data* world_start = &world;
+    for (int index = 0; index <= top_of_world; ++index) {
+        if (&world_start[index] == room)
+            return index;
+    }
+    return -1;
+}
+
+JsGameAdapterOptions js_game_adapter_options_from_world(
+    const std::vector<const char_data*>& characters, const std::vector<const obj_data*>& objects)
+{
+    JsGameAdapterOptions options;
+    options.live_characters = characters.empty() ? nullptr : characters.data();
+    options.live_character_count = characters.size();
+    options.live_objects = objects.empty() ? nullptr : objects.data();
+    options.live_object_count = objects.size();
+    options.world = &world;
+    options.world_count = top_of_world >= 0 ? static_cast<std::size_t>(top_of_world + 1) : 0;
+    options.top_of_world = top_of_world;
+    options.mobile_index = mob_index;
+    options.mobile_index_count = top_of_mobt >= 0 ? static_cast<std::size_t>(top_of_mobt + 1) : 0;
+    options.object_index = obj_index;
+    options.object_index_count = top_of_objt >= 0 ? static_cast<std::size_t>(top_of_objt + 1) : 0;
+    options.zones = zone_table;
+    options.zone_count = top_of_zone_table >= 0 ? static_cast<std::size_t>(top_of_zone_table + 1) : 0;
+    options.race_names = const_cast<const char* const*>(pc_races);
+    options.race_name_count = MAX_RACES;
+    return options;
+}
+
+int dispatch_javascript_char_enter(char_data* ch, char_data* vict, room_data* room)
+{
+    if (!javascript_legacy_trigger_dispatch_enabled || ch == nullptr || vict == nullptr ||
+        room == nullptr)
+        return 1;
+
+    const std::vector<const char_data*> characters = live_character_snapshot();
+    if (!live_character_snapshot_contains(characters, ch) ||
+        !live_character_snapshot_contains(characters, vict))
+        return 1;
+
+    const int room_index = room_index_from_world_pointer(room);
+    if (room_index < 0)
+        return 1;
+
+    const std::vector<const obj_data*> objects = live_object_snapshot();
+    const JsGameAdapterOptions adapter_options =
+        js_game_adapter_options_from_world(characters, objects);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_ENTER;
+    request.context_input.self = ch;
+    request.context_input.actor = vict;
+    request.context_input.room = room_index;
+
+    JsLegacyTriggerDispatchOptions options;
+    options.enabled = javascript_legacy_trigger_dispatch_enabled;
+    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+
+    const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    return result.status == JsLegacyTriggerDispatchStatus::Block ||
+            result.status == JsLegacyTriggerDispatchStatus::Error
+        ? 0
+        : 1;
+}
+
+} // namespace
+
 // Returns the index position of a script in the script_table when supplied with a vnum
 // -1 == script not found (0 is a valid position in the script_table)
 
@@ -90,6 +205,23 @@ int find_script_by_number(const int number)
         return -1;
     else
         return i;
+}
+
+void js_script_set_legacy_trigger_dispatch_enabled(bool enabled)
+{
+    javascript_legacy_trigger_dispatch_enabled = enabled;
+}
+
+bool js_script_legacy_trigger_dispatch_enabled()
+{
+    return javascript_legacy_trigger_dispatch_enabled;
+}
+
+bool js_script_capture_live_registry_generation()
+{
+    javascript_legacy_trigger_reload_generation =
+        js_legacy_trigger_reload_generation(js_live_registry_admin_service().reload_service());
+    return javascript_legacy_trigger_reload_generation.valid();
 }
 
 void initialise_script_info_char(char_data* ch, int index)
@@ -1687,6 +1819,8 @@ int trigger_char_enter(char_data* ch, char_data* vict, room_data* room)
             ch->specials.script_info->rm[0] = room;
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
+    if (return_value)
+        return_value = dispatch_javascript_char_enter(ch, vict, room);
     return return_value;
 }
 

@@ -1,6 +1,8 @@
 #include "../js_legacy_trigger_dispatch.h"
 
 #include "../db.h"
+#include "../js_live_registry_admin.h"
+#include "../protos.h"
 #include "../script.h"
 #include "../structs.h"
 #include "../zone.h"
@@ -11,6 +13,14 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+int trigger_char_enter(char_data *ch, char_data *vict, room_data *room);
+extern room_data world;
+extern int top_of_world;
+extern script_head *script_table;
+extern int top_of_script_table;
+extern char_data *character_list;
+extern obj_data *object_list;
 
 namespace {
 
@@ -101,9 +111,10 @@ JsStagedPackageStageOptions make_stage_options(const std::string &base_live = "l
 
 JsStagedPackageRecord activate_package(JsStagedPackageRepository &repository,
                                        JsLivePackageStore &live_store,
-                                       const JsScriptPackage &package) {
+                                       const JsScriptPackage &package,
+                                       const std::string &base_live = "live:old") {
     JsStagedPackageStageResult staged =
-        repository.stage_package(package, make_stage_options());
+        repository.stage_package(package, make_stage_options(base_live));
     EXPECT_TRUE(staged.ok);
     JsLivePackagePointer pointer;
     pointer.zone = staged.record.identity.zone;
@@ -112,7 +123,7 @@ JsStagedPackageRecord activate_package(JsStagedPackageRepository &repository,
     pointer.package_id = staged.record.identity.package_id;
     pointer.package_version_id = staged.record.identity.package_version_id;
     pointer.staged_digest = staged.record.identity.canonical_digest;
-    pointer.expected_previous_live_checksum = "live:old";
+    pointer.expected_previous_live_checksum = base_live;
     pointer.current_live_checksum =
         js_live_package_current_checksum_for_identity(staged.record.identity);
     pointer.loaded_at_epoch_seconds = 200000;
@@ -163,6 +174,67 @@ bool contains(const std::string &value, const std::string &needle) {
     return value.find(needle) != std::string::npos;
 }
 
+bool appears_before(const std::string &value, const std::string &first, const std::string &second) {
+    const std::size_t first_position = value.find(first);
+    const std::size_t second_position = value.find(second);
+    return first_position != std::string::npos && second_position != std::string::npos &&
+        first_position < second_position;
+}
+
+std::size_t count_occurrences(const std::string &value, const std::string &needle) {
+    if (needle.empty())
+        return 0;
+
+    std::size_t count = 0;
+    std::size_t position = 0;
+    while ((position = value.find(needle, position)) != std::string::npos) {
+        ++count;
+        position += needle.size();
+    }
+    return count;
+}
+
+struct GlobalWorldFixtureGuard {
+    room_data saved_world = world;
+    int saved_top_of_world = top_of_world;
+    char_data *saved_character_list = character_list;
+    obj_data *saved_object_list = object_list;
+
+    ~GlobalWorldFixtureGuard() {
+        world = saved_world;
+        top_of_world = saved_top_of_world;
+        character_list = saved_character_list;
+        object_list = saved_object_list;
+        js_script_set_legacy_trigger_dispatch_enabled(false);
+    }
+};
+
+struct GlobalLiveRegistryGuard {
+    JsLiveRegistryAdminService &service = js_live_registry_admin_service();
+
+    GlobalLiveRegistryGuard() {
+        EXPECT_TRUE(service.live_store().hydrate_from_snapshot({}).ok);
+        EXPECT_TRUE(service.refresh().ok);
+        js_script_set_legacy_trigger_dispatch_enabled(false);
+    }
+
+    ~GlobalLiveRegistryGuard() {
+        service.live_store().hydrate_from_snapshot({});
+        service.refresh();
+        js_script_set_legacy_trigger_dispatch_enabled(false);
+    }
+};
+
+struct GlobalScriptTableGuard {
+    script_head *saved_script_table = script_table;
+    int saved_top_of_script_table = top_of_script_table;
+
+    ~GlobalScriptTableGuard() {
+        script_table = saved_script_table;
+        top_of_script_table = saved_top_of_script_table;
+    }
+};
+
 } // namespace
 
 TEST(JsLegacyTriggerDispatch, DefaultsDisabledAndDoesNotExecuteJavaScript) {
@@ -183,6 +255,185 @@ TEST(JsLegacyTriggerDispatch, DefaultsDisabledAndDoesNotExecuteJavaScript) {
     EXPECT_TRUE(result.dispatch_result.package_id.empty());
     EXPECT_FALSE(result.diagnostic.empty());
     EXPECT_FALSE(contains(result.diagnostic, "syntax error"));
+}
+
+TEST(JsLegacyTriggerDispatch, ScriptFacadeToggleDefaultsClosedAndCanBeChanged) {
+    js_script_set_legacy_trigger_dispatch_enabled(false);
+    EXPECT_FALSE(js_script_legacy_trigger_dispatch_enabled());
+
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+    EXPECT_TRUE(js_script_legacy_trigger_dispatch_enabled());
+
+    js_script_set_legacy_trigger_dispatch_enabled(false);
+    EXPECT_FALSE(js_script_legacy_trigger_dispatch_enabled());
+}
+
+TEST(JsLegacyTriggerDispatch, DisabledScriptOnEnterPathAllowsLegacyFlowWithoutRegistry) {
+    js_script_set_legacy_trigger_dispatch_enabled(false);
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    room_data room = make_room("Room", 100, 0);
+
+    EXPECT_EQ(trigger_char_enter(&self, &actor, &room), 1);
+    EXPECT_FALSE(js_script_legacy_trigger_dispatch_enabled());
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathExecutesLiveJavaScriptPackage) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6110, "function onEnter(ctx) { return false; }"));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_enter(&self, &actor, &world), 0);
+
+    js_script_set_legacy_trigger_dispatch_enabled(false);
+    ASSERT_TRUE(service.live_store().hydrate_from_snapshot({}).ok);
+    ASSERT_TRUE(service.refresh().ok);
+}
+
+TEST(JsLegacyTriggerDispatch, LegacyOnEnterBlockPreventsJavaScriptDispatch) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalScriptTableGuard script_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6115, "function onEnter(ctx) { return true; }"));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    script_data on_enter {};
+    script_data return_false {};
+    on_enter.command_type = ON_ENTER;
+    on_enter.next = &return_false;
+    return_false.command_type = SCRIPT_RETURN_FALSE;
+    return_false.prev = &on_enter;
+    script_head script {};
+    script.number = 9011;
+    script.script = &on_enter;
+    script_table = &script;
+    top_of_script_table = 0;
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.specials.script_number = 9011;
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_enter(&self, &actor, &world), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathAllowsWhenRegistryGenerationIsStale) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+
+    JsStagedPackageRecord first = activate_package(
+        repository, service.live_store(), make_package(6111, "function onEnter(ctx) { return true; }"));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+
+    const std::string first_live_checksum =
+        js_live_package_current_checksum_for_identity(first.identity);
+    activate_package(repository, service.live_store(),
+                     make_package(6111, "function onEnter(ctx) { return false; }"),
+                     first_live_checksum);
+    ASSERT_TRUE(service.refresh().ok);
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_enter(&self, &actor, &world), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathAllowsWhenRegistryIsNotReady) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_enter(&self, &actor, &world), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathSkipsWhenCharacterIsNoLongerLive) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6113, "function onEnter(ctx) { return false; }"));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    actor.next = nullptr;
+    character_list = &actor;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_enter(&self, &actor, &world), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathSkipsRoomsOutsideWorldTable) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6114, "function onEnter(ctx) { return false; }"));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    room_data detached_room = make_room("Detached", 200, -1);
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_enter(&self, &actor, &detached_room), 1);
 }
 
 TEST(JsLegacyTriggerDispatch, EnabledFacadeRequiresLoadedRegistry) {
@@ -394,7 +645,7 @@ TEST(JsLegacyTriggerDispatch, BuildFilesReferenceFacadeSourcesAndTests) {
     EXPECT_TRUE(contains(test_makefile, "js_live_registry_reload_service.h"));
 }
 
-TEST(JsLegacyTriggerDispatch, LegacyGameplayCallSitesRemainUnwired) {
+TEST(JsLegacyTriggerDispatch, OnlyCharacterOnEnterGameplayPathUsesFacade) {
     const std::string script = read_first_available_file({"src/script.cpp", "../script.cpp"});
     const std::string act_move = read_first_available_file({"src/act_move.cpp", "../act_move.cpp"});
     const std::string act_obj1 = read_first_available_file({"src/act_obj1.cpp", "../act_obj1.cpp"});
@@ -402,7 +653,14 @@ TEST(JsLegacyTriggerDispatch, LegacyGameplayCallSitesRemainUnwired) {
     const std::string act_info = read_first_available_file({"src/act_info.cpp", "../act_info.cpp"});
 
     ASSERT_FALSE(script.empty());
-    EXPECT_FALSE(contains(script, "js_legacy_trigger_dispatch("));
+    EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 1u);
+    EXPECT_TRUE(contains(script, "dispatch_javascript_char_enter(ch, vict, room)"));
+    EXPECT_TRUE(contains(script, "request.legacy_value = ON_ENTER;"));
+    EXPECT_TRUE(contains(script, "request.host = JsScriptPackageHost::Character;"));
+    EXPECT_TRUE(contains(script, "bool javascript_legacy_trigger_dispatch_enabled = false;"));
+    EXPECT_TRUE(contains(script, "if (return_value)"));
+    EXPECT_TRUE(appears_before(script, "return_value = run_script(ch->specials.script_info",
+        "return_value = dispatch_javascript_char_enter(ch, vict, room);"));
     EXPECT_FALSE(contains(act_move, "js_legacy_trigger_dispatch("));
     EXPECT_FALSE(contains(act_obj1, "js_legacy_trigger_dispatch("));
     EXPECT_FALSE(contains(act_obj2, "js_legacy_trigger_dispatch("));

@@ -247,7 +247,7 @@ save_benchmark.o : ../save_benchmark.cpp ../save_benchmark.h ../account_cache.h 
 	$(CXX) -c $(CXXFLAGS) ../save_benchmark.cpp
 savebench.o : ../savebench.cpp ../savebench.h ../save_benchmark.h ../account_management.h ../comm.h ../db.h ../structs.h ../utils.h
 	$(CXX) -c $(CXXFLAGS) ../savebench.cpp
-script.o : ../script.cpp ../structs.h ../utils.h ../comm.h ../interpre.h ../protos.h ../script.h
+script.o : ../script.cpp ../structs.h ../utils.h ../comm.h ../interpre.h ../protos.h ../script.h ../js_legacy_trigger_dispatch.h ../js_live_registry_admin.h ../js_game_adapter.h ../js_live_registry_reload_service.h
 	$(CXX) -c $(CXXFLAGS) ../script.cpp
 shapemob.o : ../shapemob.cpp ../structs.h ../utils.h ../comm.h ../interpre.h ../protos.h
 	$(CXX) -c $(CXXFLAGS) ../shapemob.cpp
@@ -294,7 +294,7 @@ js_api_contract_tests.o : js_api_contract_tests.cpp ../js_api_contract.h ../js_s
 js_builder_artifacts_tests.o : js_builder_artifacts_tests.cpp ../js_builder_artifacts.h ../js_api_contract.h ../json_utils.h ../js_scripting_manifest.h
 js_game_adapter_tests.o : js_game_adapter_tests.cpp ../js_game_adapter.h ../js_game_runtime.h ../structs.h ../db.h ../zone.h
 js_game_runtime_tests.o : js_game_runtime_tests.cpp ../js_game_runtime.h ../js_runtime.h
-js_legacy_trigger_dispatch_tests.o : js_legacy_trigger_dispatch_tests.cpp ../js_legacy_trigger_dispatch.h ../js_trigger_dispatch.h ../js_game_adapter.h ../js_live_registry_reload_service.h ../js_live_package_store.h ../js_game_runtime.h ../js_runtime.h ../js_script_package.h ../js_script_registry.h ../js_scripting_manifest.h ../structs.h ../db.h ../zone.h
+js_legacy_trigger_dispatch_tests.o : js_legacy_trigger_dispatch_tests.cpp ../js_legacy_trigger_dispatch.h ../js_trigger_dispatch.h ../js_game_adapter.h ../js_live_registry_reload_service.h ../js_live_package_store.h ../js_live_registry_admin.h ../js_game_runtime.h ../js_runtime.h ../js_script_package.h ../js_script_registry.h ../js_scripting_manifest.h ../protos.h ../structs.h ../db.h ../zone.h
 js_live_package_store_tests.o : js_live_package_store_tests.cpp ../js_live_package_store.h ../js_script_registry.h ../js_staged_package_repository.h ../js_staged_package_identity.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h
 js_live_package_store_persistence_tests.o : js_live_package_store_persistence_tests.cpp ../js_live_package_store_persistence.h ../js_live_package_store.h ../js_script_registry.h ../js_staged_package_repository.h ../js_staged_package_identity.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h
 js_live_registry_admin_tests.o : js_live_registry_admin_tests.cpp ../js_live_registry_admin.h ../js_live_package_store.h ../js_live_registry_reload_service.h ../js_live_registry_status.h ../js_publish_activation.h ../js_publish_staging.h ../js_script_registry.h ../js_staged_package_repository.h ../js_staged_package_identity.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h

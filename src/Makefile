@@ -278,7 +278,7 @@ save_benchmark.o : save_benchmark.cpp save_benchmark.h account_cache.h account_m
 	$(CC) -c $(CFLAGS) save_benchmark.cpp
 savebench.o : savebench.cpp savebench.h save_benchmark.h account_management.h comm.h db.h structs.h utils.h
 	$(CC) -c $(CFLAGS) savebench.cpp
-script.o : script.cpp structs.h utils.h comm.h interpre.h protos.h script.h
+script.o : script.cpp structs.h utils.h comm.h interpre.h protos.h script.h js_legacy_trigger_dispatch.h js_live_registry_admin.h js_game_adapter.h js_live_registry_reload_service.h
 	$(CC) -c $(CFLAGS) script.cpp
 shapemob.o : shapemob.cpp structs.h utils.h comm.h interpre.h protos.h
 	$(CC) -c $(CFLAGS) shapemob.cpp

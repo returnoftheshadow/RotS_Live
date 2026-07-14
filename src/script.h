@@ -164,5 +164,8 @@
 int find_script_by_number(int number);
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
 void continue_char_script(char_data* ch);
+void js_script_set_legacy_trigger_dispatch_enabled(bool enabled);
+bool js_script_legacy_trigger_dispatch_enabled();
+bool js_script_capture_live_registry_generation();
 
 #endif /* SCRIPT_H */
