@@ -1,9 +1,18 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into the blocking character `ON_DIE` gameplay path.
-- Next slice: wire the guarded dispatch pattern into character `ON_DAMAGE`, including the victim-first short-circuit before weapon-object damage dispatch.
+- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into the blocking character `ON_DAMAGE` victim gameplay path.
+- Next slice: wire guarded JavaScript dispatch into object-host damage triggers after the victim damage path allows damage.
 - Active slice progress:
+  - Start from committed `ON_DIE` wiring in `5fc5667`.
+  - Preserve legacy `.scr` ordering: the victim's legacy `ON_DAMAGE` script runs first, and JavaScript is only considered if legacy still allows damage.
+  - Preserve blocking semantics: JavaScript `false`/block or runtime error on character `ON_DAMAGE` should return `0` to block damage; disabled, stale-registry, registry-not-ready, no-match, stale-victim, or stale-attacker cases should skip JavaScript and allow the legacy result.
+  - Keep object-host damage dispatch out of this slice; `call_trigger()` already invokes weapon-object `ON_DAMAGE` only when `trigger_char_damage(...)` returns true.
+  - Added `dispatch_javascript_character_damage_trigger(...)` to build a live read-only victim/attacker context and dispatch `ON_DAMAGE` through the default-closed JavaScript legacy-trigger facade after legacy `.scr` allows damage.
+  - Added focused tests for JavaScript `onDamage` blocking with victim/attacker context mapping, JavaScript runtime-error blocking, legacy `ON_DAMAGE` blocking before JavaScript, stale victim and stale attacker skip behavior, and `call_trigger(ON_DAMAGE)` preserving the victim-first weapon-object short-circuit.
+  - Magus, Vincent, and Bazarat review prompts were sent for the `ON_DAMAGE` victim slice; no blocking findings were returned through the available subagent tool interface before final validation.
+  - Validation passed: `make -C src -j16 script.o`, raw relinked `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*'` (34 tests), `git diff --check`, and CMake build plus CTest with `-j16` build parallelism (966/966).
+- Previous slice progress:
   - Selected `ON_DIE` before `ON_DAMAGE` because it is a single character-host blocking trigger and can reuse the existing live character registry/freshness guard without object-chain semantics.
   - Added a separate `dispatch_javascript_character_death_trigger(...)` helper so death handling does not inherit movement-entry-only room relationship checks.
   - Preserve legacy `.scr` ordering: the legacy `ON_DIE` script runs first, and JavaScript is only considered if legacy still allows death.

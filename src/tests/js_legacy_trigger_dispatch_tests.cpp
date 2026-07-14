@@ -17,6 +17,7 @@
 int trigger_char_enter(char_data *ch, char_data *vict, room_data *room);
 int trigger_before_char_enter(char_data *ch, char_data *vict, room_data *room);
 int trigger_char_die(char_data *ch);
+int trigger_char_damage(char_data *vict, char_data *ch);
 extern room_data world;
 extern int top_of_world;
 extern script_head *script_table;
@@ -80,6 +81,8 @@ const char *handler_name_for_legacy_trigger(int legacy_value) {
         return "onBeforeEnter";
     case ON_DIE:
         return "onDie";
+    case ON_DAMAGE:
+        return "onDamage";
     default:
         return "onEnter";
     }
@@ -578,6 +581,177 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptOnDiePathSkipsWhenCharacterIsNoLonger
     EXPECT_EQ(trigger_char_die(&self), 1);
 }
 
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnDamagePathBlocksDamage) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6124,
+                         "function onDamage(ctx) { "
+                         "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker'); "
+                         "}",
+                         ON_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    victim.next = &attacker;
+    attacker.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_damage(&victim, &attacker), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnDamageRuntimeErrorBlocksDamage) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6125, "function onDamage(ctx) { throw 'block'; }", ON_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    victim.next = &attacker;
+    attacker.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_damage(&victim, &attacker), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, LegacyOnDamageBlockPreventsJavaScriptDispatch) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalScriptTableGuard script_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6126, "function onDamage(ctx) { return true; }", ON_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    script_data on_damage {};
+    script_data return_false {};
+    on_damage.command_type = ON_DAMAGE;
+    on_damage.next = &return_false;
+    return_false.command_type = SCRIPT_RETURN_FALSE;
+    return_false.prev = &on_damage;
+    script_head script {};
+    script.number = 9018;
+    script.script = &on_damage;
+    script_table = &script;
+    top_of_script_table = 0;
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    victim.specials.script_number = 9018;
+    victim.next = &attacker;
+    attacker.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_damage(&victim, &attacker), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnDamagePathSkipsWhenVictimIsNoLongerLive) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6127, "function onDamage(ctx) { return false; }", ON_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    attacker.next = nullptr;
+    character_list = &attacker;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_damage(&victim, &attacker), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptOnDamagePathSkipsWhenAttackerIsNoLongerLive) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6128, "function onDamage(ctx) { return false; }", ON_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    victim.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_damage(&victim, &attacker), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, CharacterOnDamageBlockShortCircuitsWeaponObjectDamageFromCallTrigger) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalScriptTableGuard script_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6129, "function onDamage(ctx) { return false; }", ON_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    victim.next = &attacker;
+    attacker.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    obj_data weapon {};
+    weapon.obj_flags.script_number = 9019;
+    attacker.equipment[WIELD] = &weapon;
+
+    script_data on_damage {};
+    script_data return_false {};
+    on_damage.command_type = ON_DAMAGE;
+    on_damage.next = &return_false;
+    return_false.command_type = SCRIPT_RETURN_FALSE;
+    return_false.prev = &on_damage;
+    script_head script {};
+    script.number = 9019;
+    script.script = &on_damage;
+    script_table = &script;
+    top_of_script_table = 0;
+
+    EXPECT_EQ(call_trigger(ON_DAMAGE, &victim, &attacker, nullptr), 0);
+}
+
 TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathAllowsWhenRegistryGenerationIsStale) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;
@@ -880,7 +1054,7 @@ TEST(JsLegacyTriggerDispatch, BuildFilesReferenceFacadeSourcesAndTests) {
     EXPECT_TRUE(contains(test_makefile, "js_live_registry_reload_service.h"));
 }
 
-TEST(JsLegacyTriggerDispatch, CharacterMovementEntryPathsUseFacade) {
+TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     const std::string script = read_first_available_file({"src/script.cpp", "../script.cpp"});
     const std::string act_move = read_first_available_file({"src/act_move.cpp", "../act_move.cpp"});
     const std::string act_obj1 = read_first_available_file({"src/act_obj1.cpp", "../act_obj1.cpp"});
@@ -888,12 +1062,15 @@ TEST(JsLegacyTriggerDispatch, CharacterMovementEntryPathsUseFacade) {
     const std::string act_info = read_first_available_file({"src/act_info.cpp", "../act_info.cpp"});
 
     ASSERT_FALSE(script.empty());
-    EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 2u);
+    EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 3u);
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_character_movement_entry_trigger(ch, vict, room,"),
         2u);
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_character_death_trigger(ch)"), 1u);
+    EXPECT_EQ(
+        count_occurrences(script, "dispatch_javascript_character_damage_trigger(vict, ch)"),
+        1u);
     EXPECT_TRUE(contains(script,
         "dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_BEFORE_ENTER)"));
     EXPECT_TRUE(contains(
@@ -906,13 +1083,22 @@ TEST(JsLegacyTriggerDispatch, CharacterMovementEntryPathsUseFacade) {
     EXPECT_TRUE(contains(script, "if (ch->in_room != room_index)"));
     EXPECT_TRUE(contains(script, "if (legacy_value == ON_ENTER && vict->in_room != room_index)"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_DIE;"));
+    EXPECT_TRUE(contains(script, "request.legacy_value = ON_DAMAGE;"));
     EXPECT_TRUE(contains(script, "if (js_game_adapter_room_is_valid(ch->in_room, adapter_options))"));
+    EXPECT_TRUE(contains(script, "if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))"));
     EXPECT_TRUE(contains(script, "request.host = JsScriptPackageHost::Character;"));
     EXPECT_TRUE(contains(script, "bool javascript_legacy_trigger_dispatch_enabled = false;"));
     EXPECT_TRUE(contains(script, "if (return_value)"));
     EXPECT_TRUE(appears_before_after(script, "int trigger_char_die",
         "return_value = run_script(ch->specials.script_info",
         "return_value = dispatch_javascript_character_death_trigger(ch);"));
+    EXPECT_TRUE(appears_before_after(script, "int trigger_char_damage",
+        "return_value = run_script(vict->specials.script_info",
+        "return_value = dispatch_javascript_character_damage_trigger(vict, ch);"));
+    EXPECT_TRUE(appears_before_after(script, "case ON_DAMAGE:",
+        "return_value = trigger_char_damage((char_data*)subject, (char_data*)subject2);",
+        "if (return_value)"));
+    EXPECT_TRUE(contains(script, "((char_data*)subject2)->equipment[WIELD]"));
     EXPECT_TRUE(appears_before_after(script, "int trigger_before_char_enter",
         "return_value = run_script(ch->specials.script_info",
         "return_value =\n            dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_BEFORE_ENTER);"));
