@@ -31,6 +31,7 @@
 #include "char_utils.h"
 #include "character_json.h"
 #include "exploits_json.h"
+#include "js_live_registry_admin.h"
 #include "player_file_finalize.h"
 #include "skill_timer.h"
 #include <cstdio>
@@ -217,6 +218,13 @@ ACMD(do_reload)
 
     one_argument(argument, arg);
 
+    JsLiveRegistryAdminCommandResult js_reload =
+        js_live_registry_handle_reload_command(js_live_registry_admin_service(), argument);
+    if (js_reload.handled) {
+        send_to_char(js_reload.output.c_str(), ch);
+        return;
+    }
+
     if (!str_cmp(arg, "all") || *arg == '*') {
         file_to_string_alloc(NEWS_FILE, &news);
         file_to_string_alloc(CREDITS_FILE, &credits);
@@ -377,6 +385,19 @@ void boot_db(void)
 
     log("Loading objs and generating index.");
     index_boot(DB_BOOT_OBJ);
+
+    log("Refreshing JavaScript live registry.");
+    JsLiveRegistryReloadResult js_reload = js_live_registry_startup_refresh();
+    sprintf(buf, "JavaScript live registry refresh: %s, %lu packages.",
+        js_live_registry_reload_status_name(js_reload.status),
+        static_cast<unsigned long>(js_reload.package_count));
+    log(buf);
+    for (const JsLiveRegistryReloadDiagnostic &diagnostic : js_reload.diagnostics) {
+        sprintf(buf, "JavaScript live registry diagnostic %s: %s",
+            js_live_registry_reload_diagnostic_code_name(diagnostic.code),
+            diagnostic.message.c_str());
+        log(buf);
+    }
 
     log("Renumbering zone table.");
     renum_zone_table();

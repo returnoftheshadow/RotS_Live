@@ -1,8 +1,16 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added a read-only admin/status inspection layer for JavaScript live package registry snapshots without exposing source bytes or live trigger dispatch.
-- Next slice: add explicit server startup/admin command plumbing for invoking JavaScript live registry refresh and reading the new redacted status layer without gameplay dispatch.
+- Active slice complete: added explicit server startup/admin command plumbing for invoking JavaScript live registry refresh and reading the redacted status layer without gameplay dispatch.
+- Next slice: add durable live package store hydration/persistence hooks for JavaScript package records and live pointers without enabling live trigger dispatch.
+- Active slice progress:
+  - Added `JsLiveRegistryAdminService` as the server-owned admin/startup facade around the live package store, live registry reload service, and redacted status helpers.
+  - Added explicit admin service constructors and a named server reload policy helper so startup/admin policy is not frozen to implicit defaults.
+  - Wired `boot_db()` to refresh the JavaScript live registry cache during startup and log redacted reload diagnostics.
+  - Wired the existing immortal `reload` command to handle `reload js`, `reload js refresh`, and `reload js status [package-id|vnum]` without invoking gameplay trigger dispatch.
+  - Added focused admin parser/status tests, malformed numeric lookup coverage, targeted redaction checks, source-level `db.cpp` hook checks, and build entries.
+  - Magus, Vincent, and Bazarat reviewed the slice and reported no remaining blocking findings.
+  - Validation passed: `make test` (896/896), `make -C src js_live_registry_admin.o db.o`, and `git diff --check`.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
