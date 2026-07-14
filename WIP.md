@@ -1,8 +1,19 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: made the `BuilderClient/` editor UI panes resizable.
-- Next slice: start server endpoint implementation planning and server-side HTTP contract adapters.
+- Active slice complete: addressed first high-severity reviewer findings in `BuilderClient/`.
+- Next slice: continue reviewer findings with semantic TypeScript checks, non-publish IPC validation, and parent/client tracking.
+- Completed slice progress:
+  - Spawned all six review subagents and collected quality, security, adversarial test, UI/UX, publish protocol, and repo/process findings.
+  - Bounded offline fixture handler execution with a second timed VM invocation so exported trigger handlers cannot hang the Electron main process.
+  - Rejected async/Promise handler results in the offline runner instead of treating promises as allowed.
+  - Added adversarial offline runner tests for handler infinite loops and async handler returns.
+  - Prevented stored publish tokens from being reused after server/workspace changes without a fresh token, with mocked `safeStorage` credential-store tests.
+  - Switched the Electron shell and Monaco editor default theme to Tokyo Night and documented that default in `FEATURES.md`.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: made the `BuilderClient/` editor UI panes resizable.
+  - Next slice: start server endpoint implementation planning and server-side HTTP contract adapters.
 - Completed slice progress:
   - Updated `FEATURES.md` to require resizable major UI regions in the VS Code-style builder client.
   - Added pointer-driven splitters for sidebar width, editor/bottom-panel height, and problems/output/publish panel widths.
