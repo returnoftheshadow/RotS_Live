@@ -114,6 +114,11 @@ bool live_character_snapshot_contains(
     return std::find(characters.begin(), characters.end(), character) != characters.end();
 }
 
+bool live_object_snapshot_contains(const std::vector<const obj_data*>& objects, const obj_data* object)
+{
+    return std::find(objects.begin(), objects.end(), object) != objects.end();
+}
+
 int room_index_from_world_pointer(const room_data* room)
 {
     if (room == nullptr || top_of_world < 0)
@@ -248,6 +253,45 @@ int dispatch_javascript_character_damage_trigger(char_data* vict, char_data* ch)
     request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
     request.legacy_value = ON_DAMAGE;
     request.context_input.self = vict;
+    request.context_input.actor = ch;
+    if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))
+        request.context_input.room = vict->in_room;
+
+    JsLegacyTriggerDispatchOptions options;
+    options.enabled = javascript_legacy_trigger_dispatch_enabled;
+    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+
+    const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    return result.status == JsLegacyTriggerDispatchStatus::Block ||
+            result.status == JsLegacyTriggerDispatchStatus::Error
+        ? 0
+        : 1;
+}
+
+int dispatch_javascript_object_damage_trigger(obj_data* obj, char_data* vict, char_data* ch)
+{
+    if (!javascript_legacy_trigger_dispatch_enabled || obj == nullptr || vict == nullptr ||
+        ch == nullptr)
+        return 1;
+
+    const std::vector<const char_data*> characters = live_character_snapshot();
+    if (!live_character_snapshot_contains(characters, vict) ||
+        !live_character_snapshot_contains(characters, ch))
+        return 1;
+
+    const std::vector<const obj_data*> objects = live_object_snapshot();
+    if (!live_object_snapshot_contains(objects, obj))
+        return 1;
+
+    const JsGameAdapterOptions adapter_options =
+        js_game_adapter_options_from_world(characters, objects);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Object;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_DAMAGE;
+    request.context_input.object = obj;
     request.context_input.actor = ch;
     if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))
         request.context_input.room = vict->in_room;
@@ -1975,6 +2019,8 @@ int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch)
             obj->obj_flags.script_info->rm[0] = 0; // ADD room of character
             return_value = run_script(obj->obj_flags.script_info, script_position->next);
         }
+    if (return_value)
+        return_value = dispatch_javascript_object_damage_trigger(obj, vict, ch);
 
     return return_value;
 }

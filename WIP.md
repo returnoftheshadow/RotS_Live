@@ -1,9 +1,18 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into the blocking character `ON_DAMAGE` victim gameplay path.
-- Next slice: wire guarded JavaScript dispatch into object-host damage triggers after the victim damage path allows damage.
-- Active slice progress:
+- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into object-host `ON_DAMAGE` weapon gameplay path.
+- Next slice: wire guarded JavaScript dispatch into object action triggers: `ON_ENTER`, `ON_EXAMINE_OBJECT`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, and `ON_PULL`.
+- Completed slice progress:
+  - Start from committed character/victim `ON_DAMAGE` wiring in `97534f9`.
+  - Preserve the existing victim-first `call_trigger(ON_DAMAGE)` ordering: object-host JavaScript damage dispatch only runs inside `trigger_object_damage(...)`, which is reached only when the character/victim damage path allows.
+  - Preserve legacy `.scr` ordering for the weapon object: the object's legacy `ON_DAMAGE` script runs first, and JavaScript is only considered if legacy still allows damage.
+  - Preserve blocking semantics: JavaScript `false`/block or runtime error on object-host `ON_DAMAGE` should return `0` to block damage; disabled, stale-registry, registry-not-ready, no-match, stale-object, stale-victim, or stale-attacker cases should skip JavaScript and allow the legacy result.
+  - Added `dispatch_javascript_object_damage_trigger(...)` to build a live read-only weapon/victim/attacker context and dispatch object-host `ON_DAMAGE` through the default-closed facade after legacy `.scr` allows damage.
+  - Added focused tests for object-host `onDamage` blocking with object/actor context mapping, runtime-error blocking, legacy object `ON_DAMAGE` blocking before JavaScript, stale object/victim/attacker skip behavior, and source guards proving object damage is wired through `trigger_object_damage(...)`.
+  - Magus, Vincent, and Bazarat review prompts were sent for the object-host `ON_DAMAGE` slice; no blocking findings were returned through the available subagent tool interface before final validation.
+  - Validation passed: `make -C src -j16 script.o`, raw relinked `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*'` (40 tests), `git diff --check`, and CMake build plus CTest with `-j16` build parallelism (972/972).
+- Previous slice progress:
   - Start from committed `ON_DIE` wiring in `5fc5667`.
   - Preserve legacy `.scr` ordering: the victim's legacy `ON_DAMAGE` script runs first, and JavaScript is only considered if legacy still allows damage.
   - Preserve blocking semantics: JavaScript `false`/block or runtime error on character `ON_DAMAGE` should return `0` to block damage; disabled, stale-registry, registry-not-ready, no-match, stale-victim, or stale-attacker cases should skip JavaScript and allow the legacy result.
