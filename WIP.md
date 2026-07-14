@@ -1,8 +1,16 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: addressed first high-severity reviewer findings in `BuilderClient/`.
-- Next slice: continue reviewer findings with semantic TypeScript checks, non-publish IPC validation, and parent/client tracking.
+- Active slice complete: enforced semantic TypeScript checks against generated API typings.
+- Next slice: continue reviewer findings with non-publish IPC validation, parent/client tracking, and publish DTO alignment.
+- Completed slice progress:
+  - Added generated TypeScript declaration text to the client project model so compile/package paths use the same API typings loaded by the editor.
+  - Replaced `transpileModule` with a real TypeScript program over project sources plus `generated/rots.d.ts`.
+  - Added tests proving valid scripts still emit JavaScript and invalid RotS API usage fails semantic compilation.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: addressed first high-severity reviewer findings in `BuilderClient/`.
+  - Next slice: continue reviewer findings with semantic TypeScript checks, non-publish IPC validation, and parent/client tracking.
 - Completed slice progress:
   - Spawned all six review subagents and collected quality, security, adversarial test, UI/UX, publish protocol, and repo/process findings.
   - Bounded offline fixture handler execution with a second timed VM invocation so exported trigger handlers cannot hang the Electron main process.
