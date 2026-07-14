@@ -1,8 +1,18 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: wired fixture-backed status/conflict metadata into the publish panel.
+- Active slice complete: made the `BuilderClient/` editor UI panes resizable.
 - Next slice: start server endpoint implementation planning and server-side HTTP contract adapters.
+- Completed slice progress:
+  - Updated `FEATURES.md` to require resizable major UI regions in the VS Code-style builder client.
+  - Added pointer-driven splitters for sidebar width, editor/bottom-panel height, and problems/output/publish panel widths.
+  - Added clamped minimum/maximum sizing so resized panes remain usable and text stays contained.
+  - Preserved the existing VS Code-style shell and publish/result panels while making the main regions user-resizable.
+  - Subagent review was not reopened after the explicit pool-close request; this slice used local review plus automated validation.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: wired fixture-backed status/conflict metadata into the publish panel.
+  - Next slice: start server endpoint implementation planning and server-side HTTP contract adapters.
 - Completed slice progress:
   - Added a client-side publish result presenter so reason, audit, package version, live checksum, staged digest, local package id, and local checksum metadata are shown consistently.
   - Made the publish panel distinguish local package metadata from server decisions and display conflict/denial/success messaging without relying on a raw JSON blob.

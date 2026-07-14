@@ -400,6 +400,7 @@ Electron TypeScript authoring client:
 - Treat TypeScript as an authoring language only. The game server should execute compiled JavaScript and should never require a TypeScript compiler at runtime.
 - The primary editor experience should look and behave like Visual Studio Code rather than a custom text box:
   - use a VS Code-style activity/sidebar, file explorer, tabbed editor, problems panel, output/terminal panels, command palette, status bar, theme support, and keyboard shortcuts where practical
+  - make every major UI region resizable by the builder, including sidebar width, editor/output split height, and problems/output/publish panel widths; resizing must preserve usable minimum sizes and avoid text overlap or layout jumps
   - support IntelliSense for all generated game scripting APIs, trigger context objects, enum/literal domains, fixtures, package metadata, and script-result helpers
   - provide hover documentation, go-to-definition, find references where practical, signature help, inline diagnostics, quick fixes, symbol search, rename support, formatting, and semantic highlighting through an LSP-compatible TypeScript language service configuration
   - load generated TypeScript declarations, trigger manifests, fixture schemas, and docs into the editor workspace so completions and diagnostics match the server-owned manifest/API contract exactly
