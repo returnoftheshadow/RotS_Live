@@ -1,5 +1,6 @@
 #include "js_publish_endpoint_transport.h"
 
+#include "js_script_package_loader.h"
 #include "json_utils.h"
 
 #include <algorithm>
@@ -13,9 +14,14 @@ namespace {
 
 constexpr std::size_t MaxTransportDiagnosticBytes = 180;
 
-struct StatusEnvelope {
+struct TransportEnvelope {
     std::string operation;
     std::string package_id;
+    std::string base_live_checksum;
+    JsScriptPackage package;
+    bool has_package = false;
+    bool saw_package_id = false;
+    bool saw_base_live_checksum = false;
 };
 
 std::string bounded_single_line(std::string message)
@@ -91,6 +97,21 @@ bool is_digits_only(const std::string &value)
     });
 }
 
+bool is_bounded_token_char(unsigned char ch)
+{
+    return std::isalnum(ch) || ch == ':' || ch == '_' || ch == '-' || ch == '.';
+}
+
+bool is_canonical_live_checksum(const std::string &value)
+{
+    const std::string prefix = "live:";
+    return value.size() > prefix.size() && value.size() <= MaxTransportDiagnosticBytes
+        && value.compare(0, prefix.size(), prefix) == 0
+        && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+            return is_bounded_token_char(ch);
+        });
+}
+
 bool parse_logical_package_id(const std::string &package_id, int *zone,
     JsScriptPackageHost *host, int *vnum)
 {
@@ -139,15 +160,15 @@ bool parse_logical_package_id(const std::string &package_id, int *zone,
     return true;
 }
 
-bool parse_status_envelope(const std::string &request_json, StatusEnvelope *envelope,
+bool parse_transport_envelope(const std::string &request_json, TransportEnvelope *envelope,
     std::string *error_message)
 {
     bool saw_operation = false;
-    bool saw_package_id = false;
     std::vector<std::string> seen_fields;
+    JsScriptPackageBundleLoadOptions package_options;
     json_utils::JsonReader reader(request_json);
     const bool parsed = reader.parse_root_object(
-        [envelope, &saw_operation, &saw_package_id, &seen_fields](
+        [envelope, &saw_operation, &seen_fields, &package_options](
             const std::string &key, json_utils::JsonReader *nested_reader,
             std::string *nested_error_message) {
             if (!mark_seen(seen_fields, key, nested_error_message))
@@ -157,8 +178,18 @@ bool parse_status_envelope(const std::string &request_json, StatusEnvelope *enve
                 return nested_reader->parse_string(&envelope->operation, nested_error_message);
             }
             if (key == "packageId") {
-                saw_package_id = true;
+                envelope->saw_package_id = true;
                 return nested_reader->parse_string(&envelope->package_id, nested_error_message);
+            }
+            if (key == "baseLiveChecksum") {
+                envelope->saw_base_live_checksum = true;
+                return nested_reader->parse_string(
+                    &envelope->base_live_checksum, nested_error_message);
+            }
+            if (key == "package") {
+                envelope->has_package = true;
+                return js_script_package_parse_json_object(nested_reader, package_options,
+                    &envelope->package, nested_error_message);
             }
             *nested_error_message = "unknown publish request field '" + key + "'";
             return false;
@@ -170,15 +201,11 @@ bool parse_status_envelope(const std::string &request_json, StatusEnvelope *enve
         *error_message = "missing required publish request field 'operation'";
         return false;
     }
-    if (!saw_package_id) {
-        *error_message = "missing required publish request field 'packageId'";
-        return false;
-    }
     return true;
 }
 
 JsPublishEndpointStatusInput status_input_from_envelope(
-    const StatusEnvelope &envelope, const JsPublishEndpointTransportContext &context)
+    const TransportEnvelope &envelope, const JsPublishEndpointTransportContext &context)
 {
     JsPublishEndpointStatusInput input;
     input.package_id = envelope.package_id;
@@ -198,6 +225,45 @@ JsPublishEndpointStatusInput status_input_from_envelope(
     return input;
 }
 
+JsPublishEndpointStageInput stage_input_from_envelope(
+    const TransportEnvelope &envelope, const JsPublishEndpointTransportContext &context)
+{
+    JsPublishEndpointStageInput input;
+    input.audit_id = context.audit_id;
+    input.stage_options.identity_options.zone = context.zone;
+    input.stage_options.identity_options.builder_account_id = context.builder_account_id;
+    input.stage_options.identity_options.base_live_checksum = envelope.base_live_checksum;
+
+    input.authorization_request.operation = JsPublishOperation::PackageStage;
+    input.authorization_request.request_id = context.request_id;
+    input.authorization_request.actor_id = context.actor_id;
+    input.authorization_request.builder_account_id = context.builder_account_id;
+    input.authorization_request.zone = context.zone;
+    input.authorization_request.vnum = envelope.package.vnum;
+    input.authorization_request.host = envelope.package.host;
+    input.authorization_request.package_id = envelope.package.package_id;
+    input.authorization_request.base_live_checksum = envelope.base_live_checksum;
+    input.authorization_request.manifest_checksum = envelope.package.manifest_checksum;
+    input.authorization_request.has_package = true;
+    input.authorization_request.package = envelope.package;
+    input.authorization_request.token = context.token;
+    input.authorization_request.transport = context.transport;
+
+    input.authorization_options.now_epoch_seconds = context.now_epoch_seconds;
+    input.authorization_options.allow_mutating_operations = context.allow_mutating_operations;
+    input.authorization_options.expected_server_audience = context.expected_server_audience;
+    input.authorization_options.expected_workspace_id = context.expected_workspace_id;
+    input.authorization_options.current_live_checksum = context.current_live_checksum;
+    input.authorization_options.authority.has_package_authority = true;
+    input.authorization_options.authority.zone = context.zone;
+    input.authorization_options.authority.vnum = envelope.package.vnum;
+    input.authorization_options.authority.host = envelope.package.host;
+    input.authorization_options.authority.package_id = envelope.package.package_id;
+    input.authorization_options.authority.package_owner_builder_account_id =
+        context.builder_account_id;
+    return input;
+}
+
 } // namespace
 
 JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
@@ -212,22 +278,42 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
         return transport_error(413, "publish.request-too-large", "Publish request rejected.",
             "publish request body exceeds the configured size limit");
 
-    StatusEnvelope envelope;
+    TransportEnvelope envelope;
     std::string error_message;
-    if (!parse_status_envelope(request_json, &envelope, &error_message))
+    if (!parse_transport_envelope(request_json, &envelope, &error_message))
         return transport_error(400, "publish.invalid-json", "Publish request rejected.",
             error_message.empty() ? "publish request JSON could not be parsed"
                                   : error_message.c_str());
 
-    if (envelope.operation != "status")
-        return transport_error(400, "publish.unsupported-operation", "Publish request rejected.",
-            "publish operation is not supported by this transport adapter");
-    int zone = 0;
-    int vnum = 0;
-    JsScriptPackageHost host = JsScriptPackageHost::Character;
-    if (!parse_logical_package_id(envelope.package_id, &zone, &host, &vnum))
-        return transport_error(400, "status.invalid-request", "Package status rejected.",
-            "status request package id is invalid");
+    if (envelope.operation == "status") {
+        if (!envelope.saw_package_id || envelope.has_package
+            || envelope.saw_base_live_checksum)
+            return transport_error(400, "status.invalid-request", "Package status rejected.",
+                "status request body is invalid");
+        int zone = 0;
+        int vnum = 0;
+        JsScriptPackageHost host = JsScriptPackageHost::Character;
+        if (!parse_logical_package_id(envelope.package_id, &zone, &host, &vnum))
+            return transport_error(400, "status.invalid-request", "Package status rejected.",
+                "status request package id is invalid");
 
-    return transport_response(service.status(status_input_from_envelope(envelope, context)).response);
+        return transport_response(
+            service.status(status_input_from_envelope(envelope, context)).response);
+    }
+
+    if (envelope.operation == "stage") {
+        if (envelope.saw_package_id || !envelope.has_package
+            || !envelope.saw_base_live_checksum || envelope.base_live_checksum.empty())
+            return transport_error(400, "stage.invalid-request", "Package stage rejected.",
+                "stage request body is invalid");
+        if (!is_canonical_live_checksum(envelope.base_live_checksum))
+            return transport_error(400, "stage.invalid-request", "Package stage rejected.",
+                "stage base live checksum is invalid");
+
+        return transport_response(
+            service.stage(stage_input_from_envelope(envelope, context)).response);
+    }
+
+    return transport_error(400, "publish.unsupported-operation", "Publish request rejected.",
+        "publish operation is not supported by this transport adapter");
 }

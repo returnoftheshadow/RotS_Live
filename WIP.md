@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added a bounded JSON transport adapter for publish endpoint status.
-- Next slice: add bounded JSON package parsing for stage requests, then mount the adapter behind the concrete server command/HTTP listener when that transport exists.
+- Active slice complete: added bounded JSON package parsing for stage requests.
+- Next slice: mount the publish transport adapter behind the concrete server command/HTTP listener when that transport exists.
+- Completed slice progress:
+  - Exposed `js_script_package_parse_json_object()` so transport stage parsing reuses the package loader's field validation rules.
+  - Extended `JsPublishEndpointTransportContext` with server-owned audit id, zone, mutation gate, and current live checksum for stage dispatch.
+  - Extended the transport adapter to accept `operation: "stage"`, a compiled package object, and a bounded canonical `baseLiveChecksum`.
+  - Kept token, transport, actor, builder, zone, current live checksum, mutation gate, request id, and audit id server-supplied through adapter context.
+  - Rejected stage package-id smuggling, malformed packages, missing or malformed base live checksums, unsupported operations, duplicate fields, unknown fields, and client-controlled request metadata.
+  - Added transport tests for stage success, stale-live conflict without staging, mixed missing-scope/stale-live redaction, malformed package handling, base checksum validation, initial-stage sentinel handling, and persisted trusted metadata.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to persisted stage metadata assertions, mixed authorization/conflict redaction coverage, and canonical base-live-checksum validation.
+  - Validation passed: focused `JsPublishEndpointTransport.*:JsPublishEndpointService.*:JsScriptPackageLoader.*` tests (47 tests), `make test -j16` (1048 tests), and `git diff --check`.
+- Previous slice progress:
+  - Active slice complete: added a bounded JSON transport adapter for publish endpoint status.
+  - Next slice: add bounded JSON package parsing for stage requests, then mount the adapter behind the concrete server command/HTTP listener when that transport exists.
 - Completed slice progress:
   - Added `JsPublishEndpointTransportContext` and `js_publish_endpoint_dispatch_json()` as a transport-neutral JSON adapter over `JsPublishEndpointService`.
   - Scoped the adapter to status requests first because compiled package stage payload parsing needs its own bounded parser slice.

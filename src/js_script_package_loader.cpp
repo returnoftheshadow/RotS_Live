@@ -362,6 +362,32 @@ bool read_file_limited(const std::string& path, const JsScriptPackageBundleLoadO
 
 } // namespace
 
+bool js_script_package_parse_json_object(json_utils::JsonReader* reader,
+    const JsScriptPackageBundleLoadOptions& options, JsScriptPackage* package,
+    std::string* error_message)
+{
+    if (reader == nullptr || package == nullptr) {
+        if (error_message)
+            *error_message = "package parser input is invalid";
+        return false;
+    }
+
+    JsScriptPackageBundleLoadResult result;
+    std::string parse_error;
+    if (!parse_package(reader, result, options, package, &parse_error)) {
+        if (error_message) {
+            if (!parse_error.empty())
+                *error_message = parse_error;
+            else if (!result.diagnostics.empty())
+                *error_message = result.diagnostics.front().message;
+            else
+                *error_message = "failed to parse JavaScript package";
+        }
+        return false;
+    }
+    return true;
+}
+
 bool js_script_package_bundle_parse_json(const std::string& json,
     const JsScriptPackageBundleLoadOptions& options, JsScriptPackageBundleLoadResult* result)
 {

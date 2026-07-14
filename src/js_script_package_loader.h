@@ -8,6 +8,10 @@
 #include <string>
 #include <vector>
 
+namespace json_utils {
+class JsonReader;
+}
+
 struct JsScriptPackageBundleLoadOptions {
     std::size_t maximum_file_bytes = 1024 * 1024;
     std::size_t maximum_package_count = 1024;
@@ -24,6 +28,10 @@ struct JsScriptPackageBundleLoadResult {
 
 bool js_script_package_bundle_parse_json(const std::string& json,
     const JsScriptPackageBundleLoadOptions& options, JsScriptPackageBundleLoadResult* result);
+
+bool js_script_package_parse_json_object(json_utils::JsonReader* reader,
+    const JsScriptPackageBundleLoadOptions& options, JsScriptPackage* package,
+    std::string* error_message);
 
 bool js_script_package_bundle_parse_json(const std::string& json,
     JsScriptPackageBundleLoadResult* result);

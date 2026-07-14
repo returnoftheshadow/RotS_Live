@@ -12,13 +12,17 @@ struct JsPublishEndpointTransportOptions {
 
 struct JsPublishEndpointTransportContext {
     std::string request_id;
+    std::string audit_id;
     std::string actor_id;
     std::string builder_account_id;
+    int zone = 0;
     JsPublishTokenMetadata token;
     JsPublishTransportMetadata transport;
     long long now_epoch_seconds = 0;
+    bool allow_mutating_operations = false;
     std::string expected_server_audience;
     std::string expected_workspace_id;
+    std::string current_live_checksum;
 };
 
 struct JsPublishEndpointTransportResult {

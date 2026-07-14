@@ -1,5 +1,6 @@
 #include "../js_publish_endpoint_transport.h"
 
+#include "../json_utils.h"
 #include "../script.h"
 
 #include <gtest/gtest.h>
@@ -31,7 +32,7 @@ JsPublishTokenMetadata make_token(unsigned scopes = JS_PUBLISH_SCOPE_STATUS_READ
 {
     JsPublishTokenMetadata token;
     token.claims_verified = true;
-    token.token_id = "token:status";
+    token.token_id = "token:transport";
     token.actor_id = "actor:42";
     token.builder_account_id = "account:builder";
     token.server_audience = "server:main";
@@ -48,6 +49,7 @@ JsPublishTransportMetadata make_transport()
     transport.secure_channel = true;
     transport.server_identity_verified = true;
     transport.server_audience = "server:main";
+    transport.source_identifier = "transport:tls";
     return transport;
 }
 
@@ -55,13 +57,17 @@ JsPublishEndpointTransportContext make_context(unsigned scopes = JS_PUBLISH_SCOP
 {
     JsPublishEndpointTransportContext context;
     context.request_id = "request:transport";
+    context.audit_id = "audit:transport";
     context.actor_id = "actor:42";
     context.builder_account_id = "account:builder";
+    context.zone = 30;
     context.token = make_token(scopes);
     context.transport = make_transport();
     context.now_epoch_seconds = 100;
+    context.allow_mutating_operations = true;
     context.expected_server_audience = "server:main";
     context.expected_workspace_id = "workspace:main";
+    context.current_live_checksum = "live:old";
     return context;
 }
 
@@ -129,6 +135,39 @@ std::string status_json(const std::string &package_id)
     return "{\"operation\":\"status\",\"packageId\":\"" + package_id + "\"}";
 }
 
+std::string quote(const std::string &value)
+{
+    return "\"" + json_utils::escape_json_string(value) + "\"";
+}
+
+std::string package_json(const JsScriptPackage &package)
+{
+    return "{"
+        "\"vnum\":" + std::to_string(package.vnum)
+        + ",\"packageId\":" + quote(package.package_id)
+        + ",\"host\":" + quote(js_script_package_host_name(package.host))
+        + ",\"packageFormatVersion\":" + std::to_string(package.package_format_version)
+        + ",\"manifestSchemaVersion\":" + std::to_string(package.manifest_schema_version)
+        + ",\"triggerCatalogRevision\":" + std::to_string(package.trigger_catalog_revision)
+        + ",\"manifestChecksum\":" + quote(package.manifest_checksum)
+        + ",\"runtimeName\":" + quote(package.runtime_name)
+        + ",\"runtimeVersion\":" + quote(package.runtime_version)
+        + ",\"generatedTypingsVersion\":" + quote(package.generated_typings_version)
+        + ",\"compiledJavaScriptChecksum\":" + quote(package.compiled_javascript_checksum)
+        + ",\"compiledJavaScript\":" + quote(package.compiled_javascript)
+        + ",\"triggerBindings\":[{\"kind\":"
+        + quote(js_scripting_manifest_kind_name(JsScriptingManifestKind::LegacyScriptTrigger))
+        + ",\"legacyValue\":" + std::to_string(ON_ENTER)
+        + ",\"handlerName\":\"onEnter\"}]}";
+}
+
+std::string stage_json(const JsScriptPackage &package,
+    const std::string &base_live_checksum = "live:old")
+{
+    return "{\"operation\":\"stage\",\"baseLiveChecksum\":"
+        + quote(base_live_checksum) + ",\"package\":" + package_json(package) + "}";
+}
+
 } // namespace
 
 TEST(JsPublishEndpointTransport, DispatchesStatusWithServerSuppliedContext)
@@ -146,6 +185,78 @@ TEST(JsPublishEndpointTransport, DispatchesStatusWithServerSuppliedContext)
     EXPECT_EQ("status.current", result.reason_code);
     EXPECT_NE(std::string::npos, result.json.find("\"packageId\":\"" + staged.response.package_id));
     EXPECT_EQ(std::string::npos, result.json.find("\"body\""));
+}
+
+TEST(JsPublishEndpointTransport, DispatchesStageWithServerSuppliedContext)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsScriptPackage package = make_package();
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, stage_json(package), make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(200, result.http_status);
+    EXPECT_EQ("stage.accepted", result.reason_code);
+    EXPECT_NE(std::string::npos, result.json.find("\"packageId\":\"js:30:character:3001\""));
+    EXPECT_NE(std::string::npos, result.json.find("\"auditId\":\"audit:transport\""));
+    EXPECT_EQ(std::string::npos, result.json.find("compiledJavaScript"));
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+    JsStagedPackageLookupResult lookup = service.staged_repository().find_by_version(
+        status.status.package_id, status.status.package_version_id);
+    ASSERT_TRUE(lookup.ok);
+    EXPECT_EQ(30, lookup.record.identity.zone);
+    EXPECT_EQ("account:builder", lookup.record.identity.builder_account_id);
+    EXPECT_EQ("live:old", lookup.record.identity.base_live_checksum);
+    EXPECT_EQ("server:main", lookup.record.identity.server_instance_id);
+    EXPECT_EQ("request:transport", lookup.record.audit.request_id);
+    EXPECT_EQ("actor:42", lookup.record.audit.actor_id);
+    EXPECT_EQ("token:transport", lookup.record.audit.permission_snapshot_id);
+    EXPECT_EQ("audit:transport", lookup.record.audit.audit_id);
+    EXPECT_EQ("publish-preflight:accepted", lookup.record.audit.source_policy_decision);
+    EXPECT_EQ(package.compiled_javascript_checksum,
+        lookup.record.audit.validation_report_digest);
+    EXPECT_EQ("transport:tls", lookup.record.audit.transport_source_identifier);
+}
+
+TEST(JsPublishEndpointTransport, StagePreflightConflictDoesNotWriteStagedPackage)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    context.current_live_checksum = "live:new";
+
+    JsPublishEndpointTransportResult result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(409, result.http_status);
+    EXPECT_EQ("stage.stale-live-checksum", result.reason_code);
+    EXPECT_TRUE(service.staged_repository().empty());
+}
+
+TEST(JsPublishEndpointTransport, StageAuthorizationFailureWithConflictDoesNotLeakMetadata)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(0);
+    context.current_live_checksum = "live:new";
+
+    JsPublishEndpointTransportResult result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("stage.authorization-failed", result.reason_code);
+    EXPECT_EQ(std::string::npos, result.json.find("js:30:character:3001"));
+    EXPECT_EQ(std::string::npos, result.json.find("live:old"));
+    EXPECT_EQ(std::string::npos, result.json.find("live:new"));
+    EXPECT_EQ(std::string::npos, result.json.find("audit:transport"));
+    EXPECT_TRUE(service.staged_repository().empty());
 }
 
 TEST(JsPublishEndpointTransport, RejectsMalformedJson)
@@ -210,12 +321,106 @@ TEST(JsPublishEndpointTransport, RejectsUnsupportedOperation)
     JsPublishEndpointService service(live_store, service_options());
 
     JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
-        service, "{\"operation\":\"stage\",\"packageId\":\"js:30:character:3001\"}",
+        service, "{\"operation\":\"activate\",\"packageId\":\"js:30:character:3001\"}",
         make_context());
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(400, result.http_status);
     EXPECT_EQ("publish.unsupported-operation", result.reason_code);
+}
+
+TEST(JsPublishEndpointTransport, RejectsStageWithoutBaseLiveChecksum)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, "{\"operation\":\"stage\",\"package\":" + package_json(make_package()) + "}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(400, result.http_status);
+    EXPECT_EQ("stage.invalid-request", result.reason_code);
+}
+
+TEST(JsPublishEndpointTransport, RejectsMalformedBaseLiveChecksum)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+
+    JsPublishEndpointTransportResult control = js_publish_endpoint_dispatch_json(
+        service, stage_json(make_package(), "live:bad\nvalue"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+    JsPublishEndpointTransportResult missing_prefix = js_publish_endpoint_dispatch_json(
+        service, stage_json(make_package(), "sha256:abc"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+    JsPublishEndpointTransportResult overlong = js_publish_endpoint_dispatch_json(
+        service, stage_json(make_package(), "live:" + std::string(190, 'a')),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+
+    EXPECT_FALSE(control.ok);
+    EXPECT_EQ(400, control.http_status);
+    EXPECT_EQ("stage.invalid-request", control.reason_code);
+    EXPECT_FALSE(missing_prefix.ok);
+    EXPECT_EQ(400, missing_prefix.http_status);
+    EXPECT_EQ("stage.invalid-request", missing_prefix.reason_code);
+    EXPECT_FALSE(overlong.ok);
+    EXPECT_EQ(400, overlong.http_status);
+    EXPECT_EQ("stage.invalid-request", overlong.reason_code);
+    EXPECT_TRUE(service.staged_repository().empty());
+}
+
+TEST(JsPublishEndpointTransport, AllowsInitialStageWithCanonicalBaseLiveChecksum)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    context.current_live_checksum.clear();
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, stage_json(make_package(), "live:initial"), context);
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(200, result.http_status);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+    EXPECT_EQ("live:initial", status.status.base_live_checksum);
+}
+
+TEST(JsPublishEndpointTransport, RejectsStagePackageIdField)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"stage\",\"baseLiveChecksum\":\"live:old\","
+        "\"packageId\":\"js:30:character:3001\",\"package\":"
+            + package_json(make_package()) + "}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(400, result.http_status);
+    EXPECT_EQ("stage.invalid-request", result.reason_code);
+}
+
+TEST(JsPublishEndpointTransport, RejectsMalformedStagePackage)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"stage\",\"baseLiveChecksum\":\"live:old\","
+        "\"package\":{\"packageId\":\"pkg\"}}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(400, result.http_status);
+    EXPECT_EQ("publish.invalid-json", result.reason_code);
+    EXPECT_EQ(std::string::npos, result.json.find("pkg"));
 }
 
 TEST(JsPublishEndpointTransport, RejectsInvalidPackageId)
