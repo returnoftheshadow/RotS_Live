@@ -1,8 +1,19 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: bootstrapped the `BuilderClient/` Electron/TypeScript authoring client.
-- Next slice: wire the client to checked-in/generated server builder artifacts and expand offline/server parity coverage.
+- Active slice complete: added `BuilderClient/` server artifact sync tooling and coverage.
+- Next slice: expand offline/server parity coverage using copied generated artifacts and fixture corpora.
+- Completed slice progress:
+  - Added `npm run sync:artifacts`, backed by `scripts/sync-server-artifacts.mjs`, to copy a complete server-generated builder artifact set into local `BuilderClient/generated/`.
+  - The sync command searches `../generated`, `../build/generated`, `../build/builder`, and `../src/generated`, supports `--server-root`, validates the manifest JSON shape, and fails closed if any required artifact is missing.
+  - Kept `BuilderClient/generated/` ignored as a local cache so the server generator remains the authoritative source.
+  - Documented the artifact sync workflow in `BuilderClient/README.md`.
+  - Added artifact loader tests for complete generated artifact loading and fallback behavior when artifacts are incomplete.
+  - Attempted to spawn Magus, Vincent, and Bazarat for review, but the subagent thread pool was still at its limit; no fresh reviewer feedback was available for this artifact sync slice.
+  - Validation passed in `BuilderClient/`: temporary artifact sync smoke test, `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: bootstrapped the `BuilderClient/` Electron/TypeScript authoring client.
+  - Next slice: wire the client to checked-in/generated server builder artifacts and expand offline/server parity coverage.
 - Completed slice progress:
   - Scaffolded the nested `BuilderClient/` repository as the dedicated Electron/TypeScript client root with Vite, React, Electron main/preload, Monaco editor integration, package lock, TypeScript configs, and client README.
   - Built the first VS Code-style editor shell with activity bar, explorer, editor tab, trigger catalog, problems/output/publish panels, status bar, compile/run/stage actions, and responsive constraints.
