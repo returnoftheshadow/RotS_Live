@@ -1876,6 +1876,75 @@ TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeDispatchesAndMapsBlock) {
     EXPECT_TRUE(result.diagnostic.empty());
 }
 
+TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeUsesFirstLivePackageWhenMultiplePackagesMatch) {
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    activate_package(repository, live_store,
+                     make_package(6172, "function onEnter(ctx) { return false; }"));
+    activate_package(repository, live_store,
+                     make_package(6173, "function onEnter(ctx) { syntax error if this runs }"));
+    JsLiveRegistryReloadService service;
+    ASSERT_TRUE(service.refresh_from_live_store(live_store));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
+    JsGameAdapterOptions adapter_options = make_options(live_characters, 1, world, 0);
+
+    JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        service, character_enter_request(&self), adapter_options, enabled_options(service));
+
+    EXPECT_EQ(result.status, JsLegacyTriggerDispatchStatus::Block);
+    EXPECT_EQ(result.dispatch_result.status, JsTriggerDispatchStatus::Block);
+    EXPECT_EQ(result.dispatch_result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(result.dispatch_result.package_vnum, 6172);
+    EXPECT_EQ(result.dispatch_result.handler_name, "onEnter");
+    EXPECT_EQ(result.dispatch_result.matched_package_count, 2u);
+    EXPECT_TRUE(result.diagnostic.empty());
+    EXPECT_TRUE(result.dispatch_result.diagnostic.empty());
+}
+
+TEST(JsLegacyTriggerDispatch, FreshEnabledFacadePackageVnumTargetsLaterMatchWithoutFallback) {
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    activate_package(repository, live_store,
+                     make_package(6174, "function onEnter(ctx) { return false; }"));
+    activate_package(repository, live_store,
+                     make_package(6175, "function onEnter(ctx) { return true; }"));
+    activate_package(repository, live_store,
+                     make_package(6176, "function onDamage(ctx) { return false; }", ON_DAMAGE));
+    JsLiveRegistryReloadService service;
+    ASSERT_TRUE(service.refresh_from_live_store(live_store));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
+    JsGameAdapterOptions adapter_options = make_options(live_characters, 1, world, 0);
+
+    JsTriggerDispatchRequest request = character_enter_request(&self);
+    request.package_vnum = 6175;
+    JsLegacyTriggerDispatchResult targeted_result = js_legacy_trigger_dispatch(
+        service, request, adapter_options, enabled_options(service));
+
+    EXPECT_EQ(targeted_result.status, JsLegacyTriggerDispatchStatus::Allow);
+    EXPECT_EQ(targeted_result.dispatch_result.status, JsTriggerDispatchStatus::Allow);
+    EXPECT_EQ(targeted_result.dispatch_result.package_vnum, 6175);
+    EXPECT_EQ(targeted_result.dispatch_result.handler_name, "onEnter");
+    EXPECT_EQ(targeted_result.dispatch_result.matched_package_count, 1u);
+    EXPECT_TRUE(targeted_result.diagnostic.empty());
+
+    request.package_vnum = 6176;
+    JsLegacyTriggerDispatchResult wrong_trigger_result = js_legacy_trigger_dispatch(
+        service, request, adapter_options, enabled_options(service));
+
+    EXPECT_EQ(wrong_trigger_result.status, JsLegacyTriggerDispatchStatus::NoMatch);
+    EXPECT_EQ(wrong_trigger_result.dispatch_result.status, JsTriggerDispatchStatus::NoMatch);
+    EXPECT_EQ(wrong_trigger_result.dispatch_result.matched_package_count, 0u);
+    EXPECT_TRUE(wrong_trigger_result.dispatch_result.package_id.empty());
+    EXPECT_TRUE(wrong_trigger_result.dispatch_result.handler_name.empty());
+    EXPECT_TRUE(wrong_trigger_result.diagnostic.empty());
+}
+
 TEST(JsLegacyTriggerDispatch, FreshnessOptOutAllowsLoadedRegistryDispatchWithNoToken) {
     JsLiveRegistryReloadService service = make_refreshed_service(
         make_package(6109, "function onEnter(ctx) { return true; }"));

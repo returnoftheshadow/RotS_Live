@@ -1,8 +1,19 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added end-to-end game execution testing for JavaScript trigger packages against the live server facade.
-- Next slice: expand server-side JavaScript execution coverage into multi-package ordering/conflict behavior or start the offline/server parity harness, depending on the remaining risk after this test lands.
+- Active slice complete: expanded server-side JavaScript execution coverage into multi-package ordering and targeted-dispatch behavior.
+- Next slice: start the offline/server parity harness.
+- Completed slice progress:
+  - Start from committed live-facade e2e test in `c63fdef`.
+  - Add gameplay-facing facade tests for multiple live packages bound to the same trigger, proving first-match registry order and `matched_package_count` survive through `js_legacy_trigger_dispatch(...)`.
+  - Add targeted package-vnum dispatch coverage for a later matching live package so attached-package dispatch cannot accidentally fall back to the first global match.
+  - Added `FreshEnabledFacadeUsesFirstLivePackageWhenMultiplePackagesMatch`, proving two active `ON_ENTER` packages report two matches, select the first live package, and do not evaluate the later syntax-invalid package.
+  - Added `FreshEnabledFacadePackageVnumTargetsLaterMatchWithoutFallback`, proving a targeted later package can run and a targeted package with the wrong trigger returns `NoMatch` without falling back to the global first match.
+  - Attempted to spawn Magus, Vincent, and Bazarat for review, but the subagent thread pool was still at its limit; no fresh reviewer feedback was available for this test slice.
+  - Validation passed: CMake-built `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.FreshEnabledFacadeUsesFirstLivePackageWhenMultiplePackagesMatch:JsLegacyTriggerDispatch.FreshEnabledFacadePackageVnumTargetsLaterMatchWithoutFallback'`, raw `make -C src/tests -j16 js_legacy_trigger_dispatch_tests.o`, full `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*'` (68 tests), `git diff --check`, and CMake build plus CTest with `-j16` build parallelism (1000/1000).
+- Previous slice progress:
+  - Active slice complete: added end-to-end game execution testing for JavaScript trigger packages against the live server facade.
+  - Next slice: expand server-side JavaScript execution coverage into multi-package ordering/conflict behavior or start the offline/server parity harness, depending on the remaining risk after this test lands.
 - Completed slice progress:
   - Start from committed trigger audit in `1878cb3`.
   - Add a live-facade integration test that stages/activates source-bearing JavaScript packages, refreshes the live registry, captures the gameplay generation token, enables the default-closed switch, and executes real gameplay trigger entry points.
