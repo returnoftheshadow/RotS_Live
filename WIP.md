@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into object-host `ON_DAMAGE` weapon gameplay path.
-- Next slice: wire guarded JavaScript dispatch into object action triggers: `ON_ENTER`, `ON_EXAMINE_OBJECT`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, and `ON_PULL`.
+- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into object-host event/action triggers: `ON_ENTER`, `ON_EXAMINE_OBJECT`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, and `ON_PULL`.
+- Next slice: wire guarded JavaScript dispatch into character/object transfer `ON_RECEIVE`.
+- Completed slice progress:
+  - Start from committed object-host `ON_DAMAGE` wiring in `5e3c61c`.
+  - Preserve legacy `.scr` ordering for object events: each legacy object event script runs first, and JavaScript is only considered if legacy still allows the result.
+  - Preserve blocking semantics for the shared object event path: JavaScript `false`/block or runtime error should return `0`; disabled, stale-registry, registry-not-ready, no-match, stale-object, or stale-actor cases should skip JavaScript and allow the legacy result.
+  - Include object-host `ON_ENTER` in this slice because `trigger_room_event(ON_ENTER, ...)` separately dispatches object `ON_ENTER` for room contents after character/room handling.
+  - Added `dispatch_javascript_object_event_trigger(...)` with an object-event allowlist and post-legacy live object/actor guards for `ON_ENTER`, `ON_EXAMINE_OBJECT`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, and `ON_PULL`.
+  - Added focused tests proving all six object event triggers can execute and block, object `ON_ENTER` runs through the real room-event path, runtime errors block, legacy object events short-circuit before JavaScript, and stale object/actor inputs skip JavaScript.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to a tight diff cleanup, object-host manifest context docs that reserve `self` for character hosts, fail-closed manifest policy alignment for newly wired blocking events, and integrated room-event coverage for object `ON_ENTER`.
+  - Validation passed: `make -C src -j16 script.o js_scripting_manifest.o`, raw relinked `./bin/tests --gtest_filter='JsTriggerDispatch.*:JsLegacyTriggerDispatch.*:JsScriptingManifest.*'` (84 tests), `git diff --check`, and CMake build plus CTest with `-j16` build parallelism (978/978).
+- Previous slice progress:
+  - Active slice complete: extended the default-closed JavaScript legacy-trigger facade into object-host `ON_DAMAGE` weapon gameplay path.
+  - Next slice: wire guarded JavaScript dispatch into object action triggers: `ON_ENTER`, `ON_EXAMINE_OBJECT`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, and `ON_PULL`.
 - Completed slice progress:
   - Start from committed character/victim `ON_DAMAGE` wiring in `97534f9`.
   - Preserve the existing victim-first `call_trigger(ON_DAMAGE)` ordering: object-host JavaScript damage dispatch only runs inside `trigger_object_damage(...)`, which is reached only when the character/victim damage path allows.

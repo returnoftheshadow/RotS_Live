@@ -257,7 +257,7 @@ TEST(JsTriggerDispatch, InvokesOnlyBoundHandlerFromFullCompiledPackage)
         "function onDamage(ctx) { return false; }\n"
         "function onEnter(ctx) {\n"
         "  return ctx.self.name === 'Self' && ctx.trigger.legacyName === 'ON_ENTER'\n"
-        "    && ctx.trigger.hostType === 'character' && ctx.trigger.blocksGameplay === false;\n"
+        "    && ctx.trigger.hostType === 'character' && ctx.trigger.blocksGameplay === true;\n"
         "}");
     ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
 

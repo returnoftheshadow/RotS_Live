@@ -215,7 +215,7 @@ TEST(JsScriptingManifest, RecordsExactHostFlagsAndSemanticsForEveryEntry) {
     const ExpectedPolicy expected_policies[] = {
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER,
          JS_SCRIPTING_HOST_CHARACTER | JS_SCRIPTING_HOST_OBJECT | JS_SCRIPTING_HOST_ROOM, false,
-         false, false, false, JsScriptingExceptionPolicy::FailOpen},
+         false, true, false, JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_BEFORE_ENTER, JS_SCRIPTING_HOST_CHARACTER,
          false, false, true, false, JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_BEFORE_DIE, JS_SCRIPTING_HOST_CHARACTER,
@@ -225,16 +225,16 @@ TEST(JsScriptingManifest, RecordsExactHostFlagsAndSemanticsForEveryEntry) {
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_RECEIVE, JS_SCRIPTING_HOST_CHARACTER,
          false, false, false, false, JsScriptingExceptionPolicy::FailOpen},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_EXAMINE_OBJECT, JS_SCRIPTING_HOST_OBJECT,
-         false, false, false, false, JsScriptingExceptionPolicy::FailOpen},
+         false, false, true, false, JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_HEAR_SAY, JS_SCRIPTING_HOST_CHARACTER,
          false, false, false, false, JsScriptingExceptionPolicy::FailOpen},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE,
          JS_SCRIPTING_HOST_CHARACTER | JS_SCRIPTING_HOST_OBJECT, false, false, true, false,
          JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_EAT, JS_SCRIPTING_HOST_OBJECT, false,
-         false, false, false, JsScriptingExceptionPolicy::FailOpen},
+         false, true, false, JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_DRINK, JS_SCRIPTING_HOST_OBJECT, false,
-         false, false, false, JsScriptingExceptionPolicy::FailOpen},
+         false, true, false, JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_WEAR, JS_SCRIPTING_HOST_OBJECT, false,
          false, true, false, JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_PULL, JS_SCRIPTING_HOST_OBJECT, false,
@@ -350,14 +350,13 @@ TEST(JsScriptingManifest, RecordsRequiredContextFieldsForLegacyTriggers) {
     expect_context_fields(ON_BEFORE_DIE, {"self", "killer", "trigger", "hostType"});
     expect_context_fields(ON_DIE, {"self", "killer", "trigger", "hostType"});
     expect_context_fields(ON_RECEIVE, {"self", "actor", "object", "trigger", "hostType"});
-    expect_context_fields(ON_EXAMINE_OBJECT, {"self", "object", "actor", "trigger", "hostType"});
+    expect_context_fields(ON_EXAMINE_OBJECT, {"object", "actor", "trigger", "hostType"});
     expect_context_fields(ON_HEAR_SAY, {"self", "speaker", "text", "trigger", "hostType"});
-    expect_context_fields(ON_DAMAGE,
-                          {"self", "object", "attacker", "weapon", "trigger", "hostType"});
-    expect_context_fields(ON_EAT, {"self", "object", "actor", "trigger", "hostType"});
-    expect_context_fields(ON_DRINK, {"self", "object", "actor", "trigger", "hostType"});
-    expect_context_fields(ON_WEAR, {"self", "object", "actor", "wearSlot", "trigger", "hostType"});
-    expect_context_fields(ON_PULL, {"self", "object", "actor", "trigger", "hostType"});
+    expect_context_fields(ON_DAMAGE, {"self", "object", "actor", "trigger", "hostType"});
+    expect_context_fields(ON_EAT, {"object", "actor", "trigger", "hostType"});
+    expect_context_fields(ON_DRINK, {"object", "actor", "trigger", "hostType"});
+    expect_context_fields(ON_WEAR, {"object", "actor", "wearSlot", "trigger", "hostType"});
+    expect_context_fields(ON_PULL, {"object", "actor", "trigger", "hostType"});
     expect_context_fields(ON_HEAR_YELL, {"self", "speaker", "text", "trigger", "hostType"});
 }
 
@@ -445,7 +444,7 @@ TEST(JsScriptingManifest, DeniesDangerousLegacyMutationApisByDefault) {
 
 TEST(JsScriptingManifest, ObjectHostContextsExposeObjectAlias) {
     const int object_triggers[] = {
-        ON_EXAMINE_OBJECT, ON_DAMAGE, ON_EAT, ON_DRINK, ON_WEAR, ON_PULL,
+        ON_EXAMINE_OBJECT, ON_EAT, ON_DRINK, ON_WEAR, ON_PULL,
     };
 
     for (int trigger : object_triggers) {
@@ -454,6 +453,8 @@ TEST(JsScriptingManifest, ObjectHostContextsExposeObjectAlias) {
         ASSERT_NE(entry, nullptr) << trigger;
         EXPECT_TRUE(has_host(*entry, JS_SCRIPTING_HOST_OBJECT)) << entry->legacy_name;
         EXPECT_NE(std::string(entry->context_fields).find("object"), std::string::npos)
+            << entry->legacy_name;
+        EXPECT_EQ(std::string(entry->context_fields).find("self"), std::string::npos)
             << entry->legacy_name;
     }
 }
