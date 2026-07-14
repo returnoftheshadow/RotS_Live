@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added `BuilderClient/` authenticated publish client contract.
-- Next slice: surface the publish client in the Electron UI with credential storage and server status/error workflows.
+- Active slice complete: surfaced the publish client in the Electron UI with credential storage and server status/error workflows.
+- Next slice: add renderer/IPC hostile-input tests and begin real server endpoint compatibility fixtures.
+- Completed slice progress:
+  - Added a narrow Electron main-process credential/config bridge so publish tokens are not persisted in project data.
+  - Added `safeStorage`-backed publish credential persistence when OS-backed encryption is available, with memory-only token fallback when it is not.
+  - Wired Stage, Status, Activate, and Rollback UI actions through typed preload IPC and the existing shared publish client contract.
+  - Kept local package creation separate from server stage/activate/rollback/status decisions and displayed sanitized server messages/diagnostics in the publish panel.
+  - Added publish settings helpers/tests for URL normalization, token-free saved settings, bearer/query-token redaction, and HTTPS-or-localhost transport enforcement.
+  - Hardened publish operations to reject insecure non-localhost publish server URLs before sending credentials.
+  - Attempted to spawn Vincent for security review, but the subagent thread pool was still at its limit; no fresh reviewer feedback was available for this publish UI slice.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: added `BuilderClient/` authenticated publish client contract.
+  - Next slice: surface the publish client in the Electron UI with credential storage and server status/error workflows.
 - Completed slice progress:
   - Added a reusable publish API client for stage, activate, rollback, and status calls with injectable fetch for tests.
   - Kept credentials out of persisted project data by passing bearer tokens only at request time.
