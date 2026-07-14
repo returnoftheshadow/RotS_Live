@@ -1,8 +1,18 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added `BuilderClient/` offline fixture corpus and parity harness.
-- Next slice: connect the publish workflow to authenticated server stage/activate endpoints once the HTTP contract is finalized.
+- Active slice complete: added `BuilderClient/` authenticated publish client contract.
+- Next slice: surface the publish client in the Electron UI with credential storage and server status/error workflows.
+- Completed slice progress:
+  - Added a reusable publish API client for stage, activate, rollback, and status calls with injectable fetch for tests.
+  - Kept credentials out of persisted project data by passing bearer tokens only at request time.
+  - Added typed request/response models for publish client configuration, auth, stage, activate, rollback, status, and server results.
+  - Added tests for request URL/header/body shape, workspace header propagation, redacted bearer-token diagnostics, status operation modeling, and rollback operation modeling.
+  - Attempted to spawn Vincent for security review, but the subagent thread pool was still at its limit; no fresh reviewer feedback was available for this publish client slice.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: added `BuilderClient/` offline fixture corpus and parity harness.
+  - Next slice: connect the publish workflow to authenticated server stage/activate endpoints once the HTTP contract is finalized.
 - Completed slice progress:
   - Added checked-in golden fixture examples under `BuilderClient/fixtures/golden/` with explicit local expectations for blocked and allowed `onEnter` cases.
   - Added a reusable fixture corpus loader that validates fixture shape and loads sorted JSON fixtures from disk.
