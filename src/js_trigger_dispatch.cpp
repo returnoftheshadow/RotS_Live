@@ -170,3 +170,10 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
 
     return result;
 }
+
+JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
+    const JsLiveRegistryReloadService& service, const JsTriggerDispatchRequest& request,
+    const JsGameAdapterOptions& adapter_options, const JsRuntimeLimits& limits)
+{
+    return js_trigger_dispatch_first_match(service.m_registry, request, adapter_options, limits);
+}

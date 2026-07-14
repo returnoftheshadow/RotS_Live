@@ -2,6 +2,7 @@
 
 #include "../db.h"
 #include "../interpre.h"
+#include "../js_live_registry_reload_service.h"
 #include "../script.h"
 #include "../structs.h"
 #include "../zone.h"
@@ -89,6 +90,58 @@ JsScriptPackage make_character_enter_package(int vnum, const std::string& source
 {
     return make_package(vnum, JsScriptPackageHost::Character,
         JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER, "onEnter", source);
+}
+
+JsStagedPackageStageOptions make_stage_options(const std::string& base_live = "live:old")
+{
+    JsStagedPackageStageOptions options;
+    options.identity_options.zone = 30;
+    options.identity_options.builder_account_id = "account:builder";
+    options.identity_options.base_live_checksum = base_live;
+    options.identity_options.server_instance_id = "server:main";
+    options.audit.staged_at_epoch_seconds = 123456;
+    options.audit.request_id = "request:stage";
+    options.audit.actor_id = "actor:42";
+    options.audit.permission_snapshot_id = "permission:snapshot";
+    options.audit.audit_id = "audit:stage";
+    options.audit.source_policy_decision = "source-policy:accepted";
+    options.audit.validation_report_digest = "validation:sha256:abc";
+    options.audit.transport_source_identifier = "transport:tls";
+    return options;
+}
+
+JsStagedPackageRecord stage_package(
+    JsStagedPackageRepository& repository, const JsScriptPackage& package,
+    const std::string& base_live = "live:old")
+{
+    JsStagedPackageStageResult staged =
+        repository.stage_package(package, make_stage_options(base_live));
+    EXPECT_TRUE(staged.ok);
+    return staged.record;
+}
+
+JsStagedPackageRecord activate_live_package_for_dispatch(
+    JsStagedPackageRepository& repository, JsLivePackageStore& live_store,
+    const JsScriptPackage& package,
+    const std::string& expected_previous_live_checksum = "live:old")
+{
+    JsStagedPackageRecord record =
+        stage_package(repository, package, expected_previous_live_checksum);
+    JsLivePackagePointer pointer;
+    pointer.zone = record.identity.zone;
+    pointer.vnum = record.identity.vnum;
+    pointer.host = record.identity.host;
+    pointer.package_id = record.identity.package_id;
+    pointer.package_version_id = record.identity.package_version_id;
+    pointer.staged_digest = record.identity.canonical_digest;
+    pointer.expected_previous_live_checksum = expected_previous_live_checksum;
+    pointer.current_live_checksum = js_live_package_current_checksum_for_identity(record.identity);
+    pointer.loaded_at_epoch_seconds = 200000;
+    pointer.load_audit_id = "audit:dispatch";
+    JsLivePackagePointerResult activated =
+        live_store.activate_staged_record_pointer(record, pointer);
+    EXPECT_TRUE(activated.ok);
+    return record;
 }
 
 JsGameAdapterOptions make_options(const char_data* const* characters, std::size_t character_count,
@@ -324,6 +377,153 @@ TEST(JsTriggerDispatch, PackageVnumFilterDoesNotFallBackWhenAttachedPackageIsWro
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::NoMatch);
     EXPECT_EQ(result.matched_package_count, 0U);
+}
+
+TEST(JsTriggerDispatch, DispatchesFromRefreshedLiveRegistryService)
+{
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsScriptPackage package = make_character_enter_package(5381,
+        "function onEnter(ctx) { return ctx.self.name === 'Self'; }");
+    JsStagedPackageRecord record =
+        activate_live_package_for_dispatch(repository, live_store, package);
+    JsLiveRegistryReloadService service;
+    ASSERT_TRUE(service.refresh_from_live_store(live_store));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_live_first_match(service, character_request(&self), options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(result.package_vnum, record.identity.vnum);
+    EXPECT_EQ(result.package_id, record.identity.package_id);
+    EXPECT_EQ(result.handler_name, "onEnter");
+    EXPECT_TRUE(result.diagnostic.empty());
+    EXPECT_EQ(result.matched_package_count, 1U);
+}
+
+TEST(JsTriggerDispatch, LiveRegistryBridgeNoMatchDoesNotExposePackageMetadata)
+{
+    JsLiveRegistryReloadService empty_service;
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+
+    JsTriggerDispatchResult empty_result =
+        js_trigger_dispatch_live_first_match(empty_service, character_request(&self), options);
+
+    EXPECT_EQ(empty_result.status, JsTriggerDispatchStatus::NoMatch);
+    EXPECT_EQ(empty_result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(empty_result.matched_package_count, 0U);
+    EXPECT_EQ(empty_result.package_vnum, 0);
+    EXPECT_TRUE(empty_result.package_id.empty());
+    EXPECT_TRUE(empty_result.handler_name.empty());
+    EXPECT_TRUE(empty_result.diagnostic.empty());
+
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    activate_live_package_for_dispatch(
+        repository, live_store,
+        make_character_enter_package(5383, "function onEnter(ctx) { return true; }"));
+    JsLiveRegistryReloadService service;
+    ASSERT_TRUE(service.refresh_from_live_store(live_store));
+    JsTriggerDispatchRequest wrong_vnum = character_request(&self);
+    wrong_vnum.package_vnum = 9999;
+
+    JsTriggerDispatchResult wrong_vnum_result =
+        js_trigger_dispatch_live_first_match(service, wrong_vnum, options);
+
+    EXPECT_EQ(wrong_vnum_result.status, JsTriggerDispatchStatus::NoMatch);
+    EXPECT_EQ(wrong_vnum_result.matched_package_count, 0U);
+    EXPECT_TRUE(wrong_vnum_result.package_id.empty());
+    EXPECT_TRUE(wrong_vnum_result.handler_name.empty());
+    EXPECT_TRUE(wrong_vnum_result.diagnostic.empty());
+}
+
+TEST(JsTriggerDispatch, LiveRegistryDispatchUsesRefreshSnapshotUntilReloaded)
+{
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord first = activate_live_package_for_dispatch(
+        repository, live_store,
+        make_character_enter_package(5382, "function onEnter(ctx) { return false; }"));
+    JsLiveRegistryReloadService service;
+    ASSERT_TRUE(service.refresh_from_live_store(live_store));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchRequest request = character_request(&self);
+    const std::string first_live_checksum =
+        js_live_package_current_checksum_for_identity(first.identity);
+    activate_live_package_for_dispatch(
+        repository, live_store,
+        make_character_enter_package(5382, "function onEnter(ctx) { return true; }"),
+        first_live_checksum);
+
+    JsTriggerDispatchResult stale_result =
+        js_trigger_dispatch_live_first_match(service, request, options);
+    ASSERT_TRUE(service.refresh_from_live_store(live_store));
+    JsTriggerDispatchResult refreshed_result =
+        js_trigger_dispatch_live_first_match(service, request, options);
+
+    EXPECT_EQ(stale_result.status, JsTriggerDispatchStatus::Block) << stale_result.diagnostic;
+    EXPECT_EQ(stale_result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_TRUE(stale_result.diagnostic.empty());
+    EXPECT_EQ(refreshed_result.status, JsTriggerDispatchStatus::Allow)
+        << refreshed_result.diagnostic;
+    EXPECT_EQ(refreshed_result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_TRUE(refreshed_result.diagnostic.empty());
+    EXPECT_EQ(stale_result.package_vnum, refreshed_result.package_vnum);
+    EXPECT_EQ(stale_result.package_id, refreshed_result.package_id);
+}
+
+TEST(JsTriggerDispatch, FailedLiveRegistryRefreshKeepsPreviousDispatchSnapshot)
+{
+    JsStagedPackageRepository repository;
+    JsLivePackageStore first_store;
+    activate_live_package_for_dispatch(
+        repository, first_store,
+        make_character_enter_package(5384, "function onEnter(ctx) { return false; }"));
+    JsLiveRegistryReloadOptions options_with_conflict;
+    options_with_conflict.replace_options.validation_options.mode =
+        JsScriptPackageValidationMode::InternalValidationOnly;
+    options_with_conflict.replace_options.legacy_script_vnums.push_back(5385);
+    JsLiveRegistryReloadService service(options_with_conflict);
+    ASSERT_TRUE(service.refresh_from_live_store(first_store));
+
+    JsLivePackageStore conflict_store;
+    activate_live_package_for_dispatch(
+        repository, conflict_store,
+        make_character_enter_package(5385, "function onEnter(ctx) { return true; }"));
+    JsLiveRegistryReloadResult reload_result;
+    ASSERT_FALSE(service.refresh_from_live_store(conflict_store, &reload_result));
+    EXPECT_EQ(reload_result.status, JsLiveRegistryReloadStatus::ValidationFailed);
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_live_first_match(service, character_request(&self), adapter_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Block) << result.diagnostic;
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(result.package_vnum, 5384);
+    EXPECT_TRUE(result.diagnostic.empty());
+    EXPECT_EQ(service.package_count(), 1U);
+    EXPECT_EQ(service.successful_reload_count(), 1U);
 }
 
 TEST(JsTriggerDispatch, RejectsMissingRequiredCharacterHostBeforeRuntimeExecution)
@@ -569,6 +769,10 @@ TEST(JsTriggerDispatch, BuildFilesReferenceDispatchSourcesAndTests)
     EXPECT_TRUE(contains(cmake, "tests/js_trigger_dispatch_tests.cpp"));
     EXPECT_TRUE(contains(server_makefile, "js_trigger_dispatch.o"));
     EXPECT_TRUE(contains(server_makefile, "js_trigger_dispatch.cpp"));
+    EXPECT_TRUE(contains(server_makefile, "js_live_registry_reload_service.h"));
+    EXPECT_TRUE(contains(server_makefile, "js_live_package_store.h"));
     EXPECT_TRUE(contains(test_makefile, "js_trigger_dispatch.o"));
     EXPECT_TRUE(contains(test_makefile, "js_trigger_dispatch_tests.cpp"));
+    EXPECT_TRUE(contains(test_makefile, "js_live_registry_reload_service.h"));
+    EXPECT_TRUE(contains(test_makefile, "js_live_package_store.h"));
 }

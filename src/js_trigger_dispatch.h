@@ -2,6 +2,7 @@
 #define JS_TRIGGER_DISPATCH_H
 
 #include "js_game_adapter.h"
+#include "js_live_registry_reload_service.h"
 #include "js_runtime.h"
 #include "js_script_package.h"
 #include "js_script_registry.h"
@@ -40,5 +41,9 @@ const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status);
 JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
     const JsRuntimeLimits& limits = {});
+
+JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
+    const JsLiveRegistryReloadService& service, const JsTriggerDispatchRequest& request,
+    const JsGameAdapterOptions& adapter_options, const JsRuntimeLimits& limits = {});
 
 #endif

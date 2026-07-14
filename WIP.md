@@ -1,9 +1,19 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: persisted the JavaScript live package store snapshot after successful activation and rolled back in-memory live mutations when persistence fails.
-- Next slice: add a live-registry-backed JavaScript trigger dispatch bridge that can resolve current live packages without wiring legacy gameplay call sites yet.
+- Active slice complete: added a live-registry-backed JavaScript trigger dispatch bridge that resolves current live packages without wiring legacy gameplay call sites.
+- Next slice: add a narrow server-owned dispatch facade for legacy trigger call sites, gated off by default, so individual gameplay paths can opt in without changing legacy `.scr` behavior.
 - Active slice progress:
+  - Added `js_trigger_dispatch_live_first_match()` as a narrow friend bridge into `JsLiveRegistryReloadService` so dispatch can use the service's private source-bearing registry without adding a general package/source accessor.
+  - Kept the existing `js_trigger_dispatch_first_match()` registry path intact; the new bridge delegates to it after resolving the current service snapshot.
+  - Added focused tests proving live packages activated into `JsLivePackageStore`, refreshed into `JsLiveRegistryReloadService`, and dispatched through QuickJS via the existing trigger dispatcher.
+  - Added stale-cache coverage proving dispatch uses the last successful reload snapshot until `refresh_from_live_store()` is called again, then observes the updated live package source.
+  - Updated raw Makefile dependencies for the dispatch bridge and tests.
+  - Validation passed: `make -C src js_live_registry_reload_service.o js_trigger_dispatch.o`, raw relinked `./bin/tests --gtest_filter='JsTriggerDispatch.*'` (20 tests), and path-limited `git diff --check`.
+  - Validation limitation: full `make test` remains blocked by unrelated existing account-management compile errors in `account_management_assets.cpp` and `account_management_identity.cpp`.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to live-bridge no-match coverage, failed-refresh dispatch preservation coverage, runtime-status and diagnostic-cleanliness assertions, and raw dependency assertions.
+  - Vincent flagged the bridge as internal-only until the next default-closed gameplay facade exists; the next slice must enforce explicit enablement and a freshness/staleness policy before any legacy trigger call site can execute JavaScript.
+- Previous slice progress:
   - Added an optional `persist_live_store_path` activation setting so successful activate/rollback flows can save the source-bearing live-store snapshot through the hardened persistence layer.
   - Activation now captures the previous live-store snapshot before mutation, writes the updated snapshot only after the live pointer update succeeds, and hydrates the previous snapshot back into memory only when persistence fails before replacing the target file.
   - Added `JsLivePackageStorePersistenceFileResult::target_replaced` so activation can avoid rolling memory back when a post-rename durability failure means the new file may already be visible on disk.

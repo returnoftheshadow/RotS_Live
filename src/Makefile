@@ -126,7 +126,7 @@ js_script_package.o : js_script_package.cpp js_script_package.h js_scripting_man
 js_script_registry.o : js_script_registry.cpp js_script_registry.h js_script_package.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_script_registry.cpp
 
-js_trigger_dispatch.o : js_trigger_dispatch.cpp js_trigger_dispatch.h js_game_adapter.h js_game_runtime.h js_runtime.h js_script_package.h js_script_registry.h js_scripting_manifest.h
+js_trigger_dispatch.o : js_trigger_dispatch.cpp js_trigger_dispatch.h js_game_adapter.h js_live_registry_reload_service.h js_live_package_store.h js_game_runtime.h js_runtime.h js_script_package.h js_script_registry.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_trigger_dispatch.cpp
 
 js_scripting_manifest.o : js_scripting_manifest.cpp js_scripting_manifest.h interpre.h script.h

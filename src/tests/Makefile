@@ -95,7 +95,7 @@ js_script_package.o : ../js_script_package.cpp ../js_script_package.h ../js_scri
 js_script_registry.o : ../js_script_registry.cpp ../js_script_registry.h ../js_script_package.h ../js_scripting_manifest.h
 	$(CXX) -c $(CXXFLAGS) ../js_script_registry.cpp
 
-js_trigger_dispatch.o : ../js_trigger_dispatch.cpp ../js_trigger_dispatch.h ../js_game_adapter.h ../js_game_runtime.h ../js_runtime.h ../js_script_package.h ../js_script_registry.h ../js_scripting_manifest.h
+js_trigger_dispatch.o : ../js_trigger_dispatch.cpp ../js_trigger_dispatch.h ../js_game_adapter.h ../js_live_registry_reload_service.h ../js_live_package_store.h ../js_game_runtime.h ../js_runtime.h ../js_script_package.h ../js_script_registry.h ../js_scripting_manifest.h
 	$(CXX) -c $(CXXFLAGS) ../js_trigger_dispatch.cpp
 
 js_scripting_manifest.o : ../js_scripting_manifest.cpp ../js_scripting_manifest.h ../interpre.h ../script.h
@@ -307,7 +307,7 @@ js_script_package_loader_tests.o : js_script_package_loader_tests.cpp ../js_scri
 js_script_package_reload_service_tests.o : js_script_package_reload_service_tests.cpp ../js_script_package_reload_service.h ../js_script_package_loader.h ../js_script_package.h ../js_script_registry.h ../json_utils.h ../js_scripting_manifest.h
 js_script_package_tests.o : js_script_package_tests.cpp ../js_script_package.h ../js_scripting_manifest.h
 js_script_registry_tests.o : js_script_registry_tests.cpp ../js_script_registry.h ../js_script_package.h ../js_scripting_manifest.h
-js_trigger_dispatch_tests.o : js_trigger_dispatch_tests.cpp ../js_trigger_dispatch.h ../js_game_adapter.h ../js_game_runtime.h ../js_runtime.h ../js_script_package.h ../js_script_registry.h ../js_scripting_manifest.h ../structs.h ../db.h ../zone.h
+js_trigger_dispatch_tests.o : js_trigger_dispatch_tests.cpp ../js_trigger_dispatch.h ../js_game_adapter.h ../js_live_registry_reload_service.h ../js_live_package_store.h ../js_game_runtime.h ../js_runtime.h ../js_script_package.h ../js_script_registry.h ../js_scripting_manifest.h ../structs.h ../db.h ../zone.h
 js_scripting_manifest_tests.o : js_scripting_manifest_tests.cpp ../js_scripting_manifest.h
 
 tests: $(EXECUTABLE)

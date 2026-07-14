@@ -8,6 +8,11 @@
 #include <string>
 #include <vector>
 
+struct JsGameAdapterOptions;
+struct JsRuntimeLimits;
+struct JsTriggerDispatchRequest;
+struct JsTriggerDispatchResult;
+
 enum class JsLiveRegistryReloadStatus {
     Success,
     LiveStoreFailed,
@@ -80,6 +85,10 @@ class JsLiveRegistryReloadService {
                                                        int legacy_value) const;
 
   private:
+    friend JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
+        const JsLiveRegistryReloadService &service, const JsTriggerDispatchRequest &request,
+        const JsGameAdapterOptions &adapter_options, const JsRuntimeLimits &limits);
+
     JsLiveRegistryReloadOptions m_options;
     JsScriptPackageRegistry m_registry;
     std::vector<JsLiveRegistryPackageStatus> m_package_statuses;
