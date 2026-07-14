@@ -1,8 +1,18 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added `BuilderClient/` server artifact sync tooling and coverage.
-- Next slice: expand offline/server parity coverage using copied generated artifacts and fixture corpora.
+- Active slice complete: added `BuilderClient/` offline fixture corpus and parity harness.
+- Next slice: connect the publish workflow to authenticated server stage/activate endpoints once the HTTP contract is finalized.
+- Completed slice progress:
+  - Added checked-in golden fixture examples under `BuilderClient/fixtures/golden/` with explicit local expectations for blocked and allowed `onEnter` cases.
+  - Added a reusable fixture corpus loader that validates fixture shape and loads sorted JSON fixtures from disk.
+  - Added a reusable offline parity runner that compiles once, runs every fixture, records manifest/runtime/checksum metadata, and compares results with fixture expectations.
+  - Added parity tests for the checked-in corpus, checksum generation, expected allowed/block behavior, and mismatch reporting.
+  - Attempted to spawn Magus, Vincent, and Bazarat for review, but the subagent thread pool was still at its limit; no fresh reviewer feedback was available for this parity harness slice.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: added `BuilderClient/` server artifact sync tooling and coverage.
+  - Next slice: expand offline/server parity coverage using copied generated artifacts and fixture corpora.
 - Completed slice progress:
   - Added `npm run sync:artifacts`, backed by `scripts/sync-server-artifacts.mjs`, to copy a complete server-generated builder artifact set into local `BuilderClient/generated/`.
   - The sync command searches `../generated`, `../build/generated`, `../build/builder`, and `../src/generated`, supports `--server-root`, validates the manifest JSON shape, and fails closed if any required artifact is missing.
