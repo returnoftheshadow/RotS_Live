@@ -223,7 +223,7 @@ TEST(JsScriptingManifest, RecordsExactHostFlagsAndSemanticsForEveryEntry) {
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_DIE, JS_SCRIPTING_HOST_CHARACTER, false,
          false, true, false, JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_RECEIVE, JS_SCRIPTING_HOST_CHARACTER,
-         false, false, false, false, JsScriptingExceptionPolicy::FailOpen},
+         false, false, true, false, JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_EXAMINE_OBJECT, JS_SCRIPTING_HOST_OBJECT,
          false, false, true, false, JsScriptingExceptionPolicy::FailClosed},
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_HEAR_SAY, JS_SCRIPTING_HOST_CHARACTER,

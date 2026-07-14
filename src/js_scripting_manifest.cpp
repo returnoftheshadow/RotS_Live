@@ -52,10 +52,11 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      "compatibility before enabling."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_RECEIVE, "ON_RECEIVE", "onReceive",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
-     false, false, false, JsScriptingExceptionPolicy::FailOpen,
+     false, true, false, JsScriptingExceptionPolicy::FailClosed,
      "receiver character script when an object is received",
      "self, actor, object, trigger, hostType",
-     "Receiver is self, giver is actor, received item is object."},
+     "Receiver is self, giver is actor, received item is object. False/block is surfaced through "
+     "call_trigger(), but the current give path does not roll back the already-completed transfer."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_EXAMINE_OBJECT, "ON_EXAMINE_OBJECT",
      "onExamineObject", JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred,
      ObjectHost, false, false, true, false, JsScriptingExceptionPolicy::FailClosed,

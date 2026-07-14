@@ -16,6 +16,7 @@
 
 int trigger_char_enter(char_data *ch, char_data *vict, room_data *room);
 int trigger_before_char_enter(char_data *ch, char_data *vict, room_data *room);
+int trigger_char_receive(char_data *ch1, char_data *ch2, obj_data *ob1);
 int trigger_char_die(char_data *ch);
 int trigger_char_damage(char_data *vict, char_data *ch);
 int trigger_object_damage(obj_data *obj, char_data *vict, char_data *ch);
@@ -95,6 +96,8 @@ const char *handler_name_for_legacy_trigger(int legacy_value) {
         return "onDie";
     case ON_DAMAGE:
         return "onDamage";
+    case ON_RECEIVE:
+        return "onReceive";
     case ON_EXAMINE_OBJECT:
         return "onExamineObject";
     case ON_EAT:
@@ -1144,6 +1147,239 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptObjectEventPathSkipsWhenActorIsNoLong
     EXPECT_EQ(trigger_object_event(ON_DRINK, &object, &actor), 1);
 }
 
+TEST(JsLegacyTriggerDispatch, EnabledScriptReceivePathReturnsBlockResult) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6151,
+                         "function onReceive(ctx) { "
+                         "var ok = ctx.self && ctx.actor && ctx.object && "
+                         "ctx.self.name === 'Receiver' && ctx.actor.name === 'Giver' && "
+                         "ctx.object.name === 'Token'; "
+                         "return !ok; "
+                         "}",
+                         ON_RECEIVE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data receiver = make_character("Receiver");
+    char_data giver = make_character("Giver");
+    receiver.next = &giver;
+    giver.next = nullptr;
+    character_list = &receiver;
+
+    obj_data object = make_object("Token");
+    object.carried_by = &receiver;
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_receive(&receiver, &giver, &object), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, CallTriggerReceivePathReturnsBlockResult) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6157, "function onReceive(ctx) { return false; }", ON_RECEIVE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data receiver = make_character("Receiver");
+    char_data giver = make_character("Giver");
+    receiver.next = &giver;
+    giver.next = nullptr;
+    character_list = &receiver;
+
+    obj_data object = make_object("Token");
+    object.carried_by = &receiver;
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(call_trigger(ON_RECEIVE, &receiver, &giver, &object), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptReceiveRuntimeErrorReturnsBlockResult) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6152, "function onReceive(ctx) { throw 'block'; }", ON_RECEIVE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data receiver = make_character("Receiver");
+    char_data giver = make_character("Giver");
+    receiver.next = &giver;
+    giver.next = nullptr;
+    character_list = &receiver;
+
+    obj_data object = make_object("Token");
+    object.carried_by = &receiver;
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_receive(&receiver, &giver, &object), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, LegacyReceiveBlockPreventsJavaScriptDispatch) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalScriptTableGuard script_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6153, "function onReceive(ctx) { return true; }", ON_RECEIVE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    script_data on_receive {};
+    script_data return_false {};
+    on_receive.command_type = ON_RECEIVE;
+    on_receive.next = &return_false;
+    return_false.command_type = SCRIPT_RETURN_FALSE;
+    return_false.prev = &on_receive;
+    script_head script {};
+    script.number = 9022;
+    script.script = &on_receive;
+    script_table = &script;
+    top_of_script_table = 0;
+
+    char_data receiver = make_character("Receiver");
+    receiver.specials.script_number = 9022;
+    char_data giver = make_character("Giver");
+    receiver.next = &giver;
+    giver.next = nullptr;
+    character_list = &receiver;
+
+    obj_data object = make_object("Token");
+    object.carried_by = &receiver;
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_receive(&receiver, &giver, &object), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptReceivePathSkipsWhenReceiverIsNoLongerLive) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6154, "function onReceive(ctx) { return false; }", ON_RECEIVE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data receiver = make_character("Receiver");
+    char_data giver = make_character("Giver");
+    giver.next = nullptr;
+    character_list = &giver;
+
+    obj_data object = make_object("Token");
+    object.carried_by = &receiver;
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_receive(&receiver, &giver, &object), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptReceivePathSkipsWhenGiverIsNoLongerLive) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6155, "function onReceive(ctx) { return false; }", ON_RECEIVE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data receiver = make_character("Receiver");
+    char_data giver = make_character("Giver");
+    receiver.next = nullptr;
+    character_list = &receiver;
+
+    obj_data object = make_object("Token");
+    object.carried_by = &receiver;
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_receive(&receiver, &giver, &object), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptReceivePathSkipsWhenObjectIsNoLongerLive) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6156, "function onReceive(ctx) { return false; }", ON_RECEIVE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data receiver = make_character("Receiver");
+    char_data giver = make_character("Giver");
+    receiver.next = &giver;
+    giver.next = nullptr;
+    character_list = &receiver;
+
+    obj_data object = make_object("Token");
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_receive(&receiver, &giver, &object), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptReceivePathSkipsWhenObjectMovedAwayFromReceiver) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6158, "function onReceive(ctx) { return false; }", ON_RECEIVE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data receiver = make_character("Receiver");
+    char_data giver = make_character("Giver");
+    receiver.next = &giver;
+    giver.next = nullptr;
+    character_list = &receiver;
+
+    obj_data object = make_object("Token");
+    object.carried_by = nullptr;
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_receive(&receiver, &giver, &object), 1);
+}
+
 TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathAllowsWhenRegistryGenerationIsStale) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;
@@ -1454,7 +1690,7 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     const std::string act_info = read_first_available_file({"src/act_info.cpp", "../act_info.cpp"});
 
     ASSERT_FALSE(script.empty());
-    EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 5u);
+    EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 6u);
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_character_movement_entry_trigger(ch, vict, room,"),
         2u);
@@ -1462,6 +1698,9 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
         count_occurrences(script, "dispatch_javascript_character_death_trigger(ch)"), 1u);
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_character_damage_trigger(vict, ch)"),
+        1u);
+    EXPECT_EQ(
+        count_occurrences(script, "dispatch_javascript_character_receive_trigger(ch1, ch2, ob1)"),
         1u);
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_object_damage_trigger(obj, vict, ch)"),
@@ -1482,6 +1721,7 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(contains(script, "if (legacy_value == ON_ENTER && vict->in_room != room_index)"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_DIE;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_DAMAGE;"));
+    EXPECT_TRUE(contains(script, "request.legacy_value = ON_RECEIVE;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = trigger_type;"));
     EXPECT_TRUE(contains(script,
         "trigger_type == ON_ENTER || trigger_type == ON_EXAMINE_OBJECT || trigger_type == ON_EAT"));
@@ -1499,6 +1739,12 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(appears_before_after(script, "int trigger_char_damage",
         "return_value = run_script(vict->specials.script_info",
         "return_value = dispatch_javascript_character_damage_trigger(vict, ch);"));
+    EXPECT_TRUE(appears_before_after(script, "int trigger_char_receive",
+        "return_value = run_script(ch1->specials.script_info",
+        "return_value = dispatch_javascript_character_receive_trigger(ch1, ch2, ob1);"));
+    EXPECT_TRUE(contains(act_obj1, "call_trigger(ON_RECEIVE, vict, ch, obj);"));
+    EXPECT_FALSE(contains(act_obj1, "if (call_trigger(ON_RECEIVE"));
+    EXPECT_FALSE(contains(act_obj1, "if (!call_trigger(ON_RECEIVE"));
     EXPECT_TRUE(appears_before_after(script, "int trigger_object_damage",
         "return_value = run_script(obj->obj_flags.script_info",
         "return_value = dispatch_javascript_object_damage_trigger(obj, vict, ch);"));

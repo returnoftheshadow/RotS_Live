@@ -1,8 +1,21 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into object-host event/action triggers: `ON_ENTER`, `ON_EXAMINE_OBJECT`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, and `ON_PULL`.
-- Next slice: wire guarded JavaScript dispatch into character/object transfer `ON_RECEIVE`.
+- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into character/object transfer `ON_RECEIVE`.
+- Next slice: wire guarded JavaScript dispatch into character hear triggers `ON_HEAR_SAY` and `ON_HEAR_YELL`.
+- Completed slice progress:
+  - Start from committed object event/action trigger wiring in `544b670`.
+  - Preserve legacy `.scr` ordering for receive: the receiver's legacy `ON_RECEIVE` script runs first, and JavaScript is only considered if legacy still allows the result.
+  - Preserve context parity: receiver maps to `ctx.self`, giver maps to `ctx.actor`, and the received item maps to `ctx.object`.
+  - Preserve guarded skip behavior: disabled, stale-registry, registry-not-ready, no-match, stale-receiver, stale-giver, stale-object, detached-room, or object-moved-away cases should skip JavaScript and allow the legacy result; JavaScript `false`/block or runtime error should return `0` through `call_trigger()`.
+  - Do not change `perform_give()` rollback semantics in this slice: the existing give path calls `ON_RECEIVE` after moving the object and ignores the return value, so this slice surfaces a block result through the trigger layer but does not make completed transfers roll back.
+  - Added `dispatch_javascript_character_receive_trigger(...)` with live receiver/giver/object guards, a receiver-room guard, and a carried-by relationship guard so JavaScript only runs while the received item is still carried by the receiver after legacy `.scr`.
+  - Added focused tests for direct receive execution, central `call_trigger(ON_RECEIVE, ...)`, runtime-error block result, legacy block ordering, stale receiver/giver/object skips, and live-object moved-away skip behavior.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to the carried-by relationship guard, receiver-room guard, null-safe context assertions, central `call_trigger()` coverage, source guards documenting that `perform_give()` ignores the return value, and manifest notes describing the no-rollback limitation.
+  - Validation passed: `make -C src -j16 script.o js_scripting_manifest.o`, raw relinked `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*:JsScriptingManifest.*'` (72 tests), `git diff --check`, and CMake build plus CTest with `-j16` build parallelism (986/986). An earlier full-suite run hit a transient SIGPIPE in `InterpreAccountMenu.PendingVerificationLoginResetsBadPasswordCounterAndPromptsForCode`; that test passed when rerun directly before the clean full-suite pass.
+- Previous slice progress:
+  - Active slice complete: extended the default-closed JavaScript legacy-trigger facade into object-host event/action triggers: `ON_ENTER`, `ON_EXAMINE_OBJECT`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, and `ON_PULL`.
+  - Next slice: wire guarded JavaScript dispatch into character/object transfer `ON_RECEIVE`.
 - Completed slice progress:
   - Start from committed object-host `ON_DAMAGE` wiring in `5e3c61c`.
   - Preserve legacy `.scr` ordering for object events: each legacy object event script runs first, and JavaScript is only considered if legacy still allows the result.

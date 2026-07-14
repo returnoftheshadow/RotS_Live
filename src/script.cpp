@@ -352,6 +352,50 @@ int dispatch_javascript_object_event_trigger(int trigger_type, obj_data* obj, ch
         : 1;
 }
 
+int dispatch_javascript_character_receive_trigger(char_data* receiver, char_data* giver,
+    obj_data* object)
+{
+    if (!javascript_legacy_trigger_dispatch_enabled || receiver == nullptr || giver == nullptr ||
+        object == nullptr)
+        return 1;
+
+    const std::vector<const char_data*> characters = live_character_snapshot();
+    if (!live_character_snapshot_contains(characters, receiver) ||
+        !live_character_snapshot_contains(characters, giver))
+        return 1;
+
+    const std::vector<const obj_data*> objects = live_object_snapshot();
+    if (!live_object_snapshot_contains(objects, object))
+        return 1;
+
+    const JsGameAdapterOptions adapter_options =
+        js_game_adapter_options_from_world(characters, objects);
+    if (!js_game_adapter_room_is_valid(receiver->in_room, adapter_options))
+        return 1;
+    if (object->carried_by != receiver)
+        return 1;
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_RECEIVE;
+    request.context_input.self = receiver;
+    request.context_input.actor = giver;
+    request.context_input.object = object;
+    request.context_input.room = receiver->in_room;
+
+    JsLegacyTriggerDispatchOptions options;
+    options.enabled = javascript_legacy_trigger_dispatch_enabled;
+    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+
+    const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    return result.status == JsLegacyTriggerDispatchStatus::Block ||
+            result.status == JsLegacyTriggerDispatchStatus::Error
+        ? 0
+        : 1;
+}
+
 } // namespace
 
 // Returns the index position of a script in the script_table when supplied with a vnum
@@ -2040,6 +2084,8 @@ int trigger_char_receive(char_data* ch1, char_data* ch2, obj_data* ob1)
             ch1->specials.script_info->ob[0] = ob1;
             return_value = run_script(ch1->specials.script_info, script_position->next);
         }
+    if (return_value)
+        return_value = dispatch_javascript_character_receive_trigger(ch1, ch2, ob1);
 
     return return_value;
 }
