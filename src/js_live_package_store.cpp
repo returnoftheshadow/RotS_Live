@@ -357,6 +357,7 @@ JsLivePackageStore::activate_staged_record_pointer(const JsStagedPackageRecord &
         add_diagnostic(
             result, JsLivePackageStoreDiagnosticCode::LivePointerConflict,
             "Live pointer replacement expected checksum does not match current live pointer.");
+        result.pointer = *existing;
         return result;
     }
 
@@ -410,6 +411,7 @@ JsLivePackageStore::load_live_pointer(const JsLivePackagePointer &pointer) {
         add_diagnostic(
             result, JsLivePackageStoreDiagnosticCode::LivePointerConflict,
             "Live pointer replacement expected checksum does not match current live pointer.");
+        result.pointer = *existing;
         return result;
     }
 

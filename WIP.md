@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added parent/client tracking and publish DTO provenance alignment.
-- Next slice: continue remaining reviewer follow-up, starting with server publish endpoint compatibility/adapter work.
+- Active slice complete: added server publish endpoint response contract adapters.
+- Next slice: wire the publish response adapters into the actual server command/API boundary.
+- Completed slice progress:
+  - Added server-owned publish endpoint response helpers for stage, stage preflight, status, activation, rollback, and camelCase JSON serialization.
+  - Mapped staged/status/activation service results into BuilderClient-compatible fields while keeping source code out of responses.
+  - Prevented authorization failures from leaking package ids, staged digests, live checksums, or client-controlled request ids as audit ids.
+  - Added allowlisted public diagnostics and conflict responses that return the server's current live checksum for stale-live retry flows.
+  - Carried staged audit ids into status metadata and preserved conflicting live pointer data in activation precheck results.
+  - Updated BuilderClient forbidden-response fixtures/tests to match the no-metadata authorization failure contract.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to stage preflight stale-live coverage, safer forbidden responses, current-live-checksum conflict assertions, and JSON contract serialization coverage.
+  - Validation passed: `make test -j16` (1011 tests), BuilderClient `npm run typecheck`, BuilderClient `npm test` (14 files, 55 tests), and `git diff --check` in both repos.
+- Previous slice progress:
+  - Active slice complete: added parent/client tracking and publish DTO provenance alignment.
+  - Next slice: continue remaining reviewer follow-up, starting with server publish endpoint compatibility/adapter work.
 - Completed slice progress:
   - Added a stable BuilderClient provenance DTO to local publish packages and stage requests.
   - Made stage IPC validation require client provenance that matches this BuilderClient's name, version, and package schema version before network calls, then re-stamp the canonical package with main-owned provenance.

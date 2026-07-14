@@ -56,6 +56,7 @@ JsPublishStagedPackageStatus status_from_record(const JsStagedPackageRecord& rec
     status.canonical_format_version = record.identity.canonical_format_version;
     status.package_format_version = record.identity.package_format_version;
     status.staged_at_epoch_seconds = record.audit.staged_at_epoch_seconds;
+    status.audit_id = record.audit.audit_id;
     status.base_live_checksum = record.identity.base_live_checksum;
     status.manifest_checksum = record.identity.manifest_checksum;
     status.compiled_javascript_checksum = record.identity.compiled_javascript_checksum;

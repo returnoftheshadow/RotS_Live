@@ -46,12 +46,14 @@ activation_code_for_live_store_failure(const JsLivePackagePointerResult &pointer
     return JsPublishActivationDiagnosticCode::PointerFailed;
 }
 
-bool pointer_replacement_would_conflict(const JsLivePackageStore &live_store,
-                                        const JsPublishStagedPackageStatus &status,
-                                        const std::string &expected_previous_live_checksum) {
+JsLivePackagePointerResult conflicting_live_pointer(const JsLivePackageStore &live_store,
+                                                    const JsPublishStagedPackageStatus &status,
+                                                    const std::string &expected_previous_live_checksum) {
     JsLivePackagePointerResult existing =
         live_store.find_live_pointer(status.zone, status.host, status.vnum);
-    return existing.ok && existing.pointer.current_live_checksum != expected_previous_live_checksum;
+    if (existing.ok && existing.pointer.current_live_checksum != expected_previous_live_checksum)
+        return existing;
+    return {};
 }
 
 JsLivePackagePointer
@@ -103,10 +105,12 @@ JsPublishActivationResult js_publish_apply_staged_package_activation(
                        "Live package activation requires an apply timestamp and audit id.");
         return result;
     }
-    if (pointer_replacement_would_conflict(live_store, result.assembly.status,
-                                           options.assembly_options.current_live_checksum)) {
+    JsLivePackagePointerResult existing_conflict = conflicting_live_pointer(
+        live_store, result.assembly.status, options.assembly_options.current_live_checksum);
+    if (existing_conflict.ok) {
         add_diagnostic(result, JsPublishActivationDiagnosticCode::LivePointerConflict,
                        "Current live pointer checksum changed before activation.");
+        result.live_pointer_result = existing_conflict;
         return result;
     }
 
