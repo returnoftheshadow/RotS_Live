@@ -395,6 +395,7 @@ TEST(JsLivePackageStorePersistence, SavesAndLoadsSnapshotFileRoundTrip) {
         js_live_package_store_snapshot_load_file(path);
 
     EXPECT_TRUE(saved.ok);
+    EXPECT_TRUE(saved.target_replaced);
     ASSERT_TRUE(loaded.ok);
     ASSERT_EQ(1u, loaded.snapshot.records.size());
     EXPECT_EQ(snapshot.records.front().identity.package_version_id,
@@ -439,6 +440,7 @@ TEST(JsLivePackageStorePersistence, SaveFileFailurePreservesExistingSnapshot) {
         js_live_package_store_snapshot_load_file(path);
 
     EXPECT_FALSE(failed_save.ok);
+    EXPECT_FALSE(failed_save.target_replaced);
     ASSERT_TRUE(loaded.ok);
     ASSERT_EQ(1u, loaded.snapshot.records.size());
     EXPECT_NE(std::string::npos,
@@ -460,9 +462,13 @@ TEST(JsLivePackageStorePersistence, SaveFileRejectsInvalidPathsWithoutWritingTem
             "build/rots-missing-live-store-dir/snapshot.json", make_snapshot());
 
     EXPECT_FALSE(empty_path.ok);
+    EXPECT_FALSE(empty_path.target_replaced);
     EXPECT_FALSE(absolute_path.ok);
+    EXPECT_FALSE(absolute_path.target_replaced);
     EXPECT_FALSE(traversal_path.ok);
+    EXPECT_FALSE(traversal_path.target_replaced);
     EXPECT_FALSE(missing_directory.ok);
+    EXPECT_FALSE(missing_directory.target_replaced);
     EXPECT_TRUE(
         read_first_available_file({"build/rots-missing-live-store-dir/snapshot.json.tmp"}).empty());
     std::remove("build/../rots-live-store.json");

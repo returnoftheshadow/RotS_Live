@@ -1,9 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: hydrated the JavaScript live package store from persisted startup data through the admin/reload service while preserving failure rollback.
-- Next slice: persist the JavaScript live package store snapshot after successful activation/rollback so live package changes survive restart.
+- Active slice complete: persisted the JavaScript live package store snapshot after successful activation and rolled back in-memory live mutations when persistence fails.
+- Next slice: add a live-registry-backed JavaScript trigger dispatch bridge that can resolve current live packages without wiring legacy gameplay call sites yet.
 - Active slice progress:
+  - Added an optional `persist_live_store_path` activation setting so successful activate/rollback flows can save the source-bearing live-store snapshot through the hardened persistence layer.
+  - Activation now captures the previous live-store snapshot before mutation, writes the updated snapshot only after the live pointer update succeeds, and hydrates the previous snapshot back into memory only when persistence fails before replacing the target file.
+  - Added `JsLivePackageStorePersistenceFileResult::target_replaced` so activation can avoid rolling memory back when a post-rename durability failure means the new file may already be visible on disk.
+  - Added `PersistenceFailed` diagnostics; pre-replacement persistence failures return `ok == false` and `applied == false`, while post-replacement durability failures return `ok == false` and keep `applied == true` to reflect the live in-memory/disk-visible state.
+  - Added focused activation tests for successful persisted snapshot round trip, live-pointer persistence, source-bearing package preservation in the saved file, pre-replacement persistence rollback, old-record preservation, diagnostic source redaction, and stable diagnostic names.
+  - Validation passed: `make -C src js_live_package_store_persistence.o js_publish_activation.o`, raw relinked `./bin/tests --gtest_filter='JsLivePackageStorePersistence.*:JsPublishActivation.*'` (35 tests), raw relinked `./bin/tests --gtest_filter='JsPublishActivation.*'` (18 tests), and path-limited `git diff --check`.
+  - Validation limitation: full `make test` is currently blocked by unrelated existing account-management compile errors in `account_management_assets.cpp` and `account_management_identity.cpp` (`validate_account_owned_*`, `resolved_*_path`, and JSON writer/helper symbols missing from the CMake build context).
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to the `target_replaced` consistency fix, raw Makefile dependency updates, stronger A/B rollback tests, persisted live-pointer assertions, and activation diagnostic redaction checks.
+  - Residual test gap: the post-rename directory-fsync failure branch is covered by the `target_replaced` contract and reviewer inspection, but not directly forced in an activation test because doing so would require a filesystem failure seam or brittle platform-specific setup.
+  - Future endpoint/admin wiring must keep `persist_live_store_path` server-owned and never populate it from a client or builder request path.
+- Previous slice progress:
   - Added `JsLiveRegistryStartupLoadResult`, `JsLiveRegistryAdminService::hydrate_from_file()`, and `js_live_registry_startup_load_file()` to load persisted live-store snapshots through the hardened persistence layer.
   - Startup hydration loads the file, copies the source-bearing snapshot only into a local variable, clears the returned load snapshot for redaction, hydrates the live store, refreshes the registry, and rolls the live store back to the prior snapshot if refresh fails.
   - Wired `boot_db()` to try `world/js_live_store.json` through `js_live_registry_startup_load_file()` before falling back to the previous in-memory startup refresh path.

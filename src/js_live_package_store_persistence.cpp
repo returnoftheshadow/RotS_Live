@@ -1000,6 +1000,7 @@ js_live_package_store_snapshot_save_file(const std::string &path,
         std::remove(temp_path.c_str());
         return result;
     }
+    result.target_replaced = true;
     if (!fsync_directory(parent_directory(path))) {
         add_diag(result, "Live package store directory could not be synchronized.");
         return result;

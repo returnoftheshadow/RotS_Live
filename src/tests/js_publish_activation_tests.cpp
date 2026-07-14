@@ -5,9 +5,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <fstream>
 #include <initializer_list>
 #include <string>
+#include <unistd.h>
 
 namespace {
 
@@ -139,6 +141,11 @@ std::string read_first_available_file(std::initializer_list<const char *> paths)
     return {};
 }
 
+std::string temp_file_path(const std::string &name) {
+    return "build/rots-js-publish-activation-" + std::to_string(static_cast<long>(getpid())) +
+        "-" + name + ".json";
+}
+
 } // namespace
 
 TEST(JsPublishActivation, PublishingDisabledPreflightDoesNotMutateLiveStore) {
@@ -198,6 +205,125 @@ TEST(JsPublishActivation, AppliesAuthorizedActivationIntoLivePointerStore) {
     EXPECT_EQ(js_live_package_current_checksum_for_identity(record.identity),
               result.live_pointer_result.pointer.current_live_checksum);
     EXPECT_EQ("audit:activate", result.live_pointer_result.pointer.load_audit_id);
+}
+
+TEST(JsPublishActivation, PersistsLiveStoreSnapshotAfterSuccessfulActivation) {
+    const std::string path = temp_file_path("persist-success");
+    std::remove(path.c_str());
+    std::remove((path + ".tmp").c_str());
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord record = stage_package(
+        repository, make_package(3005, "return 'persisted-live-store'"), make_stage_options());
+    JsPublishActivationOptions options = make_options();
+    options.persist_live_store_path = path;
+
+    JsPublishActivationResult result = js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(record), options);
+    JsLivePackageStorePersistenceLoadResult loaded =
+        js_live_package_store_snapshot_load_file(path);
+
+    ASSERT_TRUE(result.ok) << messages(result);
+    EXPECT_TRUE(result.applied);
+    EXPECT_TRUE(result.persistence_result.ok);
+    ASSERT_TRUE(loaded.ok);
+    ASSERT_EQ(1u, loaded.snapshot.records.size());
+    ASSERT_EQ(1u, loaded.snapshot.live_pointers.size());
+    EXPECT_EQ(record.identity.package_version_id,
+              loaded.snapshot.records.front().identity.package_version_id);
+    EXPECT_EQ(record.identity.package_id, loaded.snapshot.live_pointers.front().package_id);
+    EXPECT_EQ(record.identity.package_version_id,
+              loaded.snapshot.live_pointers.front().package_version_id);
+    EXPECT_EQ(record.identity.canonical_digest, loaded.snapshot.live_pointers.front().staged_digest);
+    EXPECT_EQ(js_live_package_current_checksum_for_identity(record.identity),
+              loaded.snapshot.live_pointers.front().current_live_checksum);
+    EXPECT_NE(std::string::npos,
+              loaded.snapshot.records.front().package.compiled_javascript.find(
+                  "persisted-live-store"));
+    std::remove(path.c_str());
+}
+
+TEST(JsPublishActivation, PersistenceFailureRollsBackLiveStoreMutation) {
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord record =
+        stage_package(repository, make_package(3006), make_stage_options());
+    JsPublishActivationOptions options = make_options();
+    options.persist_live_store_path = "/tmp/rots-invalid-absolute-live-store.json";
+
+    JsPublishActivationResult result = js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(record), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_FALSE(result.applied);
+    EXPECT_TRUE(result.live_pointer_result.ok);
+    EXPECT_FALSE(result.persistence_result.ok);
+    EXPECT_TRUE(result.rollback_hydration.ok);
+    EXPECT_TRUE(has_code(result, JsPublishActivationDiagnosticCode::PersistenceFailed));
+    EXPECT_EQ(0u, live_store.package_record_count());
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishActivation, PreReplacementPersistenceFailureRestoresPreviousLivePointer) {
+    const std::string path = temp_file_path("persist-replacement-failure");
+    std::remove(path.c_str());
+    std::remove((path + ".tmp").c_str());
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord first = stage_package(
+        repository, make_package(3007, "return 'first-live-store'"), make_stage_options());
+    JsPublishActivationOptions first_options = make_options();
+    first_options.persist_live_store_path = path;
+    ASSERT_TRUE(js_publish_apply_staged_package_activation(repository, live_store,
+                                                           make_input(first), first_options)
+                    .ok);
+    const std::string first_live_checksum =
+        js_live_package_current_checksum_for_identity(first.identity);
+    {
+        std::ofstream temp(path + ".tmp", std::ios::binary | std::ios::trunc);
+        temp << "block replacement";
+    }
+
+    JsStagedPackageRecord second =
+        stage_package(repository, make_package(3007, "return 'second-live-store'"),
+                      make_stage_options("account:builder", first_live_checksum));
+    JsPublishActivationOptions second_options = make_options(first_live_checksum);
+    second_options.persist_live_store_path = path;
+    JsPublishActivationResult result = js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(second), second_options);
+    JsLivePackageStorePersistenceLoadResult loaded =
+        js_live_package_store_snapshot_load_file(path);
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer(first.identity.zone, first.identity.host, first.identity.vnum);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_FALSE(result.applied);
+    EXPECT_FALSE(result.persistence_result.ok);
+    EXPECT_FALSE(result.persistence_result.target_replaced);
+    EXPECT_TRUE(result.rollback_hydration.ok);
+    EXPECT_EQ(std::string::npos, messages(result).find("second-live-store"));
+    EXPECT_EQ(std::string::npos, messages(result).find("function onEnter"));
+    EXPECT_EQ(std::string::npos, messages(result).find("compiled_javascript"));
+    EXPECT_EQ(1u, live_store.package_record_count());
+    EXPECT_EQ(1u, live_store.live_pointer_count());
+    EXPECT_TRUE(live_store.find_record(first.identity.package_id,
+                                       first.identity.package_version_id)
+                    .ok);
+    EXPECT_FALSE(live_store.find_record(second.identity.package_id,
+                                        second.identity.package_version_id)
+                     .ok);
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(first.identity.package_version_id, pointer.pointer.package_version_id);
+    ASSERT_TRUE(loaded.ok);
+    ASSERT_EQ(1u, loaded.snapshot.records.size());
+    EXPECT_NE(std::string::npos,
+              loaded.snapshot.records.front().package.compiled_javascript.find(
+                  "first-live-store"));
+    EXPECT_EQ(std::string::npos,
+              loaded.snapshot.records.front().package.compiled_javascript.find(
+                  "second-live-store"));
+    std::remove((path + ".tmp").c_str());
+    std::remove(path.c_str());
 }
 
 TEST(JsPublishActivation, PopulatesRegistrySnapshotWithoutDispatchingGameplay) {
@@ -420,6 +546,9 @@ TEST(JsPublishActivation, DiagnosticsAreBoundedAndHaveStableNames) {
                                      JsPublishActivationDiagnosticCode::StoreFailed));
     EXPECT_STREQ("pointer-failed", js_publish_activation_diagnostic_code_name(
                                        JsPublishActivationDiagnosticCode::PointerFailed));
+    EXPECT_STREQ("persistence-failed",
+                 js_publish_activation_diagnostic_code_name(
+                     JsPublishActivationDiagnosticCode::PersistenceFailed));
 
     JsStagedPackageRepository repository;
     JsLivePackageStore live_store;

@@ -20,6 +20,7 @@ struct JsLivePackageStorePersistenceLoadResult {
 
 struct JsLivePackageStorePersistenceFileResult {
     bool ok = false;
+    bool target_replaced = false;
     std::vector<JsLivePackageStorePersistenceDiagnostic> diagnostics;
 };
 

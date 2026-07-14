@@ -118,6 +118,7 @@ JsPublishActivationResult js_publish_apply_staged_package_activation(
         return result;
     }
 
+    const JsLivePackageStoreSnapshot previous_snapshot = live_store.export_snapshot();
     result.live_pointer_result = live_store.activate_staged_record_pointer(
         lookup.record,
         live_pointer_from_assembly(result.assembly, lookup.record.identity, options));
@@ -126,6 +127,24 @@ JsPublishActivationResult js_publish_apply_staged_package_activation(
                               activation_code_for_live_store_failure(result.live_pointer_result),
                               result.live_pointer_result.diagnostics);
         return result;
+    }
+
+    if (!options.persist_live_store_path.empty()) {
+        result.persistence_result = js_live_package_store_snapshot_save_file(
+            options.persist_live_store_path, live_store.export_snapshot());
+        if (!result.persistence_result.ok) {
+            if (!result.persistence_result.target_replaced)
+                result.rollback_hydration = live_store.hydrate_from_snapshot(previous_snapshot);
+            else
+                result.applied = true;
+            add_diagnostic(result, JsPublishActivationDiagnosticCode::PersistenceFailed,
+                           "Live package store persistence failed after activation.");
+            for (const JsLivePackageStorePersistenceDiagnostic &diagnostic :
+                 result.persistence_result.diagnostics)
+                add_diagnostic(result, JsPublishActivationDiagnosticCode::PersistenceFailed,
+                               diagnostic.message);
+            return result;
+        }
     }
 
     result.applied = true;
@@ -149,6 +168,8 @@ const char *js_publish_activation_diagnostic_code_name(JsPublishActivationDiagno
         return "store-failed";
     case JsPublishActivationDiagnosticCode::PointerFailed:
         return "pointer-failed";
+    case JsPublishActivationDiagnosticCode::PersistenceFailed:
+        return "persistence-failed";
     }
     return "unknown";
 }
