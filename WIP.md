@@ -1,8 +1,17 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added renderer/IPC hostile-input publish validation tests.
-- Next slice: begin real server endpoint compatibility fixtures for the publish client contract.
+- Active slice complete: added publish endpoint compatibility fixtures for the client contract.
+- Next slice: wire fixture-backed status/conflict display into the publish panel and start server endpoint implementation planning.
+- Completed slice progress:
+  - Added checked-in HTTP response fixtures for stage, status, activate, rollback, stale-live conflict, and authorization failure shapes under `BuilderClient/fixtures/publish-endpoints/`.
+  - Extended the client publish result DTO to preserve server reason code, audit id, and package version id metadata while keeping diagnostics redacted.
+  - Added endpoint fixture tests proving the publish client maps success metadata, conflict metadata, authorization failures, live checksum updates, audit ids, and token-bearing diagnostics consistently.
+  - Subagent review was not requested because the previous instruction closed all open pools; this slice used local review plus automated validation.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: added renderer/IPC hostile-input publish validation tests.
+  - Next slice: begin real server endpoint compatibility fixtures for the publish client contract.
 - Completed slice progress:
   - Added shared publish IPC request validators for renderer-controlled stage, status, activate, and rollback payloads before any server call is attempted.
   - Covered malformed, oversized, prototype-polluted, missing-field, activation/rollback integrity-field, and whitespace-normalization inputs.
