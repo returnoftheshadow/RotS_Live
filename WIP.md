@@ -1,8 +1,17 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: surfaced the publish client in the Electron UI with credential storage and server status/error workflows.
-- Next slice: add renderer/IPC hostile-input tests and begin real server endpoint compatibility fixtures.
+- Active slice complete: added renderer/IPC hostile-input publish validation tests.
+- Next slice: begin real server endpoint compatibility fixtures for the publish client contract.
+- Completed slice progress:
+  - Added shared publish IPC request validators for renderer-controlled stage, status, activate, and rollback payloads before any server call is attempted.
+  - Covered malformed, oversized, prototype-polluted, missing-field, activation/rollback integrity-field, and whitespace-normalization inputs.
+  - Wired the validators into the Electron main-process publish handlers and kept validation failures on the local redacted result path.
+  - Attempted to spawn Vincent for security review, but the subagent thread pool was still at its limit; no fresh reviewer feedback was available for this hostile-input slice.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: surfaced the publish client in the Electron UI with credential storage and server status/error workflows.
+  - Next slice: add renderer/IPC hostile-input tests and begin real server endpoint compatibility fixtures.
 - Completed slice progress:
   - Added a narrow Electron main-process credential/config bridge so publish tokens are not persisted in project data.
   - Added `safeStorage`-backed publish credential persistence when OS-backed encryption is available, with memory-only token fallback when it is not.
