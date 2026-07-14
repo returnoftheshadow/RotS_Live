@@ -1,9 +1,17 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into the blocking character `ON_BEFORE_ENTER` gameplay path.
-- Next slice: wire the same guarded dispatch pattern into the next character-host trigger path after movement entry, likely `ON_DIE` or `ON_DAMAGE`, depending on which blocking semantics are safest to isolate next.
+- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into the blocking character `ON_DIE` gameplay path.
+- Next slice: wire the guarded dispatch pattern into character `ON_DAMAGE`, including the victim-first short-circuit before weapon-object damage dispatch.
 - Active slice progress:
+  - Selected `ON_DIE` before `ON_DAMAGE` because it is a single character-host blocking trigger and can reuse the existing live character registry/freshness guard without object-chain semantics.
+  - Added a separate `dispatch_javascript_character_death_trigger(...)` helper so death handling does not inherit movement-entry-only room relationship checks.
+  - Preserve legacy `.scr` ordering: the legacy `ON_DIE` script runs first, and JavaScript is only considered if legacy still allows death.
+  - Preserve blocking semantics: JavaScript `false`/block or runtime error on `ON_DIE` returns `0` to block death; disabled, stale-registry, registry-not-ready, no-match, or stale-character cases skip JavaScript and allow the legacy result.
+  - Added focused tests for live `onDie` execution blocking death, runtime-error fail-closed behavior, legacy `ON_DIE` blocking before JavaScript can override the result, stale-character skip behavior, and source guards proving `trigger_char_die()` is wired after legacy execution.
+  - Magus, Vincent, and Bazarat review prompts were sent for the `ON_DIE` slice; no blocking findings were returned through the available subagent tool interface before final validation.
+  - Validation passed: `make -C src script.o`, raw relinked `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*'` (28 tests), path-limited `git diff --check`, and full `make test` (960/960).
+- Previous slice progress:
   - Starting from the committed `ON_ENTER` wiring in `9ea00d1`.
   - Preserve legacy `.scr` ordering: the legacy `ON_BEFORE_ENTER` script runs first, and JavaScript is only considered if legacy still allows movement.
   - Preserve blocking semantics: a JavaScript `false`/block or runtime error on `ON_BEFORE_ENTER` should return `0` to block movement; disabled, stale-registry, registry-not-ready, no-match, stale-character, or detached-room cases should skip JavaScript and allow the legacy result.

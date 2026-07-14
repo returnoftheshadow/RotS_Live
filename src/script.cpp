@@ -196,6 +196,39 @@ int dispatch_javascript_character_movement_entry_trigger(
         : 1;
 }
 
+int dispatch_javascript_character_death_trigger(char_data* ch)
+{
+    if (!javascript_legacy_trigger_dispatch_enabled || ch == nullptr)
+        return 1;
+
+    const std::vector<const char_data*> characters = live_character_snapshot();
+    if (!live_character_snapshot_contains(characters, ch))
+        return 1;
+
+    const std::vector<const obj_data*> objects = live_object_snapshot();
+    const JsGameAdapterOptions adapter_options =
+        js_game_adapter_options_from_world(characters, objects);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_DIE;
+    request.context_input.self = ch;
+    if (js_game_adapter_room_is_valid(ch->in_room, adapter_options))
+        request.context_input.room = ch->in_room;
+
+    JsLegacyTriggerDispatchOptions options;
+    options.enabled = javascript_legacy_trigger_dispatch_enabled;
+    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+
+    const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    return result.status == JsLegacyTriggerDispatchStatus::Block ||
+            result.status == JsLegacyTriggerDispatchStatus::Error
+        ? 0
+        : 1;
+}
+
 } // namespace
 
 // Returns the index position of a script in the script_table when supplied with a vnum
@@ -1809,6 +1842,8 @@ int trigger_char_die(char_data* ch)
             ch->specials.script_info->ch[0] = ch;
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
+    if (return_value)
+        return_value = dispatch_javascript_character_death_trigger(ch);
     return return_value;
 }
 
