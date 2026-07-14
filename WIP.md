@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: fixed bottom panel resizing so it takes height from the editor pane.
-- Next slice: continue reviewer findings with non-publish IPC validation, parent/client tracking, and publish DTO alignment.
+- Active slice complete: added non-publish BuilderClient IPC validation.
+- Next slice: continue reviewer findings with parent/client tracking and publish DTO alignment.
+- Completed slice progress:
+  - Added bounded validation for renderer-controlled compile, offline fixture, local package, and artifact-root IPC requests.
+  - Validated and canonicalized project metadata, files, fixtures, manifest triggers, API types, and package fixture summaries before trusted code consumes them.
+  - Wired non-publish IPC handlers through an injectable handler layer so malformed requests do not reach TypeScript compilation, VM execution, package assembly, or artifact loading.
+  - Restricted the TypeScript compiler host to in-memory project files plus TypeScript standard lib declarations instead of arbitrary local filesystem fallback reads.
+  - Required offline fixture execution and local package assembly to use JavaScript produced by a successful main-process compile in the current BuilderClient session.
+  - Added adversarial tests for malformed, oversized, prototype-polluted, traversal-looking, deeply nested, and handler-bypass IPC payloads.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to nested manifest/API validation, artifact-root validation, traversal budgets, canonical fixture summaries, compiler-host filesystem restrictions, and compile-bound VM/package execution.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: fixed bottom panel resizing so it takes height from the editor pane.
+  - Next slice: continue reviewer findings with non-publish IPC validation, parent/client tracking, and publish DTO alignment.
 - Completed slice progress:
   - Constrained the BuilderClient shell/workspace/editor/bottom-panel grids so panel growth cannot expand the page.
   - Tightened the bottom panel maximum height to preserve a usable editor pane while resizing.
