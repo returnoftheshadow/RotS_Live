@@ -4,9 +4,12 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <fstream>
 #include <initializer_list>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace {
 
@@ -82,6 +85,11 @@ JsLivePackageStoreSnapshot make_snapshot(const std::string &body = "return true"
     EXPECT_TRUE(store.store_staged_record(staged).ok);
     EXPECT_TRUE(store.load_live_pointer(make_pointer(staged)).ok);
     return store.export_snapshot();
+}
+
+std::string temp_file_path(const std::string &name) {
+    return "build/rots-js-live-store-persistence-" + std::to_string(static_cast<long>(getpid())) +
+        "-" + name + ".json";
 }
 
 std::string read_first_available_file(std::initializer_list<const char *> paths) {
@@ -373,6 +381,111 @@ TEST(JsLivePackageStorePersistence, FailureDoesNotExposePartiallyDecodedSnapshot
                                  source_sentinel);
     expect_failed_empty_snapshot(js_live_package_store_snapshot_from_json(hydration_failure),
                                  source_sentinel);
+}
+
+TEST(JsLivePackageStorePersistence, SavesAndLoadsSnapshotFileRoundTrip) {
+    const std::string path = temp_file_path("roundtrip");
+    std::remove(path.c_str());
+    std::remove((path + ".tmp").c_str());
+    JsLivePackageStoreSnapshot snapshot = make_snapshot("return 'file-roundtrip'");
+
+    JsLivePackageStorePersistenceFileResult saved =
+        js_live_package_store_snapshot_save_file(path, snapshot);
+    JsLivePackageStorePersistenceLoadResult loaded =
+        js_live_package_store_snapshot_load_file(path);
+
+    EXPECT_TRUE(saved.ok);
+    ASSERT_TRUE(loaded.ok);
+    ASSERT_EQ(1u, loaded.snapshot.records.size());
+    EXPECT_EQ(snapshot.records.front().identity.package_version_id,
+              loaded.snapshot.records.front().identity.package_version_id);
+    EXPECT_EQ(std::string::npos,
+              read_first_available_file({(path + ".tmp").c_str()}).find("file-roundtrip"));
+    struct stat st;
+    ASSERT_EQ(0, stat(path.c_str(), &st));
+    EXPECT_EQ(0u, static_cast<unsigned>(st.st_mode) & 0077u);
+    std::remove(path.c_str());
+}
+
+TEST(JsLivePackageStorePersistence, LoadFileFailuresReturnEmptySnapshots) {
+    JsLivePackageStorePersistenceLoadResult missing =
+        js_live_package_store_snapshot_load_file(temp_file_path("missing"));
+    JsLivePackageStorePersistenceLoadResult empty_path =
+        js_live_package_store_snapshot_load_file("");
+    const std::string corrupt_path = temp_file_path("corrupt");
+    {
+        std::ofstream file(corrupt_path, std::ios::binary | std::ios::trunc);
+        file << "{\"schema_version\":1,\"records\":[";
+    }
+
+    expect_failed_empty_snapshot(missing);
+    expect_failed_empty_snapshot(empty_path);
+    expect_failed_empty_snapshot(js_live_package_store_snapshot_load_file(corrupt_path));
+    std::remove(corrupt_path.c_str());
+}
+
+TEST(JsLivePackageStorePersistence, SaveFileFailurePreservesExistingSnapshot) {
+    const std::string path = temp_file_path("preserve-existing");
+    std::remove(path.c_str());
+    std::remove((path + ".tmp").c_str());
+    JsLivePackageStoreSnapshot original = make_snapshot("return 'original-live-store'");
+    ASSERT_TRUE(js_live_package_store_snapshot_save_file(path, original).ok);
+
+    JsLivePackageStoreSnapshot invalid = original;
+    invalid.records.clear();
+    JsLivePackageStorePersistenceFileResult failed_save =
+        js_live_package_store_snapshot_save_file(path, invalid);
+    JsLivePackageStorePersistenceLoadResult loaded =
+        js_live_package_store_snapshot_load_file(path);
+
+    EXPECT_FALSE(failed_save.ok);
+    ASSERT_TRUE(loaded.ok);
+    ASSERT_EQ(1u, loaded.snapshot.records.size());
+    EXPECT_NE(std::string::npos,
+              loaded.snapshot.records.front().package.compiled_javascript.find(
+                  "original-live-store"));
+    EXPECT_TRUE(read_first_available_file({(path + ".tmp").c_str()}).empty());
+    std::remove(path.c_str());
+}
+
+TEST(JsLivePackageStorePersistence, SaveFileRejectsInvalidPathsWithoutWritingTempFile) {
+    JsLivePackageStorePersistenceFileResult empty_path =
+        js_live_package_store_snapshot_save_file("", make_snapshot());
+    JsLivePackageStorePersistenceFileResult absolute_path =
+        js_live_package_store_snapshot_save_file("/tmp/rots-live-store.json", make_snapshot());
+    JsLivePackageStorePersistenceFileResult traversal_path =
+        js_live_package_store_snapshot_save_file("build/../rots-live-store.json", make_snapshot());
+    JsLivePackageStorePersistenceFileResult missing_directory =
+        js_live_package_store_snapshot_save_file(
+            "build/rots-missing-live-store-dir/snapshot.json", make_snapshot());
+
+    EXPECT_FALSE(empty_path.ok);
+    EXPECT_FALSE(absolute_path.ok);
+    EXPECT_FALSE(traversal_path.ok);
+    EXPECT_FALSE(missing_directory.ok);
+    EXPECT_TRUE(
+        read_first_available_file({"build/rots-missing-live-store-dir/snapshot.json.tmp"}).empty());
+    std::remove("build/../rots-live-store.json");
+}
+
+TEST(JsLivePackageStorePersistence, RejectsSymlinkLoadAndTemporarySaveTargets) {
+    const std::string real_path = temp_file_path("real");
+    const std::string load_link = temp_file_path("load-link");
+    const std::string save_path = temp_file_path("save-symlink-temp");
+    std::remove(real_path.c_str());
+    std::remove(load_link.c_str());
+    std::remove(save_path.c_str());
+    std::remove((save_path + ".tmp").c_str());
+    ASSERT_TRUE(js_live_package_store_snapshot_save_file(real_path, make_snapshot()).ok);
+    ASSERT_EQ(0, symlink(real_path.c_str(), load_link.c_str()));
+    ASSERT_EQ(0, symlink(real_path.c_str(), (save_path + ".tmp").c_str()));
+
+    expect_failed_empty_snapshot(js_live_package_store_snapshot_load_file(load_link));
+    EXPECT_FALSE(js_live_package_store_snapshot_save_file(save_path, make_snapshot()).ok);
+
+    std::remove(real_path.c_str());
+    std::remove(load_link.c_str());
+    std::remove((save_path + ".tmp").c_str());
 }
 
 TEST(JsLivePackageStorePersistence, BuildFilesIncludePersistenceSourcesAndTests) {

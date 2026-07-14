@@ -18,8 +18,18 @@ struct JsLivePackageStorePersistenceLoadResult {
     std::vector<JsLivePackageStorePersistenceDiagnostic> diagnostics;
 };
 
+struct JsLivePackageStorePersistenceFileResult {
+    bool ok = false;
+    std::vector<JsLivePackageStorePersistenceDiagnostic> diagnostics;
+};
+
 std::string js_live_package_store_snapshot_to_json(const JsLivePackageStoreSnapshot &snapshot);
 JsLivePackageStorePersistenceLoadResult
 js_live_package_store_snapshot_from_json(const std::string &json);
+JsLivePackageStorePersistenceLoadResult
+js_live_package_store_snapshot_load_file(const std::string &path);
+JsLivePackageStorePersistenceFileResult
+js_live_package_store_snapshot_save_file(const std::string &path,
+                                         const JsLivePackageStoreSnapshot &snapshot);
 
 #endif

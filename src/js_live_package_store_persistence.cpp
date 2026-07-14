@@ -3,7 +3,14 @@
 #include "json_utils.h"
 
 #include <algorithm>
+#include <cerrno>
+#include <cstdio>
 #include <sstream>
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 namespace {
 
@@ -14,6 +21,10 @@ constexpr std::size_t MaxPersistedTriggerBindings = 512;
 constexpr std::size_t MaxPersistedSourceBytes = 256 * 1024;
 
 void add_diag(JsLivePackageStorePersistenceLoadResult &result, const std::string &message) {
+    result.diagnostics.push_back({message});
+}
+
+void add_diag(JsLivePackageStorePersistenceFileResult &result, const std::string &message) {
     result.diagnostics.push_back({message});
 }
 
@@ -190,6 +201,105 @@ bool require_fields(unsigned long long seen, unsigned long long required, const 
         *error = std::string("Live package ") + object_name +
             " JSON is missing required fields.";
     return false;
+}
+
+bool is_path_separator(char ch) {
+    return ch == '/';
+}
+
+bool validate_safe_relative_path(const std::string &path, std::string *error) {
+    if (path.empty()) {
+        if (error)
+            *error = "Live package store path is empty.";
+        return false;
+    }
+    if (is_path_separator(path.front())) {
+        if (error)
+            *error = "Live package store path must be relative.";
+        return false;
+    }
+
+    std::string current;
+    std::size_t component_start = 0;
+    while (component_start <= path.size()) {
+        const std::size_t component_end = path.find('/', component_start);
+        const bool last_component = component_end == std::string::npos;
+        const std::string component =
+            path.substr(component_start, last_component ? std::string::npos
+                                                       : component_end - component_start);
+        if (component.empty() || component == "." || component == "..") {
+            if (error)
+                *error = "Live package store path contains an unsafe component.";
+            return false;
+        }
+        if (!current.empty())
+            current += "/";
+        current += component;
+
+        if (!last_component) {
+            struct stat st;
+            if (lstat(current.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) ||
+                S_ISLNK(st.st_mode) || (st.st_mode & S_IWOTH) != 0) {
+                if (error)
+                    *error = "Live package store parent path is not a trusted directory.";
+                return false;
+            }
+        }
+
+        if (last_component)
+            break;
+        component_start = component_end + 1;
+    }
+    return true;
+}
+
+std::string parent_directory(const std::string &path) {
+    const std::string::size_type slash = path.find_last_of('/');
+    if (slash == std::string::npos)
+        return ".";
+    return path.substr(0, slash);
+}
+
+bool reject_unsafe_existing_file(const std::string &path, std::string *error) {
+    struct stat st;
+    if (lstat(path.c_str(), &st) != 0) {
+        if (errno == ENOENT)
+            return true;
+        if (error)
+            *error = "Live package store file metadata could not be read.";
+        return false;
+    }
+    if (S_ISLNK(st.st_mode) || !S_ISREG(st.st_mode)) {
+        if (error)
+            *error = "Live package store path is not a regular file.";
+        return false;
+    }
+    return true;
+}
+
+bool write_all(int fd, const char *data, std::size_t size) {
+    std::size_t written = 0;
+    while (written < size) {
+        const ssize_t count = write(fd, data + written, size - written);
+        if (count < 0) {
+            if (errno == EINTR)
+                continue;
+            return false;
+        }
+        if (count == 0)
+            return false;
+        written += static_cast<std::size_t>(count);
+    }
+    return true;
+}
+
+bool fsync_directory(const std::string &path) {
+    const int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0)
+        return false;
+    const bool ok = fsync(fd) == 0;
+    close(fd);
+    return ok;
 }
 
 bool parse_identity(json_utils::JsonReader *reader, JsStagedPackageIdentity *identity,
@@ -780,6 +890,120 @@ js_live_package_store_snapshot_from_json(const std::string &json) {
         return result;
     }
     result.snapshot = candidate;
+    result.ok = true;
+    return result;
+}
+
+JsLivePackageStorePersistenceLoadResult
+js_live_package_store_snapshot_load_file(const std::string &path) {
+    JsLivePackageStorePersistenceLoadResult result;
+    std::string path_error;
+    if (!validate_safe_relative_path(path, &path_error)) {
+        add_diag(result, path_error);
+        return result;
+    }
+    if (!reject_unsafe_existing_file(path, &path_error)) {
+        add_diag(result, path_error);
+        return result;
+    }
+
+    const int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) {
+        add_diag(result, "Live package store file could not be opened.");
+        return result;
+    }
+
+    struct stat st;
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        add_diag(result, "Live package store file size could not be read.");
+        return result;
+    }
+    const off_t size = st.st_size;
+    if (static_cast<std::size_t>(size) > MaxJsonBytes) {
+        close(fd);
+        add_diag(result, "Live package store file exceeds persistence input limit.");
+        return result;
+    }
+    std::string json(static_cast<std::size_t>(size), '\0');
+    std::size_t total_read = 0;
+    while (total_read < json.size()) {
+        const ssize_t count = read(fd, &json[total_read], json.size() - total_read);
+        if (count < 0) {
+            if (errno == EINTR)
+                continue;
+            close(fd);
+            add_diag(result, "Live package store file could not be read.");
+            return result;
+        }
+        if (count == 0)
+            break;
+        total_read += static_cast<std::size_t>(count);
+    }
+    close(fd);
+    if (total_read != json.size()) {
+        add_diag(result, "Live package store file could not be read completely.");
+        return result;
+    }
+    return js_live_package_store_snapshot_from_json(json);
+}
+
+JsLivePackageStorePersistenceFileResult
+js_live_package_store_snapshot_save_file(const std::string &path,
+                                         const JsLivePackageStoreSnapshot &snapshot) {
+    JsLivePackageStorePersistenceFileResult result;
+    std::string path_error;
+    if (!validate_safe_relative_path(path, &path_error)) {
+        add_diag(result, path_error);
+        return result;
+    }
+    if (!reject_unsafe_existing_file(path, &path_error)) {
+        add_diag(result, path_error);
+        return result;
+    }
+
+    const std::string json = js_live_package_store_snapshot_to_json(snapshot);
+    JsLivePackageStorePersistenceLoadResult validation =
+        js_live_package_store_snapshot_from_json(json);
+    if (!validation.ok) {
+        add_diag(result, "Live package store snapshot failed validation before save.");
+        for (const JsLivePackageStorePersistenceDiagnostic &diagnostic : validation.diagnostics)
+            add_diag(result, diagnostic.message);
+        return result;
+    }
+
+    const std::string temp_path = path + ".tmp";
+    if (!reject_unsafe_existing_file(temp_path, &path_error)) {
+        add_diag(result, path_error);
+        return result;
+    }
+    const int fd =
+        open(temp_path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        add_diag(result, "Live package store temporary file could not be opened.");
+        return result;
+    }
+    if (!write_all(fd, json.data(), json.size()) || fsync(fd) != 0) {
+        close(fd);
+        std::remove(temp_path.c_str());
+        add_diag(result, "Live package store temporary file could not be written.");
+        return result;
+    }
+    if (close(fd) != 0) {
+        std::remove(temp_path.c_str());
+        add_diag(result, "Live package store temporary file could not be closed.");
+        return result;
+    }
+
+    if (std::rename(temp_path.c_str(), path.c_str()) != 0) {
+        add_diag(result, "Live package store file could not be replaced.");
+        std::remove(temp_path.c_str());
+        return result;
+    }
+    if (!fsync_directory(parent_directory(path))) {
+        add_diag(result, "Live package store directory could not be synchronized.");
+        return result;
+    }
     result.ok = true;
     return result;
 }

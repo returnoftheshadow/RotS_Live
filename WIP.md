@@ -1,16 +1,23 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added strict JSON persistence codec for JavaScript live package store snapshots without enabling live trigger dispatch.
-- Next slice: add filesystem load/save hooks for JavaScript live package records and live pointers without enabling live trigger dispatch.
+- Active slice complete: added hardened filesystem load/save hooks for JavaScript live package records and live pointers without enabling live trigger dispatch.
+- Next slice: hydrate the JavaScript live package store from persisted startup data through the admin/reload service while preserving failure rollback.
 - Active slice progress:
+  - Added `js_live_package_store_snapshot_load_file()` and `js_live_package_store_snapshot_save_file()` on top of the strict JSON snapshot codec.
+  - Load/save paths are relative-only, reject dot/traversal/absolute paths, require trusted non-world-writable parent directories, and reject symlink or non-regular final/temp paths.
+  - Save validates the snapshot before writing, writes a private `0600` temp file with `O_CREAT | O_EXCL | O_NOFOLLOW`, fsyncs the temp file, atomically renames it, and fsyncs the parent directory.
+  - Added focused tests for file round trip, corrupt/missing/empty-path load failures, invalid path rejection, failed-save preservation of the existing snapshot, temp cleanup, file permissions, and symlink load/temp-save rejection.
+  - Magus, Vincent, and Bazarat reviewed the slice; Vincent's findings drove the descriptor-based temp-file write, safe relative path policy, private file mode, and fsync behavior.
+  - Validation passed: `make test` (922/922), `make -C src js_live_package_store_persistence.o`, raw relinked `./bin/tests --gtest_filter='JsLivePackageStorePersistence.*'` (17 tests), and `git diff --check`.
+- Previous slice progress:
   - Added `src/js_live_package_store_persistence.{h,cpp}` to serialize source-bearing `JsLivePackageStoreSnapshot` records and live pointers with schema version `1`.
   - Decoder validates size limits, rejects missing/duplicate/unknown fields at the top level and every nested object, rejects unsupported enum values, validates trigger/source limits, and hydrates through `JsLivePackageStore` before returning success.
   - Failed decodes parse into a local candidate and return an empty snapshot on parse, schema, resource-limit, or hydration failures so source-bearing partial data is not exposed with `ok == false`.
   - Added focused tests for round-trip hydration, source preservation, malformed/unsupported schema handling, missing fields, duplicate and unknown fields, wrong primitive types, enum failures, resource limits, partial failure redaction, and build wiring.
   - Magus, Vincent, and Bazarat reviewed the slice; their findings led to strict nested schema checks, generic diagnostics without raw JSON key names, resource-limit coverage, and empty failed-load snapshots.
   - Validation passed: `make test` (917/917), `make -C src js_live_package_store_persistence.o`, raw relinked `./bin/tests --gtest_filter='JsLivePackageStorePersistence.*'` (12 tests), and `git diff --check`.
-- Previous slice progress:
+- Earlier slice progress:
   - Added source-bearing `JsLivePackageStoreSnapshot` export and atomic `hydrate_from_snapshot()` replacement.
   - Hydration validates records and pointers through a candidate store, then swaps internal state only on full success.
   - Added tests for round-trip hydration, failure atomicity, pointer-phase failure atomicity, replace-not-merge behavior, record/pointer limits, duplicate record policy, and duplicate live pointer slots.
