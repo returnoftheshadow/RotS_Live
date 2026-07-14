@@ -396,6 +396,47 @@ int dispatch_javascript_character_receive_trigger(char_data* receiver, char_data
         : 1;
 }
 
+int dispatch_javascript_character_hear_trigger(int trigger_type, char_data* listener,
+    char_data* speaker, char* text)
+{
+    if (!javascript_legacy_trigger_dispatch_enabled ||
+        (trigger_type != ON_HEAR_SAY && trigger_type != ON_HEAR_YELL) || listener == nullptr ||
+        speaker == nullptr || text == nullptr)
+        return 1;
+
+    const std::vector<const char_data*> characters = live_character_snapshot();
+    if (!live_character_snapshot_contains(characters, listener) ||
+        !live_character_snapshot_contains(characters, speaker))
+        return 1;
+
+    const std::vector<const obj_data*> objects = live_object_snapshot();
+    const JsGameAdapterOptions adapter_options =
+        js_game_adapter_options_from_world(characters, objects);
+    if (!js_game_adapter_room_is_valid(listener->in_room, adapter_options) ||
+        !js_game_adapter_room_is_valid(speaker->in_room, adapter_options))
+        return 1;
+
+    if (trigger_type == ON_HEAR_SAY && listener->in_room != speaker->in_room)
+        return 1;
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = trigger_type;
+    request.context_input.self = listener;
+    request.context_input.actor = speaker;
+    request.context_input.room = listener->in_room;
+    request.context_input.text = text;
+
+    JsLegacyTriggerDispatchOptions options;
+    options.enabled = javascript_legacy_trigger_dispatch_enabled;
+    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+
+    js_legacy_trigger_dispatch(
+        js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    return 1;
+}
+
 } // namespace
 
 // Returns the index position of a script in the script_table when supplied with a vnum
@@ -2056,6 +2097,8 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
             ch->specials.script_info->str[0] = text;
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
+    if (return_value)
+        return_value = dispatch_javascript_character_hear_trigger(ON_HEAR_SAY, ch, speaking, text);
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_YELL))) {
         if (script_position->next) {
             initialise_script_info_char(ch, index);
@@ -2065,6 +2108,8 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
     }
+    if (return_value)
+        return_value = dispatch_javascript_character_hear_trigger(ON_HEAR_YELL, ch, speaking, text);
     return return_value;
 }
 

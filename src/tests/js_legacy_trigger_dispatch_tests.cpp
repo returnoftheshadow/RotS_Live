@@ -22,6 +22,7 @@ int trigger_char_damage(char_data *vict, char_data *ch);
 int trigger_object_damage(obj_data *obj, char_data *vict, char_data *ch);
 int trigger_object_event(int trigger_type, obj_data *obj, char_data *ch);
 int trigger_room_event(int trigger_type, room_data *room, char_data *ch);
+int trigger_char_hear(char_data *ch, char_data *speaking, char *text);
 extern room_data world;
 extern int top_of_world;
 extern script_head *script_table;
@@ -88,6 +89,19 @@ JsTriggerDispatchRequest character_enter_request(const char_data *self) {
     return request;
 }
 
+JsTriggerDispatchRequest character_hear_request(int trigger_type, const char_data *listener,
+                                                const char_data *speaker, const char *text) {
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = trigger_type;
+    request.context_input.self = listener;
+    request.context_input.actor = speaker;
+    request.context_input.room = listener != nullptr ? listener->in_room : -1;
+    request.context_input.text = text;
+    return request;
+}
+
 const char *handler_name_for_legacy_trigger(int legacy_value) {
     switch (legacy_value) {
     case ON_BEFORE_ENTER:
@@ -98,6 +112,10 @@ const char *handler_name_for_legacy_trigger(int legacy_value) {
         return "onDamage";
     case ON_RECEIVE:
         return "onReceive";
+    case ON_HEAR_SAY:
+        return "onHearSay";
+    case ON_HEAR_YELL:
+        return "onHearYell";
     case ON_EXAMINE_OBJECT:
         return "onExamineObject";
     case ON_EAT:
@@ -1380,6 +1398,172 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptReceivePathSkipsWhenObjectMovedAwayFr
     EXPECT_EQ(trigger_char_receive(&receiver, &giver, &object), 1);
 }
 
+TEST(JsLegacyTriggerDispatch, EnabledScriptHearSayPathAllowsWhenHandlerReturnsFalse) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6160,
+                         "function onHearSay(ctx) { "
+                         "return !(ctx.self.name === 'Listener' && ctx.actor.name === 'Speaker' && "
+                         "ctx.text === 'hello'); "
+                         "}",
+                         ON_HEAR_SAY));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    listener.next = &speaker;
+    speaker.next = nullptr;
+    character_list = &listener;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+    char text[] = "hello";
+
+    EXPECT_EQ(trigger_char_hear(&listener, &speaker, text), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptHearYellPathAllowsWhenRuntimeErrors) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6161, "function onHearYell(ctx) { throw ctx.text; }",
+                         ON_HEAR_YELL));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    listener.next = &speaker;
+    speaker.next = nullptr;
+    character_list = &listener;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+    char text[] = "LOUD";
+
+    EXPECT_EQ(trigger_char_hear(&listener, &speaker, text), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptHearPathSkipsWhenListenerIsNoLongerLive) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6162, "function onHearSay(ctx) { return false; }", ON_HEAR_SAY));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    speaker.next = nullptr;
+    character_list = &speaker;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+    char text[] = "hello";
+
+    EXPECT_EQ(trigger_char_hear(&listener, &speaker, text), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptHearPathSkipsWhenSpeakerIsNoLongerLive) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6163, "function onHearSay(ctx) { return false; }", ON_HEAR_SAY));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    listener.next = nullptr;
+    character_list = &listener;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+    char text[] = "hello";
+
+    EXPECT_EQ(trigger_char_hear(&listener, &speaker, text), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptHearPathSkipsWhenTextIsNull) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6164, "function onHearSay(ctx) { return false; }", ON_HEAR_SAY));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    listener.next = &speaker;
+    speaker.next = nullptr;
+    character_list = &listener;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_hear(&listener, &speaker, nullptr), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptHearPathSkipsWhenListenerRoomIsInvalid) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6165, "function onHearSay(ctx) { return false; }", ON_HEAR_SAY));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    listener.in_room = -1;
+    listener.next = &speaker;
+    speaker.next = nullptr;
+    character_list = &listener;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+    char text[] = "hello";
+
+    EXPECT_EQ(trigger_char_hear(&listener, &speaker, text), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, EnabledScriptHearPathSkipsWhenSpeakerRoomIsInvalid) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6166, "function onHearSay(ctx) { return false; }", ON_HEAR_SAY));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    speaker.in_room = -1;
+    listener.next = &speaker;
+    speaker.next = nullptr;
+    character_list = &listener;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+    char text[] = "hello";
+
+    EXPECT_EQ(trigger_char_hear(&listener, &speaker, text), 1);
+}
+
 TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathAllowsWhenRegistryGenerationIsStale) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;
@@ -1638,6 +1822,88 @@ TEST(JsLegacyTriggerDispatch, RuntimeErrorsFailClosedAndKeepDiagnosticsRedacted)
     EXPECT_LE(result.diagnostic.size(), 220u);
 }
 
+TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeDispatchesHearSayContextAndMapsBlock) {
+    JsLiveRegistryReloadService service = make_refreshed_service(
+        make_package(6167,
+            "function onHearSay(ctx) { "
+            "return !(ctx.self.name === 'Listener' && ctx.actor.name === 'Speaker' && "
+            "ctx.text === 'hello'); "
+            "}",
+            ON_HEAR_SAY));
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    const char_data *live_characters[] = {&listener, &speaker};
+    room_data world[1] = {make_room("Room", 100, 0)};
+    JsGameAdapterOptions adapter_options = make_options(live_characters, 2, world, 0);
+
+    JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        service, character_hear_request(ON_HEAR_SAY, &listener, &speaker, "hello"),
+        adapter_options, enabled_options(service));
+
+    EXPECT_EQ(result.status, JsLegacyTriggerDispatchStatus::Block);
+    EXPECT_EQ(result.dispatch_result.status, JsTriggerDispatchStatus::Block);
+    EXPECT_EQ(result.dispatch_result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(result.dispatch_result.package_vnum, 6167);
+    EXPECT_EQ(result.dispatch_result.handler_name, "onHearSay");
+    EXPECT_TRUE(result.diagnostic.empty());
+}
+
+TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeDispatchesHearYellAcrossRooms) {
+    JsLiveRegistryReloadService service = make_refreshed_service(
+        make_package(6168,
+            "function onHearYell(ctx) { "
+            "return !(ctx.self.name === 'Listener' && ctx.actor.name === 'Speaker' && "
+            "ctx.room.vnum === 100 && "
+            "ctx.text === 'LOUD'); "
+            "}",
+            ON_HEAR_YELL));
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    speaker.in_room = 1;
+    const char_data *live_characters[] = {&listener, &speaker};
+    room_data world[2] = {make_room("Room", 100, 0), make_room("Elsewhere", 101, 0)};
+    JsGameAdapterOptions adapter_options = make_options(live_characters, 2, world, 1);
+
+    JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        service, character_hear_request(ON_HEAR_YELL, &listener, &speaker, "LOUD"),
+        adapter_options, enabled_options(service));
+
+    EXPECT_EQ(result.status, JsLegacyTriggerDispatchStatus::Block);
+    EXPECT_EQ(result.dispatch_result.status, JsTriggerDispatchStatus::Block);
+    EXPECT_EQ(result.dispatch_result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(result.dispatch_result.package_vnum, 6168);
+    EXPECT_EQ(result.dispatch_result.handler_name, "onHearYell");
+    EXPECT_TRUE(result.diagnostic.empty());
+}
+
+TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeRedactsHearRuntimeErrors) {
+    JsLiveRegistryReloadService service = make_refreshed_service(
+        make_package(6169, "function onHearYell(ctx) { throw ctx.text; }", ON_HEAR_YELL));
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    const char_data *live_characters[] = {&listener, &speaker};
+    room_data world[1] = {make_room("Room", 100, 0)};
+    JsGameAdapterOptions adapter_options = make_options(live_characters, 2, world, 0);
+
+    JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        service,
+        character_hear_request(ON_HEAR_YELL, &listener, &speaker, "SECRET_HEARD_TEXT"),
+        adapter_options, enabled_options(service));
+
+    EXPECT_EQ(result.status, JsLegacyTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.dispatch_result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.dispatch_result.package_vnum, 6169);
+    EXPECT_EQ(result.dispatch_result.handler_name, "onHearYell");
+    EXPECT_FALSE(result.diagnostic.empty());
+    EXPECT_FALSE(contains(result.diagnostic, "SECRET_HEARD_TEXT"));
+    EXPECT_FALSE(contains(result.diagnostic, "function onHearYell"));
+    EXPECT_FALSE(contains(result.diagnostic, "\n"));
+    EXPECT_FALSE(contains(result.dispatch_result.diagnostic, "SECRET_HEARD_TEXT"));
+    EXPECT_FALSE(contains(result.dispatch_result.diagnostic, "function onHearYell"));
+    EXPECT_FALSE(contains(result.dispatch_result.diagnostic, "\n"));
+    EXPECT_LE(result.diagnostic.size(), 220u);
+}
+
 TEST(JsLegacyTriggerDispatch, StatusNamesAreStable) {
     EXPECT_STREQ("disabled",
                  js_legacy_trigger_dispatch_status_name(JsLegacyTriggerDispatchStatus::Disabled));
@@ -1690,7 +1956,7 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     const std::string act_info = read_first_available_file({"src/act_info.cpp", "../act_info.cpp"});
 
     ASSERT_FALSE(script.empty());
-    EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 6u);
+    EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 7u);
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_character_movement_entry_trigger(ch, vict, room,"),
         2u);
@@ -1702,6 +1968,9 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_character_receive_trigger(ch1, ch2, ob1)"),
         1u);
+    EXPECT_EQ(
+        count_occurrences(script, "dispatch_javascript_character_hear_trigger(ON_HEAR_"),
+        2u);
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_object_damage_trigger(obj, vict, ch)"),
         1u);
@@ -1723,6 +1992,9 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_DAMAGE;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_RECEIVE;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = trigger_type;"));
+    EXPECT_TRUE(contains(script, "request.context_input.text = text;"));
+    EXPECT_TRUE(contains(script, "!js_game_adapter_room_is_valid(speaker->in_room, adapter_options)"));
+    EXPECT_TRUE(contains(script, "trigger_type == ON_HEAR_SAY && listener->in_room != speaker->in_room"));
     EXPECT_TRUE(contains(script,
         "trigger_type == ON_ENTER || trigger_type == ON_EXAMINE_OBJECT || trigger_type == ON_EAT"));
     EXPECT_TRUE(contains(script, "trigger_type == ON_DRINK || trigger_type == ON_WEAR || trigger_type == ON_PULL"));
@@ -1742,6 +2014,15 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(appears_before_after(script, "int trigger_char_receive",
         "return_value = run_script(ch1->specials.script_info",
         "return_value = dispatch_javascript_character_receive_trigger(ch1, ch2, ob1);"));
+    EXPECT_TRUE(appears_before_after(script, "int trigger_char_hear",
+        "return_value = run_script(ch->specials.script_info",
+        "return_value = dispatch_javascript_character_hear_trigger(ON_HEAR_SAY, ch, speaking, text);"));
+    EXPECT_TRUE(appears_before_after(script, "ON_HEAR_YELL",
+        "return_value = run_script(ch->specials.script_info",
+        "return_value = dispatch_javascript_character_hear_trigger(ON_HEAR_YELL, ch, speaking, text);"));
+    EXPECT_TRUE(appears_before(script,
+        "return_value = dispatch_javascript_character_hear_trigger(ON_HEAR_SAY, ch, speaking, text);",
+        "return_value = dispatch_javascript_character_hear_trigger(ON_HEAR_YELL, ch, speaking, text);"));
     EXPECT_TRUE(contains(act_obj1, "call_trigger(ON_RECEIVE, vict, ch, obj);"));
     EXPECT_FALSE(contains(act_obj1, "if (call_trigger(ON_RECEIVE"));
     EXPECT_FALSE(contains(act_obj1, "if (!call_trigger(ON_RECEIVE"));

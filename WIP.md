@@ -1,8 +1,22 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into character/object transfer `ON_RECEIVE`.
-- Next slice: wire guarded JavaScript dispatch into character hear triggers `ON_HEAR_SAY` and `ON_HEAR_YELL`.
+- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into character hear triggers `ON_HEAR_SAY` and `ON_HEAR_YELL`.
+- Next slice: final trigger audit and documentation cleanup for the server-side JavaScript trigger wiring.
+- Completed slice progress:
+  - Start from committed `ON_RECEIVE` wiring in `7cc24cd`.
+  - Preserve legacy compatibility behavior: `trigger_char_hear(...)` checks both `ON_HEAR_SAY` and `ON_HEAR_YELL` for the same call, so JavaScript should dispatch the matching say and yell handlers in that same helper rather than splitting the public call path.
+  - Preserve non-blocking semantics: JavaScript `false`/block, runtime error, disabled, stale-registry, registry-not-ready, no-match, stale-listener, stale-speaker, or null text should allow the legacy result instead of blocking speech.
+  - Preserve context parity: listener maps to `ctx.self`, speaker maps to `ctx.actor`, and heard text maps to `ctx.text`.
+  - Added `dispatch_javascript_character_hear_trigger(...)` with default-closed dispatch, live listener/speaker guards, listener/speaker room validity guards, and same-room preservation for `ON_HEAR_SAY`; `ON_HEAR_YELL` keeps room validity without forcing same-room behavior.
+  - Wired the JavaScript hear helper after the matching legacy `.scr` `ON_HEAR_SAY` and `ON_HEAR_YELL` sections, preserving the legacy compatibility quirk that a single public hear helper checks both sections.
+  - Aligned the manifest hear context fields with the live API contract by documenting the speaker as `ctx.actor` instead of `ctx.speaker`.
+  - Added focused tests for gameplay helper fail-open behavior, direct facade execution for `onHearSay` and `onHearYell`, runtime-error diagnostic redaction, stale listener/speaker skips, invalid room skips, null text skip, and source guards for order/relationship checks.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to speaker-room and say same-room guards, direct facade execution assertions, hear diagnostic-redaction coverage, invalid-room tests, and manifest context-field correction.
+  - Validation passed: `make -C src -j16 script.o`, `make -C src/tests -j16 js_legacy_trigger_dispatch_tests.o js_scripting_manifest_tests.o js_scripting_manifest.o`, CMake-built focused `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.*:JsScriptingManifest.*'` (82 tests), targeted hear/source-guard rerun (11 tests), `git diff --check`, and CMake build plus CTest with `-j16` build parallelism (996/996).
+- Previous slice progress:
+  - Active slice complete: extended the default-closed JavaScript legacy-trigger facade into character/object transfer `ON_RECEIVE`.
+  - Next slice: wire guarded JavaScript dispatch into character hear triggers `ON_HEAR_SAY` and `ON_HEAR_YELL`.
 - Completed slice progress:
   - Start from committed object event/action trigger wiring in `544b670`.
   - Preserve legacy `.scr` ordering for receive: the receiver's legacy `ON_RECEIVE` script runs first, and JavaScript is only considered if legacy still allows the result.

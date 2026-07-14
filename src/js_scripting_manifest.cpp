@@ -66,9 +66,9 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, false, false, JsScriptingExceptionPolicy::FailOpen,
      "character hear helper; legacy helper also checks ON_HEAR_YELL",
-     "self, speaker, text, trigger, hostType",
-     "Preserve the say/yell compatibility quirk for parity unless a later manifest revision "
-     "intentionally splits the handlers."},
+     "self, actor, text, trigger, hostType",
+     "Listener is self, speaker is actor. Preserve the say/yell compatibility quirk for parity "
+     "unless a later manifest revision intentionally splits the handlers."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "ON_DAMAGE", "onDamage",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred,
      CharacterHost | ObjectHost, false, false, true, false, JsScriptingExceptionPolicy::FailClosed,
@@ -100,9 +100,9 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, false, false, JsScriptingExceptionPolicy::FailOpen,
      "character hear helper; legacy helper also checks ON_HEAR_SAY",
-     "self, speaker, text, trigger, hostType",
-     "Preserve the say/yell compatibility quirk for parity unless a later manifest revision "
-     "intentionally splits the handlers."},
+     "self, actor, text, trigger, hostType",
+     "Listener is self, speaker is actor. Preserve the say/yell compatibility quirk for parity "
+     "unless a later manifest revision intentionally splits the handlers."},
 
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_COMMAND, "SPECIAL_COMMAND",
      "onSpecialCommand", JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred,

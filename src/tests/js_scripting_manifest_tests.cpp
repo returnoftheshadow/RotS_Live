@@ -351,13 +351,13 @@ TEST(JsScriptingManifest, RecordsRequiredContextFieldsForLegacyTriggers) {
     expect_context_fields(ON_DIE, {"self", "killer", "trigger", "hostType"});
     expect_context_fields(ON_RECEIVE, {"self", "actor", "object", "trigger", "hostType"});
     expect_context_fields(ON_EXAMINE_OBJECT, {"object", "actor", "trigger", "hostType"});
-    expect_context_fields(ON_HEAR_SAY, {"self", "speaker", "text", "trigger", "hostType"});
+    expect_context_fields(ON_HEAR_SAY, {"self", "actor", "text", "trigger", "hostType"});
     expect_context_fields(ON_DAMAGE, {"self", "object", "actor", "trigger", "hostType"});
     expect_context_fields(ON_EAT, {"object", "actor", "trigger", "hostType"});
     expect_context_fields(ON_DRINK, {"object", "actor", "trigger", "hostType"});
     expect_context_fields(ON_WEAR, {"object", "actor", "wearSlot", "trigger", "hostType"});
     expect_context_fields(ON_PULL, {"object", "actor", "trigger", "hostType"});
-    expect_context_fields(ON_HEAR_YELL, {"self", "speaker", "text", "trigger", "hostType"});
+    expect_context_fields(ON_HEAR_YELL, {"self", "actor", "text", "trigger", "hostType"});
 }
 
 TEST(JsScriptingManifest, RecordsRequiredContextFieldsForMudlleCallFlags) {
