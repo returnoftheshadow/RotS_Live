@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: wired publish response adapters into a transport-ready server API boundary.
-- Next slice: mount the transport-ready publish endpoint service behind the concrete server command/HTTP listener when that transport exists.
+- Active slice complete: added a bounded JSON transport adapter for publish endpoint status.
+- Next slice: add bounded JSON package parsing for stage requests, then mount the adapter behind the concrete server command/HTTP listener when that transport exists.
+- Completed slice progress:
+  - Added `JsPublishEndpointTransportContext` and `js_publish_endpoint_dispatch_json()` as a transport-neutral JSON adapter over `JsPublishEndpointService`.
+  - Scoped the adapter to status requests first because compiled package stage payload parsing needs its own bounded parser slice.
+  - Kept token, transport, actor, builder, clock, audience, and request id server-supplied through adapter context instead of accepting those fields from JSON.
+  - Rejected empty, oversized, malformed, duplicate-field, unknown-field, unsupported-operation, client-controlled request id, invalid package id, out-of-range package id, and non-canonical package id inputs.
+  - Required status package ids to round-trip through the server canonical `js_staged_package_logical_package_id(...)` formatter before dispatch.
+  - Added transport tests for successful status, parser failures, unsupported operations, canonical id enforcement, and no-metadata authorization failure.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to canonical package-id round-trip validation and duplicate routing-field smuggling coverage.
+  - Validation passed: focused `JsPublishEndpointTransport.*:JsPublishEndpointService.*` tests (26 tests), `make test -j16` (1040 tests), and `git diff --check`.
+- Previous slice progress:
+  - Active slice complete: wired publish response adapters into a transport-ready server API boundary.
+  - Next slice: mount the transport-ready publish endpoint service behind the concrete server command/HTTP listener when that transport exists.
 - Completed slice progress:
   - Added `JsPublishEndpointService` as the server-side publish boundary over staged package repository access, live store activation, status lookup, and JSON body emission.
   - Routed stage preflight, stage, status, activate, and rollback operations through the publish endpoint response adapters.
