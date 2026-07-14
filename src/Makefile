@@ -87,7 +87,7 @@ js_live_package_store.o : js_live_package_store.cpp js_live_package_store.h js_s
 js_live_package_store_persistence.o : js_live_package_store_persistence.cpp js_live_package_store_persistence.h js_live_package_store.h json_utils.h js_script_registry.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_live_package_store_persistence.cpp
 
-js_live_registry_admin.o : js_live_registry_admin.cpp js_live_registry_admin.h js_live_package_store.h js_live_registry_reload_service.h js_live_registry_status.h js_script_registry.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h
+js_live_registry_admin.o : js_live_registry_admin.cpp js_live_registry_admin.h js_live_package_store.h js_live_registry_reload_service.h js_live_registry_status.h js_publish_endpoint_service.h js_publish_endpoint_contract.h js_script_registry.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_live_registry_admin.cpp
 
 js_live_registry_reload_service.o : js_live_registry_reload_service.cpp js_live_registry_reload_service.h js_live_package_store.h js_script_registry.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h

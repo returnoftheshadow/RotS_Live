@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added an adapter-ready HTTP route layer for JavaScript publish endpoints.
+- Active slice complete: mounted a persistent publish endpoint service on the JavaScript admin service.
 - Next slice: mount the HTTP route layer behind a concrete server listener or authenticated local admin command once that transport exists.
+- Completed slice progress:
+  - Added a server-owned `JsPublishEndpointService` to `JsLiveRegistryAdminService` using the same source-bearing live store as startup/reload.
+  - Kept publish package validation options server-owned and aligned with the current internal JavaScript manifest state.
+  - Exposed `publish_service()` as the persistent mount point for a future HTTP listener or authenticated local admin command.
+  - Made `JsLiveRegistryAdminService` explicitly non-copyable and non-movable because the publish service holds a reference to the admin live store.
+  - Added route-level tests proving staged publish state persists across separate dispatches, activation updates the same live store used by admin refresh/status, and the production-shaped reload-options constructor preserves publish state.
+  - Updated legacy server/test Makefile dependencies for the new admin-service include relationships.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to production-constructor coverage and deleted copy/move operations with static assertions.
+  - Validation passed: focused `JsLiveRegistryAdmin.*:JsPublishHttpEndpoint.*:JsPublishEndpointTransport.*:JsPublishEndpointService.*` tests (73 tests), `make test -j16` (1074 tests), and `git diff --check`.
+- Previous slice progress:
+  - Active slice complete: added an adapter-ready HTTP route layer for JavaScript publish endpoints.
+  - Next slice: mount the HTTP route layer behind a concrete server listener or authenticated local admin command once that transport exists.
 - Completed slice progress:
   - Added `JsPublishHttpEndpointRequest`, `JsPublishHttpEndpointOptions`, and `js_publish_http_endpoint_dispatch()` as a pure server-side route adapter for `POST /api/js-scripts/{status,stage,activate,rollback}`.
   - Kept authentication, token verification, builder identity, live checksum, mutation gates, and audit metadata server-supplied through `JsPublishEndpointTransportContext`.

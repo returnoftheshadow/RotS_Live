@@ -5,6 +5,7 @@
 #include "js_live_package_store_persistence.h"
 #include "js_live_registry_reload_service.h"
 #include "js_live_registry_status.h"
+#include "js_publish_endpoint_service.h"
 
 #include <string>
 
@@ -28,6 +29,10 @@ class JsLiveRegistryAdminService {
     explicit JsLiveRegistryAdminService(const JsLiveRegistryReloadOptions &reload_options);
     JsLiveRegistryAdminService(const JsLivePackageStoreOptions &live_store_options,
                                const JsLiveRegistryReloadOptions &reload_options);
+    JsLiveRegistryAdminService(const JsLiveRegistryAdminService &) = delete;
+    JsLiveRegistryAdminService &operator=(const JsLiveRegistryAdminService &) = delete;
+    JsLiveRegistryAdminService(JsLiveRegistryAdminService &&) = delete;
+    JsLiveRegistryAdminService &operator=(JsLiveRegistryAdminService &&) = delete;
 
     JsLiveRegistryReloadResult refresh();
     JsLiveRegistryStartupLoadResult hydrate_from_file(const std::string &path);
@@ -38,13 +43,16 @@ class JsLiveRegistryAdminService {
     // Publish/server hydration slices need the source-bearing store; admin status still uses
     // redacted DTOs from JsLiveRegistryStatusResult.
     JsLivePackageStore &live_store();
+    JsPublishEndpointService &publish_service();
     const JsLiveRegistryReloadService &reload_service() const;
 
   private:
     JsLivePackageStore m_live_store;
+    JsPublishEndpointService m_publish_service;
     JsLiveRegistryReloadService m_reload_service;
 };
 
+JsPublishEndpointServiceOptions js_publish_endpoint_server_options();
 JsLiveRegistryReloadOptions js_live_registry_server_reload_options();
 JsLiveRegistryAdminService &js_live_registry_admin_service();
 JsLiveRegistryReloadResult js_live_registry_startup_refresh();

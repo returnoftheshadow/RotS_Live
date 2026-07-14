@@ -84,16 +84,20 @@ void append_status_diagnostics(std::ostringstream &output,
 
 } // namespace
 
-JsLiveRegistryAdminService::JsLiveRegistryAdminService() = default;
+JsLiveRegistryAdminService::JsLiveRegistryAdminService()
+    : m_publish_service(m_live_store, js_publish_endpoint_server_options()) {}
 
 JsLiveRegistryAdminService::JsLiveRegistryAdminService(
     const JsLiveRegistryReloadOptions &reload_options)
-    : m_reload_service(reload_options) {}
+    : m_publish_service(m_live_store, js_publish_endpoint_server_options()),
+      m_reload_service(reload_options) {}
 
 JsLiveRegistryAdminService::JsLiveRegistryAdminService(
     const JsLivePackageStoreOptions &live_store_options,
     const JsLiveRegistryReloadOptions &reload_options)
-    : m_live_store(live_store_options), m_reload_service(reload_options) {}
+    : m_live_store(live_store_options),
+      m_publish_service(m_live_store, js_publish_endpoint_server_options()),
+      m_reload_service(reload_options) {}
 
 JsLiveRegistryReloadResult JsLiveRegistryAdminService::refresh() {
     JsLiveRegistryReloadResult result;
@@ -140,8 +144,20 @@ JsLiveRegistryStatusResult JsLiveRegistryAdminService::status_for_vnum(int vnum)
 
 JsLivePackageStore &JsLiveRegistryAdminService::live_store() { return m_live_store; }
 
+JsPublishEndpointService &JsLiveRegistryAdminService::publish_service() {
+    return m_publish_service;
+}
+
 const JsLiveRegistryReloadService &JsLiveRegistryAdminService::reload_service() const {
     return m_reload_service;
+}
+
+JsPublishEndpointServiceOptions js_publish_endpoint_server_options() {
+    JsPublishEndpointServiceOptions options;
+    options.package_validation_options.mode =
+        JsScriptPackageValidationMode::InternalValidationOnly;
+    options.server_instance_id = "server:main";
+    return options;
 }
 
 JsLiveRegistryReloadOptions js_live_registry_server_reload_options() {

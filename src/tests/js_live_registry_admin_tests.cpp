@@ -1,6 +1,8 @@
 #include "../js_live_registry_admin.h"
 
+#include "../js_publish_http_endpoint.h"
 #include "../js_publish_activation.h"
+#include "../json_utils.h"
 #include "../script.h"
 
 #include <gtest/gtest.h>
@@ -9,6 +11,7 @@
 #include <fstream>
 #include <initializer_list>
 #include <string>
+#include <type_traits>
 #include <unistd.h>
 
 namespace {
@@ -72,6 +75,61 @@ JsPublishTransportMetadata make_transport() {
     return transport;
 }
 
+JsPublishEndpointTransportContext make_publish_context(unsigned scopes) {
+    JsPublishEndpointTransportContext context;
+    context.request_id = "request:http";
+    context.audit_id = "audit:http";
+    context.actor_id = "actor:42";
+    context.builder_account_id = "account:builder";
+    context.zone = 33;
+    context.token = make_token(JsPublishOperation::StatusRead);
+    context.token.scopes = scopes;
+    context.transport = make_transport();
+    context.now_epoch_seconds = 100;
+    context.allow_mutating_operations = true;
+    context.allow_live_pointer_update = true;
+    context.applied_at_epoch_seconds = 200;
+    context.expected_server_audience = "server:main";
+    context.expected_workspace_id = "workspace:main";
+    context.current_live_checksum = "live:old";
+    return context;
+}
+
+std::string quote(const std::string &value) {
+    return "\"" + json_utils::escape_json_string(value) + "\"";
+}
+
+std::string package_json(const JsScriptPackage &package) {
+    return "{"
+        "\"vnum\":" + std::to_string(package.vnum)
+        + ",\"packageId\":" + quote(package.package_id)
+        + ",\"host\":" + quote(js_script_package_host_name(package.host))
+        + ",\"packageFormatVersion\":" + std::to_string(package.package_format_version)
+        + ",\"manifestSchemaVersion\":" + std::to_string(package.manifest_schema_version)
+        + ",\"triggerCatalogRevision\":"
+        + std::to_string(package.trigger_catalog_revision)
+        + ",\"manifestChecksum\":" + quote(package.manifest_checksum)
+        + ",\"runtimeName\":" + quote(package.runtime_name)
+        + ",\"runtimeVersion\":" + quote(package.runtime_version)
+        + ",\"generatedTypingsVersion\":" + quote(package.generated_typings_version)
+        + ",\"compiledJavaScriptChecksum\":" + quote(package.compiled_javascript_checksum)
+        + ",\"compiledJavaScript\":" + quote(package.compiled_javascript)
+        + ",\"triggerBindings\":[{\"kind\":"
+        + quote(js_scripting_manifest_kind_name(JsScriptingManifestKind::LegacyScriptTrigger))
+        + ",\"legacyValue\":" + std::to_string(ON_ENTER)
+        + ",\"handlerName\":\"onEnter\"}]}";
+}
+
+JsPublishHttpEndpointRequest publish_request(const std::string &operation,
+                                             const std::string &body) {
+    JsPublishHttpEndpointRequest request;
+    request.method = "POST";
+    request.path = "/api/js-scripts/" + operation;
+    request.content_type = "application/json";
+    request.body = body;
+    return request;
+}
+
 JsPublishStagedRequestAssemblyInput make_input(const JsStagedPackageRecord &record) {
     JsPublishStagedRequestAssemblyInput input;
     input.operation = JsPublishOperation::PackageActivate;
@@ -128,6 +186,77 @@ std::string temp_file_path(const std::string &name) {
 }
 
 } // namespace
+
+static_assert(!std::is_copy_constructible<JsLiveRegistryAdminService>::value,
+              "JsLiveRegistryAdminService owns reference-bearing publish state");
+static_assert(!std::is_move_constructible<JsLiveRegistryAdminService>::value,
+              "JsLiveRegistryAdminService owns reference-bearing publish state");
+
+TEST(JsLiveRegistryAdmin, PublishServicePersistsStateAcrossRouteDispatches) {
+    JsLiveRegistryAdminService service;
+    const JsScriptPackage package = make_package();
+
+    JsPublishEndpointTransportResult stage = js_publish_http_endpoint_dispatch(
+        service.publish_service(),
+        publish_request("stage",
+            "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(package) + "}"),
+        make_publish_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+    ASSERT_TRUE(stage.ok);
+    EXPECT_EQ("stage.accepted", stage.reason_code);
+
+    JsPublishStagedPackageStatusResult staged =
+        js_publish_latest_staged_package_status(
+            service.publish_service().staged_repository(), "js:33:character:8701");
+    ASSERT_TRUE(staged.ok);
+
+    JsPublishEndpointTransportResult status = js_publish_http_endpoint_dispatch(
+        service.publish_service(),
+        publish_request("status", "{\"packageId\":\"js:33:character:8701\"}"),
+        make_publish_context(JS_PUBLISH_SCOPE_STATUS_READ));
+    EXPECT_TRUE(status.ok);
+    EXPECT_EQ("status.current", status.reason_code);
+    EXPECT_NE(std::string::npos, status.json.find(staged.status.staged_digest));
+
+    JsPublishEndpointTransportResult activate = js_publish_http_endpoint_dispatch(
+        service.publish_service(),
+        publish_request("activate",
+            "{\"packageId\":\"js:33:character:8701\",\"stagedDigest\":"
+                + quote(staged.status.staged_digest)
+                + ",\"baseLiveChecksum\":\"live:old\"}"),
+        make_publish_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE));
+    ASSERT_TRUE(activate.ok);
+    EXPECT_EQ("activate.accepted", activate.reason_code);
+
+    JsLiveRegistryReloadResult reload = service.refresh();
+    EXPECT_TRUE(reload.ok);
+    EXPECT_EQ(1u, reload.package_count);
+    JsLiveRegistryStatusResult live_status =
+        service.status_for_package_id("js:33:character:8701");
+    EXPECT_TRUE(live_status.ok);
+    ASSERT_EQ(1u, live_status.packages.size());
+    EXPECT_EQ(staged.status.staged_digest, live_status.packages[0].staged_digest);
+}
+
+TEST(JsLiveRegistryAdmin, PublishServicePersistsStateWithServerReloadOptionsConstructor) {
+    JsLiveRegistryAdminService service(js_live_registry_server_reload_options());
+    const JsScriptPackage package = make_package();
+
+    JsPublishEndpointTransportResult stage = js_publish_http_endpoint_dispatch(
+        service.publish_service(),
+        publish_request("stage",
+            "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(package) + "}"),
+        make_publish_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+    ASSERT_TRUE(stage.ok);
+
+    JsPublishEndpointTransportResult status = js_publish_http_endpoint_dispatch(
+        service.publish_service(),
+        publish_request("status", "{\"packageId\":\"js:33:character:8701\"}"),
+        make_publish_context(JS_PUBLISH_SCOPE_STATUS_READ));
+
+    EXPECT_TRUE(status.ok);
+    EXPECT_EQ("status.current", status.reason_code);
+    EXPECT_NE(std::string::npos, status.json.find("js:33:character:8701"));
+}
 
 TEST(JsLiveRegistryAdmin, RefreshCommandReloadsLiveStoreAndPrintsRedactedStatus) {
     const std::string source_sentinel = "ADMIN_SOURCE_SENTINEL";
