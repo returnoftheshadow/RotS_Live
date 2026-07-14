@@ -65,6 +65,8 @@ JsPublishEndpointTransportContext make_context(unsigned scopes = JS_PUBLISH_SCOP
     context.transport = make_transport();
     context.now_epoch_seconds = 100;
     context.allow_mutating_operations = true;
+    context.allow_live_pointer_update = true;
+    context.applied_at_epoch_seconds = 200;
     context.expected_server_audience = "server:main";
     context.expected_workspace_id = "workspace:main";
     context.current_live_checksum = "live:old";
@@ -168,6 +170,29 @@ std::string stage_json(const JsScriptPackage &package,
         + quote(base_live_checksum) + ",\"package\":" + package_json(package) + "}";
 }
 
+std::string activate_json(const std::string &package_id, const std::string &staged_digest,
+    const std::string &base_live_checksum = "live:old")
+{
+    return "{\"operation\":\"activate\",\"packageId\":" + quote(package_id)
+        + ",\"stagedDigest\":" + quote(staged_digest)
+        + ",\"baseLiveChecksum\":" + quote(base_live_checksum) + "}";
+}
+
+std::string rollback_json(const std::string &package_id,
+    const std::string &target_live_checksum = "live:old")
+{
+    return "{\"operation\":\"rollback\",\"packageId\":" + quote(package_id)
+        + ",\"targetLiveChecksum\":" + quote(target_live_checksum)
+        + ",\"reason\":\"restore previous script\"}";
+}
+
+std::string rollback_json_without_reason(const std::string &package_id,
+    const std::string &target_live_checksum = "live:old")
+{
+    return "{\"operation\":\"rollback\",\"packageId\":" + quote(package_id)
+        + ",\"targetLiveChecksum\":" + quote(target_live_checksum) + "}";
+}
+
 } // namespace
 
 TEST(JsPublishEndpointTransport, DispatchesStatusWithServerSuppliedContext)
@@ -259,6 +284,366 @@ TEST(JsPublishEndpointTransport, StageAuthorizationFailureWithConflictDoesNotLea
     EXPECT_TRUE(service.staged_repository().empty());
 }
 
+TEST(JsPublishEndpointTransport, ActivatesLatestStagedPackage)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, activate_json(status.status.package_id, status.status.staged_digest),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE));
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(200, result.http_status);
+    EXPECT_EQ("activate.accepted", result.reason_code);
+    EXPECT_NE(std::string::npos, result.json.find("\"auditId\":\"audit:transport\""));
+    EXPECT_EQ(1u, live_store.live_pointer_count());
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer(status.status.package_id);
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(status.status.package_id, pointer.pointer.package_id);
+    EXPECT_EQ(status.status.package_version_id, pointer.pointer.package_version_id);
+    EXPECT_EQ(status.status.staged_digest, pointer.pointer.staged_digest);
+    EXPECT_EQ("live:old", pointer.pointer.expected_previous_live_checksum);
+    EXPECT_EQ("audit:transport", pointer.pointer.load_audit_id);
+    EXPECT_EQ(200, pointer.pointer.loaded_at_epoch_seconds);
+}
+
+TEST(JsPublishEndpointTransport, ActivateRejectsDigestMismatchWithoutLiveWrite)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, activate_json("js:30:character:3001", "sha256:not-the-staged-digest"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("activate.authorization-failed", result.reason_code);
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, ActivateMissingScopeDoesNotProbeDigest)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, activate_json("js:30:character:3001", "sha256:not-the-staged-digest"),
+        make_context(0));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("activate.missing-scope", result.reason_code);
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, ActivateStaleLiveConflictDoesNotWrite)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, activate_json(status.status.package_id, status.status.staged_digest,
+            "live:stale"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(409, result.http_status);
+    EXPECT_EQ("activate.stale-live-checksum", result.reason_code);
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, ActivateAuthorizationFailureDoesNotLeakMetadata)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, activate_json(status.status.package_id, status.status.staged_digest),
+        make_context(0));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("activate.missing-scope", result.reason_code);
+    EXPECT_EQ(std::string::npos, result.json.find(status.status.package_id));
+    EXPECT_EQ(std::string::npos, result.json.find(status.status.staged_digest));
+    EXPECT_EQ(std::string::npos, result.json.find("audit:transport"));
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, ActivateUnauthorizedCallerCannotProbeDigest)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+    JsPublishEndpointTransportContext context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE);
+    context.builder_account_id = "account:intruder";
+    context.token.builder_account_id = "account:intruder";
+
+    JsPublishEndpointTransportResult matched = js_publish_endpoint_dispatch_json(
+        service, activate_json(status.status.package_id, status.status.staged_digest),
+        context);
+    JsPublishEndpointTransportResult mismatched = js_publish_endpoint_dispatch_json(
+        service, activate_json(status.status.package_id, "sha256:not-the-staged-digest"),
+        context);
+
+    EXPECT_FALSE(matched.ok);
+    EXPECT_EQ(403, matched.http_status);
+    EXPECT_EQ("activate.authorization-failed", matched.reason_code);
+    EXPECT_FALSE(mismatched.ok);
+    EXPECT_EQ(matched.http_status, mismatched.http_status);
+    EXPECT_EQ(matched.reason_code, mismatched.reason_code);
+    EXPECT_EQ(matched.json, mismatched.json);
+    EXPECT_EQ(std::string::npos, matched.json.find(status.status.package_id));
+    EXPECT_EQ(std::string::npos, matched.json.find(status.status.staged_digest));
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, RollbackPublishesLatestStagedPackage)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(200, result.http_status);
+    EXPECT_EQ("rollback.accepted", result.reason_code);
+    EXPECT_EQ(1u, live_store.live_pointer_count());
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ("live:old", pointer.pointer.expected_previous_live_checksum);
+    EXPECT_EQ("audit:transport", pointer.pointer.load_audit_id);
+    EXPECT_EQ(200, pointer.pointer.loaded_at_epoch_seconds);
+}
+
+TEST(JsPublishEndpointTransport, RollbackStaleLiveConflictDoesNotWrite)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001", "live:stale"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(409, result.http_status);
+    EXPECT_EQ("rollback.stale-live-checksum", result.reason_code);
+    EXPECT_NE(std::string::npos, result.json.find("js:30:character:3001"));
+    EXPECT_NE(std::string::npos, result.json.find("live:old"));
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, RollbackAllowsMissingReason)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json_without_reason("js:30:character:3001"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(200, result.http_status);
+    EXPECT_EQ("rollback.accepted", result.reason_code);
+    EXPECT_EQ(1u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, RollbackLookupMissDoesNotRevealPackageExistence)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("rollback.authorization-failed", result.reason_code);
+    EXPECT_EQ(std::string::npos, result.json.find("js:30:character:3001"));
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, RollbackUnauthorizedCallerCannotProbePackage)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishEndpointTransportContext context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN);
+    context.builder_account_id = "account:intruder";
+    context.token.builder_account_id = "account:intruder";
+
+    JsPublishEndpointTransportResult matched = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001"), context);
+    JsPublishEndpointTransportResult missing = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:9999"), context);
+
+    EXPECT_FALSE(matched.ok);
+    EXPECT_EQ(403, matched.http_status);
+    EXPECT_EQ("rollback.authorization-failed", matched.reason_code);
+    EXPECT_FALSE(missing.ok);
+    EXPECT_EQ(matched.http_status, missing.http_status);
+    EXPECT_EQ(matched.reason_code, missing.reason_code);
+    EXPECT_EQ(matched.json, missing.json);
+    EXPECT_EQ(std::string::npos, matched.json.find("js:30:character:3001"));
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, RollbackAuthorizationFailureDoesNotLeakMetadata)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001", "live:stale"), make_context(0));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("rollback.missing-scope", result.reason_code);
+    EXPECT_EQ(std::string::npos, result.json.find("js:30:character:3001"));
+    EXPECT_EQ(std::string::npos, result.json.find("live:stale"));
+    EXPECT_EQ(std::string::npos, result.json.find("audit:transport"));
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, RollbackAnyUsesServerPolicy)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishEndpointTransportContext context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_ANY);
+    context.allow_rollback_any = true;
+    context.builder_account_id = "account:admin";
+    context.token.builder_account_id = "account:admin";
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001"), context);
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ("rollback.accepted", result.reason_code);
+    EXPECT_EQ(1u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, RejectsMalformedActivateAndRollbackRequests)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+
+    JsPublishEndpointTransportResult activate = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"activate\",\"packageId\":\"js:30:character:3001\","
+        "\"stagedDigest\":\"bad\",\"baseLiveChecksum\":\"live:old\"}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE));
+    JsPublishEndpointTransportResult rollback = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"rollback\",\"packageId\":\"js:30:character:3001\","
+        "\"targetLiveChecksum\":\"bad\",\"reason\":\"x\"}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+
+    EXPECT_FALSE(activate.ok);
+    EXPECT_EQ(400, activate.http_status);
+    EXPECT_EQ("activate.invalid-request", activate.reason_code);
+    EXPECT_FALSE(rollback.ok);
+    EXPECT_EQ(400, rollback.http_status);
+    EXPECT_EQ("rollback.invalid-request", rollback.reason_code);
+}
+
+TEST(JsPublishEndpointTransport, RejectsClientControlledActivationOptions)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+
+    JsPublishEndpointTransportResult activate = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"activate\",\"packageId\":\"js:30:character:3001\","
+        "\"stagedDigest\":\"sha256:abc\",\"baseLiveChecksum\":\"live:old\","
+        "\"allowLivePointerUpdate\":true}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE));
+    JsPublishEndpointTransportResult rollback = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"rollback\",\"packageId\":\"js:30:character:3001\","
+        "\"targetLiveChecksum\":\"live:old\",\"allowRollbackAny\":true}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+
+    EXPECT_FALSE(activate.ok);
+    EXPECT_EQ(400, activate.http_status);
+    EXPECT_EQ("publish.invalid-json", activate.reason_code);
+    EXPECT_FALSE(rollback.ok);
+    EXPECT_EQ(400, rollback.http_status);
+    EXPECT_EQ("publish.invalid-json", rollback.reason_code);
+}
+
+TEST(JsPublishEndpointTransport, RejectsMalformedRollbackReason)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+
+    JsPublishEndpointTransportResult control = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"rollback\",\"packageId\":\"js:30:character:3001\","
+        "\"targetLiveChecksum\":\"live:old\",\"reason\":\"bad\\nreason\"}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+    JsPublishEndpointTransportResult overlong = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"rollback\",\"packageId\":\"js:30:character:3001\","
+        "\"targetLiveChecksum\":\"live:old\",\"reason\":"
+            + quote(std::string(260, 'a')) + "}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+
+    EXPECT_FALSE(control.ok);
+    EXPECT_EQ(400, control.http_status);
+    EXPECT_EQ("rollback.invalid-request", control.reason_code);
+    EXPECT_FALSE(overlong.ok);
+    EXPECT_EQ(400, overlong.http_status);
+    EXPECT_EQ("rollback.invalid-request", overlong.reason_code);
+}
+
 TEST(JsPublishEndpointTransport, RejectsMalformedJson)
 {
     JsLivePackageStore live_store;
@@ -299,6 +684,30 @@ TEST(JsPublishEndpointTransport, RejectsDuplicateRoutingFields)
     EXPECT_EQ(std::string::npos, duplicate_package_id.json.find("js:30:object:3001"));
 }
 
+TEST(JsPublishEndpointTransport, RejectsCrossOperationFields)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+
+    JsPublishEndpointTransportResult status = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"status\",\"packageId\":\"js:30:character:3001\","
+        "\"stagedDigest\":\"sha256:abc\"}",
+        make_context());
+    JsPublishEndpointTransportResult stage = js_publish_endpoint_dispatch_json(
+        service,
+        "{\"operation\":\"stage\",\"baseLiveChecksum\":\"live:old\","
+        "\"targetLiveChecksum\":\"live:old\",\"package\":" + package_json(make_package()) + "}",
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+
+    EXPECT_FALSE(status.ok);
+    EXPECT_EQ(400, status.http_status);
+    EXPECT_EQ("status.invalid-request", status.reason_code);
+    EXPECT_FALSE(stage.ok);
+    EXPECT_EQ(400, stage.http_status);
+    EXPECT_EQ("stage.invalid-request", stage.reason_code);
+}
+
 TEST(JsPublishEndpointTransport, RejectsOversizedRequestBeforeParsing)
 {
     JsLivePackageStore live_store;
@@ -321,7 +730,7 @@ TEST(JsPublishEndpointTransport, RejectsUnsupportedOperation)
     JsPublishEndpointService service(live_store, service_options());
 
     JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
-        service, "{\"operation\":\"activate\",\"packageId\":\"js:30:character:3001\"}",
+        service, "{\"operation\":\"garbageCollect\",\"packageId\":\"js:30:character:3001\"}",
         make_context());
 
     EXPECT_FALSE(result.ok);

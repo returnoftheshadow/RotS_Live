@@ -1,8 +1,22 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added bounded JSON package parsing for stage requests.
+- Active slice complete: added bounded JSON parsing for activate and rollback requests.
 - Next slice: mount the publish transport adapter behind the concrete server command/HTTP listener when that transport exists.
+- Completed slice progress:
+  - Extend transport context with server-owned activation clock, live-pointer mutation gate, rollback-any policy, and persistence path.
+  - Added `activate` parsing for `packageId`, `stagedDigest`, and `baseLiveChecksum`, deriving staged package version from the latest server-side staged record.
+  - Added `rollback` parsing for `packageId`, `targetLiveChecksum`, and optional bounded reason text, deriving staged package version from server state.
+  - Validated canonical live checksums, staged digests, rollback reasons, and operation-specific field sets before dispatch.
+  - Kept activation clocks, live pointer mutation, rollback-any policy, persistence path, actor, builder, token, transport, and audit id server-supplied through transport context.
+  - Normalized activate/rollback lookup misses, digest mismatches, and downstream authorization failures to no-metadata 403 responses so scoped-but-unauthorized callers cannot probe staged package existence or digest matches.
+  - Added rollback-any support from server policy and rejected client-controlled activation option smuggling.
+  - Added tests for activate success, stale-live conflict, digest mismatch, missing-scope probing, scoped-but-unauthorized digest probing, rollback success, stale-live conflict, optional reason handling, lookup-miss redaction, scoped-but-unauthorized package probing, rollback-any policy, invalid fields, malformed reasons, and client-controlled option rejection.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to post-lookup 403 normalization, authorized rollback stale-live coverage, rollback reason contract cleanup, stronger live-pointer assertions, and client-controlled option smuggling tests.
+  - Validation passed: focused `JsPublishEndpointTransport.*:JsPublishEndpointService.*:JsScriptPackageLoader.*` tests (64 tests), `make test -j16` (1065 tests), and `git diff --check`.
+- Previous slice progress:
+  - Active slice complete: added bounded JSON package parsing for stage requests.
+  - Next slice: mount the publish transport adapter behind the concrete server command/HTTP listener when that transport exists.
 - Completed slice progress:
   - Exposed `js_script_package_parse_json_object()` so transport stage parsing reuses the package loader's field validation rules.
   - Extended `JsPublishEndpointTransportContext` with server-owned audit id, zone, mutation gate, and current live checksum for stage dispatch.

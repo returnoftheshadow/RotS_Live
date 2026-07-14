@@ -18,10 +18,16 @@ struct TransportEnvelope {
     std::string operation;
     std::string package_id;
     std::string base_live_checksum;
+    std::string staged_digest;
+    std::string target_live_checksum;
+    std::string reason;
     JsScriptPackage package;
     bool has_package = false;
     bool saw_package_id = false;
     bool saw_base_live_checksum = false;
+    bool saw_staged_digest = false;
+    bool saw_target_live_checksum = false;
+    bool saw_reason = false;
 };
 
 std::string bounded_single_line(std::string message)
@@ -69,6 +75,12 @@ JsPublishEndpointTransportResult transport_error(int http_status, const char *re
     return transport_response(response);
 }
 
+JsPublishEndpointTransportResult normalized_authorization_failure(const char *reason_code,
+    const char *message)
+{
+    return transport_error(403, reason_code, message, "publish authorization failed");
+}
+
 bool parse_host_name(const std::string &value, JsScriptPackageHost *host)
 {
     if (value == js_script_package_host_name(JsScriptPackageHost::Character)) {
@@ -110,6 +122,29 @@ bool is_canonical_live_checksum(const std::string &value)
         && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
             return is_bounded_token_char(ch);
         });
+}
+
+bool is_canonical_staged_digest(const std::string &value)
+{
+    const std::string prefix = "sha256:";
+    return value.size() > prefix.size() && value.size() <= MaxTransportDiagnosticBytes
+        && value.compare(0, prefix.size(), prefix) == 0
+        && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+            return is_bounded_token_char(ch);
+        });
+}
+
+bool is_bounded_reason_text(const std::string &value)
+{
+    return !value.empty() && value.size() <= 240
+        && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+            return ch >= 0x20 && ch != 0x7f;
+        });
+}
+
+bool token_has_scope(const JsPublishTokenMetadata &token, unsigned scope)
+{
+    return (token.scopes & scope) == scope;
 }
 
 bool parse_logical_package_id(const std::string &package_id, int *zone,
@@ -185,6 +220,20 @@ bool parse_transport_envelope(const std::string &request_json, TransportEnvelope
                 envelope->saw_base_live_checksum = true;
                 return nested_reader->parse_string(
                     &envelope->base_live_checksum, nested_error_message);
+            }
+            if (key == "stagedDigest") {
+                envelope->saw_staged_digest = true;
+                return nested_reader->parse_string(
+                    &envelope->staged_digest, nested_error_message);
+            }
+            if (key == "targetLiveChecksum") {
+                envelope->saw_target_live_checksum = true;
+                return nested_reader->parse_string(
+                    &envelope->target_live_checksum, nested_error_message);
+            }
+            if (key == "reason") {
+                envelope->saw_reason = true;
+                return nested_reader->parse_string(&envelope->reason, nested_error_message);
             }
             if (key == "package") {
                 envelope->has_package = true;
@@ -264,6 +313,41 @@ JsPublishEndpointStageInput stage_input_from_envelope(
     return input;
 }
 
+JsPublishActivationOptions activation_options_from_context(
+    const JsPublishEndpointTransportContext &context)
+{
+    JsPublishActivationOptions options;
+    options.assembly_options.now_epoch_seconds = context.now_epoch_seconds;
+    options.assembly_options.allow_mutating_operations = context.allow_mutating_operations;
+    options.assembly_options.allow_rollback_any = context.allow_rollback_any;
+    options.assembly_options.expected_server_audience = context.expected_server_audience;
+    options.assembly_options.expected_workspace_id = context.expected_workspace_id;
+    options.assembly_options.current_live_checksum = context.current_live_checksum;
+    options.allow_live_pointer_update = context.allow_live_pointer_update;
+    options.applied_at_epoch_seconds = context.applied_at_epoch_seconds;
+    options.live_pointer_audit_id = context.audit_id;
+    options.persist_live_store_path = context.live_store_persistence_path;
+    return options;
+}
+
+JsPublishStagedRequestAssemblyInput staged_request_from_status(
+    const JsPublishStagedPackageStatus &status, JsPublishOperation operation,
+    const std::string &expected_live_checksum,
+    const JsPublishEndpointTransportContext &context)
+{
+    JsPublishStagedRequestAssemblyInput input;
+    input.operation = operation;
+    input.request_id = context.request_id;
+    input.actor_id = context.actor_id;
+    input.builder_account_id = context.builder_account_id;
+    input.package_id = status.package_id;
+    input.package_version_id = status.package_version_id;
+    input.expected_live_checksum = expected_live_checksum;
+    input.token = context.token;
+    input.transport = context.transport;
+    return input;
+}
+
 } // namespace
 
 JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
@@ -287,7 +371,8 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
 
     if (envelope.operation == "status") {
         if (!envelope.saw_package_id || envelope.has_package
-            || envelope.saw_base_live_checksum)
+            || envelope.saw_base_live_checksum || envelope.saw_staged_digest
+            || envelope.saw_target_live_checksum || envelope.saw_reason)
             return transport_error(400, "status.invalid-request", "Package status rejected.",
                 "status request body is invalid");
         int zone = 0;
@@ -303,7 +388,9 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
 
     if (envelope.operation == "stage") {
         if (envelope.saw_package_id || !envelope.has_package
-            || !envelope.saw_base_live_checksum || envelope.base_live_checksum.empty())
+            || !envelope.saw_base_live_checksum || envelope.base_live_checksum.empty()
+            || envelope.saw_staged_digest || envelope.saw_target_live_checksum
+            || envelope.saw_reason)
             return transport_error(400, "stage.invalid-request", "Package stage rejected.",
                 "stage request body is invalid");
         if (!is_canonical_live_checksum(envelope.base_live_checksum))
@@ -312,6 +399,79 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
 
         return transport_response(
             service.stage(stage_input_from_envelope(envelope, context)).response);
+    }
+
+    if (envelope.operation == "activate") {
+        if (!envelope.saw_package_id || envelope.has_package
+            || !envelope.saw_staged_digest || !envelope.saw_base_live_checksum
+            || envelope.saw_target_live_checksum || envelope.saw_reason
+            || !is_canonical_live_checksum(envelope.base_live_checksum)
+            || !is_canonical_staged_digest(envelope.staged_digest))
+            return transport_error(400, "activate.invalid-request",
+                "Package activate rejected.", "activate request body is invalid");
+        int zone = 0;
+        int vnum = 0;
+        JsScriptPackageHost host = JsScriptPackageHost::Character;
+        if (!parse_logical_package_id(envelope.package_id, &zone, &host, &vnum))
+            return transport_error(400, "activate.invalid-request",
+                "Package activate rejected.", "activate package id is invalid");
+        if (!token_has_scope(context.token, JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE))
+            return transport_error(403, "activate.missing-scope",
+                "Package activate rejected.", "required publish scope is missing");
+        JsPublishStagedPackageStatusResult latest =
+            js_publish_latest_staged_package_status(
+                service.staged_repository(), envelope.package_id);
+        if (!latest.ok || latest.status.staged_digest != envelope.staged_digest)
+            return normalized_authorization_failure("activate.authorization-failed",
+                "Package activate rejected.");
+
+        JsPublishEndpointTransportResult result = transport_response(service.activate(
+            staged_request_from_status(latest.status, JsPublishOperation::PackageActivate,
+                envelope.base_live_checksum, context),
+            activation_options_from_context(context)).response);
+        if (!result.ok && result.http_status == 403)
+            return normalized_authorization_failure("activate.authorization-failed",
+                "Package activate rejected.");
+        return result;
+    }
+
+    if (envelope.operation == "rollback") {
+        if (!envelope.saw_package_id || envelope.has_package
+            || envelope.saw_staged_digest || envelope.saw_base_live_checksum
+            || !envelope.saw_target_live_checksum
+            || (envelope.saw_reason && !is_bounded_reason_text(envelope.reason))
+            || !is_canonical_live_checksum(envelope.target_live_checksum))
+            return transport_error(400, "rollback.invalid-request",
+                "Package rollback rejected.", "rollback request body is invalid");
+        int zone = 0;
+        int vnum = 0;
+        JsScriptPackageHost host = JsScriptPackageHost::Character;
+        if (!parse_logical_package_id(envelope.package_id, &zone, &host, &vnum))
+            return transport_error(400, "rollback.invalid-request",
+                "Package rollback rejected.", "rollback package id is invalid");
+        const bool rollback_any = context.allow_rollback_any;
+        const unsigned rollback_scope = rollback_any ? JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_ANY
+                                                     : JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN;
+        if (!token_has_scope(context.token, rollback_scope))
+            return transport_error(403, "rollback.missing-scope",
+                "Package rollback rejected.", "required publish scope is missing");
+        JsPublishStagedPackageStatusResult latest =
+            js_publish_latest_staged_package_status(
+                service.staged_repository(), envelope.package_id);
+        if (!latest.ok)
+            return normalized_authorization_failure("rollback.authorization-failed",
+                "Package rollback rejected.");
+
+        JsPublishEndpointTransportResult result = transport_response(service.rollback(
+            staged_request_from_status(latest.status,
+                rollback_any ? JsPublishOperation::PackageRollbackAny
+                             : JsPublishOperation::PackageRollbackOwn,
+                envelope.target_live_checksum, context),
+            activation_options_from_context(context)).response);
+        if (!result.ok && result.http_status == 403)
+            return normalized_authorization_failure("rollback.authorization-failed",
+                "Package rollback rejected.");
+        return result;
     }
 
     return transport_error(400, "publish.unsupported-operation", "Publish request rejected.",

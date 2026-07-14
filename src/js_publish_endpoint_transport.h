@@ -20,9 +20,13 @@ struct JsPublishEndpointTransportContext {
     JsPublishTransportMetadata transport;
     long long now_epoch_seconds = 0;
     bool allow_mutating_operations = false;
+    bool allow_live_pointer_update = false;
+    bool allow_rollback_any = false;
+    long long applied_at_epoch_seconds = 0;
     std::string expected_server_audience;
     std::string expected_workspace_id;
     std::string current_live_checksum;
+    std::string live_store_persistence_path;
 };
 
 struct JsPublishEndpointTransportResult {
