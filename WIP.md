@@ -1,8 +1,16 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: fixed BuilderClient bottom panel resizing.
+- Active slice complete: aligned the BuilderClient Electron window startup color with Tokyo Night.
 - Next slice: continue reviewer findings with non-publish IPC validation, parent/client tracking, and publish DTO alignment.
+- Completed slice progress:
+  - Verified `FEATURES.md` already requires Tokyo Night as the default builder-client color theme.
+  - Verified the renderer shell and Monaco editor already use Tokyo Night palette colors.
+  - Aligned the Electron BrowserWindow startup background to Tokyo Night base `#1a1b26`.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: fixed BuilderClient bottom panel resizing.
+  - Next slice: continue reviewer findings with non-publish IPC validation, parent/client tracking, and publish DTO alignment.
 - Completed slice progress:
   - Made resize splitters listen on the captured pointer element so drag events are not lost after pointer capture.
   - Increased the bottom splitter's grab target and added keyboard sizing for the bottom panel.
