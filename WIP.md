@@ -1,8 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added a server startup/admin reload path that builds a JavaScript registry snapshot and metadata-only status snapshot from the live package store while keeping trigger call sites disconnected.
-- Next slice: add a read-only admin/status inspection layer for JavaScript live package registry snapshots without exposing source bytes or live trigger dispatch.
+- Active slice complete: added a read-only admin/status inspection layer for JavaScript live package registry snapshots without exposing source bytes or live trigger dispatch.
+- Next slice: add explicit server startup/admin command plumbing for invoking JavaScript live registry refresh and reading the new redacted status layer without gameplay dispatch.
 - User requirement:
   - integrate a JavaScript scripting engine for the game
   - follow the current scripting engine and trigger model
@@ -173,6 +173,14 @@
     - Added `src/tests/js_live_registry_reload_service_tests.cpp` with focused coverage for default empty startup refresh, default non-empty refresh, live-pointer-only snapshots, trigger binding lookups, empty-reload rollback, later valid-refresh recovery, same-slot replacement, legacy-vnum conflict rollback, source-safe status/diagnostics, and build wiring.
     - Reviewer follow-up addressed: Magus's default-constructor finding now defaults to internal validation; Vincent's source-disclosure finding removed public source-bearing registry/package accessors and added metadata-only status helpers; Bazarat's reload-state findings added recovery, same-slot replacement, default empty startup, and source-sentinel status tests.
     - Deferred hydration coverage: when persisted live-store loading exists, add a corrupt live-pointer/record test that proves `LiveStoreFailed` preserves registry/status snapshots, does not increment success count, and returns bounded diagnostics.
+  - Live registry status inspection slice artifact added:
+    - Added `src/js_live_registry_status.{h,cpp}` as a read-only status layer over `JsLiveRegistryReloadService` for future admin/status command plumbing without wiring live trigger dispatch.
+    - Status snapshots expose reload summary counters and redacted package inspection DTOs containing package ids, package version ids, staged digests, current live checksums, host/vnum/zone, manifest/runtime/typings metadata, compiled JavaScript checksum, load timestamp, and trigger binding metadata.
+    - The status layer omits compiled JavaScript source bytes, source-bearing package references, staged audit ids, load audit ids, live trigger dispatch handles, and mutable live-store state.
+    - Status helpers support full snapshot, package-id lookup, vnum lookup, summary-only output, trigger-binding omission, bounded package output, and bounded trigger-binding output.
+    - Added `src/tests/js_live_registry_status_tests.cpp` with focused coverage for source-sentinel redaction, summary-only mode, trigger-binding omission, package-id/vnum lookup, invalid/missing lookups, package/trigger limit failures, diagnostic names, no dispatch/source-bearing references, and build wiring.
+    - Reviewer follow-up addressed: Magus's option-limit findings made unused limits irrelevant and changed trigger-binding limits into response-wide preflight caps; Vincent's matching trigger-limit/security findings now fail closed without partial DTOs; Bazarat's adversarial test findings added exact-boundary, multi-package limit, targeted redaction, and zero-trigger-limit lookup coverage.
+    - Residual admin/status workflow work: endpoint authorization, caller scoping, rate limiting, command formatting, pagination beyond bounded in-memory DTOs, and source-view variants remain deferred to later admin command slices.
   - Documentation generation planning slice artifact added:
     - `FEATURES.md` now defines manifest-driven documentation generation as a deterministic server-owned artifact set covering markdown API docs, TypeScript doc comments, hover/help JSON, in-game help source, CLI reference output, diagnostics, examples, compatibility summaries, coverage reports, and release-note metadata.
     - Required documentation fields now include stable documentation ids, anchors, support/publishability status, host eligibility, trigger kind/value, context-field type/nullability/liveness metadata, return semantics, permissions, side effects, resource budgets, diagnostics, examples, and unsupported/deferred reason codes.
@@ -330,6 +338,11 @@
   - [x] Live registry reload service slice: add focused tests for empty startup snapshots, live-pointer-only snapshots, failed-refresh preservation, trigger lookup, diagnostics, and build wiring.
   - [x] Live registry reload service slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
   - [x] Live registry reload service slice: validate with focused reload-service tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
+  - [x] Live registry status slice: add a read-only status inspection layer over the live registry reload service without exposing source bytes or wiring live trigger dispatch.
+  - [x] Live registry status slice: expose redacted summary/package/trigger metadata with package-id and vnum lookup helpers plus bounded output options.
+  - [x] Live registry status slice: add focused tests for source redaction, summary-only output, trigger omission, lookups, invalid requests, output limits, no dispatch dependency, and build wiring.
+  - [x] Live registry status slice: review implementation with `Magus`, `Vincent`, and `Bazarat`; address findings before final validation.
+  - [x] Live registry status slice: validate with focused status tests, `make test`, raw object build paths, `git diff --check`, and commit the completed slice under the configured git identity.
   - [x] Documentation update: record that the Electron TypeScript editor should look and behave like Visual Studio Code and provide IntelliSense/LSP configuration over the generated server-owned scripting API.
   - [x] Client planning gate before implementation: define the server-owned API/trigger manifest schema, compatibility rules, checksum, generated TypeScript package version, and manifest drift CI check.
   - [x] Client planning gate before implementation: define documentation generation from the API/trigger manifest, required documentation fields for every public API entry, example validation, in-game help generation, and stale-doc CI failure behavior.
@@ -339,6 +352,10 @@
   - [x] Client planning gate before implementation: define Electron hardening, desktop credential storage, dependency pinning, code signing, and supply-chain scanning requirements.
   - [x] Client planning gate before implementation: define golden offline/server parity tests, hostile fixture tests, package mismatch/sourcemap leak tests, unsupported-trigger tests, and publish/activation race/rollback tests.
 - Validation so far:
+  - Focused raw `make -C src/tests js_live_registry_status.o js_live_registry_status_tests.o js_live_registry_reload_service.o js_live_package_store.o js_publish_activation.o && make -C src/tests tests -j2 && ./bin/tests --gtest_filter='JsLiveRegistryStatus.*'` passed at `17/17` tests after the live registry status inspection slice.
+  - Raw `make -C src js_live_registry_status.o` passed after the live registry status inspection slice.
+  - `make test` passed at `886/886` tests after the live registry status inspection slice.
+  - `git diff --check` passed after the live registry status inspection slice.
   - Focused raw `make -C src/tests js_live_registry_reload_service.o js_live_registry_reload_service_tests.o js_live_package_store.o js_live_package_store_tests.o js_publish_activation.o && make -C src/tests tests -j2 && ./bin/tests --gtest_filter='JsLiveRegistryReloadService.*:JsLivePackageStore.*'` passed at `36/36` tests after the live registry reload service slice.
   - `make test` passed at `869/869` tests after the live registry reload service slice.
   - `git diff --check` passed after the live registry reload service slice.

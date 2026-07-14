@@ -498,6 +498,13 @@ Electron TypeScript authoring client:
     - source-bearing package vectors remain internal reload/dispatch input only; endpoint-facing status work must stay on the redacted status DTO unless source-view authorization is explicitly added
     - live trigger call sites remain disconnected until an explicit dispatch-integration slice
     - durable startup/hydration tests must add corrupt live-pointer/record coverage when persisted live stores can be loaded, proving `LiveStoreFailed` preserves registry and status snapshots, does not increment reload success count, and returns bounded diagnostics
+  - initial live registry status inspection is implemented in `src/js_live_registry_status.{h,cpp}` without live gameplay dispatch:
+    - status snapshots expose reload summary counters plus redacted package inspection DTOs derived from `JsLiveRegistryReloadService`
+    - package inspection includes zone, vnum, host, package id/version id, staged digest, current live checksum, manifest/runtime/typings versions, compiled JavaScript checksum, load timestamp, and trigger binding metadata
+    - package source bytes, source-bearing package references, staged audit ids, load audit ids, live trigger dispatch handles, and mutable live-store state are not exposed through this status layer
+    - callers can request all packages, a package by server-owned package id, or a package by vnum, with optional package-detail and trigger-binding omission for summary views
+    - package and trigger-binding output limits fail closed with bounded diagnostics and do not mutate the reload service
+    - endpoint-level command plumbing, caller authorization, formatting, pagination beyond bounded in-memory DTOs, and source-view flows remain future admin/status work
 - Package integrity acceptance tests required before Electron implementation:
   - canonical digest tests must prove stable digests for equivalent canonical packages and changed digests for compiled-byte changes, trigger-binding changes, manifest checksum changes, runtime identity changes, package format changes, source-policy changes, and accepted optional review artifact changes
   - canonicalization negative tests must cover duplicate fields, unknown critical fields, malformed ids, path traversal-looking artifact names, unicode-confusable ids, reordered JSON, alternate numeric encodings, missing optional-vs-empty optional fields, oversized fields, source-map URL injection, sourcemap/source-content policy drift, unknown digest algorithms, truncated digests, digest case ambiguity, and envelope-version mismatches

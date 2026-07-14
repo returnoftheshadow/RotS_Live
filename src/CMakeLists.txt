@@ -47,6 +47,7 @@ set(ROTS_SERVER_SOURCES
     js_game_runtime.cpp
     js_live_package_store.cpp
     js_live_registry_reload_service.cpp
+    js_live_registry_status.cpp
     js_manifest_export.cpp
     js_publish_activation.cpp
     js_publish_authorization.cpp
@@ -167,6 +168,7 @@ set(ROTS_TEST_SOURCES
     tests/js_game_runtime_tests.cpp
     tests/js_live_package_store_tests.cpp
     tests/js_live_registry_reload_service_tests.cpp
+    tests/js_live_registry_status_tests.cpp
     tests/js_manifest_export_tests.cpp
     tests/js_publish_activation_tests.cpp
     tests/js_publish_authorization_tests.cpp
