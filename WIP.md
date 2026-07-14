@@ -1,8 +1,17 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added publish endpoint compatibility fixtures for the client contract.
-- Next slice: wire fixture-backed status/conflict display into the publish panel and start server endpoint implementation planning.
+- Active slice complete: wired fixture-backed status/conflict metadata into the publish panel.
+- Next slice: start server endpoint implementation planning and server-side HTTP contract adapters.
+- Completed slice progress:
+  - Added a client-side publish result presenter so reason, audit, package version, live checksum, staged digest, local package id, and local checksum metadata are shown consistently.
+  - Made the publish panel distinguish local package metadata from server decisions and display conflict/denial/success messaging without relying on a raw JSON blob.
+  - Added focused presenter tests for accepted server decisions, stale-live conflicts, and authorization denials.
+  - Subagent review was not reopened after the explicit pool-close request; this slice used local review plus automated validation.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: added publish endpoint compatibility fixtures for the client contract.
+  - Next slice: wire fixture-backed status/conflict display into the publish panel and start server endpoint implementation planning.
 - Completed slice progress:
   - Added checked-in HTTP response fixtures for stage, status, activate, rollback, stale-live conflict, and authorization failure shapes under `BuilderClient/fixtures/publish-endpoints/`.
   - Extended the client publish result DTO to preserve server reason code, audit id, and package version id metadata while keeping diagnostics redacted.
