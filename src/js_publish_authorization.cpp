@@ -269,12 +269,14 @@ void validate_package_preconditions(const JsPublishRequest& request,
             "expected live checksum does not match current live checksum");
 }
 
-void validate_package(const JsPublishRequest& request, JsPublishAuthorizationResult& result)
+void validate_package(const JsPublishRequest& request, const JsPublishAuthorizationOptions& options,
+    JsPublishAuthorizationResult& result)
 {
     if (request.operation != JsPublishOperation::PackageStage || !request.has_package)
         return;
 
-    result.package_validation = js_script_package_validate(request.package);
+    result.package_validation =
+        js_script_package_validate(request.package, options.package_validation_options);
     if (!result.package_validation.ok)
         add_diagnostic(result, JsPublishDiagnosticCode::PackageValidationFailed, request,
             "package failed server publish validation");
@@ -299,7 +301,7 @@ JsPublishAuthorizationResult js_publish_authorization_preflight(const JsPublishR
 
     validate_package_preconditions(request, options, result);
     if (result.diagnostics.empty())
-        validate_package(request, result);
+        validate_package(request, options, result);
 
     if (result.mutates_server_state && !options.allow_mutating_operations)
         add_diagnostic(result, JsPublishDiagnosticCode::PublishingDisabled, request,

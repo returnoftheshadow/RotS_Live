@@ -117,6 +117,7 @@ struct JsPublishAuthorizationOptions {
     std::string expected_server_audience;
     std::string expected_workspace_id;
     std::string current_live_checksum;
+    JsScriptPackageValidationOptions package_validation_options;
     JsPublishAuthorityContext authority;
 };
 

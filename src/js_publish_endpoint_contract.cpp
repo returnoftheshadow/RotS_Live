@@ -138,7 +138,8 @@ void add_authorization_diagnostics(JsPublishEndpointResponse &response,
             response.diagnostics.push_back("required publish scope is missing");
             break;
         case JsPublishDiagnosticCode::PackagePreconditionMismatch:
-            response.diagnostics.push_back("refresh status and retry against current live checksum");
+            response.diagnostics.push_back(
+                "refresh status and rebuild against the latest live checksum");
             break;
         case JsPublishDiagnosticCode::PermissionMismatch:
             response.diagnostics.push_back("package permission check failed");
@@ -218,7 +219,9 @@ JsPublishEndpointResponse activation_response(const JsPublishActivationResult &r
         response.ok = true;
         response.http_status = 200;
         response.reason_code = std::string(operation) + ".accepted";
-        response.message = std::string("Package ") + operation + " accepted.";
+        response.message = std::string(operation) == "rollback"
+            ? "Rollback activated prior package."
+            : "Package activated.";
         if (!result.live_pointer_result.pointer.current_live_checksum.empty())
             response.live_checksum = result.live_pointer_result.pointer.current_live_checksum;
         return response;
@@ -369,7 +372,17 @@ std::string js_publish_endpoint_response_json(const JsPublishEndpointResponse &r
     json.reserve(256);
     json += "{\"httpStatus\":";
     json += std::to_string(response.http_status);
-    json += ",\"body\":{";
+    json += ",\"body\":";
+    json += js_publish_endpoint_response_body_json(response);
+    json += "}";
+    return json;
+}
+
+std::string js_publish_endpoint_response_body_json(const JsPublishEndpointResponse &response)
+{
+    std::string json;
+    json.reserve(220);
+    json += "{";
     json += "\"ok\":";
     json += (response.ok ? "true" : "false");
     const auto add_string_field = [&json](const char *name, const std::string &value) {
@@ -397,6 +410,6 @@ std::string js_publish_endpoint_response_json(const JsPublishEndpointResponse &r
         json_utils::append_escaped_json_string(json, response.diagnostics[index]);
         json += "\"";
     }
-    json += "]}}";
+    json += "]}";
     return json;
 }

@@ -45,5 +45,6 @@ JsPublishEndpointResponse
 js_publish_endpoint_rollback_response(const JsPublishActivationResult &result);
 
 std::string js_publish_endpoint_response_json(const JsPublishEndpointResponse &response);
+std::string js_publish_endpoint_response_body_json(const JsPublishEndpointResponse &response);
 
 #endif

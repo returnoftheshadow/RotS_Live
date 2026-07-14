@@ -55,6 +55,7 @@ set(ROTS_SERVER_SOURCES
     js_publish_activation.cpp
     js_publish_authorization.cpp
     js_publish_endpoint_contract.cpp
+    js_publish_endpoint_service.cpp
     js_publish_staging.cpp
     js_runtime.cpp
     js_staged_package_identity.cpp
@@ -180,6 +181,7 @@ set(ROTS_TEST_SOURCES
     tests/js_publish_activation_tests.cpp
     tests/js_publish_authorization_tests.cpp
     tests/js_publish_endpoint_contract_tests.cpp
+    tests/js_publish_endpoint_service_tests.cpp
     tests/js_publish_staging_tests.cpp
     tests/js_runtime_tests.cpp
     tests/js_staged_package_identity_tests.cpp

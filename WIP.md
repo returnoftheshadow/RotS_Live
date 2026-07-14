@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: added server publish endpoint response contract adapters.
-- Next slice: wire the publish response adapters into the actual server command/API boundary.
+- Active slice complete: wired publish response adapters into a transport-ready server API boundary.
+- Next slice: mount the transport-ready publish endpoint service behind the concrete server command/HTTP listener when that transport exists.
+- Completed slice progress:
+  - Added `JsPublishEndpointService` as the server-side publish boundary over staged package repository access, live store activation, status lookup, and JSON body emission.
+  - Routed stage preflight, stage, status, activate, and rollback operations through the publish endpoint response adapters.
+  - Made package validation policy and staged server instance identity service-owned instead of caller-controlled.
+  - Made status requests require `StatusRead`, derive package authority from the staged record, and redact package metadata on authorization failures.
+  - Bound activate and rollback endpoint methods to their expected publish operations before invoking the shared activation primitive.
+  - Added service tests for stage success/conflict, publish-mode validation rejection, trusted audit derivation, status authorization, activate/rollback routing, and no-metadata failures.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to server-owned staged identity, derived status authority, endpoint operation guards, and stronger adversarial assertions.
+  - Validation passed: focused `JsPublishEndpointService.*:JsPublishEndpointContract.*` tests (29 tests), `make test -j16` (1029 tests), and `git diff --check`.
+- Previous slice progress:
+  - Active slice complete: added server publish endpoint response contract adapters.
+  - Next slice: wire the publish response adapters into the actual server command/API boundary.
 - Completed slice progress:
   - Added server-owned publish endpoint response helpers for stage, stage preflight, status, activation, rollback, and camelCase JSON serialization.
   - Mapped staged/status/activation service results into BuilderClient-compatible fields while keeping source code out of responses.
