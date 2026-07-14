@@ -1,8 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: documented `BuilderClient/` as the home for Electron/TypeScript builder-client development.
-- Next slice: start the offline/server parity harness.
+- Active slice complete: bootstrapped the `BuilderClient/` Electron/TypeScript authoring client.
+- Next slice: wire the client to checked-in/generated server builder artifacts and expand offline/server parity coverage.
+- Completed slice progress:
+  - Scaffolded the nested `BuilderClient/` repository as the dedicated Electron/TypeScript client root with Vite, React, Electron main/preload, Monaco editor integration, package lock, TypeScript configs, and client README.
+  - Built the first VS Code-style editor shell with activity bar, explorer, editor tab, trigger catalog, problems/output/publish panels, status bar, compile/run/stage actions, and responsive constraints.
+  - Added server-artifact loading seams for `generated/rots-builder-manifest.json`, `generated/rots.d.ts`, `generated/rots-api.md`, and `generated/rots-editor-config.json`, plus fallback read-only artifacts for local bootstrap.
+  - Added the client-side project model, TypeScript compile path, Node VM-based offline fixture runner with code-generation disabled, publish package assembly with checksums, and IPC bridge methods.
+  - Added initial Vitest coverage for TypeScript compile/offline execution, code-generation rejection, and publish package assembly.
+  - Hardened the Electron shell with context isolation, disabled node integration, sandboxed preload, denied window-open/navigation, and denied renderer permission requests.
+  - Attempted to spawn Magus, Vincent, and Bazarat for review, but the subagent thread pool was still at its limit; no fresh reviewer feedback was available for this client bootstrap slice.
+  - Validation passed in `BuilderClient/`: `npm run typecheck`, `npm test`, `npm audit --omit=dev`, `npm audit`, and `npm run build`.
+- Previous slice progress:
+  - Active slice complete: documented `BuilderClient/` as the home for Electron/TypeScript builder-client development.
+  - Next slice: start the offline/server parity harness.
 - Completed slice progress:
   - Start from committed multi-package ordering coverage in `1360c75`.
   - Updated `FEATURES.md` so Electron main/preload/renderer source, TypeScript editor UI, VS Code-style shell, LSP/IntelliSense integration, client-side tests, package manager files, bundler config, Electron hardening config, and client docs live under top-level `BuilderClient/`.
