@@ -1948,6 +1948,65 @@ TEST(JsLegacyTriggerDispatch, BuildFilesReferenceFacadeSourcesAndTests) {
     EXPECT_TRUE(contains(test_makefile, "js_live_registry_reload_service.h"));
 }
 
+TEST(JsLegacyTriggerDispatch, ActiveLegacyTriggerInventoryHasServerFacadeCoverage) {
+    const std::string script = read_first_available_file({"src/script.cpp", "../script.cpp"});
+
+    ASSERT_FALSE(script.empty());
+
+    const JsScriptingManifestEntry *before_die =
+        find_js_scripting_manifest_entry(JsScriptingManifestKind::LegacyScriptTrigger, ON_BEFORE_DIE);
+    ASSERT_NE(before_die, nullptr);
+    EXPECT_EQ(before_die->support_status, JsScriptingSupportStatus::Reserved);
+    EXPECT_FALSE(contains(script, "case ON_BEFORE_DIE:"));
+
+    struct ExpectedTrigger {
+        int legacy_value;
+        const char *handler_name;
+        const char *dispatch_snippet;
+    };
+
+    const ExpectedTrigger expected_triggers[] = {
+        {ON_ENTER, "onEnter",
+            "dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_ENTER)"},
+        {ON_BEFORE_ENTER, "onBeforeEnter",
+            "dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_BEFORE_ENTER)"},
+        {ON_DIE, "onDie", "dispatch_javascript_character_death_trigger(ch)"},
+        {ON_DAMAGE, "onDamage", "dispatch_javascript_character_damage_trigger(vict, ch)"},
+        {ON_RECEIVE, "onReceive", "dispatch_javascript_character_receive_trigger(ch1, ch2, ob1)"},
+        {ON_HEAR_SAY, "onHearSay",
+            "dispatch_javascript_character_hear_trigger(ON_HEAR_SAY, ch, speaking, text)"},
+        {ON_HEAR_YELL, "onHearYell",
+            "dispatch_javascript_character_hear_trigger(ON_HEAR_YELL, ch, speaking, text)"},
+        {ON_EXAMINE_OBJECT, "onExamineObject", "case ON_EXAMINE_OBJECT:"},
+        {ON_EAT, "onEat", "case ON_EAT:"},
+        {ON_DRINK, "onDrink", "case ON_DRINK:"},
+        {ON_WEAR, "onWear", "case ON_WEAR:"},
+        {ON_PULL, "onPull", "case ON_PULL:"},
+    };
+
+    for (const ExpectedTrigger &expected : expected_triggers) {
+        const JsScriptingManifestEntry *entry = find_js_scripting_manifest_entry(
+            JsScriptingManifestKind::LegacyScriptTrigger, expected.legacy_value);
+        ASSERT_NE(entry, nullptr) << expected.legacy_value;
+        EXPECT_EQ(entry->support_status, JsScriptingSupportStatus::Deferred)
+            << entry->legacy_name;
+        EXPECT_STREQ(expected.handler_name, entry->javascript_handler_name);
+        EXPECT_TRUE(contains(script, expected.dispatch_snippet))
+            << expected.legacy_value << " missing " << expected.dispatch_snippet;
+    }
+
+    EXPECT_TRUE(contains(script, "dispatch_javascript_object_damage_trigger(obj, vict, ch)"));
+    EXPECT_TRUE(contains(script, "dispatch_javascript_object_event_trigger(trigger_type, obj, ch)"));
+    EXPECT_TRUE(contains(script,
+        "trigger_type == ON_ENTER || trigger_type == ON_EXAMINE_OBJECT || trigger_type == ON_EAT"));
+    EXPECT_TRUE(contains(script, "trigger_type == ON_DRINK || trigger_type == ON_WEAR || trigger_type == ON_PULL"));
+    EXPECT_TRUE(contains(script, "case ON_BEFORE_ENTER:"));
+    EXPECT_TRUE(contains(script, "case ON_ENTER:"));
+    EXPECT_TRUE(contains(script, "trigger_before_char_enter(tmpch, ch, room)"));
+    EXPECT_TRUE(contains(script, "trigger_char_enter(tmpch, ch, room)"));
+    EXPECT_TRUE(contains(script, "trigger_object_event(ON_ENTER, tmpobj, ch)"));
+}
+
 TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     const std::string script = read_first_available_file({"src/script.cpp", "../script.cpp"});
     const std::string act_move = read_first_available_file({"src/act_move.cpp", "../act_move.cpp"});

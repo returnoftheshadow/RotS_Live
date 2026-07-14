@@ -157,7 +157,7 @@ Legacy `.scr` trigger inventory requiring JavaScript equivalents:
 - `ON_HEAR_SAY` (`17`):
   - Create a JavaScript trigger equivalent for character/mob scripts when another character says text the scripted character hears.
   - Preserve or explicitly replace the current legacy compatibility behavior where `trigger_char_hear()` checks both `ON_HEAR_SAY` and `ON_HEAR_YELL` script sections regardless of which hear trigger entered the helper.
-  - JavaScript context should include at least `self`, `speaker`, sanitized/heard `text`, trigger metadata, and host type.
+  - JavaScript context should include at least listener `self`, speaker `actor`, sanitized/heard `text`, trigger metadata, and host type.
 - `ON_DAMAGE` (`18`):
   - Create a JavaScript trigger equivalent for character/mob scripts on the victim before damage is applied.
   - Create a JavaScript trigger equivalent for wielded-object scripts after the victim script allows damage.
@@ -182,7 +182,13 @@ Legacy `.scr` trigger inventory requiring JavaScript equivalents:
 - `ON_HEAR_YELL` (`23`):
   - Create a JavaScript trigger equivalent for character/mob scripts when another character yells text the scripted character hears.
   - Preserve or explicitly replace the current legacy compatibility behavior where `trigger_char_hear()` checks both hear-say and hear-yell script sections for both hear entry points.
-  - JavaScript context should include at least `self`, `speaker`, sanitized/heard `text`, trigger metadata, and host type.
+  - JavaScript context should include at least listener `self`, speaker `actor`, sanitized/heard `text`, trigger metadata, and host type.
+- Current server-side `.scr` trigger wiring status after the default-closed live-dispatch slices:
+  - Wired character-host paths: `ON_ENTER`, `ON_BEFORE_ENTER`, `ON_DIE`, `ON_DAMAGE`, `ON_RECEIVE`, `ON_HEAR_SAY`, and `ON_HEAR_YELL`.
+  - Wired object-host paths: `ON_ENTER`, `ON_EXAMINE_OBJECT`, `ON_DAMAGE`, `ON_EAT`, `ON_DRINK`, `ON_WEAR`, and `ON_PULL`.
+  - Wired room-event fan-out paths: `ON_BEFORE_ENTER` and `ON_ENTER` dispatch through the existing room-event helper into room occupants, and `ON_ENTER` also dispatches room contents through object-host `ON_ENTER`.
+  - Reserved path: `ON_BEFORE_DIE` remains defined but not dispatched by the inspected legacy path, so the JavaScript manifest keeps it reserved/unsupported until that trigger is deliberately implemented or removed from scope.
+  - Builder publishing remains deferred even for wired server paths until publish authorization, generated docs/types, offline runner parity, and client workflow gates are complete.
 - Every active ASIMA trigger above must appear in the server-owned JavaScript trigger manifest with:
   - legacy numeric id
   - JavaScript handler name

@@ -1,8 +1,19 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: extended the default-closed JavaScript legacy-trigger facade into character hear triggers `ON_HEAR_SAY` and `ON_HEAR_YELL`.
-- Next slice: final trigger audit and documentation cleanup for the server-side JavaScript trigger wiring.
+- Active slice complete: final trigger audit and documentation cleanup for the server-side JavaScript trigger wiring.
+- Next slice: begin end-to-end game execution testing for JavaScript trigger packages against the live server facade.
+- Completed slice progress:
+  - Start from committed hear-trigger wiring in `0bce388`.
+  - Audit goal: prove every active legacy `.scr` trigger is either wired through the default-closed JavaScript facade or explicitly reserved/unsupported in the manifest.
+  - Preserve the current boundary: server-side trigger execution can run active live-registry JavaScript packages when the gameplay switch/freshness token are enabled, but builder publish status remains deferred until the publish/docs/client gates are finished.
+  - Updated `FEATURES.md` with the current server-side `.scr` trigger wiring status: character-host, object-host, room-event fan-out, `ON_BEFORE_DIE` reserved status, and deferred builder-publish boundary.
+  - Added `JsLegacyTriggerDispatch.ActiveLegacyTriggerInventoryHasServerFacadeCoverage` so the active trigger inventory is source-guarded against the actual default-closed facade hooks and `ON_BEFORE_DIE` remains explicitly reserved.
+  - Attempted to send the final audit diff to Magus, Vincent, and Bazarat, but the subagent thread pool was at its limit; no fresh reviewer feedback was available for this documentation/audit-only slice.
+  - Validation passed: raw `make -C src/tests -j16 js_legacy_trigger_dispatch_tests.o`, focused CMake-built `./bin/tests --gtest_filter='JsLegacyTriggerDispatch.ActiveLegacyTriggerInventoryHasServerFacadeCoverage:JsLegacyTriggerDispatch.CharacterGameplayPathsUseFacade:JsScriptingManifest.*'` (20 tests), `git diff --check`, and CMake build plus CTest with `-j16` build parallelism (997/997).
+- Previous slice progress:
+  - Active slice complete: extended the default-closed JavaScript legacy-trigger facade into character hear triggers `ON_HEAR_SAY` and `ON_HEAR_YELL`.
+  - Next slice: final trigger audit and documentation cleanup for the server-side JavaScript trigger wiring.
 - Completed slice progress:
   - Start from committed `ON_RECEIVE` wiring in `7cc24cd`.
   - Preserve legacy compatibility behavior: `trigger_char_hear(...)` checks both `ON_HEAR_SAY` and `ON_HEAR_YELL` for the same call, so JavaScript should dispatch the matching say and yell handlers in that same helper rather than splitting the public call path.
