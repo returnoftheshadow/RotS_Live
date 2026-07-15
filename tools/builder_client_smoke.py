@@ -492,6 +492,50 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
             )
         assert_no_persisted_activation(live_store_path, staged_package_id)
 
+        status, stale_digest_activation = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/activate",
+            {
+                "packageId": staged_package_id,
+                "stagedDigest": "sha256:not-the-reviewed-smoke-digest",
+                "baseLiveChecksum": "live:old",
+            },
+            token,
+        )
+        if (
+            status != 403
+            or stale_digest_activation.get("ok") is not False
+            or stale_digest_activation.get("reasonCode") != "activate.authorization-failed"
+            or stale_digest_activation.get("packageId")
+            or stale_digest_activation.get("stagedDigest")
+            or stale_digest_activation.get("liveChecksum")
+        ):
+            raise RuntimeError(
+                f"Stale-digest activation leaked metadata or changed state: HTTP {status} "
+                f"{redact_response(stale_digest_activation)}"
+            )
+        status, stale_digest_status = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/status",
+            {"packageId": staged_package_id},
+            token,
+        )
+        if (
+            status != 200
+            or not stale_digest_status.get("ok")
+            or stale_digest_status.get("reasonCode") != "status.current"
+            or stale_digest_status.get("packageId") != staged_package_id
+            or stale_digest_status.get("stagedDigest") != staged_digest
+            or stale_digest_status.get("liveChecksum") != "live:old"
+        ):
+            raise RuntimeError(
+                f"Status after stale-digest activation failed: HTTP {status} "
+                f"{redact_response(stale_digest_status)}"
+            )
+        assert_no_persisted_activation(live_store_path, staged_package_id)
+
         status, activated = http_json(
             args.builder_api_port,
             "POST",
@@ -581,7 +625,7 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
 
         passed = True
         print(
-            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> stale-live conflict -> activate -> wrong-zone rejection -> logout -> offline unauthenticated tests."
+            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> stale-live conflict -> stale-digest conflict -> activate -> wrong-zone rejection -> logout -> offline unauthenticated tests."
         )
         return 0
     finally:

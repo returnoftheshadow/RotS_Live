@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: add server-backed stale-live activation conflict coverage to the temporary BuilderClient smoke.
-- Next slice: add server-backed stale staged-digest activation conflict smoke coverage after stale-live conflict is committed.
+- Active slice: add server-backed stale staged-digest activation conflict coverage to the temporary BuilderClient smoke.
+- Next slice: add server-backed activation-after-live-change smoke coverage after stale staged-digest conflict is committed.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -53,6 +53,9 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added stale staged-digest activation conflict coverage to `tools/builder_client_smoke.py`: after the stale-live conflict, the smoke now attempts activation with an unreviewed digest, expects fail-closed `403 activate.authorization-failed` without package/staged/live metadata, verifies status still returns the original staged digest and `live:old`, and asserts no live pointer was persisted.
+  - Validation passed for this stale staged-digest conflict smoke slice: `python3 -m py_compile tools/builder_client_smoke.py`, `git diff --check`, and `make smoke-builder-client`.
+  - Next slice after this commit: add server-backed activation-after-live-change smoke coverage.
   - Added stale-live activation conflict coverage to `tools/builder_client_smoke.py`: after staging and refreshing status, the smoke now attempts activation with `baseLiveChecksum=live:stale-smoke`, expects `409 activate.stale-live-checksum`, verifies the staged package metadata and `live:old` checksum remain current, and asserts no live pointer was persisted before the later successful activation.
   - Validation passed for this stale-live conflict smoke slice: `python3 -m py_compile tools/builder_client_smoke.py`, `git diff --check`, and `make smoke-builder-client`.
   - Next slice after this commit: add server-backed stale staged-digest activation conflict smoke coverage.
