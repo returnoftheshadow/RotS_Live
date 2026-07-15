@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: add proxy forwarding for BuilderClient login, logout, and manifest routes to the matching trusted game-side endpoints, keeping publish routes separate from session/manifest routes.
+- Next slice: add game-side BuilderClient login/logout HTTP route adapters around `js_builder_session`, including trusted-proxy checks, bounded JSON parsing, redacted responses, and session-token lookup/logout hooks.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
@@ -25,12 +25,23 @@
   - [x] Proxy-to-game local trust slice: add proxy-to-game BuilderClient request forwarding, internal secret or equivalent trust marker, timeouts, and redacted runtime errors.
   - [x] Server account/session endpoint slice: add game-side BuilderClient login/session/logout endpoint support behind the proxy trust boundary, using existing account passwords and linked level `92+` immortal eligibility evidence.
   - [x] Server manifest endpoint slice: expose the server-owned JavaScript trigger/API manifest through the trusted proxy route so BuilderClient typings/LSP can refresh from the authoritative contract.
-  - [ ] Proxy session/manifest forwarding slice: forward BuilderClient login/logout/manifest routes to game-side trusted endpoints, preserve the test-server-only target policy, and keep publish forwarding separate from session/manifest traffic.
+  - [x] Proxy session/manifest forwarding slice: forward BuilderClient login/logout/manifest routes to game-side trusted endpoints, preserve the test-server-only target policy, and keep publish forwarding separate from session/manifest traffic.
+  - [ ] Server session HTTP endpoint slice: add game-side BuilderClient login/logout route adapters over `js_builder_session`, with trusted-proxy enforcement, bounded JSON request parsing, redacted auth failures, and a session-store/lookup boundary for later publish authorization.
   - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Extended the Rust proxy forwarding map so BuilderClient login, manifest, status, stage, activate, rollback, and logout routes all forward to explicit game-owned paths.
+  - Kept publish routes mapped to `/api/js-scripts/{status,stage,activate,rollback}` while forwarding login to `/api/builder/login`, manifest to `GET /api/builder/js/manifest`, and logout to `/api/builder/logout`.
+  - Changed forwarded request rendering to preserve each route's method and to emit `content-type` and `authorization` headers only when the BuilderClient request/preflight contract allows them.
+  - Preserved preflight session requirements: login and manifest remain sessionless; status, stage, activate, rollback, and logout still require a bearer token before forwarding.
+  - Treated the manifest route as intentionally sessionless public builder metadata on the loopback-only Builder API surface; it still requires the proxy-to-game trust marker and does not grant publish authority or expose script source.
+  - Stripped client-supplied bearer tokens from login and manifest forwarding, rejected non-empty manifest bodies in proxy preflight, rejected backend responses that echo forwarded bearer tokens, and added a startup guard that refuses non-loopback Builder API bind addresses.
+  - Routed every accepted BuilderClient API request through the same internal trust marker, test-server-only target policy, backend timeout/size cap, and sanitized backend response handling.
+  - Added proxy tests for full route mapping, login/manifest/logout forward request shape, fake-backend roundtrip forwarding for login/manifest/logout, all session-required routes rejecting missing bearer tokens at handler level, manifest body-smuggling rejection, token-echo response rejection, Builder API loopback binding, invalid target policy across login/manifest/stage/logout, and existing publish forwarding/sanitization behavior.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to explicit sessionless-manifest documentation, broader missing-session handler tests, loopback-only Builder API binding, stripped login/manifest authorization forwarding, manifest body rejection, bearer-token echo rejection, and target-policy coverage for non-publish routes.
+  - Validation passed: `cargo fmt -p proxy` and `cargo test -p proxy` (43 tests).
   - Added a pure game-side `js_builder_manifest_endpoint` route adapter for `GET /api/builder/js/manifest`.
   - Required the endpoint caller to supply server-derived trusted-proxy context; the header now documents that this value must come from the validated proxy trust marker and never from BuilderClient JSON.
   - Returned the authoritative server-owned trigger/API manifest via `js_export_builder_manifest_json()` so BuilderClient typings, IntelliSense, LSP configuration, and docs refresh can share the same contract source as server validation.

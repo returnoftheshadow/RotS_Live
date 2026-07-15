@@ -46,6 +46,14 @@ impl BuilderApiOperation {
     fn requires_json_body(self) -> bool {
         !matches!(self, Self::Manifest)
     }
+
+    fn allows_request_body(self) -> bool {
+        self.requires_json_body()
+    }
+
+    fn forwards_bearer_token(self) -> bool {
+        self.requires_session()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -183,8 +191,8 @@ struct BuilderApiHttpRequest<'a> {
 struct BuilderGameForwardRequest {
     method: &'static str,
     path: &'static str,
-    content_type: String,
-    bearer_token: String,
+    content_type: Option<String>,
+    bearer_token: Option<String>,
     body: Vec<u8>,
 }
 
@@ -275,6 +283,13 @@ fn builder_publish_target(game: &GameAddr) -> Result<(), Report> {
     Ok(())
 }
 
+fn builder_api_listen_target(addr: &SocketAddrV4) -> Result<(), Report> {
+    if !addr.ip().is_loopback() {
+        bail!("invalid BuilderClient API listen target");
+    }
+    Ok(())
+}
+
 fn builder_api_preflight(
     request: &BuilderApiPreflightRequest<'_>,
     builder_game: &GameAddr,
@@ -311,6 +326,15 @@ fn builder_api_preflight_with_target_policy(
             route: Some(route),
             http_status: 413,
             reason_code: "builder.request-too-large",
+        };
+    }
+
+    if !route.operation.allows_request_body() && request.body_bytes > 0 {
+        return BuilderApiPreflightResult {
+            code: BuilderApiPreflightCode::BadRequest,
+            route: Some(route),
+            http_status: 400,
+            reason_code: "builder.bad-request",
         };
     }
 
@@ -377,13 +401,13 @@ fn builder_api_handle_http_request_with_target_policy(
 
 fn builder_game_forward_path(operation: BuilderApiOperation) -> Option<&'static str> {
     match operation {
+        BuilderApiOperation::Login => Some("/api/builder/login"),
+        BuilderApiOperation::Manifest => Some("/api/builder/js/manifest"),
         BuilderApiOperation::Status => Some("/api/js-scripts/status"),
         BuilderApiOperation::Stage => Some("/api/js-scripts/stage"),
         BuilderApiOperation::Activate => Some("/api/js-scripts/activate"),
         BuilderApiOperation::Rollback => Some("/api/js-scripts/rollback"),
-        BuilderApiOperation::Login
-        | BuilderApiOperation::Manifest
-        | BuilderApiOperation::Logout => None,
+        BuilderApiOperation::Logout => Some("/api/builder/logout"),
     }
 }
 
@@ -423,23 +447,40 @@ fn builder_game_forward_request(
     let bearer_token = request
         .bearer_token
         .map(str::trim)
-        .filter(|token| !token.is_empty() && !token.contains(char::is_whitespace))
-        .context("BuilderClient session token is not forwardable")?;
+        .filter(|token| !token.is_empty())
+        .filter(|_| route.operation.forwards_bearer_token());
+    if route.operation.requires_session()
+        && bearer_token
+            .filter(|token| !token.contains(char::is_whitespace))
+            .is_none()
+    {
+        bail!("BuilderClient session token is not forwardable");
+    }
+    let bearer_token = bearer_token
+        .map(|token| {
+            if token.contains(char::is_whitespace) {
+                bail!("BuilderClient session token is not forwardable");
+            }
+            Ok(token.to_string())
+        })
+        .transpose()?;
     validate_builder_internal_secret(internal_secret)?;
     let content_type = request
         .content_type
-        .unwrap_or("application/json")
-        .trim()
-        .to_string();
-    if !is_safe_http_header_value(&content_type) {
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if content_type
+        .map(|value| !is_safe_http_header_value(value))
+        .unwrap_or(false)
+    {
         bail!("BuilderClient content type is not forwardable");
     }
 
     Ok(BuilderGameForwardRequest {
-        method: "POST",
+        method: route.method,
         path,
-        content_type,
-        bearer_token: bearer_token.to_string(),
+        content_type: content_type.map(str::to_string),
+        bearer_token,
         body: request.body.to_vec(),
     })
 }
@@ -469,13 +510,21 @@ fn builder_game_forward_request_bytes_with_target_policy(
     let internal_secret = validate_builder_internal_secret(Some(internal_secret))?;
     let host = format!("{}:{}", builder_game.hostname, builder_game.port);
     let request_head = format!(
-        "{} {} HTTP/1.1\r\nhost: {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nauthorization: Bearer {}\r\n{}: {}\r\nconnection: close\r\n\r\n",
+        "{} {} HTTP/1.1\r\nhost: {}\r\n{}content-length: {}\r\n{}{}: {}\r\nconnection: close\r\n\r\n",
         forward.method,
         forward.path,
         host,
-        forward.content_type,
+        forward
+            .content_type
+            .as_ref()
+            .map(|content_type| format!("content-type: {content_type}\r\n"))
+            .unwrap_or_default(),
         forward.body.len(),
-        forward.bearer_token,
+        forward
+            .bearer_token
+            .as_ref()
+            .map(|token| format!("authorization: Bearer {token}\r\n"))
+            .unwrap_or_default(),
         BUILDER_INTERNAL_TRUST_HEADER,
         internal_secret
     );
@@ -538,18 +587,27 @@ async fn forward_builder_api_to_game_inner(
     if response.is_empty() {
         bail!("BuilderClient game response is empty");
     }
-    sanitized_builder_game_response(&response, internal_secret)
+    sanitized_builder_game_response(&response, internal_secret, forward.bearer_token.as_deref())
 }
 
 fn sanitized_builder_game_response(
     response: &[u8],
     internal_secret: &str,
+    bearer_token: Option<&str>,
 ) -> Result<Vec<u8>, Report> {
     if response
         .windows(internal_secret.len())
         .any(|window| window == internal_secret.as_bytes())
     {
         bail!("BuilderClient game response exposed internal trust marker");
+    }
+    if let Some(bearer_token) = bearer_token {
+        if response
+            .windows(bearer_token.len())
+            .any(|window| window == bearer_token.as_bytes())
+        {
+            bail!("BuilderClient game response exposed bearer token");
+        }
     }
     let Some(header_end) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
         bail!("BuilderClient game response is not complete HTTP");
@@ -827,16 +885,13 @@ async fn handle_builder_api_with_target_policy(
     let route = result
         .route
         .context("accepted BuilderClient route is missing")?;
-    if builder_game_forward_path(route.operation).is_none() {
-        return write_builder_api_response(&mut stream, &result).await;
-    }
 
     if builder_internal_secret
         .as_deref()
         .map(|secret| validate_builder_internal_secret(Some(secret.as_str())).is_ok())
         != Some(true)
     {
-        log::debug!("BuilderClient publish forwarding rejected: missing internal trust marker");
+        log::debug!("BuilderClient forwarding rejected: missing internal trust marker");
         let result = builder_api_error_result(
             BuilderApiPreflightCode::ForwardUnavailable,
             503,
@@ -861,7 +916,7 @@ async fn handle_builder_api_with_target_policy(
             Ok(())
         }
         Err(err) => {
-            log::debug!("BuilderClient publish forwarding failed: {err}");
+            log::debug!("BuilderClient forwarding failed: {err}");
             let result = builder_api_error_result(
                 BuilderApiPreflightCode::ForwardFailed,
                 502,
@@ -1064,6 +1119,7 @@ async fn main() -> Result<(), Report> {
 
     let args = Args::parse();
     builder_publish_target(&args.builder_game)?;
+    builder_api_listen_target(&args.builder_api)?;
     let tcp = TcpListener::bind(args.listen).await?;
     let ws = TcpListener::bind(args.websocket).await?;
     let builder_api = TcpListener::bind(args.builder_api).await?;
@@ -1254,7 +1310,15 @@ mod tests {
     }
 
     #[test]
-    fn builder_game_forward_paths_translate_publish_routes_only() {
+    fn builder_game_forward_paths_translate_builder_routes() {
+        assert_eq!(
+            Some("/api/builder/login"),
+            builder_game_forward_path(BuilderApiOperation::Login)
+        );
+        assert_eq!(
+            Some("/api/builder/js/manifest"),
+            builder_game_forward_path(BuilderApiOperation::Manifest)
+        );
         assert_eq!(
             Some("/api/js-scripts/status"),
             builder_game_forward_path(BuilderApiOperation::Status)
@@ -1271,12 +1335,10 @@ mod tests {
             Some("/api/js-scripts/rollback"),
             builder_game_forward_path(BuilderApiOperation::Rollback)
         );
-        assert_eq!(None, builder_game_forward_path(BuilderApiOperation::Login));
         assert_eq!(
-            None,
-            builder_game_forward_path(BuilderApiOperation::Manifest)
+            Some("/api/builder/logout"),
+            builder_game_forward_path(BuilderApiOperation::Logout)
         );
-        assert_eq!(None, builder_game_forward_path(BuilderApiOperation::Logout));
     }
 
     #[test]
@@ -1304,6 +1366,119 @@ mod tests {
         assert!(rendered.contains("authorization: Bearer token:builder\r\n"));
         assert!(rendered.contains("x-rots-builder-proxy-secret: local-secret\r\n"));
         assert!(rendered.ends_with(r#"{"package":{"packageId":"js:30:character:3001"}}"#));
+    }
+
+    #[test]
+    fn builder_game_forward_request_preserves_login_manifest_and_logout_shapes() {
+        let login_route = builder_api_route("POST", "/api/builder/login").unwrap();
+        let login = BuilderApiHttpRequest {
+            method: "POST",
+            path: "/api/builder/login",
+            content_type: Some("application/json"),
+            bearer_token: None,
+            body: br#"{"account":"builder"}"#,
+        };
+        let login_forward = builder_game_forward_request(&login, login_route, Some("secret"))
+            .expect("login should forward without session");
+        let login_rendered = String::from_utf8(
+            builder_game_forward_request_bytes(
+                &login_forward,
+                &game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+                "secret",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(login_rendered.starts_with("POST /api/builder/login HTTP/1.1\r\n"));
+        assert!(login_rendered.contains("content-type: application/json\r\n"));
+        assert!(!login_rendered.contains("authorization: Bearer"));
+        assert!(login_rendered.ends_with(r#"{"account":"builder"}"#));
+
+        let login_with_stale_token = BuilderApiHttpRequest {
+            bearer_token: Some("stale-token"),
+            ..login
+        };
+        let login_with_stale_token_forward =
+            builder_game_forward_request(&login_with_stale_token, login_route, Some("secret"))
+                .expect("login should strip stale sessions");
+        let login_with_stale_token_rendered = String::from_utf8(
+            builder_game_forward_request_bytes(
+                &login_with_stale_token_forward,
+                &game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+                "secret",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!login_with_stale_token_rendered.contains("authorization: Bearer"));
+
+        let manifest_route = builder_api_route("GET", "/api/builder/js/manifest").unwrap();
+        let manifest = BuilderApiHttpRequest {
+            method: "GET",
+            path: "/api/builder/js/manifest",
+            content_type: None,
+            bearer_token: None,
+            body: b"",
+        };
+        let manifest_forward =
+            builder_game_forward_request(&manifest, manifest_route, Some("secret"))
+                .expect("manifest should forward without session");
+        let manifest_rendered = String::from_utf8(
+            builder_game_forward_request_bytes(
+                &manifest_forward,
+                &game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+                "secret",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(manifest_rendered.starts_with("GET /api/builder/js/manifest HTTP/1.1\r\n"));
+        assert!(!manifest_rendered.contains("content-type:"));
+        assert!(!manifest_rendered.contains("authorization: Bearer"));
+        assert!(manifest_rendered.contains("content-length: 0\r\n"));
+
+        let manifest_with_stale_token = BuilderApiHttpRequest {
+            bearer_token: Some("stale-token"),
+            ..manifest
+        };
+        let manifest_with_stale_token_forward = builder_game_forward_request(
+            &manifest_with_stale_token,
+            manifest_route,
+            Some("secret"),
+        )
+        .expect("manifest should strip stale sessions");
+        let manifest_with_stale_token_rendered = String::from_utf8(
+            builder_game_forward_request_bytes(
+                &manifest_with_stale_token_forward,
+                &game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+                "secret",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!manifest_with_stale_token_rendered.contains("authorization: Bearer"));
+
+        let logout_route = builder_api_route("POST", "/api/builder/logout").unwrap();
+        let logout = BuilderApiHttpRequest {
+            method: "POST",
+            path: "/api/builder/logout",
+            content_type: Some("application/json"),
+            bearer_token: Some("token:builder"),
+            body: b"{}",
+        };
+        let logout_forward = builder_game_forward_request(&logout, logout_route, Some("secret"))
+            .expect("logout should forward with session");
+        let logout_rendered = String::from_utf8(
+            builder_game_forward_request_bytes(
+                &logout_forward,
+                &game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+                "secret",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(logout_rendered.starts_with("POST /api/builder/logout HTTP/1.1\r\n"));
+        assert!(logout_rendered.contains("authorization: Bearer token:builder\r\n"));
     }
 
     #[test]
@@ -1349,8 +1524,8 @@ mod tests {
         let forward = BuilderGameForwardRequest {
             method: "POST",
             path: "/api/js-scripts/stage",
-            content_type: String::from("application/json"),
-            bearer_token: String::from("token:builder"),
+            content_type: Some(String::from("application/json")),
+            bearer_token: Some(String::from("token:builder")),
             body: b"{}".to_vec(),
         };
         let error = builder_game_forward_request_bytes(
@@ -1424,6 +1599,23 @@ mod tests {
     }
 
     #[test]
+    fn builder_api_listen_target_requires_loopback() {
+        assert!(
+            builder_api_listen_target(&SocketAddrV4::new("127.0.0.1".parse().unwrap(), 8081,))
+                .is_ok()
+        );
+        assert!(
+            builder_api_listen_target(&SocketAddrV4::new("0.0.0.0".parse().unwrap(), 8081,))
+                .is_err()
+        );
+        assert!(builder_api_listen_target(&SocketAddrV4::new(
+            "192.168.1.5".parse().unwrap(),
+            8081,
+        ))
+        .is_err());
+    }
+
+    #[test]
     fn builder_api_preflight_accepts_login_manifest_and_authed_publish_routes() {
         let game = game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT);
         let login = BuilderApiHttpRequest {
@@ -1482,19 +1674,36 @@ mod tests {
 
     #[test]
     fn builder_api_preflight_rejects_invalid_publish_target_generically() {
-        let live_game = game_addr("127.0.0.1", LIVE_GAME_PORT);
-        let request = BuilderApiHttpRequest {
-            method: "POST",
-            path: "/api/builder/js/stage",
-            content_type: Some("application/json"),
-            bearer_token: Some("token:builder"),
-            body: &[b'x'; 128],
-        };
-        let result = builder_api_handle_http_request(&request, &live_game);
+        let invalid_targets = [
+            game_addr("127.0.0.1", LIVE_GAME_PORT),
+            game_addr("127.0.0.1", 1024),
+            game_addr("example.com", BUILDER_TEST_GAME_PORT),
+        ];
+        for builder_game in invalid_targets {
+            for (method, path, token) in [
+                ("POST", "/api/builder/login", None),
+                ("GET", "/api/builder/js/manifest", None),
+                ("POST", "/api/builder/js/stage", Some("token:builder")),
+                ("POST", "/api/builder/logout", Some("token:builder")),
+            ] {
+                let request = BuilderApiHttpRequest {
+                    method,
+                    path,
+                    content_type: if method == "GET" {
+                        None
+                    } else {
+                        Some("application/json")
+                    },
+                    bearer_token: token,
+                    body: if method == "GET" { &[] } else { &[b'x'; 2] },
+                };
+                let result = builder_api_handle_http_request(&request, &builder_game);
 
-        assert_eq!(BuilderApiPreflightCode::InvalidPublishTarget, result.code);
-        assert_eq!(503, result.http_status);
-        assert_eq!("builder.invalid-target", result.reason_code);
+                assert_eq!(BuilderApiPreflightCode::InvalidPublishTarget, result.code);
+                assert_eq!(503, result.http_status);
+                assert_eq!("builder.invalid-target", result.reason_code);
+            }
+        }
     }
 
     #[test]
@@ -1561,6 +1770,23 @@ mod tests {
         assert_eq!(BuilderApiPreflightCode::UnsupportedMediaType, result.code);
         assert_eq!(415, result.http_status);
         assert_eq!("builder.unsupported-media-type", result.reason_code);
+    }
+
+    #[test]
+    fn builder_api_preflight_rejects_manifest_body_smuggling() {
+        let game = game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT);
+        let request = BuilderApiHttpRequest {
+            method: "GET",
+            path: "/api/builder/js/manifest",
+            content_type: Some("application/json"),
+            bearer_token: None,
+            body: b"{}",
+        };
+        let result = builder_api_handle_http_request(&request, &game);
+
+        assert_eq!(BuilderApiPreflightCode::BadRequest, result.code);
+        assert_eq!(400, result.http_status);
+        assert_eq!("builder.bad-request", result.reason_code);
     }
 
     #[test]
@@ -1690,6 +1916,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn builder_api_handler_forwards_login_manifest_and_logout_routes() {
+        for (raw_request, expected_start, expected_body, expected_auth) in [
+            (
+                b"POST /api/builder/login HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: 21\r\n\r\n{\"account\":\"builder\"}" as &[u8],
+                "POST /api/builder/login HTTP/1.1\r\n",
+                "{\"account\":\"builder\"}",
+                None,
+            ),
+            (
+                b"GET /api/builder/js/manifest HTTP/1.1\r\nhost: localhost\r\n\r\n" as &[u8],
+                "GET /api/builder/js/manifest HTTP/1.1\r\n",
+                "",
+                None,
+            ),
+            (
+                b"POST /api/builder/logout HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\n\r\n{}" as &[u8],
+                "POST /api/builder/logout HTTP/1.1\r\n",
+                "{}",
+                Some("authorization: Bearer token:builder\r\n"),
+            ),
+        ] {
+            let game_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let local_game_addr = game_listener.local_addr().unwrap();
+            let game = tokio::spawn(async move {
+                let (mut stream, _) = game_listener.accept().await.unwrap();
+                let mut forwarded = Vec::new();
+                stream.read_to_end(&mut forwarded).await.unwrap();
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 11\r\n\r\n{\"ok\":true}",
+                    )
+                    .await
+                    .unwrap();
+                String::from_utf8(forwarded).unwrap()
+            });
+
+            let response = roundtrip_builder_api_request_with_target_policy(
+                raw_request,
+                game_addr("127.0.0.1", local_game_addr.port()),
+                Some("local-secret"),
+                false,
+            )
+            .await;
+            let forwarded = game.await.unwrap();
+
+            assert!(forwarded.starts_with(expected_start), "{forwarded}");
+            assert!(forwarded.contains("x-rots-builder-proxy-secret: local-secret\r\n"));
+            assert!(forwarded.ends_with(expected_body), "{forwarded}");
+            if let Some(expected_auth) = expected_auth {
+                assert!(forwarded.contains(expected_auth), "{forwarded}");
+            } else {
+                assert!(!forwarded.contains("authorization: Bearer"), "{forwarded}");
+            }
+            assert_eq!("HTTP/1.1 200 OK", response_status(&response));
+            assert!(response.ends_with("{\"ok\":true}"));
+        }
+    }
+
+    #[tokio::test]
     async fn builder_api_handler_redacts_malformed_backend_response() {
         let game_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let local_game_addr = game_listener.local_addr().unwrap();
@@ -1715,6 +2000,36 @@ mod tests {
         assert!(!response.contains("token:builder"));
     }
 
+    #[tokio::test]
+    async fn builder_api_handler_rejects_backend_response_that_echoes_session_token() {
+        let game_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_game_addr = game_listener.local_addr().unwrap();
+        let game = tokio::spawn(async move {
+            let (mut stream, _) = game_listener.accept().await.unwrap();
+            let mut forwarded = Vec::new();
+            stream.read_to_end(&mut forwarded).await.unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 26\r\n\r\n{\"token\":\"token:builder\"}",
+                )
+                .await
+                .unwrap();
+        });
+
+        let response = roundtrip_builder_api_request_with_target_policy(
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\n\r\n{}",
+            game_addr("127.0.0.1", local_game_addr.port()),
+            Some("local-secret"),
+            false,
+        )
+        .await;
+        game.await.unwrap();
+
+        assert_eq!("HTTP/1.1 502 Bad Gateway", response_status(&response));
+        assert!(response.contains("\"reasonCode\":\"builder.forward-failed\""));
+        assert!(!response.contains("token:builder"));
+    }
+
     fn response_status(response: &str) -> &str {
         response.lines().next().unwrap_or_default()
     }
@@ -1736,15 +2051,23 @@ mod tests {
 
     #[tokio::test]
     async fn builder_api_handler_rejects_missing_session() {
-        let response = roundtrip_builder_api_request(
-            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}",
-            game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
-            None,
-        )
-        .await;
+        for raw_request in [
+            b"POST /api/builder/js/status HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}" as &[u8],
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}" as &[u8],
+            b"POST /api/builder/js/activate HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}" as &[u8],
+            b"POST /api/builder/js/rollback HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}" as &[u8],
+            b"POST /api/builder/logout HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}" as &[u8],
+        ] {
+            let response = roundtrip_builder_api_request(
+                raw_request,
+                game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+                None,
+            )
+            .await;
 
-        assert!(response.starts_with("HTTP/1.1 401 Unauthorized"));
-        assert!(response.contains("\"reasonCode\":\"builder.missing-session\""));
+            assert!(response.starts_with("HTTP/1.1 401 Unauthorized"));
+            assert!(response.contains("\"reasonCode\":\"builder.missing-session\""));
+        }
     }
 
     #[tokio::test]
