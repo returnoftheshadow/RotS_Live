@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: add game-side BuilderClient login/logout HTTP route adapters around `js_builder_session`, including trusted-proxy checks, bounded JSON parsing, redacted responses, and session-token lookup/logout hooks.
+- Next slice: add a server-side BuilderClient session store/token lookup service so login can persist issued session metadata, logout can revoke it, and publish/status routes can derive `JsPublishTokenMetadata` from bearer tokens instead of caller-supplied context.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
@@ -26,12 +26,23 @@
   - [x] Server account/session endpoint slice: add game-side BuilderClient login/session/logout endpoint support behind the proxy trust boundary, using existing account passwords and linked level `92+` immortal eligibility evidence.
   - [x] Server manifest endpoint slice: expose the server-owned JavaScript trigger/API manifest through the trusted proxy route so BuilderClient typings/LSP can refresh from the authoritative contract.
   - [x] Proxy session/manifest forwarding slice: forward BuilderClient login/logout/manifest routes to game-side trusted endpoints, preserve the test-server-only target policy, and keep publish forwarding separate from session/manifest traffic.
-  - [ ] Server session HTTP endpoint slice: add game-side BuilderClient login/logout route adapters over `js_builder_session`, with trusted-proxy enforcement, bounded JSON request parsing, redacted auth failures, and a session-store/lookup boundary for later publish authorization.
+  - [x] Server session HTTP endpoint slice: add game-side BuilderClient login/logout route adapters over `js_builder_session`, with trusted-proxy enforcement, bounded JSON request parsing, redacted auth failures, and a session-store/lookup boundary for later publish authorization.
+  - [ ] Server session store slice: persist server-issued BuilderClient session metadata in memory, support token lookup/revocation, enforce expiration/revocation, and expose a transport helper that can populate publish/status context from a bearer token.
   - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added `js_builder_session_endpoint` as a pure game-side route adapter for `POST /api/builder/login` and `POST /api/builder/logout`.
+  - Required trusted-proxy context derived by the server transport from the validated proxy trust marker; the endpoint contract forbids filling that field from BuilderClient JSON.
+  - Delegated successful login decisions to `js_builder_session_login`, returning BuilderClient-shaped JSON with token, account id, expiration, and eligible immortal names only on accepted login.
+  - Kept failed login responses redacted and removed full failed `login_result` details from the endpoint result object so account existence and eligibility details do not leak through adapter callers.
+  - Enforced bounded request size, strict explicit `application/json` content type for credential-bearing login, duplicate/unknown/missing/wrong-typed JSON field rejection, method checks, path/query/config validation, and untrusted-request precedence.
+  - Added a logout callback boundary: logout requires a safe bearer token and a configured handler, returns unavailable when no session store is attached, and rejects unsafe tokens before invoking the handler.
+  - Wired the endpoint and tests into CMake, the legacy server Makefile, and the legacy test Makefile.
+  - Added focused tests for successful login JSON, wrong-password redaction, strict/missing/blank/malformed content types, malformed login JSON before resolver calls, unsupported methods, trusted-proxy/path/config/size rejection, logout success, missing/unsafe tokens, body rejection, missing handler, and rejected handler behavior.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to strict login content-type parsing, broader malformed JSON coverage, unsupported-method coverage, unsafe logout-token coverage, failed-login result redaction, and stronger secret/account redaction assertions.
+  - Validation passed: `make test -j16` (1142 tests) and `git diff --check`.
   - Extended the Rust proxy forwarding map so BuilderClient login, manifest, status, stage, activate, rollback, and logout routes all forward to explicit game-owned paths.
   - Kept publish routes mapped to `/api/js-scripts/{status,stage,activate,rollback}` while forwarding login to `/api/builder/login`, manifest to `GET /api/builder/js/manifest`, and logout to `/api/builder/logout`.
   - Changed forwarded request rendering to preserve each route's method and to emit `content-type` and `authorization` headers only when the BuilderClient request/preflight contract allows them.
