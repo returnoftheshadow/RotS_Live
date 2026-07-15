@@ -403,6 +403,83 @@ JsPublishBuilderEligibilityResult js_publish_evaluate_builder_account_eligibilit
     return result;
 }
 
+JsPublishZoneScriptingAuthorityResult js_publish_evaluate_zone_scripting_authority(
+    const JsPublishZoneScriptingAuthorityInput& input)
+{
+    JsPublishZoneScriptingAuthorityResult result;
+
+    if (!input.builder.ok) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "eligible builder account is required for zone scripting authority");
+        return result;
+    }
+
+    if (input.builder.eligible_character_id <= 0) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::InvalidRequest,
+            "eligible builder character id is required");
+        return result;
+    }
+
+    if (input.builder.eligible_character_level < JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "eligible builder character is below the scripting authority level");
+        return result;
+    }
+
+    if (input.requested_zone <= 0) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::InvalidRequest,
+            "zone must be positive");
+        return result;
+    }
+
+    if (input.requested_vnum <= 0) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::InvalidRequest,
+            "vnum must be positive");
+        return result;
+    }
+
+    if (!input.target_zone_resolved || input.server_resolved_target_zone <= 0
+        || input.server_resolved_target_zone != input.requested_zone) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "publish target zone authority could not be verified");
+        return result;
+    }
+
+    if (input.server_resolved_target_host != input.requested_host) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "publish target host authority could not be verified");
+        return result;
+    }
+
+    if (!input.zone_exists) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "zone scripting authority could not be verified");
+        return result;
+    }
+
+    const bool legacy_owner_allows_all = std::find(input.zone_owner_character_ids.begin(),
+        input.zone_owner_character_ids.end(), 0)
+        != input.zone_owner_character_ids.end();
+    if (input.zone_allows_all_builders || legacy_owner_allows_all
+        || input.requested_zone == JS_PUBLISH_GLOBAL_SCRIPTING_ZONE
+        || input.builder.eligible_character_level >= LEVEL_AREAGOD) {
+        result.ok = true;
+        return result;
+    }
+
+    const bool owns_zone = std::find(input.zone_owner_character_ids.begin(),
+        input.zone_owner_character_ids.end(), input.builder.eligible_character_id)
+        != input.zone_owner_character_ids.end();
+    if (owns_zone) {
+        result.ok = true;
+        return result;
+    }
+
+    add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+        "builder does not have scripting authority for the requested zone");
+    return result;
+}
+
 unsigned js_publish_scope_for_operation(JsPublishOperation operation)
 {
     switch (operation) {

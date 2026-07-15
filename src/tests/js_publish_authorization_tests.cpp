@@ -1,6 +1,7 @@
 #include "../js_publish_authorization.h"
 
 #include "../script.h"
+#include "../structs.h"
 
 #include <gtest/gtest.h>
 
@@ -123,6 +124,25 @@ bool has_eligibility_code(const JsPublishBuilderEligibilityResult& result,
         });
 }
 
+bool has_zone_code(const JsPublishZoneScriptingAuthorityResult& result,
+    JsPublishDiagnosticCode code)
+{
+    return std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+        [code](const JsPublishDiagnostic& diagnostic) {
+            return diagnostic.code == code;
+        });
+}
+
+std::string zone_messages(const JsPublishZoneScriptingAuthorityResult& result)
+{
+    std::string joined;
+    for (const JsPublishDiagnostic& diagnostic : result.diagnostics) {
+        joined += diagnostic.message;
+        joined += "\n";
+    }
+    return joined;
+}
+
 JsPublishBuilderEligibilityInput make_eligibility_input()
 {
     JsPublishBuilderEligibilityInput input;
@@ -130,6 +150,21 @@ JsPublishBuilderEligibilityInput make_eligibility_input()
     input.authenticated_account_id = "account:builder";
     input.requested_builder_account_id = "account:builder";
     input.linked_characters.push_back({ "builderone", 1001, 92, true, true });
+    return input;
+}
+
+JsPublishZoneScriptingAuthorityInput make_zone_authority_input()
+{
+    JsPublishZoneScriptingAuthorityInput input;
+    input.builder = js_publish_evaluate_builder_account_eligibility(make_eligibility_input());
+    input.requested_zone = 30;
+    input.requested_vnum = 3001;
+    input.requested_host = JsScriptPackageHost::Character;
+    input.target_zone_resolved = true;
+    input.server_resolved_target_zone = 30;
+    input.server_resolved_target_host = JsScriptPackageHost::Character;
+    input.zone_exists = true;
+    input.zone_owner_character_ids = { 1001 };
     return input;
 }
 
@@ -351,6 +386,221 @@ TEST(JsPublishAuthorization, BuilderEligibilityDiagnosticsDoNotEchoAccountOrChar
     EXPECT_EQ(eligibility_messages(result).find("privatecharacter"), std::string::npos);
     EXPECT_EQ(eligibility_messages(result).find("1001"), std::string::npos);
     EXPECT_EQ(eligibility_messages(result).find("91"), std::string::npos);
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityAllowsZoneOwner)
+{
+    JsPublishZoneScriptingAuthorityResult result =
+        js_publish_evaluate_zone_scripting_authority(make_zone_authority_input());
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_TRUE(result.diagnostics.empty());
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityRequiresEligibleBuilder)
+{
+    JsPublishZoneScriptingAuthorityInput input = make_zone_authority_input();
+    input.builder = JsPublishBuilderEligibilityResult {};
+
+    JsPublishZoneScriptingAuthorityResult result =
+        js_publish_evaluate_zone_scripting_authority(input);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_zone_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityRejectsInvalidCharacterOrZone)
+{
+    JsPublishZoneScriptingAuthorityInput missing_character = make_zone_authority_input();
+    missing_character.builder.eligible_character_id = 0;
+    JsPublishZoneScriptingAuthorityResult missing_character_result =
+        js_publish_evaluate_zone_scripting_authority(missing_character);
+    EXPECT_FALSE(missing_character_result.ok);
+    EXPECT_TRUE(has_zone_code(missing_character_result, JsPublishDiagnosticCode::InvalidRequest));
+
+    JsPublishZoneScriptingAuthorityInput negative_character = make_zone_authority_input();
+    negative_character.builder.eligible_character_id = -7;
+    JsPublishZoneScriptingAuthorityResult negative_character_result =
+        js_publish_evaluate_zone_scripting_authority(negative_character);
+    EXPECT_FALSE(negative_character_result.ok);
+    EXPECT_TRUE(has_zone_code(negative_character_result, JsPublishDiagnosticCode::InvalidRequest));
+
+    JsPublishZoneScriptingAuthorityInput invalid_zone = make_zone_authority_input();
+    invalid_zone.requested_zone = 0;
+    JsPublishZoneScriptingAuthorityResult invalid_zone_result =
+        js_publish_evaluate_zone_scripting_authority(invalid_zone);
+    EXPECT_FALSE(invalid_zone_result.ok);
+    EXPECT_TRUE(has_zone_code(invalid_zone_result, JsPublishDiagnosticCode::InvalidRequest));
+
+    JsPublishZoneScriptingAuthorityInput negative_zone = make_zone_authority_input();
+    negative_zone.requested_zone = -3;
+    JsPublishZoneScriptingAuthorityResult negative_zone_result =
+        js_publish_evaluate_zone_scripting_authority(negative_zone);
+    EXPECT_FALSE(negative_zone_result.ok);
+    EXPECT_TRUE(has_zone_code(negative_zone_result, JsPublishDiagnosticCode::InvalidRequest));
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityRejectsInvalidOrUnresolvedPublishTarget)
+{
+    JsPublishZoneScriptingAuthorityInput invalid_vnum = make_zone_authority_input();
+    invalid_vnum.requested_vnum = 0;
+    JsPublishZoneScriptingAuthorityResult invalid_vnum_result =
+        js_publish_evaluate_zone_scripting_authority(invalid_vnum);
+    EXPECT_FALSE(invalid_vnum_result.ok);
+    EXPECT_TRUE(has_zone_code(invalid_vnum_result, JsPublishDiagnosticCode::InvalidRequest));
+
+    JsPublishZoneScriptingAuthorityInput unresolved = make_zone_authority_input();
+    unresolved.target_zone_resolved = false;
+    JsPublishZoneScriptingAuthorityResult unresolved_result =
+        js_publish_evaluate_zone_scripting_authority(unresolved);
+    EXPECT_FALSE(unresolved_result.ok);
+    EXPECT_TRUE(has_zone_code(unresolved_result, JsPublishDiagnosticCode::PermissionMismatch));
+
+    JsPublishZoneScriptingAuthorityInput mismatch = make_zone_authority_input();
+    mismatch.server_resolved_target_zone = 31;
+    JsPublishZoneScriptingAuthorityResult mismatch_result =
+        js_publish_evaluate_zone_scripting_authority(mismatch);
+    EXPECT_FALSE(mismatch_result.ok);
+    EXPECT_TRUE(has_zone_code(mismatch_result, JsPublishDiagnosticCode::PermissionMismatch));
+
+    JsPublishZoneScriptingAuthorityInput host_mismatch = make_zone_authority_input();
+    host_mismatch.server_resolved_target_host = JsScriptPackageHost::Object;
+    JsPublishZoneScriptingAuthorityResult host_mismatch_result =
+        js_publish_evaluate_zone_scripting_authority(host_mismatch);
+    EXPECT_FALSE(host_mismatch_result.ok);
+    EXPECT_TRUE(has_zone_code(host_mismatch_result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityRequiresLevelNinetyTwoEligibleCharacter)
+{
+    JsPublishZoneScriptingAuthorityInput input = make_zone_authority_input();
+    input.builder.eligible_character_level = JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL - 1;
+
+    JsPublishZoneScriptingAuthorityResult result =
+        js_publish_evaluate_zone_scripting_authority(input);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_zone_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityRejectsMissingZone)
+{
+    JsPublishZoneScriptingAuthorityInput input = make_zone_authority_input();
+    input.zone_exists = false;
+
+    JsPublishZoneScriptingAuthorityResult result =
+        js_publish_evaluate_zone_scripting_authority(input);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_zone_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityAllowsAllBuildersZoneAndGlobalZone)
+{
+    JsPublishZoneScriptingAuthorityInput all_builders = make_zone_authority_input();
+    all_builders.zone_allows_all_builders = true;
+    all_builders.zone_owner_character_ids.clear();
+    JsPublishZoneScriptingAuthorityResult all_builders_result =
+        js_publish_evaluate_zone_scripting_authority(all_builders);
+    EXPECT_TRUE(all_builders_result.ok);
+    EXPECT_TRUE(all_builders_result.diagnostics.empty());
+
+    JsPublishZoneScriptingAuthorityInput legacy_all_builders = make_zone_authority_input();
+    legacy_all_builders.zone_owner_character_ids = { 0 };
+    JsPublishZoneScriptingAuthorityResult legacy_all_builders_result =
+        js_publish_evaluate_zone_scripting_authority(legacy_all_builders);
+    EXPECT_TRUE(legacy_all_builders_result.ok);
+    EXPECT_TRUE(legacy_all_builders_result.diagnostics.empty());
+
+    JsPublishZoneScriptingAuthorityInput global_zone = make_zone_authority_input();
+    global_zone.requested_zone = JS_PUBLISH_GLOBAL_SCRIPTING_ZONE;
+    global_zone.server_resolved_target_zone = JS_PUBLISH_GLOBAL_SCRIPTING_ZONE;
+    global_zone.zone_owner_character_ids.clear();
+    JsPublishZoneScriptingAuthorityResult global_zone_result =
+        js_publish_evaluate_zone_scripting_authority(global_zone);
+    EXPECT_TRUE(global_zone_result.ok);
+    EXPECT_TRUE(global_zone_result.diagnostics.empty());
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthoritySpecialGrantsStillRequireResolvedExistingZone)
+{
+    JsPublishZoneScriptingAuthorityInput all_builders = make_zone_authority_input();
+    all_builders.zone_allows_all_builders = true;
+    all_builders.zone_exists = false;
+    EXPECT_FALSE(js_publish_evaluate_zone_scripting_authority(all_builders).ok);
+
+    JsPublishZoneScriptingAuthorityInput global_zone = make_zone_authority_input();
+    global_zone.requested_zone = JS_PUBLISH_GLOBAL_SCRIPTING_ZONE;
+    global_zone.server_resolved_target_zone = JS_PUBLISH_GLOBAL_SCRIPTING_ZONE;
+    global_zone.zone_exists = false;
+    EXPECT_FALSE(js_publish_evaluate_zone_scripting_authority(global_zone).ok);
+
+    JsPublishZoneScriptingAuthorityInput area_god = make_zone_authority_input();
+    area_god.builder.eligible_character_level = LEVEL_AREAGOD;
+    area_god.zone_exists = false;
+    EXPECT_FALSE(js_publish_evaluate_zone_scripting_authority(area_god).ok);
+
+    JsPublishZoneScriptingAuthorityInput invalid_id_global = make_zone_authority_input();
+    invalid_id_global.requested_zone = JS_PUBLISH_GLOBAL_SCRIPTING_ZONE;
+    invalid_id_global.server_resolved_target_zone = JS_PUBLISH_GLOBAL_SCRIPTING_ZONE;
+    invalid_id_global.builder.eligible_character_id = 0;
+    EXPECT_FALSE(js_publish_evaluate_zone_scripting_authority(invalid_id_global).ok);
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityAllowsAreaGodLevelOverride)
+{
+    JsPublishZoneScriptingAuthorityInput input = make_zone_authority_input();
+    input.builder.eligible_character_level = LEVEL_AREAGOD;
+    input.zone_owner_character_ids = { 2002 };
+
+    JsPublishZoneScriptingAuthorityResult result =
+        js_publish_evaluate_zone_scripting_authority(input);
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_TRUE(result.diagnostics.empty());
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityRejectsNonOwnerBelowAreaGodLevel)
+{
+    JsPublishZoneScriptingAuthorityInput input = make_zone_authority_input();
+    input.builder.eligible_character_level = LEVEL_AREAGOD - 1;
+    input.zone_owner_character_ids = { 2002 };
+
+    JsPublishZoneScriptingAuthorityResult result =
+        js_publish_evaluate_zone_scripting_authority(input);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_zone_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityRejectsNonOwner)
+{
+    JsPublishZoneScriptingAuthorityInput input = make_zone_authority_input();
+    input.zone_owner_character_ids = { 2002, 3003 };
+
+    JsPublishZoneScriptingAuthorityResult result =
+        js_publish_evaluate_zone_scripting_authority(input);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_zone_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
+TEST(JsPublishAuthorization, ZoneScriptingAuthorityDiagnosticsDoNotEchoOwnerIdsOrZone)
+{
+    JsPublishZoneScriptingAuthorityInput input = make_zone_authority_input();
+    input.builder.eligible_character_id = 987654;
+    input.requested_zone = 12345;
+    input.server_resolved_target_zone = 12345;
+    input.zone_owner_character_ids = { 111111, 222222 };
+
+    JsPublishZoneScriptingAuthorityResult result =
+        js_publish_evaluate_zone_scripting_authority(input);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(zone_messages(result).find("987654"), std::string::npos);
+    EXPECT_EQ(zone_messages(result).find("12345"), std::string::npos);
+    EXPECT_EQ(zone_messages(result).find("111111"), std::string::npos);
+    EXPECT_EQ(zone_messages(result).find("222222"), std::string::npos);
 }
 
 TEST(JsPublishAuthorization, AllowsReadOnlyStatusWithScopedToken)

@@ -51,6 +51,7 @@ enum JsPublishScope : unsigned {
 };
 
 constexpr int JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL = 92;
+constexpr int JS_PUBLISH_GLOBAL_SCRIPTING_ZONE = 11;
 
 enum class JsPublishAccountAuthOutcome {
     NotAuthenticated,
@@ -87,6 +88,24 @@ struct JsPublishBuilderEligibilityResult {
     std::string eligible_character_name;
     int eligible_character_id = 0;
     int eligible_character_level = 0;
+    std::vector<JsPublishDiagnostic> diagnostics;
+};
+
+struct JsPublishZoneScriptingAuthorityInput {
+    JsPublishBuilderEligibilityResult builder;
+    int requested_zone = 0;
+    int requested_vnum = 0;
+    JsScriptPackageHost requested_host = JsScriptPackageHost::Character;
+    bool target_zone_resolved = false;
+    int server_resolved_target_zone = 0;
+    JsScriptPackageHost server_resolved_target_host = JsScriptPackageHost::Character;
+    bool zone_exists = false;
+    bool zone_allows_all_builders = false;
+    std::vector<int> zone_owner_character_ids;
+};
+
+struct JsPublishZoneScriptingAuthorityResult {
+    bool ok = false;
     std::vector<JsPublishDiagnostic> diagnostics;
 };
 
@@ -173,6 +192,8 @@ JsPublishAuthorizationResult js_publish_authorization_preflight(const JsPublishR
 
 JsPublishBuilderEligibilityResult js_publish_evaluate_builder_account_eligibility(
     const JsPublishBuilderEligibilityInput& input);
+JsPublishZoneScriptingAuthorityResult js_publish_evaluate_zone_scripting_authority(
+    const JsPublishZoneScriptingAuthorityInput& input);
 
 unsigned js_publish_scope_for_operation(JsPublishOperation operation);
 bool js_publish_operation_mutates_server_state(JsPublishOperation operation);

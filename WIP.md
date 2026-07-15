@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: add the zone scripting authority helper so publish authorization can verify the eligible immortal has authority for the requested zone/vnum/host slot.
+- Next slice: thread builder eligibility and zone scripting authority into the publish endpoint transport/service context.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
@@ -17,7 +17,7 @@
   - [x] Documentation slice: fully record the proxy/account/Git/test-server requirements in `FEATURES.md` and `WIP.md`, including acceptance criteria and slice order.
   - [x] Server auth model slice: add a small C++ publish-auth contract that represents authenticated account id, eligible immortal level `92+` evidence, zone/vnum/host scope, token audience, and operation scopes without yet issuing tokens.
   - [x] Server eligibility tests slice: add focused unit tests for account-auth outcome mapping, no linked characters, non-immortal linked characters, immortals below level `92`, at least one eligible immortal, blocked/unverified auth rejection, and redacted diagnostics.
-  - [ ] Zone authority slice: add a server-side zone scripting authorization helper with test doubles for zone ownership/authority so stage/activate/rollback can depend on one audited decision point.
+  - [x] Zone authority slice: add a server-side zone scripting authorization helper with test doubles for zone ownership/authority so stage/activate/rollback can depend on one audited decision point.
   - [ ] Publish-context integration slice: thread the new account/immortal/zone authorization decision into `JsPublishEndpointTransportContext` and publish endpoint service tests while keeping offline/client package creation unauthenticated.
   - [ ] Rust proxy contract slice: add proxy route/DTO definitions for login, manifest/status, stage, activate, rollback, and logout, explicitly targeting the test game path and rejecting live port `3791` as a BuilderClient publish target.
   - [ ] Proxy-to-game local trust slice: add configuration and tests for localhost/private-host game connection, internal secret or equivalent trust marker, request size limits, timeouts, and redacted errors.
@@ -26,6 +26,10 @@
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added a pure server-side zone scripting authority helper to `js_publish_authorization` that evaluates the eligible builder result against requested zone/vnum/host, server-resolved target zone/host, zone existence, owner ids, owner-all policy, legacy owner sentinel `0`, global zone `11`, and the existing Area God level override.
+  - Added focused tests for zone owner success, missing eligible builder, invalid character id/zone/vnum, unresolved target, resolved zone mismatch, resolved host mismatch, below-level builder rejection, missing zone, all-builders zone, global zone `11`, legacy owner-all sentinel, Area God override, special grants failing closed, non-owner rejection, and diagnostic redaction for zone/owner ids.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to binding authority to the builder eligibility result, requiring server-resolved target zone/host evidence, handling the legacy owner sentinel, adding fail-closed special-grant coverage, and broadening malformed/negative input tests.
+  - Validation passed: focused `JsPublishAuthorization.*` tests (51 tests), `make test -j16` (1099 tests), and `git diff --check`.
   - Added a pure server-side builder eligibility contract to `js_publish_authorization` with an explicit account-auth outcome, authenticated account id binding, explicit linked-character immortal evidence, positive character-id/name requirements, and the minimum linked immortal level set to `92`.
   - Added focused authorization tests for unauthenticated, blocked, and unverified account outcomes; requested-vs-authenticated account mismatch; blank account id; no linked characters; non-immortal linked characters; high-level non-immortal rejection; level `91` immortal rejection; level `92+` immortal acceptance; unloaded-character handling; malformed eligible character evidence; and redacted eligibility diagnostics/result fields.
   - Magus, Vincent, and Bazarat reviewed the slice; findings led to replacing the boolean auth flag with an explicit outcome, binding the requested builder id to the authenticated account id, requiring explicit immortal evidence, requiring complete eligible-character identity, using canonical `LEVEL_IMMORT` for below-threshold classification, and expanding failure/redaction coverage.
