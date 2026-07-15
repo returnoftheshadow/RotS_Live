@@ -95,6 +95,53 @@ JsPublishEndpointServiceOptions service_options()
     return options;
 }
 
+JsPublishHttpEndpointOptions prederived_context_options()
+{
+    JsPublishHttpEndpointOptions options;
+    options.allow_prederived_context_for_tests = true;
+    return options;
+}
+
+JsBuilderSessionLoginResult make_session_login(unsigned scopes)
+{
+    JsBuilderSessionLoginResult login;
+    login.ok = true;
+    login.session_token = "session-token";
+    login.account_id = "account:builder";
+    login.expires_at_epoch_seconds = 200;
+    login.token_metadata.claims_verified = true;
+    login.token_metadata.token_id = js_builder_session_token_id(login.session_token);
+    login.token_metadata.actor_id = "builderone";
+    login.token_metadata.builder_account_id = "account:builder";
+    login.token_metadata.scopes = scopes;
+    login.token_metadata.issued_at_epoch_seconds = 90;
+    login.token_metadata.expires_at_epoch_seconds = 200;
+    login.builder_eligibility.ok = true;
+    login.builder_eligibility.builder_account_id = "account:builder";
+    login.builder_eligibility.eligible_character_name = "builderone";
+    login.builder_eligibility.eligible_character_id = 1001;
+    login.builder_eligibility.eligible_character_level =
+        JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL;
+    return login;
+}
+
+JsBuilderSessionStoreOptions session_store_options(long long now = 100)
+{
+    JsBuilderSessionStoreOptions options;
+    options.now_epoch_seconds = now;
+    options.server_audience = "server:main";
+    options.workspace_id = "workspace:main";
+    return options;
+}
+
+JsPublishHttpEndpointOptions session_options(const JsBuilderSessionStore &store)
+{
+    JsPublishHttpEndpointOptions options;
+    options.session_store = &store;
+    options.session_store_options = session_store_options();
+    return options;
+}
+
 std::string quote(const std::string &value)
 {
     return "\"" + json_utils::escape_json_string(value) + "\"";
@@ -142,6 +189,8 @@ JsPublishHttpEndpointRequest request(
     request.path = "/api/js-scripts/" + operation;
     request.content_type = "application/json; charset=utf-8";
     request.body = body;
+    request.bearer_token = "session-token";
+    request.trusted_proxy = true;
     return request;
 }
 
@@ -157,7 +206,7 @@ TEST(JsPublishHttpEndpoint, DispatchesBuilderClientStageBodyThroughRouteOperatio
         request("stage",
             "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(make_package())
                 + "}"),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), prederived_context_options());
 
     EXPECT_TRUE(result.ok);
     EXPECT_EQ(200, result.http_status);
@@ -174,11 +223,11 @@ TEST(JsPublishHttpEndpoint, DispatchesStatusBodyThroughRouteOperation)
         request("stage",
             "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(make_package())
                 + "}"),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), prederived_context_options()).ok);
 
     JsPublishEndpointTransportResult result = js_publish_http_endpoint_dispatch(
         service, request("status", "{\"packageId\":\"js:30:character:3001\"}"),
-        make_context(JS_PUBLISH_SCOPE_STATUS_READ));
+        make_context(JS_PUBLISH_SCOPE_STATUS_READ), prederived_context_options());
 
     EXPECT_TRUE(result.ok);
     EXPECT_EQ(200, result.http_status);
@@ -194,7 +243,7 @@ TEST(JsPublishHttpEndpoint, DispatchesActivateAndRollbackThroughRouteOperation)
         request("stage",
             "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(make_package())
                 + "}"),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), prederived_context_options()).ok);
     JsPublishStagedPackageStatusResult status =
         js_publish_latest_staged_package_status(service.staged_repository(),
             "js:30:character:3001");
@@ -206,7 +255,7 @@ TEST(JsPublishHttpEndpoint, DispatchesActivateAndRollbackThroughRouteOperation)
             "{\"packageId\":\"js:30:character:3001\",\"stagedDigest\":"
                 + quote(status.status.staged_digest)
                 + ",\"baseLiveChecksum\":\"live:old\"}"),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE));
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE), prederived_context_options());
     EXPECT_TRUE(activate.ok);
     EXPECT_EQ(200, activate.http_status);
     EXPECT_EQ("activate.accepted", activate.reason_code);
@@ -224,7 +273,7 @@ TEST(JsPublishHttpEndpoint, DispatchesActivateAndRollbackThroughRouteOperation)
             "\"targetLiveChecksum\":"
                 + quote(pointer.pointer.current_live_checksum)
                 + ",\"reason\":\"builder rollback\"}"),
-        rollback_context);
+        rollback_context, prederived_context_options());
 
     EXPECT_TRUE(rollback.ok);
     EXPECT_EQ(200, rollback.http_status);
@@ -240,7 +289,7 @@ TEST(JsPublishHttpEndpoint, RejectsOperationSmugglingInBody)
         service,
         request("status",
             "{\"operation\":\"stage\",\"packageId\":\"js:30:character:3001\"}"),
-        make_context(JS_PUBLISH_SCOPE_STATUS_READ));
+        make_context(JS_PUBLISH_SCOPE_STATUS_READ), prederived_context_options());
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(400, result.http_status);
@@ -260,11 +309,14 @@ TEST(JsPublishHttpEndpoint, RejectsUnsupportedMethodPathAndMediaType)
     media.content_type = "text/plain";
 
     JsPublishEndpointTransportResult method_result =
-        js_publish_http_endpoint_dispatch(service, method, make_context());
+        js_publish_http_endpoint_dispatch(service, method, make_context(),
+            prederived_context_options());
     JsPublishEndpointTransportResult path_result =
-        js_publish_http_endpoint_dispatch(service, path, make_context());
+        js_publish_http_endpoint_dispatch(service, path, make_context(),
+            prederived_context_options());
     JsPublishEndpointTransportResult media_result =
-        js_publish_http_endpoint_dispatch(service, media, make_context());
+        js_publish_http_endpoint_dispatch(service, media, make_context(),
+            prederived_context_options());
 
     EXPECT_FALSE(method_result.ok);
     EXPECT_EQ(405, method_result.http_status);
@@ -282,6 +334,7 @@ TEST(JsPublishHttpEndpoint, RejectsProjectedEnvelopeOverSizeLimit)
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, service_options());
     JsPublishHttpEndpointOptions options;
+    options.allow_prederived_context_for_tests = true;
     options.transport_options.maximum_request_bytes = 48;
 
     JsPublishEndpointTransportResult result = js_publish_http_endpoint_dispatch(
@@ -305,10 +358,235 @@ TEST(JsPublishHttpEndpoint, KeepsServerSuppliedContextAuthoritative)
             "{\"requestId\":\"client-controlled\","
             "\"baseLiveChecksum\":\"live:old\",\"package\":"
                 + package_json(make_package()) + "}"),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), prederived_context_options());
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(400, result.http_status);
     EXPECT_EQ("publish.invalid-json", result.reason_code);
     EXPECT_EQ(std::string::npos, result.json.find("client-controlled"));
+}
+
+TEST(JsPublishHttpEndpoint, DerivesPublishContextFromStoreBackedBearerToken)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsBuilderSessionStore store;
+    ASSERT_TRUE(store.insert_login_result(
+        make_session_login(JS_PUBLISH_SCOPE_PACKAGE_STAGE), session_store_options())
+                    .ok);
+
+    JsPublishEndpointTransportContext base_context;
+    base_context.request_id = "request:http";
+    base_context.audit_id = "audit:http";
+    base_context.zone = 30;
+    base_context.target_zone_resolved = true;
+    base_context.server_resolved_target_zone = 30;
+    base_context.server_resolved_target_host = JsScriptPackageHost::Character;
+    base_context.zone_exists = true;
+    base_context.zone_owner_character_ids = { 1001 };
+    base_context.transport = make_transport();
+    base_context.allow_mutating_operations = true;
+    base_context.allow_live_pointer_update = true;
+    base_context.applied_at_epoch_seconds = 200;
+    base_context.current_live_checksum = "live:old";
+    base_context.actor_id = "base-actor";
+    base_context.builder_account_id = "base-account";
+    base_context.builder_eligibility.ok = false;
+    base_context.token = make_token(0);
+
+    JsPublishEndpointTransportResult result = js_publish_http_endpoint_dispatch(
+        service,
+        request("stage",
+            "{\"baseLiveChecksum\":\"live:old\",\"package\":"
+                + package_json(make_package()) + "}"),
+        base_context, session_options(store));
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(200, result.http_status);
+    EXPECT_EQ("stage.accepted", result.reason_code);
+}
+
+TEST(JsPublishHttpEndpoint, UsesStoreScopesInsteadOfPrederivedBaseContext)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsBuilderSessionStore store;
+    ASSERT_TRUE(store.insert_login_result(
+        make_session_login(JS_PUBLISH_SCOPE_STATUS_READ), session_store_options())
+                    .ok);
+
+    JsPublishEndpointTransportResult result = js_publish_http_endpoint_dispatch(
+        service,
+        request("stage",
+            "{\"baseLiveChecksum\":\"live:old\",\"package\":"
+                + package_json(make_package()) + "}"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), session_options(store));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("stage.authorization-failed", result.reason_code);
+    EXPECT_FALSE(js_publish_latest_staged_package_status(
+        service.staged_repository(), "js:30:character:3001")
+                     .ok);
+}
+
+TEST(JsPublishHttpEndpoint, RejectsMissingStoreUntrustedAndRejectedSessions)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishHttpEndpointRequest status =
+        request("status", "{\"packageId\":\"js:30:character:3001\"}");
+
+    JsPublishEndpointTransportResult missing_store =
+        js_publish_http_endpoint_dispatch(service, status, make_context());
+    EXPECT_FALSE(missing_store.ok);
+    EXPECT_EQ(503, missing_store.http_status);
+    EXPECT_EQ("publish.session-store-unavailable", missing_store.reason_code);
+
+    JsPublishHttpEndpointRequest malformed_missing_store = status;
+    malformed_missing_store.method = "GET";
+    malformed_missing_store.path = "/api/js-scripts/status?debug=true";
+    malformed_missing_store.content_type = "text/plain";
+    malformed_missing_store.body = "";
+    JsPublishEndpointTransportResult malformed_missing_store_result =
+        js_publish_http_endpoint_dispatch(
+            service, malformed_missing_store, make_context());
+    EXPECT_FALSE(malformed_missing_store_result.ok);
+    EXPECT_EQ(503, malformed_missing_store_result.http_status);
+    EXPECT_EQ("publish.session-store-unavailable",
+        malformed_missing_store_result.reason_code);
+
+    JsBuilderSessionStore store;
+    ASSERT_TRUE(store.insert_login_result(
+        make_session_login(JS_PUBLISH_SCOPE_STATUS_READ), session_store_options())
+                    .ok);
+    JsPublishHttpEndpointRequest untrusted = status;
+    untrusted.trusted_proxy = false;
+    JsPublishEndpointTransportResult untrusted_result =
+        js_publish_http_endpoint_dispatch(
+            service, untrusted, make_context(), session_options(store));
+    EXPECT_FALSE(untrusted_result.ok);
+    EXPECT_EQ(403, untrusted_result.http_status);
+    EXPECT_EQ("publish.untrusted", untrusted_result.reason_code);
+
+    JsPublishHttpEndpointRequest malformed_untrusted = status;
+    malformed_untrusted.method = "GET";
+    malformed_untrusted.path = "/api/js-scripts/status?debug=true";
+    malformed_untrusted.content_type = "text/plain";
+    malformed_untrusted.body = "";
+    malformed_untrusted.trusted_proxy = false;
+    JsPublishEndpointTransportResult malformed_untrusted_result =
+        js_publish_http_endpoint_dispatch(
+            service, malformed_untrusted, make_context(), session_options(store));
+    EXPECT_FALSE(malformed_untrusted_result.ok);
+    EXPECT_EQ(403, malformed_untrusted_result.http_status);
+    EXPECT_EQ("publish.untrusted", malformed_untrusted_result.reason_code);
+
+    JsPublishHttpEndpointRequest unknown = status;
+    unknown.bearer_token = "other-session-token";
+    JsPublishEndpointTransportResult unknown_result =
+        js_publish_http_endpoint_dispatch(
+            service, unknown, make_context(), session_options(store));
+    EXPECT_FALSE(unknown_result.ok);
+    EXPECT_EQ(401, unknown_result.http_status);
+    EXPECT_EQ("publish.session-rejected", unknown_result.reason_code);
+    EXPECT_EQ(std::string::npos, unknown_result.json.find("other-session-token"));
+}
+
+TEST(JsPublishHttpEndpoint, RejectsUnsafeBearerTokensWithoutDispatch)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsBuilderSessionStore store;
+    ASSERT_TRUE(store.insert_login_result(
+        make_session_login(JS_PUBLISH_SCOPE_PACKAGE_STAGE), session_store_options())
+                    .ok);
+
+    const std::string body = "{\"baseLiveChecksum\":\"live:old\",\"package\":"
+        + package_json(make_package()) + "}";
+    for (const std::string token : { std::string(), std::string(" "),
+             std::string("bad\n token"), std::string(513, 'x') }) {
+        JsPublishHttpEndpointRequest stage = request("stage", body);
+        stage.bearer_token = token;
+        JsPublishEndpointTransportResult result = js_publish_http_endpoint_dispatch(
+            service, stage, make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE),
+            session_options(store));
+        EXPECT_FALSE(result.ok) << token;
+        EXPECT_EQ(401, result.http_status) << token;
+        EXPECT_EQ("publish.session-rejected", result.reason_code) << token;
+        if (token.find("bad") != std::string::npos)
+            EXPECT_EQ(std::string::npos, result.json.find(token)) << token;
+        EXPECT_FALSE(js_publish_latest_staged_package_status(
+            service.staged_repository(), "js:30:character:3001")
+                         .ok);
+    }
+}
+
+TEST(JsPublishHttpEndpoint, RejectsInvalidSessionStatesWithoutLeakingReason)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    const std::string body = "{\"baseLiveChecksum\":\"live:old\",\"package\":"
+        + package_json(make_package()) + "}";
+
+    JsBuilderSessionStore expired_store;
+    ASSERT_TRUE(expired_store.insert_login_result(
+        make_session_login(JS_PUBLISH_SCOPE_PACKAGE_STAGE), session_store_options())
+                    .ok);
+    JsPublishHttpEndpointOptions expired_options = session_options(expired_store);
+    expired_options.session_store_options = session_store_options(200);
+
+    JsPublishEndpointTransportResult expired = js_publish_http_endpoint_dispatch(
+        service, request("stage", body), make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE),
+        expired_options);
+    EXPECT_FALSE(expired.ok);
+    EXPECT_EQ(401, expired.http_status);
+    EXPECT_EQ("publish.session-rejected", expired.reason_code);
+    EXPECT_EQ(std::string::npos, expired.json.find("expired"));
+
+    JsBuilderSessionStore revoked_store;
+    ASSERT_TRUE(revoked_store.insert_login_result(
+        make_session_login(JS_PUBLISH_SCOPE_PACKAGE_STAGE), session_store_options())
+                    .ok);
+    ASSERT_TRUE(revoked_store.revoke("session-token", session_store_options()).ok);
+    JsPublishEndpointTransportResult revoked = js_publish_http_endpoint_dispatch(
+        service, request("stage", body), make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE),
+        session_options(revoked_store));
+    EXPECT_FALSE(revoked.ok);
+    EXPECT_EQ(401, revoked.http_status);
+    EXPECT_EQ("publish.session-rejected", revoked.reason_code);
+    EXPECT_EQ(std::string::npos, revoked.json.find("revoked"));
+
+    JsBuilderSessionStore wrong_audience_store;
+    ASSERT_TRUE(wrong_audience_store.insert_login_result(
+        make_session_login(JS_PUBLISH_SCOPE_PACKAGE_STAGE), session_store_options())
+                    .ok);
+    JsPublishHttpEndpointOptions wrong_audience_options =
+        session_options(wrong_audience_store);
+    wrong_audience_options.session_store_options.server_audience = "server:other";
+    JsPublishEndpointTransportResult wrong_audience =
+        js_publish_http_endpoint_dispatch(service, request("stage", body),
+            make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), wrong_audience_options);
+    EXPECT_FALSE(wrong_audience.ok);
+    EXPECT_EQ(401, wrong_audience.http_status);
+    EXPECT_EQ("publish.session-rejected", wrong_audience.reason_code);
+    EXPECT_EQ(std::string::npos, wrong_audience.json.find("server:other"));
+
+    JsBuilderSessionStore blank_audience_store;
+    ASSERT_TRUE(blank_audience_store.insert_login_result(
+        make_session_login(JS_PUBLISH_SCOPE_PACKAGE_STAGE), session_store_options())
+                    .ok);
+    JsPublishHttpEndpointOptions blank_audience_options =
+        session_options(blank_audience_store);
+    blank_audience_options.session_store_options.server_audience = "";
+    JsPublishEndpointTransportResult blank_audience =
+        js_publish_http_endpoint_dispatch(service, request("stage", body),
+            make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), blank_audience_options);
+    EXPECT_FALSE(blank_audience.ok);
+    EXPECT_EQ(401, blank_audience.http_status);
+    EXPECT_EQ("publish.session-rejected", blank_audience.reason_code);
+
+    EXPECT_FALSE(js_publish_latest_staged_package_status(
+        service.staged_repository(), "js:30:character:3001")
+                     .ok);
 }

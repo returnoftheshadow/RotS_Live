@@ -122,6 +122,12 @@ JsPublishEndpointTransportResult js_publish_http_endpoint_dispatch(
     const JsPublishEndpointTransportContext &context,
     const JsPublishHttpEndpointOptions &options)
 {
+    if (options.session_store != nullptr && !request.trusted_proxy)
+        return http_error(403, "publish.untrusted", "Publish request rejected.",
+            "publish request is not from the trusted builder proxy");
+    if (options.session_store == nullptr && !options.allow_prederived_context_for_tests)
+        return http_error(503, "publish.session-store-unavailable",
+            "Publish request rejected.", "publish session lookup is not available");
     if (request.method != "POST")
         return http_error(405, "publish.method-not-allowed", "Publish request rejected.",
             "publish endpoint requires POST");
@@ -145,7 +151,19 @@ JsPublishEndpointTransportResult js_publish_http_endpoint_dispatch(
         return http_error(413, "publish.request-too-large", "Publish request rejected.",
             "publish request body exceeds the configured size limit");
 
+    JsPublishEndpointTransportContext dispatch_context = context;
+    if (options.session_store != nullptr) {
+        JsPublishEndpointSessionContextResult session_context =
+            js_publish_endpoint_context_from_builder_session(
+                context, *options.session_store, request.bearer_token,
+                options.session_store_options);
+        if (!session_context.ok)
+            return http_error(401, "publish.session-rejected",
+                "Publish request rejected.", "publish session was rejected");
+        dispatch_context = session_context.context;
+    }
+
     return js_publish_endpoint_dispatch_json(service,
-        body_with_route_operation(operation, request.body), context,
+        body_with_route_operation(operation, request.body), dispatch_context,
         options.transport_options);
 }

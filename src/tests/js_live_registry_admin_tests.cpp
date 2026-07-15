@@ -140,6 +140,12 @@ JsPublishHttpEndpointRequest publish_request(const std::string &operation,
     return request;
 }
 
+JsPublishHttpEndpointOptions prederived_context_options() {
+    JsPublishHttpEndpointOptions options;
+    options.allow_prederived_context_for_tests = true;
+    return options;
+}
+
 JsPublishStagedRequestAssemblyInput make_input(const JsStagedPackageRecord &record) {
     JsPublishStagedRequestAssemblyInput input;
     input.operation = JsPublishOperation::PackageActivate;
@@ -210,7 +216,7 @@ TEST(JsLiveRegistryAdmin, PublishServicePersistsStateAcrossRouteDispatches) {
         service.publish_service(),
         publish_request("stage",
             "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(package) + "}"),
-        make_publish_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+        make_publish_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), prederived_context_options());
     ASSERT_TRUE(stage.ok);
     EXPECT_EQ("stage.accepted", stage.reason_code);
 
@@ -222,7 +228,7 @@ TEST(JsLiveRegistryAdmin, PublishServicePersistsStateAcrossRouteDispatches) {
     JsPublishEndpointTransportResult status = js_publish_http_endpoint_dispatch(
         service.publish_service(),
         publish_request("status", "{\"packageId\":\"js:33:character:8701\"}"),
-        make_publish_context(JS_PUBLISH_SCOPE_STATUS_READ));
+        make_publish_context(JS_PUBLISH_SCOPE_STATUS_READ), prederived_context_options());
     EXPECT_TRUE(status.ok);
     EXPECT_EQ("status.current", status.reason_code);
     EXPECT_NE(std::string::npos, status.json.find(staged.status.staged_digest));
@@ -233,7 +239,7 @@ TEST(JsLiveRegistryAdmin, PublishServicePersistsStateAcrossRouteDispatches) {
             "{\"packageId\":\"js:33:character:8701\",\"stagedDigest\":"
                 + quote(staged.status.staged_digest)
                 + ",\"baseLiveChecksum\":\"live:old\"}"),
-        make_publish_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE));
+        make_publish_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE), prederived_context_options());
     ASSERT_TRUE(activate.ok);
     EXPECT_EQ("activate.accepted", activate.reason_code);
 
@@ -255,13 +261,13 @@ TEST(JsLiveRegistryAdmin, PublishServicePersistsStateWithServerReloadOptionsCons
         service.publish_service(),
         publish_request("stage",
             "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(package) + "}"),
-        make_publish_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE));
+        make_publish_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), prederived_context_options());
     ASSERT_TRUE(stage.ok);
 
     JsPublishEndpointTransportResult status = js_publish_http_endpoint_dispatch(
         service.publish_service(),
         publish_request("status", "{\"packageId\":\"js:33:character:8701\"}"),
-        make_publish_context(JS_PUBLISH_SCOPE_STATUS_READ));
+        make_publish_context(JS_PUBLISH_SCOPE_STATUS_READ), prederived_context_options());
 
     EXPECT_TRUE(status.ok);
     EXPECT_EQ("status.current", status.reason_code);

@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: connect the Rust proxy-forwarded publish/status requests to the game-side session-context helper once a concrete game listener/adapter path supplies bearer tokens to `js_publish_http_endpoint_dispatch`.
+- Next slice: add the game-server HTTP request parser/listener glue for BuilderClient routes, or document the blocker if no suitable listener boundary exists yet, so the Rust proxy's forwarded requests can reach the manifest/session/publish route adapters in one place.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
@@ -31,12 +31,21 @@
   - [x] Server session HTTP endpoint slice: add game-side BuilderClient login/logout route adapters over `js_builder_session`, with trusted-proxy enforcement, bounded JSON request parsing, redacted auth failures, and a session-store/lookup boundary for later publish authorization.
   - [x] Server session store slice: persist server-issued BuilderClient session metadata in memory, support token lookup/revocation, enforce expiration/revocation, and prepare the publish/status path to populate context from bearer-token lookup.
   - [x] Server session integration slice: attach the session store to game-side login/logout handling and publish/status route context, including trusted-proxy-only bearer lookup, expiration/revocation diagnostics, and redacted failures.
-  - [ ] Server publish listener session wiring slice: thread bearer tokens from the concrete game-side BuilderClient publish/status route adapter into `js_publish_endpoint_context_from_builder_session`, then reject unauthenticated publish/status requests before JSON dispatch.
+  - [x] Server publish listener session wiring slice: thread bearer tokens from the concrete game-side BuilderClient publish/status route adapter into `js_publish_endpoint_context_from_builder_session`, then reject unauthenticated publish/status requests before JSON dispatch.
+  - [ ] Server BuilderClient HTTP ingress slice: add or locate the game-side HTTP ingress that receives Rust proxy requests, validates the internal trust marker, extracts method/path/content type/body/bearer token, and routes to manifest, login/logout, or publish adapters.
   - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Extended `JsPublishHttpEndpointRequest` with server-transport-derived bearer token and trusted-proxy fields for Rust proxy-forwarded publish/status requests.
+  - Extended `JsPublishHttpEndpointOptions` with an attached session store, session lookup options, and an explicit `allow_prederived_context_for_tests` bypass for unit tests that intentionally exercise lower layers with prebuilt contexts.
+  - Made `js_publish_http_endpoint_dispatch()` reject production dispatch without a session store, reject untrusted store-backed requests, reject failed bearer-token lookups, and derive the dispatch context from `js_publish_endpoint_context_from_builder_session()` before JSON parsing reaches publish operations.
+  - Kept existing lower-layer route/admin tests on pre-derived contexts through explicit test opt-in and added store-backed route coverage for successful stage dispatch, missing store, untrusted request, unknown token, and rejected-token redaction.
+  - Updated legacy Makefile dependencies for the HTTP endpoint's session-store include chain.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to trust-boundary checks before request-shape validation, missing-store fail-closed precedence, unsafe bearer-token coverage, generic expired/revoked/wrong-audience session rejection, no-side-effect checks for rejected stage requests, and stronger proof that store-derived auth overrides conflicting pre-derived test context.
+  - Validation passed after reviewer fixes: `make test -j16` (1166 tests) and `git diff --check`.
+  - Next slice after this commit: add or locate the game-side HTTP ingress that receives Rust proxy-forwarded BuilderClient API requests and dispatches to the manifest/session/publish route adapters.
   - Extended `js_builder_session_store` records so a server-side bearer lookup returns both server-issued token metadata and the immutable builder eligibility evidence captured during login.
   - Attached the session store to `js_builder_session_endpoint` options: accepted login persists a session before returning a token, and persistence failure returns a generic `builder.login.session-store-unavailable` error without exposing the token.
   - Changed store-backed logout to revoke through `JsBuilderSessionStore`, rejecting missing, malformed, expired, revoked, or wrong-audience tokens with redacted logout errors.
