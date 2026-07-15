@@ -2019,6 +2019,8 @@ struct descriptor_data {
     uint32_t proxy_peer_address; /* pending proxy peer address */
     byte proxy_peer_bytes_read; /* bytes read for pending proxy header */
     bool waiting_for_proxy_header; /* descriptor is waiting for proxy header completion */
+    bool builder_http_api; /* descriptor is a one-shot BuilderClient HTTP request */
+    std::string* builder_http_raw_request; /* accumulated raw BuilderClient HTTP bytes */
     char pwd[MAX_PWD_LENGTH + 1]; /* password			*/
     char account_name[MAX_INPUT_LENGTH]; /* authenticated account login */
     char account_email[MAX_INPUT_LENGTH]; /* authenticated account email */

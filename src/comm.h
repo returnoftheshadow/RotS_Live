@@ -25,6 +25,7 @@ struct StartupOptions {
     bool restrict_game;
     bool no_specials;
     bool has_proxy;
+    bool builder_http_api;
 };
 
 /* comm.c */

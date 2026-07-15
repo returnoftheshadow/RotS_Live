@@ -28,6 +28,9 @@
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "js_builder_http_server_transport.h"
+#include "js_builder_session_store.h"
+#include "js_live_registry_admin.h"
 #include "limits.h"
 #include "protocol.h"
 #include "script.h"
@@ -38,13 +41,16 @@
 #include "warrior_spec_handlers.h"
 #include "zone.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <ctime>
+#include <limits>
 #include <vector>
 
 #define MAX_HOSTNAME 256
 #define OPT_USEC 250000 /* time delay corresponding to 4 passes/sec */
 #define DFLT_PORT 1024
+#define BUILDER_HTTP_PORT 4802
 #define MAX_PLAYERS 255
 #define MAX_DESCRIPTORS_AVAILABLE 256
 
@@ -89,6 +95,7 @@ SocketType maxdesc; /* highest desc num used */
 int avail_descs; /* max descriptors available */
 int tics = 0; /* for extern checkpointing */
 int has_proxy; /* Game expects to be proxied */
+int builder_http_api; /* Game expects one-shot BuilderClient HTTP requests */
 
 FILE* fpCommand; // DEBUGGING
 int iCommands = 0;
@@ -128,6 +135,205 @@ bool parse_port_value(const char* text, sh_int* port, std::string* error_message
 
     *port = static_cast<sh_int>(parsed_port);
     return true;
+}
+
+std::string trim_copy(const std::string& value)
+{
+    std::size_t start = 0;
+    while (start < value.size() && isspace(static_cast<unsigned char>(value[start])))
+        ++start;
+    std::size_t end = value.size();
+    while (end > start && isspace(static_cast<unsigned char>(value[end - 1])))
+        --end;
+    return value.substr(start, end - start);
+}
+
+bool parse_content_length_header(const std::string& headers, std::size_t* content_length,
+    bool* saw_content_length)
+{
+    if (content_length == nullptr || saw_content_length == nullptr)
+        return false;
+    *content_length = 0;
+    *saw_content_length = false;
+
+    std::size_t line_start = headers.find("\r\n");
+    if (line_start == std::string::npos)
+        return true;
+    line_start += 2;
+
+    while (line_start < headers.size()) {
+        const std::size_t line_end = headers.find("\r\n", line_start);
+        const std::string line = headers.substr(line_start,
+            line_end == std::string::npos ? std::string::npos : line_end - line_start);
+        const std::size_t colon = line.find(':');
+        if (colon == std::string::npos)
+            return false;
+
+        std::string name = trim_copy(line.substr(0, colon));
+        std::transform(name.begin(), name.end(), name.begin(),
+            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        if (name == "content-length") {
+            if (*saw_content_length)
+                return false;
+            *saw_content_length = true;
+            const std::string value = trim_copy(line.substr(colon + 1));
+            if (value.empty())
+                return false;
+            std::size_t parsed = 0;
+            for (unsigned char ch : value) {
+                if (!isdigit(ch))
+                    return false;
+                const std::size_t digit = ch - '0';
+                if (parsed > (std::numeric_limits<std::size_t>::max() - digit) / 10)
+                    return false;
+                parsed = parsed * 10 + digit;
+            }
+            *content_length = parsed;
+        }
+
+        if (line_end == std::string::npos)
+            break;
+        line_start = line_end + 2;
+    }
+
+    return true;
+}
+
+bool builder_http_request_ready_for_dispatch(const std::string& raw_request,
+    const JsBuilderHttpTransportOptions& options)
+{
+    const std::size_t header_end = raw_request.find("\r\n\r\n");
+    if (header_end == std::string::npos)
+        return raw_request.size() > options.maximum_header_bytes;
+    if (header_end > options.maximum_header_bytes)
+        return true;
+
+    const std::string headers = raw_request.substr(0, header_end);
+    std::size_t content_length = 0;
+    bool saw_content_length = false;
+    if (!parse_content_length_header(headers, &content_length, &saw_content_length))
+        return true;
+    if (saw_content_length && content_length > options.maximum_body_bytes)
+        return true;
+    if (!saw_content_length)
+        return true;
+
+    return raw_request.size() >= header_end + 4 + content_length;
+}
+
+JsBuilderSessionStore& builder_http_session_store()
+{
+    static JsBuilderSessionStore store;
+    return store;
+}
+
+std::string builder_http_proxy_secret()
+{
+    const char* secret = getenv("ROTS_BUILDER_PROXY_SECRET");
+    return secret == nullptr ? std::string() : std::string(secret);
+}
+
+JsBuilderSessionStoreOptions builder_http_session_store_options()
+{
+    JsBuilderSessionStoreOptions options;
+    options.now_epoch_seconds = static_cast<long long>(time(nullptr));
+    options.server_audience = "server:main";
+    options.workspace_id = "workspace:main";
+    return options;
+}
+
+JsBuilderHttpServerTransportOptions builder_http_server_transport_options()
+{
+    JsBuilderHttpServerTransportOptions options;
+    options.ingress_options.expected_proxy_secret = builder_http_proxy_secret();
+    options.ingress_options.session_options.session_store = &builder_http_session_store();
+    options.ingress_options.session_options.session_store_options =
+        builder_http_session_store_options();
+    options.ingress_options.publish_service = &js_live_registry_admin_service().publish_service();
+    options.ingress_options.publish_options.session_store = &builder_http_session_store();
+    options.ingress_options.publish_options.session_store_options =
+        options.ingress_options.session_options.session_store_options;
+    options.ingress_options.publish_context.transport.source_identifier =
+        "transport:builder-http";
+    options.ingress_options.publish_context.transport.server_audience = "server:main";
+    options.ingress_options.publish_context.now_epoch_seconds =
+        options.ingress_options.session_options.session_store_options.now_epoch_seconds;
+    options.ingress_options.publish_context.allow_mutating_operations = true;
+    options.ingress_options.publish_context.allow_live_pointer_update = true;
+    options.ingress_options.publish_context.expected_server_audience = "server:main";
+    options.ingress_options.publish_context.expected_workspace_id = "workspace:main";
+    options.ingress_options.publish_context.live_store_persistence_path =
+        "world/js_live_store.json";
+
+    options.publish_context_options.live_store = &js_live_registry_admin_service().live_store();
+    static JsBuilderPublishTargetCatalog catalog;
+    if (room_data::BASE_WORLD != nullptr) {
+        catalog = js_builder_http_server_transport_catalog_from_loaded_world();
+        options.publish_context_options.target_catalog = &catalog;
+    }
+    return options;
+}
+
+int write_builder_http_response_and_close(descriptor_data* descriptor,
+    const JsBuilderHttpServerTransportResult& result)
+{
+    if (descriptor == nullptr || !descriptor->descriptor)
+        return -1;
+    std::size_t written = 0;
+    while (written < result.http_response.size()) {
+        const ssize_t bytes_written = write(descriptor->descriptor,
+            result.http_response.data() + written, result.http_response.size() - written);
+        if (bytes_written <= 0) {
+            if (bytes_written < 0)
+                perror("BuilderClient HTTP socket write");
+            return -1;
+        }
+        written += static_cast<std::size_t>(bytes_written);
+    }
+    return -1;
+}
+
+int process_builder_http_input(descriptor_data* descriptor)
+{
+    if (descriptor == nullptr || !descriptor->descriptor)
+        return -1;
+
+    const JsBuilderHttpServerTransportOptions options =
+        builder_http_server_transport_options();
+    for (;;) {
+        char buffer[2048];
+        const ssize_t bytes_read = read(descriptor->descriptor, buffer, sizeof(buffer));
+        if (bytes_read > 0) {
+            if (descriptor->builder_http_raw_request == nullptr)
+                descriptor->builder_http_raw_request = new std::string();
+            descriptor->builder_http_raw_request->append(buffer,
+                static_cast<std::size_t>(bytes_read));
+            if (builder_http_request_ready_for_dispatch(
+                    *descriptor->builder_http_raw_request, options.transport_options)) {
+                const JsBuilderHttpServerTransportResult result =
+                    js_builder_http_server_transport_dispatch(
+                        *descriptor->builder_http_raw_request, options);
+                return write_builder_http_response_and_close(descriptor, result);
+            }
+            continue;
+        }
+
+        if (bytes_read == 0) {
+            if (descriptor->builder_http_raw_request == nullptr
+                || descriptor->builder_http_raw_request->empty())
+                return -1;
+            const JsBuilderHttpServerTransportResult result =
+                js_builder_http_server_transport_dispatch(
+                    *descriptor->builder_http_raw_request, options);
+            return write_builder_http_response_and_close(descriptor, result);
+        }
+
+        if (errno == EWOULDBLOCK)
+            return 0;
+
+        perror("BuilderClient HTTP socket read");
+        return -1;
+    }
 }
 
 void populate_descriptor_host(descriptor_data* descriptor, in_addr_t peer_address)
@@ -237,6 +443,7 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
     parsed_options.restrict_game = false;
     parsed_options.no_specials = false;
     parsed_options.has_proxy = false;
+    parsed_options.builder_http_api = false;
 
     bool port_specified = false;
     int pos = 1;
@@ -291,6 +498,9 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
         case 'x':
             parsed_options.has_proxy = true;
             break;
+        case 'b':
+            parsed_options.builder_http_api = true;
+            break;
         default:
             if (error_message) {
                 char local_buf[128];
@@ -317,6 +527,22 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
         if (error_message)
             *error_message = "Unexpected extra argument after startup options.";
         return false;
+    }
+
+    if (parsed_options.builder_http_api) {
+        if (parsed_options.has_proxy) {
+            if (error_message)
+                *error_message = "BuilderClient HTTP mode cannot be combined with proxy player mode.";
+            return false;
+        }
+        if (!port_specified)
+            parsed_options.port = BUILDER_HTTP_PORT;
+        if (parsed_options.port != BUILDER_HTTP_PORT) {
+            if (error_message)
+                *error_message =
+                    "BuilderClient HTTP mode must listen on the test server port 4802.";
+            return false;
+        }
     }
 
     *options = parsed_options;
@@ -410,12 +636,13 @@ int main(int argc, char** argv)
     if (!parse_startup_options(argc, argv, &startup_options, &parse_error)) {
         if (!parse_error.empty())
             log(parse_error.c_str());
-        fprintf(stderr, "Usage: %s [-m] [-q] [-r] [-s] [-x] [-d pathname] [-p port #] [ port # ]\n",
+        fprintf(stderr, "Usage: %s [-m] [-q] [-r] [-s] [-x] [-b] [-d pathname] [-p port #] [ port # ]\n",
             argv[0]);
         exit(0);
     }
 
     has_proxy = startup_options.has_proxy ? 1 : 0;
+    builder_http_api = startup_options.builder_http_api ? 1 : 0;
     mini_mud = startup_options.mini_mud ? 1 : 0;
     new_mud = startup_options.new_mud ? 1 : 0;
     no_rent_check = startup_options.no_rent_check ? 1 : 0;
@@ -434,6 +661,8 @@ int main(int argc, char** argv)
         log("Suppressing assignment of special routines.");
     if (has_proxy)
         log("Expecting proxy server.");
+    if (builder_http_api)
+        log("Expecting BuilderClient HTTP requests.");
 
     /* Create the pidfile and log some info */
     sprintf(buf, "echo %d > .ageland.pid", getpid());
@@ -1443,6 +1672,8 @@ SocketType pnew_descriptor(SocketType s)
     pnewd->proxy_peer_address = 0;
     pnewd->proxy_peer_bytes_read = 0;
     pnewd->waiting_for_proxy_header = has_proxy ? true : false;
+    pnewd->builder_http_api = builder_http_api ? true : false;
+    pnewd->builder_http_raw_request = pnewd->builder_http_api ? new std::string() : nullptr;
     *pnewd->account_name = '\0';
     *pnewd->account_email = '\0';
     *pnewd->account_password = '\0';
@@ -1480,7 +1711,8 @@ SocketType pnew_descriptor(SocketType s)
     descriptor_data* cur_list = descriptor_list;
     descriptor_list = pnewd;
 
-    if (!pnewd->waiting_for_proxy_header && send_initial_login_output(pnewd) < 0) {
+    if (!pnewd->builder_http_api && !pnewd->waiting_for_proxy_header
+        && send_initial_login_output(pnewd) < 0) {
         close_socket(pnewd, FALSE);
         return (0);
     }
@@ -1681,6 +1913,8 @@ int process_input(struct descriptor_data* t)
     const int proxy_header_result = finish_proxy_header_if_ready(t);
     if (proxy_header_result <= 0)
         return proxy_header_result;
+    if (t->builder_http_api)
+        return process_builder_http_input(t);
 
     sofar = flag = 0;
     begin = strlen(t->buf);
@@ -1890,6 +2124,9 @@ void close_socket(descriptor_data* conn_descriptor, int drop_all)
         conn_descriptor->descriptor = 0;
         conn_descriptor->desc_num = -1;
     }
+
+    delete conn_descriptor->builder_http_raw_request;
+    conn_descriptor->builder_http_raw_request = nullptr;
 
     flush_queues(conn_descriptor);
     if (conn_descriptor->pProtocol) {

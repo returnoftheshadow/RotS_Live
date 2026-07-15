@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -22,6 +23,7 @@ extern descriptor_data* descriptor_list;
 extern SocketType maxdesc;
 extern int avail_descs;
 extern int has_proxy;
+extern int builder_http_api;
 extern int nameserver_is_slow;
 extern ban_list_element* ban_list;
 
@@ -44,13 +46,18 @@ protected:
         saved_maxdesc_ = maxdesc;
         saved_avail_descs_ = avail_descs;
         saved_has_proxy_ = has_proxy;
+        saved_builder_http_api_ = builder_http_api;
         saved_nameserver_is_slow_ = nameserver_is_slow;
         saved_ban_list_ = ban_list;
+        const char* saved_secret = getenv("ROTS_BUILDER_PROXY_SECRET");
+        saved_builder_proxy_secret_ = saved_secret == nullptr ? std::string() : std::string(saved_secret);
+        had_builder_proxy_secret_ = saved_secret != nullptr;
 
         descriptor_list = nullptr;
         maxdesc = 0;
         avail_descs = 64;
         has_proxy = 0;
+        builder_http_api = 0;
         nameserver_is_slow = 1;
         ban_list = nullptr;
     }
@@ -64,8 +71,13 @@ protected:
         maxdesc = saved_maxdesc_;
         avail_descs = saved_avail_descs_;
         has_proxy = saved_has_proxy_;
+        builder_http_api = saved_builder_http_api_;
         nameserver_is_slow = saved_nameserver_is_slow_;
         ban_list = saved_ban_list_;
+        if (had_builder_proxy_secret_)
+            setenv("ROTS_BUILDER_PROXY_SECRET", saved_builder_proxy_secret_.c_str(), 1);
+        else
+            unsetenv("ROTS_BUILDER_PROXY_SECRET");
     }
 
     int create_listener_socket(in_port_t* port_out)
@@ -121,6 +133,18 @@ protected:
         return std::string(buffer, static_cast<size_t>(bytes_read));
     }
 
+    std::string read_all_client_data(int client)
+    {
+        std::string data;
+        char buffer[2048];
+        for (;;) {
+            const ssize_t bytes_read = recv(client, buffer, sizeof(buffer), 0);
+            if (bytes_read <= 0)
+                return data;
+            data.append(buffer, static_cast<size_t>(bytes_read));
+        }
+    }
+
     void expect_no_client_data_yet(int client)
     {
         char buffer[32];
@@ -130,13 +154,24 @@ protected:
         EXPECT_TRUE(errno == EAGAIN || errno == EWOULDBLOCK) << strerror(errno);
     }
 
+    void set_builder_proxy_secret(const char* value)
+    {
+        if (value == nullptr)
+            unsetenv("ROTS_BUILDER_PROXY_SECRET");
+        else
+            setenv("ROTS_BUILDER_PROXY_SECRET", value, 1);
+    }
+
 private:
     descriptor_data* saved_descriptor_list_ = nullptr;
     SocketType saved_maxdesc_ = 0;
     int saved_avail_descs_ = 0;
     int saved_has_proxy_ = 0;
+    int saved_builder_http_api_ = 0;
     int saved_nameserver_is_slow_ = 0;
     ban_list_element* saved_ban_list_ = nullptr;
+    std::string saved_builder_proxy_secret_;
+    bool had_builder_proxy_secret_ = false;
     socklen_t socklen_ = sizeof(sockaddr_in);
 };
 
@@ -246,6 +281,57 @@ TEST(StartupOptions, AcceptsCompactDashPPortForm)
     EXPECT_FALSE(options.has_proxy);
 }
 
+TEST(StartupOptions, BuilderHttpModeDefaultsToTestServerPort)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "-b" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    EXPECT_EQ(options.port, 4802);
+    EXPECT_TRUE(options.builder_http_api);
+    EXPECT_FALSE(options.has_proxy);
+}
+
+TEST(StartupOptions, BuilderHttpModeAcceptsExplicitTestServerPort)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "-b", "-p", "4802" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    EXPECT_EQ(options.port, 4802);
+    EXPECT_TRUE(options.builder_http_api);
+}
+
+TEST(StartupOptions, BuilderHttpModeRejectsLivePort)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "-b", "-p", "3791" };
+    std::vector<char*> argv = build_argv(&args);
+
+    EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message));
+    EXPECT_NE(error_message.find("4802"), std::string::npos);
+}
+
+TEST(StartupOptions, BuilderHttpModeRejectsProxyPlayerMode)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "-b", "-x" };
+    std::vector<char*> argv = build_argv(&args);
+
+    EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message));
+    EXPECT_FALSE(error_message.empty());
+}
+
 TEST_F(AcceptPathTest, DirectConnectionsReceiveGreetingWithoutWaitingForInput)
 {
     in_port_t port = 0;
@@ -260,6 +346,152 @@ TEST_F(AcceptPathTest, DirectConnectionsReceiveGreetingWithoutWaitingForInput)
     const std::string initial_output = read_client_data(client);
     EXPECT_NE(initial_output.find("RETURN OF THE SHADOW"), std::string::npos);
     EXPECT_NE(initial_output.find("Account email:"), std::string::npos);
+
+    close(client);
+    close(listener);
+}
+
+TEST_F(AcceptPathTest, BuilderHttpConnectionsDoNotReceiveTelnetGreeting)
+{
+    set_builder_proxy_secret("local-secret");
+    in_port_t port = 0;
+    const int listener = create_listener_socket(&port);
+    ASSERT_GE(listener, 0);
+    const int client = connect_client(port);
+    ASSERT_GE(client, 0);
+
+    builder_http_api = 1;
+    ASSERT_EQ(pnew_descriptor(listener), 1);
+
+    expect_no_client_data_yet(client);
+
+    close(client);
+    close(listener);
+}
+
+TEST_F(AcceptPathTest, BuilderHttpManifestRequestReturnsOneResponseAndCloses)
+{
+    set_builder_proxy_secret("local-secret");
+    in_port_t port = 0;
+    const int listener = create_listener_socket(&port);
+    ASSERT_GE(listener, 0);
+    const int client = connect_client(port);
+    ASSERT_GE(client, 0);
+
+    builder_http_api = 1;
+    ASSERT_EQ(pnew_descriptor(listener), 1);
+
+    const std::string request =
+        "GET /api/builder/js/manifest HTTP/1.1\r\n"
+        "host: 127.0.0.1:4802\r\n"
+        "x-rots-builder-proxy-secret: local-secret\r\n"
+        "connection: close\r\n\r\n";
+    ASSERT_EQ(send(client, request.data(), request.size(), 0), static_cast<ssize_t>(request.size()));
+    EXPECT_EQ(process_input(descriptor_list), -1);
+    close_socket(descriptor_list, FALSE);
+
+    const std::string response = read_all_client_data(client);
+    EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
+    EXPECT_NE(response.find("\"exportKind\":\"builderManifest\""), std::string::npos);
+
+    close(client);
+    close(listener);
+}
+
+TEST_F(AcceptPathTest, BuilderHttpSplitRequestWaitsForCompleteHeaders)
+{
+    set_builder_proxy_secret("local-secret");
+    in_port_t port = 0;
+    const int listener = create_listener_socket(&port);
+    ASSERT_GE(listener, 0);
+    const int client = connect_client(port);
+    ASSERT_GE(client, 0);
+
+    builder_http_api = 1;
+    ASSERT_EQ(pnew_descriptor(listener), 1);
+
+    const std::string first =
+        "GET /api/builder/js/manifest HTTP/1.1\r\n"
+        "host: 127.0.0.1:4802\r\n";
+    ASSERT_EQ(send(client, first.data(), first.size(), 0), static_cast<ssize_t>(first.size()));
+    EXPECT_EQ(process_input(descriptor_list), 0);
+    expect_no_client_data_yet(client);
+
+    const std::string second =
+        "x-rots-builder-proxy-secret: local-secret\r\n"
+        "connection: close\r\n\r\n";
+    ASSERT_EQ(send(client, second.data(), second.size(), 0), static_cast<ssize_t>(second.size()));
+    EXPECT_EQ(process_input(descriptor_list), -1);
+    close_socket(descriptor_list, FALSE);
+
+    const std::string response = read_all_client_data(client);
+    EXPECT_NE(response.find("\"exportKind\":\"builderManifest\""), std::string::npos);
+
+    close(client);
+    close(listener);
+}
+
+TEST_F(AcceptPathTest, BuilderHttpSplitRequestWaitsForCompleteBody)
+{
+    set_builder_proxy_secret("local-secret");
+    in_port_t port = 0;
+    const int listener = create_listener_socket(&port);
+    ASSERT_GE(listener, 0);
+    const int client = connect_client(port);
+    ASSERT_GE(client, 0);
+
+    builder_http_api = 1;
+    ASSERT_EQ(pnew_descriptor(listener), 1);
+
+    const std::string body = "{\"account\":\"missing@example.com\",\"password\":\"WrongPassword1\"}";
+    const std::string headers =
+        "POST /api/builder/login HTTP/1.1\r\n"
+        "host: 127.0.0.1:4802\r\n"
+        "content-type: application/json\r\n"
+        "x-rots-builder-proxy-secret: local-secret\r\n"
+        "content-length: " + std::to_string(body.size()) + "\r\n"
+        "connection: close\r\n\r\n";
+    ASSERT_EQ(send(client, headers.data(), headers.size(), 0), static_cast<ssize_t>(headers.size()));
+    ASSERT_EQ(send(client, body.data(), 8, 0), 8);
+    EXPECT_EQ(process_input(descriptor_list), 0);
+    expect_no_client_data_yet(client);
+
+    ASSERT_EQ(send(client, body.data() + 8, body.size() - 8, 0),
+        static_cast<ssize_t>(body.size() - 8));
+    EXPECT_EQ(process_input(descriptor_list), -1);
+    close_socket(descriptor_list, FALSE);
+
+    const std::string response = read_all_client_data(client);
+    EXPECT_NE(response.find("HTTP/1.1 401 Unauthorized"), std::string::npos);
+    EXPECT_NE(response.find("\"reasonCode\":\"builder.login.authentication-failed\""), std::string::npos);
+
+    close(client);
+    close(listener);
+}
+
+TEST_F(AcceptPathTest, BuilderHttpMissingConfiguredSecretRejectsRequest)
+{
+    set_builder_proxy_secret(nullptr);
+    in_port_t port = 0;
+    const int listener = create_listener_socket(&port);
+    ASSERT_GE(listener, 0);
+    const int client = connect_client(port);
+    ASSERT_GE(client, 0);
+
+    builder_http_api = 1;
+    ASSERT_EQ(pnew_descriptor(listener), 1);
+
+    const std::string request =
+        "GET /api/builder/js/manifest HTTP/1.1\r\n"
+        "host: 127.0.0.1:4802\r\n"
+        "x-rots-builder-proxy-secret: local-secret\r\n"
+        "connection: close\r\n\r\n";
+    ASSERT_EQ(send(client, request.data(), request.size(), 0), static_cast<ssize_t>(request.size()));
+    EXPECT_EQ(process_input(descriptor_list), -1);
+
+    const std::string response = read_client_data(client);
+    EXPECT_NE(response.find("HTTP/1.1 403 Forbidden"), std::string::npos);
+    EXPECT_NE(response.find("\"reasonCode\":\"builder.ingress.untrusted\""), std::string::npos);
 
     close(client);
     close(listener);
