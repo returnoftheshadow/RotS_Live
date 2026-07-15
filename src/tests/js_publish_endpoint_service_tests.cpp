@@ -304,6 +304,27 @@ TEST(JsPublishEndpointService, StatusReadsStagedRepository)
     EXPECT_NE(std::string::npos, status.json.find("\"diagnostics\""));
 }
 
+TEST(JsPublishEndpointService, StatusReportsCurrentLiveChecksumAfterActivation)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, internal_validation_options());
+    JsScriptPackage package = make_package();
+    JsPublishEndpointServiceResult staged =
+        service.stage(make_stage_input(package, make_stage_options()));
+    ASSERT_TRUE(staged.response.ok);
+    JsPublishEndpointServiceResult activated = service.activate(
+        make_activation_input(staged.response, JsPublishOperation::PackageActivate),
+        make_activation_options());
+    ASSERT_TRUE(activated.response.ok);
+
+    JsPublishEndpointServiceResult status = service.status(make_status_input(staged.response.package_id));
+
+    ASSERT_TRUE(status.response.ok);
+    EXPECT_EQ("status.current", status.response.reason_code);
+    EXPECT_EQ(activated.response.live_checksum, status.response.live_checksum);
+    EXPECT_NE("live:old", status.response.live_checksum);
+}
+
 TEST(JsPublishEndpointService, StatusDerivesPackageAuthorityFromStagedRecord)
 {
     JsLivePackageStore live_store;

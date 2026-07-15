@@ -76,6 +76,12 @@ std::string stage_body_with_operation() {
 
 std::string status_body() { return "{\"packageId\":\"js:30:character:3001\"}"; }
 
+std::string activate_body(const std::string &package_id, const std::string &staged_digest,
+                          const std::string &base_live_checksum) {
+    return "{\"packageId\":" + quote(package_id) + ",\"stagedDigest\":" + quote(staged_digest) +
+           ",\"baseLiveChecksum\":" + quote(base_live_checksum) + "}";
+}
+
 std::string raw_request(const std::string &method, const std::string &path,
                         const std::string &body = "", bool trusted = true,
                         const std::string &content_type = "application/json",
@@ -451,6 +457,37 @@ TEST(JsBuilderHttpServerTransport, RejectsValidTargetOwnedByAnotherBuilder) {
     EXPECT_FALSE(staged.ok);
     ASSERT_EQ(1u, staged.diagnostics.size());
     EXPECT_EQ(JsPublishStagingDiagnosticCode::StagedPackageNotFound, staged.diagnostics[0].code);
+}
+
+TEST(JsBuilderHttpServerTransport, RejectsActivationBaseChecksumMismatchWithoutLivePointer) {
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsBuilderSessionStore session_store;
+    insert_session(&session_store, JS_PUBLISH_SCOPE_PACKAGE_STAGE | JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE);
+    JsBuilderHttpServerTransportOptions options =
+        make_options(&live_store, &service, &session_store);
+
+    JsBuilderHttpServerTransportResult stage = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/stage", stage_body(), true, "application/json",
+                    "session-token"),
+        options);
+    ASSERT_TRUE(stage.ok) << stage.reason_code;
+    JsPublishStagedPackageStatusResult staged = js_publish_latest_staged_package_status(
+        service.staged_repository(), "js:30:character:3001");
+    ASSERT_TRUE(staged.ok);
+
+    JsBuilderHttpServerTransportResult activate = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/activate",
+                    activate_body(staged.status.package_id, staged.status.staged_digest,
+                                  "live:different"),
+                    true, "application/json", "session-token"),
+        options);
+
+    EXPECT_FALSE(activate.ok);
+    EXPECT_EQ(409, activate.http_status);
+    EXPECT_EQ("activate.stale-live-checksum", activate.reason_code);
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+    expect_content_length_matches_body(activate.http_response);
 }
 
 TEST(JsBuilderHttpServerTransport, MapsContextTargetFailuresToRedactedHttpResponses) {

@@ -521,14 +521,18 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
         if (!latest.ok || latest.status.staged_digest != envelope.staged_digest)
             return normalized_authorization_failure("activate.authorization-failed",
                 "Package activate rejected.");
-        if (!status_zone_authority_from_context(latest.status, context).ok)
+        JsPublishEndpointTransportContext activation_context = context;
+        if (activation_context.current_live_checksum.empty()
+            || activation_context.current_live_checksum == envelope.base_live_checksum)
+            activation_context.current_live_checksum = latest.status.base_live_checksum;
+        if (!status_zone_authority_from_context(latest.status, activation_context).ok)
             return normalized_authorization_failure("activate.authorization-failed",
                 "Package activate rejected.");
 
         JsPublishEndpointTransportResult result = transport_response(service.activate(
             staged_request_from_status(latest.status, JsPublishOperation::PackageActivate,
-                envelope.base_live_checksum, context),
-            activation_options_from_context(context)).response);
+                envelope.base_live_checksum, activation_context),
+            activation_options_from_context(activation_context)).response);
         if (!result.ok && result.http_status == 403)
             return normalized_authorization_failure("activate.authorization-failed",
                 "Package activate rejected.");

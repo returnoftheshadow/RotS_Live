@@ -235,6 +235,13 @@ std::string builder_http_proxy_secret()
     return secret == nullptr ? std::string() : std::string(secret);
 }
 
+std::string js_live_store_persistence_path()
+{
+    const char* path = getenv("ROTS_JS_LIVE_STORE_PATH");
+    return path == nullptr || path[0] == '\0' ? std::string("world/js_live_store.json")
+                                              : std::string(path);
+}
+
 JsBuilderSessionStoreOptions builder_http_session_store_options()
 {
     JsBuilderSessionStoreOptions options;
@@ -269,12 +276,14 @@ JsBuilderHttpServerTransportOptions builder_http_server_transport_options()
     options.ingress_options.publish_context.audit_id = "audit:builder-http:" + trace_suffix;
     options.ingress_options.publish_context.now_epoch_seconds =
         options.ingress_options.session_options.session_store_options.now_epoch_seconds;
+    options.ingress_options.publish_context.applied_at_epoch_seconds =
+        options.ingress_options.publish_context.now_epoch_seconds;
     options.ingress_options.publish_context.allow_mutating_operations = true;
     options.ingress_options.publish_context.allow_live_pointer_update = true;
     options.ingress_options.publish_context.expected_server_audience = "server:main";
     options.ingress_options.publish_context.expected_workspace_id = "workspace:main";
     options.ingress_options.publish_context.live_store_persistence_path =
-        "world/js_live_store.json";
+        js_live_store_persistence_path();
 
     options.publish_context_options.live_store = &js_live_registry_admin_service().live_store();
     static JsBuilderPublishTargetCatalog catalog;

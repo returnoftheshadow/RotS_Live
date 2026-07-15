@@ -24,6 +24,7 @@ struct JsPublishStagedPackageStatus {
     long long staged_at_epoch_seconds = 0;
     std::string audit_id;
     std::string base_live_checksum;
+    std::string current_live_checksum;
     std::string manifest_checksum;
     std::string compiled_javascript_checksum;
     std::string runtime_name;

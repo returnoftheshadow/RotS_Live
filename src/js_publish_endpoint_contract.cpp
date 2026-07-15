@@ -49,7 +49,8 @@ void add_stage_status_fields(JsPublishEndpointResponse &response,
     response.package_id = status.package_id;
     response.package_version_id = status.package_version_id;
     response.staged_digest = status.staged_digest;
-    response.live_checksum = status.base_live_checksum;
+    response.live_checksum = status.current_live_checksum.empty() ? status.base_live_checksum
+                                                                   : status.current_live_checksum;
     response.audit_id = status.audit_id;
 }
 

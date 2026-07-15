@@ -22,8 +22,10 @@ struct TargetReference {
 struct RequestTargetEnvelope {
     std::string operation;
     std::string package_id;
+    std::string base_live_checksum;
     bool saw_operation = false;
     bool saw_package_id = false;
+    bool saw_base_live_checksum = false;
     bool saw_package = false;
     JsScriptPackage package;
 };
@@ -137,8 +139,12 @@ bool parse_target_envelope(const std::string &request_json, RequestTargetEnvelop
                 return js_script_package_parse_json_object(
                     nested_reader, package_options, &envelope->package, nested_error_message);
             }
-            if (key == "baseLiveChecksum" || key == "stagedDigest" || key == "targetLiveChecksum" ||
-                key == "reason")
+            if (key == "baseLiveChecksum") {
+                envelope->saw_base_live_checksum = true;
+                return nested_reader->parse_string(&envelope->base_live_checksum,
+                                                   nested_error_message);
+            }
+            if (key == "stagedDigest" || key == "targetLiveChecksum" || key == "reason")
                 return nested_reader->skip_value(nested_error_message);
             *nested_error_message = "unknown publish context field";
             return false;

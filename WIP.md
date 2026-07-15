@@ -2,15 +2,17 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: expose the temporary BuilderClient smoke through a make target while keeping the direct script command available.
-- Next slice: broaden server-backed publish smoke toward activation after staged activation semantics are stable enough for the temporary fixture.
-- Current blocker: none for the BuilderClient smoke make-target slice.
+- Active slice: broaden the server-backed BuilderClient smoke to activate the staged package through the proxy/game path.
+- Next slice: add server-backed status/activation conflict smoke coverage now that activation success is stable in the temporary fixture.
+- Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
   - Create one account-native character through the real account character flow, then promote only that temporary character JSON to level `95` in local smoke data so it satisfies level `92+` builder eligibility without relying on a shared test credential.
   - Start the game in BuilderClient HTTP mode on test-server port `4802`, start the Rust proxy Builder API on loopback, and pass the proxy trust marker only through `ROTS_BUILDER_PROXY_SECRET`.
-  - Login through `/api/builder/login`, fetch the authoritative manifest, stage a compiled JavaScript package through `/api/builder/js/stage`, assert an invalid-target stage is rejected, logout with an empty body, verify the logged-out token is unusable, then run offline BuilderClient compiler/runner tests while unauthenticated.
-  - Clean up successful temporary account and character files by exact fixture paths; on failed attempts, print preserved `/tmp` logs plus the exact repo-local account and character fixture paths for diagnosis.
+  - Isolate activation persistence with `ROTS_JS_LIVE_STORE_PATH=builder-smoke-live-stores/<smoke-id>/js_live_store.json`, which stays under the game-safe relative `lib/` data root and never moves or rewrites the real world live-store file.
+  - Login through `/api/builder/login`, fetch the authoritative manifest, stage a compiled JavaScript package through `/api/builder/js/stage`, refresh server status for the staged digest, activate that exact digest, refresh status again to prove the live checksum changed, assert an invalid-target stage is rejected, logout with an empty body, verify the logged-out token is unusable, then run offline BuilderClient compiler/runner tests while unauthenticated.
+  - Use follow-up temporary fixtures for conflicts: stale live checksum activation, stale staged digest activation, activation after authority revocation, and rollback/status denial, each asserting rejected operations preserve staged/live metadata.
+  - Clean up successful temporary account, character, and smoke live-store files by exact fixture paths; on failed attempts, print preserved `/tmp` logs plus the exact repo-local account, character, and live-store fixture paths for diagnosis.
 - Socket-boundary note: the game server now has an explicit BuilderClient HTTP descriptor mode for test-server port `4802`. It bypasses telnet negotiation, reads one bounded raw HTTP request, dispatches through the raw BuilderClient transport, writes exactly one HTTP response, and closes.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
@@ -51,6 +53,17 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Broadened `tools/builder_client_smoke.py` so the server-backed smoke now checks staged status and activates the staged package through the Rust proxy/game Builder HTTP path before wrong-zone rejection and logout.
+  - Added `ROTS_JS_LIVE_STORE_PATH` support for JavaScript live-store startup hydration and publish persistence, then pointed the smoke at a temp live-store file so activation does not touch repo-local `lib/world/js_live_store.json`.
+  - Reviewer follow-up kept live-store persistence under the server's safe relative path policy by using `lib/builder-smoke-live-stores/<smoke-id>/js_live_store.json` instead of an absolute temp path, and removed the earlier real-file move/restore approach.
+  - Reviewer follow-up made smoke diagnostics use a recursive Builder API response redactor for all response dumps, not only login failures.
+  - Fixed activation dispatch so no-live-pointer activation derives the current live checksum from the server-owned staged record instead of trusting the request `baseLiveChecksum`; stale request bases now fail as activation conflicts without writing a live pointer.
+  - Fixed the concrete Builder HTTP publish mount to set `applied_at_epoch_seconds`, matching the lower-level activation tests and allowing live pointer activation through the real descriptor path.
+  - Fixed package status responses so post-activation status reports the current live pointer checksum instead of continuing to echo the staged base live checksum.
+  - Added regressions for existing live pointers overriding hostile activate-body base checksums, no-live-pointer stale-base activation rejection, and post-activation status returning the activated live checksum.
+  - Reviewer follow-up strengthened `tools/builder_client_smoke.py` so activation smoke verifies package id, staged digest, live checksum, persisted smoke live-store pointer contents, recursive token/password redaction, and exact successful fixture cleanup.
+  - Validation passed for this activation smoke slice: `cmake --build build --target ageland ageland_tests -j16`, focused publish/context/status regressions, `python3 -m py_compile tools/builder_client_smoke.py`, `make smoke-builder-client`, full `make test -j16` (1233 tests), and `git diff --check`.
+  - Next slice after this commit: add server-backed activation conflict smoke coverage now that activation success is stable in the temporary fixture.
   - Added `make smoke-builder-client`, which runs setup, builds `ageland`, builds the Rust proxy, and executes `tools/builder_client_smoke.py`.
   - Updated `AGENTS.md` to document `make smoke-builder-client` as the end-to-end BuilderClient account/auth/manifest/stage/logout/offline smoke validation path for publish/auth/proxy integration changes.
   - Validation passed for this smoke-target slice: `make smoke-builder-client`.

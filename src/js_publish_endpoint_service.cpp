@@ -193,6 +193,11 @@ JsPublishEndpointService::status(const JsPublishEndpointStatusInput &input) cons
     status.status.staged_digest = latest.record.identity.canonical_digest;
     status.status.base_live_checksum = latest.record.identity.base_live_checksum;
     status.status.audit_id = latest.record.audit.audit_id;
+    const JsLivePackagePointerResult live_pointer =
+        m_live_store.find_live_pointer(latest.record.identity.zone, latest.record.identity.host,
+            latest.record.identity.vnum);
+    if (live_pointer.ok)
+        status.status.current_live_checksum = live_pointer.pointer.current_live_checksum;
     return with_json(js_publish_endpoint_status_response(status));
 }
 

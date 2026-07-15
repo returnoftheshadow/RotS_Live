@@ -210,6 +210,7 @@ TEST(JsBuilderPublishContext, ResolvesActivateAndRollbackTargetsFromCanonicalPac
     ASSERT_TRUE(activate.ok);
     EXPECT_EQ(30, activate.context.zone);
     EXPECT_EQ(JsScriptPackageHost::Character, activate.context.server_resolved_target_host);
+    EXPECT_TRUE(activate.context.current_live_checksum.empty());
     ASSERT_TRUE(rollback.ok);
     EXPECT_EQ(30, rollback.context.zone);
     EXPECT_EQ(JsScriptPackageHost::Character, rollback.context.server_resolved_target_host);
@@ -242,6 +243,29 @@ TEST(JsBuilderPublishContext, LoadsCurrentLiveChecksumWhenPointerExists) {
     options.live_store = &live_store;
     JsBuilderPublishContextResult result = js_builder_publish_context_resolve(
         stage_json(make_package()), make_base_context(), options);
+
+    ASSERT_TRUE(result.ok);
+    EXPECT_EQ(live_checksum_for_record(staged.record), result.context.current_live_checksum);
+}
+
+TEST(JsBuilderPublishContext, ActivateUsesExistingLivePointerOverRequestBaseChecksum) {
+    JsBuilderPublishTargetCatalog catalog = make_catalog();
+    JsStagedPackageRepository repository;
+    JsStagedPackageStageResult staged =
+        repository.stage_package(make_package(), make_stage_options());
+    ASSERT_TRUE(staged.ok);
+    JsLivePackageStore live_store;
+    ASSERT_TRUE(
+        live_store.activate_staged_record_pointer(staged.record, make_pointer(staged.record)).ok);
+
+    JsBuilderPublishContextOptions options = make_options(catalog);
+    options.live_store = &live_store;
+    const std::string package_id =
+        package_id_json("activate", staged.record.identity.package_id,
+                        "\"stagedDigest\":" + quote(staged.record.identity.canonical_digest) +
+                            ",\"baseLiveChecksum\":\"live:client-smuggled\"");
+    JsBuilderPublishContextResult result =
+        js_builder_publish_context_resolve(package_id, make_base_context(), options);
 
     ASSERT_TRUE(result.ok);
     EXPECT_EQ(live_checksum_for_record(staged.record), result.context.current_live_checksum);

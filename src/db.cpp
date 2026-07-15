@@ -40,6 +40,17 @@
 #include <string>
 #include <vector>
 
+namespace {
+
+std::string js_live_store_persistence_path()
+{
+    const char* path = getenv("ROTS_JS_LIVE_STORE_PATH");
+    return path == nullptr || path[0] == '\0' ? std::string("world/js_live_store.json")
+                                              : std::string(path);
+}
+
+} // namespace
+
 /**************************************************************************
  *  declarations of most of the 'global' variables                         *
  ************************************************************************ */
@@ -387,8 +398,9 @@ void boot_db(void)
     index_boot(DB_BOOT_OBJ);
 
     log("Loading JavaScript live registry.");
+    const std::string js_live_store_path = js_live_store_persistence_path();
     JsLiveRegistryStartupLoadResult js_startup_load =
-        js_live_registry_startup_load_file("world/js_live_store.json");
+        js_live_registry_startup_load_file(js_live_store_path);
     JsLiveRegistryReloadResult js_reload =
         js_startup_load.ok ? js_startup_load.reload : js_live_registry_startup_refresh();
     if (!js_startup_load.ok) {

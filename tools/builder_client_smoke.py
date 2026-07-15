@@ -4,6 +4,7 @@ import argparse
 import http.client
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -22,11 +23,30 @@ DEFAULT_BUILDER_PASSWORD = account_smoke.DEFAULT_CREATE_PASSWORD
 LOOPBACK_HOST = account_smoke.LOOPBACK_HOST
 
 
-def redact_response(value: dict) -> dict:
-    redacted = dict(value)
-    if "token" in redacted:
-        redacted["token"] = "<redacted>"
-    return redacted
+def redact_text(value: str) -> str:
+    redacted = re.sub(r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [redacted]", value)
+    redacted = re.sub(
+        r"(?i)(token|password)([=:]\s*)[^&\s,;\"']+", r"\1\2[redacted]", redacted
+    )
+    return re.sub(r"(?i)([?&](?:access_)?token=)[^&\s]+", r"\1[redacted]", redacted)
+
+
+def redact_response(value):
+    if isinstance(value, dict):
+        redacted = {}
+        for key, nested in value.items():
+            lowered = key.lower()
+            redacted[key] = (
+                "<redacted>"
+                if "token" in lowered or "password" in lowered
+                else redact_response(nested)
+            )
+        return redacted
+    if isinstance(value, list):
+        return [redact_response(item) for item in value]
+    if isinstance(value, str):
+        return redact_text(value)
+    return value
 
 
 def fnv1a64(text: str) -> str:
@@ -62,6 +82,30 @@ def package_checksum(package: dict) -> str:
         append_int(parts, "binding_value", binding["legacyValue"])
         append_string(parts, "binding_handler", binding["handlerName"])
     return fnv1a64("".join(parts))
+
+
+def assert_persisted_activation(
+    live_store_path: Path,
+    package_id: str,
+    staged_digest: str,
+    live_checksum: str,
+) -> None:
+    if not live_store_path.exists():
+        raise RuntimeError(f"Smoke live store was not persisted at {live_store_path}")
+    live_store = json.loads(live_store_path.read_text(encoding="utf-8"))
+    pointers = live_store.get("live_pointers", [])
+    for pointer in pointers:
+        if (
+            pointer.get("package_id") == package_id
+            and pointer.get("staged_digest") == staged_digest
+            and pointer.get("current_live_checksum") == live_checksum
+            and live_checksum != "live:old"
+        ):
+            return
+    raise RuntimeError(
+        "Smoke live store did not contain the activated package pointer: "
+        f"packageId={package_id} stagedDigest={staged_digest} liveChecksum={live_checksum}"
+    )
 
 
 def http_json(port: int, method: str, path: str, body: dict | None = None, token: str | None = None) -> tuple[int, dict]:
@@ -265,6 +309,8 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
     temp_dir = Path(tempfile.mkdtemp(prefix="rots-builder-smoke-"))
     builder_game_log_path = temp_dir / "builder-game.log"
     builder_proxy_log_path = temp_dir / "builder-proxy.log"
+    live_store_relative_path = f"builder-smoke-live-stores/{smoke_id}/js_live_store.json"
+    live_store_path = repo_root / "lib" / live_store_relative_path
     account_file: Path | None = None
     game_process = None
     proxy_process = None
@@ -273,14 +319,22 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
     passed = False
 
     try:
-        account_file = create_account_with_character(args, repo_root, account_email, character_name, temp_dir)
+        live_store_path.parent.mkdir(parents=True, exist_ok=True)
+        account_file = create_account_with_character(
+            args, repo_root, account_email, character_name, temp_dir
+        )
         promote_account_character(account_file, character_name)
 
         builder_game_log = builder_game_log_path.open("wb")
         game_process = subprocess.Popen(
             [str(game_binary), "-b", "-p", str(args.builder_game_port)],
             cwd=repo_root,
-            env=account_smoke.smoke_child_env({"ROTS_BUILDER_PROXY_SECRET": proxy_secret}),
+            env=account_smoke.smoke_child_env(
+                {
+                    "ROTS_BUILDER_PROXY_SECRET": proxy_secret,
+                    "ROTS_JS_LIVE_STORE_PATH": live_store_relative_path,
+                }
+            ),
             stdout=builder_game_log,
             stderr=subprocess.STDOUT,
         )
@@ -346,7 +400,7 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
 
         status, manifest = http_json(args.builder_api_port, "GET", "/api/builder/js/manifest")
         if status != 200 or manifest.get("exportKind") != "builderManifest":
-            raise RuntimeError(f"Manifest request failed: HTTP {status} {manifest}")
+            raise RuntimeError(f"Manifest request failed: HTTP {status} {redact_response(manifest)}")
 
         stage_package = build_package(manifest, 4802, f"builder-smoke-{smoke_id}")
         status, staged = http_json(
@@ -357,7 +411,76 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
             token,
         )
         if status != 200 or not staged.get("ok") or not staged.get("stagedDigest"):
-            raise RuntimeError(f"Stage failed: HTTP {status} {staged}")
+            raise RuntimeError(f"Stage failed: HTTP {status} {redact_response(staged)}")
+        staged_package_id = staged.get("packageId")
+        staged_digest = staged.get("stagedDigest")
+        if not staged_package_id:
+            raise RuntimeError(f"Stage response did not include package id: {staged}")
+
+        status, staged_status = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/status",
+            {"packageId": staged_package_id},
+            token,
+        )
+        if (
+            status != 200
+            or not staged_status.get("ok")
+            or staged_status.get("reasonCode") != "status.current"
+            or not staged_status.get("stagedDigest")
+        ):
+            raise RuntimeError(
+                f"Status after stage failed: HTTP {status} {redact_response(staged_status)}; "
+                f"staged={redact_response(staged)}"
+            )
+        staged_digest = staged_status.get("stagedDigest")
+
+        status, activated = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/activate",
+            {
+                "packageId": staged_package_id,
+                "stagedDigest": staged_digest,
+                "baseLiveChecksum": "live:old",
+            },
+            token,
+        )
+        if status != 200 or not activated.get("ok") or activated.get("reasonCode") != "activate.accepted":
+            raise RuntimeError(
+                f"Activate failed: HTTP {status} {redact_response(activated)}; "
+                f"stagedStatus={redact_response(staged_status)}"
+            )
+        status, activated_status = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/status",
+            {"packageId": staged_package_id},
+            token,
+        )
+        if (
+            status != 200
+            or not activated_status.get("ok")
+            or activated_status.get("reasonCode") != "status.current"
+            or activated_status.get("packageId") != staged_package_id
+            or activated_status.get("stagedDigest") != staged_digest
+            or activated_status.get("liveChecksum") in ("", "live:old", None)
+            or (
+                activated.get("liveChecksum")
+                and activated_status.get("liveChecksum") != activated.get("liveChecksum")
+            )
+        ):
+            raise RuntimeError(
+                f"Status after activate failed: HTTP {status} "
+                f"{redact_response(activated_status)}"
+            )
+        assert_persisted_activation(
+            live_store_path,
+            staged_package_id,
+            staged_digest,
+            activated_status.get("liveChecksum"),
+        )
 
         wrong_zone_package = build_package(manifest, 999999, f"builder-smoke-wrong-zone-{smoke_id}")
         status, wrong_zone = http_json(
@@ -368,14 +491,14 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
             token,
         )
         if status < 400 or wrong_zone.get("ok") is not False:
-            raise RuntimeError(f"Wrong-zone upload unexpectedly succeeded: HTTP {status} {wrong_zone}")
+            raise RuntimeError(
+                f"Wrong-zone upload unexpectedly succeeded: HTTP {status} "
+                f"{redact_response(wrong_zone)}"
+            )
 
         status, logout = http_json(args.builder_api_port, "POST", "/api/builder/logout", None, token)
         if status != 200 or not logout.get("ok"):
-            raise RuntimeError(f"Builder logout failed: HTTP {status} {logout}")
-        staged_package_id = staged.get("packageId")
-        if not staged_package_id:
-            raise RuntimeError(f"Stage response did not include package id: {staged}")
+            raise RuntimeError(f"Builder logout failed: HTTP {status} {redact_response(logout)}")
         status, post_logout_status = http_json(
             args.builder_api_port,
             "POST",
@@ -385,7 +508,8 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
         )
         if status < 400 or post_logout_status.get("ok") is not False:
             raise RuntimeError(
-                f"Logged-out token unexpectedly remained usable: HTTP {status} {post_logout_status}"
+                f"Logged-out token unexpectedly remained usable: HTTP {status} "
+                f"{redact_response(post_logout_status)}"
             )
 
         offline_command = subprocess.run(
@@ -401,7 +525,7 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
 
         passed = True
         print(
-            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> wrong-zone rejection -> logout -> offline unauthenticated tests."
+            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> activate -> wrong-zone rejection -> logout -> offline unauthenticated tests."
         )
         return 0
     finally:
@@ -421,9 +545,16 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
             account_smoke.remove_empty_directory(account_file.parent)
 
         if not args.keep_artifacts and passed:
+            account_smoke.remove_if_exists(live_store_path)
+            account_smoke.remove_empty_directory(live_store_path.parent)
+            account_smoke.remove_empty_directory(live_store_path.parent.parent)
+            if live_store_path.exists():
+                raise RuntimeError(f"Smoke live store cleanup failed for {live_store_path}")
             account_smoke.remove_if_exists(temp_dir)
         else:
             print(f"Kept smoke artifacts in {temp_dir}")
+            if live_store_path.exists():
+                print(f"Kept smoke live store at {live_store_path}")
             if account_file is not None:
                 print(f"Kept smoke account file at {account_file}")
                 character_path = account_smoke.account_native_character_file(account_file, character_name)
