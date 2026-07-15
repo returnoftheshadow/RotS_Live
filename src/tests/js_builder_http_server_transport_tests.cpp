@@ -1,6 +1,7 @@
 #include "../js_builder_http_server_transport.h"
 
 #include "../db.h"
+#include "../js_live_registry_admin.h"
 #include "../js_script_package_loader.h"
 #include "../js_publish_staging.h"
 #include "../json_utils.h"
@@ -18,6 +19,10 @@ extern index_data *mob_index;
 extern int top_of_mobt;
 extern index_data *obj_index;
 extern int top_of_objt;
+extern char_data *character_list;
+extern obj_data *object_list;
+
+int trigger_char_enter(char_data *ch, char_data *vict, room_data *room);
 
 namespace {
 
@@ -27,7 +32,7 @@ std::string quote(const std::string &value) {
     return "\"" + json_utils::escape_json_string(value) + "\"";
 }
 
-JsScriptPackage make_package() {
+JsScriptPackage make_package_with_source(const std::string &source) {
     const JsScriptingManifestMetadata &metadata = js_scripting_manifest_metadata();
     JsScriptPackage package;
     package.vnum = 3001;
@@ -40,11 +45,23 @@ JsScriptPackage make_package() {
     package.runtime_name = metadata.selected_runtime_name;
     package.runtime_version = metadata.selected_runtime_version;
     package.generated_typings_version = metadata.generated_typings_version;
-    package.compiled_javascript = "function onEnter(ctx) { return true; }";
+    package.compiled_javascript = source;
     package.trigger_bindings.push_back(
         {JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER, "onEnter"});
     package.compiled_javascript_checksum = js_script_package_compiled_javascript_checksum(package);
     return package;
+}
+
+JsScriptPackage make_package() {
+    return make_package_with_source("function onEnter(ctx) { return true; }");
+}
+
+JsScriptPackage make_runtime_blocking_package() {
+    return make_package_with_source(
+        "function onEnter(ctx) { "
+        "return !(ctx.self.name === 'Http Guard' && ctx.actor.name === 'Http Actor' && "
+        "ctx.room.vnum === 3001); "
+        "}");
 }
 
 std::string package_json(const JsScriptPackage &package) {
@@ -67,6 +84,10 @@ std::string package_json(const JsScriptPackage &package) {
 std::string stage_body() {
     return "{\"baseLiveChecksum\":\"live:initial\",\"package\":" + package_json(make_package()) +
            "}";
+}
+
+std::string stage_body(const JsScriptPackage &package) {
+    return "{\"baseLiveChecksum\":\"live:initial\",\"package\":" + package_json(package) + "}";
 }
 
 std::string stage_body_with_operation() {
@@ -230,6 +251,57 @@ JsBuilderSessionLoginResult make_login(unsigned int scopes) {
 void insert_session(JsBuilderSessionStore *store, unsigned int scopes) {
     ASSERT_TRUE(store->insert_login_result(make_login(scopes), session_store_options()).ok);
 }
+
+char_data make_character(const char *name, bool npc = false) {
+    char_data character = {};
+    character.player.name = const_cast<char *>(name);
+    character.player.short_descr = const_cast<char *>(name);
+    character.player.race = 0;
+    character.player.level = 1;
+    character.tmpabilities.hit = 10;
+    character.abilities.hit = 10;
+    character.in_room = 0;
+    character.nr = npc ? 0 : -1;
+    if (npc)
+        character.specials2.act = MOB_ISNPC;
+    return character;
+}
+
+room_data make_room(const char *name, int number, int zone) {
+    room_data room = {};
+    room.name = const_cast<char *>(name);
+    room.number = number;
+    room.zone = zone;
+    return room;
+}
+
+struct RuntimeGlobalStateGuard {
+    room_data saved_world = world;
+    int saved_top_of_world = top_of_world;
+    index_data *saved_mob_index = mob_index;
+    int saved_top_of_mobt = top_of_mobt;
+    char_data *saved_character_list = character_list;
+    obj_data *saved_object_list = object_list;
+    JsLiveRegistryAdminService &service = js_live_registry_admin_service();
+
+    RuntimeGlobalStateGuard() {
+        EXPECT_TRUE(service.live_store().hydrate_from_snapshot({}).ok);
+        EXPECT_TRUE(service.refresh().ok);
+        js_script_set_legacy_trigger_dispatch_enabled(false);
+    }
+
+    ~RuntimeGlobalStateGuard() {
+        service.live_store().hydrate_from_snapshot({});
+        service.refresh();
+        world = saved_world;
+        top_of_world = saved_top_of_world;
+        mob_index = saved_mob_index;
+        top_of_mobt = saved_top_of_mobt;
+        character_list = saved_character_list;
+        object_list = saved_object_list;
+        js_script_set_legacy_trigger_dispatch_enabled(false);
+    }
+};
 
 } // namespace
 
@@ -566,6 +638,74 @@ TEST(JsBuilderHttpServerTransport, RejectsActivationWhenTokenMissingActivateScop
     EXPECT_EQ(std::string::npos, activate.http_response.find("live:initial"));
     EXPECT_EQ(std::string::npos, activate.http_response.find("session-token"));
     expect_content_length_matches_body(activate.http_response);
+}
+
+TEST(JsBuilderHttpServerTransport, HttpSessionPublishedJavaScriptExecutesThroughCharacterEnter) {
+    RuntimeGlobalStateGuard guard;
+    JsLiveRegistryAdminService &admin_service = guard.service;
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsBuilderSessionStore session_store;
+    insert_session(&session_store,
+                   JS_PUBLISH_SCOPE_PACKAGE_STAGE | JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE |
+                       JS_PUBLISH_SCOPE_STATUS_READ);
+    JsBuilderHttpServerTransportOptions options =
+        make_options(&live_store, &service, &session_store);
+
+    index_data local_mob_index[1] = {};
+    local_mob_index[0].virt = 3001;
+    mob_index = local_mob_index;
+    top_of_mobt = 0;
+    world = make_room("HTTP Runtime Room", 3001, 0);
+    top_of_world = 0;
+    char_data guard_character = make_character("Http Guard", true);
+    char_data actor = make_character("Http Actor");
+    char_data other_actor = make_character("Http Other");
+    guard_character.next = &actor;
+    actor.next = &other_actor;
+    other_actor.next = nullptr;
+    character_list = &guard_character;
+    object_list = nullptr;
+
+    const std::string body = stage_body(make_runtime_blocking_package());
+    JsBuilderHttpServerTransportResult stage = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/stage", body, true, "application/json",
+                    "session-token"),
+        options);
+    ASSERT_TRUE(stage.ok) << stage.reason_code << " " << stage.http_response;
+    EXPECT_EQ("stage.accepted", stage.reason_code);
+    JsPublishStagedPackageStatusResult staged = js_publish_latest_staged_package_status(
+        service.staged_repository(), "js:30:character:3001");
+    ASSERT_TRUE(staged.ok);
+    ASSERT_TRUE(admin_service.refresh().ok);
+    EXPECT_EQ(nullptr, admin_service.reload_service().find_package_status_by_vnum(3001));
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+    EXPECT_EQ(trigger_char_enter(&guard_character, &actor, &world), 1);
+
+    JsBuilderHttpServerTransportResult activate = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/activate",
+                    activate_body(staged.status.package_id, staged.status.staged_digest,
+                                  "live:initial"),
+                    true, "application/json", "session-token"),
+        options);
+    ASSERT_TRUE(activate.ok) << activate.reason_code << " " << activate.http_response;
+    EXPECT_EQ("activate.accepted", activate.reason_code);
+    EXPECT_EQ(1u, live_store.package_record_count());
+    EXPECT_EQ(1u, live_store.live_pointer_count());
+    JsLivePackagePointerResult pointer = live_store.find_live_pointer(staged.status.package_id);
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(staged.status.package_version_id, pointer.pointer.package_version_id);
+    EXPECT_EQ(staged.status.staged_digest, pointer.pointer.staged_digest);
+    expect_content_length_matches_body(stage.http_response);
+    expect_content_length_matches_body(activate.http_response);
+
+    ASSERT_TRUE(admin_service.live_store().hydrate_from_snapshot(live_store.export_snapshot()).ok);
+    ASSERT_TRUE(admin_service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+
+    EXPECT_EQ(trigger_char_enter(&guard_character, &actor, &world), 0);
+    EXPECT_EQ(trigger_char_enter(&guard_character, &other_actor, &world), 1);
 }
 
 TEST(JsBuilderHttpServerTransport, MapsContextTargetFailuresToRedactedHttpResponses) {
