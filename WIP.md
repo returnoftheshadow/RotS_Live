@@ -2,9 +2,9 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: add a valid-target authorization fixture that proves a real zone target owned by another builder is rejected through the Builder HTTP publish path.
-- Next slice: move into activation/status conflict coverage for BuilderClient publish flows, then decide whether to expose the temporary smoke through `make`.
-- Current blocker: none for the valid-target authorization fixture slice.
+- Active slice: add activation/status conflict coverage for BuilderClient publish flows.
+- Next slice: decide whether to expose the temporary BuilderClient smoke through `make` or keep it as an explicit developer command until runtime execution is complete.
+- Current blocker: none for the activation/status conflict coverage slice.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
   - Create one account-native character through the real account character flow, then promote only that temporary character JSON to level `95` in local smoke data so it satisfies level `92+` builder eligibility without relying on a shared test credential.
@@ -51,6 +51,13 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added BuilderClient endpoint compatibility fixtures for `activate.stale-live-checksum` and public-route `status.authorization-failed`.
+  - Added publish endpoint fixture coverage proving activation conflicts preserve package/version/staged/live/audit metadata while redacting bearer-token, URL token/password, and `password:` diagnostics, and unauthorized/missing status responses omit package/staged/live metadata.
+  - Reused the shared BuilderClient publish redactor in `PublishClient` so publish response parsing redacts the same secret patterns as publish settings and IPC errors.
+  - Reviewer follow-ups aligned publish fixtures to canonical `js:30:character:3001` package ids, tightened activation conflict staged-digest assertions to exact values, and added negative presenter assertions so unauthorized status cannot carry stale package/version/staged/live/audit rows.
+  - Added publish result presenter coverage proving stale activation is shown as an activation conflict while unauthorized status remains a status failure/error.
+  - Validation passed for this activation/status conflict slice: `npm test -- src/core/publishEndpointFixtures.test.ts src/core/publishResultPresenter.test.ts src/core/publishClient.test.ts src/core/publishSettings.test.ts`, `npm run typecheck`, and `git diff --check` in `BuilderClient/` and the root repo.
+  - Next slice after this commit: decide whether to expose the temporary BuilderClient smoke through `make` or keep it as an explicit developer command until runtime execution is complete.
   - Added `JsBuilderHttpServerTransport.RejectsValidTargetOwnedByAnotherBuilder`, which first proves a trusted stage request for an existing vnum succeeds when the server-resolved target catalog owner matches the builder character id, then changes only the owner to another character id and expects rejection.
   - The new fixture proves the Builder HTTP publish path reaches authorization for a valid target and returns `stage.authorization-failed` without exposing the foreign owner id or bearer token, then verifies the rejected stage did not write a staged package.
   - Validation passed for this authorization-fixture slice: `cmake --build build --target ageland_tests -j16`, focused `JsBuilderHttpServerTransport.RejectsValidTargetOwnedByAnotherBuilder:JsBuilderHttpServerTransport.ResolvesPublishContextBeforeIngressDispatch:JsBuilderHttpServerTransport.LoadedWorldCatalogDropsOwnerTerminatorOnlyForOwnedZones:JsBuilderPublishContext.AcceptsLoadedWorldZoneZeroCatalogEntries`, and `git diff --check`.
