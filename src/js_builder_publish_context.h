@@ -37,4 +37,9 @@ js_builder_publish_context_resolve(const std::string &request_json,
                                    const JsPublishEndpointTransportContext &base_context,
                                    const JsBuilderPublishContextOptions &options);
 
+JsBuilderPublishContextResult js_builder_publish_context_resolve_for_operation(
+    const std::string &operation, const std::string &request_json,
+    const JsPublishEndpointTransportContext &base_context,
+    const JsBuilderPublishContextOptions &options);
+
 #endif

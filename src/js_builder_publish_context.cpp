@@ -22,6 +22,7 @@ struct TargetReference {
 struct RequestTargetEnvelope {
     std::string operation;
     std::string package_id;
+    bool saw_operation = false;
     bool saw_package_id = false;
     bool saw_package = false;
     JsScriptPackage package;
@@ -113,19 +114,18 @@ bool mark_seen(std::vector<std::string> &seen_fields, const std::string &key,
 }
 
 bool parse_target_envelope(const std::string &request_json, RequestTargetEnvelope *envelope) {
-    bool saw_operation = false;
     std::vector<std::string> seen_fields;
     JsScriptPackageBundleLoadOptions package_options;
     std::string error_message;
     json_utils::JsonReader reader(request_json);
     const bool parsed = reader.parse_root_object(
-        [envelope, &saw_operation, &seen_fields,
-         &package_options](const std::string &key, json_utils::JsonReader *nested_reader,
-                           std::string *nested_error_message) {
+        [envelope, &seen_fields, &package_options](const std::string &key,
+                                                   json_utils::JsonReader *nested_reader,
+                                                   std::string *nested_error_message) {
             if (!mark_seen(seen_fields, key, nested_error_message))
                 return false;
             if (key == "operation") {
-                saw_operation = true;
+                envelope->saw_operation = true;
                 return nested_reader->parse_string(&envelope->operation, nested_error_message);
             }
             if (key == "packageId") {
@@ -144,7 +144,7 @@ bool parse_target_envelope(const std::string &request_json, RequestTargetEnvelop
             return false;
         },
         &error_message);
-    return parsed && saw_operation;
+    return parsed;
 }
 
 bool target_from_envelope(const RequestTargetEnvelope &envelope, TargetReference *target) {
@@ -276,6 +276,14 @@ JsBuilderPublishContextResult
 js_builder_publish_context_resolve(const std::string &request_json,
                                    const JsPublishEndpointTransportContext &base_context,
                                    const JsBuilderPublishContextOptions &options) {
+    return js_builder_publish_context_resolve_for_operation("", request_json, base_context,
+                                                            options);
+}
+
+JsBuilderPublishContextResult js_builder_publish_context_resolve_for_operation(
+    const std::string &operation, const std::string &request_json,
+    const JsPublishEndpointTransportContext &base_context,
+    const JsBuilderPublishContextOptions &options) {
     if (!options.target_catalog)
         return context_error("builder.context.catalog-unavailable");
     if (!options.live_store)
@@ -287,6 +295,14 @@ js_builder_publish_context_resolve(const std::string &request_json,
 
     RequestTargetEnvelope envelope;
     if (!parse_target_envelope(request_json, &envelope))
+        return context_error("builder.context.invalid-request");
+    if (!operation.empty()) {
+        if (envelope.saw_operation && envelope.operation != operation)
+            return context_error("builder.context.invalid-target");
+        envelope.operation = operation;
+        envelope.saw_operation = true;
+    }
+    if (!envelope.saw_operation)
         return context_error("builder.context.invalid-request");
 
     TargetReference target;
