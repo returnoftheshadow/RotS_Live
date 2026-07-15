@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: add server-backed logged-out rollback denial coverage to the temporary BuilderClient smoke.
-- Next slice: add a server-backed missing-scope or revoked-authority activation denial fixture after logged-out rollback denial is committed.
+- Active slice: add a server-backed revoked-authority activation denial fixture.
+- Next slice: add a server-backed missing-scope activation denial fixture if transport coverage still needs it, otherwise move to the next publish/admin gap.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -53,6 +53,9 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added `JsBuilderHttpServerTransport.RejectsActivationWhenZoneAuthorityIsRevoked`, which stages through the trusted server transport while the builder owns the target, swaps the server-resolved zone owner before activation, then verifies activation fails with `activate.authorization-failed`, writes no live pointer, and does not expose package id, staged digest, live checksum, foreign owner id, or bearer token.
+  - Validation passed for this revoked-authority activation fixture slice: `cmake --build build --target ageland_tests -j16`, focused `JsBuilderHttpServerTransport.RejectsActivationWhenZoneAuthorityIsRevoked:JsBuilderHttpServerTransport.RejectsActivationBaseChecksumMismatchWithoutLivePointer:JsBuilderHttpServerTransport.RejectsValidTargetOwnedByAnotherBuilder`, full `make test -j16` (1234 tests), and `git diff --check`.
+  - Next slice after this commit: add a server-backed missing-scope activation denial fixture if transport coverage still needs it, otherwise move to the next publish/admin gap.
   - Added logged-out rollback denial coverage to `tools/builder_client_smoke.py`: after logout revokes the server session, the smoke now checks both status and rollback requests with the old token fail closed, and rollback does not expose package id, staged digest, or live checksum metadata.
   - Validation passed for this logged-out rollback denial smoke slice: `python3 -m py_compile tools/builder_client_smoke.py`, `git diff --check`, and `make smoke-builder-client`.
   - Next slice after this commit: add a server-backed missing-scope or revoked-authority activation denial fixture.
