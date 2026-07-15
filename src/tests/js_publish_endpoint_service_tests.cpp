@@ -531,7 +531,7 @@ TEST(JsPublishEndpointService, RollbackAuditPreconditionFailurePreservesCurrentL
 }
 
 TEST(JsPublishEndpointService,
-    RollbackAuditPreconditionFailureTakesPrecedenceOverLivePointerConflict)
+    RollbackLivePointerConflictPrecedesAuditPreconditionFailure)
 {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, internal_validation_options());
@@ -578,12 +578,10 @@ TEST(JsPublishEndpointService,
     JsPublishEndpointServiceResult rollback = service.rollback(rollback_input, options);
 
     EXPECT_FALSE(rollback.response.ok);
-    EXPECT_EQ(500, rollback.response.http_status);
-    EXPECT_EQ("rollback.audit-precondition-failed", rollback.response.reason_code);
-    EXPECT_TRUE(rollback.response.package_id.empty());
-    EXPECT_TRUE(rollback.response.package_version_id.empty());
-    EXPECT_TRUE(rollback.response.staged_digest.empty());
-    EXPECT_TRUE(rollback.response.live_checksum.empty());
+    EXPECT_EQ(409, rollback.response.http_status);
+    EXPECT_EQ("rollback.stale-live-checksum", rollback.response.reason_code);
+    EXPECT_EQ(first.response.package_id, rollback.response.package_id);
+    EXPECT_EQ(third_live_checksum, rollback.response.live_checksum);
     live_pointer = live_store.find_live_pointer(first.response.package_id);
     ASSERT_TRUE(live_pointer.ok);
     EXPECT_EQ(third.response.package_version_id, live_pointer.pointer.package_version_id);

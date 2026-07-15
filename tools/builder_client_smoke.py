@@ -322,7 +322,9 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
     builder_game_log_path = temp_dir / "builder-game.log"
     builder_proxy_log_path = temp_dir / "builder-proxy.log"
     live_store_relative_path = f"builder-smoke-live-stores/{smoke_id}/js_live_store.json"
+    publish_audit_relative_path = f"builder-smoke-live-stores/{smoke_id}/js_publish_audit.jsonl"
     live_store_path = repo_root / "lib" / live_store_relative_path
+    publish_audit_path = repo_root / "lib" / publish_audit_relative_path
     account_file: Path | None = None
     game_process = None
     proxy_process = None
@@ -345,6 +347,7 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
                 {
                     "ROTS_BUILDER_PROXY_SECRET": proxy_secret,
                     "ROTS_JS_LIVE_STORE_PATH": live_store_relative_path,
+                    "ROTS_JS_PUBLISH_AUDIT_PATH": publish_audit_relative_path,
                 }
             ),
             stdout=builder_game_log,
@@ -718,15 +721,20 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
 
         if not args.keep_artifacts and passed:
             account_smoke.remove_if_exists(live_store_path)
+            account_smoke.remove_if_exists(publish_audit_path)
             account_smoke.remove_empty_directory(live_store_path.parent)
             account_smoke.remove_empty_directory(live_store_path.parent.parent)
             if live_store_path.exists():
                 raise RuntimeError(f"Smoke live store cleanup failed for {live_store_path}")
+            if publish_audit_path.exists():
+                raise RuntimeError(f"Smoke publish audit cleanup failed for {publish_audit_path}")
             account_smoke.remove_if_exists(temp_dir)
         else:
             print(f"Kept smoke artifacts in {temp_dir}")
             if live_store_path.exists():
                 print(f"Kept smoke live store at {live_store_path}")
+            if publish_audit_path.exists():
+                print(f"Kept smoke publish audit at {publish_audit_path}")
             if account_file is not None:
                 print(f"Kept smoke account file at {account_file}")
                 character_path = account_smoke.account_native_character_file(account_file, character_name)

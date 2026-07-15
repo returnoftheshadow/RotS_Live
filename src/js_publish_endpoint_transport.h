@@ -39,6 +39,7 @@ struct JsPublishEndpointTransportContext {
     std::string expected_workspace_id;
     std::string current_live_checksum;
     std::string live_store_persistence_path;
+    std::string publish_audit_log_path;
 };
 
 struct JsPublishEndpointTransportResult {

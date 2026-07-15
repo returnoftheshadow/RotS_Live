@@ -102,6 +102,7 @@ JsPublishEndpointTransportContext make_publish_context(unsigned scopes) {
     context.expected_server_audience = "server:main";
     context.expected_workspace_id = "workspace:main";
     context.current_live_checksum = "live:old";
+    context.publish_audit_log_path = "build/js_live_registry_admin_audit.jsonl";
     return context;
 }
 

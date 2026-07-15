@@ -61,6 +61,7 @@ set(ROTS_SERVER_SOURCES
     js_live_registry_status.cpp
     js_manifest_export.cpp
     js_publish_activation.cpp
+    js_publish_audit.cpp
     js_publish_authorization.cpp
     js_publish_endpoint_contract.cpp
     js_publish_http_endpoint.cpp
@@ -197,6 +198,7 @@ set(ROTS_TEST_SOURCES
     tests/js_live_registry_status_tests.cpp
     tests/js_manifest_export_tests.cpp
     tests/js_publish_activation_tests.cpp
+    tests/js_publish_audit_tests.cpp
     tests/js_publish_authorization_tests.cpp
     tests/js_publish_endpoint_contract_tests.cpp
     tests/js_publish_http_endpoint_tests.cpp

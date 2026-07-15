@@ -242,6 +242,13 @@ std::string js_live_store_persistence_path()
                                               : std::string(path);
 }
 
+std::string js_publish_audit_log_path()
+{
+    const char* path = getenv("ROTS_JS_PUBLISH_AUDIT_PATH");
+    return path == nullptr || path[0] == '\0' ? std::string("world/js_publish_audit.jsonl")
+                                              : std::string(path);
+}
+
 JsBuilderSessionStoreOptions builder_http_session_store_options()
 {
     JsBuilderSessionStoreOptions options;
@@ -284,6 +291,8 @@ JsBuilderHttpServerTransportOptions builder_http_server_transport_options()
     options.ingress_options.publish_context.expected_workspace_id = "workspace:main";
     options.ingress_options.publish_context.live_store_persistence_path =
         js_live_store_persistence_path();
+    options.ingress_options.publish_context.publish_audit_log_path =
+        js_publish_audit_log_path();
 
     options.publish_context_options.live_store = &js_live_registry_admin_service().live_store();
     static JsBuilderPublishTargetCatalog catalog;

@@ -1,6 +1,7 @@
 #include "js_publish_endpoint_transport.h"
 
 #include "js_script_package_loader.h"
+#include "js_publish_audit.h"
 #include "json_utils.h"
 
 #include <algorithm>
@@ -134,12 +135,23 @@ bool is_canonical_staged_digest(const std::string &value)
         });
 }
 
+std::string digest_body(const std::string &digest)
+{
+    const std::string::size_type colon = digest.find(':');
+    return colon == std::string::npos ? digest : digest.substr(colon + 1);
+}
+
 bool is_bounded_reason_text(const std::string &value)
 {
     return !value.empty() && value.size() <= 240
         && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
             return ch >= 0x20 && ch != 0x7f;
         });
+}
+
+std::string live_checksum_from_status(const JsPublishStagedPackageStatus &status)
+{
+    return std::string("live:") + status.digest_algorithm + ":" + digest_body(status.staged_digest);
 }
 
 bool token_has_scope(const JsPublishTokenMetadata &token, unsigned scope)
@@ -388,11 +400,36 @@ JsPublishActivationOptions activation_options_from_context(
     options.assembly_options.expected_workspace_id = context.expected_workspace_id;
     options.assembly_options.current_live_checksum = context.current_live_checksum;
     options.allow_live_pointer_update = context.allow_live_pointer_update;
-    options.durable_audit_precondition_ok = !context.audit_id.empty();
+    options.durable_audit_precondition_ok = false;
     options.applied_at_epoch_seconds = context.applied_at_epoch_seconds;
     options.live_pointer_audit_id = context.audit_id;
     options.persist_live_store_path = context.live_store_persistence_path;
     return options;
+}
+
+JsPublishAuditAppendResult append_publish_audit_event(
+    const JsPublishStagedPackageStatus &status,
+    const JsPublishEndpointTransportContext &context,
+    const std::string &operation,
+    const std::string &expected_previous_live_checksum,
+    const std::string &current_live_checksum)
+{
+    JsPublishAuditEvent event;
+    event.operation = operation;
+    event.audit_id = context.audit_id;
+    event.request_id = context.request_id;
+    event.actor_id = context.actor_id;
+    event.builder_account_id = context.builder_account_id;
+    event.package_id = status.package_id;
+    event.package_version_id = status.package_version_id;
+    event.staged_digest = status.staged_digest;
+    event.expected_previous_live_checksum = expected_previous_live_checksum;
+    event.current_live_checksum = current_live_checksum;
+    event.occurred_at_epoch_seconds = context.applied_at_epoch_seconds;
+
+    JsPublishAuditAppendOptions options;
+    options.path = context.publish_audit_log_path;
+    return js_publish_audit_append_event(event, options);
 }
 
 JsPublishStagedPackageStatus status_from_live_pointer(const JsLivePackagePointer &pointer)
@@ -543,10 +580,18 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
             return normalized_authorization_failure("activate.authorization-failed",
                 "Package activate rejected.");
 
+        JsPublishActivationOptions activation_options =
+            activation_options_from_context(activation_context);
+        activation_options.durable_audit_append =
+            [activation_context, expected_live_checksum = envelope.base_live_checksum](
+                const JsPublishStagedPackageStatus &status) {
+                return append_publish_audit_event(status, activation_context, "activate",
+                    expected_live_checksum, live_checksum_from_status(status)).ok;
+            };
         JsPublishEndpointTransportResult result = transport_response(service.activate(
             staged_request_from_status(latest.status, JsPublishOperation::PackageActivate,
                 envelope.base_live_checksum, activation_context),
-            activation_options_from_context(activation_context)).response);
+            activation_options).response);
         if (!result.ok && result.http_status == 403)
             return normalized_authorization_failure("activate.authorization-failed",
                 "Package activate rejected.");
@@ -590,12 +635,20 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
         JsPublishEndpointTransportContext rollback_context = context;
         rollback_context.current_live_checksum = current.pointer.current_live_checksum;
 
+        JsPublishActivationOptions activation_options =
+            activation_options_from_context(rollback_context);
+        activation_options.durable_audit_append =
+            [rollback_context, expected_live_checksum = envelope.target_live_checksum](
+                const JsPublishStagedPackageStatus &status) {
+                return append_publish_audit_event(status, rollback_context, "rollback",
+                    expected_live_checksum, live_checksum_from_status(status)).ok;
+            };
         JsPublishEndpointTransportResult result = transport_response(service.rollback(
             staged_request_from_status(prior_status,
                 rollback_any ? JsPublishOperation::PackageRollbackAny
                              : JsPublishOperation::PackageRollbackOwn,
                 envelope.target_live_checksum, rollback_context),
-            activation_options_from_context(rollback_context)).response);
+            activation_options).response);
         if (!result.ok && result.http_status == 403)
             return normalized_authorization_failure("rollback.authorization-failed",
                 "Package rollback rejected.");

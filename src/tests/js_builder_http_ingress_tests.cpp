@@ -91,6 +91,7 @@ JsBuilderHttpIngressOptions ingress_options(JsBuilderSessionStore *store = nullp
     options.publish_context.server_resolved_target_host = JsScriptPackageHost::Character;
     options.publish_context.zone_exists = true;
     options.publish_context.zone_owner_character_ids = { 1001 };
+    options.publish_context.publish_audit_log_path = "build/js_builder_http_ingress_audit.jsonl";
     options.publish_context.transport.secure_channel = true;
     options.publish_context.transport.server_identity_verified = true;
     options.publish_context.transport.server_audience = "server:main";

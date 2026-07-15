@@ -5,6 +5,7 @@
 #include "js_live_package_store_persistence.h"
 #include "js_publish_staging.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,7 @@ struct JsPublishActivationOptions {
     JsPublishStagedRequestAssemblyOptions assembly_options;
     bool allow_live_pointer_update = false;
     bool durable_audit_precondition_ok = false;
+    std::function<bool(const JsPublishStagedPackageStatus &)> durable_audit_append;
     long long applied_at_epoch_seconds = 0;
     std::string live_pointer_audit_id;
     std::string persist_live_store_path;

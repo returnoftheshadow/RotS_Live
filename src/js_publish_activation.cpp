@@ -61,6 +61,13 @@ JsLivePackagePointerResult conflicting_live_pointer(const JsLivePackageStore &li
     return {};
 }
 
+bool durable_audit_precondition_passed(const JsPublishActivationOptions &options,
+                                       const JsPublishStagedPackageStatus &status) {
+    if (options.durable_audit_append)
+        return options.durable_audit_append(status);
+    return options.durable_audit_precondition_ok;
+}
+
 JsLivePackagePointer
 live_pointer_from_assembly(const JsPublishStagedRequestAssemblyResult &assembly,
                            const JsStagedPackageIdentity &identity,
@@ -187,11 +194,6 @@ apply_assembled_live_package_activation(const JsStagedPackageRecord &record,
                        "Live package pointer updates are disabled for this activation request.");
         return result;
     }
-    if (!options.durable_audit_precondition_ok) {
-        add_diagnostic(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed,
-                       "Durable publish audit precondition failed before live mutation.");
-        return result;
-    }
     if (options.applied_at_epoch_seconds <= 0 || is_blank(options.live_pointer_audit_id)) {
         add_diagnostic(result, JsPublishActivationDiagnosticCode::InvalidRequest,
                        "Live package activation requires an apply timestamp and audit id.");
@@ -203,6 +205,11 @@ apply_assembled_live_package_activation(const JsStagedPackageRecord &record,
         add_diagnostic(result, JsPublishActivationDiagnosticCode::LivePointerConflict,
                        "Current live pointer checksum changed before activation.");
         result.live_pointer_result = existing_conflict;
+        return result;
+    }
+    if (!durable_audit_precondition_passed(options, result.assembly.status)) {
+        add_diagnostic(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed,
+                       "Durable publish audit precondition failed before live mutation.");
         return result;
     }
 
@@ -265,11 +272,6 @@ JsPublishActivationResult js_publish_apply_staged_package_activation(
                        "Live package pointer updates are disabled for this activation request.");
         return result;
     }
-    if (!options.durable_audit_precondition_ok) {
-        add_diagnostic(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed,
-                       "Durable publish audit precondition failed before live mutation.");
-        return result;
-    }
     if (options.applied_at_epoch_seconds <= 0 || is_blank(options.live_pointer_audit_id)) {
         add_diagnostic(result, JsPublishActivationDiagnosticCode::InvalidRequest,
                        "Live package activation requires an apply timestamp and audit id.");
@@ -281,6 +283,11 @@ JsPublishActivationResult js_publish_apply_staged_package_activation(
         add_diagnostic(result, JsPublishActivationDiagnosticCode::LivePointerConflict,
                        "Current live pointer checksum changed before activation.");
         result.live_pointer_result = existing_conflict;
+        return result;
+    }
+    if (!durable_audit_precondition_passed(options, result.assembly.status)) {
+        add_diagnostic(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed,
+                       "Durable publish audit precondition failed before live mutation.");
         return result;
     }
 

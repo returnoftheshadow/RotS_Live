@@ -277,7 +277,7 @@ TEST(JsPublishActivation, AuditPreconditionFailureDoesNotReplaceExistingLivePoin
                      .ok);
 }
 
-TEST(JsPublishActivation, AuditPreconditionFailureTakesPrecedenceOverLivePointerConflict) {
+TEST(JsPublishActivation, LivePointerConflictPrecedesAuditPreconditionFailure) {
     JsStagedPackageRepository repository;
     JsLivePackageStore live_store;
     JsStagedPackageRecord first =
@@ -304,9 +304,9 @@ TEST(JsPublishActivation, AuditPreconditionFailureTakesPrecedenceOverLivePointer
         repository, live_store, make_input(third), options);
 
     EXPECT_FALSE(result.ok);
-    EXPECT_TRUE(has_code(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed));
-    EXPECT_FALSE(has_code(result, JsPublishActivationDiagnosticCode::LivePointerConflict));
-    EXPECT_FALSE(result.live_pointer_result.ok);
+    EXPECT_FALSE(has_code(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed));
+    EXPECT_TRUE(has_code(result, JsPublishActivationDiagnosticCode::LivePointerConflict));
+    EXPECT_TRUE(result.live_pointer_result.ok);
     JsLivePackagePointerResult pointer =
         live_store.find_live_pointer(second.identity.zone, second.identity.host, second.identity.vnum);
     ASSERT_TRUE(pointer.ok);

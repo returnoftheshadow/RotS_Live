@@ -188,6 +188,8 @@ make_options(JsLivePackageStore *live_store = nullptr,
     options.ingress_options.publish_context.allow_mutating_operations = true;
     options.ingress_options.publish_context.allow_live_pointer_update = true;
     options.ingress_options.publish_context.applied_at_epoch_seconds = 200;
+    options.ingress_options.publish_context.publish_audit_log_path =
+        "build/js_builder_http_server_transport_audit.jsonl";
     options.ingress_options.publish_options.session_store = session_store;
     options.ingress_options.publish_options.session_store_options = session_store_options();
     static JsBuilderPublishTargetCatalog catalog = make_catalog();

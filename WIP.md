@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: add a concrete durable audit append/result path for publish activation and rollback so the precondition is backed by a recorded audit event instead of only a caller-supplied gate.
-- Next slice: bind staged/live records to the same workspace/server identity, while allowing restart when persisted state matches that identity.
+- Active slice: bind staged/live records to the same workspace/server identity, while allowing restart when persisted state matches that identity.
+- Next slice: run server-backed JavaScript execution tests through real game trigger call sites after server identity binding is complete.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -60,7 +60,7 @@
   - [x] Rollback retention foundation slice: add live-store retained prior-live pointer history, persist/hydrate it, and enforce current plus last 20 prior package records per script target.
   - [x] Retained rollback selection slice: replace rollback's latest-staged behavior with retained prior-live version lookup by target checksum/version, and derive own-vs-admin authorization from the selected retained record owner.
   - [x] Audit precondition slice: make activation/rollback fail before live-state mutation when the durable audit step is unavailable or fails.
-  - [ ] Concrete audit append slice: replace the temporary transport precondition success with an explicit durable audit append/result path before activation and rollback live-state mutation.
+  - [x] Concrete audit append slice: replace the temporary transport precondition success with an explicit durable audit append/result path before activation and rollback live-state mutation.
   - [ ] Server identity binding slice: reject activation/rollback of staged or persisted records that do not match the current workspace/server identity, while allowing restart when persisted state matches.
   - [ ] Runtime execution test slice: after publish/admin hardening, publish JavaScript through the server path and execute it through real game trigger call sites.
   - [x] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
@@ -68,6 +68,14 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added an append-only durable publish audit JSONL writer for activation and rollback events, with bounded metadata, JSON escaping, safe relative path validation, parent directory hardening, final symlink rejection, regular-file checks, `O_APPEND`, file `fsync`, close checks, and parent directory `fsync`.
+  - Threaded a server-supplied `publish_audit_log_path` through BuilderClient publish transport; the game server now defaults to `world/js_publish_audit.jsonl` and supports `ROTS_JS_PUBLISH_AUDIT_PATH` for isolated smoke/test runs.
+  - Moved durable audit append execution into the activation layer so it runs after final live-pointer conflict checks and immediately before live-store mutation; stale/rejected activation and rollback requests do not write accepted-looking audit records.
+  - Added transport tests proving activation and rollback append audit records on success, append failures prevent live mutation, stale conflicts do not append audit records, and missing audit ids are rejected without live mutation.
+  - Added audit-writer tests for JSONL appends, multiple appends, unsafe paths, invalid metadata, missing directories, string escaping, size limits, symlink files, symlink parents, and world-writable parents.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their blocking and non-blocking findings were addressed: audit append moved behind final checks, path hardening was strengthened, raw Makefile dependencies were fixed, smoke cleanup now removes/reports audit files, and rollback audit success coverage was added.
+  - Validation passed for this concrete audit append slice: focused audit/activation/service/transport/HTTP tests, `make test -j16` (1264 tests), and `make smoke-builder-client`.
+  - Next slice after this commit: bind staged/live records to the same workspace/server identity, while allowing restart when persisted state matches that identity.
   - Added a fail-closed durable audit precondition gate to both staged activation and retained-live rollback activation before any live pointer conflict check or mutation can run.
   - Added the stable `audit-precondition-failed` diagnostic, redacted HTTP failure reason codes for activation and rollback, and `500` response mapping without conflict metadata exposure.
   - Updated the BuilderClient HTTP transport path to opt in only when a server-generated audit id is present, leaving the next slice to replace that gate with a concrete durable audit append/result.
