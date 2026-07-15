@@ -1,8 +1,24 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice complete: mounted a persistent publish endpoint service on the JavaScript admin service.
-- Next slice: mount the HTTP route layer behind a concrete server listener or authenticated local admin command once that transport exists.
+- Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
+- Next slice: update the formal development plan for proxy-mediated publish authentication/authorization before mounting any more HTTP route code behind a concrete listener.
+- Current planning decisions:
+  - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
+  - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
+  - Offline editing, compile, fixture emulation, and local validation must not require authentication or server access.
+  - Authenticated publishing must use existing game accounts, then derive builder eligibility from linked immortal characters at level 92 or above.
+  - Server-side authorization must validate that the authenticated builder owns or is allowed to script the target zone before accepting stage/activate/rollback operations.
+  - Rust proxy is the BuilderClient-facing API boundary and runs on the same host as the game. Proxy-to-game traffic is local-host/private-host traffic, but still requires an internal trust boundary.
+  - BuilderClient must never connect to the live game port 3791. BuilderClient server-backed testing/publishing must target the test server path on port 4802 through the proxy.
+  - The editor remains fully TypeScript with generated typings, IntelliSense, and custom LSP/editor configuration sourced from the server-owned manifest/API contract.
+  - Before upload, BuilderClient compiles TypeScript to JavaScript and sends the publish package through the proxy; the game server remains authoritative for validation and execution.
+- Completed slice progress:
+  - Updated `FEATURES.md` to remove BuilderClient package export/import as a collaboration workflow and document Git-backed script workspaces as the supported builder handoff/review model.
+  - Reworded secret-redaction requirements so package bundles/local diagnostics are covered without implying exported package workflows.
+- Previous slice progress:
+  - Active slice complete: mounted a persistent publish endpoint service on the JavaScript admin service.
+  - Next slice: mount the HTTP route layer behind a concrete server listener or authenticated local admin command once that transport exists.
 - Completed slice progress:
   - Added a server-owned `JsPublishEndpointService` to `JsLiveRegistryAdminService` using the same source-bearing live store as startup/reload.
   - Kept publish package validation options server-owned and aligned with the current internal JavaScript manifest state.
