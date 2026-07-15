@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient publish target enforcement.
-- Next slice: enforce proxy-only BuilderClient publish configuration, reject direct live-server port `3791`, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without authentication.
+- Active slice: activation live-registry refresh and gameplay generation handling.
+- Next slice: make successful JavaScript activation refresh or invalidate the live gameplay registry generation safely so published scripts cannot leave gameplay on an older registry snapshot.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -65,10 +65,15 @@
   - [x] Runtime execution test slice: after publish/admin hardening, publish JavaScript through the server path and execute it through real game trigger call sites.
   - [x] HTTP/session publish-to-trigger execution smoke slice: drive the BuilderClient trusted HTTP/session path, publish and activate JavaScript, refresh the live registry, and execute it through a real trigger call site.
   - [x] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
-  - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
+  - [x] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Restricted BuilderClient publish/auth targets to the loopback BuilderClient proxy/test-server API on `http://localhost:4802`, `http://127.0.0.1:4802`, or `http://[::1]:4802`. Direct live-server port `3791`, arbitrary remote HTTPS/HTTP targets, LAN/private `4802` targets, userinfo, paths, query strings, fragments, malformed URLs, and backslash-normalized URLs are rejected before account secrets, bearer tokens, or publish requests are sent.
+  - Added a `PublishClient` constructor guard so core callers cannot bypass the target policy, and added credential-store validation so disallowed targets cannot be persisted with bearer tokens. The visible BuilderClient placeholder now points at `http://localhost:4802`.
+  - Magus, Vincent, and Bazarat reviewed the slice. Findings were addressed with raw-URL validation before credential persistence, decorated-URL tests, LAN/private auth rejection tests, and credential preservation tests. Remaining non-blocking note: Electron `main.ts` publish handlers are still indirectly covered through `PublishClient` and the shared settings gate rather than a dedicated exported handler seam.
+  - Validation passed for this BuilderClient publish target slice: `npm test` in `BuilderClient` (16 files, 85 tests) and `npm run build`.
+  - Next slice after this commit: make successful JavaScript activation refresh or invalidate the live gameplay registry generation safely so published scripts cannot leave gameplay on an older registry snapshot.
   - Added `JsBuilderHttpServerTransport.HttpSessionPublishedJavaScriptExecutesThroughCharacterEnter`, which stages and activates JavaScript through raw trusted BuilderClient HTTP transport using a bearer-backed session and explicit publish scopes, then hydrates the activated live-store snapshot into the singleton live registry for real `trigger_char_enter` execution.
   - The regression proves staged-only packages do not execute through the refreshed live registry, activation writes the expected live package record and pointer with matching version/digest, and the published handler blocks only the matching HTTP/session-published trigger context while allowing a non-matching actor.
   - Magus, Vincent, and Bazarat reviewed the slice. Their staged-repository isolation finding was addressed by using an isolated `JsLivePackageStore` and `JsPublishEndpointService` for HTTP/session stage and activate, then copying only the live-store snapshot into the singleton registry for runtime dispatch. Remaining scope note: this is in-process HTTP transport coverage, not a socket-level `comm.cpp` smoke.
