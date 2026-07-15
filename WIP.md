@@ -2,13 +2,15 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: add a server-side BuilderClient session store/token lookup service so login can persist issued session metadata, logout can revoke it, and publish/status routes can derive `JsPublishTokenMetadata` from bearer tokens instead of caller-supplied context.
+- Next slice: wire the server-side BuilderClient session store into the game-side login/logout endpoint and publish/status route context so accepted bearer tokens populate `JsPublishTokenMetadata` from server state instead of caller-supplied context.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
   - Offline editing, compile, fixture emulation, and local validation must not require authentication or server access.
   - Authenticated publishing must use existing game accounts, then derive builder eligibility from linked immortal characters at level 92 or above.
   - Server-side authorization must validate that the authenticated builder owns or is allowed to script the target zone before accepting stage/activate/rollback operations.
+  - BuilderClient login sessions use server-issued opaque bearer tokens stored in server-side session state. Publish/status/logout routes must derive `JsPublishTokenMetadata` from bearer-token lookup, not from BuilderClient JSON.
+  - Session lookup fails closed for malformed, unknown, expired, or revoked tokens. Logout revokes the stored session. V1 session storage is in-memory and volatile, so server restart requires BuilderClient users to log in again.
   - Rust proxy is the BuilderClient-facing API boundary and runs on the same host as the game. Proxy-to-game traffic is local-host/private-host traffic, but still requires an internal trust boundary.
   - BuilderClient must never connect to the live game port 3791. BuilderClient server-backed testing/publishing must target the test server path on port 4802 through the proxy.
   - The editor remains fully TypeScript with generated typings, IntelliSense, and custom LSP/editor configuration sourced from the server-owned manifest/API contract.
@@ -27,12 +29,23 @@
   - [x] Server manifest endpoint slice: expose the server-owned JavaScript trigger/API manifest through the trusted proxy route so BuilderClient typings/LSP can refresh from the authoritative contract.
   - [x] Proxy session/manifest forwarding slice: forward BuilderClient login/logout/manifest routes to game-side trusted endpoints, preserve the test-server-only target policy, and keep publish forwarding separate from session/manifest traffic.
   - [x] Server session HTTP endpoint slice: add game-side BuilderClient login/logout route adapters over `js_builder_session`, with trusted-proxy enforcement, bounded JSON request parsing, redacted auth failures, and a session-store/lookup boundary for later publish authorization.
-  - [ ] Server session store slice: persist server-issued BuilderClient session metadata in memory, support token lookup/revocation, enforce expiration/revocation, and expose a transport helper that can populate publish/status context from a bearer token.
+  - [x] Server session store slice: persist server-issued BuilderClient session metadata in memory, support token lookup/revocation, enforce expiration/revocation, and prepare the publish/status path to populate context from bearer-token lookup.
+  - [ ] Server session integration slice: attach the session store to game-side login/logout handling and publish/status route context, including trusted-proxy-only bearer lookup, expiration/revocation diagnostics, and redacted failures.
   - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added `js_builder_session_store` as an in-memory server-side BuilderClient session metadata store.
+  - Stored only successful `js_builder_session` login results with safe opaque session tokens, usable server-issued publish token metadata, and a nonblank server audience.
+  - Stamped stored token metadata with server-owned audience/workspace values and kept revocation state server-owned.
+  - Added lookup behavior that fails closed for malformed, unknown, expired, and revoked bearer tokens while returning accepted `JsPublishTokenMetadata` only for usable live sessions.
+  - Added logout-ready revocation behavior: revoking an existing token succeeds as a mutation and all later lookups for the same token return the revoked status.
+  - Wired the store and tests into CMake, the legacy server Makefile, and the legacy test Makefile.
+  - Added focused tests for accepted insert/lookup metadata, invalid login results, unsafe tokens, missing metadata, missing audience, missing tokens, expired tokens, revoked-token lookup, and unsafe/missing revoke.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to mandatory lookup clocks/audiences, audience/workspace binding, derived token-id validation without exposing raw bearer tokens, metadata suppression on failed lookups, fail-closed revoke checks, and broader adversarial tests.
+  - Validation passed after reviewer fixes: `make test -j16` (1151 tests) and `git diff --check`.
+  - Next slice after this commit: wire the store into `js_builder_session_endpoint` login/logout and then into publish/status route context.
   - Added `js_builder_session_endpoint` as a pure game-side route adapter for `POST /api/builder/login` and `POST /api/builder/logout`.
   - Required trusted-proxy context derived by the server transport from the validated proxy trust marker; the endpoint contract forbids filling that field from BuilderClient JSON.
   - Delegated successful login decisions to `js_builder_session_login`, returning BuilderClient-shaped JSON with token, account id, expiration, and eligible immortal names only on accepted login.

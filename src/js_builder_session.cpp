@@ -113,21 +113,6 @@ unsigned builder_session_scopes()
         | JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE | JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN;
 }
 
-std::string session_token_id(const std::string &token)
-{
-    unsigned long long hash = 1469598103934665603ull;
-    for (unsigned char ch : token) {
-        hash ^= ch;
-        hash *= 1099511628211ull;
-    }
-
-    static constexpr char Hex[] = "0123456789abcdef";
-    std::string id = "rots-builder-session-id:";
-    for (int shift = 60; shift >= 0; shift -= 4)
-        id.push_back(Hex[(hash >> shift) & 0x0f]);
-    return id;
-}
-
 } // namespace
 
 std::string js_builder_session_reason_code(JsBuilderSessionReason reason)
@@ -175,6 +160,21 @@ std::string js_builder_generate_session_token()
         token.push_back(Hex[byte & 0x0f]);
     }
     return token;
+}
+
+std::string js_builder_session_token_id(const std::string &session_token)
+{
+    unsigned long long hash = 1469598103934665603ull;
+    for (unsigned char ch : session_token) {
+        hash ^= ch;
+        hash *= 1099511628211ull;
+    }
+
+    static constexpr char Hex[] = "0123456789abcdef";
+    std::string id = "rots-builder-session-id:";
+    for (int shift = 60; shift >= 0; shift -= 4)
+        id.push_back(Hex[(hash >> shift) & 0x0f]);
+    return id;
 }
 
 JsBuilderSessionLoginResult js_builder_session_login(
@@ -303,7 +303,7 @@ JsBuilderSessionLoginResult js_builder_session_login(
     result.expires_at_epoch_seconds = expires_at;
     result.builder_eligibility = eligibility;
     result.token_metadata.claims_verified = true;
-    result.token_metadata.token_id = session_token_id(token);
+    result.token_metadata.token_id = js_builder_session_token_id(token);
     result.token_metadata.actor_id = eligibility.eligible_character_name;
     result.token_metadata.builder_account_id = account_data.account_name;
     result.token_metadata.scopes = builder_session_scopes();

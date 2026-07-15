@@ -71,5 +71,6 @@ JsBuilderSessionLoginResult js_builder_session_login(
 
 std::string js_builder_session_reason_code(JsBuilderSessionReason reason);
 std::string js_builder_generate_session_token();
+std::string js_builder_session_token_id(const std::string &session_token);
 
 #endif
