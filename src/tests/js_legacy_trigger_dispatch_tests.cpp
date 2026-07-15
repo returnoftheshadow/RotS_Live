@@ -1,7 +1,9 @@
 #include "../js_legacy_trigger_dispatch.h"
 
 #include "../db.h"
+#include "../json_utils.h"
 #include "../js_live_registry_admin.h"
+#include "../js_publish_endpoint_transport.h"
 #include "../protos.h"
 #include "../script.h"
 #include "../structs.h"
@@ -9,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -167,6 +170,100 @@ JsScriptPackage make_package_with_triggers(int vnum, const std::string &source,
     }
     package.compiled_javascript_checksum = js_script_package_compiled_javascript_checksum(package);
     return package;
+}
+
+std::string quote_json(const std::string &value) {
+    return "\"" + json_utils::escape_json_string(value) + "\"";
+}
+
+std::string package_json(const JsScriptPackage &package) {
+    return "{"
+        "\"vnum\":" + std::to_string(package.vnum)
+        + ",\"packageId\":" + quote_json(package.package_id)
+        + ",\"host\":" + quote_json(js_script_package_host_name(package.host))
+        + ",\"packageFormatVersion\":" + std::to_string(package.package_format_version)
+        + ",\"manifestSchemaVersion\":" + std::to_string(package.manifest_schema_version)
+        + ",\"triggerCatalogRevision\":"
+        + std::to_string(package.trigger_catalog_revision)
+        + ",\"manifestChecksum\":" + quote_json(package.manifest_checksum)
+        + ",\"runtimeName\":" + quote_json(package.runtime_name)
+        + ",\"runtimeVersion\":" + quote_json(package.runtime_version)
+        + ",\"generatedTypingsVersion\":" + quote_json(package.generated_typings_version)
+        + ",\"compiledJavaScriptChecksum\":" + quote_json(package.compiled_javascript_checksum)
+        + ",\"compiledJavaScript\":" + quote_json(package.compiled_javascript)
+        + ",\"triggerBindings\":[{\"kind\":"
+        + quote_json(js_scripting_manifest_kind_name(JsScriptingManifestKind::LegacyScriptTrigger))
+        + ",\"legacyValue\":" + std::to_string(package.trigger_bindings.front().legacy_value)
+        + ",\"handlerName\":" + quote_json(package.trigger_bindings.front().handler_name)
+        + "}]}";
+}
+
+std::string stage_json(const JsScriptPackage &package,
+                       const std::string &base_live_checksum = "live:old") {
+    return "{\"operation\":\"stage\",\"baseLiveChecksum\":"
+        + quote_json(base_live_checksum) + ",\"package\":" + package_json(package) + "}";
+}
+
+std::string activate_json(const std::string &package_id, const std::string &staged_digest,
+                          const std::string &base_live_checksum = "live:old") {
+    return "{\"operation\":\"activate\",\"packageId\":" + quote_json(package_id)
+        + ",\"stagedDigest\":" + quote_json(staged_digest)
+        + ",\"baseLiveChecksum\":" + quote_json(base_live_checksum) + "}";
+}
+
+JsPublishTokenMetadata publish_token(unsigned scopes) {
+    JsPublishTokenMetadata token;
+    token.claims_verified = true;
+    token.token_id = "token:runtime-execution";
+    token.actor_id = "actor:42";
+    token.builder_account_id = "account:builder";
+    token.server_audience = "server:main";
+    token.workspace_id = "workspace:main";
+    token.scopes = scopes;
+    token.issued_at_epoch_seconds = 90;
+    token.expires_at_epoch_seconds = 200;
+    return token;
+}
+
+JsPublishTransportMetadata publish_transport() {
+    JsPublishTransportMetadata transport;
+    transport.secure_channel = true;
+    transport.server_identity_verified = true;
+    transport.server_audience = "server:main";
+    transport.source_identifier = "transport:runtime-execution-test";
+    return transport;
+}
+
+JsPublishEndpointTransportContext publish_context(unsigned scopes,
+                                                  const std::string &audit_path) {
+    JsPublishEndpointTransportContext context;
+    context.request_id = "request:runtime-execution";
+    context.audit_id = "audit:runtime-execution";
+    context.actor_id = "actor:42";
+    context.builder_account_id = "account:builder";
+    context.zone = 30;
+    context.builder_eligibility.ok = true;
+    context.builder_eligibility.builder_account_id = "account:builder";
+    context.builder_eligibility.eligible_character_name = "Builder";
+    context.builder_eligibility.eligible_character_id = 1001;
+    context.builder_eligibility.eligible_character_level = JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL;
+    context.target_zone_resolved = true;
+    context.server_resolved_target_zone = 30;
+    context.server_resolved_target_host = JsScriptPackageHost::Character;
+    context.zone_exists = true;
+    context.zone_owner_character_ids = {1001};
+    context.token = publish_token(scopes);
+    context.transport = publish_transport();
+    context.now_epoch_seconds = 100;
+    context.allow_mutating_operations = true;
+    context.allow_live_pointer_update = true;
+    context.applied_at_epoch_seconds = 200;
+    context.expected_server_audience = "server:main";
+    context.expected_workspace_id = "workspace:main";
+    context.expected_server_instance_id = "server:main";
+    context.current_live_checksum = "live:old";
+    context.publish_audit_log_path = audit_path;
+    return context;
 }
 
 JsStagedPackageStageOptions make_stage_options(const std::string &base_live = "live:old") {
@@ -393,6 +490,70 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathExecutesLiveJavaScriptPack
     js_script_set_legacy_trigger_dispatch_enabled(false);
     ASSERT_TRUE(service.live_store().hydrate_from_snapshot({}).ok);
     ASSERT_TRUE(service.refresh().ok);
+}
+
+TEST(JsLegacyTriggerDispatch,
+     TransportPublishedJavaScriptExecutesThroughCharacterEnterCallSiteAfterActivation) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    const std::string audit_path = "build/js-legacy-trigger-runtime-publish-audit.jsonl";
+    std::remove(audit_path.c_str());
+    JsScriptPackage package = make_package(6180,
+        "function onEnter(ctx) { "
+        "return !(ctx.self.name === 'Watcher' && ctx.actor.name === 'Actor' && "
+        "ctx.room.vnum === 100); "
+        "}");
+
+    char_data watcher = make_character("Watcher");
+    char_data actor = make_character("Actor");
+    char_data other_actor = make_character("OtherActor");
+    watcher.next = &actor;
+    actor.next = &other_actor;
+    other_actor.next = nullptr;
+    character_list = &watcher;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    // This uses server-owned transport context directly. Full HTTP/session publish-to-trigger
+    // coverage remains a later end-to-end slice.
+    JsPublishEndpointTransportResult staged = js_publish_endpoint_dispatch_json(
+        service.publish_service(), stage_json(package),
+        publish_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE, audit_path));
+    ASSERT_TRUE(staged.ok) << staged.json;
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(
+            service.publish_service().staged_repository(), "js:30:character:6180");
+    ASSERT_TRUE(status.ok);
+    ASSERT_TRUE(service.refresh().ok);
+    EXPECT_EQ(nullptr, service.reload_service().find_package_status_by_vnum(6180));
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+    EXPECT_EQ(trigger_char_enter(&watcher, &actor, &world), 1);
+
+    JsPublishEndpointTransportResult activated = js_publish_endpoint_dispatch_json(
+        service.publish_service(),
+        activate_json(status.status.package_id, status.status.staged_digest),
+        publish_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE, audit_path));
+    ASSERT_TRUE(activated.ok) << activated.json;
+    EXPECT_EQ("activate.accepted", activated.reason_code);
+    EXPECT_EQ(1u, service.live_store().package_record_count());
+    EXPECT_EQ(1u, service.live_store().live_pointer_count());
+    JsLivePackagePointerResult pointer =
+        service.live_store().find_live_pointer(status.status.package_id);
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(status.status.package_version_id, pointer.pointer.package_version_id);
+    EXPECT_EQ(status.status.staged_digest, pointer.pointer.staged_digest);
+    const std::string audit = read_first_available_file({audit_path});
+    EXPECT_NE(std::string::npos, audit.find("\"operation\":\"activate\""));
+    EXPECT_NE(std::string::npos, audit.find("\"packageId\":\"js:30:character:6180\""));
+
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+
+    EXPECT_EQ(trigger_char_enter(&watcher, &actor, &world), 0);
+    EXPECT_EQ(trigger_char_enter(&watcher, &other_actor, &world), 1);
 }
 
 TEST(JsLegacyTriggerDispatch, LiveServerFacadeExecutesActivatedPackagesAcrossGameplayTriggers) {

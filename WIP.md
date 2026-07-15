@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: server-backed JavaScript execution tests through real game trigger call sites.
-- Next slice: publish JavaScript through the server path and execute it through real game trigger call sites.
+- Active slice: HTTP/session publish-to-trigger execution smoke through the BuilderClient path.
+- Next slice: publish JavaScript through the trusted proxy/game HTTP session path, refresh the live registry, and execute it through a real game trigger call site.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -62,12 +62,18 @@
   - [x] Audit precondition slice: make activation/rollback fail before live-state mutation when the durable audit step is unavailable or fails.
   - [x] Concrete audit append slice: replace the temporary transport precondition success with an explicit durable audit append/result path before activation and rollback live-state mutation.
   - [x] Server identity binding slice: reject activation/rollback of staged or persisted records that do not match the current workspace/server identity, while allowing restart when persisted state matches.
-  - [ ] Runtime execution test slice: after publish/admin hardening, publish JavaScript through the server path and execute it through real game trigger call sites.
+  - [x] Runtime execution test slice: after publish/admin hardening, publish JavaScript through the server path and execute it through real game trigger call sites.
+  - [ ] HTTP/session publish-to-trigger execution smoke slice: drive the BuilderClient trusted HTTP/session path, publish and activate JavaScript, refresh the live registry, and execute it through a real trigger call site.
   - [x] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added a server-backed runtime execution regression that stages and activates a JavaScript package through `js_publish_endpoint_dispatch_json`, refreshes the live registry, and executes the activated handler through the real `trigger_char_enter` gameplay call site.
+  - The regression proves staged-only packages do not execute, activation writes the expected live package record and pointer, durable audit records the activation, and the published script blocks only the matching actor/context while allowing a non-matching actor.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed or documented: this is direct transport coverage, not the full HTTP/session/proxy path, and the next slice now captures that remaining end-to-end gap.
+  - Validation passed for this runtime execution test slice: focused publish-to-trigger test, broader `JsLegacyTriggerDispatch.*:JsPublishEndpointTransport.*:JsPublishEndpointService.*:JsLiveRegistryAdmin.*:JsLiveRegistryReloadService.*` suite (174 tests), and `make test -j16` (1273 tests).
+  - Next slice after this commit: publish JavaScript through the trusted proxy/game HTTP session path, refresh the live registry, and execute it through a real game trigger call site.
   - Added server-instance binding across JavaScript publish activation, rollback, status, live-store startup hydration, and live-registry refresh. Staged records and retained live records now fail closed when their `server_instance_id` does not match the server-owned expected instance, and persisted live-store snapshots are validated before replacing the in-memory store during startup.
   - Added `js_server_identity` as the shared source for BuilderClient publish audience/workspace/server-instance values. `ROTS_JS_SERVER_INSTANCE_ID`, `ROTS_JS_SERVER_AUDIENCE`, and `ROTS_JS_WORKSPACE_ID` can distinguish deployments while preserving the existing local defaults for tests and development.
   - Added regressions for wrong-server activation, wrong-server rollback, no-audit/no-live transport activation failure, missing expected server instance, persisted foreign live-store rejection, reload-time foreign live-store rejection, digest/version binding to server instance, and the raw test Makefile link path.
