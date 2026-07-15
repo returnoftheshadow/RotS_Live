@@ -661,6 +661,28 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
                 f"Logged-out token unexpectedly remained usable: HTTP {status} "
                 f"{redact_response(post_logout_status)}"
             )
+        status, post_logout_rollback = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/rollback",
+            {
+                "packageId": staged_package_id,
+                "targetLiveChecksum": activated_live_checksum,
+                "reason": "smoke revoked-token rollback",
+            },
+            token,
+        )
+        if (
+            status < 400
+            or post_logout_rollback.get("ok") is not False
+            or post_logout_rollback.get("packageId")
+            or post_logout_rollback.get("stagedDigest")
+            or post_logout_rollback.get("liveChecksum")
+        ):
+            raise RuntimeError(
+                f"Logged-out rollback unexpectedly exposed metadata or succeeded: HTTP {status} "
+                f"{redact_response(post_logout_rollback)}"
+            )
 
         offline_command = subprocess.run(
             ["npm", "test", "--", "src/core/compiler.test.ts", "src/core/offlineRunner.test.ts"],
@@ -675,7 +697,7 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
 
         passed = True
         print(
-            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> stale-live conflict -> stale-digest conflict -> activate -> replay conflict -> wrong-zone rejection -> logout -> offline unauthenticated tests."
+            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> stale-live conflict -> stale-digest conflict -> activate -> replay conflict -> wrong-zone rejection -> logout denials -> offline unauthenticated tests."
         )
         return 0
     finally:

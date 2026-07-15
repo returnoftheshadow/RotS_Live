@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: add server-backed activation-after-live-change replay coverage to the temporary BuilderClient smoke.
-- Next slice: add server-backed rollback/status denial smoke coverage after activation replay conflict is committed.
+- Active slice: add server-backed logged-out rollback denial coverage to the temporary BuilderClient smoke.
+- Next slice: add a server-backed missing-scope or revoked-authority activation denial fixture after logged-out rollback denial is committed.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -53,6 +53,9 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added logged-out rollback denial coverage to `tools/builder_client_smoke.py`: after logout revokes the server session, the smoke now checks both status and rollback requests with the old token fail closed, and rollback does not expose package id, staged digest, or live checksum metadata.
+  - Validation passed for this logged-out rollback denial smoke slice: `python3 -m py_compile tools/builder_client_smoke.py`, `git diff --check`, and `make smoke-builder-client`.
+  - Next slice after this commit: add a server-backed missing-scope or revoked-authority activation denial fixture.
   - Added activation-after-live-change replay coverage to `tools/builder_client_smoke.py`: after the successful activation changes the live pointer, the smoke replays the same activation request with the old base checksum, expects `409 activate.stale-live-checksum` with the current live checksum, verifies status remains on the activated live pointer, and confirms the persisted smoke live-store pointer is unchanged.
   - Validation passed for this activation replay conflict smoke slice: `python3 -m py_compile tools/builder_client_smoke.py`, `git diff --check`, and `make smoke-builder-client`.
   - Next slice after this commit: add server-backed rollback/status denial smoke coverage.
