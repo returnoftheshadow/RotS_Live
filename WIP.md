@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: add the server-side BuilderClient manifest endpoint so the proxy can fetch the authoritative JavaScript trigger/API manifest for BuilderClient typings and LSP refresh.
+- Next slice: add proxy forwarding for BuilderClient login, logout, and manifest routes to the matching trusted game-side endpoints, keeping publish routes separate from session/manifest routes.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
@@ -24,12 +24,22 @@
   - [x] Proxy HTTP listener slice: wire the BuilderClient API boundary into a concrete HTTP listener with bounded header parsing, content-length enforcement before body allocation, and generic JSON responses.
   - [x] Proxy-to-game local trust slice: add proxy-to-game BuilderClient request forwarding, internal secret or equivalent trust marker, timeouts, and redacted runtime errors.
   - [x] Server account/session endpoint slice: add game-side BuilderClient login/session/logout endpoint support behind the proxy trust boundary, using existing account passwords and linked level `92+` immortal eligibility evidence.
-  - [ ] Server manifest endpoint slice: expose the server-owned JavaScript trigger/API manifest through the trusted proxy route so BuilderClient typings/LSP can refresh from the authoritative contract.
+  - [x] Server manifest endpoint slice: expose the server-owned JavaScript trigger/API manifest through the trusted proxy route so BuilderClient typings/LSP can refresh from the authoritative contract.
+  - [ ] Proxy session/manifest forwarding slice: forward BuilderClient login/logout/manifest routes to game-side trusted endpoints, preserve the test-server-only target policy, and keep publish forwarding separate from session/manifest traffic.
   - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added a pure game-side `js_builder_manifest_endpoint` route adapter for `GET /api/builder/js/manifest`.
+  - Required the endpoint caller to supply server-derived trusted-proxy context; the header now documents that this value must come from the validated proxy trust marker and never from BuilderClient JSON.
+  - Returned the authoritative server-owned trigger/API manifest via `js_export_builder_manifest_json()` so BuilderClient typings, IntelliSense, LSP configuration, and docs refresh can share the same contract source as server validation.
+  - Rejected unsupported methods, path/query confusion, request bodies, untrusted callers, invalid configured route paths, and oversized manifest responses with redacted JSON errors.
+  - Added compact no-documentation export coverage for manifest cache/LSP refresh paths that do not need builder docs text.
+  - Wired the endpoint and tests into CMake, the legacy server Makefile, and the legacy test Makefile.
+  - Added focused tests for trusted success, compact export, untrusted precedence, method/path/query/body rejection, wrong-path-before-method precedence, path confusion cases, invalid configured route paths, oversized response rejection, exact response-size boundary behavior, and JSON-valid redacted errors.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to path checks before method checks, fail-closed configured-route validation, and explicit regression coverage for malformed route configuration. Vincent's size-aware-exporter recommendation is deferred because the current manifest exporter returns a complete server-owned static string; a later manifest-exporter slice should add streaming/cached size-aware generation if manifest size becomes variable or externally influenced.
+  - Validation passed: `make test -j16` (1135 tests) and `git diff --check`.
   - Added `js_builder_session` as the server-side BuilderClient account login/session service boundary, separate from publish package endpoints.
   - Reused existing account records and password verification through injectable account/password seams, with production defaults that read existing account storage by email or account name.
   - Derived linked-character builder eligibility through the existing JavaScript publish eligibility evaluator, requiring a linked loaded immortal at level `92+`.
