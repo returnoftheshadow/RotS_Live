@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: add proxy-to-game local trust configuration and request-boundary tests for BuilderClient publishing.
+- Next slice: wire the proxy BuilderClient API boundary into a concrete HTTP listener with streaming body limits.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
@@ -20,12 +20,19 @@
   - [x] Zone authority slice: add a server-side zone scripting authorization helper with test doubles for zone ownership/authority so stage/activate/rollback can depend on one audited decision point.
   - [x] Publish-context integration slice: thread the new account/immortal/zone authorization decision into `JsPublishEndpointTransportContext` and publish endpoint service tests while keeping offline/client package creation unauthenticated.
   - [x] Rust proxy contract slice: add proxy route/DTO definitions for login, manifest/status, stage, activate, rollback, and logout, explicitly targeting the test game path and rejecting live port `3791` as a BuilderClient publish target.
-  - [ ] Proxy-to-game local trust slice: add configuration and tests for localhost/private-host game connection, internal secret or equivalent trust marker, request size limits, timeouts, and redacted errors.
+  - [x] Proxy preflight/request-boundary slice: add BuilderClient API route preflight, localhost/test-port target checks, request-size/content-type/session-presence checks, and generic redacted failures.
+  - [ ] Proxy-to-game local trust slice: add concrete HTTP listener wiring, streaming body limits, localhost/private-host game connection, internal secret or equivalent trust marker, timeouts, and redacted runtime errors.
   - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added an HTTP-shaped BuilderClient API boundary in the Rust proxy that computes request size from the body, then validates route, test-server target, request size, JSON content type, and session-token presence before publish requests reach later game communication code.
+  - Kept failure responses generic with stable reason codes for not-found, invalid target, request-too-large, unsupported media type, and missing session; session presence remains a preflight check, not full authentication.
+  - Added tolerant JSON media-type parsing and typed stage DTO fields for package target, provenance, and compiled JavaScript payload while keeping authority decisions server-side.
+  - Added proxy preflight tests for accepted login/manifest/publish routes, route miss before target checks, generic invalid target rejection, oversized body rejection before auth checks, exact max-size acceptance, empty-body pass-through to later JSON validation, content-type rejection, missing-session rejection across protected routes, trimmed-token presence, and localhost-hostname edge cases.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to adding the HTTP-shaped handler boundary, tolerant media-type parsing, typed stage DTO fields, explicit preflight/auth wording, host edge coverage, and narrowing the remaining local-trust slice.
+  - Validation passed: `cargo fmt -p proxy`, `cargo test -p proxy` (19 tests).
   - Added a Rust proxy BuilderClient API contract for login, manifest, status, stage, activate, rollback, and logout under `/api/builder/...`, with initial typed DTOs for auth/session, manifest, package references, status, stage, activate, rollback, publish responses, and logout.
   - Added a separate `--builder-game` proxy target defaulting to `127.0.0.1:4802`, plus startup validation that rejects live game port `3791`, unexpected ports, and non-localhost BuilderClient publish targets without changing the existing telnet/websocket `--game` target.
   - Added proxy unit tests for all BuilderClient routes, exact route matching, route uniqueness, DTO field shape, test-port acceptance, live-port rejection, unexpected-port rejection, non-localhost rejection, and CLI default/live-port behavior.
