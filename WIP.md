@@ -13,6 +13,18 @@
   - BuilderClient must never connect to the live game port 3791. BuilderClient server-backed testing/publishing must target the test server path on port 4802 through the proxy.
   - The editor remains fully TypeScript with generated typings, IntelliSense, and custom LSP/editor configuration sourced from the server-owned manifest/API contract.
   - Before upload, BuilderClient compiles TypeScript to JavaScript and sends the publish package through the proxy; the game server remains authoritative for validation and execution.
+- Small-slice execution queue:
+  - [ ] Documentation slice: fully record the proxy/account/Git/test-server requirements in `FEATURES.md` and `WIP.md`, including acceptance criteria and slice order.
+  - [ ] Server auth model slice: add a small C++ publish-auth contract that represents authenticated account id, eligible immortal level `92+` evidence, zone/vnum/host scope, token audience, and operation scopes without yet issuing tokens.
+  - [ ] Server eligibility tests slice: add focused unit tests for account-auth outcome mapping, no linked characters, non-immortal linked characters, immortals below level `92`, at least one eligible immortal, blocked/unverified auth rejection, and redacted diagnostics.
+  - [ ] Zone authority slice: add a server-side zone scripting authorization helper with test doubles for zone ownership/authority so stage/activate/rollback can depend on one audited decision point.
+  - [ ] Publish-context integration slice: thread the new account/immortal/zone authorization decision into `JsPublishEndpointTransportContext` and publish endpoint service tests while keeping offline/client package creation unauthenticated.
+  - [ ] Rust proxy contract slice: add proxy route/DTO definitions for login, manifest/status, stage, activate, rollback, and logout, explicitly targeting the test game path and rejecting live port `3791` as a BuilderClient publish target.
+  - [ ] Proxy-to-game local trust slice: add configuration and tests for localhost/private-host game connection, internal secret or equivalent trust marker, request size limits, timeouts, and redacted errors.
+  - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
+  - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
+  - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
+  - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
   - Updated `FEATURES.md` to remove BuilderClient package export/import as a collaboration workflow and document Git-backed script workspaces as the supported builder handoff/review model.
   - Reworded secret-redaction requirements so package bundles/local diagnostics are covered without implying exported package workflows.
