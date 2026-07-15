@@ -108,6 +108,18 @@ def assert_persisted_activation(
     )
 
 
+def assert_no_persisted_activation(live_store_path: Path, package_id: str) -> None:
+    if not live_store_path.exists():
+        return
+    live_store = json.loads(live_store_path.read_text(encoding="utf-8"))
+    for pointer in live_store.get("live_pointers", []):
+        if pointer.get("package_id") == package_id:
+            raise RuntimeError(
+                "Rejected activation unexpectedly wrote a live pointer: "
+                f"packageId={package_id} pointer={redact_response(pointer)}"
+            )
+
+
 def http_json(port: int, method: str, path: str, body: dict | None = None, token: str | None = None) -> tuple[int, dict]:
     encoded = b"" if body is None else json.dumps(body, separators=(",", ":")).encode("utf-8")
     headers = {"content-type": "application/json"}
@@ -436,6 +448,50 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
             )
         staged_digest = staged_status.get("stagedDigest")
 
+        status, stale_live_activation = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/activate",
+            {
+                "packageId": staged_package_id,
+                "stagedDigest": staged_digest,
+                "baseLiveChecksum": "live:stale-smoke",
+            },
+            token,
+        )
+        if (
+            status != 409
+            or stale_live_activation.get("ok") is not False
+            or stale_live_activation.get("reasonCode") != "activate.stale-live-checksum"
+            or stale_live_activation.get("packageId") != staged_package_id
+            or stale_live_activation.get("stagedDigest") != staged_digest
+            or stale_live_activation.get("liveChecksum") != "live:old"
+        ):
+            raise RuntimeError(
+                f"Stale-live activation unexpectedly changed state: HTTP {status} "
+                f"{redact_response(stale_live_activation)}"
+            )
+        status, conflict_status = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/status",
+            {"packageId": staged_package_id},
+            token,
+        )
+        if (
+            status != 200
+            or not conflict_status.get("ok")
+            or conflict_status.get("reasonCode") != "status.current"
+            or conflict_status.get("packageId") != staged_package_id
+            or conflict_status.get("stagedDigest") != staged_digest
+            or conflict_status.get("liveChecksum") != "live:old"
+        ):
+            raise RuntimeError(
+                f"Status after stale-live activation failed: HTTP {status} "
+                f"{redact_response(conflict_status)}"
+            )
+        assert_no_persisted_activation(live_store_path, staged_package_id)
+
         status, activated = http_json(
             args.builder_api_port,
             "POST",
@@ -525,7 +581,7 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
 
         passed = True
         print(
-            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> activate -> wrong-zone rejection -> logout -> offline unauthenticated tests."
+            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> stale-live conflict -> activate -> wrong-zone rejection -> logout -> offline unauthenticated tests."
         )
         return 0
     finally:
