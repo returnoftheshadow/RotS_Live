@@ -2,6 +2,7 @@
 
 #include "../json_utils.h"
 #include "../script.h"
+#include "../structs.h"
 
 #include <gtest/gtest.h>
 
@@ -61,6 +62,16 @@ JsPublishEndpointTransportContext make_context(unsigned scopes = JS_PUBLISH_SCOP
     context.actor_id = "actor:42";
     context.builder_account_id = "account:builder";
     context.zone = 30;
+    context.builder_eligibility.ok = true;
+    context.builder_eligibility.builder_account_id = "account:builder";
+    context.builder_eligibility.eligible_character_name = "builderone";
+    context.builder_eligibility.eligible_character_id = 1001;
+    context.builder_eligibility.eligible_character_level = JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL;
+    context.target_zone_resolved = true;
+    context.server_resolved_target_zone = 30;
+    context.server_resolved_target_host = JsScriptPackageHost::Character;
+    context.zone_exists = true;
+    context.zone_owner_character_ids = { 1001 };
     context.token = make_token(scopes);
     context.transport = make_transport();
     context.now_epoch_seconds = 100;
@@ -235,6 +246,7 @@ TEST(JsPublishEndpointTransport, DispatchesStageWithServerSuppliedContext)
         status.status.package_id, status.status.package_version_id);
     ASSERT_TRUE(lookup.ok);
     EXPECT_EQ(30, lookup.record.identity.zone);
+    EXPECT_EQ("js:30:character:3001", lookup.record.package.package_id);
     EXPECT_EQ("account:builder", lookup.record.identity.builder_account_id);
     EXPECT_EQ("live:old", lookup.record.identity.base_live_checksum);
     EXPECT_EQ("server:main", lookup.record.identity.server_instance_id);
@@ -246,6 +258,142 @@ TEST(JsPublishEndpointTransport, DispatchesStageWithServerSuppliedContext)
     EXPECT_EQ(package.compiled_javascript_checksum,
         lookup.record.audit.validation_report_digest);
     EXPECT_EQ("transport:tls", lookup.record.audit.transport_source_identifier);
+}
+
+TEST(JsPublishEndpointTransport, StageRequiresServerSuppliedBuilderEligibility)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    context.builder_eligibility = {};
+
+    JsPublishEndpointTransportResult result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("stage.authorization-failed", result.reason_code);
+    EXPECT_TRUE(service.staged_repository().empty());
+}
+
+TEST(JsPublishEndpointTransport, StageBindsEligibilityToAuthenticatedBuilder)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    context.builder_eligibility.builder_account_id = "account:other";
+
+    JsPublishEndpointTransportResult result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("stage.authorization-failed", result.reason_code);
+    EXPECT_TRUE(service.staged_repository().empty());
+}
+
+TEST(JsPublishEndpointTransport, StageBindsBuilderContextToVerifiedToken)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    context.builder_account_id = "account:intruder";
+    context.builder_eligibility.builder_account_id = "account:intruder";
+
+    JsPublishEndpointTransportResult result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(400, result.http_status);
+    EXPECT_EQ("stage.invalid-request", result.reason_code);
+    EXPECT_TRUE(service.staged_repository().empty());
+}
+
+TEST(JsPublishEndpointTransport, StageRequiresServerResolvedZoneAuthority)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    context.server_resolved_target_zone = 31;
+
+    JsPublishEndpointTransportResult result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("stage.authorization-failed", result.reason_code);
+    EXPECT_TRUE(service.staged_repository().empty());
+}
+
+TEST(JsPublishEndpointTransport, StageRequiresResolvedExistingZone)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext unresolved = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    unresolved.target_zone_resolved = false;
+    JsPublishEndpointTransportContext missing_zone = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    missing_zone.zone_exists = false;
+
+    JsPublishEndpointTransportResult unresolved_result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), unresolved);
+    JsPublishEndpointTransportResult missing_zone_result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), missing_zone);
+
+    EXPECT_FALSE(unresolved_result.ok);
+    EXPECT_EQ(403, unresolved_result.http_status);
+    EXPECT_EQ("stage.authorization-failed", unresolved_result.reason_code);
+    EXPECT_FALSE(missing_zone_result.ok);
+    EXPECT_EQ(403, missing_zone_result.http_status);
+    EXPECT_EQ("stage.authorization-failed", missing_zone_result.reason_code);
+    EXPECT_TRUE(service.staged_repository().empty());
+}
+
+TEST(JsPublishEndpointTransport, StageRequiresServerResolvedHostAuthority)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    context.server_resolved_target_host = JsScriptPackageHost::Object;
+
+    JsPublishEndpointTransportResult result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("stage.authorization-failed", result.reason_code);
+    EXPECT_TRUE(service.staged_repository().empty());
+}
+
+TEST(JsPublishEndpointTransport, StageRejectsNonOwnerZoneAuthority)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    context.zone_owner_character_ids = { 2002, 3003 };
+
+    JsPublishEndpointTransportResult result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("stage.authorization-failed", result.reason_code);
+    EXPECT_TRUE(service.staged_repository().empty());
+}
+
+TEST(JsPublishEndpointTransport, StageAllowsServerSuppliedAllBuildersAuthority)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishEndpointTransportContext context = make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    context.zone_allows_all_builders = true;
+    context.zone_owner_character_ids.clear();
+
+    JsPublishEndpointTransportResult result =
+        js_publish_endpoint_dispatch_json(service, stage_json(make_package()), context);
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(200, result.http_status);
+    EXPECT_FALSE(service.staged_repository().empty());
 }
 
 TEST(JsPublishEndpointTransport, StagePreflightConflictDoesNotWriteStagedPackage)
@@ -392,6 +540,30 @@ TEST(JsPublishEndpointTransport, ActivateAuthorizationFailureDoesNotLeakMetadata
     EXPECT_EQ(std::string::npos, result.json.find(status.status.package_id));
     EXPECT_EQ(std::string::npos, result.json.find(status.status.staged_digest));
     EXPECT_EQ(std::string::npos, result.json.find("audit:transport"));
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, ActivateRequiresCurrentZoneAuthority)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+    JsPublishEndpointTransportContext context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE);
+    context.zone_owner_character_ids = { 2002 };
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, activate_json(status.status.package_id, status.status.staged_digest),
+        context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("activate.authorization-failed", result.reason_code);
     EXPECT_EQ(0u, live_store.live_pointer_count());
 }
 
@@ -550,6 +722,25 @@ TEST(JsPublishEndpointTransport, RollbackAuthorizationFailureDoesNotLeakMetadata
     EXPECT_EQ(0u, live_store.live_pointer_count());
 }
 
+TEST(JsPublishEndpointTransport, RollbackRequiresCurrentZoneAuthority)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishEndpointTransportContext context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN);
+    context.zone_owner_character_ids = { 2002 };
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001"), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("rollback.authorization-failed", result.reason_code);
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
 TEST(JsPublishEndpointTransport, RollbackAnyUsesServerPolicy)
 {
     JsLivePackageStore live_store;
@@ -561,6 +752,10 @@ TEST(JsPublishEndpointTransport, RollbackAnyUsesServerPolicy)
     context.allow_rollback_any = true;
     context.builder_account_id = "account:admin";
     context.token.builder_account_id = "account:admin";
+    context.builder_eligibility.builder_account_id = "account:admin";
+    context.builder_eligibility.eligible_character_id = 9001;
+    context.builder_eligibility.eligible_character_level = LEVEL_AREAGOD;
+    context.zone_owner_character_ids.clear();
 
     JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
         service, rollback_json("js:30:character:3001"), context);

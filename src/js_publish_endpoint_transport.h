@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 struct JsPublishEndpointTransportOptions {
     std::size_t maximum_request_bytes = 64 * 1024;
@@ -16,6 +17,16 @@ struct JsPublishEndpointTransportContext {
     std::string actor_id;
     std::string builder_account_id;
     int zone = 0;
+
+    // Server-derived publish authority inputs. Populate these from trusted account,
+    // character, vnum, and zone lookups only; the fail-closed defaults are intentional.
+    JsPublishBuilderEligibilityResult builder_eligibility;
+    bool target_zone_resolved = false;
+    int server_resolved_target_zone = 0;
+    JsScriptPackageHost server_resolved_target_host = JsScriptPackageHost::Character;
+    bool zone_exists = false;
+    bool zone_allows_all_builders = false;
+    std::vector<int> zone_owner_character_ids;
     JsPublishTokenMetadata token;
     JsPublishTransportMetadata transport;
     long long now_epoch_seconds = 0;

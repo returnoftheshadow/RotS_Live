@@ -147,6 +147,72 @@ bool token_has_scope(const JsPublishTokenMetadata &token, unsigned scope)
     return (token.scopes & scope) == scope;
 }
 
+JsPublishZoneScriptingAuthorityResult stage_zone_authority_from_context(
+    const TransportEnvelope &envelope, const JsPublishEndpointTransportContext &context)
+{
+    if (context.builder_eligibility.builder_account_id != context.builder_account_id) {
+        JsPublishZoneScriptingAuthorityResult result;
+        result.diagnostics.push_back({ JsPublishDiagnosticCode::PermissionMismatch, {}, {},
+            "eligible builder account does not match publish context" });
+        return result;
+    }
+
+    JsPublishZoneScriptingAuthorityInput input;
+    input.builder = context.builder_eligibility;
+    input.requested_zone = context.zone;
+    input.requested_vnum = envelope.package.vnum;
+    input.requested_host = envelope.package.host;
+    input.target_zone_resolved = context.target_zone_resolved;
+    input.server_resolved_target_zone = context.server_resolved_target_zone;
+    input.server_resolved_target_host = context.server_resolved_target_host;
+    input.zone_exists = context.zone_exists;
+    input.zone_allows_all_builders = context.zone_allows_all_builders;
+    input.zone_owner_character_ids = context.zone_owner_character_ids;
+    return js_publish_evaluate_zone_scripting_authority(input);
+}
+
+JsPublishZoneScriptingAuthorityResult status_zone_authority_from_context(
+    const JsPublishStagedPackageStatus &status,
+    const JsPublishEndpointTransportContext &context)
+{
+    if (context.builder_eligibility.builder_account_id != context.builder_account_id) {
+        JsPublishZoneScriptingAuthorityResult result;
+        result.diagnostics.push_back({ JsPublishDiagnosticCode::PermissionMismatch, {}, {},
+            "eligible builder account does not match publish context" });
+        return result;
+    }
+
+    JsPublishZoneScriptingAuthorityInput input;
+    input.builder = context.builder_eligibility;
+    input.requested_zone = status.zone;
+    input.requested_vnum = status.vnum;
+    input.requested_host = status.host;
+    input.target_zone_resolved = context.target_zone_resolved;
+    input.server_resolved_target_zone = context.server_resolved_target_zone;
+    input.server_resolved_target_host = context.server_resolved_target_host;
+    input.zone_exists = context.zone_exists;
+    input.zone_allows_all_builders = context.zone_allows_all_builders;
+    input.zone_owner_character_ids = context.zone_owner_character_ids;
+    return js_publish_evaluate_zone_scripting_authority(input);
+}
+
+JsPublishAuthorityContext stage_authority_from_context(
+    const TransportEnvelope &envelope, const JsPublishEndpointTransportContext &context)
+{
+    const std::string canonical_package_id =
+        js_staged_package_logical_package_id(context.zone, envelope.package.host,
+            envelope.package.vnum);
+    JsPublishAuthorityContext authority;
+    authority.has_package_authority =
+        stage_zone_authority_from_context(envelope, context).ok;
+    authority.zone = context.zone;
+    authority.vnum = envelope.package.vnum;
+    authority.host = envelope.package.host;
+    authority.package_id = canonical_package_id;
+    authority.package_owner_builder_account_id = context.builder_account_id;
+    return authority;
+}
+
 bool parse_logical_package_id(const std::string &package_id, int *zone,
     JsScriptPackageHost *host, int *vnum)
 {
@@ -278,6 +344,10 @@ JsPublishEndpointStageInput stage_input_from_envelope(
     const TransportEnvelope &envelope, const JsPublishEndpointTransportContext &context)
 {
     JsPublishEndpointStageInput input;
+    JsScriptPackage package = envelope.package;
+    package.package_id = js_staged_package_logical_package_id(context.zone, package.host,
+        package.vnum);
+
     input.audit_id = context.audit_id;
     input.stage_options.identity_options.zone = context.zone;
     input.stage_options.identity_options.builder_account_id = context.builder_account_id;
@@ -288,13 +358,13 @@ JsPublishEndpointStageInput stage_input_from_envelope(
     input.authorization_request.actor_id = context.actor_id;
     input.authorization_request.builder_account_id = context.builder_account_id;
     input.authorization_request.zone = context.zone;
-    input.authorization_request.vnum = envelope.package.vnum;
-    input.authorization_request.host = envelope.package.host;
-    input.authorization_request.package_id = envelope.package.package_id;
+    input.authorization_request.vnum = package.vnum;
+    input.authorization_request.host = package.host;
+    input.authorization_request.package_id = package.package_id;
     input.authorization_request.base_live_checksum = envelope.base_live_checksum;
-    input.authorization_request.manifest_checksum = envelope.package.manifest_checksum;
+    input.authorization_request.manifest_checksum = package.manifest_checksum;
     input.authorization_request.has_package = true;
-    input.authorization_request.package = envelope.package;
+    input.authorization_request.package = package;
     input.authorization_request.token = context.token;
     input.authorization_request.transport = context.transport;
 
@@ -303,13 +373,7 @@ JsPublishEndpointStageInput stage_input_from_envelope(
     input.authorization_options.expected_server_audience = context.expected_server_audience;
     input.authorization_options.expected_workspace_id = context.expected_workspace_id;
     input.authorization_options.current_live_checksum = context.current_live_checksum;
-    input.authorization_options.authority.has_package_authority = true;
-    input.authorization_options.authority.zone = context.zone;
-    input.authorization_options.authority.vnum = envelope.package.vnum;
-    input.authorization_options.authority.host = envelope.package.host;
-    input.authorization_options.authority.package_id = envelope.package.package_id;
-    input.authorization_options.authority.package_owner_builder_account_id =
-        context.builder_account_id;
+    input.authorization_options.authority = stage_authority_from_context(envelope, context);
     return input;
 }
 
@@ -424,6 +488,9 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
         if (!latest.ok || latest.status.staged_digest != envelope.staged_digest)
             return normalized_authorization_failure("activate.authorization-failed",
                 "Package activate rejected.");
+        if (!status_zone_authority_from_context(latest.status, context).ok)
+            return normalized_authorization_failure("activate.authorization-failed",
+                "Package activate rejected.");
 
         JsPublishEndpointTransportResult result = transport_response(service.activate(
             staged_request_from_status(latest.status, JsPublishOperation::PackageActivate,
@@ -459,6 +526,9 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
             js_publish_latest_staged_package_status(
                 service.staged_repository(), envelope.package_id);
         if (!latest.ok)
+            return normalized_authorization_failure("rollback.authorization-failed",
+                "Package rollback rejected.");
+        if (!status_zone_authority_from_context(latest.status, context).ok)
             return normalized_authorization_failure("rollback.authorization-failed",
                 "Package rollback rejected.");
 

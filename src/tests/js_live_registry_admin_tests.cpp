@@ -82,6 +82,16 @@ JsPublishEndpointTransportContext make_publish_context(unsigned scopes) {
     context.actor_id = "actor:42";
     context.builder_account_id = "account:builder";
     context.zone = 33;
+    context.builder_eligibility.ok = true;
+    context.builder_eligibility.builder_account_id = "account:builder";
+    context.builder_eligibility.eligible_character_name = "builderone";
+    context.builder_eligibility.eligible_character_id = 1001;
+    context.builder_eligibility.eligible_character_level = JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL;
+    context.target_zone_resolved = true;
+    context.server_resolved_target_zone = 33;
+    context.server_resolved_target_host = JsScriptPackageHost::Character;
+    context.zone_exists = true;
+    context.zone_owner_character_ids = { 1001 };
     context.token = make_token(JsPublishOperation::StatusRead);
     context.token.scopes = scopes;
     context.transport = make_transport();
