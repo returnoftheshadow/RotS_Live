@@ -2,9 +2,9 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: finish the temporary BuilderClient/proxy/game fixture smoke path and commit the integration fixes it exposed.
-- Next slice: add a non-area-god or explicitly owned-zone authorization fixture that proves a valid target in another builder's zone is rejected, then move into activation/status conflict coverage for BuilderClient publish flows and decide whether to expose this smoke through `make`.
-- Current blocker: none for the smoke fixture slice.
+- Active slice: add a valid-target authorization fixture that proves a real zone target owned by another builder is rejected through the Builder HTTP publish path.
+- Next slice: move into activation/status conflict coverage for BuilderClient publish flows, then decide whether to expose the temporary smoke through `make`.
+- Current blocker: none for the valid-target authorization fixture slice.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
   - Create one account-native character through the real account character flow, then promote only that temporary character JSON to level `95` in local smoke data so it satisfies level `92+` builder eligibility without relying on a shared test credential.
@@ -51,6 +51,10 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added `JsBuilderHttpServerTransport.RejectsValidTargetOwnedByAnotherBuilder`, which first proves a trusted stage request for an existing vnum succeeds when the server-resolved target catalog owner matches the builder character id, then changes only the owner to another character id and expects rejection.
+  - The new fixture proves the Builder HTTP publish path reaches authorization for a valid target and returns `stage.authorization-failed` without exposing the foreign owner id or bearer token, then verifies the rejected stage did not write a staged package.
+  - Validation passed for this authorization-fixture slice: `cmake --build build --target ageland_tests -j16`, focused `JsBuilderHttpServerTransport.RejectsValidTargetOwnedByAnotherBuilder:JsBuilderHttpServerTransport.ResolvesPublishContextBeforeIngressDispatch:JsBuilderHttpServerTransport.LoadedWorldCatalogDropsOwnerTerminatorOnlyForOwnedZones:JsBuilderPublishContext.AcceptsLoadedWorldZoneZeroCatalogEntries`, and `git diff --check`.
+  - Next slice after this commit: add activation/status conflict coverage for BuilderClient publish flows, then decide whether the temporary BuilderClient smoke should be exposed through `make`.
   - Ran the existing account/proxy smoke validation with `make smoke-account`; it passed the full create, verify, login, reset, relogin, character creation, legacy link, active-character guard, delete, and roster-check flow.
   - Added `tools/builder_client_smoke.py` as the temporary BuilderClient end-to-end fixture plan: it creates and verifies a temp account through the real account/proxy flow, creates an account-native character, promotes only that temp character to level `95`, runs game Builder HTTP mode on `4802`, runs the Rust proxy Builder API on loopback, logs in, fetches the manifest, stages JavaScript, verifies wrong-zone rejection, logs out, and runs offline BuilderClient compiler/runner tests unauthenticated.
   - The smoke exposed and fixed server integration gaps: BuilderClient publish routes now target `/api/builder/js/*`, live Builder HTTP auth uses the post-`chdir` data root `"."`, publish transport context is marked trusted only after proxy-secret ingress, publish request/audit ids are server-filled with per-request trace ids, loaded-world zone `0` and legacy owner-list terminators/duplicates are normalized, and stage requests use a canonical base live checksum.

@@ -2,6 +2,7 @@
 
 #include "../db.h"
 #include "../js_script_package_loader.h"
+#include "../js_publish_staging.h"
 #include "../json_utils.h"
 #include "../script.h"
 #include "../zone.h"
@@ -401,6 +402,55 @@ TEST(JsBuilderHttpServerTransport, ResolvesPublishContextBeforeIngressDispatch) 
     EXPECT_EQ("status.current", status.reason_code);
     expect_content_length_matches_body(stage.http_response);
     expect_content_length_matches_body(status.http_response);
+}
+
+TEST(JsBuilderHttpServerTransport, RejectsValidTargetOwnedByAnotherBuilder) {
+    JsLivePackageStore owned_live_store;
+    JsPublishEndpointService owned_service(owned_live_store, service_options());
+    JsBuilderSessionStore owned_session_store;
+    insert_session(&owned_session_store, JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    JsBuilderHttpServerTransportOptions owned_options =
+        make_options(&owned_live_store, &owned_service, &owned_session_store);
+
+    JsBuilderHttpServerTransportResult owned_result = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/stage", stage_body(), true, "application/json",
+                    "session-token"),
+        owned_options);
+
+    EXPECT_TRUE(owned_result.ok);
+    EXPECT_EQ(200, owned_result.http_status);
+    EXPECT_EQ("stage.accepted", owned_result.reason_code);
+    EXPECT_TRUE(js_publish_latest_staged_package_status(
+        owned_service.staged_repository(), "js:30:character:3001").ok);
+
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsBuilderSessionStore session_store;
+    insert_session(&session_store, JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    JsBuilderPublishTargetCatalog foreign_owned_catalog = make_catalog();
+    foreign_owned_catalog.zones[0].owner_character_ids = {2002};
+    JsBuilderHttpServerTransportOptions options =
+        make_options(&live_store, &service, &session_store);
+    options.publish_context_options.target_catalog = &foreign_owned_catalog;
+
+    JsBuilderHttpServerTransportResult result = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/stage", stage_body(), true, "application/json",
+                    "session-token"),
+        options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("stage.authorization-failed", result.reason_code);
+    expect_response_contains(result, "\"reasonCode\":\"stage.authorization-failed\"");
+    EXPECT_EQ(std::string::npos, result.http_response.find("2002"));
+    EXPECT_EQ(std::string::npos, result.http_response.find("session-token"));
+    expect_content_length_matches_body(result.http_response);
+
+    JsPublishStagedPackageStatusResult staged = js_publish_latest_staged_package_status(
+        service.staged_repository(), "js:30:character:3001");
+    EXPECT_FALSE(staged.ok);
+    ASSERT_EQ(1u, staged.diagnostics.size());
+    EXPECT_EQ(JsPublishStagingDiagnosticCode::StagedPackageNotFound, staged.diagnostics[0].code);
 }
 
 TEST(JsBuilderHttpServerTransport, MapsContextTargetFailuresToRedactedHttpResponses) {
