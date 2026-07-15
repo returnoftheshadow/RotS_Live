@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: wire the concrete game-side parsed HTTP request source or listener boundary to `js_builder_http_ingress`, or document the blocker if the existing server accept loop cannot safely host BuilderClient HTTP traffic without a separate transport slice.
+- Next slice: wire the game-side BuilderClient HTTP parser and `js_builder_http_ingress` into the socket/descriptor boundary so Rust proxy-forwarded requests can be handled without entering the telnet login flow.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
@@ -33,12 +33,21 @@
   - [x] Server session integration slice: attach the session store to game-side login/logout handling and publish/status route context, including trusted-proxy-only bearer lookup, expiration/revocation diagnostics, and redacted failures.
   - [x] Server publish listener session wiring slice: thread bearer tokens from the concrete game-side BuilderClient publish/status route adapter into `js_publish_endpoint_context_from_builder_session`, then reject unauthenticated publish/status requests before JSON dispatch.
   - [x] Server BuilderClient HTTP ingress slice: add or locate the game-side HTTP ingress that receives Rust proxy requests, validates the internal trust marker, extracts method/path/content type/body/bearer token, and routes to manifest, login/logout, or publish adapters.
+  - [x] Server BuilderClient HTTP parser slice: add bounded game-side HTTP request parsing and response rendering for Rust proxy-forwarded BuilderClient requests without yet changing the socket accept loop.
   - [ ] Server concrete ingress transport slice: wire an actual game-side parsed HTTP request source or listener boundary to `js_builder_http_ingress`, keeping BuilderClient traffic separate from live port `3791` and preserving the Rust proxy trust boundary.
   - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added `js_builder_http_transport` as a pure bounded HTTP parser/response renderer for Rust proxy-forwarded BuilderClient requests before socket-loop integration.
+  - The parser accepts only complete HTTP/1.0 or HTTP/1.1 request bytes with CRLF header termination, relative no-query paths, valid header syntax, no `Transfer-Encoding`, and a single valid `Content-Length` when a body is present.
+  - Header and body limits are explicit transport options; oversized headers/bodies, incomplete headers, malformed start lines, invalid headers, duplicate content lengths, invalid lengths, body-length mismatches, and missing body lengths produce stable redacted reason codes.
+  - Response rendering emits minimal HTTP/1.1 JSON responses with `content-type: application/json`, exact `content-length`, and `connection: close`, including a fallback JSON error when an ingress result is empty.
+  - Wired the new transport source and tests into CMake, the legacy server Makefile, and the legacy test Makefile.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to validating body size before copying body bytes, strict HTTP token validation for header names, CTL-byte rejection in header values, obs-fold rejection, broader content-length edge coverage, pipelining/body-smuggling mismatch coverage, header limit boundary tests, and exact response `Content-Length` assertions.
+  - Validation passed after reviewer fixes: focused `JsBuilderHttpTransport.*` tests, `make test -j16` (1188 tests), and `git diff --check`.
+  - Next slice after this commit: connect the parser and `js_builder_http_ingress` to the actual game-side descriptor/socket boundary.
   - Added `js_builder_http_ingress` as a pure game-side BuilderClient route ingress that validates the internal proxy trust marker before exposing route, method, header, body, or authorization details to lower adapters.
   - Routed trusted ingress requests to the server-owned manifest endpoint, login/logout session endpoint, or publish/status HTTP endpoint while preserving the existing adapter contracts.
   - Extracted `Content-Type` and `Authorization: Bearer ...` headers case-insensitively, rejected duplicate selected headers with generic redacted errors, and kept trusted-proxy context server-derived instead of BuilderClient-controlled.
