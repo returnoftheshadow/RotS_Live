@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: add a server-backed missing-scope activation denial fixture.
-- Next slice: inspect the remaining publish/admin gaps after missing-scope activation denial is committed.
+- Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
+- Active slice: record the confirmed publish/admin policy decisions in `FEATURES.md` and `WIP.md`.
+- Next slice: add server-side rollback policy/retention coverage for own-vs-admin rollback and the last-20 retained-version rule.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -26,6 +26,15 @@
   - BuilderClient must never connect to the live game port 3791. BuilderClient server-backed testing/publishing must target the test server path on port 4802 through the proxy.
   - The editor remains fully TypeScript with generated typings, IntelliSense, and custom LSP/editor configuration sourced from the server-owned manifest/API contract.
   - Before upload, BuilderClient compiles TypeScript to JavaScript and sends the publish package through the proxy; the game server remains authoritative for validation and execution.
+  - Finish server publish/admin hardening before runtime execution tests, then defer BuilderClient UI/client work until server publish and runtime execution are stable.
+  - Repeated activation of the same package/version/base checksum after the live pointer changes is rejected as stale/replay.
+  - Activation and rollback must fail before live-state mutation if the durable audit write or audit-precondition step fails.
+  - Rollback v1 lets builders roll back their own package versions; immortal/admin rollback of other builders' packages requires the explicit rollback-any/admin authority path.
+  - Retain the last 20 prior live package versions per script target.
+  - Bind staged/live records to the same workspace/server identity, while allowing restart when persisted state matches that identity.
+  - Conflict responses may include package/staged/live metadata; authentication and authorization failures stay metadata-free.
+  - Keep the current end-to-end BuilderClient smoke as one flow until it becomes flaky or impractically long.
+  - After publish/admin hardening, wire server-backed tests that publish JavaScript and execute it through real game triggers.
 - Small-slice execution queue:
   - [x] Documentation slice: fully record the proxy/account/Git/test-server requirements in `FEATURES.md` and `WIP.md`, including acceptance criteria and slice order.
   - [x] Server auth model slice: add a small C++ publish-auth contract that represents authenticated account id, eligible immortal level `92+` evidence, zone/vnum/host scope, token audience, and operation scopes without yet issuing tokens.
@@ -48,6 +57,10 @@
   - [x] Server publish context resolver slice: derive `JsPublishEndpointTransportContext` publish/status target evidence from trusted game state, including parsed operation target, zone/vnum/host resolution, zone owner ids, all-builders owner sentinel, and current live checksum lookup.
   - [x] Server raw ingress transport slice: combine bounded HTTP parsing, server publish-context resolution, and `js_builder_http_ingress` dispatch behind one raw-request server boundary with loaded-world catalog support.
   - [x] Server descriptor ingress transport slice: wire the raw BuilderClient HTTP server-transport boundary into the actual game descriptor/socket loop, keep BuilderClient traffic separate from live port `3791`, and preserve the Rust proxy trust boundary.
+  - [ ] Rollback policy/retention slice: add server-side coverage and implementation for own-vs-admin rollback decisions and retaining the last 20 prior live package versions per script target.
+  - [ ] Audit precondition slice: make activation/rollback fail before live-state mutation when the durable audit step is unavailable or fails.
+  - [ ] Server identity binding slice: reject activation/rollback of staged or persisted records that do not match the current workspace/server identity, while allowing restart when persisted state matches.
+  - [ ] Runtime execution test slice: after publish/admin hardening, publish JavaScript through the server path and execute it through real game trigger call sites.
   - [x] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
