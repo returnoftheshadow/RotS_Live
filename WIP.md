@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
-- Next slice: enforce proxy-only BuilderClient publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
+- Active slice: enforce proxy-only BuilderClient publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
+- Next slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
 - Socket-boundary note: the game server now has an explicit BuilderClient HTTP descriptor mode for test-server port `4802`. It bypasses telnet negotiation, reads one bounded raw HTTP request, dispatches through the raw BuilderClient transport, writes exactly one HTTP response, and closes.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
@@ -39,11 +39,23 @@
   - [x] Server publish context resolver slice: derive `JsPublishEndpointTransportContext` publish/status target evidence from trusted game state, including parsed operation target, zone/vnum/host resolution, zone owner ids, all-builders owner sentinel, and current live checksum lookup.
   - [x] Server raw ingress transport slice: combine bounded HTTP parsing, server publish-context resolution, and `js_builder_http_ingress` dispatch behind one raw-request server boundary with loaded-world catalog support.
   - [x] Server descriptor ingress transport slice: wire the raw BuilderClient HTTP server-transport boundary into the actual game descriptor/socket loop, keep BuilderClient traffic separate from live port `3791`, and preserve the Rust proxy trust boundary.
-  - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
+  - [x] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added Git-backed BuilderClient workspace metadata to shared project DTOs, starter project creation, and the renderer starter project so TypeScript script workspaces now carry a repository root plus scripts root.
+  - Added `captureGitWorkspaceProvenance()` for BuilderClient to collect repository identity, sanitized remote URL, branch, commit SHA, dirty state, capture time, and diagnostics without throwing when Git is unavailable.
+  - Added source provenance to publish packages and preserved it across BuilderClient IPC validation and publish IPC validation; local package export/import remains absent as a collaboration workflow.
+  - Avoided publishing local absolute repository paths by using `repositoryId` in package provenance and stripping username/password from URL remotes before package assembly.
+  - Stamped source provenance in the Electron main process during publish-package creation, replacing renderer-supplied provenance before package assembly.
+  - Bound publish-package creation and offline fixture execution to a successful main-process compile of the same source/metadata/manifest/typings context, preventing compiled JavaScript from being reused with a different project package.
+  - Added the workspace root to the compile-context binding so a renderer cannot compile against one workspace and publish with a different provenance capture path.
+  - Redacted or dropped local `file:`/path-like Git remotes from publish provenance, preserved normal unauthenticated URL remotes as repository identity, and fell back to the repository basename for local remotes.
+  - Redacted Git command failure diagnostics to fixed messages so local paths or environment-specific Git errors do not cross the publish package boundary.
+  - Added focused BuilderClient tests for Git provenance capture/failure diagnostics, package provenance inclusion, validation preservation, malformed source provenance rejection, clean/partial Git state, credential/local path redaction, provenance copy isolation, main-process provenance stamping, compile-context binding, and workspace-change rejection.
+  - Validation passed: `npm test` in `BuilderClient/` (68 tests), `npm run typecheck` in `BuilderClient/`, and `git diff --check` in `BuilderClient/`.
+  - Next slice after this commit: enforce proxy-only BuilderClient publish settings, block direct live port `3791`, allow the configured proxy/test-server target on `4802`, and keep offline compile/fixture workflows unauthenticated.
   - Added explicit game-side BuilderClient HTTP startup mode with `-b`; it defaults to test-server port `4802`, rejects live port `3791`, and rejects combining BuilderClient HTTP with the legacy `-x` player proxy-header mode.
   - Added descriptor state for one-shot BuilderClient HTTP requests so these sockets bypass telnet negotiation, greetings, nanny/login state, command queues, prompts, and output buffering.
   - Added a raw HTTP descriptor accumulator that waits for complete headers plus declared `Content-Length`, dispatches to `js_builder_http_server_transport_dispatch()`, writes the rendered HTTP response by explicit byte length, and then closes the descriptor.
