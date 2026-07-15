@@ -20,8 +20,12 @@ const READ_BUFFER_SIZE: usize = 8 * 1024; // 8 kb
 const LIVE_GAME_PORT: u16 = 3791;
 const BUILDER_TEST_GAME_PORT: u16 = 4802;
 const MAX_BUILDER_API_REQUEST_BYTES: usize = 256 * 1024;
+const MAX_BUILDER_API_RESPONSE_BYTES: usize = 256 * 1024;
 const MAX_BUILDER_API_HEADER_BYTES: usize = 16 * 1024;
 const BUILDER_API_READ_TIMEOUT: Duration = Duration::from_secs(5);
+const BUILDER_GAME_FORWARD_TIMEOUT: Duration = Duration::from_secs(5);
+const BUILDER_INTERNAL_TRUST_HEADER: &str = "x-rots-builder-proxy-secret";
+const BUILDER_INTERNAL_SECRET_ENV: &str = "ROTS_BUILDER_PROXY_SECRET";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BuilderApiOperation {
@@ -145,6 +149,8 @@ enum BuilderApiPreflightCode {
     RequestTooLarge,
     MissingSession,
     InvalidPublishTarget,
+    ForwardUnavailable,
+    ForwardFailed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -171,6 +177,15 @@ struct BuilderApiHttpRequest<'a> {
     content_type: Option<&'a str>,
     bearer_token: Option<&'a str>,
     body: &'a [u8],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BuilderGameForwardRequest {
+    method: &'static str,
+    path: &'static str,
+    content_type: String,
+    bearer_token: String,
+    body: Vec<u8>,
 }
 
 struct ParsedBuilderHttpRequest {
@@ -264,6 +279,14 @@ fn builder_api_preflight(
     request: &BuilderApiPreflightRequest<'_>,
     builder_game: &GameAddr,
 ) -> BuilderApiPreflightResult {
+    builder_api_preflight_with_target_policy(request, builder_game, true)
+}
+
+fn builder_api_preflight_with_target_policy(
+    request: &BuilderApiPreflightRequest<'_>,
+    builder_game: &GameAddr,
+    enforce_publish_target: bool,
+) -> BuilderApiPreflightResult {
     let Some(route) = builder_api_route(request.method, request.path) else {
         return BuilderApiPreflightResult {
             code: BuilderApiPreflightCode::NotFound,
@@ -273,7 +296,7 @@ fn builder_api_preflight(
         };
     };
 
-    if builder_publish_target(builder_game).is_err() {
+    if enforce_publish_target && builder_publish_target(builder_game).is_err() {
         return BuilderApiPreflightResult {
             code: BuilderApiPreflightCode::InvalidPublishTarget,
             route: Some(route),
@@ -337,6 +360,246 @@ fn builder_api_handle_http_request(
     builder_api_preflight(&preflight, builder_game)
 }
 
+fn builder_api_handle_http_request_with_target_policy(
+    request: &BuilderApiHttpRequest<'_>,
+    builder_game: &GameAddr,
+    enforce_publish_target: bool,
+) -> BuilderApiPreflightResult {
+    let preflight = BuilderApiPreflightRequest {
+        method: request.method,
+        path: request.path,
+        content_type: request.content_type,
+        body_bytes: request.body.len(),
+        bearer_token: request.bearer_token,
+    };
+    builder_api_preflight_with_target_policy(&preflight, builder_game, enforce_publish_target)
+}
+
+fn builder_game_forward_path(operation: BuilderApiOperation) -> Option<&'static str> {
+    match operation {
+        BuilderApiOperation::Status => Some("/api/js-scripts/status"),
+        BuilderApiOperation::Stage => Some("/api/js-scripts/stage"),
+        BuilderApiOperation::Activate => Some("/api/js-scripts/activate"),
+        BuilderApiOperation::Rollback => Some("/api/js-scripts/rollback"),
+        BuilderApiOperation::Login
+        | BuilderApiOperation::Manifest
+        | BuilderApiOperation::Logout => None,
+    }
+}
+
+fn validate_builder_internal_secret(secret: Option<&str>) -> Result<&str, Report> {
+    let Some(secret) = secret.map(str::trim).filter(|secret| !secret.is_empty()) else {
+        bail!("BuilderClient proxy trust marker is not configured");
+    };
+    if !is_safe_http_header_value(secret) {
+        bail!("BuilderClient proxy trust marker is not valid");
+    }
+    Ok(secret)
+}
+
+fn builder_internal_secret_from_env() -> Result<Option<Arc<String>>, Report> {
+    match std::env::var(BUILDER_INTERNAL_SECRET_ENV) {
+        Ok(secret) => {
+            let secret = validate_builder_internal_secret(Some(&secret))?;
+            Ok(Some(Arc::new(secret.to_string())))
+        }
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            bail!("BuilderClient proxy trust marker is not valid")
+        }
+    }
+}
+
+fn is_safe_http_header_value(value: &str) -> bool {
+    !value.is_empty() && !value.chars().any(char::is_control)
+}
+
+fn builder_game_forward_request(
+    request: &BuilderApiHttpRequest<'_>,
+    route: BuilderApiRoute,
+    internal_secret: Option<&str>,
+) -> Result<BuilderGameForwardRequest, Report> {
+    let path = builder_game_forward_path(route.operation).context("route is not forwarded")?;
+    let bearer_token = request
+        .bearer_token
+        .map(str::trim)
+        .filter(|token| !token.is_empty() && !token.contains(char::is_whitespace))
+        .context("BuilderClient session token is not forwardable")?;
+    validate_builder_internal_secret(internal_secret)?;
+    let content_type = request
+        .content_type
+        .unwrap_or("application/json")
+        .trim()
+        .to_string();
+    if !is_safe_http_header_value(&content_type) {
+        bail!("BuilderClient content type is not forwardable");
+    }
+
+    Ok(BuilderGameForwardRequest {
+        method: "POST",
+        path,
+        content_type,
+        bearer_token: bearer_token.to_string(),
+        body: request.body.to_vec(),
+    })
+}
+
+fn builder_game_forward_request_bytes(
+    forward: &BuilderGameForwardRequest,
+    builder_game: &GameAddr,
+    internal_secret: &str,
+) -> Result<Vec<u8>, Report> {
+    builder_game_forward_request_bytes_with_target_policy(
+        forward,
+        builder_game,
+        internal_secret,
+        true,
+    )
+}
+
+fn builder_game_forward_request_bytes_with_target_policy(
+    forward: &BuilderGameForwardRequest,
+    builder_game: &GameAddr,
+    internal_secret: &str,
+    enforce_publish_target: bool,
+) -> Result<Vec<u8>, Report> {
+    if enforce_publish_target {
+        builder_publish_target(builder_game)?;
+    }
+    let internal_secret = validate_builder_internal_secret(Some(internal_secret))?;
+    let host = format!("{}:{}", builder_game.hostname, builder_game.port);
+    let request_head = format!(
+        "{} {} HTTP/1.1\r\nhost: {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nauthorization: Bearer {}\r\n{}: {}\r\nconnection: close\r\n\r\n",
+        forward.method,
+        forward.path,
+        host,
+        forward.content_type,
+        forward.body.len(),
+        forward.bearer_token,
+        BUILDER_INTERNAL_TRUST_HEADER,
+        internal_secret
+    );
+    let mut bytes = request_head.into_bytes();
+    bytes.extend_from_slice(&forward.body);
+    Ok(bytes)
+}
+
+async fn forward_builder_api_to_game(
+    request: &BuilderApiHttpRequest<'_>,
+    route: BuilderApiRoute,
+    builder_game: &GameAddr,
+    internal_secret: Option<&str>,
+    enforce_publish_target: bool,
+) -> Result<Vec<u8>, Report> {
+    timeout(
+        BUILDER_GAME_FORWARD_TIMEOUT,
+        forward_builder_api_to_game_inner(
+            request,
+            route,
+            builder_game,
+            internal_secret,
+            enforce_publish_target,
+        ),
+    )
+    .await?
+}
+
+async fn forward_builder_api_to_game_inner(
+    request: &BuilderApiHttpRequest<'_>,
+    route: BuilderApiRoute,
+    builder_game: &GameAddr,
+    internal_secret: Option<&str>,
+    enforce_publish_target: bool,
+) -> Result<Vec<u8>, Report> {
+    let internal_secret = validate_builder_internal_secret(internal_secret)?;
+    let forward = builder_game_forward_request(request, route, Some(internal_secret))?;
+    let bytes = builder_game_forward_request_bytes_with_target_policy(
+        &forward,
+        builder_game,
+        internal_secret,
+        enforce_publish_target,
+    )?;
+    let mut game = timeout(BUILDER_GAME_FORWARD_TIMEOUT, builder_game.connect()).await??;
+    timeout(BUILDER_GAME_FORWARD_TIMEOUT, game.write_all(&bytes)).await??;
+    timeout(BUILDER_GAME_FORWARD_TIMEOUT, game.shutdown()).await??;
+
+    let mut response = Vec::new();
+    let mut buffer = [0u8; 1024];
+    loop {
+        let read = timeout(BUILDER_GAME_FORWARD_TIMEOUT, game.read(&mut buffer)).await??;
+        if read == 0 {
+            break;
+        }
+        if response.len() + read > MAX_BUILDER_API_RESPONSE_BYTES {
+            bail!("BuilderClient game response exceeds limit");
+        }
+        response.extend_from_slice(&buffer[..read]);
+    }
+    if response.is_empty() {
+        bail!("BuilderClient game response is empty");
+    }
+    sanitized_builder_game_response(&response, internal_secret)
+}
+
+fn sanitized_builder_game_response(
+    response: &[u8],
+    internal_secret: &str,
+) -> Result<Vec<u8>, Report> {
+    if response
+        .windows(internal_secret.len())
+        .any(|window| window == internal_secret.as_bytes())
+    {
+        bail!("BuilderClient game response exposed internal trust marker");
+    }
+    let Some(header_end) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
+        bail!("BuilderClient game response is not complete HTTP");
+    };
+    let header_bytes = &response[..header_end];
+    let body = &response[header_end + 4..];
+    let header_text = std::str::from_utf8(header_bytes)?;
+    let mut lines = header_text.split("\r\n");
+    let status_line = lines.next().context("missing backend status line")?;
+    let mut status_parts = status_line.split_whitespace();
+    let version = status_parts
+        .next()
+        .context("missing backend http version")?;
+    if version != "HTTP/1.0" && version != "HTTP/1.1" {
+        bail!("unsupported backend http version");
+    }
+    let status = status_parts
+        .next()
+        .context("missing backend http status")?
+        .parse::<u16>()?;
+    if !(100..=599).contains(&status) {
+        bail!("invalid backend http status");
+    }
+
+    let mut content_type = "application/json".to_string();
+    for line in lines {
+        let Some((name, value)) = line.split_once(':') else {
+            bail!("invalid backend response header");
+        };
+        if name.eq_ignore_ascii_case("content-type") {
+            let value = value.trim();
+            if !is_safe_http_header_value(value) {
+                bail!("invalid backend content type");
+            }
+            content_type = value.to_string();
+        }
+    }
+
+    let head = format!(
+        "HTTP/1.1 {} {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        status,
+        http_status_text(status),
+        content_type,
+        body.len()
+    );
+    let mut sanitized = head.into_bytes();
+    sanitized.extend_from_slice(body);
+    Ok(sanitized)
+}
+
 fn builder_api_response_body(result: &BuilderApiPreflightResult) -> String {
     format!(
         "{{\"ok\":{},\"reasonCode\":\"{}\"}}",
@@ -348,11 +611,13 @@ fn builder_api_response_body(result: &BuilderApiPreflightResult) -> String {
 fn http_status_text(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        202 => "Accepted",
         400 => "Bad Request",
         401 => "Unauthorized",
         404 => "Not Found",
         413 => "Payload Too Large",
         415 => "Unsupported Media Type",
+        502 => "Bad Gateway",
         503 => "Service Unavailable",
         _ => "Internal Server Error",
     }
@@ -509,7 +774,20 @@ async fn read_builder_http_request(
     })
 }
 
-async fn handle_builder_api(mut stream: TcpStream, builder_game: GameAddr) -> Result<(), Report> {
+async fn handle_builder_api(
+    stream: TcpStream,
+    builder_game: GameAddr,
+    builder_internal_secret: Option<Arc<String>>,
+) -> Result<(), Report> {
+    handle_builder_api_with_target_policy(stream, builder_game, builder_internal_secret, true).await
+}
+
+async fn handle_builder_api_with_target_policy(
+    mut stream: TcpStream,
+    builder_game: GameAddr,
+    builder_internal_secret: Option<Arc<String>>,
+    enforce_publish_target: bool,
+) -> Result<(), Report> {
     let request = match read_builder_http_request(&mut stream).await {
         Ok(request) => request,
         Err(err) => {
@@ -537,8 +815,61 @@ async fn handle_builder_api(mut stream: TcpStream, builder_game: GameAddr) -> Re
         bearer_token: request.bearer_token.as_deref(),
         body,
     };
-    let result = builder_api_handle_http_request(&http_request, &builder_game);
-    write_builder_api_response(&mut stream, &result).await
+    let result = builder_api_handle_http_request_with_target_policy(
+        &http_request,
+        &builder_game,
+        enforce_publish_target,
+    );
+    if result.code != BuilderApiPreflightCode::Accepted {
+        return write_builder_api_response(&mut stream, &result).await;
+    }
+
+    let route = result
+        .route
+        .context("accepted BuilderClient route is missing")?;
+    if builder_game_forward_path(route.operation).is_none() {
+        return write_builder_api_response(&mut stream, &result).await;
+    }
+
+    if builder_internal_secret
+        .as_deref()
+        .map(|secret| validate_builder_internal_secret(Some(secret.as_str())).is_ok())
+        != Some(true)
+    {
+        log::debug!("BuilderClient publish forwarding rejected: missing internal trust marker");
+        let result = builder_api_error_result(
+            BuilderApiPreflightCode::ForwardUnavailable,
+            503,
+            "builder.forward-unavailable",
+        );
+        return write_builder_api_response(&mut stream, &result).await;
+    }
+
+    match forward_builder_api_to_game(
+        &http_request,
+        route,
+        &builder_game,
+        builder_internal_secret
+            .as_deref()
+            .map(|secret| secret.as_str()),
+        enforce_publish_target,
+    )
+    .await
+    {
+        Ok(response) => {
+            stream.write_all(&response).await?;
+            Ok(())
+        }
+        Err(err) => {
+            log::debug!("BuilderClient publish forwarding failed: {err}");
+            let result = builder_api_error_result(
+                BuilderApiPreflightCode::ForwardFailed,
+                502,
+                "builder.forward-failed",
+            );
+            write_builder_api_response(&mut stream, &result).await
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -704,15 +1035,22 @@ async fn ws_server(game: GameAddr, listener: TcpListener, cloudflare: bool) -> R
     }
 }
 
-async fn builder_api_server(builder_game: GameAddr, listener: TcpListener) -> Result<(), Report> {
+async fn builder_api_server(
+    builder_game: GameAddr,
+    builder_internal_secret: Option<Arc<String>>,
+    listener: TcpListener,
+) -> Result<(), Report> {
     loop {
         let (stream, addr) = listener.accept().await?;
         let builder_game = builder_game.clone();
+        let builder_internal_secret = builder_internal_secret.clone();
 
         log::debug!("Received BuilderClient API connection on {addr}");
 
         tokio::spawn(async move {
-            if let Err(err) = handle_builder_api(stream, builder_game).await {
+            if let Err(err) =
+                handle_builder_api(stream, builder_game, builder_internal_secret).await
+            {
                 log::error!("{err}");
             }
         });
@@ -744,7 +1082,12 @@ async fn main() -> Result<(), Report> {
 
     let tcp = tokio::spawn(tcp_server(args.game.clone(), tcp));
     let ws = tokio::spawn(ws_server(args.game, ws, args.cloudflare));
-    let builder_api = tokio::spawn(builder_api_server(args.builder_game, builder_api));
+    let builder_internal_secret = builder_internal_secret_from_env()?;
+    let builder_api = tokio::spawn(builder_api_server(
+        args.builder_game,
+        builder_internal_secret,
+        builder_api,
+    ));
 
     tokio::select! {
         res = tcp => res??,
@@ -908,6 +1251,118 @@ mod tests {
         assert_eq!(Some(String::from("builder rollback")), rollback.reason);
         assert_eq!(Some(String::from("audit:proxy")), publish.audit_id);
         assert!(logout.ok);
+    }
+
+    #[test]
+    fn builder_game_forward_paths_translate_publish_routes_only() {
+        assert_eq!(
+            Some("/api/js-scripts/status"),
+            builder_game_forward_path(BuilderApiOperation::Status)
+        );
+        assert_eq!(
+            Some("/api/js-scripts/stage"),
+            builder_game_forward_path(BuilderApiOperation::Stage)
+        );
+        assert_eq!(
+            Some("/api/js-scripts/activate"),
+            builder_game_forward_path(BuilderApiOperation::Activate)
+        );
+        assert_eq!(
+            Some("/api/js-scripts/rollback"),
+            builder_game_forward_path(BuilderApiOperation::Rollback)
+        );
+        assert_eq!(None, builder_game_forward_path(BuilderApiOperation::Login));
+        assert_eq!(
+            None,
+            builder_game_forward_path(BuilderApiOperation::Manifest)
+        );
+        assert_eq!(None, builder_game_forward_path(BuilderApiOperation::Logout));
+    }
+
+    #[test]
+    fn builder_game_forward_request_adds_trust_marker_and_preserves_body() {
+        let route = builder_api_route("POST", "/api/builder/js/stage").unwrap();
+        let request = BuilderApiHttpRequest {
+            method: "POST",
+            path: "/api/builder/js/stage",
+            content_type: Some("application/json;charset=utf-8"),
+            bearer_token: Some("token:builder"),
+            body: br#"{"package":{"packageId":"js:30:character:3001"}}"#,
+        };
+        let forward = builder_game_forward_request(&request, route, Some("local-secret")).unwrap();
+        let bytes = builder_game_forward_request_bytes(
+            &forward,
+            &game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            "local-secret",
+        )
+        .unwrap();
+        let rendered = String::from_utf8(bytes).unwrap();
+
+        assert!(rendered.starts_with("POST /api/js-scripts/stage HTTP/1.1\r\n"));
+        assert!(rendered.contains("host: 127.0.0.1:4802\r\n"));
+        assert!(rendered.contains("content-type: application/json;charset=utf-8\r\n"));
+        assert!(rendered.contains("authorization: Bearer token:builder\r\n"));
+        assert!(rendered.contains("x-rots-builder-proxy-secret: local-secret\r\n"));
+        assert!(rendered.ends_with(r#"{"package":{"packageId":"js:30:character:3001"}}"#));
+    }
+
+    #[test]
+    fn builder_game_forward_request_rejects_missing_or_malformed_trust_marker() {
+        let route = builder_api_route("POST", "/api/builder/js/stage").unwrap();
+        let request = BuilderApiHttpRequest {
+            method: "POST",
+            path: "/api/builder/js/stage",
+            content_type: Some("application/json"),
+            bearer_token: Some("token:builder"),
+            body: b"{}",
+        };
+
+        assert!(builder_game_forward_request(&request, route, None).is_err());
+        assert!(builder_game_forward_request(&request, route, Some(" ")).is_err());
+        assert!(builder_game_forward_request(&request, route, Some("secret\r\nbad")).is_err());
+    }
+
+    #[test]
+    fn builder_game_forward_request_rejects_malformed_forwarded_headers() {
+        let route = builder_api_route("POST", "/api/builder/js/stage").unwrap();
+        let bad_content_type = BuilderApiHttpRequest {
+            method: "POST",
+            path: "/api/builder/js/stage",
+            content_type: Some("application/json\r\nx-extra: bad"),
+            bearer_token: Some("token:builder"),
+            body: b"{}",
+        };
+        let bad_token = BuilderApiHttpRequest {
+            method: "POST",
+            path: "/api/builder/js/stage",
+            content_type: Some("application/json"),
+            bearer_token: Some("token:builder extra"),
+            body: b"{}",
+        };
+
+        assert!(builder_game_forward_request(&bad_content_type, route, Some("secret")).is_err());
+        assert!(builder_game_forward_request(&bad_token, route, Some("secret")).is_err());
+    }
+
+    #[test]
+    fn builder_game_forward_request_rejects_live_target_generically() {
+        let forward = BuilderGameForwardRequest {
+            method: "POST",
+            path: "/api/js-scripts/stage",
+            content_type: String::from("application/json"),
+            bearer_token: String::from("token:builder"),
+            body: b"{}".to_vec(),
+        };
+        let error = builder_game_forward_request_bytes(
+            &forward,
+            &game_addr("127.0.0.1", LIVE_GAME_PORT),
+            "secret",
+        )
+        .expect_err("live target must be rejected")
+        .to_string();
+
+        assert!(error.contains("invalid BuilderClient publish target"));
+        assert!(!error.contains("3791"));
     }
 
     #[test]
@@ -1150,12 +1605,40 @@ mod tests {
         assert_eq!(BuilderApiPreflightCode::Accepted, result.code);
     }
 
-    async fn roundtrip_builder_api_request(raw_request: &[u8], builder_game: GameAddr) -> String {
+    async fn roundtrip_builder_api_request(
+        raw_request: &[u8],
+        builder_game: GameAddr,
+        builder_internal_secret: Option<&str>,
+    ) -> String {
+        roundtrip_builder_api_request_with_target_policy(
+            raw_request,
+            builder_game,
+            builder_internal_secret,
+            true,
+        )
+        .await
+    }
+
+    async fn roundtrip_builder_api_request_with_target_policy(
+        raw_request: &[u8],
+        builder_game: GameAddr,
+        builder_internal_secret: Option<&str>,
+        enforce_publish_target: bool,
+    ) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let builder_internal_secret =
+            builder_internal_secret.map(|secret| Arc::new(String::from(secret)));
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
-            handle_builder_api(stream, builder_game).await.unwrap();
+            handle_builder_api_with_target_policy(
+                stream,
+                builder_game,
+                builder_internal_secret,
+                enforce_publish_target,
+            )
+            .await
+            .unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
@@ -1167,21 +1650,88 @@ mod tests {
         String::from_utf8(response).unwrap()
     }
 
+    #[tokio::test]
+    async fn builder_api_handler_forwards_publish_request_and_sanitizes_backend_response() {
+        let game_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_game_addr = game_listener.local_addr().unwrap();
+        let game = tokio::spawn(async move {
+            let (mut stream, _) = game_listener.accept().await.unwrap();
+            let mut forwarded = Vec::new();
+            stream.read_to_end(&mut forwarded).await.unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 202 Accepted\r\ncontent-type: application/json\r\nx-rots-builder-proxy-secret: stripped\r\nconnection: keep-alive\r\ncontent-length: 11\r\n\r\n{\"ok\":true}",
+                )
+                .await
+                .unwrap();
+            String::from_utf8(forwarded).unwrap()
+        });
+
+        let response = roundtrip_builder_api_request_with_target_policy(
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\n\r\n{}",
+            game_addr("127.0.0.1", local_game_addr.port()),
+            Some("local-secret"),
+            false,
+        )
+        .await;
+        let forwarded = game.await.unwrap();
+
+        assert!(forwarded.starts_with("POST /api/js-scripts/stage HTTP/1.1\r\n"));
+        assert!(forwarded.contains("authorization: Bearer token:builder\r\n"));
+        assert!(forwarded.contains("x-rots-builder-proxy-secret: local-secret\r\n"));
+        assert!(forwarded.ends_with("{}"));
+        assert_eq!("HTTP/1.1 202 Accepted", response_status(&response));
+        assert!(response.contains("content-type: application/json\r\n"));
+        assert!(response.contains("content-length: 11\r\n"));
+        assert!(response.ends_with("{\"ok\":true}"));
+        assert!(!response.contains("x-rots-builder-proxy-secret"));
+        assert!(!response.contains("local-secret"));
+        assert!(!response.contains("keep-alive"));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_redacts_malformed_backend_response() {
+        let game_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_game_addr = game_listener.local_addr().unwrap();
+        let game = tokio::spawn(async move {
+            let (mut stream, _) = game_listener.accept().await.unwrap();
+            let mut forwarded = Vec::new();
+            stream.read_to_end(&mut forwarded).await.unwrap();
+            stream.write_all(b"not http").await.unwrap();
+        });
+
+        let response = roundtrip_builder_api_request_with_target_policy(
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\n\r\n{}",
+            game_addr("127.0.0.1", local_game_addr.port()),
+            Some("local-secret"),
+            false,
+        )
+        .await;
+        game.await.unwrap();
+
+        assert_eq!("HTTP/1.1 502 Bad Gateway", response_status(&response));
+        assert!(response.contains("\"reasonCode\":\"builder.forward-failed\""));
+        assert!(!response.contains("local-secret"));
+        assert!(!response.contains("token:builder"));
+    }
+
     fn response_status(response: &str) -> &str {
         response.lines().next().unwrap_or_default()
     }
 
     #[tokio::test]
-    async fn builder_api_handler_accepts_authed_stage_request() {
+    async fn builder_api_handler_requires_trust_marker_before_forwarding_stage_request() {
         let response = roundtrip_builder_api_request(
             b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\n\r\n{}",
             game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            None,
         )
         .await;
 
-        assert!(response.starts_with("HTTP/1.1 200 OK"));
-        assert!(response.contains("\"reasonCode\":\"builder.accepted\""));
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert!(response.contains("\"reasonCode\":\"builder.forward-unavailable\""));
         assert!(response.contains("connection: close"));
+        assert!(!response.contains("token:builder"));
     }
 
     #[tokio::test]
@@ -1189,6 +1739,7 @@ mod tests {
         let response = roundtrip_builder_api_request(
             b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}",
             game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            None,
         )
         .await;
 
@@ -1205,6 +1756,7 @@ mod tests {
         let response = roundtrip_builder_api_request(
             request.as_bytes(),
             game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            None,
         )
         .await;
 
@@ -1217,6 +1769,7 @@ mod tests {
         let response = roundtrip_builder_api_request(
             b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\n\r\n{}",
             game_addr("127.0.0.1", LIVE_GAME_PORT),
+            None,
         )
         .await;
 
@@ -1231,6 +1784,7 @@ mod tests {
         let response = roundtrip_builder_api_request(
             b"POST /api/builder/js/stage\r\nbad-header\r\n\r\n",
             game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            None,
         )
         .await;
 
@@ -1244,6 +1798,7 @@ mod tests {
         let response = roundtrip_builder_api_request(
             b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\ncontent-length: 2\r\n\r\n{}",
             game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            None,
         )
         .await;
 
@@ -1256,6 +1811,7 @@ mod tests {
         let response = roundtrip_builder_api_request(
             b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ntransfer-encoding: chunked\r\ncontent-length: 2\r\n\r\n{}",
             game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            None,
         )
         .await;
 
@@ -1268,6 +1824,7 @@ mod tests {
         let response = roundtrip_builder_api_request(
             b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\n\r\n{}",
             game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            None,
         )
         .await;
 
@@ -1282,6 +1839,7 @@ mod tests {
         let response = roundtrip_builder_api_request(
             request.as_bytes(),
             game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            None,
         )
         .await;
 
@@ -1304,6 +1862,7 @@ mod tests {
             let response = roundtrip_builder_api_request(
                 request.as_bytes(),
                 game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+                None,
             )
             .await;
 
@@ -1318,7 +1877,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
-            handle_builder_api(stream, game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT))
+            handle_builder_api(stream, game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT), None)
                 .await
                 .unwrap();
         });
@@ -1343,7 +1902,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
-            handle_builder_api(stream, game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT))
+            handle_builder_api(stream, game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT), None)
                 .await
                 .unwrap();
         });
