@@ -44,6 +44,11 @@
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - BuilderClient publish settings now reject direct live-server port `3791` for both HTTP and HTTPS targets.
+  - BuilderClient publish settings still allow HTTPS proxy URLs, and local HTTP development is limited to loopback hosts on the configured test/proxy port `4802`.
+  - Added publish settings coverage for allowed `127.0.0.1:4802`, `localhost:4802`, `[::1]:4802`, rejected `3791`, rejected other local HTTP ports, rejected non-local HTTP, and rejected `file:` URLs.
+  - Validation passed for this publish-target slice: `npm test` in `BuilderClient/` (68 tests), `npm run typecheck` in `BuilderClient/`, and `git diff --check` in `BuilderClient/`.
+  - Next slice after this commit: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - Added Git-backed BuilderClient workspace metadata to shared project DTOs, starter project creation, and the renderer starter project so TypeScript script workspaces now carry a repository root plus scripts root.
   - Added `captureGitWorkspaceProvenance()` for BuilderClient to collect repository identity, sanitized remote URL, branch, commit SHA, dirty state, capture time, and diagnostics without throwing when Git is unavailable.
   - Added source provenance to publish packages and preserved it across BuilderClient IPC validation and publish IPC validation; local package export/import remains absent as a collaboration workflow.
