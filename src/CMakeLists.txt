@@ -44,6 +44,7 @@ set(ROTS_SERVER_SOURCES
     js_api_contract.cpp
     js_builder_http_ingress.cpp
     js_builder_http_transport.cpp
+    js_builder_publish_context.cpp
     js_builder_session_endpoint.cpp
     js_builder_session_store.cpp
     js_builder_session.cpp
@@ -178,6 +179,7 @@ set(ROTS_TEST_SOURCES
     tests/js_api_contract_tests.cpp
     tests/js_builder_http_ingress_tests.cpp
     tests/js_builder_http_transport_tests.cpp
+    tests/js_builder_publish_context_tests.cpp
     tests/js_builder_session_endpoint_tests.cpp
     tests/js_builder_session_store_tests.cpp
     tests/js_builder_artifacts_tests.cpp

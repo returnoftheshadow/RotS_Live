@@ -33,7 +33,7 @@ CFLAGS = $(MYFLAGS) $(PROFILE) $(OSFLAGS)
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
-	comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o js_api_contract.o js_builder_http_ingress.o js_builder_http_transport.o js_builder_session_endpoint.o js_builder_session_store.o js_builder_session.o js_builder_artifacts.o js_game_adapter.o js_game_runtime.o js_builder_manifest_endpoint.o js_legacy_trigger_dispatch.o js_live_package_store.o js_live_package_store_persistence.o js_live_registry_admin.o js_live_registry_reload_service.o js_live_registry_status.o js_manifest_export.o js_publish_activation.o js_publish_authorization.o js_publish_endpoint_contract.o js_publish_http_endpoint.o js_publish_endpoint_service.o js_publish_endpoint_transport.o js_publish_staging.o js_runtime.o js_staged_package_identity.o js_staged_package_repository.o js_script_package_loader.o js_script_package_reload_service.o js_script_package.o js_script_registry.o js_trigger_dispatch.o js_scripting_manifest.o objects_json.o \
+	comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o js_api_contract.o js_builder_http_ingress.o js_builder_http_transport.o js_builder_publish_context.o js_builder_session_endpoint.o js_builder_session_store.o js_builder_session.o js_builder_artifacts.o js_game_adapter.o js_game_runtime.o js_builder_manifest_endpoint.o js_legacy_trigger_dispatch.o js_live_package_store.o js_live_package_store_persistence.o js_live_registry_admin.o js_live_registry_reload_service.o js_live_registry_status.o js_manifest_export.o js_publish_activation.o js_publish_authorization.o js_publish_endpoint_contract.o js_publish_http_endpoint.o js_publish_endpoint_service.o js_publish_endpoint_transport.o js_publish_staging.o js_runtime.o js_staged_package_identity.o js_staged_package_repository.o js_script_package_loader.o js_script_package_reload_service.o js_script_package.o js_script_registry.o js_trigger_dispatch.o js_scripting_manifest.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
 	pkill.o player_file_finalize.o profs.o protocol.o ranger.o save_benchmark.o savebench.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
@@ -74,6 +74,9 @@ js_builder_http_ingress.o : js_builder_http_ingress.cpp js_builder_http_ingress.
 
 js_builder_http_transport.o : js_builder_http_transport.cpp js_builder_http_transport.h js_builder_http_ingress.h json_utils.h
 	$(CC) -c $(CFLAGS) js_builder_http_transport.cpp
+
+js_builder_publish_context.o : js_builder_publish_context.cpp js_builder_publish_context.h js_publish_endpoint_transport.h js_live_package_store.h js_script_package_loader.h js_staged_package_identity.h json_utils.h
+	$(CC) -c $(CFLAGS) js_builder_publish_context.cpp
 
 js_builder_session_endpoint.o : js_builder_session_endpoint.cpp js_builder_session_endpoint.h js_builder_session.h js_builder_session_store.h json_utils.h
 	$(CC) -c $(CFLAGS) js_builder_session_endpoint.cpp
