@@ -50,6 +50,46 @@ enum JsPublishScope : unsigned {
     JS_PUBLISH_SCOPE_PACKAGE_GC = 1u << 10,
 };
 
+constexpr int JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL = 92;
+
+enum class JsPublishAccountAuthOutcome {
+    NotAuthenticated,
+    Authenticated,
+    Blocked,
+    EmailUnverified,
+};
+
+struct JsPublishDiagnostic {
+    JsPublishDiagnosticCode code = JsPublishDiagnosticCode::InvalidRequest;
+    std::string request_id;
+    std::string package_id;
+    std::string message;
+};
+
+struct JsPublishLinkedCharacterEligibility {
+    std::string character_name;
+    int character_id = 0;
+    int level = 0;
+    bool character_loaded = false;
+    bool immortal = false;
+};
+
+struct JsPublishBuilderEligibilityInput {
+    JsPublishAccountAuthOutcome auth_outcome = JsPublishAccountAuthOutcome::NotAuthenticated;
+    std::string authenticated_account_id;
+    std::string requested_builder_account_id;
+    std::vector<JsPublishLinkedCharacterEligibility> linked_characters;
+};
+
+struct JsPublishBuilderEligibilityResult {
+    bool ok = false;
+    std::string builder_account_id;
+    std::string eligible_character_name;
+    int eligible_character_id = 0;
+    int eligible_character_level = 0;
+    std::vector<JsPublishDiagnostic> diagnostics;
+};
+
 struct JsPublishTokenMetadata {
     bool claims_verified = false;
     std::string token_id;
@@ -121,13 +161,6 @@ struct JsPublishAuthorizationOptions {
     JsPublishAuthorityContext authority;
 };
 
-struct JsPublishDiagnostic {
-    JsPublishDiagnosticCode code = JsPublishDiagnosticCode::InvalidRequest;
-    std::string request_id;
-    std::string package_id;
-    std::string message;
-};
-
 struct JsPublishAuthorizationResult {
     bool ok = false;
     bool mutates_server_state = false;
@@ -137,6 +170,9 @@ struct JsPublishAuthorizationResult {
 
 JsPublishAuthorizationResult js_publish_authorization_preflight(const JsPublishRequest& request,
     const JsPublishAuthorizationOptions& options = {});
+
+JsPublishBuilderEligibilityResult js_publish_evaluate_builder_account_eligibility(
+    const JsPublishBuilderEligibilityInput& input);
 
 unsigned js_publish_scope_for_operation(JsPublishOperation operation);
 bool js_publish_operation_mutates_server_state(JsPublishOperation operation);

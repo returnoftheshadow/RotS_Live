@@ -104,7 +104,254 @@ std::string messages(const JsPublishAuthorizationResult& result)
     return joined;
 }
 
+std::string eligibility_messages(const JsPublishBuilderEligibilityResult& result)
+{
+    std::string joined;
+    for (const JsPublishDiagnostic& diagnostic : result.diagnostics) {
+        joined += diagnostic.message;
+        joined += "\n";
+    }
+    return joined;
+}
+
+bool has_eligibility_code(const JsPublishBuilderEligibilityResult& result,
+    JsPublishDiagnosticCode code)
+{
+    return std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+        [code](const JsPublishDiagnostic& diagnostic) {
+            return diagnostic.code == code;
+        });
+}
+
+JsPublishBuilderEligibilityInput make_eligibility_input()
+{
+    JsPublishBuilderEligibilityInput input;
+    input.auth_outcome = JsPublishAccountAuthOutcome::Authenticated;
+    input.authenticated_account_id = "account:builder";
+    input.requested_builder_account_id = "account:builder";
+    input.linked_characters.push_back({ "builderone", 1001, 92, true, true });
+    return input;
+}
+
+void expect_no_sensitive_eligibility_result(const JsPublishBuilderEligibilityResult& result)
+{
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(result.builder_account_id.empty());
+    EXPECT_TRUE(result.eligible_character_name.empty());
+    EXPECT_EQ(result.eligible_character_id, 0);
+    EXPECT_EQ(result.eligible_character_level, 0);
+}
+
 } // namespace
+
+TEST(JsPublishAuthorization, BuilderEligibilityRequiresAuthenticatedAccount)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+    input.auth_outcome = JsPublishAccountAuthOutcome::NotAuthenticated;
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_FALSE(result.ok);
+    expect_no_sensitive_eligibility_result(result);
+    EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::TokenActorMismatch));
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityRejectsBlockedAndUnverifiedAccounts)
+{
+    for (JsPublishAccountAuthOutcome outcome :
+        { JsPublishAccountAuthOutcome::Blocked, JsPublishAccountAuthOutcome::EmailUnverified }) {
+        JsPublishBuilderEligibilityInput input = make_eligibility_input();
+        input.auth_outcome = outcome;
+
+        JsPublishBuilderEligibilityResult result =
+            js_publish_evaluate_builder_account_eligibility(input);
+
+        EXPECT_FALSE(result.ok);
+        expect_no_sensitive_eligibility_result(result);
+        EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+    }
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityBindsRequestedAccountToAuthenticatedAccount)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+    input.authenticated_account_id = "account:real";
+    input.requested_builder_account_id = "account:other";
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_FALSE(result.ok);
+    expect_no_sensitive_eligibility_result(result);
+    EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::TokenActorMismatch));
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityRejectsBlankAuthenticatedAccountId)
+{
+    for (const std::string account_id : { std::string(), std::string(" \t\r\n") }) {
+        JsPublishBuilderEligibilityInput input = make_eligibility_input();
+        input.authenticated_account_id = account_id;
+        input.requested_builder_account_id = account_id;
+
+        JsPublishBuilderEligibilityResult result =
+            js_publish_evaluate_builder_account_eligibility(input);
+
+        EXPECT_FALSE(result.ok);
+        expect_no_sensitive_eligibility_result(result);
+        EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::InvalidRequest));
+    }
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityRequiresLinkedLevelNinetyTwoImmortal)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(result.builder_account_id, "account:builder");
+    EXPECT_EQ(result.eligible_character_name, "builderone");
+    EXPECT_EQ(result.eligible_character_id, 1001);
+    EXPECT_EQ(result.eligible_character_level, JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL);
+    EXPECT_TRUE(result.diagnostics.empty());
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityRejectsNoLinkedCharacters)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+    input.linked_characters.clear();
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_FALSE(result.ok);
+    expect_no_sensitive_eligibility_result(result);
+    EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityRejectsNonImmortalLinkedCharacters)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+    input.linked_characters = {
+        { "regularone", 1001, 30, true, false },
+        { "regulartwo", 1002, 90, true, false },
+    };
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_FALSE(result.ok);
+    expect_no_sensitive_eligibility_result(result);
+    EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+    EXPECT_NE(eligibility_messages(result).find("no linked immortal"), std::string::npos);
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityRejectsHighLevelNonImmortalLinkedCharacter)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+    input.linked_characters = {
+        { "highlevel", 1001, 100, true, false },
+    };
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_FALSE(result.ok);
+    expect_no_sensitive_eligibility_result(result);
+    EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityRejectsImmortalBelowLevelNinetyTwo)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+    input.linked_characters = {
+        { "lowimmortal", 1001, JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL - 1, true, true },
+    };
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_FALSE(result.ok);
+    expect_no_sensitive_eligibility_result(result);
+    EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+    EXPECT_NE(eligibility_messages(result).find("below the builder publishing level"),
+        std::string::npos);
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilitySkipsUnloadedCharactersButAllowsLaterEligibleOne)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+    input.linked_characters = {
+        { "missing", 1001, 100, false, true },
+        { "eligible", 1002, 95, true, true },
+    };
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(result.eligible_character_name, "eligible");
+    EXPECT_EQ(result.eligible_character_id, 1002);
+    EXPECT_EQ(result.eligible_character_level, 95);
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityRejectsAllUnloadedCharacters)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+    input.linked_characters = {
+        { "missing", 1001, 100, false, true },
+    };
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_FALSE(result.ok);
+    expect_no_sensitive_eligibility_result(result);
+    EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::PermissionMismatch));
+    EXPECT_NE(eligibility_messages(result).find("could not be loaded"), std::string::npos);
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityRejectsMalformedEligibleCharacterEvidence)
+{
+    const JsPublishLinkedCharacterEligibility malformed_characters[] = {
+        { "", 1001, 92, true, true },
+        { "nameless-id", 0, 92, true, true },
+    };
+
+    for (const JsPublishLinkedCharacterEligibility& character : malformed_characters) {
+        JsPublishBuilderEligibilityInput input = make_eligibility_input();
+        input.linked_characters = { character };
+
+        JsPublishBuilderEligibilityResult result =
+            js_publish_evaluate_builder_account_eligibility(input);
+
+        EXPECT_FALSE(result.ok);
+        expect_no_sensitive_eligibility_result(result);
+        EXPECT_TRUE(has_eligibility_code(result, JsPublishDiagnosticCode::InvalidRequest));
+    }
+}
+
+TEST(JsPublishAuthorization, BuilderEligibilityDiagnosticsDoNotEchoAccountOrCharacterNames)
+{
+    JsPublishBuilderEligibilityInput input = make_eligibility_input();
+    input.authenticated_account_id = "account:private-builder";
+    input.requested_builder_account_id = "account:private-builder";
+    input.linked_characters = {
+        { "privatecharacter", 1001, 91, true, true },
+    };
+
+    JsPublishBuilderEligibilityResult result =
+        js_publish_evaluate_builder_account_eligibility(input);
+
+    EXPECT_FALSE(result.ok);
+    expect_no_sensitive_eligibility_result(result);
+    EXPECT_EQ(eligibility_messages(result).find("private-builder"), std::string::npos);
+    EXPECT_EQ(eligibility_messages(result).find("privatecharacter"), std::string::npos);
+    EXPECT_EQ(eligibility_messages(result).find("1001"), std::string::npos);
+    EXPECT_EQ(eligibility_messages(result).find("91"), std::string::npos);
+}
 
 TEST(JsPublishAuthorization, AllowsReadOnlyStatusWithScopedToken)
 {

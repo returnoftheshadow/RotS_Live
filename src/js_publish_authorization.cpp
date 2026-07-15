@@ -1,4 +1,5 @@
 #include "js_publish_authorization.h"
+#include "structs.h"
 
 #include <algorithm>
 #include <cctype>
@@ -32,6 +33,15 @@ void add_diagnostic(JsPublishAuthorizationResult& result, JsPublishDiagnosticCod
     diagnostic.package_id = diagnostic_identifier(request.package_id, "package");
     diagnostic.message = bounded_single_line(message);
     result.diagnostics.push_back(diagnostic);
+}
+
+void add_diagnostic(std::vector<JsPublishDiagnostic>& diagnostics, JsPublishDiagnosticCode code,
+    const std::string& message)
+{
+    JsPublishDiagnostic diagnostic;
+    diagnostic.code = code;
+    diagnostic.message = bounded_single_line(message);
+    diagnostics.push_back(diagnostic);
 }
 
 bool is_blank(const std::string& value)
@@ -308,6 +318,88 @@ JsPublishAuthorizationResult js_publish_authorization_preflight(const JsPublishR
             "mutating JavaScript publish operations are not enabled");
 
     result.ok = result.diagnostics.empty();
+    return result;
+}
+
+JsPublishBuilderEligibilityResult js_publish_evaluate_builder_account_eligibility(
+    const JsPublishBuilderEligibilityInput& input)
+{
+    JsPublishBuilderEligibilityResult result;
+
+    if (input.auth_outcome == JsPublishAccountAuthOutcome::NotAuthenticated) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::TokenActorMismatch,
+            "authenticated game account is required");
+        return result;
+    }
+
+    if (input.auth_outcome == JsPublishAccountAuthOutcome::Blocked) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "authenticated game account is not eligible for builder publishing");
+        return result;
+    }
+
+    if (input.auth_outcome == JsPublishAccountAuthOutcome::EmailUnverified) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "authenticated game account is not eligible until verification is complete");
+        return result;
+    }
+
+    if (is_blank(input.authenticated_account_id)) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::InvalidRequest,
+            "authenticated account id is required");
+        return result;
+    }
+
+    if (!is_blank(input.requested_builder_account_id)
+        && input.requested_builder_account_id != input.authenticated_account_id) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::TokenActorMismatch,
+            "requested builder account does not match authenticated account");
+        return result;
+    }
+
+    if (input.linked_characters.empty()) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "account has no linked character eligible for builder publishing");
+        return result;
+    }
+
+    bool saw_loaded_character = false;
+    bool saw_immortal_below_publish_level = false;
+    bool saw_malformed_eligible_character = false;
+    for (const JsPublishLinkedCharacterEligibility& character : input.linked_characters) {
+        if (!character.character_loaded)
+            continue;
+        saw_loaded_character = true;
+        if (character.immortal && character.level >= LEVEL_IMMORT
+            && character.level < JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL)
+            saw_immortal_below_publish_level = true;
+        if (character.immortal && character.level >= JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL) {
+            if (is_blank(character.character_name) || character.character_id <= 0) {
+                saw_malformed_eligible_character = true;
+                continue;
+            }
+            result.ok = true;
+            result.builder_account_id = input.authenticated_account_id;
+            result.eligible_character_name = character.character_name;
+            result.eligible_character_id = character.character_id;
+            result.eligible_character_level = character.level;
+            return result;
+        }
+    }
+
+    if (!saw_loaded_character) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "linked characters could not be loaded for builder eligibility");
+    } else if (saw_malformed_eligible_character) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::InvalidRequest,
+            "eligible linked character evidence is incomplete");
+    } else if (saw_immortal_below_publish_level) {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "linked immortal character is below the builder publishing level");
+    } else {
+        add_diagnostic(result.diagnostics, JsPublishDiagnosticCode::PermissionMismatch,
+            "account has no linked immortal character eligible for builder publishing");
+    }
     return result;
 }
 

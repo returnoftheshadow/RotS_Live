@@ -102,7 +102,7 @@ js_manifest_export.o : js_manifest_export.cpp js_manifest_export.h js_api_contra
 js_publish_activation.o : js_publish_activation.cpp js_publish_activation.h js_live_package_store.h js_live_package_store_persistence.h js_publish_staging.h js_script_registry.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_publish_activation.cpp
 
-js_publish_authorization.o : js_publish_authorization.cpp js_publish_authorization.h js_script_package.h js_scripting_manifest.h
+js_publish_authorization.o : js_publish_authorization.cpp js_publish_authorization.h js_script_package.h js_scripting_manifest.h structs.h
 	$(CC) -c $(CFLAGS) js_publish_authorization.cpp
 
 js_publish_endpoint_contract.o : js_publish_endpoint_contract.cpp js_publish_endpoint_contract.h json_utils.h js_publish_activation.h js_live_package_store.h js_live_package_store_persistence.h js_publish_staging.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h
