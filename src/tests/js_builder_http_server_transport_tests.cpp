@@ -1,13 +1,22 @@
 #include "../js_builder_http_server_transport.h"
 
+#include "../db.h"
 #include "../js_script_package_loader.h"
 #include "../json_utils.h"
 #include "../script.h"
+#include "../zone.h"
 
 #include <gtest/gtest.h>
 
 #include <cstdlib>
 #include <string>
+
+extern room_data world;
+extern int top_of_world;
+extern index_data *mob_index;
+extern int top_of_mobt;
+extern index_data *obj_index;
+extern int top_of_objt;
 
 namespace {
 
@@ -236,6 +245,62 @@ TEST(JsBuilderHttpServerTransport, RoutesTrustedManifestThroughIngress) {
     expect_response_contains(result, "HTTP/1.1 200 OK");
     expect_response_contains(result, "\"exportKind\":\"builderManifest\"");
     expect_content_length_matches_body(result.http_response);
+}
+
+TEST(JsBuilderHttpServerTransport, LoadedWorldCatalogDropsOwnerTerminatorOnlyForOwnedZones) {
+    struct GlobalCatalogStateGuard {
+        zone_data *saved_zone_table = zone_table;
+        int saved_top_of_zone_table = top_of_zone_table;
+        int saved_top_of_world = top_of_world;
+        index_data *saved_mob_index = mob_index;
+        int saved_top_of_mobt = top_of_mobt;
+        index_data *saved_obj_index = obj_index;
+        int saved_top_of_objt = top_of_objt;
+
+        ~GlobalCatalogStateGuard()
+        {
+            zone_table = saved_zone_table;
+            top_of_zone_table = saved_top_of_zone_table;
+            top_of_world = saved_top_of_world;
+            mob_index = saved_mob_index;
+            top_of_mobt = saved_top_of_mobt;
+            obj_index = saved_obj_index;
+            top_of_objt = saved_top_of_objt;
+        }
+    } guard;
+
+    owner_list owned_first {42, nullptr};
+    owner_list owned_second {77, nullptr};
+    owner_list owned_duplicate {42, nullptr};
+    owner_list owned_terminator {0, nullptr};
+    owned_first.next = &owned_second;
+    owned_second.next = &owned_duplicate;
+    owned_duplicate.next = &owned_terminator;
+    owner_list common_owner {0, nullptr};
+    zone_data zones[2] {};
+    zones[0].number = 0;
+    zones[0].top = 1199;
+    zones[0].owners = &common_owner;
+    zones[1].number = 30;
+    zones[1].top = 3999;
+    zones[1].owners = &owned_first;
+
+    zone_table = zones;
+    top_of_zone_table = 1;
+    top_of_world = -1;
+    mob_index = nullptr;
+    top_of_mobt = -1;
+    obj_index = nullptr;
+    top_of_objt = -1;
+
+    JsBuilderPublishTargetCatalog catalog =
+        js_builder_http_server_transport_catalog_from_loaded_world();
+
+    ASSERT_EQ(2u, catalog.zones.size());
+    EXPECT_EQ(0, catalog.zones[0].number);
+    EXPECT_EQ(std::vector<int>({0}), catalog.zones[0].owner_character_ids);
+    EXPECT_EQ(30, catalog.zones[1].number);
+    EXPECT_EQ(std::vector<int>({42, 77}), catalog.zones[1].owner_character_ids);
 }
 
 TEST(JsBuilderHttpServerTransport, RejectsUntrustedPublishBeforeContextResolution) {

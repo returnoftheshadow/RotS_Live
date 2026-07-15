@@ -42,9 +42,11 @@
 #include "zone.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <ctime>
 #include <limits>
+#include <string>
 #include <vector>
 
 #define MAX_HOSTNAME 256
@@ -244,8 +246,13 @@ JsBuilderSessionStoreOptions builder_http_session_store_options()
 
 JsBuilderHttpServerTransportOptions builder_http_server_transport_options()
 {
+    static std::atomic<unsigned long long> builder_request_counter {0};
+    unsigned long long request_number = builder_request_counter.fetch_add(1) + 1;
+    std::string trace_suffix = std::to_string(request_number);
+
     JsBuilderHttpServerTransportOptions options;
     options.ingress_options.expected_proxy_secret = builder_http_proxy_secret();
+    options.ingress_options.session_options.session_options.root_directory = ".";
     options.ingress_options.session_options.session_store = &builder_http_session_store();
     options.ingress_options.session_options.session_store_options =
         builder_http_session_store_options();
@@ -255,7 +262,11 @@ JsBuilderHttpServerTransportOptions builder_http_server_transport_options()
         options.ingress_options.session_options.session_store_options;
     options.ingress_options.publish_context.transport.source_identifier =
         "transport:builder-http";
+    options.ingress_options.publish_context.transport.secure_channel = true;
+    options.ingress_options.publish_context.transport.server_identity_verified = true;
     options.ingress_options.publish_context.transport.server_audience = "server:main";
+    options.ingress_options.publish_context.request_id = "request:builder-http:" + trace_suffix;
+    options.ingress_options.publish_context.audit_id = "audit:builder-http:" + trace_suffix;
     options.ingress_options.publish_context.now_epoch_seconds =
         options.ingress_options.session_options.session_store_options.now_epoch_seconds;
     options.ingress_options.publish_context.allow_mutating_operations = true;

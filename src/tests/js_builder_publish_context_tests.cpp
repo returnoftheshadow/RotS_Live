@@ -146,7 +146,7 @@ TEST(JsBuilderPublishContext, ResolvesStageTargetFromPackage) {
     JsBuilderPublishContextResult result = js_builder_publish_context_resolve(
         stage_json(make_package()), make_base_context(), make_options(catalog));
 
-    ASSERT_TRUE(result.ok);
+    ASSERT_TRUE(result.ok) << result.reason_code;
     EXPECT_EQ("builder.context.accepted", result.reason_code);
     EXPECT_EQ(30, result.context.zone);
     EXPECT_TRUE(result.context.target_zone_resolved);
@@ -158,6 +158,24 @@ TEST(JsBuilderPublishContext, ResolvesStageTargetFromPackage) {
     EXPECT_EQ(42, result.context.zone_owner_character_ids[0]);
     EXPECT_TRUE(result.context.current_live_checksum.empty());
     EXPECT_EQ("request:base", result.context.request_id);
+}
+
+TEST(JsBuilderPublishContext, AcceptsLoadedWorldZoneZeroCatalogEntries) {
+    JsBuilderPublishTargetCatalog catalog = make_catalog();
+    catalog.mobile_vnums.push_back(100);
+    catalog.zones.insert(catalog.zones.begin(), {0, 1199, {}});
+
+    JsBuilderPublishContextResult result = js_builder_publish_context_resolve(
+        stage_json(make_package(100)), make_base_context(), make_options(catalog));
+
+    ASSERT_TRUE(result.ok) << result.reason_code;
+    EXPECT_EQ("builder.context.accepted", result.reason_code);
+    EXPECT_EQ(0, result.context.zone);
+    EXPECT_TRUE(result.context.target_zone_resolved);
+    EXPECT_EQ(0, result.context.server_resolved_target_zone);
+    EXPECT_TRUE(result.context.zone_exists);
+    EXPECT_FALSE(result.context.zone_allows_all_builders);
+    EXPECT_TRUE(result.context.zone_owner_character_ids.empty());
 }
 
 TEST(JsBuilderPublishContext, ResolvesStatusTargetFromCanonicalPackageId) {

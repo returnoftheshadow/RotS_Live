@@ -179,8 +179,14 @@ void push_unique(std::vector<int> *values, int value) {
 
 std::vector<int> owner_ids(const owner_list *owners) {
     std::vector<int> ids;
-    for (const owner_list *owner = owners; owner != nullptr; owner = owner->next)
-        ids.push_back(owner->owner);
+    for (const owner_list *owner = owners; owner != nullptr; owner = owner->next) {
+        if (owner->owner == 0) {
+            if (ids.empty())
+                ids.push_back(0);
+            break;
+        }
+        push_unique(&ids, owner->owner);
+    }
     return ids;
 }
 

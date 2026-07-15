@@ -207,7 +207,7 @@ find_zone_for_vnum(const std::vector<JsBuilderPublishZoneRecord> &zones, int vnu
     int previous_top = -1;
     const JsBuilderPublishZoneRecord *match = nullptr;
     for (const JsBuilderPublishZoneRecord &zone : zones) {
-        if (zone.number <= 0 || zone.top <= previous_top)
+        if (zone.number < 0 || zone.top <= previous_top)
             return nullptr;
         if (vnum > previous_top && vnum <= zone.top) {
             if (match)
@@ -243,7 +243,7 @@ bool catalog_valid(const JsBuilderPublishTargetCatalog &catalog) {
     int previous_top = -1;
     std::vector<int> zone_numbers;
     for (const JsBuilderPublishZoneRecord &zone : catalog.zones) {
-        if (zone.number <= 0 || zone.top <= previous_top || !owners_valid(zone.owner_character_ids))
+        if (zone.number < 0 || zone.top <= previous_top || !owners_valid(zone.owner_character_ids))
             return false;
         if (std::find(zone_numbers.begin(), zone_numbers.end(), zone.number) != zone_numbers.end())
             return false;
