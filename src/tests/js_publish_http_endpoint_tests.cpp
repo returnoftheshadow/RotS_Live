@@ -240,16 +240,33 @@ TEST(JsPublishHttpEndpoint, DispatchesActivateAndRollbackThroughRouteOperation)
 {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, service_options());
+    int live_mutation_refreshes = 0;
+    JsPublishHttpEndpointOptions options = prederived_context_options();
+    options.after_successful_live_mutation = [&live_mutation_refreshes]() {
+        ++live_mutation_refreshes;
+        return true;
+    };
     ASSERT_TRUE(js_publish_http_endpoint_dispatch(
         service,
         request("stage",
             "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(make_package())
                 + "}"),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), prederived_context_options()).ok);
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), options).ok);
+    EXPECT_EQ(0, live_mutation_refreshes);
     JsPublishStagedPackageStatusResult status =
         js_publish_latest_staged_package_status(service.staged_repository(),
             "js:30:character:3001");
     ASSERT_TRUE(status.ok);
+
+    JsPublishEndpointTransportResult rejected_activate = js_publish_http_endpoint_dispatch(
+        service,
+        request("activate",
+            "{\"packageId\":\"js:30:character:3001\","
+            "\"stagedDigest\":\"sha256:not-the-staged-digest\","
+            "\"baseLiveChecksum\":\"live:old\"}"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE), options);
+    EXPECT_FALSE(rejected_activate.ok);
+    EXPECT_EQ(0, live_mutation_refreshes);
 
     JsPublishEndpointTransportResult activate = js_publish_http_endpoint_dispatch(
         service,
@@ -257,10 +274,11 @@ TEST(JsPublishHttpEndpoint, DispatchesActivateAndRollbackThroughRouteOperation)
             "{\"packageId\":\"js:30:character:3001\",\"stagedDigest\":"
                 + quote(status.status.staged_digest)
                 + ",\"baseLiveChecksum\":\"live:old\"}"),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE), prederived_context_options());
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE), options);
     EXPECT_TRUE(activate.ok);
     EXPECT_EQ(200, activate.http_status);
     EXPECT_EQ("activate.accepted", activate.reason_code);
+    EXPECT_EQ(1, live_mutation_refreshes);
 
     JsLivePackagePointerResult pointer =
         live_store.find_live_pointer("js:30:character:3001");
@@ -278,8 +296,114 @@ TEST(JsPublishHttpEndpoint, DispatchesActivateAndRollbackThroughRouteOperation)
             context.current_live_checksum = first_live_checksum;
             return context;
         }(),
-        prederived_context_options())
+        options)
                     .ok);
+    EXPECT_EQ(1, live_mutation_refreshes);
+    status = js_publish_latest_staged_package_status(service.staged_repository(),
+        "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+    JsPublishEndpointTransportContext second_activate_context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE);
+    second_activate_context.current_live_checksum = first_live_checksum;
+    ASSERT_TRUE(js_publish_http_endpoint_dispatch(
+        service,
+        request("activate",
+            "{\"packageId\":\"js:30:character:3001\",\"stagedDigest\":"
+                + quote(status.status.staged_digest)
+                + ",\"baseLiveChecksum\":" + quote(first_live_checksum) + "}"),
+        second_activate_context, options).ok);
+    EXPECT_EQ(2, live_mutation_refreshes);
+    pointer = live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    JsPublishEndpointTransportContext rollback_context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN);
+    rollback_context.current_live_checksum = pointer.pointer.current_live_checksum;
+    JsPublishEndpointTransportResult rollback = js_publish_http_endpoint_dispatch(
+        service,
+        request("rollback",
+            "{\"packageId\":\"js:30:character:3001\","
+            "\"targetLiveChecksum\":"
+                + quote(pointer.pointer.current_live_checksum)
+                + ",\"reason\":\"builder rollback\"}"),
+        rollback_context, options);
+
+    EXPECT_TRUE(rollback.ok);
+    EXPECT_EQ(200, rollback.http_status);
+    EXPECT_EQ("rollback.accepted", rollback.reason_code);
+    EXPECT_EQ(3, live_mutation_refreshes);
+}
+
+TEST(JsPublishHttpEndpoint, ReportsLiveMutationRefreshFailureAfterActivate)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsPublishHttpEndpointOptions options = prederived_context_options();
+    int live_mutation_refreshes = 0;
+    options.after_successful_live_mutation = [&live_mutation_refreshes]() {
+        ++live_mutation_refreshes;
+        return false;
+    };
+    ASSERT_TRUE(js_publish_http_endpoint_dispatch(
+        service,
+        request("stage",
+            "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(make_package())
+                + "}"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), options).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+
+    JsPublishEndpointTransportResult activate = js_publish_http_endpoint_dispatch(
+        service,
+        request("activate",
+            "{\"packageId\":\"js:30:character:3001\",\"stagedDigest\":"
+                + quote(status.status.staged_digest)
+                + ",\"baseLiveChecksum\":\"live:old\"}"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE), options);
+
+    EXPECT_FALSE(activate.ok);
+    EXPECT_EQ(500, activate.http_status);
+    EXPECT_EQ("activate.live-registry-refresh-failed", activate.reason_code);
+    EXPECT_EQ(1, live_mutation_refreshes);
+    EXPECT_TRUE(live_store.find_live_pointer("js:30:character:3001").ok);
+}
+
+TEST(JsPublishHttpEndpoint, ReportsLiveMutationRefreshFailureAfterRollback)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_http_endpoint_dispatch(
+        service,
+        request("stage",
+            "{\"baseLiveChecksum\":\"live:old\",\"package\":" + package_json(make_package())
+                + "}"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), prederived_context_options()).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+    ASSERT_TRUE(js_publish_http_endpoint_dispatch(
+        service,
+        request("activate",
+            "{\"packageId\":\"js:30:character:3001\",\"stagedDigest\":"
+                + quote(status.status.staged_digest)
+                + ",\"baseLiveChecksum\":\"live:old\"}"),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE), prederived_context_options()).ok);
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    const std::string first_live_checksum = pointer.pointer.current_live_checksum;
+    JsPublishEndpointTransportContext second_stage_context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    second_stage_context.current_live_checksum = first_live_checksum;
+    ASSERT_TRUE(js_publish_http_endpoint_dispatch(
+        service,
+        request("stage",
+            "{\"baseLiveChecksum\":" + quote(first_live_checksum)
+                + ",\"package\":" + package_json(make_package("return false"))
+                + "}"),
+        second_stage_context, prederived_context_options()).ok);
     status = js_publish_latest_staged_package_status(service.staged_repository(),
         "js:30:character:3001");
     ASSERT_TRUE(status.ok);
@@ -295,21 +419,33 @@ TEST(JsPublishHttpEndpoint, DispatchesActivateAndRollbackThroughRouteOperation)
         second_activate_context, prederived_context_options()).ok);
     pointer = live_store.find_live_pointer("js:30:character:3001");
     ASSERT_TRUE(pointer.ok);
+    const std::string second_live_checksum = pointer.pointer.current_live_checksum;
+    JsPublishHttpEndpointOptions failing_options = prederived_context_options();
+    int live_mutation_refreshes = 0;
+    failing_options.after_successful_live_mutation = [&live_mutation_refreshes]() {
+        ++live_mutation_refreshes;
+        return false;
+    };
     JsPublishEndpointTransportContext rollback_context =
         make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN);
-    rollback_context.current_live_checksum = pointer.pointer.current_live_checksum;
+    rollback_context.current_live_checksum = second_live_checksum;
+
     JsPublishEndpointTransportResult rollback = js_publish_http_endpoint_dispatch(
         service,
         request("rollback",
             "{\"packageId\":\"js:30:character:3001\","
             "\"targetLiveChecksum\":"
-                + quote(pointer.pointer.current_live_checksum)
+                + quote(second_live_checksum)
                 + ",\"reason\":\"builder rollback\"}"),
-        rollback_context, prederived_context_options());
+        rollback_context, failing_options);
 
-    EXPECT_TRUE(rollback.ok);
-    EXPECT_EQ(200, rollback.http_status);
-    EXPECT_EQ("rollback.accepted", rollback.reason_code);
+    EXPECT_FALSE(rollback.ok);
+    EXPECT_EQ(500, rollback.http_status);
+    EXPECT_EQ("rollback.live-registry-refresh-failed", rollback.reason_code);
+    EXPECT_EQ(1, live_mutation_refreshes);
+    pointer = live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_NE(second_live_checksum, pointer.pointer.current_live_checksum);
 }
 
 TEST(JsPublishHttpEndpoint, RejectsOperationSmugglingInBody)

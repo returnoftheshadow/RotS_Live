@@ -3,6 +3,7 @@
 
 #include "js_publish_endpoint_transport.h"
 
+#include <functional>
 #include <string>
 
 struct JsPublishHttpEndpointRequest {
@@ -22,6 +23,7 @@ struct JsPublishHttpEndpointOptions {
     const JsBuilderSessionStore *session_store = nullptr;
     JsBuilderSessionStoreOptions session_store_options;
     bool allow_prederived_context_for_tests = false;
+    std::function<bool()> after_successful_live_mutation;
 };
 
 JsPublishEndpointTransportResult js_publish_http_endpoint_dispatch(

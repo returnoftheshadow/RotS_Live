@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: activation live-registry refresh and gameplay generation handling.
-- Next slice: make successful JavaScript activation refresh or invalidate the live gameplay registry generation safely so published scripts cannot leave gameplay on an older registry snapshot.
+- Active slice: BuilderClient authoritative manifest/type sync planning.
+- Next slice: wire BuilderClient generated TypeScript declarations, IntelliSense/LSP configuration, and offline validation metadata to the server-owned manifest/API contract through the test-server proxy while preserving unauthenticated offline editing.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -68,7 +68,18 @@
   - [x] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
+  - [x] Activation live-registry refresh slice: make successful HTTP activation/rollback refresh the singleton live gameplay registry generation or invalidate the stale generation safely when refresh fails.
+  - [ ] BuilderClient authoritative manifest/type sync slice: wire generated TypeScript declarations, IntelliSense/LSP configuration, and offline validation metadata to the server-owned manifest/API contract through the test-server proxy while preserving unauthenticated offline editing.
 - Completed slice progress:
+  - Added a production BuilderClient HTTP publish live-mutation hook so successful activation and rollback call the server gameplay refresh path after the live store changes.
+  - Added `js_script_refresh_live_registry_after_publish()`, which invalidates the previously captured gameplay registry generation before refreshing the singleton live registry and recapturing the generation. If refresh/capture fails, the stale generation remains invalid so gameplay does not keep executing an older JavaScript registry snapshot.
+  - Changed the HTTP publish hook to return success/failure and report redacted `activate.live-registry-refresh-failed` or `rollback.live-registry-refresh-failed` responses when the live pointer mutation succeeded but gameplay refresh did not.
+  - Added endpoint regressions proving stage and failed activation do not call the hook, successful activation and rollback do call it, and activation/rollback refresh failures return explicit `500` responses while preserving the already-applied live mutation.
+  - Added a production-style trusted HTTP/session activation regression using the singleton admin publish service that executes the published JavaScript through `trigger_char_enter` without any test-side manual refresh after activation.
+  - Added a source guard proving the internal `comm.cpp` BuilderClient HTTP options wire the post-mutation hook to `js_script_refresh_live_registry_after_publish`.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by making refresh failures visible, preventing stale generation reuse on failure, covering rollback hook behavior and rollback refresh-failure responses, moving the singleton-path regression to a distinct target, and adding the production wiring guard. Remaining note: the `comm.cpp` source guard is intentionally a formatting-sensitive tripwire because the production options builder is internal to `comm.cpp`.
+  - Validation passed for this activation live-registry refresh slice: focused hook/runtime tests, broader affected suite (188 tests), and fresh `make test -j16` (1278 tests).
+  - Next slice after this commit: wire BuilderClient generated TypeScript declarations, IntelliSense/LSP configuration, and offline validation metadata to the server-owned manifest/API contract through the test-server proxy while preserving unauthenticated offline editing.
   - Restricted BuilderClient publish/auth targets to the loopback BuilderClient proxy/test-server API on `http://localhost:4802`, `http://127.0.0.1:4802`, or `http://[::1]:4802`. Direct live-server port `3791`, arbitrary remote HTTPS/HTTP targets, LAN/private `4802` targets, userinfo, paths, query strings, fragments, malformed URLs, and backslash-normalized URLs are rejected before account secrets, bearer tokens, or publish requests are sent.
   - Added a `PublishClient` constructor guard so core callers cannot bypass the target policy, and added credential-store validation so disallowed targets cannot be persisted with bearer tokens. The visible BuilderClient placeholder now points at `http://localhost:4802`.
   - Magus, Vincent, and Bazarat reviewed the slice. Findings were addressed with raw-URL validation before credential persistence, decorated-URL tests, LAN/private auth rejection tests, and credential preservation tests. Remaining non-blocking note: Electron `main.ts` publish handlers are still indirectly covered through `PublishClient` and the shared settings gate rather than a dedicated exported handler seam.

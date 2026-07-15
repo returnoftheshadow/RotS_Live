@@ -275,6 +275,8 @@ JsBuilderHttpServerTransportOptions builder_http_server_transport_options()
     options.ingress_options.publish_options.session_store = &builder_http_session_store();
     options.ingress_options.publish_options.session_store_options =
         options.ingress_options.session_options.session_store_options;
+    options.ingress_options.publish_options.after_successful_live_mutation =
+        js_script_refresh_live_registry_after_publish;
     options.ingress_options.publish_context.transport.source_identifier =
         "transport:builder-http";
     options.ingress_options.publish_context.transport.secure_channel = true;

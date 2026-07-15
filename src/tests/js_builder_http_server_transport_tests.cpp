@@ -11,6 +11,8 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 extern room_data world;
@@ -32,10 +34,10 @@ std::string quote(const std::string &value) {
     return "\"" + json_utils::escape_json_string(value) + "\"";
 }
 
-JsScriptPackage make_package_with_source(const std::string &source) {
+JsScriptPackage make_package_with_source(const std::string &source, int vnum = 3001) {
     const JsScriptingManifestMetadata &metadata = js_scripting_manifest_metadata();
     JsScriptPackage package;
-    package.vnum = 3001;
+    package.vnum = vnum;
     package.package_id = "client-pkg-3001";
     package.host = JsScriptPackageHost::Character;
     package.package_format_version = metadata.package_format_version;
@@ -56,12 +58,13 @@ JsScriptPackage make_package() {
     return make_package_with_source("function onEnter(ctx) { return true; }");
 }
 
-JsScriptPackage make_runtime_blocking_package() {
+JsScriptPackage make_runtime_blocking_package(int vnum = 3001) {
     return make_package_with_source(
-        "function onEnter(ctx) { "
-        "return !(ctx.self.name === 'Http Guard' && ctx.actor.name === 'Http Actor' && "
-        "ctx.room.vnum === 3001); "
-        "}");
+        std::string("function onEnter(ctx) { ") +
+            "return !(ctx.self.name === 'Http Guard' && ctx.actor.name === 'Http Actor' && "
+            "ctx.room.vnum === " +
+            std::to_string(vnum) + "); }",
+        vnum);
 }
 
 std::string package_json(const JsScriptPackage &package) {
@@ -173,6 +176,18 @@ void expect_content_length_matches_body(const std::string &response) {
     ASSERT_NE(std::string::npos, body_start);
     const std::string body = response.substr(body_start + 4);
     EXPECT_EQ(body.size(), rendered_content_length(response));
+}
+
+std::string read_first_available_file(const std::vector<std::string> &paths) {
+    for (const std::string &path : paths) {
+        std::ifstream file(path);
+        if (!file)
+            continue;
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        return contents.str();
+    }
+    return "";
 }
 
 JsBuilderPublishTargetCatalog make_catalog() {
@@ -287,12 +302,14 @@ struct RuntimeGlobalStateGuard {
     RuntimeGlobalStateGuard() {
         EXPECT_TRUE(service.live_store().hydrate_from_snapshot({}).ok);
         EXPECT_TRUE(service.refresh().ok);
+        js_script_invalidate_live_registry_generation();
         js_script_set_legacy_trigger_dispatch_enabled(false);
     }
 
     ~RuntimeGlobalStateGuard() {
         service.live_store().hydrate_from_snapshot({});
         service.refresh();
+        js_script_invalidate_live_registry_generation();
         world = saved_world;
         top_of_world = saved_top_of_world;
         mob_index = saved_mob_index;
@@ -706,6 +723,77 @@ TEST(JsBuilderHttpServerTransport, HttpSessionPublishedJavaScriptExecutesThrough
 
     EXPECT_EQ(trigger_char_enter(&guard_character, &actor, &world), 0);
     EXPECT_EQ(trigger_char_enter(&guard_character, &other_actor, &world), 1);
+}
+
+TEST(JsBuilderHttpServerTransport, ProductionBuilderHttpOptionsInstallLiveMutationRefreshHook) {
+    const std::string source = read_first_available_file({"src/comm.cpp", "../comm.cpp"});
+
+    ASSERT_FALSE(source.empty());
+    // The production options builder is internal to comm.cpp; keep this as a source tripwire.
+    EXPECT_NE(std::string::npos,
+              source.find("after_successful_live_mutation =\n"
+                          "        js_script_refresh_live_registry_after_publish"));
+}
+
+TEST(JsBuilderHttpServerTransport, ProductionActivationRefreshesLiveRegistryForGameplayDispatch) {
+    constexpr int kProductionRefreshVnum = 3002;
+    RuntimeGlobalStateGuard guard;
+    JsLiveRegistryAdminService &admin_service = guard.service;
+    JsBuilderSessionStore session_store;
+    insert_session(&session_store,
+                   JS_PUBLISH_SCOPE_PACKAGE_STAGE | JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE |
+                       JS_PUBLISH_SCOPE_STATUS_READ);
+    JsBuilderHttpServerTransportOptions options =
+        make_options(&admin_service.live_store(), &admin_service.publish_service(), &session_store);
+    options.ingress_options.publish_options.after_successful_live_mutation =
+        js_script_refresh_live_registry_after_publish;
+    JsBuilderPublishTargetCatalog catalog;
+    catalog.mobile_vnums = {kProductionRefreshVnum};
+    catalog.zones.push_back({30, 3999, {1001}});
+    options.publish_context_options.target_catalog = &catalog;
+
+    index_data local_mob_index[1] = {};
+    local_mob_index[0].virt = kProductionRefreshVnum;
+    mob_index = local_mob_index;
+    top_of_mobt = 0;
+    world = make_room("HTTP Production Runtime Room", kProductionRefreshVnum, 0);
+    top_of_world = 0;
+    char_data guard_character = make_character("Http Guard", true);
+    char_data actor = make_character("Http Actor");
+    guard_character.next = &actor;
+    actor.next = nullptr;
+    character_list = &guard_character;
+    object_list = nullptr;
+
+    ASSERT_TRUE(admin_service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    JsBuilderHttpServerTransportResult stage = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/stage",
+                    stage_body(make_runtime_blocking_package(kProductionRefreshVnum)), true,
+                    "application/json", "session-token"),
+        options);
+    ASSERT_TRUE(stage.ok) << stage.reason_code << " " << stage.http_response;
+    EXPECT_EQ("stage.accepted", stage.reason_code);
+    EXPECT_EQ(trigger_char_enter(&guard_character, &actor, &world), 1);
+
+    JsPublishStagedPackageStatusResult staged = js_publish_latest_staged_package_status(
+        admin_service.publish_service().staged_repository(), "js:30:character:3002");
+    ASSERT_TRUE(staged.ok);
+    JsBuilderHttpServerTransportResult activate = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/activate",
+                    activate_body(staged.status.package_id, staged.status.staged_digest,
+                                  "live:initial"),
+                    true, "application/json", "session-token"),
+        options);
+    ASSERT_TRUE(activate.ok) << activate.reason_code << " " << activate.http_response;
+    EXPECT_EQ("activate.accepted", activate.reason_code);
+    EXPECT_NE(nullptr,
+              admin_service.reload_service().find_package_status_by_vnum(kProductionRefreshVnum));
+    EXPECT_EQ(trigger_char_enter(&guard_character, &actor, &world), 0);
+    expect_content_length_matches_body(stage.http_response);
+    expect_content_length_matches_body(activate.http_response);
 }
 
 TEST(JsBuilderHttpServerTransport, MapsContextTargetFailuresToRedactedHttpResponses) {

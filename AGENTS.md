@@ -17,6 +17,10 @@
 - After completing each implementation slice, update `WIP.md` with the completed slice summary and the next slice that should be worked. In the final user-facing completion message for the slice, explicitly list that next slice.
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
+### Current JavaScript Slice Handoff
+- Latest completed slice: activation live-registry refresh and gameplay generation handling.
+- Next slice: BuilderClient authoritative manifest/type sync. Wire generated TypeScript declarations, IntelliSense/LSP configuration, and offline validation metadata to the server-owned manifest/API contract through the test-server proxy while preserving unauthenticated offline editing.
+
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
 - Bootstrap data: `make setup` — creates required runtime directories/files under `lib/`, `log/`, and `bin/`.

@@ -163,7 +163,14 @@ JsPublishEndpointTransportResult js_publish_http_endpoint_dispatch(
         dispatch_context = session_context.context;
     }
 
-    return js_publish_endpoint_dispatch_json(service,
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(service,
         body_with_route_operation(operation, request.body), dispatch_context,
         options.transport_options);
+    if (result.ok && (operation == "activate" || operation == "rollback")
+        && options.after_successful_live_mutation && !options.after_successful_live_mutation()) {
+        const std::string reason_code = operation + ".live-registry-refresh-failed";
+        return http_error(500, reason_code.c_str(), "Publish live registry refresh failed.",
+            "live registry refresh failed after successful live mutation");
+    }
+    return result;
 }

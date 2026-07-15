@@ -466,11 +466,25 @@ bool js_script_legacy_trigger_dispatch_enabled()
     return javascript_legacy_trigger_dispatch_enabled;
 }
 
+void js_script_invalidate_live_registry_generation()
+{
+    javascript_legacy_trigger_reload_generation = {};
+}
+
 bool js_script_capture_live_registry_generation()
 {
     javascript_legacy_trigger_reload_generation =
         js_legacy_trigger_reload_generation(js_live_registry_admin_service().reload_service());
     return javascript_legacy_trigger_reload_generation.valid();
+}
+
+bool js_script_refresh_live_registry_after_publish()
+{
+    js_script_invalidate_live_registry_generation();
+    const JsLiveRegistryReloadResult reload = js_live_registry_admin_service().refresh();
+    if (!reload.ok)
+        return false;
+    return js_script_capture_live_registry_generation();
 }
 
 void initialise_script_info_char(char_data* ch, int index)
