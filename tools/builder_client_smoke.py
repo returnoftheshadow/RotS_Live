@@ -581,6 +581,56 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
             staged_digest,
             activated_status.get("liveChecksum"),
         )
+        activated_live_checksum = activated_status.get("liveChecksum")
+
+        status, replay_activation = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/activate",
+            {
+                "packageId": staged_package_id,
+                "stagedDigest": staged_digest,
+                "baseLiveChecksum": "live:old",
+            },
+            token,
+        )
+        if (
+            status != 409
+            or replay_activation.get("ok") is not False
+            or replay_activation.get("reasonCode") != "activate.stale-live-checksum"
+            or replay_activation.get("packageId") != staged_package_id
+            or replay_activation.get("stagedDigest") != staged_digest
+            or replay_activation.get("liveChecksum") != activated_live_checksum
+        ):
+            raise RuntimeError(
+                f"Activation replay did not preserve current live state: HTTP {status} "
+                f"{redact_response(replay_activation)}"
+            )
+        status, replay_status = http_json(
+            args.builder_api_port,
+            "POST",
+            "/api/builder/js/status",
+            {"packageId": staged_package_id},
+            token,
+        )
+        if (
+            status != 200
+            or not replay_status.get("ok")
+            or replay_status.get("reasonCode") != "status.current"
+            or replay_status.get("packageId") != staged_package_id
+            or replay_status.get("stagedDigest") != staged_digest
+            or replay_status.get("liveChecksum") != activated_live_checksum
+        ):
+            raise RuntimeError(
+                f"Status after activation replay failed: HTTP {status} "
+                f"{redact_response(replay_status)}"
+            )
+        assert_persisted_activation(
+            live_store_path,
+            staged_package_id,
+            staged_digest,
+            activated_live_checksum,
+        )
 
         wrong_zone_package = build_package(manifest, 999999, f"builder-smoke-wrong-zone-{smoke_id}")
         status, wrong_zone = http_json(
@@ -625,7 +675,7 @@ def run_builder_smoke_attempt(args: Namespace, repo_root: Path) -> int:
 
         passed = True
         print(
-            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> stale-live conflict -> stale-digest conflict -> activate -> wrong-zone rejection -> logout -> offline unauthenticated tests."
+            "BuilderClient smoke passed: temporary account -> promoted immortal -> login -> manifest -> stage -> stale-live conflict -> stale-digest conflict -> activate -> replay conflict -> wrong-zone rejection -> logout -> offline unauthenticated tests."
         )
         return 0
     finally:
