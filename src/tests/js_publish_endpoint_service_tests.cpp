@@ -168,6 +168,7 @@ JsPublishActivationOptions make_activation_options(const std::string &current_li
     options.assembly_options.expected_workspace_id = "workspace:main";
     options.assembly_options.current_live_checksum = current_live;
     options.allow_live_pointer_update = true;
+    options.durable_audit_precondition_ok = true;
     options.applied_at_epoch_seconds = 200000;
     options.live_pointer_audit_id = "audit:activate";
     return options;
@@ -481,6 +482,111 @@ TEST(JsPublishEndpointService, RollbackPublishesRequestedRetainedLivePackage)
     live_pointer = live_store.find_live_pointer(first.response.package_id);
     ASSERT_TRUE(live_pointer.ok);
     EXPECT_EQ(first.response.package_version_id, live_pointer.pointer.package_version_id);
+}
+
+TEST(JsPublishEndpointService, RollbackAuditPreconditionFailurePreservesCurrentLivePointer)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, internal_validation_options());
+    JsPublishEndpointServiceResult first = service.stage(
+        make_stage_input(make_package(30, 3001, "return true"), make_stage_options()));
+    ASSERT_TRUE(first.response.ok);
+    ASSERT_TRUE(service.activate(
+        make_activation_input(first.response, JsPublishOperation::PackageActivate),
+        make_activation_options()).response.ok);
+    JsLivePackagePointerResult live_pointer =
+        live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    const std::string first_live_checksum = live_pointer.pointer.current_live_checksum;
+    JsPublishEndpointServiceResult second = service.stage(
+        make_stage_input(make_package(30, 3001, "return false"),
+            make_stage_options(first_live_checksum), first_live_checksum));
+    ASSERT_TRUE(second.response.ok);
+    ASSERT_TRUE(service.activate(
+        make_activation_input(second.response, JsPublishOperation::PackageActivate),
+        make_activation_options(first_live_checksum))
+                    .response.ok);
+    live_pointer = live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    const std::string second_live_checksum = live_pointer.pointer.current_live_checksum;
+    JsPublishActivationOptions options = make_activation_options(second_live_checksum);
+    options.live_pointer_audit_id = "audit:rollback";
+    options.durable_audit_precondition_ok = false;
+    JsPublishStagedRequestAssemblyInput rollback_input =
+        make_activation_input(first.response, JsPublishOperation::PackageRollbackOwn);
+    rollback_input.expected_live_checksum = second_live_checksum;
+
+    JsPublishEndpointServiceResult rollback = service.rollback(rollback_input, options);
+
+    EXPECT_FALSE(rollback.response.ok);
+    EXPECT_EQ(500, rollback.response.http_status);
+    EXPECT_EQ("rollback.audit-precondition-failed", rollback.response.reason_code);
+    EXPECT_TRUE(rollback.response.audit_id.empty());
+    live_pointer = live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    EXPECT_EQ(second.response.package_version_id, live_pointer.pointer.package_version_id);
+    EXPECT_TRUE(live_store.find_record(first.response.package_id,
+                         first.response.package_version_id)
+                    .ok);
+}
+
+TEST(JsPublishEndpointService,
+    RollbackAuditPreconditionFailureTakesPrecedenceOverLivePointerConflict)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, internal_validation_options());
+    JsPublishEndpointServiceResult first = service.stage(
+        make_stage_input(make_package(30, 3001, "return true"), make_stage_options()));
+    ASSERT_TRUE(first.response.ok);
+    ASSERT_TRUE(service.activate(
+        make_activation_input(first.response, JsPublishOperation::PackageActivate),
+        make_activation_options()).response.ok);
+    JsLivePackagePointerResult live_pointer =
+        live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    const std::string first_live_checksum = live_pointer.pointer.current_live_checksum;
+    JsPublishEndpointServiceResult second = service.stage(
+        make_stage_input(make_package(30, 3001, "return false"),
+            make_stage_options(first_live_checksum), first_live_checksum));
+    ASSERT_TRUE(second.response.ok);
+    ASSERT_TRUE(service.activate(
+        make_activation_input(second.response, JsPublishOperation::PackageActivate),
+        make_activation_options(first_live_checksum))
+                    .response.ok);
+    live_pointer = live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    const std::string second_live_checksum = live_pointer.pointer.current_live_checksum;
+    JsPublishEndpointServiceResult third = service.stage(
+        make_stage_input(make_package(30, 3001, "return ctx.self.level > 10"),
+            make_stage_options(second_live_checksum), second_live_checksum));
+    ASSERT_TRUE(third.response.ok);
+    ASSERT_TRUE(service.activate(
+        make_activation_input(third.response, JsPublishOperation::PackageActivate),
+        make_activation_options(second_live_checksum))
+                    .response.ok);
+    live_pointer = live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    const std::string third_live_checksum = live_pointer.pointer.current_live_checksum;
+    ASSERT_NE(second_live_checksum, third_live_checksum);
+    JsPublishActivationOptions options = make_activation_options(second_live_checksum);
+    options.live_pointer_audit_id = "audit:rollback";
+    options.durable_audit_precondition_ok = false;
+    JsPublishStagedRequestAssemblyInput rollback_input =
+        make_activation_input(first.response, JsPublishOperation::PackageRollbackOwn);
+    rollback_input.expected_live_checksum = second_live_checksum;
+
+    JsPublishEndpointServiceResult rollback = service.rollback(rollback_input, options);
+
+    EXPECT_FALSE(rollback.response.ok);
+    EXPECT_EQ(500, rollback.response.http_status);
+    EXPECT_EQ("rollback.audit-precondition-failed", rollback.response.reason_code);
+    EXPECT_TRUE(rollback.response.package_id.empty());
+    EXPECT_TRUE(rollback.response.package_version_id.empty());
+    EXPECT_TRUE(rollback.response.staged_digest.empty());
+    EXPECT_TRUE(rollback.response.live_checksum.empty());
+    live_pointer = live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    EXPECT_EQ(third.response.package_version_id, live_pointer.pointer.package_version_id);
 }
 
 TEST(JsPublishEndpointService, RollbackRejectsActivateOperation)

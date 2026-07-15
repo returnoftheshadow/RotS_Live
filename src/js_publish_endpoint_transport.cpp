@@ -388,6 +388,7 @@ JsPublishActivationOptions activation_options_from_context(
     options.assembly_options.expected_workspace_id = context.expected_workspace_id;
     options.assembly_options.current_live_checksum = context.current_live_checksum;
     options.allow_live_pointer_update = context.allow_live_pointer_update;
+    options.durable_audit_precondition_ok = !context.audit_id.empty();
     options.applied_at_epoch_seconds = context.applied_at_epoch_seconds;
     options.live_pointer_audit_id = context.audit_id;
     options.persist_live_store_path = context.live_store_persistence_path;

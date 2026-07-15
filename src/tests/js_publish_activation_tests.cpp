@@ -106,6 +106,7 @@ JsPublishActivationOptions make_options(const std::string &current_live = "live:
     options.assembly_options.expected_workspace_id = "workspace:main";
     options.assembly_options.current_live_checksum = current_live;
     options.allow_live_pointer_update = true;
+    options.durable_audit_precondition_ok = true;
     options.applied_at_epoch_seconds = 200000;
     options.live_pointer_audit_id = "audit:activate";
     return options;
@@ -205,6 +206,111 @@ TEST(JsPublishActivation, AppliesAuthorizedActivationIntoLivePointerStore) {
     EXPECT_EQ(js_live_package_current_checksum_for_identity(record.identity),
               result.live_pointer_result.pointer.current_live_checksum);
     EXPECT_EQ("audit:activate", result.live_pointer_result.pointer.load_audit_id);
+}
+
+TEST(JsPublishActivation, AuditPreconditionFailureDoesNotMutateLiveStore) {
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord record = stage_package(repository, make_package(), make_stage_options());
+    JsPublishActivationOptions options = make_options();
+    options.durable_audit_precondition_ok = false;
+
+    JsPublishActivationResult result = js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(record), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(result.authorized);
+    EXPECT_FALSE(result.applied);
+    EXPECT_TRUE(has_code(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed));
+    EXPECT_FALSE(result.live_pointer_result.ok);
+    EXPECT_EQ(0u, live_store.package_record_count());
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishActivation, DefaultOptionsRequireDurableAuditPrecondition) {
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord record = stage_package(repository, make_package(), make_stage_options());
+    JsPublishActivationOptions options = make_options();
+    options.durable_audit_precondition_ok = JsPublishActivationOptions().durable_audit_precondition_ok;
+
+    JsPublishActivationResult result = js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(record), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_FALSE(result.applied);
+    EXPECT_TRUE(has_code(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed));
+    EXPECT_EQ(0u, live_store.package_record_count());
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishActivation, AuditPreconditionFailureDoesNotReplaceExistingLivePointer) {
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord first =
+        stage_package(repository, make_package(3001, "return true"), make_stage_options());
+    ASSERT_TRUE(js_publish_apply_staged_package_activation(repository, live_store,
+                                                           make_input(first), make_options())
+                    .ok);
+    const std::string first_live_checksum =
+        js_live_package_current_checksum_for_identity(first.identity);
+    JsStagedPackageRecord second =
+        stage_package(repository, make_package(3001, "return false"),
+                      make_stage_options("account:builder", first_live_checksum));
+    JsPublishActivationOptions options = make_options(first_live_checksum);
+    options.durable_audit_precondition_ok = false;
+
+    JsPublishActivationResult result = js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(second), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_FALSE(result.applied);
+    EXPECT_TRUE(has_code(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed));
+    EXPECT_EQ(1u, live_store.package_record_count());
+    EXPECT_EQ(1u, live_store.live_pointer_count());
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer(first.identity.zone, first.identity.host, first.identity.vnum);
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(first.identity.package_version_id, pointer.pointer.package_version_id);
+    EXPECT_FALSE(live_store.find_record(second.identity.package_id,
+                                        second.identity.package_version_id)
+                     .ok);
+}
+
+TEST(JsPublishActivation, AuditPreconditionFailureTakesPrecedenceOverLivePointerConflict) {
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord first =
+        stage_package(repository, make_package(3001, "return true"), make_stage_options());
+    ASSERT_TRUE(js_publish_apply_staged_package_activation(repository, live_store,
+                                                           make_input(first), make_options())
+                    .ok);
+    const std::string first_live_checksum =
+        js_live_package_current_checksum_for_identity(first.identity);
+    JsStagedPackageRecord second =
+        stage_package(repository, make_package(3001, "return false"),
+                      make_stage_options("account:builder", first_live_checksum));
+    ASSERT_TRUE(js_publish_apply_staged_package_activation(repository, live_store,
+                                                           make_input(second),
+                                                           make_options(first_live_checksum))
+                    .ok);
+    JsStagedPackageRecord third =
+        stage_package(repository, make_package(3001, "return ctx.self.level > 10"),
+                      make_stage_options("account:builder", first_live_checksum));
+    JsPublishActivationOptions options = make_options(first_live_checksum);
+    options.durable_audit_precondition_ok = false;
+
+    JsPublishActivationResult result = js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(third), options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_TRUE(has_code(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed));
+    EXPECT_FALSE(has_code(result, JsPublishActivationDiagnosticCode::LivePointerConflict));
+    EXPECT_FALSE(result.live_pointer_result.ok);
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer(second.identity.zone, second.identity.host, second.identity.vnum);
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(second.identity.package_version_id, pointer.pointer.package_version_id);
 }
 
 TEST(JsPublishActivation, PersistsLiveStoreSnapshotAfterSuccessfulActivation) {
@@ -539,6 +645,9 @@ TEST(JsPublishActivation, DiagnosticsAreBoundedAndHaveStableNames) {
     EXPECT_STREQ("live-update-disabled",
                  js_publish_activation_diagnostic_code_name(
                      JsPublishActivationDiagnosticCode::LiveUpdateDisabled));
+    EXPECT_STREQ("audit-precondition-failed",
+                 js_publish_activation_diagnostic_code_name(
+                     JsPublishActivationDiagnosticCode::AuditPreconditionFailed));
     EXPECT_STREQ("live-pointer-conflict",
                  js_publish_activation_diagnostic_code_name(
                      JsPublishActivationDiagnosticCode::LivePointerConflict));

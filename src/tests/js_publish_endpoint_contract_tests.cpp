@@ -106,6 +106,7 @@ JsPublishActivationOptions make_activation_options(const std::string &current_li
     options.assembly_options.expected_workspace_id = "workspace:main";
     options.assembly_options.current_live_checksum = current_live;
     options.allow_live_pointer_update = true;
+    options.durable_audit_precondition_ok = true;
     options.applied_at_epoch_seconds = 200000;
     options.live_pointer_audit_id = "audit:activate";
     return options;
@@ -324,6 +325,55 @@ TEST(JsPublishEndpointContract, MapsMissingScopeWithoutLeakingMetadata)
     EXPECT_TRUE(response.staged_digest.empty());
     EXPECT_TRUE(response.audit_id.empty());
     EXPECT_TRUE(diagnostic_contains(response, "required publish scope is missing"));
+}
+
+TEST(JsPublishEndpointContract, MapsActivationAuditPreconditionFailureToServerFailure)
+{
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord record =
+        stage_package(repository, make_package(), make_stage_options());
+    JsPublishActivationOptions options = make_activation_options();
+    options.durable_audit_precondition_ok = false;
+
+    JsPublishActivationResult result = js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(record, JsPublishOperation::PackageActivate), options);
+    JsPublishEndpointResponse response = js_publish_endpoint_activation_response(result);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(500, response.http_status);
+    EXPECT_EQ("activate.audit-precondition-failed", response.reason_code);
+    EXPECT_TRUE(response.package_id.empty());
+    EXPECT_TRUE(response.package_version_id.empty());
+    EXPECT_TRUE(response.staged_digest.empty());
+    EXPECT_TRUE(response.live_checksum.empty());
+    EXPECT_TRUE(response.audit_id.empty());
+    EXPECT_TRUE(diagnostic_contains(response, "publish audit precondition failed"));
+}
+
+TEST(JsPublishEndpointContract, MapsRollbackAuditPreconditionFailureToServerFailure)
+{
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageRecord record =
+        stage_package(repository, make_package(), make_stage_options());
+    JsPublishActivationOptions options = make_activation_options();
+    options.durable_audit_precondition_ok = false;
+
+    JsPublishActivationResult result = js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(record, JsPublishOperation::PackageRollbackOwn),
+        options);
+    JsPublishEndpointResponse response = js_publish_endpoint_rollback_response(result);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(500, response.http_status);
+    EXPECT_EQ("rollback.audit-precondition-failed", response.reason_code);
+    EXPECT_TRUE(response.package_id.empty());
+    EXPECT_TRUE(response.package_version_id.empty());
+    EXPECT_TRUE(response.staged_digest.empty());
+    EXPECT_TRUE(response.live_checksum.empty());
+    EXPECT_TRUE(response.audit_id.empty());
+    EXPECT_TRUE(diagnostic_contains(response, "publish audit precondition failed"));
 }
 
 TEST(JsPublishEndpointContract, MapsCombinedMissingScopeAndPreconditionAsForbidden)

@@ -13,6 +13,7 @@ enum class JsPublishActivationDiagnosticCode {
     AssemblyFailed,
     AuthorizationFailed,
     LiveUpdateDisabled,
+    AuditPreconditionFailed,
     LivePointerConflict,
     StoreFailed,
     PointerFailed,
@@ -22,6 +23,7 @@ enum class JsPublishActivationDiagnosticCode {
 struct JsPublishActivationOptions {
     JsPublishStagedRequestAssemblyOptions assembly_options;
     bool allow_live_pointer_update = false;
+    bool durable_audit_precondition_ok = false;
     long long applied_at_epoch_seconds = 0;
     std::string live_pointer_audit_id;
     std::string persist_live_store_path;

@@ -118,6 +118,9 @@ void add_diagnostics(JsPublishEndpointResponse &response,
         case JsPublishActivationDiagnosticCode::LiveUpdateDisabled:
             response.diagnostics.push_back("live package updates are disabled");
             break;
+        case JsPublishActivationDiagnosticCode::AuditPreconditionFailed:
+            response.diagnostics.push_back("publish audit precondition failed");
+            break;
         case JsPublishActivationDiagnosticCode::LivePointerConflict:
             response.diagnostics.push_back("refresh status and retry against current live checksum");
             break;
@@ -189,6 +192,8 @@ std::string activation_failure_reason(const JsPublishActivationResult &result,
         return std::string(operation) + ".staged-package-not-found";
     if (has_activation_code(result, JsPublishActivationDiagnosticCode::LiveUpdateDisabled))
         return std::string(operation) + ".live-update-disabled";
+    if (has_activation_code(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed))
+        return std::string(operation) + ".audit-precondition-failed";
     if (has_activation_code(result, JsPublishActivationDiagnosticCode::PersistenceFailed))
         return std::string(operation) + ".persistence-failed";
     return std::string(operation) + ".rejected";
@@ -232,6 +237,8 @@ JsPublishEndpointResponse activation_response(const JsPublishActivationResult &r
     response.http_status = authorization_precondition_failed
             || has_activation_code(result, JsPublishActivationDiagnosticCode::LivePointerConflict)
         ? 409
+        : has_activation_code(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed)
+        ? 500
         : has_activation_code(result, JsPublishActivationDiagnosticCode::AuthorizationFailed)
         ? 403
         : 400;

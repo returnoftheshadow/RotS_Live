@@ -105,6 +105,7 @@ JsPublishActivationOptions make_activation_options(const std::string &current_li
     options.assembly_options.expected_workspace_id = "workspace:main";
     options.assembly_options.current_live_checksum = current_live;
     options.allow_live_pointer_update = true;
+    options.durable_audit_precondition_ok = true;
     options.applied_at_epoch_seconds = 200000;
     options.live_pointer_audit_id = "audit:activate";
     return options;

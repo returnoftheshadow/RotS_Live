@@ -606,6 +606,33 @@ TEST(JsPublishEndpointTransport, ActivatesLatestStagedPackage)
     EXPECT_EQ(200, pointer.pointer.loaded_at_epoch_seconds);
 }
 
+TEST(JsPublishEndpointTransport, ActivateMissingAuditIdFailsBeforeLiveWrite)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+    JsPublishEndpointTransportContext context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE);
+    context.audit_id.clear();
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, activate_json(status.status.package_id, status.status.staged_digest), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(500, result.http_status);
+    EXPECT_EQ("activate.audit-precondition-failed", result.reason_code);
+    EXPECT_EQ(std::string::npos, result.json.find(status.status.package_id));
+    EXPECT_EQ(std::string::npos, result.json.find(status.status.staged_digest));
+    EXPECT_EQ(std::string::npos, result.json.find("live:old"));
+    EXPECT_EQ(std::string::npos, result.json.find("audit:transport"));
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
 TEST(JsPublishEndpointTransport, ActivateRejectsDigestMismatchWithoutLiveWrite)
 {
     JsLivePackageStore live_store;
@@ -824,6 +851,34 @@ TEST(JsPublishEndpointTransport, RollbackStaleLiveConflictDoesNotWrite)
     EXPECT_EQ("rollback.stale-live-checksum", result.reason_code);
     EXPECT_NE(std::string::npos, result.json.find("js:30:character:3001"));
     EXPECT_NE(std::string::npos, result.json.find(second.live_checksum));
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(second.status.package_version_id, pointer.pointer.package_version_id);
+}
+
+TEST(JsPublishEndpointTransport, RollbackMissingAuditIdFailsBeforeLiveWrite)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ActivatedPackage first = activate_package_through_transport(
+        service, make_package("return true"), "live:old");
+    ActivatedPackage second = activate_package_through_transport(
+        service, make_package("return false"), first.live_checksum);
+    JsPublishEndpointTransportContext context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN);
+    context.audit_id.clear();
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001", second.live_checksum), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(500, result.http_status);
+    EXPECT_EQ("rollback.audit-precondition-failed", result.reason_code);
+    EXPECT_EQ(std::string::npos, result.json.find("js:30:character:3001"));
+    EXPECT_EQ(std::string::npos, result.json.find(first.status.staged_digest));
+    EXPECT_EQ(std::string::npos, result.json.find(second.live_checksum));
+    EXPECT_EQ(std::string::npos, result.json.find("audit:transport"));
     JsLivePackagePointerResult pointer =
         live_store.find_live_pointer("js:30:character:3001");
     ASSERT_TRUE(pointer.ok);

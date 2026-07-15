@@ -187,6 +187,11 @@ apply_assembled_live_package_activation(const JsStagedPackageRecord &record,
                        "Live package pointer updates are disabled for this activation request.");
         return result;
     }
+    if (!options.durable_audit_precondition_ok) {
+        add_diagnostic(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed,
+                       "Durable publish audit precondition failed before live mutation.");
+        return result;
+    }
     if (options.applied_at_epoch_seconds <= 0 || is_blank(options.live_pointer_audit_id)) {
         add_diagnostic(result, JsPublishActivationDiagnosticCode::InvalidRequest,
                        "Live package activation requires an apply timestamp and audit id.");
@@ -258,6 +263,11 @@ JsPublishActivationResult js_publish_apply_staged_package_activation(
     if (!options.allow_live_pointer_update) {
         add_diagnostic(result, JsPublishActivationDiagnosticCode::LiveUpdateDisabled,
                        "Live package pointer updates are disabled for this activation request.");
+        return result;
+    }
+    if (!options.durable_audit_precondition_ok) {
+        add_diagnostic(result, JsPublishActivationDiagnosticCode::AuditPreconditionFailed,
+                       "Durable publish audit precondition failed before live mutation.");
         return result;
     }
     if (options.applied_at_epoch_seconds <= 0 || is_blank(options.live_pointer_audit_id)) {
@@ -337,6 +347,8 @@ const char *js_publish_activation_diagnostic_code_name(JsPublishActivationDiagno
         return "authorization-failed";
     case JsPublishActivationDiagnosticCode::LiveUpdateDisabled:
         return "live-update-disabled";
+    case JsPublishActivationDiagnosticCode::AuditPreconditionFailed:
+        return "audit-precondition-failed";
     case JsPublishActivationDiagnosticCode::LivePointerConflict:
         return "live-pointer-conflict";
     case JsPublishActivationDiagnosticCode::StoreFailed:
