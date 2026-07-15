@@ -143,6 +143,7 @@ void expect_failed_empty_snapshot(const JsLivePackageStorePersistenceLoadResult 
     EXPECT_FALSE(result.ok);
     EXPECT_TRUE(result.snapshot.records.empty());
     EXPECT_TRUE(result.snapshot.live_pointers.empty());
+    EXPECT_TRUE(result.snapshot.prior_live_pointers.empty());
     if (!forbidden_diagnostic_text.empty()) {
         for (const JsLivePackageStorePersistenceDiagnostic &diagnostic : result.diagnostics)
             EXPECT_EQ(std::string::npos, diagnostic.message.find(forbidden_diagnostic_text));
@@ -347,7 +348,7 @@ TEST(JsLivePackageStorePersistence, RejectsPersistenceResourceLimitExcesses) {
     std::string json =
         js_live_package_store_snapshot_to_json(make_snapshot("return '" + source_sentinel + "'"));
     const std::string record = slice_between(json, "\"records\":[", "],\"live_pointers\"");
-    const std::string pointer = slice_between(json, "\"live_pointers\":[", "]}");
+    const std::string pointer = slice_between(json, "\"live_pointers\":[", "],\"prior_live_pointers\"");
     std::string too_many_records = "{\"schema_version\":1,\"records\":[" +
         repeat_json_value(record, 130) + "],\"live_pointers\":[" + pointer + "]}";
     std::string too_many_pointers = "{\"schema_version\":1,\"records\":[" + record +

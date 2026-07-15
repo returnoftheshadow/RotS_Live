@@ -793,6 +793,12 @@ std::string js_live_package_store_snapshot_to_json(const JsLivePackageStoreSnaps
             out += ",";
         append_pointer(out, snapshot.live_pointers[i]);
     }
+    out += "],\"prior_live_pointers\":[";
+    for (std::size_t i = 0; i < snapshot.prior_live_pointers.size(); ++i) {
+        if (i > 0)
+            out += ",";
+        append_pointer(out, snapshot.prior_live_pointers[i]);
+    }
     out += "]}";
     return out;
 }
@@ -810,6 +816,7 @@ js_live_package_store_snapshot_from_json(const std::string &json) {
     bool saw_schema_version = false;
     bool saw_records = false;
     bool saw_live_pointers = false;
+    bool saw_prior_live_pointers = false;
     std::string error;
     if (!reader.parse_root_object([&](const std::string &key, json_utils::JsonReader *nested,
                                       std::string *nested_error) {
@@ -862,6 +869,29 @@ js_live_package_store_snapshot_from_json(const std::string &json) {
                     if (!parse_pointer(pointer_reader, &pointer, pointer_error))
                         return false;
                     candidate.live_pointers.push_back(pointer);
+                    return true;
+                }, nested_error);
+            }
+            if (key == "prior_live_pointers") {
+                if (saw_prior_live_pointers) {
+                    if (nested_error)
+                        *nested_error =
+                            "Live package store JSON has duplicate prior_live_pointers.";
+                    return false;
+                }
+                saw_prior_live_pointers = true;
+                return nested->parse_array([&](json_utils::JsonReader *pointer_reader,
+                                               std::string *pointer_error) {
+                    if (candidate.prior_live_pointers.size() >= MaxPersistedRecords) {
+                        if (pointer_error)
+                            *pointer_error =
+                                "Prior live package pointer limit exceeded during JSON load.";
+                        return false;
+                    }
+                    JsLivePackagePointer pointer;
+                    if (!parse_pointer(pointer_reader, &pointer, pointer_error))
+                        return false;
+                    candidate.prior_live_pointers.push_back(pointer);
                     return true;
                 }, nested_error);
             }

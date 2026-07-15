@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: record the confirmed publish/admin policy decisions in `FEATURES.md` and `WIP.md`.
-- Next slice: add server-side rollback policy/retention coverage for own-vs-admin rollback and the last-20 retained-version rule.
+- Active slice: add live-store retained-history tracking and enforce the last-20 prior package retention rule per script target.
+- Next slice: replace rollback's latest-staged behavior with retained prior-live selection, including own-vs-admin target-owner authorization.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -57,7 +57,8 @@
   - [x] Server publish context resolver slice: derive `JsPublishEndpointTransportContext` publish/status target evidence from trusted game state, including parsed operation target, zone/vnum/host resolution, zone owner ids, all-builders owner sentinel, and current live checksum lookup.
   - [x] Server raw ingress transport slice: combine bounded HTTP parsing, server publish-context resolution, and `js_builder_http_ingress` dispatch behind one raw-request server boundary with loaded-world catalog support.
   - [x] Server descriptor ingress transport slice: wire the raw BuilderClient HTTP server-transport boundary into the actual game descriptor/socket loop, keep BuilderClient traffic separate from live port `3791`, and preserve the Rust proxy trust boundary.
-  - [ ] Rollback policy/retention slice: add server-side coverage and implementation for own-vs-admin rollback decisions and retaining the last 20 prior live package versions per script target.
+  - [x] Rollback retention foundation slice: add live-store retained prior-live pointer history, persist/hydrate it, and enforce current plus last 20 prior package records per script target.
+  - [ ] Retained rollback selection slice: replace rollback's latest-staged behavior with retained prior-live version lookup by target checksum/version, and derive own-vs-admin authorization from the selected retained record owner.
   - [ ] Audit precondition slice: make activation/rollback fail before live-state mutation when the durable audit step is unavailable or fails.
   - [ ] Server identity binding slice: reject activation/rollback of staged or persisted records that do not match the current workspace/server identity, while allowing restart when persisted state matches.
   - [ ] Runtime execution test slice: after publish/admin hardening, publish JavaScript through the server path and execute it through real game trigger call sites.
@@ -66,6 +67,13 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added live-store prior live pointer history so activation replacement records the previous live pointer as rollback-retention metadata instead of relying on package record insertion order.
+  - Enforced the confirmed retention policy of current live plus the last 20 prior live package records per script target, without pruning unrelated slots.
+  - Extended live-store snapshots and JSON persistence with optional `prior_live_pointers`, and hydration now normalizes over-retained persisted history back to the configured retention window.
+  - Added focused regressions for current-plus-20 retention, exact off-by-one retention, unrelated-slot preservation, and restart/hydration pruning of over-retained history.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings confirmed that actual rollback still incorrectly selects latest staged packages; that is now explicitly the next slice rather than hidden inside this retention foundation.
+  - Validation passed for this retention foundation slice: focused `JsLivePackageStore.*:JsLivePackageStorePersistence.*` tests and full `make test -j16` (1239 tests).
+  - Next slice after this commit: replace rollback's latest-staged behavior with retained prior-live selection and target-owner authorization.
   - Added `JsBuilderHttpServerTransport.RejectsActivationWhenTokenMissingActivateScope`, which stages through the trusted server transport with a token that lacks activate scope, then verifies activation fails with `activate.missing-scope`, writes no live pointer, and does not expose package id, staged digest, live checksum, or bearer token.
   - Validation passed for this missing-scope activation fixture slice: `cmake --build build --target ageland_tests -j16`, focused `JsBuilderHttpServerTransport.RejectsActivationWhenTokenMissingActivateScope:JsBuilderHttpServerTransport.RejectsActivationWhenZoneAuthorityIsRevoked:JsBuilderHttpServerTransport.RejectsActivationBaseChecksumMismatchWithoutLivePointer`, full `make test -j16` (1235 tests), and `git diff --check`.
   - Next slice after this commit: inspect the remaining publish/admin gaps and pick the next small server-complete item.

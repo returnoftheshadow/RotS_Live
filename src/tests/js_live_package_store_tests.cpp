@@ -81,6 +81,14 @@ JsLivePackagePointer make_pointer(const JsStagedPackageRecord &record) {
     return pointer;
 }
 
+JsLivePackagePointerResult activate_record(JsLivePackageStore &store,
+                                           const JsStagedPackageRecord &record,
+                                           const std::string &expected_previous = "") {
+    JsLivePackagePointer pointer = make_pointer(record);
+    pointer.expected_previous_live_checksum = expected_previous;
+    return store.activate_staged_record_pointer(record, pointer);
+}
+
 JsScriptRegistryReplaceOptions internal_registry_options() {
     JsScriptRegistryReplaceOptions options;
     options.validation_options.mode = JsScriptPackageValidationMode::InternalValidationOnly;
@@ -292,6 +300,140 @@ TEST(JsLivePackageStore, ReplacesLivePointerForSameSlot) {
         store.find_live_pointer(first.identity.zone, first.identity.host, first.identity.vnum);
     ASSERT_TRUE(current.ok);
     EXPECT_EQ(second.identity.package_version_id, current.pointer.package_version_id);
+}
+
+TEST(JsLivePackageStore, RetainsCurrentAndTwentyPriorRecordsForLiveSlot) {
+    JsLivePackageStore store;
+    std::vector<JsStagedPackageRecord> records;
+    std::string expected_previous;
+
+    for (int index = 0; index < 22; ++index) {
+        JsStagedPackageRecord record =
+            stage_record(3001, "return " + std::to_string(index), expected_previous.empty()
+                    ? "live:old"
+                    : expected_previous);
+        JsLivePackagePointerResult result = activate_record(store, record, expected_previous);
+        ASSERT_TRUE(result.ok);
+        expected_previous = result.pointer.current_live_checksum;
+        records.push_back(record);
+    }
+
+    EXPECT_EQ(21u, store.package_record_count());
+    EXPECT_TRUE(has_code(
+        store.find_record(records.front().identity.package_id,
+            records.front().identity.package_version_id),
+        JsLivePackageStoreDiagnosticCode::PackageRecordNotFound));
+    for (std::size_t index = 1; index < records.size(); ++index) {
+        EXPECT_TRUE(store.find_record(records[index].identity.package_id,
+                             records[index].identity.package_version_id)
+                        .ok)
+            << "expected retained version index " << index;
+    }
+    JsLivePackagePointerResult current =
+        store.find_live_pointer(records.back().identity.zone, records.back().identity.host,
+            records.back().identity.vnum);
+    ASSERT_TRUE(current.ok);
+    EXPECT_EQ(records.back().identity.package_version_id, current.pointer.package_version_id);
+}
+
+TEST(JsLivePackageStore, RetentionKeepsExactlyTwentyPriorPlusCurrent) {
+    JsLivePackageStore store;
+    std::vector<JsStagedPackageRecord> records;
+    std::string expected_previous;
+
+    for (int index = 0; index < 21; ++index) {
+        JsStagedPackageRecord record =
+            stage_record(3001, "return " + std::to_string(index), expected_previous.empty()
+                    ? "live:old"
+                    : expected_previous);
+        JsLivePackagePointerResult result = activate_record(store, record, expected_previous);
+        ASSERT_TRUE(result.ok);
+        expected_previous = result.pointer.current_live_checksum;
+        records.push_back(record);
+    }
+
+    ASSERT_EQ(21u, store.package_record_count());
+    EXPECT_TRUE(store.find_record(records.front().identity.package_id,
+                         records.front().identity.package_version_id)
+                    .ok);
+
+    JsStagedPackageRecord overflow =
+        stage_record(3001, "return 21", expected_previous);
+    ASSERT_TRUE(activate_record(store, overflow, expected_previous).ok);
+
+    EXPECT_EQ(21u, store.package_record_count());
+    EXPECT_TRUE(has_code(
+        store.find_record(records.front().identity.package_id,
+            records.front().identity.package_version_id),
+        JsLivePackageStoreDiagnosticCode::PackageRecordNotFound));
+    EXPECT_TRUE(store.find_record(records[1].identity.package_id,
+                         records[1].identity.package_version_id)
+                    .ok);
+    EXPECT_TRUE(store.find_record(overflow.identity.package_id,
+                         overflow.identity.package_version_id)
+                    .ok);
+}
+
+TEST(JsLivePackageStore, RetentionDoesNotRemoveUnrelatedSlotRecords) {
+    JsLivePackageStore store;
+    JsStagedPackageRecord unrelated = stage_record(3002, "return 2002");
+    ASSERT_TRUE(activate_record(store, unrelated).ok);
+    std::string expected_previous;
+
+    for (int index = 0; index < 22; ++index) {
+        JsStagedPackageRecord record =
+            stage_record(3001, "return " + std::to_string(index), expected_previous.empty()
+                    ? "live:old"
+                    : expected_previous);
+        JsLivePackagePointerResult result = activate_record(store, record, expected_previous);
+        ASSERT_TRUE(result.ok);
+        expected_previous = result.pointer.current_live_checksum;
+    }
+
+    EXPECT_EQ(22u, store.package_record_count());
+    EXPECT_TRUE(store.find_record(unrelated.identity.package_id,
+                         unrelated.identity.package_version_id)
+                    .ok);
+    EXPECT_TRUE(store.find_live_pointer(unrelated.identity.zone, unrelated.identity.host,
+                         unrelated.identity.vnum)
+                    .ok);
+}
+
+TEST(JsLivePackageStore, HydrationPrunesOverRetainedPriorLiveHistory) {
+    JsLivePackageStoreOptions source_options;
+    source_options.retained_prior_package_records_per_slot = 128;
+    JsLivePackageStore source(source_options);
+    std::vector<JsStagedPackageRecord> records;
+    std::string expected_previous;
+
+    for (int index = 0; index < 22; ++index) {
+        JsStagedPackageRecord record =
+            stage_record(3001, "return " + std::to_string(index), expected_previous.empty()
+                    ? "live:old"
+                    : expected_previous);
+        JsLivePackagePointerResult result = activate_record(source, record, expected_previous);
+        ASSERT_TRUE(result.ok);
+        expected_previous = result.pointer.current_live_checksum;
+        records.push_back(record);
+    }
+
+    ASSERT_EQ(22u, source.package_record_count());
+    JsLivePackageStore target;
+    JsLivePackageStoreHydrationResult hydrated =
+        target.hydrate_from_snapshot(source.export_snapshot());
+
+    ASSERT_TRUE(hydrated.ok);
+    EXPECT_EQ(21u, target.package_record_count());
+    EXPECT_TRUE(has_code(
+        target.find_record(records.front().identity.package_id,
+            records.front().identity.package_version_id),
+        JsLivePackageStoreDiagnosticCode::PackageRecordNotFound));
+    EXPECT_TRUE(target.find_record(records[1].identity.package_id,
+                         records[1].identity.package_version_id)
+                    .ok);
+    EXPECT_TRUE(target.find_record(records.back().identity.package_id,
+                         records.back().identity.package_version_id)
+                    .ok);
 }
 
 TEST(JsLivePackageStore, RejectsStaleLivePointerReplacement) {

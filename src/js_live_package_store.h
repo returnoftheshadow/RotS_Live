@@ -21,6 +21,7 @@ enum class JsLivePackageStoreDiagnosticCode {
 struct JsLivePackageStoreOptions {
     std::size_t maximum_package_records = 128;
     std::size_t maximum_live_pointers = 128;
+    std::size_t retained_prior_package_records_per_slot = 20;
 };
 
 struct JsLivePackageRecord {
@@ -76,6 +77,7 @@ struct JsLivePackageStoreSnapshot {
     // Source-bearing persistence/dispatch input; endpoint/status code must use redacted DTOs.
     std::vector<JsLivePackageRecord> records;
     std::vector<JsLivePackagePointer> live_pointers;
+    std::vector<JsLivePackagePointer> prior_live_pointers;
 };
 
 struct JsLivePackageStoreHydrationResult {
@@ -116,6 +118,7 @@ class JsLivePackageStore {
     JsLivePackageStoreOptions m_options;
     std::vector<JsLivePackageRecord> m_records;
     std::vector<JsLivePackagePointer> m_live_pointers;
+    std::vector<JsLivePackagePointer> m_prior_live_pointers;
 };
 
 const char *js_live_package_store_diagnostic_code_name(JsLivePackageStoreDiagnosticCode code);

@@ -114,6 +114,11 @@ bool same_live_slot(const JsLivePackagePointer &left, const JsLivePackagePointer
     return left.zone == right.zone && left.host == right.host && left.vnum == right.vnum;
 }
 
+bool same_record_slot(const JsLivePackageRecord &record, const JsLivePackagePointer &pointer) {
+    return record.identity.zone == pointer.zone && record.identity.host == pointer.host &&
+           record.identity.vnum == pointer.vnum;
+}
+
 JsLivePackageRecord live_record_from_staged(const JsStagedPackageRecord &record) {
     JsLivePackageRecord live_record;
     live_record.identity = record.identity;
@@ -225,6 +230,90 @@ void copy_record_diagnostics(JsLivePackagePointerResult &result,
                              const JsLivePackageStoreRecordResult &record_result) {
     for (const JsLivePackageStoreDiagnostic &diagnostic : record_result.diagnostics)
         add_diagnostic(result, diagnostic.code, diagnostic.message);
+}
+
+bool pointer_references_record(const JsLivePackagePointer &pointer,
+                               const JsLivePackageRecord &record) {
+    return record.identity.zone == pointer.zone && record.identity.host == pointer.host &&
+           record.identity.vnum == pointer.vnum &&
+           record.identity.package_id == pointer.package_id &&
+           record.identity.package_version_id == pointer.package_version_id &&
+           record.identity.canonical_digest == pointer.staged_digest;
+}
+
+bool same_pointer_version(const JsLivePackagePointer &left, const JsLivePackagePointer &right) {
+    return left.zone == right.zone && left.host == right.host && left.vnum == right.vnum &&
+           left.package_id == right.package_id &&
+           left.package_version_id == right.package_version_id &&
+           left.staged_digest == right.staged_digest;
+}
+
+bool record_is_referenced_by_pointer(const JsLivePackageRecord &record,
+                                     const std::vector<JsLivePackagePointer> &pointers) {
+    return std::any_of(pointers.begin(), pointers.end(), [&](const JsLivePackagePointer &pointer) {
+        return pointer_references_record(pointer, record);
+    });
+}
+
+void remember_prior_live_pointer(std::vector<JsLivePackagePointer> &prior_pointers,
+                                 const JsLivePackagePointer &current_pointer,
+                                 std::size_t retained_prior_limit) {
+    if (retained_prior_limit == 0)
+        return;
+    prior_pointers.erase(
+        std::remove_if(prior_pointers.begin(), prior_pointers.end(),
+                       [&](const JsLivePackagePointer &pointer) {
+                           return same_pointer_version(pointer, current_pointer);
+                       }),
+        prior_pointers.end());
+    prior_pointers.push_back(current_pointer);
+}
+
+void enforce_prior_pointer_retention(std::vector<JsLivePackagePointer> &prior_pointers,
+                                     const JsLivePackagePointer &current_pointer,
+                                     std::size_t retained_prior_limit) {
+    std::size_t retained = 0;
+    for (std::vector<JsLivePackagePointer>::reverse_iterator pointer = prior_pointers.rbegin();
+         pointer != prior_pointers.rend();) {
+        if (!same_live_slot(*pointer, current_pointer)) {
+            ++pointer;
+            continue;
+        }
+        if (same_pointer_version(*pointer, current_pointer)) {
+            pointer = std::vector<JsLivePackagePointer>::reverse_iterator(
+                prior_pointers.erase(std::next(pointer).base()));
+            continue;
+        }
+        ++retained;
+        if (retained <= retained_prior_limit) {
+            ++pointer;
+            continue;
+        }
+        pointer = std::vector<JsLivePackagePointer>::reverse_iterator(
+            prior_pointers.erase(std::next(pointer).base()));
+    }
+}
+
+void remove_unreferenced_slot_records(std::vector<JsLivePackageRecord> &records,
+                                      const std::vector<JsLivePackagePointer> &current_pointers,
+                                      const std::vector<JsLivePackagePointer> &prior_pointers,
+                                      const JsLivePackagePointer &current_pointer) {
+    records.erase(
+        std::remove_if(records.begin(), records.end(), [&](const JsLivePackageRecord &record) {
+            return same_record_slot(record, current_pointer) &&
+                   !record_is_referenced_by_pointer(record, current_pointers) &&
+                   !record_is_referenced_by_pointer(record, prior_pointers);
+        }),
+        records.end());
+}
+
+void enforce_live_history_retention(std::vector<JsLivePackageRecord> &records,
+                                    std::vector<JsLivePackagePointer> &current_pointers,
+                                    std::vector<JsLivePackagePointer> &prior_pointers,
+                                    const JsLivePackagePointer &current_pointer,
+                                    std::size_t retained_prior_limit) {
+    enforce_prior_pointer_retention(prior_pointers, current_pointer, retained_prior_limit);
+    remove_unreferenced_slot_records(records, current_pointers, prior_pointers, current_pointer);
 }
 
 } // namespace
@@ -347,6 +436,9 @@ JsLivePackageStore::activate_staged_record_pointer(const JsStagedPackageRecord &
         JsLivePackagePointer stored_pointer = pointer;
         stored_pointer.current_live_checksum = derived_live_checksum;
         m_live_pointers.push_back(stored_pointer);
+        enforce_live_history_retention(m_records, m_live_pointers, m_prior_live_pointers,
+                                       stored_pointer,
+                                       m_options.retained_prior_package_records_per_slot);
         result.ok = true;
         result.inserted = true;
         result.pointer = stored_pointer;
@@ -361,11 +453,16 @@ JsLivePackageStore::activate_staged_record_pointer(const JsStagedPackageRecord &
         return result;
     }
 
+    remember_prior_live_pointer(m_prior_live_pointers, *existing,
+                                m_options.retained_prior_package_records_per_slot);
     if (insert_record)
         m_records.push_back(candidate);
     JsLivePackagePointer stored_pointer = pointer;
     stored_pointer.current_live_checksum = derived_live_checksum;
     *existing = stored_pointer;
+    enforce_live_history_retention(m_records, m_live_pointers, m_prior_live_pointers,
+                                   stored_pointer,
+                                   m_options.retained_prior_package_records_per_slot);
     result.ok = true;
     result.replaced = true;
     result.pointer = stored_pointer;
@@ -496,6 +593,7 @@ JsLivePackageStoreSnapshot JsLivePackageStore::export_snapshot() const {
     JsLivePackageStoreSnapshot snapshot;
     snapshot.records = m_records;
     snapshot.live_pointers = m_live_pointers;
+    snapshot.prior_live_pointers = m_prior_live_pointers;
     return snapshot;
 }
 
@@ -510,6 +608,11 @@ JsLivePackageStore::hydrate_from_snapshot(const JsLivePackageStoreSnapshot &snap
     if (snapshot.live_pointers.size() > m_options.maximum_live_pointers) {
         add_diagnostic(result, JsLivePackageStoreDiagnosticCode::LivePointerLimitExceeded,
                        "Live package pointer limit exceeded during hydration.");
+        return result;
+    }
+    if (snapshot.prior_live_pointers.size() > m_options.maximum_package_records) {
+        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::PackageRecordLimitExceeded,
+                       "Prior live package pointer limit exceeded during hydration.");
         return result;
     }
 
@@ -542,16 +645,62 @@ JsLivePackageStore::hydrate_from_snapshot(const JsLivePackageStoreSnapshot &snap
     }
 
     for (const JsLivePackagePointer &pointer : snapshot.live_pointers) {
-        JsLivePackagePointerResult pointer_result = candidate.load_live_pointer(pointer);
-        if (!pointer_result.ok) {
+        JsLivePackagePointerResult pointer_result;
+        if (!validate_live_pointer_shape(pointer_result, pointer)) {
             for (const JsLivePackageStoreDiagnostic &diagnostic : pointer_result.diagnostics)
                 add_diagnostic(result, diagnostic.code, diagnostic.message);
             return result;
         }
+        JsLivePackageStoreRecordResult record =
+            candidate.find_record(pointer.package_id, pointer.package_version_id);
+        if (!record.ok || !validate_pointer_matches_record(pointer_result, pointer, record.record)) {
+            if (!record.ok)
+                add_diagnostic(result, JsLivePackageStoreDiagnosticCode::PackageRecordNotFound,
+                               "Live pointer package record was not found.");
+            for (const JsLivePackageStoreDiagnostic &diagnostic : pointer_result.diagnostics)
+                add_diagnostic(result, diagnostic.code, diagnostic.message);
+            return result;
+        }
+        const auto existing = std::find_if(
+            candidate.m_live_pointers.begin(), candidate.m_live_pointers.end(),
+            [&](const JsLivePackagePointer &stored) { return same_live_slot(stored, pointer); });
+        if (existing != candidate.m_live_pointers.end()) {
+            add_diagnostic(result, JsLivePackageStoreDiagnosticCode::LivePointerConflict,
+                           "Hydrated live package pointers duplicate a live slot.");
+            return result;
+        }
+        candidate.m_live_pointers.push_back(pointer);
+    }
+
+    for (const JsLivePackagePointer &pointer : snapshot.prior_live_pointers) {
+        JsLivePackagePointerResult pointer_result;
+        if (!validate_live_pointer_shape(pointer_result, pointer)) {
+            for (const JsLivePackageStoreDiagnostic &diagnostic : pointer_result.diagnostics)
+                add_diagnostic(result, diagnostic.code, diagnostic.message);
+            return result;
+        }
+        JsLivePackageStoreRecordResult record =
+            candidate.find_record(pointer.package_id, pointer.package_version_id);
+        if (!record.ok || !validate_pointer_matches_record(pointer_result, pointer, record.record)) {
+            if (!record.ok)
+                add_diagnostic(result, JsLivePackageStoreDiagnosticCode::PackageRecordNotFound,
+                               "Prior live pointer package record was not found.");
+            for (const JsLivePackageStoreDiagnostic &diagnostic : pointer_result.diagnostics)
+                add_diagnostic(result, diagnostic.code, diagnostic.message);
+            return result;
+        }
+        candidate.m_prior_live_pointers.push_back(pointer);
+    }
+
+    for (const JsLivePackagePointer &pointer : candidate.m_live_pointers) {
+        enforce_live_history_retention(candidate.m_records, candidate.m_live_pointers,
+                                       candidate.m_prior_live_pointers, pointer,
+                                       candidate.m_options.retained_prior_package_records_per_slot);
     }
 
     m_records = candidate.m_records;
     m_live_pointers = candidate.m_live_pointers;
+    m_prior_live_pointers = candidate.m_prior_live_pointers;
     result.ok = true;
     result.records_loaded = m_records.size();
     result.live_pointers_loaded = m_live_pointers.size();
@@ -562,7 +711,9 @@ std::size_t JsLivePackageStore::package_record_count() const { return m_records.
 
 std::size_t JsLivePackageStore::live_pointer_count() const { return m_live_pointers.size(); }
 
-bool JsLivePackageStore::empty() const { return m_records.empty() && m_live_pointers.empty(); }
+bool JsLivePackageStore::empty() const {
+    return m_records.empty() && m_live_pointers.empty() && m_prior_live_pointers.empty();
+}
 
 const char *js_live_package_store_diagnostic_code_name(JsLivePackageStoreDiagnosticCode code) {
     switch (code) {
