@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: add the server-side BuilderClient account/session endpoint adapter so proxy login can authenticate against existing game accounts and derive immortal eligibility.
+- Next slice: add the server-side BuilderClient manifest endpoint so the proxy can fetch the authoritative JavaScript trigger/API manifest for BuilderClient typings and LSP refresh.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
@@ -23,13 +23,21 @@
   - [x] Proxy preflight/request-boundary slice: add BuilderClient API route preflight, localhost/test-port target checks, request-size/content-type/session-presence checks, and generic redacted failures.
   - [x] Proxy HTTP listener slice: wire the BuilderClient API boundary into a concrete HTTP listener with bounded header parsing, content-length enforcement before body allocation, and generic JSON responses.
   - [x] Proxy-to-game local trust slice: add proxy-to-game BuilderClient request forwarding, internal secret or equivalent trust marker, timeouts, and redacted runtime errors.
-  - [ ] Server account/session endpoint slice: add game-side BuilderClient login/session/logout endpoint support behind the proxy trust boundary, using existing account passwords and linked level `92+` immortal eligibility evidence.
+  - [x] Server account/session endpoint slice: add game-side BuilderClient login/session/logout endpoint support behind the proxy trust boundary, using existing account passwords and linked level `92+` immortal eligibility evidence.
   - [ ] Server manifest endpoint slice: expose the server-owned JavaScript trigger/API manifest through the trusted proxy route so BuilderClient typings/LSP can refresh from the authoritative contract.
   - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added `js_builder_session` as the server-side BuilderClient account login/session service boundary, separate from publish package endpoints.
+  - Reused existing account records and password verification through injectable account/password seams, with production defaults that read existing account storage by email or account name.
+  - Derived linked-character builder eligibility through the existing JavaScript publish eligibility evaluator, requiring a linked loaded immortal at level `92+`.
+  - Issued an opaque random BuilderClient session token shape and server-issued publish token metadata for future session-store insertion; publish requests must later derive metadata from server-side token lookup, never from BuilderClient JSON.
+  - Enforced password verification before blocked/unverified classification, skipped linked-character reads for failed account authentication, rejected corrupt account identities, failed closed on partial linked-character lookup, capped session TTL at 12 hours, and rejected unsafe token issuer output.
+  - Added focused tests for successful login, invalid requests, unknown/wrong password, blocked/unverified accounts, wrong-password precedence, skipped character loading on failed auth, no eligible immortal, corrupt account identity, full and partial character lookup failures, token issuer failures, unsafe token strings, TTL clamping/overflow, resolver-error redaction, token metadata scope, and opaque random token shape.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to safer auth ordering, non-raw token ids in metadata, explicit token metadata comments, TTL caps, partial lookup fail-closed behavior, and broader adversarial tests.
+  - Validation passed: `make test -j16` (1126 tests) and `git diff --check`.
   - Added proxy-to-game forwarding for BuilderClient publish operations from `/api/builder/js/{status,stage,activate,rollback}` to the game server's `/api/js-scripts/{status,stage,activate,rollback}` route surface.
   - Kept BuilderClient login, manifest, and logout routes as proxy contracts for the next server endpoint slices; they do not forward to publish routes.
   - Added an internal proxy-to-game trust marker header, `x-rots-builder-proxy-secret`, sourced from `ROTS_BUILDER_PROXY_SECRET` instead of a process-visible CLI argument.
