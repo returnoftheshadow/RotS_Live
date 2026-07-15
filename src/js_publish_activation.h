@@ -50,6 +50,12 @@ js_publish_apply_staged_package_activation(const JsStagedPackageRepository &repo
                                            const JsPublishStagedRequestAssemblyInput &input,
                                            const JsPublishActivationOptions &options = {});
 
+JsPublishActivationResult
+js_publish_apply_live_package_activation(const JsLivePackageRecord &record,
+                                         JsLivePackageStore &live_store,
+                                         const JsPublishStagedRequestAssemblyInput &input,
+                                         const JsPublishActivationOptions &options = {});
+
 const char *js_publish_activation_diagnostic_code_name(JsPublishActivationDiagnosticCode code);
 
 #endif

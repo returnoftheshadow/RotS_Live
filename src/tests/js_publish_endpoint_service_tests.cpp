@@ -439,7 +439,7 @@ TEST(JsPublishEndpointService, ActivateRejectsRollbackOperation)
     EXPECT_EQ("activate.rejected", activated.response.reason_code);
 }
 
-TEST(JsPublishEndpointService, RollbackPublishesRequestedStagedPackage)
+TEST(JsPublishEndpointService, RollbackPublishesRequestedRetainedLivePackage)
 {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, internal_validation_options());
@@ -457,18 +457,30 @@ TEST(JsPublishEndpointService, RollbackPublishesRequestedStagedPackage)
         make_stage_input(make_package(30, 3001, "return false"),
             make_stage_options(first_live_checksum), first_live_checksum));
     ASSERT_TRUE(second.response.ok);
+    ASSERT_TRUE(service.activate(
+        make_activation_input(second.response, JsPublishOperation::PackageActivate),
+        make_activation_options(first_live_checksum))
+                    .response.ok);
+    live_pointer = live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    const std::string second_live_checksum = live_pointer.pointer.current_live_checksum;
 
-    JsPublishActivationOptions options = make_activation_options(first_live_checksum);
+    JsPublishActivationOptions options = make_activation_options(second_live_checksum);
     options.live_pointer_audit_id = "audit:rollback";
-    JsPublishEndpointServiceResult rollback = service.rollback(
-        make_activation_input(second.response, JsPublishOperation::PackageRollbackOwn), options);
+    JsPublishStagedRequestAssemblyInput rollback_input =
+        make_activation_input(first.response, JsPublishOperation::PackageRollbackOwn);
+    rollback_input.expected_live_checksum = second_live_checksum;
+    JsPublishEndpointServiceResult rollback = service.rollback(rollback_input, options);
 
     EXPECT_TRUE(rollback.response.ok);
     EXPECT_EQ("rollback.accepted", rollback.response.reason_code);
     EXPECT_EQ("Rollback activated prior package.", rollback.response.message);
     EXPECT_EQ("audit:rollback", rollback.response.audit_id);
-    EXPECT_EQ(second.response.package_version_id, rollback.response.package_version_id);
+    EXPECT_EQ(first.response.package_version_id, rollback.response.package_version_id);
     EXPECT_EQ(1u, live_store.live_pointer_count());
+    live_pointer = live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    EXPECT_EQ(first.response.package_version_id, live_pointer.pointer.package_version_id);
 }
 
 TEST(JsPublishEndpointService, RollbackRejectsActivateOperation)

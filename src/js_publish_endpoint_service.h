@@ -45,6 +45,7 @@ class JsPublishEndpointService {
                                             const JsPublishActivationOptions &options);
 
     const JsStagedPackageRepository &staged_repository() const;
+    const JsLivePackageStore &live_store() const;
 
   private:
     JsPublishEndpointServiceResult with_json(const JsPublishEndpointResponse &response) const;

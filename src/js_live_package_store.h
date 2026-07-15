@@ -102,6 +102,8 @@ class JsLivePackageStore {
     JsLivePackagePointerResult find_live_pointer(const std::string &package_id) const;
     JsLivePackagePointerResult find_live_pointer(int zone, JsScriptPackageHost host,
                                                  int vnum) const;
+    JsLivePackagePointerResult find_latest_prior_live_pointer(int zone, JsScriptPackageHost host,
+                                                              int vnum) const;
 
     JsLivePackageRegistrySnapshotResult
     build_live_registry_snapshot(const JsScriptRegistryReplaceOptions &options) const;

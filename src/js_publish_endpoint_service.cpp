@@ -221,12 +221,21 @@ JsPublishEndpointService::rollback(const JsPublishStagedRequestAssemblyInput &in
         && input.operation != JsPublishOperation::PackageRollbackAny)
         return with_json(js_publish_endpoint_rollback_response(invalid_activation_request_result()));
 
+    JsLivePackageStoreRecordResult record =
+        m_live_store.find_record(input.package_id, input.package_version_id);
+    if (!record.ok)
+        return with_json(js_publish_endpoint_rollback_response(invalid_activation_request_result()));
+
     return with_json(js_publish_endpoint_rollback_response(
-        js_publish_apply_staged_package_activation(m_staged_repository, m_live_store, input,
-            options)));
+        js_publish_apply_live_package_activation(record.record, m_live_store, input, options)));
 }
 
 const JsStagedPackageRepository &JsPublishEndpointService::staged_repository() const
 {
     return m_staged_repository;
+}
+
+const JsLivePackageStore &JsPublishEndpointService::live_store() const
+{
+    return m_live_store;
 }

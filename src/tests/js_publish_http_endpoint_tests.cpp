@@ -8,7 +8,7 @@
 
 namespace {
 
-JsScriptPackage make_package()
+JsScriptPackage make_package(const std::string &body = "return true")
 {
     const JsScriptingManifestMetadata &metadata = js_scripting_manifest_metadata();
     JsScriptPackage package;
@@ -22,7 +22,7 @@ JsScriptPackage make_package()
     package.runtime_name = metadata.selected_runtime_name;
     package.runtime_version = metadata.selected_runtime_version;
     package.generated_typings_version = metadata.generated_typings_version;
-    package.compiled_javascript = "function onEnter(ctx) { return true; }";
+    package.compiled_javascript = "function onEnter(ctx) { " + body + "; }";
     package.trigger_bindings.push_back(
         { JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER, "onEnter" });
     package.compiled_javascript_checksum =
@@ -262,6 +262,36 @@ TEST(JsPublishHttpEndpoint, DispatchesActivateAndRollbackThroughRouteOperation)
 
     JsLivePackagePointerResult pointer =
         live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    const std::string first_live_checksum = pointer.pointer.current_live_checksum;
+    ASSERT_TRUE(js_publish_http_endpoint_dispatch(
+        service,
+        request("stage",
+            "{\"baseLiveChecksum\":" + quote(first_live_checksum)
+                + ",\"package\":" + package_json(make_package("return false"))
+                + "}"),
+        [&] {
+            JsPublishEndpointTransportContext context =
+                make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+            context.current_live_checksum = first_live_checksum;
+            return context;
+        }(),
+        prederived_context_options())
+                    .ok);
+    status = js_publish_latest_staged_package_status(service.staged_repository(),
+        "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+    JsPublishEndpointTransportContext second_activate_context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE);
+    second_activate_context.current_live_checksum = first_live_checksum;
+    ASSERT_TRUE(js_publish_http_endpoint_dispatch(
+        service,
+        request("activate",
+            "{\"packageId\":\"js:30:character:3001\",\"stagedDigest\":"
+                + quote(status.status.staged_digest)
+                + ",\"baseLiveChecksum\":" + quote(first_live_checksum) + "}"),
+        second_activate_context, prederived_context_options()).ok);
+    pointer = live_store.find_live_pointer("js:30:character:3001");
     ASSERT_TRUE(pointer.ok);
     JsPublishEndpointTransportContext rollback_context =
         make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN);

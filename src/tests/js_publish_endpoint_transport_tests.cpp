@@ -8,7 +8,7 @@
 
 namespace {
 
-JsScriptPackage make_package()
+JsScriptPackage make_package(const std::string &body = "return true")
 {
     const JsScriptingManifestMetadata &metadata = js_scripting_manifest_metadata();
     JsScriptPackage package;
@@ -22,7 +22,7 @@ JsScriptPackage make_package()
     package.runtime_name = metadata.selected_runtime_name;
     package.runtime_version = metadata.selected_runtime_version;
     package.generated_typings_version = metadata.generated_typings_version;
-    package.compiled_javascript = "function onEnter(ctx) { return true; }";
+    package.compiled_javascript = "function onEnter(ctx) { " + body + "; }";
     package.trigger_bindings.push_back(
         { JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER, "onEnter" });
     package.compiled_javascript_checksum = js_script_package_compiled_javascript_checksum(package);
@@ -81,6 +81,16 @@ JsPublishEndpointTransportContext make_context(unsigned scopes = JS_PUBLISH_SCOP
     context.expected_server_audience = "server:main";
     context.expected_workspace_id = "workspace:main";
     context.current_live_checksum = "live:old";
+    return context;
+}
+
+JsPublishEndpointTransportContext make_context_for_builder(unsigned scopes,
+    const std::string &builder_account_id)
+{
+    JsPublishEndpointTransportContext context = make_context(scopes);
+    context.builder_account_id = builder_account_id;
+    context.builder_eligibility.builder_account_id = builder_account_id;
+    context.token.builder_account_id = builder_account_id;
     return context;
 }
 
@@ -295,6 +305,46 @@ std::string rollback_json_without_reason(const std::string &package_id,
 {
     return "{\"operation\":\"rollback\",\"packageId\":" + quote(package_id)
         + ",\"targetLiveChecksum\":" + quote(target_live_checksum) + "}";
+}
+
+struct ActivatedPackage {
+    JsPublishStagedPackageStatus status;
+    std::string live_checksum;
+};
+
+ActivatedPackage activate_package_through_transport_as(JsPublishEndpointService &service,
+    const JsScriptPackage &package, const std::string &base_live_checksum,
+    const std::string &builder_account_id)
+{
+    JsPublishEndpointTransportContext stage_context =
+        make_context_for_builder(JS_PUBLISH_SCOPE_PACKAGE_STAGE, builder_account_id);
+    stage_context.current_live_checksum = base_live_checksum;
+    EXPECT_TRUE(js_publish_endpoint_dispatch_json(service,
+        stage_json(package, base_live_checksum), stage_context).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    EXPECT_TRUE(status.ok);
+
+    JsPublishEndpointTransportContext activate_context =
+        make_context_for_builder(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE, builder_account_id);
+    activate_context.current_live_checksum = base_live_checksum;
+    EXPECT_TRUE(js_publish_endpoint_dispatch_json(service,
+        activate_json(status.status.package_id, status.status.staged_digest,
+            base_live_checksum),
+        activate_context)
+                    .ok);
+    JsLivePackagePointerResult pointer =
+        service.live_store().find_live_pointer(status.status.package_id);
+    EXPECT_TRUE(pointer.ok);
+    return { status.status, pointer.pointer.current_live_checksum };
+}
+
+ActivatedPackage activate_package_through_transport(JsPublishEndpointService &service,
+    const JsScriptPackage &package, const std::string &base_live_checksum)
+{
+    return activate_package_through_transport_as(
+        service, package, base_live_checksum, "account:builder");
 }
 
 } // namespace
@@ -694,15 +744,17 @@ TEST(JsPublishEndpointTransport, ActivateUnauthorizedCallerCannotProbeDigest)
     EXPECT_EQ(0u, live_store.live_pointer_count());
 }
 
-TEST(JsPublishEndpointTransport, RollbackPublishesLatestStagedPackage)
+TEST(JsPublishEndpointTransport, RollbackRestoresMostRecentPriorLiveVersion)
 {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, service_options());
-    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    ActivatedPackage first = activate_package_through_transport(
+        service, make_package("return true"), "live:old");
+    ActivatedPackage second = activate_package_through_transport(
+        service, make_package("return false"), first.live_checksum);
 
     JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
-        service, rollback_json("js:30:character:3001"),
+        service, rollback_json("js:30:character:3001", second.live_checksum),
         make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
 
     EXPECT_TRUE(result.ok);
@@ -712,17 +764,56 @@ TEST(JsPublishEndpointTransport, RollbackPublishesLatestStagedPackage)
     JsLivePackagePointerResult pointer =
         live_store.find_live_pointer("js:30:character:3001");
     ASSERT_TRUE(pointer.ok);
-    EXPECT_EQ("live:old", pointer.pointer.expected_previous_live_checksum);
+    EXPECT_EQ(first.status.package_version_id, pointer.pointer.package_version_id);
+    EXPECT_EQ(first.status.staged_digest, pointer.pointer.staged_digest);
+    EXPECT_EQ(second.live_checksum, pointer.pointer.expected_previous_live_checksum);
     EXPECT_EQ("audit:transport", pointer.pointer.load_audit_id);
     EXPECT_EQ(200, pointer.pointer.loaded_at_epoch_seconds);
+}
+
+TEST(JsPublishEndpointTransport, RollbackIgnoresNeverLiveLatestStagedPackage)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ActivatedPackage first = activate_package_through_transport(
+        service, make_package("return true"), "live:old");
+    ActivatedPackage second = activate_package_through_transport(
+        service, make_package("return false"), first.live_checksum);
+    JsPublishEndpointTransportContext stage_context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE);
+    stage_context.current_live_checksum = second.live_checksum;
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service,
+        stage_json(make_package("return 'never-live'"), second.live_checksum),
+        stage_context)
+                    .ok);
+    JsPublishStagedPackageStatusResult never_live =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(never_live.ok);
+    ASSERT_NE(first.status.package_version_id, never_live.status.package_version_id);
+    ASSERT_NE(second.status.package_version_id, never_live.status.package_version_id);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001", second.live_checksum),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ("rollback.accepted", result.reason_code);
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(first.status.package_version_id, pointer.pointer.package_version_id);
+    EXPECT_NE(never_live.status.package_version_id, pointer.pointer.package_version_id);
 }
 
 TEST(JsPublishEndpointTransport, RollbackStaleLiveConflictDoesNotWrite)
 {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, service_options());
-    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    ActivatedPackage first = activate_package_through_transport(
+        service, make_package("return true"), "live:old");
+    ActivatedPackage second = activate_package_through_transport(
+        service, make_package("return false"), first.live_checksum);
 
     JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
         service, rollback_json("js:30:character:3001", "live:stale"),
@@ -732,25 +823,33 @@ TEST(JsPublishEndpointTransport, RollbackStaleLiveConflictDoesNotWrite)
     EXPECT_EQ(409, result.http_status);
     EXPECT_EQ("rollback.stale-live-checksum", result.reason_code);
     EXPECT_NE(std::string::npos, result.json.find("js:30:character:3001"));
-    EXPECT_NE(std::string::npos, result.json.find("live:old"));
-    EXPECT_EQ(0u, live_store.live_pointer_count());
+    EXPECT_NE(std::string::npos, result.json.find(second.live_checksum));
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(second.status.package_version_id, pointer.pointer.package_version_id);
 }
 
 TEST(JsPublishEndpointTransport, RollbackAllowsMissingReason)
 {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, service_options());
-    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    ActivatedPackage first = activate_package_through_transport(
+        service, make_package("return true"), "live:old");
+    ActivatedPackage second = activate_package_through_transport(
+        service, make_package("return false"), first.live_checksum);
 
     JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
-        service, rollback_json_without_reason("js:30:character:3001"),
+        service, rollback_json_without_reason("js:30:character:3001", second.live_checksum),
         make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
 
     EXPECT_TRUE(result.ok);
     EXPECT_EQ(200, result.http_status);
     EXPECT_EQ("rollback.accepted", result.reason_code);
-    EXPECT_EQ(1u, live_store.live_pointer_count());
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(first.status.package_version_id, pointer.pointer.package_version_id);
 }
 
 TEST(JsPublishEndpointTransport, RollbackLookupMissDoesNotRevealPackageExistence)
@@ -773,15 +872,17 @@ TEST(JsPublishEndpointTransport, RollbackUnauthorizedCallerCannotProbePackage)
 {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, service_options());
-    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    ActivatedPackage first = activate_package_through_transport(
+        service, make_package("return true"), "live:old");
+    ActivatedPackage second = activate_package_through_transport(
+        service, make_package("return false"), first.live_checksum);
     JsPublishEndpointTransportContext context =
         make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN);
     context.builder_account_id = "account:intruder";
     context.token.builder_account_id = "account:intruder";
 
     JsPublishEndpointTransportResult matched = js_publish_endpoint_dispatch_json(
-        service, rollback_json("js:30:character:3001"), context);
+        service, rollback_json("js:30:character:3001", second.live_checksum), context);
     JsPublishEndpointTransportResult missing = js_publish_endpoint_dispatch_json(
         service, rollback_json("js:30:character:9999"), context);
 
@@ -793,7 +894,34 @@ TEST(JsPublishEndpointTransport, RollbackUnauthorizedCallerCannotProbePackage)
     EXPECT_EQ(matched.reason_code, missing.reason_code);
     EXPECT_EQ(matched.json, missing.json);
     EXPECT_EQ(std::string::npos, matched.json.find("js:30:character:3001"));
-    EXPECT_EQ(0u, live_store.live_pointer_count());
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(second.status.package_version_id, pointer.pointer.package_version_id);
+}
+
+TEST(JsPublishEndpointTransport, RollbackOwnRejectsPriorVersionOwnedByAnotherBuilder)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    ActivatedPackage foreign_prior = activate_package_through_transport_as(
+        service, make_package("return 'foreign'"), "live:old", "account:other-builder");
+    ActivatedPackage current = activate_package_through_transport(
+        service, make_package("return 'current'"), foreign_prior.live_checksum);
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, rollback_json("js:30:character:3001", current.live_checksum),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(403, result.http_status);
+    EXPECT_EQ("rollback.authorization-failed", result.reason_code);
+    EXPECT_EQ(std::string::npos, result.json.find(foreign_prior.status.package_version_id));
+    EXPECT_EQ(std::string::npos, result.json.find(foreign_prior.status.staged_digest));
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(current.status.package_version_id, pointer.pointer.package_version_id);
 }
 
 TEST(JsPublishEndpointTransport, RollbackAuthorizationFailureDoesNotLeakMetadata)
@@ -819,27 +947,34 @@ TEST(JsPublishEndpointTransport, RollbackRequiresCurrentZoneAuthority)
 {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, service_options());
-    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    ActivatedPackage first = activate_package_through_transport(
+        service, make_package("return true"), "live:old");
+    ActivatedPackage second = activate_package_through_transport(
+        service, make_package("return false"), first.live_checksum);
     JsPublishEndpointTransportContext context =
         make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_OWN);
     context.zone_owner_character_ids = { 2002 };
 
     JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
-        service, rollback_json("js:30:character:3001"), context);
+        service, rollback_json("js:30:character:3001", second.live_checksum), context);
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(403, result.http_status);
     EXPECT_EQ("rollback.authorization-failed", result.reason_code);
-    EXPECT_EQ(0u, live_store.live_pointer_count());
+    JsLivePackagePointerResult pointer =
+        live_store.find_live_pointer("js:30:character:3001");
+    ASSERT_TRUE(pointer.ok);
+    EXPECT_EQ(second.status.package_version_id, pointer.pointer.package_version_id);
 }
 
 TEST(JsPublishEndpointTransport, RollbackAnyUsesServerPolicy)
 {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, service_options());
-    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
-        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    ActivatedPackage first = activate_package_through_transport(
+        service, make_package("return true"), "live:old");
+    ActivatedPackage second = activate_package_through_transport(
+        service, make_package("return false"), first.live_checksum);
     JsPublishEndpointTransportContext context =
         make_context(JS_PUBLISH_SCOPE_PACKAGE_ROLLBACK_ANY);
     context.allow_rollback_any = true;
@@ -851,7 +986,7 @@ TEST(JsPublishEndpointTransport, RollbackAnyUsesServerPolicy)
     context.zone_owner_character_ids.clear();
 
     JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
-        service, rollback_json("js:30:character:3001"), context);
+        service, rollback_json("js:30:character:3001", second.live_checksum), context);
 
     EXPECT_TRUE(result.ok);
     EXPECT_EQ("rollback.accepted", result.reason_code);

@@ -568,6 +568,32 @@ JsLivePackagePointerResult JsLivePackageStore::find_live_pointer(int zone, JsScr
     return result;
 }
 
+JsLivePackagePointerResult
+JsLivePackageStore::find_latest_prior_live_pointer(int zone, JsScriptPackageHost host,
+                                                   int vnum) const {
+    JsLivePackagePointerResult result;
+    if (zone < 0 || vnum <= 0) {
+        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::InvalidRequest,
+                       "Prior live package pointer slot lookup requires a valid zone and vnum.");
+        return result;
+    }
+
+    const auto existing = std::find_if(
+        m_prior_live_pointers.rbegin(), m_prior_live_pointers.rend(),
+        [&](const JsLivePackagePointer &stored) {
+            return stored.zone == zone && stored.host == host && stored.vnum == vnum;
+        });
+    if (existing == m_prior_live_pointers.rend()) {
+        add_diagnostic(result, JsLivePackageStoreDiagnosticCode::LivePointerNotFound,
+                       "Prior live package pointer was not found.");
+        return result;
+    }
+
+    result.ok = true;
+    result.pointer = *existing;
+    return result;
+}
+
 JsLivePackageRegistrySnapshotResult JsLivePackageStore::build_live_registry_snapshot(
     const JsScriptRegistryReplaceOptions &options) const {
     JsLivePackageRegistrySnapshotResult result;

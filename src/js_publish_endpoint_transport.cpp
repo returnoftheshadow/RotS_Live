@@ -394,6 +394,19 @@ JsPublishActivationOptions activation_options_from_context(
     return options;
 }
 
+JsPublishStagedPackageStatus status_from_live_pointer(const JsLivePackagePointer &pointer)
+{
+    JsPublishStagedPackageStatus status;
+    status.zone = pointer.zone;
+    status.vnum = pointer.vnum;
+    status.host = pointer.host;
+    status.package_id = pointer.package_id;
+    status.package_version_id = pointer.package_version_id;
+    status.staged_digest = pointer.staged_digest;
+    status.current_live_checksum = pointer.current_live_checksum;
+    return status;
+}
+
 JsPublishStagedRequestAssemblyInput staged_request_from_status(
     const JsPublishStagedPackageStatus &status, JsPublishOperation operation,
     const std::string &expected_live_checksum,
@@ -559,22 +572,29 @@ JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
         if (!token_has_scope(context.token, rollback_scope))
             return transport_error(403, "rollback.missing-scope",
                 "Package rollback rejected.", "required publish scope is missing");
-        JsPublishStagedPackageStatusResult latest =
-            js_publish_latest_staged_package_status(
-                service.staged_repository(), envelope.package_id);
-        if (!latest.ok)
+        JsLivePackagePointerResult current =
+            service.live_store().find_live_pointer(zone, host, vnum);
+        if (!current.ok)
             return normalized_authorization_failure("rollback.authorization-failed",
                 "Package rollback rejected.");
-        if (!status_zone_authority_from_context(latest.status, context).ok)
+        JsLivePackagePointerResult prior =
+            service.live_store().find_latest_prior_live_pointer(zone, host, vnum);
+        if (!prior.ok)
             return normalized_authorization_failure("rollback.authorization-failed",
                 "Package rollback rejected.");
+        JsPublishStagedPackageStatus prior_status = status_from_live_pointer(prior.pointer);
+        if (!status_zone_authority_from_context(prior_status, context).ok)
+            return normalized_authorization_failure("rollback.authorization-failed",
+                "Package rollback rejected.");
+        JsPublishEndpointTransportContext rollback_context = context;
+        rollback_context.current_live_checksum = current.pointer.current_live_checksum;
 
         JsPublishEndpointTransportResult result = transport_response(service.rollback(
-            staged_request_from_status(latest.status,
+            staged_request_from_status(prior_status,
                 rollback_any ? JsPublishOperation::PackageRollbackAny
                              : JsPublishOperation::PackageRollbackOwn,
-                envelope.target_live_checksum, context),
-            activation_options_from_context(context)).response);
+                envelope.target_live_checksum, rollback_context),
+            activation_options_from_context(rollback_context)).response);
         if (!result.ok && result.http_status == 403)
             return normalized_authorization_failure("rollback.authorization-failed",
                 "Package rollback rejected.");
