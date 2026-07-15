@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: enforce proxy-only BuilderClient publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
-- Next slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
+- Active slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
+- Next slice: run the end-to-end BuilderClient/proxy/game smoke path and fix any integration gaps it exposes.
 - Socket-boundary note: the game server now has an explicit BuilderClient HTTP descriptor mode for test-server port `4802`. It bypasses telnet negotiation, reads one bounded raw HTTP request, dispatches through the raw BuilderClient transport, writes exactly one HTTP response, and closes.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
@@ -41,9 +41,18 @@
   - [x] Server descriptor ingress transport slice: wire the raw BuilderClient HTTP server-transport boundary into the actual game descriptor/socket loop, keep BuilderClient traffic separate from live port `3791`, and preserve the Rust proxy trust boundary.
   - [x] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
-  - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
+  - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added BuilderClient login/logout DTOs and IPC channels for account-backed builder authentication through the Rust proxy/game session endpoints.
+  - Added `PublishClient.login()` for `POST /api/builder/login` without bearer auth and `PublishClient.logout()` for `POST /api/builder/logout` with bearer auth, both using redacted result parsing.
+  - Extracted main-process auth orchestration into injectable `authIpcHandlers` so account login stores returned server tokens through `PublishCredentialStore`, strips tokens before returning to the renderer, and logout clears local credentials only after server-accepted logout.
+  - Added renderer account/password login and logout controls, kept manual token override explicit, passed override tokens to logout when present, and cleared local override tokens after successful login/logout.
+  - Restored publish-target allowlist enforcement for login/logout before account passwords or bearer tokens are sent, and bounded logout override tokens before credential lookup.
+  - Tightened auth response parsing so login only succeeds with explicit `ok: true`, `builder.login.accepted`, and a token, while logout only clears credentials on explicit `ok: true` plus `builder.logout.accepted`.
+  - Added focused auth tests for login/logout HTTP shapes, login failure redaction, malformed IPC login payload rejection, unsupported token-field rejection, prototype pollution rejection, token custody, main-process redaction, disallowed auth targets, logout clearing semantics, missing-token logout, oversized override rejection, and override-token logout.
+  - Validation passed for this auth slice: `npm test` in `BuilderClient/` (79 tests), `npm run typecheck` in `BuilderClient/`, and `git diff --check` in `BuilderClient/`.
+  - Next slice after this commit: add or run the end-to-end proxy/game/client smoke path for login, eligible immortal verification, stage, wrong-zone rejection, and offline unauthenticated building.
   - BuilderClient publish settings now reject direct live-server port `3791` for both HTTP and HTTPS targets.
   - BuilderClient publish settings still allow HTTPS proxy URLs, and local HTTP development is limited to loopback hosts on the configured test/proxy port `4802`.
   - Added publish settings coverage for allowed `127.0.0.1:4802`, `localhost:4802`, `[::1]:4802`, rejected `3791`, rejected other local HTTP ports, rejected non-local HTTP, and rejected `file:` URLs.
