@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: add a server-backed revoked-authority activation denial fixture.
-- Next slice: add a server-backed missing-scope activation denial fixture if transport coverage still needs it, otherwise move to the next publish/admin gap.
+- Active slice: add a server-backed missing-scope activation denial fixture.
+- Next slice: inspect the remaining publish/admin gaps after missing-scope activation denial is committed.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -53,6 +53,9 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added `JsBuilderHttpServerTransport.RejectsActivationWhenTokenMissingActivateScope`, which stages through the trusted server transport with a token that lacks activate scope, then verifies activation fails with `activate.missing-scope`, writes no live pointer, and does not expose package id, staged digest, live checksum, or bearer token.
+  - Validation passed for this missing-scope activation fixture slice: `cmake --build build --target ageland_tests -j16`, focused `JsBuilderHttpServerTransport.RejectsActivationWhenTokenMissingActivateScope:JsBuilderHttpServerTransport.RejectsActivationWhenZoneAuthorityIsRevoked:JsBuilderHttpServerTransport.RejectsActivationBaseChecksumMismatchWithoutLivePointer`, full `make test -j16` (1235 tests), and `git diff --check`.
+  - Next slice after this commit: inspect the remaining publish/admin gaps and pick the next small server-complete item.
   - Added `JsBuilderHttpServerTransport.RejectsActivationWhenZoneAuthorityIsRevoked`, which stages through the trusted server transport while the builder owns the target, swaps the server-resolved zone owner before activation, then verifies activation fails with `activate.authorization-failed`, writes no live pointer, and does not expose package id, staged digest, live checksum, foreign owner id, or bearer token.
   - Validation passed for this revoked-authority activation fixture slice: `cmake --build build --target ageland_tests -j16`, focused `JsBuilderHttpServerTransport.RejectsActivationWhenZoneAuthorityIsRevoked:JsBuilderHttpServerTransport.RejectsActivationBaseChecksumMismatchWithoutLivePointer:JsBuilderHttpServerTransport.RejectsValidTargetOwnedByAnotherBuilder`, full `make test -j16` (1234 tests), and `git diff --check`.
   - Next slice after this commit: add a server-backed missing-scope activation denial fixture if transport coverage still needs it, otherwise move to the next publish/admin gap.

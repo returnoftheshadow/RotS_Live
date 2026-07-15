@@ -530,6 +530,41 @@ TEST(JsBuilderHttpServerTransport, RejectsActivationWhenZoneAuthorityIsRevoked) 
     expect_content_length_matches_body(activate.http_response);
 }
 
+TEST(JsBuilderHttpServerTransport, RejectsActivationWhenTokenMissingActivateScope) {
+    JsLivePackageStore live_store;
+    JsPublishEndpointService service(live_store, service_options());
+    JsBuilderSessionStore session_store;
+    insert_session(&session_store, JS_PUBLISH_SCOPE_PACKAGE_STAGE | JS_PUBLISH_SCOPE_STATUS_READ);
+    JsBuilderHttpServerTransportOptions options =
+        make_options(&live_store, &service, &session_store);
+
+    JsBuilderHttpServerTransportResult stage = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/stage", stage_body(), true, "application/json",
+                    "session-token"),
+        options);
+    ASSERT_TRUE(stage.ok) << stage.reason_code;
+    JsPublishStagedPackageStatusResult staged = js_publish_latest_staged_package_status(
+        service.staged_repository(), "js:30:character:3001");
+    ASSERT_TRUE(staged.ok);
+
+    JsBuilderHttpServerTransportResult activate = js_builder_http_server_transport_dispatch(
+        raw_request("POST", "/api/js-scripts/activate",
+                    activate_body(staged.status.package_id, staged.status.staged_digest,
+                                  "live:initial"),
+                    true, "application/json", "session-token"),
+        options);
+
+    EXPECT_FALSE(activate.ok);
+    EXPECT_EQ(403, activate.http_status);
+    EXPECT_EQ("activate.missing-scope", activate.reason_code);
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+    EXPECT_EQ(std::string::npos, activate.http_response.find(staged.status.package_id));
+    EXPECT_EQ(std::string::npos, activate.http_response.find(staged.status.staged_digest));
+    EXPECT_EQ(std::string::npos, activate.http_response.find("live:initial"));
+    EXPECT_EQ(std::string::npos, activate.http_response.find("session-token"));
+    expect_content_length_matches_body(activate.http_response);
+}
+
 TEST(JsBuilderHttpServerTransport, MapsContextTargetFailuresToRedactedHttpResponses) {
     JsLivePackageStore live_store;
     JsPublishEndpointService service(live_store, service_options());
