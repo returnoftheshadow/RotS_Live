@@ -4,6 +4,7 @@
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
 - Active slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Next slice: run the end-to-end BuilderClient/proxy/game smoke path and fix any integration gaps it exposes.
+- Current blocker: the regular account smoke harness passes, but the BuilderClient end-to-end publish smoke needs a known local test account/password with a linked level `92+` immortal and zone scripting authority, or a sanctioned fixture-generation plan for creating that account/character/zone authority in temporary smoke data.
 - Socket-boundary note: the game server now has an explicit BuilderClient HTTP descriptor mode for test-server port `4802`. It bypasses telnet negotiation, reads one bounded raw HTTP request, dispatches through the raw BuilderClient transport, writes exactly one HTTP response, and closes.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
@@ -44,6 +45,8 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Ran the existing account/proxy smoke validation with `make smoke-account`; it passed the full create, verify, login, reset, relogin, character creation, legacy link, active-character guard, delete, and roster-check flow.
+  - BuilderClient end-to-end smoke is blocked pending a test credential/fixture plan for an account with linked level `92+` immortal eligibility plus zone scripting authority, because that is required before login/stage/wrong-zone rejection can be validated against a real game/proxy process.
   - Added BuilderClient login/logout DTOs and IPC channels for account-backed builder authentication through the Rust proxy/game session endpoints.
   - Added `PublishClient.login()` for `POST /api/builder/login` without bearer auth and `PublishClient.logout()` for `POST /api/builder/logout` with bearer auth, both using redacted result parsing.
   - Extracted main-process auth orchestration into injectable `authIpcHandlers` so account login stores returned server tokens through `PublishCredentialStore`, strips tokens before returning to the renderer, and logout clears local credentials only after server-accepted logout.
