@@ -2,9 +2,9 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Active slice: add activation/status conflict coverage for BuilderClient publish flows.
-- Next slice: decide whether to expose the temporary BuilderClient smoke through `make` or keep it as an explicit developer command until runtime execution is complete.
-- Current blocker: none for the activation/status conflict coverage slice.
+- Active slice: expose the temporary BuilderClient smoke through a make target while keeping the direct script command available.
+- Next slice: broaden server-backed publish smoke toward activation after staged activation semantics are stable enough for the temporary fixture.
+- Current blocker: none for the BuilderClient smoke make-target slice.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
   - Create one account-native character through the real account character flow, then promote only that temporary character JSON to level `95` in local smoke data so it satisfies level `92+` builder eligibility without relying on a shared test credential.
@@ -51,6 +51,10 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added `make smoke-builder-client`, which runs setup, builds `ageland`, builds the Rust proxy, and executes `tools/builder_client_smoke.py`.
+  - Updated `AGENTS.md` to document `make smoke-builder-client` as the end-to-end BuilderClient account/auth/manifest/stage/logout/offline smoke validation path for publish/auth/proxy integration changes.
+  - Validation passed for this smoke-target slice: `make smoke-builder-client`.
+  - Next slice after this commit: broaden server-backed publish smoke toward activation after staged activation semantics are stable enough for the temporary fixture.
   - Added BuilderClient endpoint compatibility fixtures for `activate.stale-live-checksum` and public-route `status.authorization-failed`.
   - Added publish endpoint fixture coverage proving activation conflicts preserve package/version/staged/live/audit metadata while redacting bearer-token, URL token/password, and `password:` diagnostics, and unauthorized/missing status responses omit package/staged/live metadata.
   - Reused the shared BuilderClient publish redactor in `PublishClient` so publish response parsing redacts the same secret patterns as publish settings and IPC errors.

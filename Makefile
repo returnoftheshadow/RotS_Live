@@ -4,7 +4,7 @@ CMAKE := cmake
 CMAKE_CONFIGURE_ARGS ?= -DCMAKE_CXX_COMPILER=g++
 CMAKE_CACHE := $(BUILD_DIR)/CMakeCache.txt
 
-.PHONY: help configure setup build test run smoke-account format clean
+.PHONY: help configure setup build test run smoke-account smoke-builder-client format clean
 
 help:
 	@printf "Available targets:\n"
@@ -13,6 +13,7 @@ help:
 	@printf "  make build          Build the ageland server binary\n"
 	@printf "  make test           Run the C++ unit tests\n"
 	@printf "  make smoke-account  Build the game/proxy and run the account smoke flow\n"
+	@printf "  make smoke-builder-client  Build the game/proxy and run the BuilderClient smoke flow\n"
 	@printf "  make format         Run clang-format via the CMake target\n"
 	@printf "  make run            Build and start the server in the foreground\n"
 	@printf "  make clean          Clean the configured CMake build tree\n"
@@ -38,6 +39,10 @@ run: build
 smoke-account: setup build
 	cargo build -p proxy
 	python3 tools/account_smoke.py
+
+smoke-builder-client: setup build
+	cargo build -p proxy
+	python3 tools/builder_client_smoke.py
 
 format: $(CMAKE_CACHE)
 	+$(CMAKE) --build $(BUILD_DIR) --target format

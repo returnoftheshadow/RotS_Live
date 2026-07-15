@@ -24,6 +24,8 @@
 - Test: `make test` — builds and runs the GoogleTest-based C++ unit tests.
 - Manual smoke: `make smoke-account` — builds the game/proxy and runs the proxy-backed account smoke flow.
   Use this as a required separate validation step for account/login/authentication changes because `make test` is intentionally unit-test-only.
+- BuilderClient smoke: `make smoke-builder-client` — builds the game/proxy and runs the temporary BuilderClient account/auth/manifest/stage/logout/offline smoke flow against the test-server Builder HTTP path on port `4802`.
+  Use this for BuilderClient publish/auth/proxy integration changes that need end-to-end confirmation beyond unit tests.
 - Run: `make run` — builds and starts the server in the foreground on port `3791`.
 - Clean: `make clean` — removes build outputs from the configured tree.
 - Raw CMake fallback: `cmake -S src -B build -DCMAKE_CXX_COMPILER=g++ && cmake --build build --target ageland`
