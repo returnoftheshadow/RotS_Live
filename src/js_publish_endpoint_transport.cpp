@@ -398,6 +398,7 @@ JsPublishActivationOptions activation_options_from_context(
     options.assembly_options.allow_rollback_any = context.allow_rollback_any;
     options.assembly_options.expected_server_audience = context.expected_server_audience;
     options.assembly_options.expected_workspace_id = context.expected_workspace_id;
+    options.assembly_options.expected_server_instance_id = context.expected_server_instance_id;
     options.assembly_options.current_live_checksum = context.current_live_checksum;
     options.allow_live_pointer_update = context.allow_live_pointer_update;
     options.durable_audit_precondition_ok = false;
@@ -485,6 +486,7 @@ JsPublishEndpointSessionContextResult js_publish_endpoint_context_from_builder_s
         result.context.now_epoch_seconds = 0;
         result.context.expected_server_audience.clear();
         result.context.expected_workspace_id.clear();
+        result.context.expected_server_instance_id.clear();
         return result;
     }
 
@@ -495,6 +497,7 @@ JsPublishEndpointSessionContextResult js_publish_endpoint_context_from_builder_s
     result.context.now_epoch_seconds = session_options.now_epoch_seconds;
     result.context.expected_server_audience = session_options.server_audience;
     result.context.expected_workspace_id = session_options.workspace_id;
+    result.context.expected_server_instance_id = base_context.expected_server_instance_id;
     return result;
 }
 

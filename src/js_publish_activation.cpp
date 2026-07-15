@@ -139,6 +139,13 @@ assemble_live_record_activation_request(const JsLivePackageRecord &record,
                        "Live package activation requires current live checksum.");
         return assembly;
     }
+    if (is_blank(options.assembly_options.expected_server_instance_id)
+        || record.identity.server_instance_id
+            != options.assembly_options.expected_server_instance_id) {
+        add_diagnostic(assembly, JsPublishStagingDiagnosticCode::InvalidRequest,
+                       "Retained live package record is bound to a different server instance.");
+        return assembly;
+    }
 
     assembly.status = status_from_live_record(record);
     assembly.request.zone = record.identity.zone;

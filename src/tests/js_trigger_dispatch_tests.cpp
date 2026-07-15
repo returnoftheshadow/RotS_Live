@@ -498,6 +498,7 @@ TEST(JsTriggerDispatch, FailedLiveRegistryRefreshKeepsPreviousDispatchSnapshot)
     JsLiveRegistryReloadOptions options_with_conflict;
     options_with_conflict.replace_options.validation_options.mode =
         JsScriptPackageValidationMode::InternalValidationOnly;
+    options_with_conflict.expected_server_instance_id = "server:main";
     options_with_conflict.replace_options.legacy_script_vnums.push_back(5385);
     JsLiveRegistryReloadService service(options_with_conflict);
     ASSERT_TRUE(service.refresh_from_live_store(first_store));

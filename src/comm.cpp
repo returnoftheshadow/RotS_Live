@@ -31,6 +31,7 @@
 #include "js_builder_http_server_transport.h"
 #include "js_builder_session_store.h"
 #include "js_live_registry_admin.h"
+#include "js_server_identity.h"
 #include "limits.h"
 #include "protocol.h"
 #include "script.h"
@@ -253,8 +254,8 @@ JsBuilderSessionStoreOptions builder_http_session_store_options()
 {
     JsBuilderSessionStoreOptions options;
     options.now_epoch_seconds = static_cast<long long>(time(nullptr));
-    options.server_audience = "server:main";
-    options.workspace_id = "workspace:main";
+    options.server_audience = js_server_audience_id();
+    options.workspace_id = js_workspace_id();
     return options;
 }
 
@@ -278,7 +279,8 @@ JsBuilderHttpServerTransportOptions builder_http_server_transport_options()
         "transport:builder-http";
     options.ingress_options.publish_context.transport.secure_channel = true;
     options.ingress_options.publish_context.transport.server_identity_verified = true;
-    options.ingress_options.publish_context.transport.server_audience = "server:main";
+    options.ingress_options.publish_context.transport.server_audience =
+        js_server_audience_id();
     options.ingress_options.publish_context.request_id = "request:builder-http:" + trace_suffix;
     options.ingress_options.publish_context.audit_id = "audit:builder-http:" + trace_suffix;
     options.ingress_options.publish_context.now_epoch_seconds =
@@ -287,8 +289,11 @@ JsBuilderHttpServerTransportOptions builder_http_server_transport_options()
         options.ingress_options.publish_context.now_epoch_seconds;
     options.ingress_options.publish_context.allow_mutating_operations = true;
     options.ingress_options.publish_context.allow_live_pointer_update = true;
-    options.ingress_options.publish_context.expected_server_audience = "server:main";
-    options.ingress_options.publish_context.expected_workspace_id = "workspace:main";
+    options.ingress_options.publish_context.expected_server_audience =
+        js_server_audience_id();
+    options.ingress_options.publish_context.expected_workspace_id = js_workspace_id();
+    options.ingress_options.publish_context.expected_server_instance_id =
+        js_server_instance_id();
     options.ingress_options.publish_context.live_store_persistence_path =
         js_live_store_persistence_path();
     options.ingress_options.publish_context.publish_audit_log_path =

@@ -91,6 +91,7 @@ JsPublishEndpointTransportContext make_context(unsigned scopes = JS_PUBLISH_SCOP
     context.applied_at_epoch_seconds = 200;
     context.expected_server_audience = "server:main";
     context.expected_workspace_id = "workspace:main";
+    context.expected_server_instance_id = "server:main";
     context.current_live_checksum = "live:old";
     context.publish_audit_log_path = "build/js_publish_endpoint_transport_audit.jsonl";
     return context;
@@ -695,6 +696,40 @@ TEST(JsPublishEndpointTransport, ActivateAuditAppendFailureDoesNotWriteLivePoint
     EXPECT_EQ("activate.audit-precondition-failed", result.reason_code);
     EXPECT_EQ(std::string::npos, result.json.find(status.status.package_id));
     EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
+TEST(JsPublishEndpointTransport, ActivateWrongServerInstanceDoesNotAppendAuditOrWriteLivePointer)
+{
+    const std::string audit_path =
+        "build/js_publish_endpoint_transport_wrong_server_audit.jsonl";
+    std::remove(audit_path.c_str());
+    JsLivePackageStore live_store;
+    JsPublishEndpointServiceOptions options = service_options();
+    options.server_instance_id = "server:other";
+    JsPublishEndpointService service(live_store, options);
+    ASSERT_TRUE(js_publish_endpoint_dispatch_json(service, stage_json(make_package()),
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE)).ok);
+    JsPublishStagedPackageStatusResult status =
+        js_publish_latest_staged_package_status(service.staged_repository(),
+            "js:30:character:3001");
+    ASSERT_TRUE(status.ok);
+    JsPublishEndpointTransportContext context =
+        make_context(JS_PUBLISH_SCOPE_PACKAGE_ACTIVATE);
+    context.publish_audit_log_path = audit_path;
+
+    JsPublishEndpointTransportResult result = js_publish_endpoint_dispatch_json(
+        service, activate_json(status.status.package_id, status.status.staged_digest), context);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(400, result.http_status);
+    EXPECT_EQ("activate.staged-package-not-found", result.reason_code);
+    EXPECT_EQ(std::string::npos, result.json.find(status.status.package_id));
+    EXPECT_EQ(std::string::npos, result.json.find(status.status.staged_digest));
+    EXPECT_EQ(std::string::npos, result.json.find("server:other"));
+    EXPECT_EQ(std::string::npos, result.json.find("server:main"));
+    EXPECT_EQ(std::string::npos, result.json.find("audit:transport"));
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+    EXPECT_TRUE(read_file(audit_path).empty());
 }
 
 TEST(JsPublishEndpointTransport, ActivateRejectsDigestMismatchWithoutLiveWrite)

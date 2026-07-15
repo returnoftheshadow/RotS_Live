@@ -104,6 +104,7 @@ JsPublishActivationOptions make_activation_options(const std::string &current_li
     options.assembly_options.allow_mutating_operations = true;
     options.assembly_options.expected_server_audience = "server:main";
     options.assembly_options.expected_workspace_id = "workspace:main";
+    options.assembly_options.expected_server_instance_id = "server:main";
     options.assembly_options.current_live_checksum = current_live;
     options.allow_live_pointer_update = true;
     options.durable_audit_precondition_ok = true;

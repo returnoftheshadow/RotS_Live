@@ -98,6 +98,7 @@ JsPublishStagedRequestAssemblyOptions make_options()
     options.now_epoch_seconds = 100;
     options.expected_server_audience = "server:main";
     options.expected_workspace_id = "workspace:main";
+    options.expected_server_instance_id = "server:main";
     options.current_live_checksum = "live:old";
     return options;
 }
@@ -450,6 +451,41 @@ TEST(JsPublishStaging, PropagatesExpectedWorkspaceToPreflight)
     EXPECT_FALSE(assembled.authorization_result.ok);
     EXPECT_TRUE(
         has_publish_code(assembled.authorization_result, JsPublishDiagnosticCode::PermissionMismatch));
+}
+
+TEST(JsPublishStaging, RejectsRecordFromDifferentServerInstance)
+{
+    JsStagedPackageRepository repository;
+    JsStagedPackageIdentityOptions identity_options = make_identity_options();
+    identity_options.server_instance_id = "server:other";
+    JsStagedPackageRecord record =
+        stage_package(repository, make_package(), identity_options);
+    JsPublishStagedRequestAssemblyOptions options = make_options();
+    options.allow_mutating_operations = true;
+    options.expected_server_instance_id = "server:main";
+
+    JsPublishStagedRequestAssemblyResult assembled =
+        js_publish_assemble_staged_package_request(repository, make_input(record), options);
+
+    EXPECT_FALSE(assembled.assembled);
+    EXPECT_TRUE(has_code(assembled, JsPublishStagingDiagnosticCode::InvalidRequest));
+}
+
+TEST(JsPublishStaging, RejectsMissingExpectedServerInstance)
+{
+    JsStagedPackageRepository repository;
+    JsStagedPackageRecord record =
+        stage_package(repository, make_package(), make_identity_options());
+    JsPublishStagedRequestAssemblyOptions options = make_options();
+    options.allow_mutating_operations = true;
+    options.expected_server_instance_id.clear();
+
+    JsPublishStagedRequestAssemblyResult assembled =
+        js_publish_assemble_staged_package_request(repository, make_input(record), options);
+
+    EXPECT_FALSE(assembled.assembled);
+    EXPECT_TRUE(has_code(assembled, JsPublishStagingDiagnosticCode::InvalidRequest));
+    EXPECT_FALSE(assembled.authorization_result.ok);
 }
 
 TEST(JsPublishStaging, RejectsUnsupportedAssemblyOperation)

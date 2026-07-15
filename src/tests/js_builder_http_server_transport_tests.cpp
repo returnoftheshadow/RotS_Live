@@ -185,6 +185,7 @@ make_options(JsLivePackageStore *live_store = nullptr,
     options.ingress_options.publish_context.now_epoch_seconds = 100;
     options.ingress_options.publish_context.expected_server_audience = "server:main";
     options.ingress_options.publish_context.expected_workspace_id = "workspace:main";
+    options.ingress_options.publish_context.expected_server_instance_id = "server:main";
     options.ingress_options.publish_context.allow_mutating_operations = true;
     options.ingress_options.publish_context.allow_live_pointer_update = true;
     options.ingress_options.publish_context.applied_at_epoch_seconds = 200;

@@ -102,6 +102,7 @@ JsBuilderHttpIngressOptions ingress_options(JsBuilderSessionStore *store = nullp
     options.publish_context.applied_at_epoch_seconds = 200;
     options.publish_context.expected_server_audience = "server:main";
     options.publish_context.expected_workspace_id = "workspace:main";
+    options.publish_context.expected_server_instance_id = "server:main";
     options.publish_context.current_live_checksum = "live:old";
     return options;
 }

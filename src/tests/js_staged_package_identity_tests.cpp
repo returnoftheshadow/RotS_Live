@@ -204,6 +204,23 @@ TEST(JsStagedPackageIdentity, ChangesDigestWhenBaseLiveChecksumChanges) {
     EXPECT_NE(old_identity.identity.package_version_id, new_identity.identity.package_version_id);
 }
 
+TEST(JsStagedPackageIdentity, ChangesDigestWhenServerInstanceChanges) {
+    JsStagedPackageIdentityOptions main_options = make_options();
+    JsStagedPackageIdentityOptions other_options = make_options();
+    other_options.server_instance_id = "server:other";
+
+    JsStagedPackageIdentityResult main_identity =
+        js_staged_package_identity_build(make_package(), main_options);
+    JsStagedPackageIdentityResult other_identity =
+        js_staged_package_identity_build(make_package(), other_options);
+
+    ASSERT_TRUE(main_identity.ok);
+    ASSERT_TRUE(other_identity.ok);
+    EXPECT_EQ(main_identity.identity.package_id, other_identity.identity.package_id);
+    EXPECT_NE(main_identity.identity.canonical_digest, other_identity.identity.canonical_digest);
+    EXPECT_NE(main_identity.identity.package_version_id, other_identity.identity.package_version_id);
+}
+
 TEST(JsStagedPackageIdentity, RejectsIncompleteStagingMetadata) {
     JsStagedPackageIdentityOptions options = make_options();
     options.zone = 0;

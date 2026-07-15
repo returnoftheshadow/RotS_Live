@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: bind staged/live records to the same workspace/server identity, while allowing restart when persisted state matches that identity.
-- Next slice: run server-backed JavaScript execution tests through real game trigger call sites after server identity binding is complete.
+- Active slice: server-backed JavaScript execution tests through real game trigger call sites.
+- Next slice: publish JavaScript through the server path and execute it through real game trigger call sites.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -61,13 +61,19 @@
   - [x] Retained rollback selection slice: replace rollback's latest-staged behavior with retained prior-live version lookup by target checksum/version, and derive own-vs-admin authorization from the selected retained record owner.
   - [x] Audit precondition slice: make activation/rollback fail before live-state mutation when the durable audit step is unavailable or fails.
   - [x] Concrete audit append slice: replace the temporary transport precondition success with an explicit durable audit append/result path before activation and rollback live-state mutation.
-  - [ ] Server identity binding slice: reject activation/rollback of staged or persisted records that do not match the current workspace/server identity, while allowing restart when persisted state matches.
+  - [x] Server identity binding slice: reject activation/rollback of staged or persisted records that do not match the current workspace/server identity, while allowing restart when persisted state matches.
   - [ ] Runtime execution test slice: after publish/admin hardening, publish JavaScript through the server path and execute it through real game trigger call sites.
   - [x] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added server-instance binding across JavaScript publish activation, rollback, status, live-store startup hydration, and live-registry refresh. Staged records and retained live records now fail closed when their `server_instance_id` does not match the server-owned expected instance, and persisted live-store snapshots are validated before replacing the in-memory store during startup.
+  - Added `js_server_identity` as the shared source for BuilderClient publish audience/workspace/server-instance values. `ROTS_JS_SERVER_INSTANCE_ID`, `ROTS_JS_SERVER_AUDIENCE`, and `ROTS_JS_WORKSPACE_ID` can distinguish deployments while preserving the existing local defaults for tests and development.
+  - Added regressions for wrong-server activation, wrong-server rollback, no-audit/no-live transport activation failure, missing expected server instance, persisted foreign live-store rejection, reload-time foreign live-store rejection, digest/version binding to server instance, and the raw test Makefile link path.
+  - Magus, Vincent, and Bazarat reviewed the slice. Blocking findings were addressed: persisted snapshots are validated before hydration, refresh rejects mismatched live-store records, the raw `src/tests/Makefile` links `js_server_identity.o`, and transport no-audit/no-live behavior is pinned by tests. Vincent's remaining non-blocking operational note is to configure a distinct production `ROTS_JS_SERVER_INSTANCE_ID` or replace the dev default with a protected per-install id before live deployment.
+  - Validation passed for this server identity binding slice: focused server-instance tests, broader publish/live-registry tests (166 tests), `make test -j16` (1272 tests), `make smoke-builder-client -j16`, and `make -C src/tests tests -j16`.
+  - Next slice after this commit: publish JavaScript through the server path and execute it through real game trigger call sites.
   - Added an append-only durable publish audit JSONL writer for activation and rollback events, with bounded metadata, JSON escaping, safe relative path validation, parent directory hardening, final symlink rejection, regular-file checks, `O_APPEND`, file `fsync`, close checks, and parent directory `fsync`.
   - Threaded a server-supplied `publish_audit_log_path` through BuilderClient publish transport; the game server now defaults to `world/js_publish_audit.jsonl` and supports `ROTS_JS_PUBLISH_AUDIT_PATH` for isolated smoke/test runs.
   - Moved durable audit append execution into the activation layer so it runs after final live-pointer conflict checks and immediately before live-store mutation; stale/rejected activation and rollback requests do not write accepted-looking audit records.

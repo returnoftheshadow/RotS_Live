@@ -1,4 +1,5 @@
 #include "js_live_registry_admin.h"
+#include "js_server_identity.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -114,6 +115,9 @@ JsLiveRegistryAdminService::hydrate_from_file(const std::string &path) {
 
     JsLivePackageStoreSnapshot loaded_snapshot = result.file_load.snapshot;
     result.file_load.snapshot = {};
+    if (!js_live_registry_snapshot_matches_server_instance(loaded_snapshot,
+            m_reload_service.expected_server_instance_id(), &result.reload))
+        return result;
     const JsLivePackageStoreSnapshot previous_snapshot = m_live_store.export_snapshot();
     result.store_hydration = m_live_store.hydrate_from_snapshot(loaded_snapshot);
     if (!result.store_hydration.ok)
@@ -156,7 +160,7 @@ JsPublishEndpointServiceOptions js_publish_endpoint_server_options() {
     JsPublishEndpointServiceOptions options;
     options.package_validation_options.mode =
         JsScriptPackageValidationMode::InternalValidationOnly;
-    options.server_instance_id = "server:main";
+    options.server_instance_id = js_server_instance_id();
     return options;
 }
 
@@ -164,6 +168,7 @@ JsLiveRegistryReloadOptions js_live_registry_server_reload_options() {
     JsLiveRegistryReloadOptions options;
     options.replace_options.validation_options.mode =
         JsScriptPackageValidationMode::InternalValidationOnly;
+    options.expected_server_instance_id = js_server_instance_id();
     return options;
 }
 

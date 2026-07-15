@@ -26,6 +26,7 @@ enum class JsLiveRegistryReloadDiagnosticCode {
 
 struct JsLiveRegistryReloadOptions {
     JsScriptRegistryReplaceOptions replace_options;
+    std::string expected_server_instance_id;
 };
 
 struct JsLiveRegistryReloadDiagnostic {
@@ -79,6 +80,7 @@ class JsLiveRegistryReloadService {
     const JsLiveRegistryPackageStatus *find_package_status_by_vnum(int vnum) const;
     const JsLiveRegistryPackageStatus *
     find_package_status_by_id(const std::string &package_id) const;
+    const std::string &expected_server_instance_id() const;
 
     const JsScriptTriggerBinding *find_trigger_binding(int package_vnum, JsScriptPackageHost host,
                                                        JsScriptingManifestKind kind,
@@ -98,5 +100,8 @@ class JsLiveRegistryReloadService {
 
 const char *js_live_registry_reload_status_name(JsLiveRegistryReloadStatus status);
 const char *js_live_registry_reload_diagnostic_code_name(JsLiveRegistryReloadDiagnosticCode code);
+bool js_live_registry_snapshot_matches_server_instance(
+    const JsLivePackageStoreSnapshot &snapshot, const std::string &expected_server_instance_id,
+    JsLiveRegistryReloadResult *result = nullptr);
 
 #endif

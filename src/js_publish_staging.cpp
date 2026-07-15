@@ -148,6 +148,12 @@ js_publish_assemble_staged_package_request(const JsStagedPackageRepository& repo
     }
 
     const JsStagedPackageRecord& record = lookup.record;
+    if (is_blank(assembly_options.expected_server_instance_id)
+        || record.identity.server_instance_id != assembly_options.expected_server_instance_id) {
+        add_diagnostic(result, JsPublishStagingDiagnosticCode::InvalidRequest,
+            "Staged package record is bound to a different server instance.");
+        return result;
+    }
     result.status = status_from_record(record);
 
     result.request.zone = record.identity.zone;

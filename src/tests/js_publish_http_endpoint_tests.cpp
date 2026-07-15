@@ -82,6 +82,7 @@ JsPublishEndpointTransportContext make_context(
     context.applied_at_epoch_seconds = 200;
     context.expected_server_audience = "server:main";
     context.expected_workspace_id = "workspace:main";
+    context.expected_server_instance_id = "server:main";
     context.current_live_checksum = "live:old";
     context.publish_audit_log_path = "build/js_publish_http_endpoint_audit.jsonl";
     return context;
@@ -420,6 +421,7 @@ TEST(JsPublishHttpEndpoint, DerivesPublishContextFromStoreBackedBearerToken)
     base_context.allow_live_pointer_update = true;
     base_context.applied_at_epoch_seconds = 200;
     base_context.current_live_checksum = "live:old";
+    base_context.expected_server_instance_id = "server:main";
     base_context.publish_audit_log_path = "build/js_publish_http_endpoint_audit.jsonl";
     base_context.actor_id = "base-actor";
     base_context.builder_account_id = "base-account";

@@ -36,12 +36,13 @@ JsScriptPackage make_package(int vnum = 8701, const std::string &body = "return 
     return package;
 }
 
-JsStagedPackageStageOptions make_stage_options(const std::string &base_live = "live:old") {
+JsStagedPackageStageOptions make_stage_options(const std::string &base_live = "live:old",
+                                               const std::string &server_instance_id = "server:main") {
     JsStagedPackageStageOptions options;
     options.identity_options.zone = 33;
     options.identity_options.builder_account_id = "account:builder";
     options.identity_options.base_live_checksum = base_live;
-    options.identity_options.server_instance_id = "server:main";
+    options.identity_options.server_instance_id = server_instance_id;
     options.audit.staged_at_epoch_seconds = 123456;
     options.audit.request_id = "request:stage";
     options.audit.actor_id = "actor:42";
@@ -101,6 +102,7 @@ JsPublishEndpointTransportContext make_publish_context(unsigned scopes) {
     context.applied_at_epoch_seconds = 200;
     context.expected_server_audience = "server:main";
     context.expected_workspace_id = "workspace:main";
+    context.expected_server_instance_id = "server:main";
     context.current_live_checksum = "live:old";
     context.publish_audit_log_path = "build/js_live_registry_admin_audit.jsonl";
     return context;
@@ -160,12 +162,14 @@ JsPublishStagedRequestAssemblyInput make_input(const JsStagedPackageRecord &reco
     return input;
 }
 
-JsPublishActivationOptions make_activation_options(const std::string &current_live = "live:old") {
+JsPublishActivationOptions make_activation_options(const std::string &current_live = "live:old",
+                                                   const std::string &server_instance_id = "server:main") {
     JsPublishActivationOptions options;
     options.assembly_options.now_epoch_seconds = 100;
     options.assembly_options.allow_mutating_operations = true;
     options.assembly_options.expected_server_audience = "server:main";
     options.assembly_options.expected_workspace_id = "workspace:main";
+    options.assembly_options.expected_server_instance_id = server_instance_id;
     options.assembly_options.current_live_checksum = current_live;
     options.allow_live_pointer_update = true;
     options.durable_audit_precondition_ok = true;
@@ -177,13 +181,14 @@ JsPublishActivationOptions make_activation_options(const std::string &current_li
 JsStagedPackageRecord activate_package(JsLiveRegistryAdminService &service,
                                        JsStagedPackageRepository &repository,
                                        const JsScriptPackage &package,
-                                       const std::string &base_live = "live:old") {
+                                       const std::string &base_live = "live:old",
+                                       const std::string &server_instance_id = "server:main") {
     JsStagedPackageStageResult staged =
-        repository.stage_package(package, make_stage_options(base_live));
+        repository.stage_package(package, make_stage_options(base_live, server_instance_id));
     EXPECT_TRUE(staged.ok);
     JsPublishActivationResult activated = js_publish_apply_staged_package_activation(
         repository, service.live_store(), make_input(staged.record),
-        make_activation_options(base_live));
+        make_activation_options(base_live, server_instance_id));
     EXPECT_TRUE(activated.ok);
     return staged.record;
 }
@@ -395,6 +400,36 @@ TEST(JsLiveRegistryAdmin, StartupHydratesLiveStoreFromPersistedFileAndRefreshesR
     EXPECT_EQ(std::string::npos, status.output.find(source_sentinel));
     EXPECT_EQ(1u, reader.live_store().package_record_count());
     EXPECT_EQ(1u, reader.reload_service().successful_reload_count());
+    std::remove(path.c_str());
+}
+
+TEST(JsLiveRegistryAdmin, StartupRejectsPersistedLiveStoreFromDifferentServerInstance) {
+    const std::string path = temp_file_path("startup-server-instance");
+    std::remove(path.c_str());
+    std::remove((path + ".tmp").c_str());
+    JsLiveRegistryAdminService writer;
+    JsStagedPackageRepository repository;
+    JsStagedPackageRecord record = activate_package(
+        writer, repository, make_package(8714), "live:old", "server:other");
+    ASSERT_TRUE(js_live_package_store_snapshot_save_file(path, writer.live_store().export_snapshot())
+                    .ok);
+
+    JsLiveRegistryAdminService reader;
+    JsLiveRegistryStartupLoadResult loaded = reader.hydrate_from_file(path);
+    JsLiveRegistryAdminCommandResult status =
+        js_live_registry_handle_reload_command(reader, "js status 8714");
+
+    EXPECT_FALSE(loaded.ok);
+    EXPECT_TRUE(loaded.file_load.ok);
+    EXPECT_TRUE(loaded.file_load.snapshot.records.empty());
+    EXPECT_FALSE(loaded.store_hydration.ok);
+    EXPECT_FALSE(loaded.reload.ok);
+    ASSERT_FALSE(loaded.reload.diagnostics.empty());
+    EXPECT_EQ(std::string::npos, loaded.reload.diagnostics.front().message.find("server:other"));
+    EXPECT_TRUE(reader.live_store().empty());
+    EXPECT_EQ(0u, reader.reload_service().successful_reload_count());
+    EXPECT_FALSE(status.ok);
+    EXPECT_EQ(std::string::npos, status.output.find(record.identity.package_id));
     std::remove(path.c_str());
 }
 

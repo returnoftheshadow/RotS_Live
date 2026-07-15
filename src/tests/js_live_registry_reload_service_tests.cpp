@@ -103,6 +103,7 @@ JsPublishActivationOptions make_activation_options(const std::string &current_li
     options.assembly_options.allow_mutating_operations = true;
     options.assembly_options.expected_server_audience = "server:main";
     options.assembly_options.expected_workspace_id = "workspace:main";
+    options.assembly_options.expected_server_instance_id = "server:main";
     options.assembly_options.current_live_checksum = current_live;
     options.allow_live_pointer_update = true;
     options.durable_audit_precondition_ok = true;
@@ -120,6 +121,7 @@ JsScriptRegistryReplaceOptions internal_registry_options() {
 JsLiveRegistryReloadOptions live_reload_options() {
     JsLiveRegistryReloadOptions options;
     options.replace_options = internal_registry_options();
+    options.expected_server_instance_id = "server:main";
     return options;
 }
 
@@ -239,7 +241,33 @@ TEST(JsLiveRegistryReloadService, DefaultConstructorRefreshesNonEmptyLiveStore) 
     ASSERT_NE(nullptr, service.find_package_status_by_id(live.identity.package_id));
     EXPECT_NE(nullptr,
               service.find_trigger_binding(live.identity.vnum, JsScriptPackageHost::Character,
-                                           JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER));
+	                                           JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER));
+}
+
+TEST(JsLiveRegistryReloadService, RejectsLiveStoreFromDifferentServerInstance)
+{
+    JsStagedPackageRepository repository;
+    JsLivePackageStore live_store;
+    JsStagedPackageStageOptions stage_options = make_stage_options();
+    stage_options.identity_options.server_instance_id = "server:other";
+    JsStagedPackageRecord record =
+        stage_package(repository, make_package(7006), stage_options);
+    JsPublishActivationOptions activation_options = make_activation_options();
+    activation_options.assembly_options.expected_server_instance_id = "server:other";
+    ASSERT_TRUE(js_publish_apply_staged_package_activation(
+        repository, live_store, make_input(record), activation_options)
+                    .ok);
+    JsLiveRegistryReloadService service(live_reload_options());
+    JsLiveRegistryReloadResult result;
+
+    EXPECT_FALSE(service.refresh_from_live_store(live_store, &result));
+
+    EXPECT_EQ(JsLiveRegistryReloadStatus::LiveStoreFailed, result.status);
+    EXPECT_TRUE(has_code(result, JsLiveRegistryReloadDiagnosticCode::LiveStoreFailed));
+    EXPECT_TRUE(service.empty());
+    EXPECT_EQ(0u, service.successful_reload_count());
+    EXPECT_EQ(std::string::npos, messages(result).find("server:other"));
+    EXPECT_EQ(std::string::npos, messages(result).find(record.identity.package_id));
 }
 
 TEST(JsLiveRegistryReloadService, RefreshUsesOnlyLivePointersNotStoredRecords) {

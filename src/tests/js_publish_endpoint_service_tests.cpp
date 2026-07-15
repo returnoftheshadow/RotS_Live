@@ -159,13 +159,15 @@ JsPublishStagedRequestAssemblyInput make_activation_input(
     return input;
 }
 
-JsPublishActivationOptions make_activation_options(const std::string &current_live = "live:old")
+JsPublishActivationOptions make_activation_options(const std::string &current_live = "live:old",
+    const std::string &server_instance_id = "server:main")
 {
     JsPublishActivationOptions options;
     options.assembly_options.now_epoch_seconds = 100;
     options.assembly_options.allow_mutating_operations = true;
     options.assembly_options.expected_server_audience = "server:main";
     options.assembly_options.expected_workspace_id = "workspace:main";
+    options.assembly_options.expected_server_instance_id = server_instance_id;
     options.assembly_options.current_live_checksum = current_live;
     options.allow_live_pointer_update = true;
     options.durable_audit_precondition_ok = true;
@@ -440,6 +442,34 @@ TEST(JsPublishEndpointService, ActivateRejectsRollbackOperation)
     EXPECT_EQ("activate.rejected", activated.response.reason_code);
 }
 
+TEST(JsPublishEndpointService, ActivateRejectsStagedPackageFromDifferentServerInstance)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointServiceOptions other_options = internal_validation_options();
+    other_options.server_instance_id = "server:other";
+    JsPublishEndpointService service(live_store, other_options);
+    JsPublishEndpointServiceResult staged = service.stage(
+        make_stage_input(make_package(30, 3001, "return true"), make_stage_options()));
+    ASSERT_TRUE(staged.response.ok);
+
+    JsPublishEndpointServiceResult activated = service.activate(
+        make_activation_input(staged.response, JsPublishOperation::PackageActivate),
+        make_activation_options("live:old", "server:main"));
+
+    EXPECT_FALSE(activated.response.ok);
+    EXPECT_EQ(400, activated.response.http_status);
+    EXPECT_EQ("activate.staged-package-not-found", activated.response.reason_code);
+    EXPECT_TRUE(activated.response.package_id.empty());
+    EXPECT_TRUE(activated.response.package_version_id.empty());
+    EXPECT_TRUE(activated.response.staged_digest.empty());
+    EXPECT_TRUE(activated.response.live_checksum.empty());
+    EXPECT_TRUE(activated.response.audit_id.empty());
+    EXPECT_EQ(std::string::npos, activated.json.find("server:other"));
+    EXPECT_EQ(std::string::npos, activated.json.find("server:main"));
+    EXPECT_EQ(0u, live_store.package_record_count());
+    EXPECT_EQ(0u, live_store.live_pointer_count());
+}
+
 TEST(JsPublishEndpointService, RollbackPublishesRequestedRetainedLivePackage)
 {
     JsLivePackageStore live_store;
@@ -585,6 +615,57 @@ TEST(JsPublishEndpointService,
     live_pointer = live_store.find_live_pointer(first.response.package_id);
     ASSERT_TRUE(live_pointer.ok);
     EXPECT_EQ(third.response.package_version_id, live_pointer.pointer.package_version_id);
+}
+
+TEST(JsPublishEndpointService, RollbackRejectsPriorLivePackageFromDifferentServerInstance)
+{
+    JsLivePackageStore live_store;
+    JsPublishEndpointServiceOptions other_options = internal_validation_options();
+    other_options.server_instance_id = "server:other";
+    JsPublishEndpointService service(live_store, other_options);
+    JsPublishEndpointServiceResult first = service.stage(
+        make_stage_input(make_package(30, 3001, "return true"), make_stage_options()));
+    ASSERT_TRUE(first.response.ok);
+    ASSERT_TRUE(service.activate(
+        make_activation_input(first.response, JsPublishOperation::PackageActivate),
+        make_activation_options("live:old", "server:other")).response.ok);
+    JsLivePackagePointerResult live_pointer =
+        live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    const std::string first_live_checksum = live_pointer.pointer.current_live_checksum;
+    JsPublishEndpointServiceResult second = service.stage(
+        make_stage_input(make_package(30, 3001, "return false"),
+            make_stage_options(first_live_checksum), first_live_checksum));
+    ASSERT_TRUE(second.response.ok);
+    ASSERT_TRUE(service.activate(
+        make_activation_input(second.response, JsPublishOperation::PackageActivate),
+        make_activation_options(first_live_checksum, "server:other"))
+                    .response.ok);
+    live_pointer = live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    const std::string second_live_checksum = live_pointer.pointer.current_live_checksum;
+
+    JsPublishActivationOptions rollback_options =
+        make_activation_options(second_live_checksum, "server:main");
+    rollback_options.live_pointer_audit_id = "audit:rollback";
+    JsPublishStagedRequestAssemblyInput rollback_input =
+        make_activation_input(first.response, JsPublishOperation::PackageRollbackOwn);
+    rollback_input.expected_live_checksum = second_live_checksum;
+    JsPublishEndpointServiceResult rollback = service.rollback(rollback_input, rollback_options);
+
+    EXPECT_FALSE(rollback.response.ok);
+    EXPECT_EQ(400, rollback.response.http_status);
+    EXPECT_EQ("rollback.staged-package-not-found", rollback.response.reason_code);
+    EXPECT_TRUE(rollback.response.package_id.empty());
+    EXPECT_TRUE(rollback.response.package_version_id.empty());
+    EXPECT_TRUE(rollback.response.staged_digest.empty());
+    EXPECT_TRUE(rollback.response.live_checksum.empty());
+    EXPECT_TRUE(rollback.response.audit_id.empty());
+    EXPECT_EQ(std::string::npos, rollback.json.find("server:other"));
+    EXPECT_EQ(std::string::npos, rollback.json.find("server:main"));
+    live_pointer = live_store.find_live_pointer(first.response.package_id);
+    ASSERT_TRUE(live_pointer.ok);
+    EXPECT_EQ(second.response.package_version_id, live_pointer.pointer.package_version_id);
 }
 
 TEST(JsPublishEndpointService, RollbackRejectsActivateOperation)

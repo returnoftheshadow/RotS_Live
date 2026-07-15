@@ -165,7 +165,9 @@ JsPublishEndpointService::status(const JsPublishEndpointStatusInput &input) cons
         m_staged_repository.find_latest_for_package(input.package_id);
     if (!latest.ok
         || latest.record.identity.builder_account_id
-            != input.authorization_request.builder_account_id)
+            != input.authorization_request.builder_account_id
+        || latest.record.identity.server_instance_id != m_options.server_instance_id
+        || m_options.server_instance_id.empty())
         return with_json(unauthorized_status_response(status_permission_authorization_result()));
 
     JsPublishAuthorizationOptions authorization_options = input.authorization_options;

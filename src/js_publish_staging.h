@@ -62,6 +62,7 @@ struct JsPublishStagedRequestAssemblyOptions {
     bool allow_rollback_any = false;
     std::string expected_server_audience;
     std::string expected_workspace_id;
+    std::string expected_server_instance_id;
     std::string current_live_checksum;
 };
 

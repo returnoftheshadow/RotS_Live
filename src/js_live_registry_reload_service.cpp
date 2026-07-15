@@ -1,6 +1,7 @@
 #include "js_live_registry_reload_service.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace {
 
@@ -39,6 +40,12 @@ void add_validation_diagnostics(JsLiveRegistryReloadResult &result,
     if (validation.diagnostics.empty())
         add_diagnostic(result, JsLiveRegistryReloadDiagnosticCode::ValidationFailed,
                        "Live package registry snapshot validation failed.");
+}
+
+bool is_blank(const std::string &value) {
+    return std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    });
 }
 
 JsLiveRegistryPackageStatus package_status_from_package(const JsScriptPackage &package,
@@ -81,6 +88,7 @@ JsLiveRegistryReloadOptions default_reload_options() {
     JsLiveRegistryReloadOptions options;
     options.replace_options.validation_options.mode =
         JsScriptPackageValidationMode::InternalValidationOnly;
+    options.expected_server_instance_id = "server:main";
     return options;
 }
 
@@ -94,6 +102,13 @@ JsLiveRegistryReloadService::JsLiveRegistryReloadService(const JsLiveRegistryRel
 bool JsLiveRegistryReloadService::refresh_from_live_store(const JsLivePackageStore &live_store,
                                                           JsLiveRegistryReloadResult *result) {
     JsLiveRegistryReloadResult candidate_result;
+    if (!js_live_registry_snapshot_matches_server_instance(live_store.export_snapshot(),
+            m_options.expected_server_instance_id, &candidate_result)) {
+        if (result)
+            *result = candidate_result;
+        return false;
+    }
+
     JsLivePackageRegistrySnapshotResult snapshot =
         live_store.build_live_registry_snapshot(m_options.replace_options);
 
@@ -159,6 +174,10 @@ JsLiveRegistryReloadService::find_package_status_by_id(const std::string &packag
     return found == m_package_statuses.end() ? nullptr : &(*found);
 }
 
+const std::string &JsLiveRegistryReloadService::expected_server_instance_id() const {
+    return m_options.expected_server_instance_id;
+}
+
 const JsScriptTriggerBinding *
 JsLiveRegistryReloadService::find_trigger_binding(int package_vnum, JsScriptPackageHost host,
                                                   JsScriptingManifestKind kind,
@@ -186,4 +205,36 @@ const char *js_live_registry_reload_diagnostic_code_name(JsLiveRegistryReloadDia
         return "validation-failed";
     }
     return "unknown";
+}
+
+bool js_live_registry_snapshot_matches_server_instance(
+    const JsLivePackageStoreSnapshot &snapshot, const std::string &expected_server_instance_id,
+    JsLiveRegistryReloadResult *result) {
+    JsLiveRegistryReloadResult candidate_result;
+    if (is_blank(expected_server_instance_id)) {
+        candidate_result.status = JsLiveRegistryReloadStatus::LiveStoreFailed;
+        add_diagnostic(candidate_result, JsLiveRegistryReloadDiagnosticCode::LiveStoreFailed,
+                       "Live registry reload requires a server instance id.");
+        if (result)
+            *result = candidate_result;
+        return false;
+    }
+
+    const auto mismatch = std::find_if(
+        snapshot.records.begin(), snapshot.records.end(),
+        [&](const JsLivePackageRecord &record) {
+            return record.identity.server_instance_id != expected_server_instance_id;
+        });
+    if (mismatch != snapshot.records.end()) {
+        candidate_result.status = JsLiveRegistryReloadStatus::LiveStoreFailed;
+        add_diagnostic(candidate_result, JsLiveRegistryReloadDiagnosticCode::LiveStoreFailed,
+                       "Live package store contains records for a different server instance.");
+        if (result)
+            *result = candidate_result;
+        return false;
+    }
+
+    if (result)
+        *result = candidate_result;
+    return true;
 }
