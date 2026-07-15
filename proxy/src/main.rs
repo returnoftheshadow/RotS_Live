@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::{SocketAddr, SocketAddrV4},
     str::FromStr,
     sync::Arc,
@@ -10,6 +11,7 @@ use futures_util::{stream::StreamExt, SinkExt};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    time::{timeout, Duration},
 };
 
 use tokio_tungstenite::tungstenite::{handshake::server::Request, Message};
@@ -18,6 +20,8 @@ const READ_BUFFER_SIZE: usize = 8 * 1024; // 8 kb
 const LIVE_GAME_PORT: u16 = 3791;
 const BUILDER_TEST_GAME_PORT: u16 = 4802;
 const MAX_BUILDER_API_REQUEST_BYTES: usize = 256 * 1024;
+const MAX_BUILDER_API_HEADER_BYTES: usize = 16 * 1024;
+const BUILDER_API_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BuilderApiOperation {
@@ -135,6 +139,7 @@ struct BuilderLogoutResponse {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BuilderApiPreflightCode {
     Accepted,
+    BadRequest,
     NotFound,
     UnsupportedMediaType,
     RequestTooLarge,
@@ -166,6 +171,15 @@ struct BuilderApiHttpRequest<'a> {
     content_type: Option<&'a str>,
     bearer_token: Option<&'a str>,
     body: &'a [u8],
+}
+
+struct ParsedBuilderHttpRequest {
+    method: String,
+    path: String,
+    content_type: Option<String>,
+    bearer_token: Option<String>,
+    body_too_large: bool,
+    body: Vec<u8>,
 }
 
 const BUILDER_API_ROUTES: [BuilderApiRoute; 7] = [
@@ -323,6 +337,210 @@ fn builder_api_handle_http_request(
     builder_api_preflight(&preflight, builder_game)
 }
 
+fn builder_api_response_body(result: &BuilderApiPreflightResult) -> String {
+    format!(
+        "{{\"ok\":{},\"reasonCode\":\"{}\"}}",
+        result.code == BuilderApiPreflightCode::Accepted,
+        result.reason_code
+    )
+}
+
+fn http_status_text(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        404 => "Not Found",
+        413 => "Payload Too Large",
+        415 => "Unsupported Media Type",
+        503 => "Service Unavailable",
+        _ => "Internal Server Error",
+    }
+}
+
+fn builder_api_error_result(
+    code: BuilderApiPreflightCode,
+    http_status: u16,
+    reason_code: &'static str,
+) -> BuilderApiPreflightResult {
+    BuilderApiPreflightResult {
+        code,
+        route: None,
+        http_status,
+        reason_code,
+    }
+}
+
+async fn write_builder_api_response(
+    stream: &mut TcpStream,
+    result: &BuilderApiPreflightResult,
+) -> Result<(), Report> {
+    let body = builder_api_response_body(result);
+    let response = format!(
+        "HTTP/1.1 {} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        result.http_status,
+        http_status_text(result.http_status),
+        body.len(),
+        body
+    );
+    stream.write_all(response.as_bytes()).await?;
+    Ok(())
+}
+
+fn parse_builder_api_headers(
+    header_bytes: &[u8],
+) -> Result<(String, String, HashMap<String, Vec<String>>), Report> {
+    let header_text = std::str::from_utf8(header_bytes)?;
+    let mut lines = header_text.split("\r\n");
+    let request_line = lines.next().context("missing request line")?;
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().context("missing method")?.to_string();
+    let path = request_parts.next().context("missing path")?.to_string();
+    let version = request_parts.next().context("missing http version")?;
+    if !version.starts_with("HTTP/") {
+        bail!("invalid http version");
+    }
+
+    let mut headers: HashMap<String, Vec<String>> = HashMap::new();
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        let Some((name, value)) = line.split_once(':') else {
+            bail!("invalid http header");
+        };
+        headers
+            .entry(name.trim().to_ascii_lowercase())
+            .or_default()
+            .push(value.trim().to_string());
+    }
+
+    Ok((method, path, headers))
+}
+
+fn single_header<'a>(
+    headers: &'a HashMap<String, Vec<String>>,
+    name: &str,
+) -> Result<Option<&'a str>, Report> {
+    let Some(values) = headers.get(name) else {
+        return Ok(None);
+    };
+    if values.len() != 1 {
+        bail!("duplicate http header");
+    }
+    Ok(values.first().map(String::as_str))
+}
+
+fn bearer_token_from_authorization(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    let (scheme, token) = value.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    let token = token.trim();
+    if token.is_empty() || token.contains(char::is_whitespace) {
+        return None;
+    }
+    Some(token.to_string())
+}
+
+async fn read_builder_http_request(
+    stream: &mut TcpStream,
+) -> Result<ParsedBuilderHttpRequest, Report> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 1024];
+    let header_end;
+    loop {
+        let read = timeout(BUILDER_API_READ_TIMEOUT, stream.read(&mut buffer)).await??;
+        if read == 0 {
+            bail!("connection closed before headers");
+        }
+        if bytes.len() + read > MAX_BUILDER_API_HEADER_BYTES {
+            bail!("builder api headers exceed limit");
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+        if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            header_end = position + 4;
+            break;
+        }
+    }
+
+    let (method, path, headers) = parse_builder_api_headers(&bytes[..header_end])?;
+    if headers.contains_key("transfer-encoding") {
+        bail!("transfer encoding is not supported");
+    }
+    let route = builder_api_route(&method, &path);
+    let content_length_header = single_header(&headers, "content-length")?;
+    if route
+        .map(|route| route.operation.requires_json_body())
+        .unwrap_or(false)
+        && content_length_header.is_none()
+    {
+        bail!("json request body length is required");
+    }
+    let content_length = content_length_header
+        .map(|value| value.parse::<usize>())
+        .transpose()?
+        .unwrap_or(0);
+    let body_too_large = content_length > MAX_BUILDER_API_REQUEST_BYTES;
+    let mut body = Vec::new();
+    if !body_too_large {
+        body.extend_from_slice(&bytes[header_end..]);
+        while body.len() < content_length {
+            let read = timeout(BUILDER_API_READ_TIMEOUT, stream.read(&mut buffer)).await??;
+            if read == 0 {
+                bail!("connection closed before body");
+            }
+            body.extend_from_slice(&buffer[..read]);
+            if body.len() > MAX_BUILDER_API_REQUEST_BYTES {
+                bail!("builder api body exceeds limit");
+            }
+        }
+        body.truncate(content_length);
+    }
+
+    Ok(ParsedBuilderHttpRequest {
+        method,
+        path,
+        content_type: single_header(&headers, "content-type")?.map(str::to_string),
+        bearer_token: bearer_token_from_authorization(single_header(&headers, "authorization")?),
+        body_too_large,
+        body,
+    })
+}
+
+async fn handle_builder_api(mut stream: TcpStream, builder_game: GameAddr) -> Result<(), Report> {
+    let request = match read_builder_http_request(&mut stream).await {
+        Ok(request) => request,
+        Err(err) => {
+            log::debug!("Rejected malformed BuilderClient API request: {err}");
+            let result = builder_api_error_result(
+                BuilderApiPreflightCode::BadRequest,
+                400,
+                "builder.bad-request",
+            );
+            write_builder_api_response(&mut stream, &result).await?;
+            return Ok(());
+        }
+    };
+    let body_storage;
+    let body = if request.body_too_large {
+        body_storage = vec![0u8; MAX_BUILDER_API_REQUEST_BYTES + 1];
+        &body_storage
+    } else {
+        &request.body
+    };
+    let http_request = BuilderApiHttpRequest {
+        method: &request.method,
+        path: &request.path,
+        content_type: request.content_type.as_deref(),
+        bearer_token: request.bearer_token.as_deref(),
+        body,
+    };
+    let result = builder_api_handle_http_request(&http_request, &builder_game);
+    write_builder_api_response(&mut stream, &result).await
+}
+
 #[derive(Clone, Debug)]
 struct GameAddr {
     hostname: Arc<String>,
@@ -367,6 +585,10 @@ struct Args {
     #[arg(short, long, default_value = "0.0.0.0:8080")]
     /// WebSocket address to listen
     websocket: SocketAddrV4,
+
+    #[arg(long, default_value = "127.0.0.1:8081")]
+    /// HTTP address to listen for BuilderClient API requests
+    builder_api: SocketAddrV4,
 
     #[arg(short, long)]
     /// Get the connecting IP from the Cloudflare header
@@ -482,6 +704,21 @@ async fn ws_server(game: GameAddr, listener: TcpListener, cloudflare: bool) -> R
     }
 }
 
+async fn builder_api_server(builder_game: GameAddr, listener: TcpListener) -> Result<(), Report> {
+    loop {
+        let (stream, addr) = listener.accept().await?;
+        let builder_game = builder_game.clone();
+
+        log::debug!("Received BuilderClient API connection on {addr}");
+
+        tokio::spawn(async move {
+            if let Err(err) = handle_builder_api(stream, builder_game).await {
+                log::error!("{err}");
+            }
+        });
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     env_logger::init();
@@ -491,6 +728,7 @@ async fn main() -> Result<(), Report> {
     builder_publish_target(&args.builder_game)?;
     let tcp = TcpListener::bind(args.listen).await?;
     let ws = TcpListener::bind(args.websocket).await?;
+    let builder_api = TcpListener::bind(args.builder_api).await?;
 
     if let Ok(addr) = tcp.local_addr() {
         log::info!("Listening for TCP connections on {}", addr);
@@ -500,12 +738,18 @@ async fn main() -> Result<(), Report> {
         log::info!("Listening for WebSocket connections on {}", addr);
     }
 
+    if let Ok(addr) = builder_api.local_addr() {
+        log::info!("Listening for BuilderClient API connections on {}", addr);
+    }
+
     let tcp = tokio::spawn(tcp_server(args.game.clone(), tcp));
     let ws = tokio::spawn(ws_server(args.game, ws, args.cloudflare));
+    let builder_api = tokio::spawn(builder_api_server(args.builder_game, builder_api));
 
     tokio::select! {
         res = tcp => res??,
         res = ws => res??,
+        res = builder_api => res??,
     };
 
     Ok(())
@@ -515,6 +759,7 @@ async fn main() -> Result<(), Report> {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use tokio::net::TcpListener;
 
     fn game_addr(hostname: &str, port: u16) -> GameAddr {
         GameAddr {
@@ -903,5 +1148,217 @@ mod tests {
         let result = builder_api_handle_http_request(&request, &game);
 
         assert_eq!(BuilderApiPreflightCode::Accepted, result.code);
+    }
+
+    async fn roundtrip_builder_api_request(raw_request: &[u8], builder_game: GameAddr) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_builder_api(stream, builder_game).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        client.write_all(raw_request).await.unwrap();
+        client.shutdown().await.unwrap();
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+        server.await.unwrap();
+        String::from_utf8(response).unwrap()
+    }
+
+    fn response_status(response: &str) -> &str {
+        response.lines().next().unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_accepts_authed_stage_request() {
+        let response = roundtrip_builder_api_request(
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\n\r\n{}",
+            game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+        )
+        .await;
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("\"reasonCode\":\"builder.accepted\""));
+        assert!(response.contains("connection: close"));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_rejects_missing_session() {
+        let response = roundtrip_builder_api_request(
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}",
+            game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+        )
+        .await;
+
+        assert!(response.starts_with("HTTP/1.1 401 Unauthorized"));
+        assert!(response.contains("\"reasonCode\":\"builder.missing-session\""));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_rejects_oversized_body_before_reading_body() {
+        let request = format!(
+            "POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: {}\r\n\r\n",
+            MAX_BUILDER_API_REQUEST_BYTES + 1
+        );
+        let response = roundtrip_builder_api_request(
+            request.as_bytes(),
+            game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+        )
+        .await;
+
+        assert!(response.starts_with("HTTP/1.1 413 Payload Too Large"));
+        assert!(response.contains("\"reasonCode\":\"builder.request-too-large\""));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_rejects_invalid_target_generically() {
+        let response = roundtrip_builder_api_request(
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\n\r\n{}",
+            game_addr("127.0.0.1", LIVE_GAME_PORT),
+        )
+        .await;
+
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert!(response.contains("\"reasonCode\":\"builder.invalid-target\""));
+        assert!(!response.contains("3791"));
+        assert!(!response.contains("4802"));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_returns_redacted_bad_request_for_malformed_http() {
+        let response = roundtrip_builder_api_request(
+            b"POST /api/builder/js/stage\r\nbad-header\r\n\r\n",
+            game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+        )
+        .await;
+
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+        assert!(response.contains("\"reasonCode\":\"builder.bad-request\""));
+        assert!(!response.contains("bad-header"));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_rejects_duplicate_content_length() {
+        let response = roundtrip_builder_api_request(
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 2\r\ncontent-length: 2\r\n\r\n{}",
+            game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+        )
+        .await;
+
+        assert_eq!("HTTP/1.1 400 Bad Request", response_status(&response));
+        assert!(response.contains("\"reasonCode\":\"builder.bad-request\""));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_rejects_transfer_encoding() {
+        let response = roundtrip_builder_api_request(
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ntransfer-encoding: chunked\r\ncontent-length: 2\r\n\r\n{}",
+            game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+        )
+        .await;
+
+        assert_eq!("HTTP/1.1 400 Bad Request", response_status(&response));
+        assert!(response.contains("\"reasonCode\":\"builder.bad-request\""));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_requires_content_length_for_json_routes() {
+        let response = roundtrip_builder_api_request(
+            b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\n\r\n{}",
+            game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+        )
+        .await;
+
+        assert_eq!("HTTP/1.1 400 Bad Request", response_status(&response));
+        assert!(response.contains("\"reasonCode\":\"builder.bad-request\""));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_rejects_header_terminator_after_limit() {
+        let filler = "x".repeat(MAX_BUILDER_API_HEADER_BYTES + 1);
+        let request = format!("POST /api/builder/js/stage HTTP/1.1\r\nx-fill: {filler}\r\n\r\n");
+        let response = roundtrip_builder_api_request(
+            request.as_bytes(),
+            game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+        )
+        .await;
+
+        assert_eq!("HTTP/1.1 400 Bad Request", response_status(&response));
+        assert!(response.contains("\"reasonCode\":\"builder.bad-request\""));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_rejects_malformed_authorization_values() {
+        for authorization in [
+            "Bearer",
+            "Bearer ",
+            "Bearer token extra",
+            "Basic token",
+            "Bearer\ttoken",
+        ] {
+            let request = format!(
+                "POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: {authorization}\r\ncontent-length: 2\r\n\r\n{{}}"
+            );
+            let response = roundtrip_builder_api_request(
+                request.as_bytes(),
+                game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT),
+            )
+            .await;
+
+            assert_eq!("HTTP/1.1 401 Unauthorized", response_status(&response));
+            assert!(response.contains("\"reasonCode\":\"builder.missing-session\""));
+        }
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_rejects_partial_header_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_builder_api(stream, game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT))
+                .await
+                .unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        client
+            .write_all(b"POST /api/builder/js/stage HTTP/1.1\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+        server.await.unwrap();
+        let response = String::from_utf8(response).unwrap();
+
+        assert_eq!("HTTP/1.1 400 Bad Request", response_status(&response));
+        assert!(response.contains("\"reasonCode\":\"builder.bad-request\""));
+    }
+
+    #[tokio::test]
+    async fn builder_api_handler_rejects_partial_body_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_builder_api(stream, game_addr("127.0.0.1", BUILDER_TEST_GAME_PORT))
+                .await
+                .unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        client
+            .write_all(b"POST /api/builder/js/stage HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\nauthorization: Bearer token:builder\r\ncontent-length: 8\r\n\r\n{}")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+        server.await.unwrap();
+        let response = String::from_utf8(response).unwrap();
+
+        assert_eq!("HTTP/1.1 400 Bad Request", response_status(&response));
+        assert!(response.contains("\"reasonCode\":\"builder.bad-request\""));
     }
 }

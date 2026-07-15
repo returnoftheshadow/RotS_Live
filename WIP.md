@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: pivot BuilderClient and JavaScript publishing around Git-backed TypeScript workspaces, Rust proxy API transport, existing game-account authentication, immortal/zone authorization, and test-server-only publish communication.
-- Next slice: wire the proxy BuilderClient API boundary into a concrete HTTP listener with streaming body limits.
+- Next slice: add proxy-to-game BuilderClient request forwarding with an internal trust marker and timeouts.
 - Current planning decisions:
   - BuilderClient stores builder-authored TypeScript in normal Git repositories; branches, commits, pull requests, and commit SHAs are the supported collaboration/review path.
   - Package export/import is removed as a builder collaboration workflow. Local package bundles remain build/publish intermediates only.
@@ -21,12 +21,21 @@
   - [x] Publish-context integration slice: thread the new account/immortal/zone authorization decision into `JsPublishEndpointTransportContext` and publish endpoint service tests while keeping offline/client package creation unauthenticated.
   - [x] Rust proxy contract slice: add proxy route/DTO definitions for login, manifest/status, stage, activate, rollback, and logout, explicitly targeting the test game path and rejecting live port `3791` as a BuilderClient publish target.
   - [x] Proxy preflight/request-boundary slice: add BuilderClient API route preflight, localhost/test-port target checks, request-size/content-type/session-presence checks, and generic redacted failures.
-  - [ ] Proxy-to-game local trust slice: add concrete HTTP listener wiring, streaming body limits, localhost/private-host game connection, internal secret or equivalent trust marker, timeouts, and redacted runtime errors.
+  - [x] Proxy HTTP listener slice: wire the BuilderClient API boundary into a concrete HTTP listener with bounded header parsing, content-length enforcement before body allocation, and generic JSON responses.
+  - [ ] Proxy-to-game local trust slice: add proxy-to-game BuilderClient request forwarding, internal secret or equivalent trust marker, timeouts, and redacted runtime errors.
   - [ ] BuilderClient project model slice: update BuilderClient project metadata and tests so TypeScript source workspaces are Git-backed, package export/import is absent, and package provenance captures repo/branch/commit/dirty-state when available.
   - [ ] BuilderClient publish target slice: enforce proxy-only publish configuration, reject direct `3791` live-server targets, allow the configured test-server/proxy target for `4802`, and keep offline compile/fixture workflows available without auth.
   - [ ] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [ ] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with an existing account, verifies a linked level `92+` immortal, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
 - Completed slice progress:
+  - Added a raw TCP HTTP listener for BuilderClient API requests on `--builder-api` with default `127.0.0.1:8081`, running alongside the existing telnet and websocket proxy listeners.
+  - Wired the concrete BuilderClient handler through the preflight boundary so route, target, content type, request size, and session-token presence are enforced before later game communication.
+  - Added bounded header parsing and content-length handling that rejects oversized BuilderClient API bodies before allocating or reading the body, rejects duplicate `Content-Length`, rejects `Transfer-Encoding`, and requires explicit body length for JSON routes.
+  - Added stable JSON preflight responses with generic reason codes and no live/test port disclosure, including malformed-request handling through a redacted `400 builder.bad-request` response.
+  - Added read timeouts for partial BuilderClient API headers and bodies.
+  - Added async TCP handler tests for accepted stage preflight, missing session, oversized body rejection before body read, invalid target redaction, malformed HTTP redaction, duplicate content length, transfer encoding, missing content length, header limit, malformed authorization values, and partial header/body timeouts.
+  - Magus, Vincent, and Bazarat reviewed the slice; findings led to redacted malformed-request responses, timeout coverage, strict body framing, hard header caps, and additional parser/auth edge tests.
+  - Validation passed: `cargo fmt -p proxy`, `cargo test -p proxy` (31 tests).
   - Added an HTTP-shaped BuilderClient API boundary in the Rust proxy that computes request size from the body, then validates route, test-server target, request size, JSON content type, and session-token presence before publish requests reach later game communication code.
   - Kept failure responses generic with stable reason codes for not-found, invalid target, request-too-large, unsupported media type, and missing session; session presence remains a preflight check, not full authentication.
   - Added tolerant JSON media-type parsing and typed stage DTO fields for package target, provenance, and compiled JavaScript payload while keeping authority decisions server-side.
