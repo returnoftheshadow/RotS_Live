@@ -209,6 +209,9 @@ JsBuilderSessionEndpointResult dispatch_login(
     if (request.body.empty())
         return endpoint_error(400, "builder.login.invalid-request",
             "Builder login request was rejected.");
+    if (options.session_store == nullptr && !options.allow_stateless_login_for_tests)
+        return endpoint_error(503, "builder.login.session-store-unavailable",
+            "Builder login request was rejected.");
 
     JsBuilderSessionLoginRequest login_request;
     std::string parse_error;
@@ -218,6 +221,14 @@ JsBuilderSessionEndpointResult dispatch_login(
 
     JsBuilderSessionLoginResult login =
         js_builder_session_login(login_request, options.session_options);
+    if (login.ok && options.session_store != nullptr) {
+        JsBuilderSessionStoreResult stored =
+            options.session_store->insert_login_result(login, options.session_store_options);
+        if (!stored.ok)
+            return endpoint_error(503, "builder.login.session-store-unavailable",
+                "Builder login request was rejected.");
+    }
+
     JsBuilderSessionEndpointResult result;
     result.ok = login.ok;
     result.http_status = login.http_status;
@@ -249,14 +260,21 @@ JsBuilderSessionEndpointResult dispatch_logout(
     if (!is_safe_bearer_token(request.bearer_token))
         return endpoint_error(401, "builder.logout.missing-session",
             "Builder logout request was rejected.");
-    if (!options.logout_handler)
+    if (options.session_store != nullptr) {
+        JsBuilderSessionStoreResult revoked =
+            options.session_store->revoke(request.bearer_token, options.session_store_options);
+        if (!revoked.ok)
+            return endpoint_error(401, "builder.logout.rejected",
+                "Builder logout request was rejected.");
+    } else if (!options.logout_handler) {
         return endpoint_error(503, "builder.logout.unavailable",
             "Builder logout is not available.");
-
-    std::string logout_error;
-    if (!options.logout_handler(request.bearer_token, &logout_error))
-        return endpoint_error(401, "builder.logout.rejected",
-            "Builder logout request was rejected.");
+    } else {
+        std::string logout_error;
+        if (!options.logout_handler(request.bearer_token, &logout_error))
+            return endpoint_error(401, "builder.logout.rejected",
+                "Builder logout request was rejected.");
+    }
 
     JsBuilderSessionEndpointResult result;
     result.ok = true;

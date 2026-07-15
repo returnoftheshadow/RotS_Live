@@ -2,6 +2,7 @@
 #define JS_BUILDER_SESSION_ENDPOINT_H
 
 #include "js_builder_session.h"
+#include "js_builder_session_store.h"
 
 #include <cstddef>
 #include <functional>
@@ -26,6 +27,9 @@ struct JsBuilderSessionEndpointOptions {
     std::string logout_path = "/api/builder/logout";
     std::size_t maximum_request_bytes = 16 * 1024;
     JsBuilderSessionOptions session_options;
+    JsBuilderSessionStore *session_store = nullptr;
+    JsBuilderSessionStoreOptions session_store_options;
+    bool allow_stateless_login_for_tests = false;
     JsBuilderSessionLogoutHandler logout_handler;
 };
 

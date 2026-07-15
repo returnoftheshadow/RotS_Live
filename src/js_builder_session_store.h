@@ -25,6 +25,12 @@ struct JsBuilderSessionStoreResult {
     JsBuilderSessionStoreReason reason = JsBuilderSessionStoreReason::InvalidRequest;
     std::string reason_code;
     JsPublishTokenMetadata token_metadata;
+    JsPublishBuilderEligibilityResult builder_eligibility;
+};
+
+struct JsBuilderSessionStoreRecord {
+    JsPublishTokenMetadata token_metadata;
+    JsPublishBuilderEligibilityResult builder_eligibility;
 };
 
 class JsBuilderSessionStore {
@@ -38,7 +44,7 @@ public:
     std::size_t size() const;
 
 private:
-    std::unordered_map<std::string, JsPublishTokenMetadata> m_sessions;
+    std::unordered_map<std::string, JsBuilderSessionStoreRecord> m_sessions;
 };
 
 std::string js_builder_session_store_reason_code(JsBuilderSessionStoreReason reason);

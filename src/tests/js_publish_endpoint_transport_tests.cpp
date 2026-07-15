@@ -84,12 +84,105 @@ JsPublishEndpointTransportContext make_context(unsigned scopes = JS_PUBLISH_SCOP
     return context;
 }
 
+JsBuilderSessionLoginResult make_session_login(unsigned scopes = JS_PUBLISH_SCOPE_STATUS_READ)
+{
+    JsBuilderSessionLoginResult login;
+    login.ok = true;
+    login.session_token = "session-token";
+    login.account_id = "account:builder";
+    login.expires_at_epoch_seconds = 200;
+    login.token_metadata.claims_verified = true;
+    login.token_metadata.token_id = js_builder_session_token_id(login.session_token);
+    login.token_metadata.actor_id = "builderone";
+    login.token_metadata.builder_account_id = "account:builder";
+    login.token_metadata.scopes = scopes;
+    login.token_metadata.issued_at_epoch_seconds = 90;
+    login.token_metadata.expires_at_epoch_seconds = 200;
+    login.builder_eligibility.ok = true;
+    login.builder_eligibility.builder_account_id = "account:builder";
+    login.builder_eligibility.eligible_character_name = "builderone";
+    login.builder_eligibility.eligible_character_id = 1001;
+    login.builder_eligibility.eligible_character_level =
+        JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL;
+    return login;
+}
+
+JsBuilderSessionStoreOptions make_session_store_options(long long now = 100)
+{
+    JsBuilderSessionStoreOptions options;
+    options.now_epoch_seconds = now;
+    options.server_audience = "server:main";
+    options.workspace_id = "workspace:main";
+    return options;
+}
+
 JsPublishEndpointServiceOptions service_options()
 {
     JsPublishEndpointServiceOptions options;
     options.package_validation_options.mode = JsScriptPackageValidationMode::InternalValidationOnly;
     options.server_instance_id = "server:main";
     return options;
+}
+
+TEST(JsPublishEndpointTransport, SessionContextDerivesTokenAndBuilderFromStore)
+{
+    JsBuilderSessionStore store;
+    ASSERT_TRUE(store.insert_login_result(make_session_login(JS_PUBLISH_SCOPE_PACKAGE_STAGE),
+        make_session_store_options())
+                    .ok);
+    JsPublishEndpointTransportContext base_context;
+    base_context.transport = make_transport();
+    base_context.zone = 30;
+
+    JsPublishEndpointSessionContextResult result =
+        js_publish_endpoint_context_from_builder_session(
+            base_context, store, "session-token", make_session_store_options());
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ("builder.session.accepted", result.reason_code);
+    EXPECT_EQ("builderone", result.context.actor_id);
+    EXPECT_EQ("account:builder", result.context.builder_account_id);
+    EXPECT_EQ("account:builder", result.context.builder_eligibility.builder_account_id);
+    EXPECT_EQ(1001, result.context.builder_eligibility.eligible_character_id);
+    EXPECT_EQ(JS_PUBLISH_SCOPE_PACKAGE_STAGE, result.context.token.scopes);
+    EXPECT_EQ("server:main", result.context.expected_server_audience);
+    EXPECT_EQ("workspace:main", result.context.expected_workspace_id);
+    EXPECT_EQ(100, result.context.now_epoch_seconds);
+    EXPECT_EQ(30, result.context.zone);
+    EXPECT_TRUE(result.context.transport.secure_channel);
+}
+
+TEST(JsPublishEndpointTransport, SessionContextRejectsExpiredOrWrongAudienceTokens)
+{
+    JsBuilderSessionStore store;
+    ASSERT_TRUE(store.insert_login_result(make_session_login(), make_session_store_options()).ok);
+
+    JsPublishEndpointSessionContextResult expired =
+        js_publish_endpoint_context_from_builder_session(
+            make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), store, "session-token",
+            make_session_store_options(200));
+    EXPECT_FALSE(expired.ok);
+    EXPECT_EQ(JsBuilderSessionStoreReason::Expired, expired.session_reason);
+    EXPECT_TRUE(expired.context.token.token_id.empty());
+    EXPECT_FALSE(expired.context.builder_eligibility.ok);
+    EXPECT_TRUE(expired.context.actor_id.empty());
+    EXPECT_TRUE(expired.context.builder_account_id.empty());
+    EXPECT_EQ(0, expired.context.now_epoch_seconds);
+    EXPECT_TRUE(expired.context.expected_server_audience.empty());
+    EXPECT_TRUE(expired.context.expected_workspace_id.empty());
+
+    JsBuilderSessionStoreOptions wrong_audience = make_session_store_options();
+    wrong_audience.server_audience = "server:other";
+    JsPublishEndpointSessionContextResult wrong =
+        js_publish_endpoint_context_from_builder_session(
+            make_context(JS_PUBLISH_SCOPE_PACKAGE_STAGE), store, "session-token",
+            wrong_audience);
+    EXPECT_FALSE(wrong.ok);
+    EXPECT_EQ(JsBuilderSessionStoreReason::NotFound, wrong.session_reason);
+    EXPECT_TRUE(wrong.context.token.token_id.empty());
+    EXPECT_FALSE(wrong.context.builder_eligibility.ok);
+    EXPECT_TRUE(wrong.context.actor_id.empty());
+    EXPECT_TRUE(wrong.context.builder_account_id.empty());
 }
 
 JsStagedPackageStageOptions stage_options()

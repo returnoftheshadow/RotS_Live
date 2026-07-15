@@ -18,6 +18,12 @@ JsBuilderSessionLoginResult make_login()
     login.token_metadata.scopes = JS_PUBLISH_SCOPE_STATUS_READ;
     login.token_metadata.issued_at_epoch_seconds = 100;
     login.token_metadata.expires_at_epoch_seconds = 200;
+    login.builder_eligibility.ok = true;
+    login.builder_eligibility.builder_account_id = "builder-account";
+    login.builder_eligibility.eligible_character_id = 1001;
+    login.builder_eligibility.eligible_character_name = "Builderone";
+    login.builder_eligibility.eligible_character_level =
+        JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL;
     return login;
 }
 
@@ -52,6 +58,10 @@ TEST(JsBuilderSessionStore, InsertsAndLooksUpIssuedSessionMetadata)
     EXPECT_EQ("test-server", found.token_metadata.server_audience);
     EXPECT_EQ("workspace", found.token_metadata.workspace_id);
     EXPECT_EQ(JS_PUBLISH_SCOPE_STATUS_READ, found.token_metadata.scopes);
+    EXPECT_TRUE(found.builder_eligibility.ok);
+    EXPECT_EQ("builder-account", found.builder_eligibility.builder_account_id);
+    EXPECT_EQ(1001, found.builder_eligibility.eligible_character_id);
+    EXPECT_EQ("Builderone", found.builder_eligibility.eligible_character_name);
 }
 
 TEST(JsBuilderSessionStore, RejectsInvalidLoginResultsWithoutMutatingStore)
@@ -77,6 +87,18 @@ TEST(JsBuilderSessionStore, RejectsInvalidLoginResultsWithoutMutatingStore)
     JsBuilderSessionStoreOptions missing_audience = make_options();
     missing_audience.server_audience = "   ";
     EXPECT_FALSE(store.insert_login_result(make_login(), missing_audience).ok);
+
+    JsBuilderSessionLoginResult missing_eligibility = make_login();
+    missing_eligibility.builder_eligibility.ok = false;
+    EXPECT_FALSE(store.insert_login_result(missing_eligibility, make_options()).ok);
+
+    JsBuilderSessionLoginResult mismatched_account = make_login();
+    mismatched_account.builder_eligibility.builder_account_id = "other-account";
+    EXPECT_FALSE(store.insert_login_result(mismatched_account, make_options()).ok);
+
+    JsBuilderSessionLoginResult mismatched_actor = make_login();
+    mismatched_actor.builder_eligibility.eligible_character_name = "Otherbuilder";
+    EXPECT_FALSE(store.insert_login_result(mismatched_actor, make_options()).ok);
 
     EXPECT_EQ(0u, store.size());
 }
@@ -110,6 +132,30 @@ TEST(JsBuilderSessionStore, RejectsIncompleteMetadataWithoutMutatingStore)
     backwards_ttl.token_metadata.expires_at_epoch_seconds =
         backwards_ttl.token_metadata.issued_at_epoch_seconds - 1;
     EXPECT_FALSE(store.insert_login_result(backwards_ttl, make_options()).ok);
+
+    EXPECT_EQ(0u, store.size());
+}
+
+TEST(JsBuilderSessionStore, RejectsIncompleteEligibilityWithoutMutatingStore)
+{
+    JsBuilderSessionStore store;
+
+    JsBuilderSessionLoginResult missing_account = make_login();
+    missing_account.builder_eligibility.builder_account_id = "";
+    EXPECT_FALSE(store.insert_login_result(missing_account, make_options()).ok);
+
+    JsBuilderSessionLoginResult missing_name = make_login();
+    missing_name.builder_eligibility.eligible_character_name = "";
+    EXPECT_FALSE(store.insert_login_result(missing_name, make_options()).ok);
+
+    JsBuilderSessionLoginResult missing_id = make_login();
+    missing_id.builder_eligibility.eligible_character_id = 0;
+    EXPECT_FALSE(store.insert_login_result(missing_id, make_options()).ok);
+
+    JsBuilderSessionLoginResult below_level = make_login();
+    below_level.builder_eligibility.eligible_character_level =
+        JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL - 1;
+    EXPECT_FALSE(store.insert_login_result(below_level, make_options()).ok);
 
     EXPECT_EQ(0u, store.size());
 }
@@ -225,6 +271,7 @@ TEST(JsBuilderSessionStore, ReinsertingSameTokenReplacesPreviousSessionState)
 
     JsBuilderSessionLoginResult replacement = make_login();
     replacement.token_metadata.actor_id = "Buildertwo";
+    replacement.builder_eligibility.eligible_character_name = "Buildertwo";
     replacement.token_metadata.expires_at_epoch_seconds = 300;
     EXPECT_TRUE(store.insert_login_result(replacement, make_options()).ok);
 
@@ -233,5 +280,6 @@ TEST(JsBuilderSessionStore, ReinsertingSameTokenReplacesPreviousSessionState)
     EXPECT_TRUE(found.ok);
     EXPECT_FALSE(found.token_metadata.revoked);
     EXPECT_EQ("Buildertwo", found.token_metadata.actor_id);
+    EXPECT_EQ("Buildertwo", found.builder_eligibility.eligible_character_name);
     EXPECT_EQ(1u, store.size());
 }

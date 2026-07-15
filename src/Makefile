@@ -69,7 +69,7 @@ json_utils.o : json_utils.cpp json_utils.h
 js_api_contract.o : js_api_contract.cpp js_api_contract.h
 	$(CC) -c $(CFLAGS) js_api_contract.cpp
 
-js_builder_session_endpoint.o : js_builder_session_endpoint.cpp js_builder_session_endpoint.h js_builder_session.h json_utils.h
+js_builder_session_endpoint.o : js_builder_session_endpoint.cpp js_builder_session_endpoint.h js_builder_session.h js_builder_session_store.h json_utils.h
 	$(CC) -c $(CFLAGS) js_builder_session_endpoint.cpp
 
 js_builder_session_store.o : js_builder_session_store.cpp js_builder_session_store.h js_builder_session.h js_publish_authorization.h
@@ -126,7 +126,7 @@ js_publish_http_endpoint.o : js_publish_http_endpoint.cpp js_publish_http_endpoi
 js_publish_endpoint_service.o : js_publish_endpoint_service.cpp js_publish_endpoint_service.h js_publish_endpoint_contract.h js_publish_activation.h js_live_package_store.h js_live_package_store_persistence.h js_publish_staging.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_publish_endpoint_service.cpp
 
-js_publish_endpoint_transport.o : js_publish_endpoint_transport.cpp js_publish_endpoint_transport.h js_publish_endpoint_service.h js_publish_endpoint_contract.h js_script_package_loader.h json_utils.h js_publish_activation.h js_live_package_store.h js_live_package_store_persistence.h js_publish_staging.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_script_registry.h js_scripting_manifest.h
+js_publish_endpoint_transport.o : js_publish_endpoint_transport.cpp js_publish_endpoint_transport.h js_builder_session_store.h js_builder_session.h js_publish_endpoint_service.h js_publish_endpoint_contract.h js_script_package_loader.h json_utils.h js_publish_activation.h js_live_package_store.h js_live_package_store_persistence.h js_publish_staging.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_script_registry.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_publish_endpoint_transport.cpp
 
 js_publish_staging.o : js_publish_staging.cpp js_publish_staging.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h

@@ -39,16 +39,25 @@ bool metadata_is_usable(const JsPublishTokenMetadata &metadata)
         && metadata.expires_at_epoch_seconds > metadata.issued_at_epoch_seconds;
 }
 
+bool eligibility_is_usable(const JsPublishBuilderEligibilityResult &eligibility)
+{
+    return eligibility.ok && !eligibility.builder_account_id.empty()
+        && eligibility.eligible_character_id > 0
+        && !eligibility.eligible_character_name.empty()
+        && eligibility.eligible_character_level >= JS_PUBLISH_MIN_BUILDER_IMMORTAL_LEVEL;
+}
+
 bool lookup_context_is_usable(const JsBuilderSessionStoreOptions &options)
 {
     return options.now_epoch_seconds > 0 && !is_blank(options.server_audience);
 }
 
 JsBuilderSessionStoreResult result_with_metadata(
-    JsBuilderSessionStoreReason reason, const JsPublishTokenMetadata &metadata)
+    JsBuilderSessionStoreReason reason, const JsBuilderSessionStoreRecord &record)
 {
     JsBuilderSessionStoreResult result = result_for(reason);
-    result.token_metadata = metadata;
+    result.token_metadata = record.token_metadata;
+    result.builder_eligibility = record.builder_eligibility;
     return result;
 }
 
@@ -76,15 +85,23 @@ JsBuilderSessionStoreResult JsBuilderSessionStore::insert_login_result(
 {
     if (!login.ok || !is_safe_session_token(login.session_token)
         || !metadata_is_usable(login.token_metadata) || is_blank(options.server_audience)
-        || login.token_metadata.token_id != js_builder_session_token_id(login.session_token))
+        || login.token_metadata.token_id != js_builder_session_token_id(login.session_token)
+        || !eligibility_is_usable(login.builder_eligibility)
+        || login.token_metadata.builder_account_id
+            != login.builder_eligibility.builder_account_id
+        || login.token_metadata.actor_id
+            != login.builder_eligibility.eligible_character_name)
         return result_for(JsBuilderSessionStoreReason::InvalidRequest);
 
     JsPublishTokenMetadata metadata = login.token_metadata;
     metadata.server_audience = options.server_audience;
     metadata.workspace_id = options.workspace_id;
     metadata.revoked = false;
-    m_sessions[login.session_token] = metadata;
-    return result_with_metadata(JsBuilderSessionStoreReason::Accepted, metadata);
+    JsBuilderSessionStoreRecord record;
+    record.token_metadata = metadata;
+    record.builder_eligibility = login.builder_eligibility;
+    m_sessions[login.session_token] = record;
+    return result_with_metadata(JsBuilderSessionStoreReason::Accepted, record);
 }
 
 JsBuilderSessionStoreResult JsBuilderSessionStore::lookup(
@@ -98,7 +115,7 @@ JsBuilderSessionStoreResult JsBuilderSessionStore::lookup(
     if (found == m_sessions.end())
         return result_for(JsBuilderSessionStoreReason::NotFound);
 
-    const JsPublishTokenMetadata &metadata = found->second;
+    const JsPublishTokenMetadata &metadata = found->second.token_metadata;
     if (metadata.server_audience != options.server_audience
         || metadata.workspace_id != options.workspace_id)
         return result_for(JsBuilderSessionStoreReason::NotFound);
@@ -106,7 +123,7 @@ JsBuilderSessionStoreResult JsBuilderSessionStore::lookup(
         return result_for(JsBuilderSessionStoreReason::Revoked);
     if (metadata.expires_at_epoch_seconds <= options.now_epoch_seconds)
         return result_for(JsBuilderSessionStoreReason::Expired);
-    return result_with_metadata(JsBuilderSessionStoreReason::Accepted, metadata);
+    return result_with_metadata(JsBuilderSessionStoreReason::Accepted, found->second);
 }
 
 JsBuilderSessionStoreResult JsBuilderSessionStore::revoke(
@@ -117,7 +134,7 @@ JsBuilderSessionStoreResult JsBuilderSessionStore::revoke(
         return current;
 
     auto found = m_sessions.find(session_token);
-    found->second.revoked = true;
+    found->second.token_metadata.revoked = true;
     return result_with_metadata(JsBuilderSessionStoreReason::Accepted, found->second);
 }
 

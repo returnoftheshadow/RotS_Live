@@ -1,6 +1,7 @@
 #ifndef JS_PUBLISH_ENDPOINT_TRANSPORT_H
 #define JS_PUBLISH_ENDPOINT_TRANSPORT_H
 
+#include "js_builder_session_store.h"
 #include "js_publish_endpoint_service.h"
 
 #include <cstddef>
@@ -46,6 +47,18 @@ struct JsPublishEndpointTransportResult {
     std::string reason_code;
     std::string json;
 };
+
+struct JsPublishEndpointSessionContextResult {
+    bool ok = false;
+    std::string reason_code;
+    JsBuilderSessionStoreReason session_reason = JsBuilderSessionStoreReason::InvalidRequest;
+    JsPublishEndpointTransportContext context;
+};
+
+JsPublishEndpointSessionContextResult js_publish_endpoint_context_from_builder_session(
+    const JsPublishEndpointTransportContext &base_context,
+    const JsBuilderSessionStore &session_store, const std::string &bearer_token,
+    const JsBuilderSessionStoreOptions &session_options);
 
 JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
     JsPublishEndpointService &service, const std::string &request_json,

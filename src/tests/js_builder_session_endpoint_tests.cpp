@@ -67,9 +67,19 @@ JsBuilderSessionEndpointOptions endpoint_options()
 {
     JsBuilderSessionEndpointOptions options;
     options.session_options = make_session_options();
+    options.allow_stateless_login_for_tests = true;
     options.logout_handler = [](const std::string &token, std::string *) {
         return token == "session-token";
     };
+    return options;
+}
+
+JsBuilderSessionStoreOptions store_options(long long now = 120)
+{
+    JsBuilderSessionStoreOptions options;
+    options.now_epoch_seconds = now;
+    options.server_audience = "server:test";
+    options.workspace_id = "workspace:test";
     return options;
 }
 
@@ -122,6 +132,60 @@ TEST(JsBuilderSessionEndpoint, LoginReturnsSessionForTrustedProxy)
     expect_contains(result.json, "\"accountId\":\"builder-account\"");
     expect_contains(result.json, "\"expiresAtEpochSeconds\":160");
     expect_contains(result.json, "\"immortalCharacterNames\":[\"Builderone\"]");
+}
+
+TEST(JsBuilderSessionEndpoint, LoginPersistsAcceptedSessionWhenStoreIsAttached)
+{
+    JsBuilderSessionStore store;
+    JsBuilderSessionEndpointOptions options = endpoint_options();
+    options.session_store = &store;
+    options.session_store_options = store_options();
+
+    JsBuilderSessionEndpointResult result =
+        js_builder_session_endpoint_dispatch(login_request(), options);
+
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ(200, result.http_status);
+    JsBuilderSessionStoreResult session =
+        store.lookup("session-token", store_options());
+    EXPECT_TRUE(session.ok);
+    EXPECT_EQ("builder-account", session.token_metadata.builder_account_id);
+    EXPECT_EQ("server:test", session.token_metadata.server_audience);
+    EXPECT_EQ("workspace:test", session.token_metadata.workspace_id);
+    EXPECT_TRUE(session.builder_eligibility.ok);
+    EXPECT_EQ(1001, session.builder_eligibility.eligible_character_id);
+}
+
+TEST(JsBuilderSessionEndpoint, LoginRequiresStoreUnlessExplicitlyAllowed)
+{
+    JsBuilderSessionEndpointOptions options = endpoint_options();
+    options.allow_stateless_login_for_tests = false;
+    bool resolver_called = false;
+    options.session_options.account_resolver =
+        [&resolver_called](const std::string &, const std::string &,
+            account::AccountData *, std::string *) {
+            resolver_called = true;
+            return false;
+        };
+
+    expect_error(js_builder_session_endpoint_dispatch(login_request(), options), 503,
+        "builder.login.session-store-unavailable");
+    EXPECT_FALSE(resolver_called);
+}
+
+TEST(JsBuilderSessionEndpoint, LoginFailsClosedWhenAcceptedSessionCannotBeStored)
+{
+    JsBuilderSessionStore store;
+    JsBuilderSessionEndpointOptions options = endpoint_options();
+    options.session_store = &store;
+    options.session_store_options = store_options();
+    options.session_store_options.server_audience = "";
+
+    JsBuilderSessionEndpointResult result =
+        js_builder_session_endpoint_dispatch(login_request(), options);
+
+    expect_error(result, 503, "builder.login.session-store-unavailable");
+    EXPECT_EQ(0u, store.size());
 }
 
 TEST(JsBuilderSessionEndpoint, LoginRejectsMalformedRequestsAndRedactsSecrets)
@@ -290,4 +354,103 @@ TEST(JsBuilderSessionEndpoint, LogoutRequiresSessionAndHandler)
     rejecting.logout_handler = [](const std::string &, std::string *) { return false; };
     expect_error(js_builder_session_endpoint_dispatch(request, rejecting), 401,
         "builder.logout.rejected");
+}
+
+TEST(JsBuilderSessionEndpoint, LogoutRevokesAttachedSessionStore)
+{
+    JsBuilderSessionStore store;
+    JsBuilderSessionEndpointOptions options = endpoint_options();
+    options.session_store = &store;
+    options.session_store_options = store_options();
+    ASSERT_TRUE(js_builder_session_endpoint_dispatch(login_request(), options).ok);
+
+    JsBuilderSessionEndpointRequest logout;
+    logout.method = "POST";
+    logout.path = "/api/builder/logout";
+    logout.trusted_proxy = true;
+    logout.bearer_token = "session-token";
+
+    JsBuilderSessionEndpointResult result =
+        js_builder_session_endpoint_dispatch(logout, options);
+    EXPECT_TRUE(result.ok);
+    EXPECT_EQ("builder.logout.accepted", result.reason_code);
+    EXPECT_EQ(JsBuilderSessionStoreReason::Revoked,
+        store.lookup("session-token", store_options()).reason);
+
+    expect_error(js_builder_session_endpoint_dispatch(logout, options), 401,
+        "builder.logout.rejected");
+}
+
+TEST(JsBuilderSessionEndpoint, LogoutRejectsExpiredStoreSession)
+{
+    JsBuilderSessionStore store;
+    JsBuilderSessionEndpointOptions options = endpoint_options();
+    options.session_store = &store;
+    options.session_store_options = store_options();
+    ASSERT_TRUE(js_builder_session_endpoint_dispatch(login_request(), options).ok);
+
+    JsBuilderSessionEndpointRequest logout;
+    logout.method = "POST";
+    logout.path = "/api/builder/logout";
+    logout.trusted_proxy = true;
+    logout.bearer_token = "session-token";
+
+    options.session_store_options = store_options(160);
+    expect_error(js_builder_session_endpoint_dispatch(logout, options), 401,
+        "builder.logout.rejected");
+}
+
+TEST(JsBuilderSessionEndpoint, StoreBackedLogoutSkipsLegacyLogoutHandler)
+{
+    JsBuilderSessionStore store;
+    JsBuilderSessionEndpointOptions options = endpoint_options();
+    options.session_store = &store;
+    options.session_store_options = store_options();
+    bool handler_called = false;
+    options.logout_handler = [&handler_called](const std::string &, std::string *) {
+        handler_called = true;
+        return false;
+    };
+    ASSERT_TRUE(js_builder_session_endpoint_dispatch(login_request(), options).ok);
+
+    JsBuilderSessionEndpointRequest logout;
+    logout.method = "POST";
+    logout.path = "/api/builder/logout";
+    logout.trusted_proxy = true;
+    logout.bearer_token = "session-token";
+
+    EXPECT_TRUE(js_builder_session_endpoint_dispatch(logout, options).ok);
+    EXPECT_FALSE(handler_called);
+}
+
+TEST(JsBuilderSessionEndpoint, StoreBackedLogoutRejectsInvalidStoreContextAndUnknownToken)
+{
+    JsBuilderSessionStore store;
+    JsBuilderSessionEndpointOptions options = endpoint_options();
+    options.session_store = &store;
+    options.session_store_options = store_options();
+    ASSERT_TRUE(js_builder_session_endpoint_dispatch(login_request(), options).ok);
+
+    JsBuilderSessionEndpointRequest logout;
+    logout.method = "POST";
+    logout.path = "/api/builder/logout";
+    logout.trusted_proxy = true;
+    logout.bearer_token = "session-token";
+
+    JsBuilderSessionEndpointOptions missing_clock = options;
+    missing_clock.session_store_options.now_epoch_seconds = 0;
+    expect_error(js_builder_session_endpoint_dispatch(logout, missing_clock), 401,
+        "builder.logout.rejected");
+
+    JsBuilderSessionEndpointOptions wrong_audience = options;
+    wrong_audience.session_store_options.server_audience = "server:other";
+    expect_error(js_builder_session_endpoint_dispatch(logout, wrong_audience), 401,
+        "builder.logout.rejected");
+
+    JsBuilderSessionEndpointRequest unknown = logout;
+    unknown.bearer_token = "other-session-token";
+    expect_error(js_builder_session_endpoint_dispatch(unknown, options), 401,
+        "builder.logout.rejected");
+
+    EXPECT_TRUE(store.lookup("session-token", store_options()).ok);
 }

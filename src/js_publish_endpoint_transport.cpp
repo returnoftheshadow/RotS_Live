@@ -414,6 +414,39 @@ JsPublishStagedRequestAssemblyInput staged_request_from_status(
 
 } // namespace
 
+JsPublishEndpointSessionContextResult js_publish_endpoint_context_from_builder_session(
+    const JsPublishEndpointTransportContext &base_context,
+    const JsBuilderSessionStore &session_store, const std::string &bearer_token,
+    const JsBuilderSessionStoreOptions &session_options)
+{
+    JsPublishEndpointSessionContextResult result;
+    result.context = base_context;
+    JsBuilderSessionStoreResult session =
+        session_store.lookup(bearer_token, session_options);
+    result.ok = session.ok;
+    result.session_reason = session.reason;
+    result.reason_code = session.reason_code;
+    if (!session.ok) {
+        result.context.token = JsPublishTokenMetadata();
+        result.context.builder_eligibility = JsPublishBuilderEligibilityResult();
+        result.context.actor_id.clear();
+        result.context.builder_account_id.clear();
+        result.context.now_epoch_seconds = 0;
+        result.context.expected_server_audience.clear();
+        result.context.expected_workspace_id.clear();
+        return result;
+    }
+
+    result.context.token = session.token_metadata;
+    result.context.builder_eligibility = session.builder_eligibility;
+    result.context.actor_id = session.token_metadata.actor_id;
+    result.context.builder_account_id = session.token_metadata.builder_account_id;
+    result.context.now_epoch_seconds = session_options.now_epoch_seconds;
+    result.context.expected_server_audience = session_options.server_audience;
+    result.context.expected_workspace_id = session_options.workspace_id;
+    return result;
+}
+
 JsPublishEndpointTransportResult js_publish_endpoint_dispatch_json(
     JsPublishEndpointService &service, const std::string &request_json,
     const JsPublishEndpointTransportContext &context,
