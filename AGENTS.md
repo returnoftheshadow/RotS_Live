@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient fixture result detail.
-- Next slice: BuilderClient fixture output bounding. Bound and paginate fixture output details so large logs, diagnostics, and return values stay readable and cannot overwhelm the renderer.
+- Latest completed slice: BuilderClient fixture output bounding.
+- Next slice: BuilderClient fixture output pagination controls. Add UI affordances for paging, expanding, and navigating the already-bounded fixture diagnostics, logs, and return-value output.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
