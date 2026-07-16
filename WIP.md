@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient rots-script CLI scaffold complete.
-- Next slice: add a read-only project JSON loader and `typecheck` command over the existing compiler core with deterministic JSON diagnostics.
+- Active slice: BuilderClient rots-script project loader/typecheck complete.
+- Next slice: add a read-only `fixture run` CLI command over the existing compiler and offline runner with deterministic JSON diagnostics/results.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -100,8 +100,15 @@
   - [x] BuilderClient App wiring guard cleanup slice: reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
   - [x] BuilderClient remaining work audit slice: reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
   - [x] BuilderClient rots-script CLI scaffold slice: add a built Node CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
-  - [ ] BuilderClient rots-script project loader/typecheck slice: add a read-only project JSON loader and `typecheck` command over the existing compiler core with deterministic JSON diagnostics.
+  - [x] BuilderClient rots-script project loader/typecheck slice: add a read-only project JSON loader and `typecheck` command over the existing compiler core with deterministic JSON diagnostics.
+  - [ ] BuilderClient rots-script fixture run slice: add a read-only `fixture run` CLI command over the existing compiler and offline runner with deterministic JSON diagnostics/results.
 - Completed slice progress:
+  - Added a read-only `rots.script.project.json` loader for the CLI with bounded file reads, no-follow project manifest opening, minimal BuilderProject shape validation, and rejection coverage for missing, malformed, symlinked, oversized, absolute-path, traversal, unsupported-host, bad-language, and malformed required fields.
+  - Added `rots-script typecheck` over the existing `compileScript` core with deterministic JSON output, stable usage/local-validation exit classes, safe project-relative `.ts` entry validation, and TypeScript diagnostic mapping.
+  - Added tests for typecheck success, missing project, missing entry, unsafe/unsupported entry paths, wrong entry path, TypeScript diagnostic file/line/column/message mapping, read-only project behavior, help aliases, and project path handling.
+  - Magus found only the expected staging risk for new loader files; Bazarat's unsafe-entry, wrong-entry, read-only, malformed-shape, diagnostic-location, and help-alias findings were addressed before commit; Vincent did not return before the commit boundary.
+  - Validation passed for this BuilderClient rots-script project loader/typecheck slice: focused CLI/project-loader tests (13 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (43 files, 305 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add a read-only `fixture run` CLI command over the existing compiler and offline runner with deterministic JSON diagnostics/results.
   - Added `src/cli/rotsScript.ts` as the first built Node `rots-script` entry point with deterministic JSON `help` and `doctor` commands, stable exit-code classes, and no publish authority or project mutation.
   - Wired the CLI into `tsconfig.node.json`, `package.json` `bin.rots-script`, `npm run rots-script`, `package-lock.json`, and Vitest's CLI test include.
   - Hardened generated artifact reads used by CLI/Electron artifact loading to reject symlinked, non-regular, and oversized generated artifacts and return fallback diagnostics without reading partial content.
