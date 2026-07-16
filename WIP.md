@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient multi-fixture run/package planning.
-- Next slice: run all BuilderClient offline fixtures for a project, display the per-fixture summary, and package all successful fixture results instead of only the selected fixture.
+- Active slice: BuilderClient manifest-driven fixture templates planning.
+- Next slice: add BuilderClient fixture template creation from the server-owned trigger manifest so builders can create correctly shaped fixtures for supported trigger handlers without manually filling every trigger field.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -77,8 +77,16 @@
   - [x] BuilderClient project metadata persistence slice: persist BuilderClient project/package metadata in the Git-backed workspace so package id/name, zone vnum, host type/vnum, script name, and description survive restart, participate in Git review, and reload before compile/package/publish.
   - [x] BuilderClient fixture persistence foundation slice: persist, load, save, select, and review BuilderClient offline fixture definitions in the Git-backed workspace alongside scripts and project metadata.
   - [x] BuilderClient fixture editor controls slice: add UI controls for creating, duplicating, renaming, deleting, and editing offline fixture fields without hand-editing `.rots/fixtures.json`.
-  - [ ] BuilderClient multi-fixture run/package slice: run all BuilderClient offline fixtures for a project, display the per-fixture summary, and package all successful fixture results instead of only the selected fixture.
+  - [x] BuilderClient multi-fixture run/package slice: run all BuilderClient offline fixtures for a project, display the per-fixture summary, and package only when every fixture returns and passes instead of relying on only the selected fixture.
+  - [ ] BuilderClient manifest-driven fixture template slice: add BuilderClient fixture template creation from the server-owned trigger manifest so builders can create correctly shaped fixtures for supported trigger handlers without manually filling every trigger field.
 - Completed slice progress:
+  - Added BuilderClient Run All support that executes every offline fixture through the existing main-process `runFixture` IPC path and displays a per-fixture summary in the Output panel.
+  - Local Package now runs all fixtures and fails closed unless every project fixture returns a result and every result is `ok`; stale packages are cleared before package validation starts, on readiness failure, and after selected-fixture reruns.
+  - Added `fixtureRunState` helper coverage for missing, mismatched, failed, and all-passed fixture result sets so the package readiness rule is behavior-tested instead of only source-guarded.
+  - Added `fixtureBusy` guards around selected fixture execution, Run All, Package, Compile, Sync, and publish operations so stale packages/results cannot race fixture execution.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by failing closed on partial fixture execution, clearing stale package state before any package attempt awaits, clearing multi-fixture summaries on artifact sync invalidation, and blocking publish actions while fixture/package validation is busy.
+  - Validation passed for this BuilderClient multi-fixture run/package slice: focused fixture run/wiring tests, `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (27 files, 183 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add BuilderClient fixture template creation from the server-owned trigger manifest so builders can create correctly shaped fixtures for supported trigger handlers without manually filling every trigger field.
   - Added BuilderClient fixture editor controls in the sidebar for creating, duplicating, deleting, selecting, renaming, and editing fixture handler, trigger metadata, expected result, text payload, and self/actor/object/room/zone handle fields.
   - Extracted fixture editor mutations into `fixtureEditorState` so New/Copy/Delete, rename, trigger edits, host/blocking edits, expected result edits, handle field edits, text edits, duplicate-name rejection, required-text rejection, exact integer parsing, safe-integer rejection, last-fixture delete no-op behavior, and stale run/package invalidation are behavior-tested.
   - Renderer fixture edits now reject invalid numeric/required text changes before mutating the live project model and surface local diagnostics through the existing status path.
