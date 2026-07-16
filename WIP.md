@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient sidebar action renderer harness complete.
-- Next slice: extract and renderer-test title-bar compile/run/package/sync/load/save controls so action disabled states are covered outside source guards.
+- Active slice: BuilderClient title action renderer harness complete.
+- Next slice: extract and renderer-test Problems/Output/Publish column composition and resize handle wiring so bottom-panel structure is covered outside source guards.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -94,8 +94,16 @@
   - [x] BuilderClient publish panel renderer harness slice: extract and renderer-test the publish action/status panel so publish controls and diagnostics are covered outside source guards.
   - [x] BuilderClient fixture editor renderer harness slice: extract and renderer-test the fixture editor controls so fixture field updates and expectation editors are covered outside source guards.
   - [x] BuilderClient sidebar action renderer harness slice: extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
-  - [ ] BuilderClient title action renderer harness slice: extract and renderer-test title-bar compile/run/package/sync/load/save controls so action disabled states are covered outside source guards.
+  - [x] BuilderClient title action renderer harness slice: extract and renderer-test title-bar compile/run/package/sync/load/save controls so action disabled states are covered outside source guards.
+  - [ ] BuilderClient bottom layout renderer harness slice: extract and renderer-test Problems/Output/Publish column composition and resize handle wiring so bottom-panel structure is covered outside source guards.
 - Completed slice progress:
+  - Extracted `TitleActions` from `App.tsx` while keeping App as the owner of compile/run/package/sync/load/save callbacks and disabled-state derivation.
+  - Added renderer-level coverage for script/package identity rendering, exact action-to-callback routing, source-action disabled behavior, independently disabled sync/workspace actions, and enabled-action positive checks.
+  - Added exact aria labels to title action buttons so tests and assistive tooling can distinguish Run Fixture vs Run All and Load vs Save.
+  - Updated App wiring guards to pin `TitleActions` identity props, disabled-state props, and action callbacks instead of inline title-bar button markup.
+  - Magus and Vincent found only the expected staging risk for the new component/test files; Bazarat's exact-label, callback-mapping, enabled-action, and identity-prop findings were addressed before commit.
+  - Validation passed for this BuilderClient title action renderer harness slice: focused title/wiring tests (13 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (39 files, 278 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: extract and renderer-test Problems/Output/Publish column composition and resize handle wiring so bottom-panel structure is covered outside source guards.
   - Extracted `SidebarPanels` from `App.tsx` while keeping App as the owner of workspace file mutations, active file selection, trigger-template fixture creation, and fixture persistence callbacks.
   - Added renderer-level coverage for workspace file actions, active file styling, trigger template cap and empty prompt, trigger creation routing, fixture action routing, fixture persistence actions, workspace-vs-fixture disabled states, single-fixture delete disabling, and no-fixture save disabling.
   - Added exact aria labels to repeated sidebar action buttons so tests and assistive tooling can distinguish workspace script actions from fixture actions.
