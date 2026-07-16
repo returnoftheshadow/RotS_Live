@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient rots-script build complete.
-- Next slice: add a no-write `package` CLI command that compiles the selected entry, runs required local validation inputs, and reports deterministic package metadata/digests without creating package artifacts yet.
+- Active slice: BuilderClient rots-script package metadata complete.
+- Next slice: extend `rots-script package` with an explicit artifact-write mode that writes deterministic package JSON under `packages/` using safe project-relative output paths, atomic replacement, and the same compile/fixture/readiness gates.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -103,8 +103,15 @@
   - [x] BuilderClient rots-script project loader/typecheck slice: add a read-only project JSON loader and `typecheck` command over the existing compiler core with deterministic JSON diagnostics.
   - [x] BuilderClient rots-script fixture run slice: add a read-only `fixture run` CLI command over the existing compiler and offline runner with deterministic JSON diagnostics/results.
   - [x] BuilderClient rots-script build slice: add a read-only `build` CLI command over the compiler that reports compiled JavaScript checksum/size metadata without writing artifacts.
-  - [ ] BuilderClient rots-script package metadata slice: add a no-write `package` CLI command that compiles the selected entry, runs required local validation inputs, and reports deterministic package metadata/digests without creating package artifacts yet.
+  - [x] BuilderClient rots-script package metadata slice: add a no-write `package` CLI command that compiles the selected entry, runs required local validation inputs, and reports deterministic package metadata/digests without creating package artifacts yet.
+  - [ ] BuilderClient rots-script package artifact slice: extend `rots-script package` with an explicit artifact-write mode that writes deterministic package JSON under `packages/` using safe project-relative output paths, atomic replacement, and the same compile/fixture/readiness gates.
 - Completed slice progress:
+  - Added a no-write `rots-script package` metadata command over the existing project loader, compiler, offline runner, fixture readiness gate, and publisher core. It validates safe `.ts` entries, compiles the selected entry, runs every local fixture, requires readiness to pass, and reports source-free package metadata with local package JSON bytes/checksum.
+  - Kept package metadata output source-free and server-authority-safe: compiled JavaScript is not returned, source provenance is omitted from the metadata view, fixture execution is capped at 128 fixtures, script-controlled diagnostics are bounded, and the checksum is explicitly named `localPackageJsonChecksum` so it is not confused with a server canonical digest.
+  - Added package CLI tests for help/usage, success with two fixtures, exact local package JSON checksum/byte calculation through the shared publisher, source sentinel non-disclosure, recursive no-write snapshots, project/compile failures, zero fixtures, fixture-count cap, fixture expectation failures, and bounded runner diagnostics.
+  - Magus's empty-fixture and exact-digest findings were addressed. Vincent's fixture-cap, diagnostic-bounding, provenance-output, and checksum-naming findings were addressed. Bazarat's all-fixture, zero-fixture, runner-diagnostic, exact-digest, source-sentinel, and help-surface findings were addressed before commit.
+  - Validation passed for this BuilderClient rots-script package metadata slice: focused CLI tests (17 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (43 files, 313 tests), and `git diff --check` in the BuilderClient repo.
+  - Next slice after this commit: extend `rots-script package` with an explicit artifact-write mode that writes deterministic package JSON under `packages/` using safe project-relative output paths, atomic replacement, and the same compile/fixture/readiness gates.
   - Added `rots-script build` as a read-only CLI command over the existing project loader and TypeScript compiler. It validates safe project-relative `.ts` entries, compiles without writing artifacts, and returns deterministic JSON with compiled JavaScript byte length and SHA-256 checksum only on successful builds.
   - Build metadata now counts UTF-8 bytes rather than UTF-16 string length, hashes the exact UTF-8 byte buffer, and omits checksum/byte metadata on failed builds so downstream tools cannot accidentally treat failed output as an artifact.
   - Added tests for build help, usage errors, missing projects, wrong entry, TypeScript diagnostics, non-ASCII byte/checksum accounting, exact metadata shape, stdout source-leak prevention, recursive read-only snapshots on success, and no-mutation failure paths.
