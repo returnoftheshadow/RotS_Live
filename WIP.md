@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient project metadata editor planning.
-- Next slice: add BuilderClient project/package metadata editing so builders can configure package id/name, zone vnum, host type/vnum, script name, and description before compile/package/publish, with validation, stale output invalidation, and focused tests.
+- Active slice: BuilderClient project metadata persistence planning.
+- Next slice: persist BuilderClient project/package metadata in the Git-backed workspace so package id/name, zone vnum, host type/vnum, script name, and description survive restart, participate in Git review, and reload before compile/package/publish.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -73,8 +73,16 @@
   - [x] BuilderClient Git workspace file loading/saving slice: load and save builder-authored TypeScript files from the Git-backed workspace on disk, keep the VS Code-style file tree/editor state synchronized, and preserve offline compile/fixture/package workflows against the disk-backed project state.
   - [x] BuilderClient workspace selection/config persistence slice: add BuilderClient UI/IPC support to choose or configure the Git repository root and scripts root, persist that workspace selection locally, and route Load/Save/Sync/provenance through the selected workspace instead of only the default `.` project root.
   - [x] BuilderClient workspace file management slice: add BuilderClient file creation, rename, and delete workflows for TypeScript scripts under the selected scripts root, including IPC validation, disk updates, Explorer state updates, and stale compile/package invalidation.
-  - [ ] BuilderClient project metadata editor slice: add BuilderClient project/package metadata editing so builders can configure package id/name, zone vnum, host type/vnum, script name, and description before compile/package/publish, with validation, stale output invalidation, and focused tests.
+  - [x] BuilderClient project metadata editor slice: add BuilderClient project/package metadata editing so builders can configure package id/name, zone vnum, host type/vnum, script name, and description before compile/package/publish, with validation, stale output invalidation, and focused tests.
+  - [ ] BuilderClient project metadata persistence slice: persist BuilderClient project/package metadata in the Git-backed workspace so package id/name, zone vnum, host type/vnum, script name, and description survive restart, participate in Git review, and reload before compile/package/publish.
 - Completed slice progress:
+  - Added a BuilderClient project metadata editor for package id, package vnum, zone vnum, host type, host vnum, script name, and description in the existing publish/settings panel.
+  - Added `projectMetadataState` helpers to convert metadata to editable drafts, validate package ids/host types/vnums/text bounds, trim normalized values, apply valid metadata to project state, and clear stale compile/run/package outputs after target metadata changes.
+  - Preserved applied metadata when the UI resets to an unsaved starter file after deleting the last script or switching to an empty workspace, so file/workspace operations do not silently restore default package/target values.
+  - Added focused tests for draft round-trip, valid metadata application, stale output invalidation, invalid package/numeric/text fields, unsupported host type rejection, trimming behavior, all supported host types, App metadata field wiring, and metadata preservation through starter resets.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by preserving metadata through starter resets and adding missing unsupported-host, field-update, and trimming coverage. Vincent reported no security findings because metadata remains renderer-local/advisory and server validation still controls publish authority.
+  - Validation passed for this BuilderClient project metadata editor slice: focused BuilderClient metadata/wiring tests (2 files, 10 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (23 files, 144 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: persist BuilderClient project/package metadata in the Git-backed workspace so package id/name, zone vnum, host type/vnum, script name, and description survive restart, participate in Git review, and reload before compile/package/publish.
   - Added BuilderClient workspace script create, rename, and delete support across shared DTOs, IPC validation, main-process handlers, preload exposure, Electron wiring, workspace filesystem operations, and VS Code-style Explorer action buttons.
   - File mutations now stay under the selected `scriptsRoot`, reject malformed/non-TypeScript paths, support root-level `scriptsRoot: "."`, invalidate stale compile/run/package outputs, and fall back to an unsaved starter when the last disk-backed script is deleted.
   - Hardened mutation filesystem behavior with real-directory ancestor checks for existing and destination paths, no-follow file operations, exclusive create/destination writes, symlinked-directory regressions, symlinked-file regressions, overwrite protection, and rename cleanup if source removal fails after destination creation.

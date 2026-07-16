@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient workspace file management.
-- Next slice: BuilderClient project metadata editor. Add project/package metadata editing so builders can configure package id/name, zone vnum, host type/vnum, script name, and description before compile/package/publish, with validation, stale output invalidation, and focused tests.
+- Latest completed slice: BuilderClient project metadata editor.
+- Next slice: BuilderClient project metadata persistence. Persist project/package metadata in the Git-backed workspace so package id/name, zone vnum, host type/vnum, script name, and description survive restart, participate in Git review, and reload before compile/package/publish.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
