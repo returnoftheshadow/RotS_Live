@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient rots-script project loader/typecheck complete.
-- Next slice: add a read-only `fixture run` CLI command over the existing compiler and offline runner with deterministic JSON diagnostics/results.
+- Active slice: BuilderClient rots-script fixture run complete.
+- Next slice: add a read-only `build` CLI command over the compiler that reports compiled JavaScript checksum/size metadata without writing artifacts.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -101,8 +101,15 @@
   - [x] BuilderClient remaining work audit slice: reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
   - [x] BuilderClient rots-script CLI scaffold slice: add a built Node CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
   - [x] BuilderClient rots-script project loader/typecheck slice: add a read-only project JSON loader and `typecheck` command over the existing compiler core with deterministic JSON diagnostics.
-  - [ ] BuilderClient rots-script fixture run slice: add a read-only `fixture run` CLI command over the existing compiler and offline runner with deterministic JSON diagnostics/results.
+  - [x] BuilderClient rots-script fixture run slice: add a read-only `fixture run` CLI command over the existing compiler and offline runner with deterministic JSON diagnostics/results.
+  - [ ] BuilderClient rots-script build slice: add a read-only `build` CLI command over the compiler that reports compiled JavaScript checksum/size metadata without writing artifacts.
 - Completed slice progress:
+  - Added `rots-script fixture run` as a read-only CLI command over the existing project loader, TypeScript compiler, and offline runner. It validates safe `.ts` entry paths, requires `--fixture`, compiles before fixture lookup, separates compile diagnostics from run diagnostics, and performs no publish or write operations.
+  - Fixture CLI output now uses safe return-value presentation and bounded log presentation instead of emitting raw fixture return values or unbounded logs.
+  - Added tests for fixture-run usage errors, unsafe/unsupported entry paths, success with `allowed: false`, safe BigInt/array/function/cyclic return presentation, bounded logs, compile failure, missing fixture, runtime throw, compile-vs-fixture lookup precedence, and read-only behavior on success/failure.
+  - Magus, Vincent, and Bazarat's raw return serialization, log bounding, trusted-workspace help warning, entry validation, runtime failure, non-mutation, and precedence findings were addressed before commit.
+  - Validation passed for this BuilderClient rots-script fixture run slice: focused CLI/project-loader tests (17 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (43 files, 309 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add a read-only `build` CLI command over the compiler that reports compiled JavaScript checksum/size metadata without writing artifacts.
   - Added a read-only `rots.script.project.json` loader for the CLI with bounded file reads, no-follow project manifest opening, minimal BuilderProject shape validation, and rejection coverage for missing, malformed, symlinked, oversized, absolute-path, traversal, unsupported-host, bad-language, and malformed required fields.
   - Added `rots-script typecheck` over the existing `compileScript` core with deterministic JSON output, stable usage/local-validation exit classes, safe project-relative `.ts` entry validation, and TypeScript diagnostic mapping.
   - Added tests for typecheck success, missing project, missing entry, unsafe/unsupported entry paths, wrong entry path, TypeScript diagnostic file/line/column/message mapping, read-only project behavior, help aliases, and project path handling.
