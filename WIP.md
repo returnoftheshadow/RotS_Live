@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture assertion integration coverage planning.
-- Next slice: add an integration-style test that derives hidden/truncated expectation diagnostics from package readiness and verifies the Output panel presentation keeps them visible.
+- Active slice: BuilderClient fixture assertion boundary coverage planning.
+- Next slice: pin exact assertion scan boundaries so item 32 and character 1024 still match while later output remains ignored.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -84,8 +84,13 @@
   - [x] BuilderClient fixture output pagination controls slice: add UI affordances for paging, expanding, and navigating the already-bounded fixture diagnostics, logs, and return-value output.
   - [x] BuilderClient fixture assertion editor slice: add editable expected fixture assertions beyond allow/block so offline runs can validate expected diagnostics, logs, and return values before packaging.
   - [x] BuilderClient fixture assertion result detail slice: surface expectation mismatch details per fixture in the Output panel instead of only showing package-blocking summary text.
-  - [ ] BuilderClient fixture assertion integration coverage slice: add an integration-style test that derives hidden/truncated expectation diagnostics from package readiness and verifies the Output panel presentation keeps them visible.
+  - [x] BuilderClient fixture assertion integration coverage slice: add an integration-style test that derives hidden/truncated expectation diagnostics from package readiness and verifies the Output panel presentation keeps them visible.
+  - [ ] BuilderClient fixture assertion boundary coverage slice: pin exact assertion scan boundaries so item 32 and character 1024 still match while later output remains ignored.
 - Completed slice progress:
+  - Added an integration-style fixture expectation output regression that runs package readiness for nine fixtures, derives a hidden ninth-row expectation failure, and verifies `presentFixtureResults` keeps that hidden failure visible through package-blocking output while rendering the truncation row.
+  - Magus, Vincent, and Bazarat reviewed the test-only slice. Their only findings were to ensure the new regression file is tracked before commit.
+  - Validation passed for this BuilderClient fixture assertion integration coverage slice: focused expectation integration/presenter/readiness tests (36 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (31 files, 236 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: pin exact assertion scan boundaries so item 32 and character 1024 still match while later output remains ignored.
   - Added per-fixture expectation failure presentation to BuilderClient fixture result output, including an Expectations tab alongside Summary, Diagnostics, Logs, Return, and Blocking.
   - Broke the expectation matcher out into neutral `fixtureExpectations` so package readiness, parity, and output presentation share bounded matcher behavior without a presenter/readiness module cycle.
   - App output presentation now passes project fixture definitions into `presentFixtureResults`, so stale result rows show an explicit no-matching-fixture marker and matched rows show concrete expectation mismatches.
