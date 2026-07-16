@@ -19,7 +19,7 @@
 
 ### Current JavaScript Slice Handoff
 - Latest completed slice: BuilderClient editor input cursor fix.
-- Next slice: BuilderClient offline IntelliSense/LSP hardening. Prioritize local/offline editor correctness before more upload work by strengthening Monaco TypeScript configuration, generated declaration loading, diagnostics, completion support, and client-wide zoom controls for WSL/remote-rendered sizing.
+- Next slice: BuilderClient offline IntelliSense/LSP hardening. Prioritize local/offline editor correctness before more upload work by strengthening Monaco TypeScript configuration, generated declaration loading, diagnostics, completion support, client-wide zoom controls for WSL/remote-rendered sizing, and comprehensive builder-facing tooltips.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
