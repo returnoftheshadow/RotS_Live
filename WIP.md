@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient bottom layout renderer harness complete.
-- Next slice: extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
+- Active slice: BuilderClient resize shell renderer harness complete.
+- Next slice: reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -96,8 +96,15 @@
   - [x] BuilderClient sidebar action renderer harness slice: extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
   - [x] BuilderClient title action renderer harness slice: extract and renderer-test title-bar compile/run/package/sync/load/save controls so action disabled states are covered outside source guards.
   - [x] BuilderClient bottom layout renderer harness slice: extract and renderer-test Problems/Output/Publish column composition and resize handle wiring so bottom-panel structure is covered outside source guards.
-  - [ ] BuilderClient resize shell renderer harness slice: extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
+  - [x] BuilderClient resize shell renderer harness slice: extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
+  - [ ] BuilderClient App wiring guard cleanup slice: reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
 - Completed slice progress:
+  - Extracted `WorkspaceShell` from `App.tsx` while keeping App as the owner of sidebar width, bottom panel height, pointer resize math, keyboard resize math, and all editor/publish/sidebar state.
+  - Added renderer-level coverage for activity navigation, slot rendering, slot order, sidebar and workspace grid sizing, sidebar separator accessibility, bottom separator accessibility/value attributes, pointer resize callback routing, and bottom resize key event forwarding.
+  - Updated App wiring guards to pin `WorkspaceShell` sizing props, sidebar resize bounds/setter, bottom pointer/keyboard handlers, and slot prop composition.
+  - Magus and Vincent found only the expected staging risk for the new component/test files; Bazarat's slot-order, slot-prop guard, sidebar accessibility, forwarded-key, and sidebar-bound findings were addressed before commit.
+  - Validation passed for this BuilderClient resize shell renderer harness slice: focused shell/wiring tests (14 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (41 files, 290 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
   - Extracted `BottomPanel` from `App.tsx` while keeping App as the owner of diagnostics, fixture output state, publish/auth state, metadata state, and resize state.
   - Added renderer-level coverage for empty, duplicate, and populated Problems rows; bottom grid column sizing; stable column resize handle labels and indexes; normal fixture output callback passthrough; diagnostics-only fixture output; publish presentation/config/action passthrough; and publish operation disabled behavior.
   - Updated App wiring guards to pin `BottomPanel` diagnostics, column-width, resize callback, fixture-output, and publish prop mappings instead of inline Problems/Output/Publish markup.

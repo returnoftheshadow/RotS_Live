@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient bottom layout renderer harness.
-- Next slice: BuilderClient resize shell renderer harness. Extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
+- Latest completed slice: BuilderClient resize shell renderer harness.
+- Next slice: BuilderClient App wiring guard cleanup. Reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
