@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient project metadata persistence planning.
-- Next slice: persist BuilderClient project/package metadata in the Git-backed workspace so package id/name, zone vnum, host type/vnum, script name, and description survive restart, participate in Git review, and reload before compile/package/publish.
+- Active slice: BuilderClient fixture management persistence planning.
+- Next slice: persist and manage BuilderClient offline fixture definitions in the Git-backed workspace so builders can create, edit, save, reload, and review trigger test cases alongside scripts and project metadata.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -74,8 +74,16 @@
   - [x] BuilderClient workspace selection/config persistence slice: add BuilderClient UI/IPC support to choose or configure the Git repository root and scripts root, persist that workspace selection locally, and route Load/Save/Sync/provenance through the selected workspace instead of only the default `.` project root.
   - [x] BuilderClient workspace file management slice: add BuilderClient file creation, rename, and delete workflows for TypeScript scripts under the selected scripts root, including IPC validation, disk updates, Explorer state updates, and stale compile/package invalidation.
   - [x] BuilderClient project metadata editor slice: add BuilderClient project/package metadata editing so builders can configure package id/name, zone vnum, host type/vnum, script name, and description before compile/package/publish, with validation, stale output invalidation, and focused tests.
-  - [ ] BuilderClient project metadata persistence slice: persist BuilderClient project/package metadata in the Git-backed workspace so package id/name, zone vnum, host type/vnum, script name, and description survive restart, participate in Git review, and reload before compile/package/publish.
+  - [x] BuilderClient project metadata persistence slice: persist BuilderClient project/package metadata in the Git-backed workspace so package id/name, zone vnum, host type/vnum, script name, and description survive restart, participate in Git review, and reload before compile/package/publish.
+  - [ ] BuilderClient fixture management persistence slice: persist and manage BuilderClient offline fixture definitions in the Git-backed workspace so builders can create, edit, save, reload, and review trigger test cases alongside scripts and project metadata.
 - Completed slice progress:
+  - Added Git-backed BuilderClient project metadata persistence at `.rots/project.json`, with shared IPC DTOs/channels, preload exposure, main-process handlers, and renderer startup/workspace-selection loading.
+  - Apply Metadata now saves validated package/target metadata to the selected workspace before mutating local project state when the Electron API is available, so failed persistence does not clear stale outputs or display unsaved metadata as current.
+  - Hardened metadata persistence with BuilderClient-workspace-bounded repository roots, symlink parent rejection, final-file symlink/directory rejection, no-follow reads/writes, immediate parent revalidation before save open, bounded file size, stable malformed-JSON diagnostics, and validation on both read and write.
+  - Added focused tests for save/load, missing metadata, malformed metadata shape, malformed JSON, symlinked parent/file rejection on save and load, IPC validation, handler delegation/rejection, preload/main registration, App load/save wiring, and failed-save early return before local mutation.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by adding load-side ancestor validation, final-file checks, stable parse diagnostics, save parent revalidation, load-side symlink regressions, malformed JSON coverage, and App failed-save ordering guards.
+  - Validation passed for this BuilderClient project metadata persistence slice: focused BuilderClient persistence/validation/handler/wiring tests (4 files, 44 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (24 files, 156 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: persist and manage BuilderClient offline fixture definitions in the Git-backed workspace so builders can create, edit, save, reload, and review trigger test cases alongside scripts and project metadata.
   - Added a BuilderClient project metadata editor for package id, package vnum, zone vnum, host type, host vnum, script name, and description in the existing publish/settings panel.
   - Added `projectMetadataState` helpers to convert metadata to editable drafts, validate package ids/host types/vnums/text bounds, trim normalized values, apply valid metadata to project state, and clear stale compile/run/package outputs after target metadata changes.
   - Preserved applied metadata when the UI resets to an unsaved starter file after deleting the last script or switching to an empty workspace, so file/workspace operations do not silently restore default package/target values.
