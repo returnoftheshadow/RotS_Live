@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture output pagination controls planning.
-- Next slice: add UI affordances for paging, expanding, and navigating the already-bounded fixture diagnostics, logs, and return-value output.
+- Active slice: BuilderClient fixture assertion editor planning.
+- Next slice: add editable expected fixture assertions beyond allow/block so offline runs can validate expected diagnostics, logs, and return values before packaging.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -81,8 +81,15 @@
   - [x] BuilderClient manifest-driven fixture template slice: add BuilderClient fixture template creation from the server-owned trigger manifest so builders can create correctly shaped fixtures for supported trigger handlers without manually filling every trigger field.
   - [x] BuilderClient fixture result detail slice: improve BuilderClient fixture result detail display so Run All failures show per-fixture diagnostics, logs, return values, and package-blocking reasons directly in the client.
   - [x] BuilderClient fixture output bounding slice: bound fixture output details so large logs, diagnostics, and return values stay readable and cannot overwhelm the renderer.
-  - [ ] BuilderClient fixture output pagination controls slice: add UI affordances for paging, expanding, and navigating the already-bounded fixture diagnostics, logs, and return-value output.
+  - [x] BuilderClient fixture output pagination controls slice: add UI affordances for paging, expanding, and navigating the already-bounded fixture diagnostics, logs, and return-value output.
+  - [ ] BuilderClient fixture assertion editor slice: add editable expected fixture assertions beyond allow/block so offline runs can validate expected diagnostics, logs, and return values before packaging.
 - Completed slice progress:
+  - Added Output panel fixture pagination and section tabs for Summary, Diagnostics, Logs, Return, and Blocking output, with compact Tokyo Night styling that stays inside the resizable bottom panel.
+  - Extracted `fixtureOutputPanel` state/text helpers so output section routing, fixture-index clamping, reset/default behavior, truncation marker selection, diagnostics-only package blocking output, and empty-output fallback are behavior-tested outside the renderer.
+  - Updated App output state so fresh run results reset to Summary/index 0, package readiness diagnostics select the Blocking section even when no fixture rows exist, and fixture paging controls appear only when rendered fixture rows are available.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by extracting the helper, adding focused behavior coverage, resetting stale output state, and exposing zero-fixture package-blocking diagnostics.
+  - Validation passed for this BuilderClient fixture output pagination controls slice: focused helper/wiring/presenter tests (35 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (30 files, 219 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add editable expected fixture assertions beyond allow/block so offline runs can validate expected diagnostics, logs, and return values before packaging.
   - Bounded BuilderClient fixture result presentation so logs, diagnostics, package-blocking diagnostics, fixture identity fields, fixture result counts, long text, arrays, and nested array fanout all stay under fixed renderer-friendly limits.
   - Hardened fixture return-value presentation with a shared return-value budget across retained fixture results, fail-soft malformed text/container handling, and summary-only non-array object rendering so object getters, proxy key enumeration, and deep cloning are not used in the renderer presenter.
   - Added focused `fixtureResultPresenter` coverage for long text caps, count caps, diagnostic file caps, malformed text and containers, hostile object/proxy non-enumeration, nested fanout, shared return budgets, fixture-count caps, and worst-case serialized output ceilings.
