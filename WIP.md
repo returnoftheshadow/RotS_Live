@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture assertion editor planning.
-- Next slice: add editable expected fixture assertions beyond allow/block so offline runs can validate expected diagnostics, logs, and return values before packaging.
+- Active slice: BuilderClient fixture assertion result detail planning.
+- Next slice: surface expectation mismatch details per fixture in the Output panel instead of only showing package-blocking summary text.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -82,8 +82,15 @@
   - [x] BuilderClient fixture result detail slice: improve BuilderClient fixture result detail display so Run All failures show per-fixture diagnostics, logs, return values, and package-blocking reasons directly in the client.
   - [x] BuilderClient fixture output bounding slice: bound fixture output details so large logs, diagnostics, and return values stay readable and cannot overwhelm the renderer.
   - [x] BuilderClient fixture output pagination controls slice: add UI affordances for paging, expanding, and navigating the already-bounded fixture diagnostics, logs, and return-value output.
-  - [ ] BuilderClient fixture assertion editor slice: add editable expected fixture assertions beyond allow/block so offline runs can validate expected diagnostics, logs, and return values before packaging.
+  - [x] BuilderClient fixture assertion editor slice: add editable expected fixture assertions beyond allow/block so offline runs can validate expected diagnostics, logs, and return values before packaging.
+  - [ ] BuilderClient fixture assertion result detail slice: surface expectation mismatch details per fixture in the Output panel instead of only showing package-blocking summary text.
 - Completed slice progress:
+  - Added BuilderClient fixture expectation fields for bounded diagnostics, logs, and return-value substring assertions, exposed through the fixture editor and preserved through workspace fixture IPC validation.
+  - Package readiness now enforces default `ok=true`/`allowed=true` expectations, supports explicitly expected failed fixture runs, and evaluates diagnostics/log/return expectations with bounded fail-soft scanning.
+  - Offline parity now reuses the shared fixture expectation matcher and reports `expectationFailures` for missing log/return/diagnostic expectations instead of only a boolean mismatch.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by supporting `expected.ok=false`, defaulting missing expectations, bounding diagnostics/log/return matching, preserving assertion fields when toggling Allowed, broadening malformed expected-field validation, and adding negative parity and scan-cap regressions.
+  - Validation passed for this BuilderClient fixture assertion editor slice: focused fixture readiness/editor/validation/parity/wiring tests (54 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (30 files, 231 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: surface expectation mismatch details per fixture in the Output panel instead of only showing package-blocking summary text.
   - Added Output panel fixture pagination and section tabs for Summary, Diagnostics, Logs, Return, and Blocking output, with compact Tokyo Night styling that stays inside the resizable bottom panel.
   - Extracted `fixtureOutputPanel` state/text helpers so output section routing, fixture-index clamping, reset/default behavior, truncation marker selection, diagnostics-only package blocking output, and empty-output fallback are behavior-tested outside the renderer.
   - Updated App output state so fresh run results reset to Summary/index 0, package readiness diagnostics select the Blocking section even when no fixture rows exist, and fixture paging controls appear only when rendered fixture rows are available.
