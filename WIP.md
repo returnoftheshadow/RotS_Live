@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient rots-script fixture run complete.
-- Next slice: add a read-only `build` CLI command over the compiler that reports compiled JavaScript checksum/size metadata without writing artifacts.
+- Active slice: BuilderClient rots-script build complete.
+- Next slice: add a no-write `package` CLI command that compiles the selected entry, runs required local validation inputs, and reports deterministic package metadata/digests without creating package artifacts yet.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -102,8 +102,15 @@
   - [x] BuilderClient rots-script CLI scaffold slice: add a built Node CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
   - [x] BuilderClient rots-script project loader/typecheck slice: add a read-only project JSON loader and `typecheck` command over the existing compiler core with deterministic JSON diagnostics.
   - [x] BuilderClient rots-script fixture run slice: add a read-only `fixture run` CLI command over the existing compiler and offline runner with deterministic JSON diagnostics/results.
-  - [ ] BuilderClient rots-script build slice: add a read-only `build` CLI command over the compiler that reports compiled JavaScript checksum/size metadata without writing artifacts.
+  - [x] BuilderClient rots-script build slice: add a read-only `build` CLI command over the compiler that reports compiled JavaScript checksum/size metadata without writing artifacts.
+  - [ ] BuilderClient rots-script package metadata slice: add a no-write `package` CLI command that compiles the selected entry, runs required local validation inputs, and reports deterministic package metadata/digests without creating package artifacts yet.
 - Completed slice progress:
+  - Added `rots-script build` as a read-only CLI command over the existing project loader and TypeScript compiler. It validates safe project-relative `.ts` entries, compiles without writing artifacts, and returns deterministic JSON with compiled JavaScript byte length and SHA-256 checksum only on successful builds.
+  - Build metadata now counts UTF-8 bytes rather than UTF-16 string length, hashes the exact UTF-8 byte buffer, and omits checksum/byte metadata on failed builds so downstream tools cannot accidentally treat failed output as an artifact.
+  - Added tests for build help, usage errors, missing projects, wrong entry, TypeScript diagnostics, non-ASCII byte/checksum accounting, exact metadata shape, stdout source-leak prevention, recursive read-only snapshots on success, and no-mutation failure paths.
+  - Magus and Vincent's byte-count/checksum and failed-build metadata findings were addressed. Bazarat's recursive read-only snapshot, exact data-shape, leak-check, help-surface, and diagnostic-location findings were addressed before commit.
+  - Validation passed for this BuilderClient rots-script build slice: focused CLI tests (15 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (43 files, 311 tests), and `git diff --check` in the BuilderClient repo.
+  - Next slice after this commit: add a no-write `package` CLI command that compiles the selected entry, runs required local validation inputs, and reports deterministic package metadata/digests without creating package artifacts yet.
   - Added `rots-script fixture run` as a read-only CLI command over the existing project loader, TypeScript compiler, and offline runner. It validates safe `.ts` entry paths, requires `--fixture`, compiles before fixture lookup, separates compile diagnostics from run diagnostics, and performs no publish or write operations.
   - Fixture CLI output now uses safe return-value presentation and bounded log presentation instead of emitting raw fixture return values or unbounded logs.
   - Added tests for fixture-run usage errors, unsafe/unsupported entry paths, success with `allowed: false`, safe BigInt/array/function/cyclic return presentation, bounded logs, compile failure, missing fixture, runtime throw, compile-vs-fixture lookup precedence, and read-only behavior on success/failure.

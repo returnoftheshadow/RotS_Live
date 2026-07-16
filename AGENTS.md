@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient rots-script fixture run command.
-- Next slice: BuilderClient rots-script build command. Add a read-only `build` CLI command over the compiler that reports compiled JavaScript checksum/size metadata without writing artifacts.
+- Latest completed slice: BuilderClient rots-script build command.
+- Next slice: BuilderClient rots-script package metadata command. Add a no-write `package` CLI command that compiles the selected entry, runs required local validation inputs, and reports deterministic package metadata/digests without creating package artifacts yet.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
