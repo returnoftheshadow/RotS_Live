@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient rots-script package metadata command.
-- Next slice: BuilderClient rots-script package artifact command. Extend `package` with an explicit artifact-write mode that writes deterministic package JSON under `packages/` using safe project-relative output paths, atomic replacement, and the same compile/fixture/readiness gates.
+- Latest completed slice: BuilderClient rots-script package artifact command.
+- Next slice: BuilderClient rots-script publish stage scaffold. Add a CLI surface for `publish stage` that reads a local package artifact, validates the publish target/auth inputs without storing credentials, and reports deterministic JSON diagnostics without contacting the server until the transport wiring is explicitly enabled.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
