@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient publish panel renderer harness.
-- Next slice: BuilderClient fixture editor renderer harness. Extract and renderer-test the fixture editor controls so fixture field updates and expectation editors are covered outside source guards.
+- Latest completed slice: BuilderClient fixture editor renderer harness.
+- Next slice: BuilderClient sidebar action renderer harness. Extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

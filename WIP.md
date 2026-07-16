@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient publish panel renderer harness complete.
-- Next slice: extract and renderer-test the fixture editor controls so fixture field updates and expectation editors are covered outside source guards.
+- Active slice: BuilderClient fixture editor renderer harness complete.
+- Next slice: extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -92,8 +92,15 @@
   - [x] BuilderClient fixture list renderer harness slice: add a minimal renderer-level test harness for fixture status badges and output selection interactions so the remaining source guards can be retired or reduced.
   - [x] BuilderClient fixture output renderer harness slice: add a minimal renderer-level test harness for fixture output navigation/tabs so output pagination and expectation visibility are covered outside source guards.
   - [x] BuilderClient publish panel renderer harness slice: extract and renderer-test the publish action/status panel so publish controls and diagnostics are covered outside source guards.
-  - [ ] BuilderClient fixture editor renderer harness slice: extract and renderer-test the fixture editor controls so fixture field updates and expectation editors are covered outside source guards.
+  - [x] BuilderClient fixture editor renderer harness slice: extract and renderer-test the fixture editor controls so fixture field updates and expectation editors are covered outside source guards.
+  - [ ] BuilderClient sidebar action renderer harness slice: extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
 - Completed slice progress:
+  - Extracted `FixtureEditorPanel` from `App.tsx` while keeping App as the owner of fixture editor state, validation helpers, stale result clearing, and publish package invalidation.
+  - Added renderer-level coverage for fixture field rendering, trigger fields, expected assertion editors, checkbox state, text field callbacks, handle field role/field routing for every role including empty object handles, missing expected assertion defaults, and disabled fieldset rendering.
+  - Updated App wiring guards to pin `FixtureEditorPanel` props and callbacks to the existing `fixtureEditorState` helper paths.
+  - Magus and Vincent found only the expected staging risk for the new component/test files; Bazarat's callback-count, all-role handle, missing expectation default, disabled fieldset, and checkbox-state findings were addressed or documented through reliable renderer assertions before commit.
+  - Validation passed for this BuilderClient fixture editor renderer harness slice: focused fixture-editor/wiring tests (15 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (37 files, 268 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
   - Extracted `PublishPanel` from `App.tsx` while keeping App as the owner of publish/auth/workspace state, metadata application, and publish operation callbacks.
   - Added renderer-level coverage for credential/status output, publish result rows and diagnostics, all metadata fields, all server/workspace/auth/token/checksum fields, Apply Metadata, auth/workspace action buttons, publish operation routing, and disabled publish actions.
   - Updated App wiring guards to pin critical `PublishPanel` props and callbacks, including publish settings/result/presentation, checksum/digest fields, auth actions, and `runPublishOperation`.
