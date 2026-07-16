@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient title action renderer harness complete.
-- Next slice: extract and renderer-test Problems/Output/Publish column composition and resize handle wiring so bottom-panel structure is covered outside source guards.
+- Active slice: BuilderClient bottom layout renderer harness complete.
+- Next slice: extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -95,8 +95,15 @@
   - [x] BuilderClient fixture editor renderer harness slice: extract and renderer-test the fixture editor controls so fixture field updates and expectation editors are covered outside source guards.
   - [x] BuilderClient sidebar action renderer harness slice: extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
   - [x] BuilderClient title action renderer harness slice: extract and renderer-test title-bar compile/run/package/sync/load/save controls so action disabled states are covered outside source guards.
-  - [ ] BuilderClient bottom layout renderer harness slice: extract and renderer-test Problems/Output/Publish column composition and resize handle wiring so bottom-panel structure is covered outside source guards.
+  - [x] BuilderClient bottom layout renderer harness slice: extract and renderer-test Problems/Output/Publish column composition and resize handle wiring so bottom-panel structure is covered outside source guards.
+  - [ ] BuilderClient resize shell renderer harness slice: extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
 - Completed slice progress:
+  - Extracted `BottomPanel` from `App.tsx` while keeping App as the owner of diagnostics, fixture output state, publish/auth state, metadata state, and resize state.
+  - Added renderer-level coverage for empty, duplicate, and populated Problems rows; bottom grid column sizing; stable column resize handle labels and indexes; normal fixture output callback passthrough; diagnostics-only fixture output; publish presentation/config/action passthrough; and publish operation disabled behavior.
+  - Updated App wiring guards to pin `BottomPanel` diagnostics, column-width, resize callback, fixture-output, and publish prop mappings instead of inline Problems/Output/Publish markup.
+  - Magus and Vincent found only the expected staging risk for the new component/test files; Bazarat's publish passthrough, diagnostics-only output, callback-count, and duplicate-diagnostic findings were addressed before commit.
+  - Validation passed for this BuilderClient bottom layout renderer harness slice: focused bottom/wiring tests (16 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (40 files, 285 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
   - Extracted `TitleActions` from `App.tsx` while keeping App as the owner of compile/run/package/sync/load/save callbacks and disabled-state derivation.
   - Added renderer-level coverage for script/package identity rendering, exact action-to-callback routing, source-action disabled behavior, independently disabled sync/workspace actions, and enabled-action positive checks.
   - Added exact aria labels to title action buttons so tests and assistive tooling can distinguish Run Fixture vs Run All and Load vs Save.
