@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient fixture persistence foundation.
-- Next slice: BuilderClient fixture editor controls. Add UI controls for creating, duplicating, renaming, deleting, and editing offline fixture fields without hand-editing `.rots/fixtures.json`.
+- Latest completed slice: BuilderClient fixture editor controls.
+- Next slice: BuilderClient multi-fixture run/package. Run all BuilderClient offline fixtures for a project, display the per-fixture summary, and package all successful fixture results instead of only the selected fixture.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

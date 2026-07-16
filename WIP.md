@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture editor controls planning.
-- Next slice: add BuilderClient fixture editor controls so builders can create, duplicate, rename, delete, and edit offline fixture fields without hand-editing `.rots/fixtures.json`.
+- Active slice: BuilderClient multi-fixture run/package planning.
+- Next slice: run all BuilderClient offline fixtures for a project, display the per-fixture summary, and package all successful fixture results instead of only the selected fixture.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -76,8 +76,15 @@
   - [x] BuilderClient project metadata editor slice: add BuilderClient project/package metadata editing so builders can configure package id/name, zone vnum, host type/vnum, script name, and description before compile/package/publish, with validation, stale output invalidation, and focused tests.
   - [x] BuilderClient project metadata persistence slice: persist BuilderClient project/package metadata in the Git-backed workspace so package id/name, zone vnum, host type/vnum, script name, and description survive restart, participate in Git review, and reload before compile/package/publish.
   - [x] BuilderClient fixture persistence foundation slice: persist, load, save, select, and review BuilderClient offline fixture definitions in the Git-backed workspace alongside scripts and project metadata.
-  - [ ] BuilderClient fixture editor controls slice: add UI controls for creating, duplicating, renaming, deleting, and editing offline fixture fields without hand-editing `.rots/fixtures.json`.
+  - [x] BuilderClient fixture editor controls slice: add UI controls for creating, duplicating, renaming, deleting, and editing offline fixture fields without hand-editing `.rots/fixtures.json`.
+  - [ ] BuilderClient multi-fixture run/package slice: run all BuilderClient offline fixtures for a project, display the per-fixture summary, and package all successful fixture results instead of only the selected fixture.
 - Completed slice progress:
+  - Added BuilderClient fixture editor controls in the sidebar for creating, duplicating, deleting, selecting, renaming, and editing fixture handler, trigger metadata, expected result, text payload, and self/actor/object/room/zone handle fields.
+  - Extracted fixture editor mutations into `fixtureEditorState` so New/Copy/Delete, rename, trigger edits, host/blocking edits, expected result edits, handle field edits, text edits, duplicate-name rejection, required-text rejection, exact integer parsing, safe-integer rejection, last-fixture delete no-op behavior, and stale run/package invalidation are behavior-tested.
+  - Renderer fixture edits now reject invalid numeric/required text changes before mutating the live project model and surface local diagnostics through the existing status path.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by extracting tested state helpers, adding non-mutating invalid-input coverage, adding host/blocking/text invalidation coverage, guarding all handle field mappings, and adding safe-integer boundary tests.
+  - Validation passed for this BuilderClient fixture editor controls slice: focused fixture editor/wiring tests, `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (26 files, 178 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: run all BuilderClient offline fixtures for a project, display the per-fixture summary, and package all successful fixture results instead of only the selected fixture.
   - Added Git-backed BuilderClient fixture persistence at `.rots/fixtures.json`, with shared IPC DTOs/channels, preload exposure, main-process handlers, renderer startup/workspace-selection loading, and sidebar Load/Save controls.
   - Fixture selection now drives offline Run Fixture and local Package creation instead of always using the first fixture, and fixture load/selection clears stale run/package state.
   - Hardened fixture persistence with BuilderClient-workspace-bounded repository roots, symlink parent rejection, final-file symlink/directory rejection, no-follow reads/writes, bounded file size, stable malformed-JSON diagnostics, validation on read/write, duplicate fixture-name rejection, and invalid-save non-clobber coverage.
