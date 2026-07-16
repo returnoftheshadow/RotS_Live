@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient fixture assertion boundary coverage.
-- Next slice: BuilderClient fixture assertion status badges. Show fixture-level assertion pass/fail status in the fixture list so builders can spot failing fixtures without opening every Output section.
+- Latest completed slice: BuilderClient fixture assertion status badges.
+- Next slice: BuilderClient unrun fixture output selection behavior. Decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

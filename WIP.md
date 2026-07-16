@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture assertion status badges planning.
-- Next slice: show fixture-level assertion pass/fail status in the fixture list so builders can spot failing fixtures without opening every Output section.
+- Active slice: BuilderClient unrun fixture output selection behavior planning.
+- Next slice: decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -86,8 +86,15 @@
   - [x] BuilderClient fixture assertion result detail slice: surface expectation mismatch details per fixture in the Output panel instead of only showing package-blocking summary text.
   - [x] BuilderClient fixture assertion integration coverage slice: add an integration-style test that derives hidden/truncated expectation diagnostics from package readiness and verifies the Output panel presentation keeps them visible.
   - [x] BuilderClient fixture assertion boundary coverage slice: pin exact assertion scan boundaries so item 32 and character 1024 still match while later output remains ignored.
-  - [ ] BuilderClient fixture assertion status badges slice: show fixture-level assertion pass/fail status in the fixture list so builders can spot failing fixtures without opening every Output section.
+  - [x] BuilderClient fixture assertion status badges slice: show fixture-level assertion pass/fail status in the fixture list so builders can spot failing fixtures without opening every Output section.
+  - [ ] BuilderClient unrun fixture output selection behavior slice: decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
 - Completed slice progress:
+  - Added fixture assertion status badges in the fixture list using compact pass/fail icons derived from the latest fixture results and the shared expectation matcher.
+  - Extracted `fixtureStatusRows` so pass, failure, unrun fixture no-status, run-all replacement, and stale unmatched result rows are behavior-tested outside the renderer.
+  - Fixture row selection now preserves the latest result set so badges remain visible while inspecting a fixture, updates the selected run result/output index when that fixture has a result, and keeps stale unmatched result rows visible but disabled.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by preserving result state on selection, extracting a tested helper, rendering stale result rows, and pinning edit-time result clearing in source guards.
+  - Validation passed for this BuilderClient fixture assertion status badges slice: focused status-row/wiring tests (12 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (32 files, 242 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
   - Added fixture assertion boundary regressions proving diagnostic/log assertions still match at the 32nd scanned entry and that log assertion text ending exactly at the 1024-character per-entry scan cap still matches.
   - Magus, Vincent, and Bazarat reviewed the test-only slice. Their findings were clear; Bazarat's exact-boundary calibration note was addressed before commit.
   - Validation passed for this BuilderClient fixture assertion boundary coverage slice: focused fixture readiness tests (13 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (31 files, 238 tests), and `git diff --check` in both repos.
