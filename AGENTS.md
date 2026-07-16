@@ -19,7 +19,7 @@
 
 ### Current JavaScript Slice Handoff
 - Latest completed slice: BuilderClient editor input cursor fix.
-- Next slice: BuilderClient rots-script publish status command. Add `publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
+- Next slice: BuilderClient offline IntelliSense/LSP hardening. Prioritize local/offline editor correctness before more upload work by strengthening Monaco TypeScript configuration, generated declaration loading, diagnostics, completion support, and client-wide zoom controls for WSL/remote-rendered sizing.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

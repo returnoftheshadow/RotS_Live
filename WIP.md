@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient editor input cursor fix complete.
-- Next slice: add `rots-script publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
+- Active planning update: BuilderClient work is now offline/local first. Do not continue upload/publish UI or CLI status work until the editor has solid TypeScript IntelliSense/LSP behavior from generated server-owned typings and cached manifest artifacts.
+- Active slice: documentation-only priority update complete; no implementation started. Added BuilderClient zoom as a documented client requirement for WSL/remote-rendered environments where the font and UI sizing are too small.
+- Next slice: BuilderClient offline IntelliSense/LSP hardening. Strengthen Monaco/TypeScript configuration, generated declaration loading, model URI mapping, diagnostics, hover docs, completions, and checksum-driven cache invalidation so the client works locally/offline before more upload work.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -25,6 +25,9 @@
   - Rust proxy is the BuilderClient-facing API boundary and runs on the same host as the game. Proxy-to-game traffic is local-host/private-host traffic, but still requires an internal trust boundary.
   - BuilderClient must never connect to the live game port 3791. BuilderClient server-backed testing/publishing must target the test server path on port 4802 through the proxy.
   - The editor remains fully TypeScript with generated typings, IntelliSense, and custom LSP/editor configuration sourced from the server-owned manifest/API contract.
+  - BuilderClient offline/local editor correctness now comes before more upload work. Builders must be able to edit, typecheck, inspect hover docs, get completions, and validate scripts from cached/generated artifacts without authentication or server access.
+  - BuilderClient must support client-wide zoom controls for WSL/remote rendering so editor fonts and shell sizing can be increased without breaking resizable panes or minimum layout constraints.
+  - `rots-script publish status`, publish activation/rollback client wiring, and further upload UX are deferred until the offline IntelliSense/LSP slice is complete.
   - Before upload, BuilderClient compiles TypeScript to JavaScript and sends the publish package through the proxy; the game server remains authoritative for validation and execution.
   - Finish server publish/admin hardening before runtime execution tests, then defer BuilderClient UI/client work until server publish and runtime execution are stable.
   - Repeated activation of the same package/version/base checksum after the live pointer changes is rejected as stale/replay.
@@ -107,12 +110,18 @@
   - [x] BuilderClient rots-script package artifact slice: extend `rots-script package` with an explicit artifact-write mode that writes deterministic package JSON under `packages/` using safe project-relative output paths, atomic replacement, and the same compile/fixture/readiness gates.
   - [x] BuilderClient rots-script publish stage scaffold slice: add a CLI surface for `publish stage` that reads a local package artifact, validates publish target/auth inputs without storing credentials, and reports deterministic JSON diagnostics without contacting the server until the transport wiring is explicitly enabled.
   - [x] BuilderClient rots-script publish stage transport slice: add an explicit transport-enabled mode for `publish stage` that sends a validated local package artifact to the BuilderClient proxy/test-server target, keeps tokens out of output/logs, and preserves the default no-network scaffold behavior unless the send flag is present.
-  - [ ] BuilderClient rots-script publish status slice: add `publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
+  - [ ] BuilderClient offline IntelliSense/LSP hardening slice: make the Electron editor fully useful offline by loading generated `rots.d.ts`, API docs, manifest/type metadata, and fixture schemas into Monaco/TypeScript; provide completions, hover docs, signatures, semantic diagnostics, strict type errors, and checksum-driven cache invalidation without requiring auth/server access. Include client-wide zoom controls so WSL/remote-rendered editor and shell text can be scaled before further upload work resumes.
+  - [ ] Deferred BuilderClient rots-script publish status slice: after offline IntelliSense/LSP hardening, add `publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
 - Completed slice progress:
+  - Updated `FEATURES.md`, `WIP.md`, and `AGENTS.md` planning handoff to make offline/local BuilderClient IntelliSense and LSP correctness the next slice before any more upload/status work.
+  - Documented BuilderClient zoom controls for WSL/remote-rendered environments: zoom should affect editor fonts and shell UI coherently, persist locally, expose keyboard/menu controls, and preserve resizable layout minimums.
+  - Documented acceptance criteria for the next editor slice: generated `rots.d.ts` and manifest artifacts drive Monaco/TypeScript completions, hover docs, signatures, strict diagnostics, trigger context typing, object/player/room/zone API typing, and checksum-based cache invalidation while offline.
+  - Validation for this documentation-only slice: `git diff --check`.
+  - Next slice after this commit: BuilderClient offline IntelliSense/LSP hardening.
   - Fixed the BuilderClient editor pane so the Monaco wrapper is a named `script-editor` surface with stable height/min-height and text cursor rules through Monaco's editor, view-line, and hidden input layers.
   - Added source-guard coverage pinning the `script-editor` class and cursor/height CSS so the editor pane does not regress into a pointer-only display surface.
   - Validation passed for this BuilderClient editor input cursor fix: focused editor shell/wiring tests (15 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (43 files, 319 tests), and `git diff --check` in the BuilderClient repo.
-  - Next slice after this commit: add `rots-script publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
+  - Next slice after this commit was superseded by the offline/local editor priority update: BuilderClient offline IntelliSense/LSP hardening.
   - Added explicit `rots-script publish stage --send` transport mode while preserving default no-network validation for `publish stage`. The send mode reuses `PublishClient.stage`, remains constrained to the BuilderClient proxy/test-server URL allowlist, and sends only after local package read/parse/request validation succeeds.
   - Stage transport output redacts the submitted bearer token from server diagnostics, message text, and optional server-returned fields. It also redacts token-like substrings present in the local package JSON so server echoes cannot leak compiled-source sentinels through CLI JSON.
   - Added tests proving default `publish stage` does not call `fetch`, `--send` posts the expected method/headers/body, bearer tokens are in the Authorization header but not the JSON body/output, local artifacts are not mutated, server rejection and malformed responses are local-validation failures, transport exceptions are generic, and validation failures with `--send` do not reach fetch.
