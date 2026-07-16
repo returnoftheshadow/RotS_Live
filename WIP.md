@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient workspace selection/config persistence planning.
-- Next slice: add BuilderClient UI/IPC support to choose or configure the Git repository root and scripts root, persist that workspace selection locally, and route Load/Save/Sync/provenance through the selected workspace instead of only the default `.` project root.
+- Active slice: BuilderClient workspace file management planning.
+- Next slice: add BuilderClient file creation, rename, and delete workflows for TypeScript scripts under the selected scripts root, including IPC validation, disk updates, Explorer state updates, and stale compile/package invalidation.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -71,8 +71,16 @@
   - [x] Activation live-registry refresh slice: make successful HTTP activation/rollback refresh the singleton live gameplay registry generation or invalidate the stale generation safely when refresh fails.
   - [x] BuilderClient authoritative manifest/type sync slice: wire generated TypeScript declarations, IntelliSense/LSP configuration, and offline validation metadata to the server-owned manifest/API contract through the test-server proxy while preserving unauthenticated offline editing.
   - [x] BuilderClient Git workspace file loading/saving slice: load and save builder-authored TypeScript files from the Git-backed workspace on disk, keep the VS Code-style file tree/editor state synchronized, and preserve offline compile/fixture/package workflows against the disk-backed project state.
-  - [ ] BuilderClient workspace selection/config persistence slice: add BuilderClient UI/IPC support to choose or configure the Git repository root and scripts root, persist that workspace selection locally, and route Load/Save/Sync/provenance through the selected workspace instead of only the default `.` project root.
+  - [x] BuilderClient workspace selection/config persistence slice: add BuilderClient UI/IPC support to choose or configure the Git repository root and scripts root, persist that workspace selection locally, and route Load/Save/Sync/provenance through the selected workspace instead of only the default `.` project root.
+  - [ ] BuilderClient workspace file management slice: add BuilderClient file creation, rename, and delete workflows for TypeScript scripts under the selected scripts root, including IPC validation, disk updates, Explorer state updates, and stale compile/package invalidation.
 - Completed slice progress:
+  - Added persisted BuilderClient workspace selection for Git repository root and scripts root through a main-process `WorkspaceSettingsStore`, shared IPC/preload methods, and compact renderer controls in the existing publish/settings panel.
+  - Startup now loads saved workspace settings before loading workspace scripts, and manual workspace saves either reject invalid settings without mutating active project state or reload scripts from the saved workspace immediately.
+  - Hardened settings behavior so invalid saves preserve the prior persisted workspace, malformed settings JSON reports diagnostics, and empty selected workspaces reset to a starter file under the selected scripts root instead of the old default `scripts/` path.
+  - Added tests for default/save/load/invalid/malformed workspace settings, exact workspace script load request construction for non-default roots, selected-scripts-root starter paths, and preserved validation of repository/scripts paths.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by preserving active workspace on invalid saves, reloading or resetting files after successful workspace changes, reporting corrupt settings files, honoring custom `scriptsRoot`, and extracting tested load-request construction used by App startup/manual/post-save paths.
+  - Validation passed for this BuilderClient workspace selection/config persistence slice: focused BuilderClient tests (3 files, 25 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (21 files, 119 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add BuilderClient file creation, rename, and delete workflows for TypeScript scripts under the selected scripts root, including IPC validation, disk updates, Explorer state updates, and stale compile/package invalidation.
   - Added disk-backed BuilderClient workspace script loading and saving for TypeScript files under the configured Git workspace `scriptsRoot`, exposed through validated main-process IPC and the preload API.
   - Replaced the hard-coded Explorer row with `project.files`, added Load/Save controls, loaded workspace files during startup, and invalidated stale compile/run/package state whenever workspace files load or source content changes.
   - Hardened workspace filesystem access: repository roots and script paths are normalized and bounded by IPC validation, scriptsRoot ancestor symlinks are rejected, load uses `O_NOFOLLOW` file handles with handle-based size/type checks, save uses `O_NOFOLLOW` writes, and oversized/too-many files are skipped/truncated with diagnostics.

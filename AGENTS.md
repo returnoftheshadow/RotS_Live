@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient Git workspace file loading/saving.
-- Next slice: BuilderClient workspace selection/config persistence. Add UI/IPC support to choose or configure the Git repository root and scripts root, persist that workspace selection locally, and route Load/Save/Sync/provenance through the selected workspace instead of only the default `.` project root.
+- Latest completed slice: BuilderClient workspace selection/config persistence.
+- Next slice: BuilderClient workspace file management. Add file creation, rename, and delete workflows for TypeScript scripts under the selected scripts root, including IPC validation, disk updates, Explorer state updates, and stale compile/package invalidation.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
