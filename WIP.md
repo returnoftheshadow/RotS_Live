@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient manifest-driven fixture templates planning.
-- Next slice: add BuilderClient fixture template creation from the server-owned trigger manifest so builders can create correctly shaped fixtures for supported trigger handlers without manually filling every trigger field.
+- Active slice: BuilderClient fixture result detail planning.
+- Next slice: improve BuilderClient fixture result detail display so Run All failures show per-fixture diagnostics, logs, return values, and package-blocking reasons directly in the client.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -78,8 +78,16 @@
   - [x] BuilderClient fixture persistence foundation slice: persist, load, save, select, and review BuilderClient offline fixture definitions in the Git-backed workspace alongside scripts and project metadata.
   - [x] BuilderClient fixture editor controls slice: add UI controls for creating, duplicating, renaming, deleting, and editing offline fixture fields without hand-editing `.rots/fixtures.json`.
   - [x] BuilderClient multi-fixture run/package slice: run all BuilderClient offline fixtures for a project, display the per-fixture summary, and package only when every fixture returns and passes instead of relying on only the selected fixture.
-  - [ ] BuilderClient manifest-driven fixture template slice: add BuilderClient fixture template creation from the server-owned trigger manifest so builders can create correctly shaped fixtures for supported trigger handlers without manually filling every trigger field.
+  - [x] BuilderClient manifest-driven fixture template slice: add BuilderClient fixture template creation from the server-owned trigger manifest so builders can create correctly shaped fixtures for supported trigger handlers without manually filling every trigger field.
+  - [ ] BuilderClient fixture result detail slice: improve BuilderClient fixture result detail display so Run All failures show per-fixture diagnostics, logs, return values, and package-blocking reasons directly in the client.
 - Completed slice progress:
+  - Added manifest-driven fixture template creation from BuilderClient trigger rows. Clicking a trigger now creates and selects a fixture with the manifest handler, legacy trigger name/value, blocking flag, eligible host type, default handles, optional text payload, and a unique fixture name.
+  - Added `fixtureTemplateState` behavior tests for character/object defaults, object fallback host selection, text-context creation, room-hosted self/room alignment, Mudlle mobile handle shape, blocking propagation, repeated unique names, and no-host rejection.
+  - Added fixture mutation guards so trigger templates, fixture load/save, fixture create/copy/delete, and fixture field edits are disabled/no-op during workspace, fixture/package, or publish work, preventing stale package races.
+  - Added a plus affordance on manifest trigger rows so the create-template behavior is visible.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by aligning room-hosted `ctx.self`/`ctx.room`, adding blocking and Mudlle mobile coverage, adding no-text negative coverage, and guarding fixture load/save/template mutations while fixture/package work is in flight.
+  - Validation passed for this BuilderClient manifest-driven fixture template slice: focused template/wiring tests, `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (28 files, 192 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: improve BuilderClient fixture result detail display so Run All failures show per-fixture diagnostics, logs, return values, and package-blocking reasons directly in the client.
   - Added BuilderClient Run All support that executes every offline fixture through the existing main-process `runFixture` IPC path and displays a per-fixture summary in the Output panel.
   - Local Package now runs all fixtures and fails closed unless every project fixture returns a result and every result is `ok`; stale packages are cleared before package validation starts, on readiness failure, and after selected-fixture reruns.
   - Added `fixtureRunState` helper coverage for missing, mismatched, failed, and all-passed fixture result sets so the package readiness rule is behavior-tested instead of only source-guarded.
