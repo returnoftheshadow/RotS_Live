@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient rots-script publish stage transport complete.
+- Active slice: BuilderClient editor input cursor fix complete.
 - Next slice: add `rots-script publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
 - Current blocker: none.
 - Temporary fixture plan:
@@ -109,6 +109,10 @@
   - [x] BuilderClient rots-script publish stage transport slice: add an explicit transport-enabled mode for `publish stage` that sends a validated local package artifact to the BuilderClient proxy/test-server target, keeps tokens out of output/logs, and preserves the default no-network scaffold behavior unless the send flag is present.
   - [ ] BuilderClient rots-script publish status slice: add `publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
 - Completed slice progress:
+  - Fixed the BuilderClient editor pane so the Monaco wrapper is a named `script-editor` surface with stable height/min-height and text cursor rules through Monaco's editor, view-line, and hidden input layers.
+  - Added source-guard coverage pinning the `script-editor` class and cursor/height CSS so the editor pane does not regress into a pointer-only display surface.
+  - Validation passed for this BuilderClient editor input cursor fix: focused editor shell/wiring tests (15 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (43 files, 319 tests), and `git diff --check` in the BuilderClient repo.
+  - Next slice after this commit: add `rots-script publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
   - Added explicit `rots-script publish stage --send` transport mode while preserving default no-network validation for `publish stage`. The send mode reuses `PublishClient.stage`, remains constrained to the BuilderClient proxy/test-server URL allowlist, and sends only after local package read/parse/request validation succeeds.
   - Stage transport output redacts the submitted bearer token from server diagnostics, message text, and optional server-returned fields. It also redacts token-like substrings present in the local package JSON so server echoes cannot leak compiled-source sentinels through CLI JSON.
   - Added tests proving default `publish stage` does not call `fetch`, `--send` posts the expected method/headers/body, bearer tokens are in the Authorization header but not the JSON body/output, local artifacts are not mutated, server rejection and malformed responses are local-validation failures, transport exceptions are generic, and validation failures with `--send` do not reach fetch.

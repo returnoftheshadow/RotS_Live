@@ -18,7 +18,7 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient rots-script publish stage transport.
+- Latest completed slice: BuilderClient editor input cursor fix.
 - Next slice: BuilderClient rots-script publish status command. Add `publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
 
 ## Build, Test, and Development Commands
