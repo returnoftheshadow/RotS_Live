@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient rots-script publish stage scaffold.
-- Next slice: BuilderClient rots-script publish stage transport. Add an explicit transport-enabled mode for `publish stage` that sends a validated local package artifact to the BuilderClient proxy/test-server target, keeps tokens out of output/logs, and preserves the default no-network scaffold behavior unless the send flag is present.
+- Latest completed slice: BuilderClient rots-script publish stage transport.
+- Next slice: BuilderClient rots-script publish status command. Add `publish status` over the existing publish client contract so builders can query staged/live metadata for a package id through the proxy/test-server target without exposing bearer tokens.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
