@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture status selection behavior coverage complete.
-- Next slice: add a minimal renderer-level test harness for fixture status badges and output selection interactions so the remaining source guards can be retired or reduced.
+- Active slice: BuilderClient fixture list renderer harness complete.
+- Next slice: add a minimal renderer-level test harness for fixture output navigation/tabs so output pagination and expectation visibility are covered outside source guards.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -89,8 +89,15 @@
   - [x] BuilderClient fixture assertion status badges slice: show fixture-level assertion pass/fail status in the fixture list so builders can spot failing fixtures without opening every Output section.
   - [x] BuilderClient unrun fixture output selection behavior slice: decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
   - [x] BuilderClient fixture status selection behavior coverage slice: extract and behavior-test fixture status output selection so badges/results/output-page state are not pinned only by source guards.
-  - [ ] BuilderClient fixture list renderer harness slice: add a minimal renderer-level test harness for fixture status badges and output selection interactions so the remaining source guards can be retired or reduced.
+  - [x] BuilderClient fixture list renderer harness slice: add a minimal renderer-level test harness for fixture status badges and output selection interactions so the remaining source guards can be retired or reduced.
+  - [ ] BuilderClient fixture output renderer harness slice: add a minimal renderer-level test harness for fixture output navigation/tabs so output pagination and expectation visibility are covered outside source guards.
 - Completed slice progress:
+  - Added a scoped `happy-dom` renderer test harness and expanded Vite test discovery for renderer `.test.ts`/`.test.tsx` files while keeping the default test environment as Node.
+  - Extracted `FixtureStatusList` from `App.tsx` so fixture badge rendering, stale-row disabled state, active-row styling, and click-to-selection behavior can be rendered and tested directly.
+  - Added renderer-level coverage for pass/fail badges on the correct row, unrun rows with no badge, active-row styling, selecting result-backed rows, selecting unrun rows without moving output, and stale disabled rows not selecting.
+  - Magus and Vincent found only the expected staging risk for the new component/test files; Bazarat's row-specific badge, call-count, active-row, and renderer glob findings were addressed before commit.
+  - Validation passed for this BuilderClient fixture list renderer harness slice: focused renderer/wiring tests (14 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (34 files, 252 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add a minimal renderer-level test harness for fixture output navigation/tabs so output pagination and expectation visibility are covered outside source guards.
   - Extracted fixture row output selection into `fixtureSelectionState`, and wired the fixture list renderer to use the helper instead of inline result-index logic.
   - Added behavior coverage for selecting fixtures with existing output, selecting unrun fixtures while preserving the current output page, stale result rows as no-ops, and duplicate result rows using the latest result to match fixture status row semantics.
   - Tightened source guards so `App.tsx` must pass `fixtureResults` into the selection helper and cannot clear fixture results or fixture diagnostics anywhere in the row click handler.
