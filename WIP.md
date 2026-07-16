@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture list renderer harness complete.
-- Next slice: add a minimal renderer-level test harness for fixture output navigation/tabs so output pagination and expectation visibility are covered outside source guards.
+- Active slice: BuilderClient fixture output renderer harness complete.
+- Next slice: extract and renderer-test the publish action/status panel so publish controls and diagnostics are covered outside source guards.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -90,8 +90,15 @@
   - [x] BuilderClient unrun fixture output selection behavior slice: decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
   - [x] BuilderClient fixture status selection behavior coverage slice: extract and behavior-test fixture status output selection so badges/results/output-page state are not pinned only by source guards.
   - [x] BuilderClient fixture list renderer harness slice: add a minimal renderer-level test harness for fixture status badges and output selection interactions so the remaining source guards can be retired or reduced.
-  - [ ] BuilderClient fixture output renderer harness slice: add a minimal renderer-level test harness for fixture output navigation/tabs so output pagination and expectation visibility are covered outside source guards.
+  - [x] BuilderClient fixture output renderer harness slice: add a minimal renderer-level test harness for fixture output navigation/tabs so output pagination and expectation visibility are covered outside source guards.
+  - [ ] BuilderClient publish panel renderer harness slice: extract and renderer-test the publish action/status panel so publish controls and diagnostics are covered outside source guards.
 - Completed slice progress:
+  - Extracted `FixtureOutputPanel` from `App.tsx` so output navigation, output section tabs, and output text rendering can be tested with the existing renderer harness.
+  - Added renderer-level coverage for no-output state, package-blocking diagnostics without fixture result navigation, bounded previous/next navigation, disabled edge buttons, all output tabs, a single active tab, and section-change callbacks.
+  - Updated App wiring guards to pin the props passed into `FixtureOutputPanel`, including fixture counts, selected index, active section, output text, and selection callbacks.
+  - Magus and Vincent found only the expected staging risk for the new component/test files; Bazarat's output text, diagnostics-only, callback-count, disabled-button, and active-tab findings were addressed before commit.
+  - Validation passed for this BuilderClient fixture output renderer harness slice: focused output/wiring tests (21 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (35 files, 257 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: extract and renderer-test the publish action/status panel so publish controls and diagnostics are covered outside source guards.
   - Added a scoped `happy-dom` renderer test harness and expanded Vite test discovery for renderer `.test.ts`/`.test.tsx` files while keeping the default test environment as Node.
   - Extracted `FixtureStatusList` from `App.tsx` so fixture badge rendering, stale-row disabled state, active-row styling, and click-to-selection behavior can be rendered and tested directly.
   - Added renderer-level coverage for pass/fail badges on the correct row, unrun rows with no badge, active-row styling, selecting result-backed rows, selecting unrun rows without moving output, and stale disabled rows not selecting.
