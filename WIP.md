@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture assertion result detail planning.
-- Next slice: surface expectation mismatch details per fixture in the Output panel instead of only showing package-blocking summary text.
+- Active slice: BuilderClient fixture assertion integration coverage planning.
+- Next slice: add an integration-style test that derives hidden/truncated expectation diagnostics from package readiness and verifies the Output panel presentation keeps them visible.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -83,8 +83,15 @@
   - [x] BuilderClient fixture output bounding slice: bound fixture output details so large logs, diagnostics, and return values stay readable and cannot overwhelm the renderer.
   - [x] BuilderClient fixture output pagination controls slice: add UI affordances for paging, expanding, and navigating the already-bounded fixture diagnostics, logs, and return-value output.
   - [x] BuilderClient fixture assertion editor slice: add editable expected fixture assertions beyond allow/block so offline runs can validate expected diagnostics, logs, and return values before packaging.
-  - [ ] BuilderClient fixture assertion result detail slice: surface expectation mismatch details per fixture in the Output panel instead of only showing package-blocking summary text.
+  - [x] BuilderClient fixture assertion result detail slice: surface expectation mismatch details per fixture in the Output panel instead of only showing package-blocking summary text.
+  - [ ] BuilderClient fixture assertion integration coverage slice: add an integration-style test that derives hidden/truncated expectation diagnostics from package readiness and verifies the Output panel presentation keeps them visible.
 - Completed slice progress:
+  - Added per-fixture expectation failure presentation to BuilderClient fixture result output, including an Expectations tab alongside Summary, Diagnostics, Logs, Return, and Blocking.
+  - Broke the expectation matcher out into neutral `fixtureExpectations` so package readiness, parity, and output presentation share bounded matcher behavior without a presenter/readiness module cycle.
+  - App output presentation now passes project fixture definitions into `presentFixtureResults`, so stale result rows show an explicit no-matching-fixture marker and matched rows show concrete expectation mismatches.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by extracting the neutral matcher module, adding stale-result expectation markers, testing non-empty Expectations tab routing, and proving hidden-row expectation failures remain visible through package-blocking diagnostics.
+  - Validation passed for this BuilderClient fixture assertion result detail slice: focused presenter/output/readiness/parity/wiring tests (54 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (30 files, 235 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add an integration-style test that derives hidden/truncated expectation diagnostics from package readiness and verifies the Output panel presentation keeps them visible.
   - Added BuilderClient fixture expectation fields for bounded diagnostics, logs, and return-value substring assertions, exposed through the fixture editor and preserved through workspace fixture IPC validation.
   - Package readiness now enforces default `ok=true`/`allowed=true` expectations, supports explicitly expected failed fixture runs, and evaluates diagnostics/log/return expectations with bounded fail-soft scanning.
   - Offline parity now reuses the shared fixture expectation matcher and reports `expectationFailures` for missing log/return/diagnostic expectations instead of only a boolean mismatch.

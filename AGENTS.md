@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient fixture assertion editor.
-- Next slice: BuilderClient fixture assertion result detail. Surface expectation mismatch details per fixture in the Output panel instead of only showing package-blocking summary text.
+- Latest completed slice: BuilderClient fixture assertion result detail.
+- Next slice: BuilderClient fixture assertion integration coverage. Add an integration-style test that derives hidden/truncated expectation diagnostics from package readiness and verifies the Output panel presentation keeps them visible.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
