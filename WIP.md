@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient unrun fixture output selection behavior planning.
-- Next slice: decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
+- Active slice: BuilderClient fixture status renderer interaction coverage planning.
+- Next slice: add renderer-level interaction coverage for fixture status badges and output selection behavior beyond source guards.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -87,8 +87,14 @@
   - [x] BuilderClient fixture assertion integration coverage slice: add an integration-style test that derives hidden/truncated expectation diagnostics from package readiness and verifies the Output panel presentation keeps them visible.
   - [x] BuilderClient fixture assertion boundary coverage slice: pin exact assertion scan boundaries so item 32 and character 1024 still match while later output remains ignored.
   - [x] BuilderClient fixture assertion status badges slice: show fixture-level assertion pass/fail status in the fixture list so builders can spot failing fixtures without opening every Output section.
-  - [ ] BuilderClient unrun fixture output selection behavior slice: decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
+  - [x] BuilderClient unrun fixture output selection behavior slice: decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
+  - [ ] BuilderClient fixture status renderer interaction coverage slice: add renderer-level interaction coverage for fixture status badges and output selection behavior beyond source guards.
 - Completed slice progress:
+  - Pinned the chosen unrun fixture selection behavior: selecting an unrun fixture preserves the latest fixture result set and diagnostics, clears only the selected run result and package state, and leaves output navigation intact unless the selected fixture has a result row.
+  - Added source-guard coverage for fixture row selection so future changes do not accidentally clear badge-driving results or diagnostics.
+  - Magus, Vincent, and Bazarat reviewed the test-only slice and reported no blocking findings.
+  - Validation passed for this BuilderClient unrun fixture output selection behavior slice: focused wiring tests (9 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (32 files, 243 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add renderer-level interaction coverage for fixture status badges and output selection behavior beyond source guards.
   - Added fixture assertion status badges in the fixture list using compact pass/fail icons derived from the latest fixture results and the shared expectation matcher.
   - Extracted `fixtureStatusRows` so pass, failure, unrun fixture no-status, run-all replacement, and stale unmatched result rows are behavior-tested outside the renderer.
   - Fixture row selection now preserves the latest result set so badges remain visible while inspecting a fixture, updates the selected run result/output index when that fixture has a result, and keeps stale unmatched result rows visible but disabled.
