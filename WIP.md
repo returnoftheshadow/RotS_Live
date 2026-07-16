@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient remaining work audit complete.
-- Next slice: add a built Node `rots-script` CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
+- Active slice: BuilderClient rots-script CLI scaffold complete.
+- Next slice: add a read-only project JSON loader and `typecheck` command over the existing compiler core with deterministic JSON diagnostics.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -99,8 +99,16 @@
   - [x] BuilderClient resize shell renderer harness slice: extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
   - [x] BuilderClient App wiring guard cleanup slice: reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
   - [x] BuilderClient remaining work audit slice: reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
-  - [ ] BuilderClient rots-script CLI scaffold slice: add a built Node CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
+  - [x] BuilderClient rots-script CLI scaffold slice: add a built Node CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
+  - [ ] BuilderClient rots-script project loader/typecheck slice: add a read-only project JSON loader and `typecheck` command over the existing compiler core with deterministic JSON diagnostics.
 - Completed slice progress:
+  - Added `src/cli/rotsScript.ts` as the first built Node `rots-script` entry point with deterministic JSON `help` and `doctor` commands, stable exit-code classes, and no publish authority or project mutation.
+  - Wired the CLI into `tsconfig.node.json`, `package.json` `bin.rots-script`, `npm run rots-script`, `package-lock.json`, and Vitest's CLI test include.
+  - Hardened generated artifact reads used by CLI/Electron artifact loading to reject symlinked, non-regular, and oversized generated artifacts and return fallback diagnostics without reading partial content.
+  - Added CLI tests for help aliases, missing/generated artifact doctor output, non-mutation, relative/absolute `--project`, usage exit classes, and the built executable entry point; added read-side artifact hardening tests for symlink and oversized generated files.
+  - Vincent's symlink/oversize/read-redaction findings and Bazarat's non-mutation, usage-exit, executable-entry, help-alias, and path-resolution findings were addressed before commit; Magus final CLI review did not return before the commit boundary, and validation was clean.
+  - Validation passed for this BuilderClient rots-script CLI scaffold slice: focused CLI/artifact tests (16 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (42 files, 299 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add a read-only project JSON loader and `typecheck` command over the existing compiler core with deterministic JSON diagnostics.
   - Audited `FEATURES.md`, `WIP.md`, `BuilderClient/package.json`, `tsconfig.node.json`, and the current BuilderClient core/main/renderer modules after the renderer harness cleanup.
   - Confirmed the renderer harness queue is complete and the next feature gap is the CLI-first builder workflow: current shared core modules exist, but no `rots-script` CLI entry point is built or exposed.
   - Identified the next safe implementation slice as a small CLI scaffold using existing shared core and artifact-loading code, with deterministic JSON output and no publish authority.
