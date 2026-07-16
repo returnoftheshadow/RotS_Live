@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient resize shell renderer harness.
-- Next slice: BuilderClient App wiring guard cleanup. Reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
+- Latest completed slice: BuilderClient App wiring guard cleanup.
+- Next slice: BuilderClient remaining work audit. Reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

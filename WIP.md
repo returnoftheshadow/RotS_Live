@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient resize shell renderer harness complete.
-- Next slice: reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
+- Active slice: BuilderClient App wiring guard cleanup complete.
+- Next slice: reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -97,8 +97,14 @@
   - [x] BuilderClient title action renderer harness slice: extract and renderer-test title-bar compile/run/package/sync/load/save controls so action disabled states are covered outside source guards.
   - [x] BuilderClient bottom layout renderer harness slice: extract and renderer-test Problems/Output/Publish column composition and resize handle wiring so bottom-panel structure is covered outside source guards.
   - [x] BuilderClient resize shell renderer harness slice: extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
-  - [ ] BuilderClient App wiring guard cleanup slice: reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
+  - [x] BuilderClient App wiring guard cleanup slice: reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
+  - [ ] BuilderClient remaining work audit slice: reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
 - Completed slice progress:
+  - Reduced redundant broad `App.tsx` source-string assertions now covered by dedicated renderer harnesses while keeping focused guards for IPC channels, App-owned state invalidation, disabled-state expressions, resize ownership, and component boundary wiring.
+  - Restored compact boundary checks for App-owned callback identity after Magus and Bazarat identified unique coverage risk around publish auth/settings actions, title sync/load/save actions, fixture editor helper callbacks, fixture output state props, and title identity props.
+  - Vincent found no security/build workflow issues; Magus and Bazarat's unique-coverage findings were addressed before commit.
+  - Validation passed for this BuilderClient App wiring guard cleanup slice: focused `ipcWiring.test.ts` (9 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (41 files, 290 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
   - Extracted `WorkspaceShell` from `App.tsx` while keeping App as the owner of sidebar width, bottom panel height, pointer resize math, keyboard resize math, and all editor/publish/sidebar state.
   - Added renderer-level coverage for activity navigation, slot rendering, slot order, sidebar and workspace grid sizing, sidebar separator accessibility, bottom separator accessibility/value attributes, pointer resize callback routing, and bottom resize key event forwarding.
   - Updated App wiring guards to pin `WorkspaceShell` sizing props, sidebar resize bounds/setter, bottom pointer/keyboard handlers, and slot prop composition.
