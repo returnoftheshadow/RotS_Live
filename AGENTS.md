@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient App wiring guard cleanup.
-- Next slice: BuilderClient remaining work audit. Reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
+- Latest completed slice: BuilderClient remaining work audit.
+- Next slice: BuilderClient rots-script CLI scaffold. Add a built Node CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

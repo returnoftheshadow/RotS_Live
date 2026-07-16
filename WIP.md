@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient App wiring guard cleanup complete.
-- Next slice: reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
+- Active slice: BuilderClient remaining work audit complete.
+- Next slice: add a built Node `rots-script` CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -98,8 +98,14 @@
   - [x] BuilderClient bottom layout renderer harness slice: extract and renderer-test Problems/Output/Publish column composition and resize handle wiring so bottom-panel structure is covered outside source guards.
   - [x] BuilderClient resize shell renderer harness slice: extract and renderer-test sidebar width, bottom panel height, bottom-panel keyboard resize, and resize separator wiring so the outer layout is covered outside source guards.
   - [x] BuilderClient App wiring guard cleanup slice: reduce remaining broad `App.tsx` source guards now covered by renderer harnesses while preserving focused guards for IPC/state transitions that still lack behavior tests.
-  - [ ] BuilderClient remaining work audit slice: reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
+  - [x] BuilderClient remaining work audit slice: reconcile `FEATURES.md`, `WIP.md`, and the current BuilderClient/server code to identify the next implementation slice after the renderer harness cleanup.
+  - [ ] BuilderClient rots-script CLI scaffold slice: add a built Node CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
 - Completed slice progress:
+  - Audited `FEATURES.md`, `WIP.md`, `BuilderClient/package.json`, `tsconfig.node.json`, and the current BuilderClient core/main/renderer modules after the renderer harness cleanup.
+  - Confirmed the renderer harness queue is complete and the next feature gap is the CLI-first builder workflow: current shared core modules exist, but no `rots-script` CLI entry point is built or exposed.
+  - Identified the next safe implementation slice as a small CLI scaffold using existing shared core and artifact-loading code, with deterministic JSON output and no publish authority.
+  - Validation for this audit slice is documentation-only: `git diff --check` will be run before commit.
+  - Next slice after this commit: add a built Node `rots-script` CLI entry point over the existing shared BuilderClient core with deterministic JSON output and initial `doctor`/help behavior.
   - Reduced redundant broad `App.tsx` source-string assertions now covered by dedicated renderer harnesses while keeping focused guards for IPC channels, App-owned state invalidation, disabled-state expressions, resize ownership, and component boundary wiring.
   - Restored compact boundary checks for App-owned callback identity after Magus and Bazarat identified unique coverage risk around publish auth/settings actions, title sync/load/save actions, fixture editor helper callbacks, fixture output state props, and title identity props.
   - Vincent found no security/build workflow issues; Magus and Bazarat's unique-coverage findings were addressed before commit.
