@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient unrun fixture output selection behavior.
-- Next slice: BuilderClient fixture status renderer interaction coverage. Add renderer-level interaction coverage for fixture status badges and output selection behavior beyond source guards.
+- Latest completed slice: BuilderClient fixture status selection behavior coverage.
+- Next slice: BuilderClient fixture list renderer harness. Add a minimal renderer-level test harness for fixture status badges and output selection interactions so the remaining source guards can be retired or reduced.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

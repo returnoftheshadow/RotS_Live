@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture status renderer interaction coverage planning.
-- Next slice: add renderer-level interaction coverage for fixture status badges and output selection behavior beyond source guards.
+- Active slice: BuilderClient fixture status selection behavior coverage complete.
+- Next slice: add a minimal renderer-level test harness for fixture status badges and output selection interactions so the remaining source guards can be retired or reduced.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -88,8 +88,15 @@
   - [x] BuilderClient fixture assertion boundary coverage slice: pin exact assertion scan boundaries so item 32 and character 1024 still match while later output remains ignored.
   - [x] BuilderClient fixture assertion status badges slice: show fixture-level assertion pass/fail status in the fixture list so builders can spot failing fixtures without opening every Output section.
   - [x] BuilderClient unrun fixture output selection behavior slice: decide and pin whether selecting an unrun fixture preserves the last output or shifts the Output panel to an empty selected-fixture state.
-  - [ ] BuilderClient fixture status renderer interaction coverage slice: add renderer-level interaction coverage for fixture status badges and output selection behavior beyond source guards.
+  - [x] BuilderClient fixture status selection behavior coverage slice: extract and behavior-test fixture status output selection so badges/results/output-page state are not pinned only by source guards.
+  - [ ] BuilderClient fixture list renderer harness slice: add a minimal renderer-level test harness for fixture status badges and output selection interactions so the remaining source guards can be retired or reduced.
 - Completed slice progress:
+  - Extracted fixture row output selection into `fixtureSelectionState`, and wired the fixture list renderer to use the helper instead of inline result-index logic.
+  - Added behavior coverage for selecting fixtures with existing output, selecting unrun fixtures while preserving the current output page, stale result rows as no-ops, and duplicate result rows using the latest result to match fixture status row semantics.
+  - Tightened source guards so `App.tsx` must pass `fixtureResults` into the selection helper and cannot clear fixture results or fixture diagnostics anywhere in the row click handler.
+  - Magus and Vincent found only the expected staging risk for the new helper files; Bazarat's source-guard and duplicate-result findings were addressed before commit.
+  - Validation passed for this BuilderClient fixture status selection behavior coverage slice: focused selection/status/wiring tests (17 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (33 files, 247 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: add a minimal renderer-level test harness for fixture status badges and output selection interactions so the remaining source guards can be retired or reduced.
   - Pinned the chosen unrun fixture selection behavior: selecting an unrun fixture preserves the latest fixture result set and diagnostics, clears only the selected run result and package state, and leaves output navigation intact unless the selected fixture has a result row.
   - Added source-guard coverage for fixture row selection so future changes do not accidentally clear badge-driving results or diagnostics.
   - Magus, Vincent, and Bazarat reviewed the test-only slice and reported no blocking findings.
