@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient authoritative manifest/type sync planning.
-- Next slice: wire BuilderClient generated TypeScript declarations, IntelliSense/LSP configuration, and offline validation metadata to the server-owned manifest/API contract through the test-server proxy while preserving unauthenticated offline editing.
+- Active slice: BuilderClient Git workspace file loading/saving planning.
+- Next slice: load and save builder-authored TypeScript files from the Git-backed workspace on disk, keep the VS Code-style file tree/editor state synchronized, and preserve offline compile/fixture/package workflows against the disk-backed project state.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -69,8 +69,16 @@
   - [x] BuilderClient auth UI/IPC slice: add account-login workflow through the proxy, token storage through OS credential storage or memory-only fallback, logout, and redacted diagnostics.
   - [x] End-to-end test slice: add a proxy/game/client integration smoke path that logs in with a temporary account-backed immortal fixture, verifies linked level `92+` eligibility, stages to the test server, rejects a wrong-zone upload, and confirms offline building still works while logged out.
   - [x] Activation live-registry refresh slice: make successful HTTP activation/rollback refresh the singleton live gameplay registry generation or invalidate the stale generation safely when refresh fails.
-  - [ ] BuilderClient authoritative manifest/type sync slice: wire generated TypeScript declarations, IntelliSense/LSP configuration, and offline validation metadata to the server-owned manifest/API contract through the test-server proxy while preserving unauthenticated offline editing.
+  - [x] BuilderClient authoritative manifest/type sync slice: wire generated TypeScript declarations, IntelliSense/LSP configuration, and offline validation metadata to the server-owned manifest/API contract through the test-server proxy while preserving unauthenticated offline editing.
+  - [ ] BuilderClient Git workspace file loading/saving slice: load and save builder-authored TypeScript files from the Git-backed workspace on disk, keep the VS Code-style file tree/editor state synchronized, and preserve offline compile/fixture/package workflows against the disk-backed project state.
 - Completed slice progress:
+  - Added a trusted game-side BuilderClient manifest response that can include server-generated TypeScript declarations, API Markdown, and editor/LSP JSON alongside the authoritative trigger/API manifest while preserving compact manifest responses when documentation is not requested.
+  - Added BuilderClient manifest sync over the existing loopback `4802` proxy/test-server target. The client fetches `GET /api/builder/js/manifest` without bearer auth, validates and bounds the server bundle, writes generated artifacts into the workspace cache, updates the project manifest/typings, clears stale compile/run/package state, and refreshes Monaco TypeScript IntelliSense using the generated declarations.
+  - Hardened artifact persistence so generated writes stay inside the BuilderClient workspace, reject symlinked roots/directories/files, and open final artifact targets with `O_NOFOLLOW`.
+  - Added Mudlle mobile host-type validation coverage for local compile/package and publish-stage paths, malformed authoritative manifest diagnostics, oversized manifest response rejection, read-only/no-auth manifest fetch assertions, artifact sync state tests, Monaco TypeScript configuration tests, and symlinked artifact write regressions.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by preventing sync/publish UI overlap, extracting state and Monaco helpers for test coverage, adding individual-file symlink protection, adding pre-buffer `Content-Length` rejection, and adding the missing adversarial tests.
+  - Validation passed for this BuilderClient authoritative manifest/type sync slice: focused BuilderClient tests (6 files, 47 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (18 files, 98 tests), `make test -j16` (1278 C++ tests), and `make smoke-builder-client -j16`.
+  - Next slice after this commit: load and save builder-authored TypeScript files from the Git-backed workspace on disk, keep the VS Code-style file tree/editor state synchronized, and preserve offline compile/fixture/package workflows against the disk-backed project state.
   - Added a production BuilderClient HTTP publish live-mutation hook so successful activation and rollback call the server gameplay refresh path after the live store changes.
   - Added `js_script_refresh_live_registry_after_publish()`, which invalidates the previously captured gameplay registry generation before refreshing the singleton live registry and recapturing the generation. If refresh/capture fails, the stale generation remains invalid so gameplay does not keep executing an older JavaScript registry snapshot.
   - Changed the HTTP publish hook to return success/failure and report redacted `activate.live-registry-refresh-failed` or `rollback.live-registry-refresh-failed` responses when the live pointer mutation succeeded but gameplay refresh did not.

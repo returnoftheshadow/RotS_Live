@@ -1,5 +1,6 @@
 #include "js_builder_manifest_endpoint.h"
 
+#include "js_builder_artifacts.h"
 #include "json_utils.h"
 
 namespace {
@@ -22,6 +23,24 @@ JsBuilderManifestEndpointResult endpoint_error(
     result.json += json_utils::escape_json_string(message);
     result.json += "\"}";
     return result;
+}
+
+std::string manifest_with_generated_artifacts()
+{
+    std::string json = js_export_builder_manifest_json();
+    if (json.empty() || json[json.size() - 1] != '}')
+        return json;
+
+    json.erase(json.size() - 1);
+    json += ",\"generatedArtifacts\":{";
+    json += "\"typescriptDeclarations\":\"";
+    json_utils::append_escaped_json_string(json, js_generate_typescript_declarations());
+    json += "\",\"apiMarkdown\":\"";
+    json_utils::append_escaped_json_string(json, js_generate_api_markdown_reference());
+    json += "\",\"editorConfigJson\":\"";
+    json_utils::append_escaped_json_string(json, js_generate_editor_lsp_config_json());
+    json += "\"}}";
+    return json;
 }
 
 } // namespace
@@ -50,7 +69,9 @@ JsBuilderManifestEndpointResult js_builder_manifest_endpoint_dispatch(
     result.ok = true;
     result.http_status = 200;
     result.reason_code = "builder.manifest.current";
-    result.json = js_export_builder_manifest_json(options.export_options);
+    result.json = options.export_options.include_documentation
+        ? manifest_with_generated_artifacts()
+        : js_export_builder_manifest_json(options.export_options);
     if (result.json.size() > options.maximum_response_bytes)
         return endpoint_error(413, "builder.manifest.response-too-large",
             "Builder manifest response exceeds the configured size limit.");

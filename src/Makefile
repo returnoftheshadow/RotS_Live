@@ -99,7 +99,7 @@ js_game_adapter.o : js_game_adapter.cpp js_game_adapter.h js_game_runtime.h stru
 js_game_runtime.o : js_game_runtime.cpp js_game_runtime.h js_runtime.h
 	$(CC) -c $(CFLAGS) js_game_runtime.cpp
 
-js_builder_manifest_endpoint.o : js_builder_manifest_endpoint.cpp js_builder_manifest_endpoint.h js_manifest_export.h json_utils.h
+js_builder_manifest_endpoint.o : js_builder_manifest_endpoint.cpp js_builder_manifest_endpoint.h js_builder_artifacts.h js_manifest_export.h json_utils.h
 	$(CC) -c $(CFLAGS) js_builder_manifest_endpoint.cpp
 
 js_legacy_trigger_dispatch.o : js_legacy_trigger_dispatch.cpp js_legacy_trigger_dispatch.h js_trigger_dispatch.h js_game_adapter.h js_live_registry_reload_service.h js_live_package_store.h js_game_runtime.h js_runtime.h js_script_package.h js_script_registry.h js_scripting_manifest.h

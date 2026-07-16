@@ -1,6 +1,7 @@
 #include "../js_builder_manifest_endpoint.h"
 
 #include "../js_api_contract.h"
+#include "../js_builder_artifacts.h"
 #include "../js_scripting_manifest.h"
 #include "../json_utils.h"
 
@@ -64,6 +65,12 @@ TEST(JsBuilderManifestEndpoint, ReturnsAuthoritativeBuilderManifestForTrustedPro
     expect_contains(result.json, js_api_contract_metadata().contract_checksum);
     expect_contains(result.json, "\"triggerManifest\":{");
     expect_contains(result.json, "\"apiContract\":{");
+    expect_contains(result.json, "\"generatedArtifacts\":{");
+    expect_contains(result.json, "\"typescriptDeclarations\":");
+    expect_contains(result.json, "\"apiMarkdown\":");
+    expect_contains(result.json, "\"editorConfigJson\":");
+    expect_contains(result.json, "Generated RotS JavaScript builder API declarations");
+    expect_contains(result.json, "typescript-language-service");
 }
 
 TEST(JsBuilderManifestEndpoint, CanReturnCompactManifestWithoutDocumentation)
@@ -79,6 +86,7 @@ TEST(JsBuilderManifestEndpoint, CanReturnCompactManifestWithoutDocumentation)
     EXPECT_EQ(std::string::npos, result.json.find("\"docs\":"));
     EXPECT_EQ(std::string::npos, result.json.find("\"notes\":"));
     EXPECT_EQ(std::string::npos, result.json.find("\"reason\":"));
+    EXPECT_EQ(std::string::npos, result.json.find("\"generatedArtifacts\":"));
 }
 
 TEST(JsBuilderManifestEndpoint, RejectsUntrustedRequests)
