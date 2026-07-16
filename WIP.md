@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture result detail planning.
-- Next slice: improve BuilderClient fixture result detail display so Run All failures show per-fixture diagnostics, logs, return values, and package-blocking reasons directly in the client.
+- Active slice: BuilderClient fixture output bounding planning.
+- Next slice: bound and paginate BuilderClient fixture output details so large logs, diagnostics, and return values stay readable and cannot overwhelm the renderer.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -79,8 +79,15 @@
   - [x] BuilderClient fixture editor controls slice: add UI controls for creating, duplicating, renaming, deleting, and editing offline fixture fields without hand-editing `.rots/fixtures.json`.
   - [x] BuilderClient multi-fixture run/package slice: run all BuilderClient offline fixtures for a project, display the per-fixture summary, and package only when every fixture returns and passes instead of relying on only the selected fixture.
   - [x] BuilderClient manifest-driven fixture template slice: add BuilderClient fixture template creation from the server-owned trigger manifest so builders can create correctly shaped fixtures for supported trigger handlers without manually filling every trigger field.
-  - [ ] BuilderClient fixture result detail slice: improve BuilderClient fixture result detail display so Run All failures show per-fixture diagnostics, logs, return values, and package-blocking reasons directly in the client.
+  - [x] BuilderClient fixture result detail slice: improve BuilderClient fixture result detail display so Run All failures show per-fixture diagnostics, logs, return values, and package-blocking reasons directly in the client.
+  - [ ] BuilderClient fixture output bounding slice: bound and paginate BuilderClient fixture output details so large logs, diagnostics, and return values stay readable and cannot overwhelm the renderer.
 - Completed slice progress:
+  - Added detailed fixture result presentation for both selected fixture runs and Run All output, including per-fixture diagnostics, logs, normalized return values, and package-blocking diagnostics from failed package readiness.
+  - Added `fixtureResultPresenter` tests for detailed output, package-blocking diagnostics, diagnostic detail preservation, BigInt/circular/function/symbol/undefined return values, hostile getter/proxy objects, and deeply nested return values.
+  - Hardened return-value display so renderer `JSON.stringify` cannot be crashed by common non-JSON or hostile values; output remains rendered as text in the existing `<pre>` path.
+  - Magus, Vincent, and Bazarat reviewed the slice. Their findings were addressed by normalizing return values, routing single and multi fixture output through the same presenter, preserving diagnostic metadata, clearing package-blocking diagnostics on result resets, and adding hostile-object/depth regressions.
+  - Validation passed for this BuilderClient fixture result detail slice: focused result-presenter/wiring tests, `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (29 files, 198 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: bound and paginate BuilderClient fixture output details so large logs, diagnostics, and return values stay readable and cannot overwhelm the renderer.
   - Added manifest-driven fixture template creation from BuilderClient trigger rows. Clicking a trigger now creates and selects a fixture with the manifest handler, legacy trigger name/value, blocking flag, eligible host type, default handles, optional text payload, and a unique fixture name.
   - Added `fixtureTemplateState` behavior tests for character/object defaults, object fallback host selection, text-context creation, room-hosted self/room alignment, Mudlle mobile handle shape, blocking propagation, repeated unique names, and no-host rejection.
   - Added fixture mutation guards so trigger templates, fixture load/save, fixture create/copy/delete, and fixture field edits are disabled/no-op during workspace, fixture/package, or publish work, preventing stale package races.
