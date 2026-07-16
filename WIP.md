@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: overnight execution decisions are now confirmed: finish server publish/admin hardening first, then runtime execution tests, then BuilderClient; commit after each completed slice; stop only for build/test failures that cannot be resolved.
-- Active slice: BuilderClient fixture editor renderer harness complete.
-- Next slice: extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
+- Active slice: BuilderClient sidebar action renderer harness complete.
+- Next slice: extract and renderer-test title-bar compile/run/package/sync/load/save controls so action disabled states are covered outside source guards.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -93,8 +93,16 @@
   - [x] BuilderClient fixture output renderer harness slice: add a minimal renderer-level test harness for fixture output navigation/tabs so output pagination and expectation visibility are covered outside source guards.
   - [x] BuilderClient publish panel renderer harness slice: extract and renderer-test the publish action/status panel so publish controls and diagnostics are covered outside source guards.
   - [x] BuilderClient fixture editor renderer harness slice: extract and renderer-test the fixture editor controls so fixture field updates and expectation editors are covered outside source guards.
-  - [ ] BuilderClient sidebar action renderer harness slice: extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
+  - [x] BuilderClient sidebar action renderer harness slice: extract and renderer-test sidebar file/fixture action controls so create/load/save/delete/duplicate disabled states are covered outside source guards.
+  - [ ] BuilderClient title action renderer harness slice: extract and renderer-test title-bar compile/run/package/sync/load/save controls so action disabled states are covered outside source guards.
 - Completed slice progress:
+  - Extracted `SidebarPanels` from `App.tsx` while keeping App as the owner of workspace file mutations, active file selection, trigger-template fixture creation, and fixture persistence callbacks.
+  - Added renderer-level coverage for workspace file actions, active file styling, trigger template cap and empty prompt, trigger creation routing, fixture action routing, fixture persistence actions, workspace-vs-fixture disabled states, single-fixture delete disabling, and no-fixture save disabling.
+  - Added exact aria labels to repeated sidebar action buttons so tests and assistive tooling can distinguish workspace script actions from fixture actions.
+  - Updated App wiring guards to pin `SidebarPanels` props and callbacks instead of inline sidebar button markup.
+  - Magus and Vincent found only the expected staging risk for the new component/test files; Bazarat's disabled callback, ambiguous button, active-row, trigger call-count, and empty-trigger findings were addressed before commit.
+  - Validation passed for this BuilderClient sidebar action renderer harness slice: focused sidebar/wiring tests (15 tests), `npm run typecheck`, `npm run build`, full BuilderClient `npm test` (38 files, 274 tests), and `git diff --check` in both repos.
+  - Next slice after this commit: extract and renderer-test title-bar compile/run/package/sync/load/save controls so action disabled states are covered outside source guards.
   - Extracted `FixtureEditorPanel` from `App.tsx` while keeping App as the owner of fixture editor state, validation helpers, stale result clearing, and publish package invalidation.
   - Added renderer-level coverage for fixture field rendering, trigger fields, expected assertion editors, checkbox state, text field callbacks, handle field role/field routing for every role including empty object handles, missing expected assertion defaults, and disabled fieldset rendering.
   - Updated App wiring guards to pin `FixtureEditorPanel` props and callbacks to the existing `fixtureEditorState` helper paths.
