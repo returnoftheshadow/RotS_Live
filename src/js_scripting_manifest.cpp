@@ -48,8 +48,8 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, true, false, JsScriptingExceptionPolicy::FailClosed,
      "dying character script before death continues", "self, killer, trigger, hostType",
-     "Legacy trigger_char_die() does not pass killer context today; JavaScript must decide "
-     "compatibility before enabling."},
+     "call_trigger-originated death dispatch provides a live-gated killer snapshot; direct "
+     "trigger_char_die() dispatch preserves killer as null and legacy ASIMA locals stay unchanged."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_RECEIVE, "ON_RECEIVE", "onReceive",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, true, false, JsScriptingExceptionPolicy::FailClosed,

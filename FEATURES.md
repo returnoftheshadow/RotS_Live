@@ -151,8 +151,8 @@ Legacy `.scr` trigger inventory requiring JavaScript equivalents:
 - `ON_DIE` (`14`):
   - Create a JavaScript trigger equivalent for character/mob scripts on the dying target.
   - Preserve blocking behavior: false/block prevents death.
-  - Current `call_trigger()` receives the killer as `subject2`, but `trigger_char_die()` does not pass that killer into legacy script context; decide whether JavaScript v1 preserves that limitation or deliberately adds a typed optional `killer` context field.
-  - JavaScript context should include at least `self`, optional `killer` if supported, trigger metadata, and host type.
+  - Current `call_trigger()` receives the killer as `subject2`; JavaScript receives that live killer as optional `ctx.killer` through the typed death dispatch path while direct `trigger_char_die()` calls keep `killer` null and legacy ASIMA script locals remain unchanged.
+  - JavaScript context should include at least `self`, optional `killer`, trigger metadata, and host type.
 - `ON_RECEIVE` (`15`):
   - Create a JavaScript trigger equivalent for character/mob scripts when the scripted character receives an object.
   - Preserve current context mapping: receiver is `self`, giver/actor is the second character, received object is the object context.
@@ -212,8 +212,8 @@ Legacy ASIMA command/API parity matrix for JavaScript:
   - `SCRIPT_ABORT` maps to returning/finishing the handler with an allow result.
   - `SCRIPT_RETURN_FALSE` maps to `return false` or `return RotS.ScriptResult.block()`.
 - Read-only character/object/room parameter parity:
-  - Implemented for JavaScript context snapshots: character id, name, vnum/prototype vnum where available, level, race, current hit points, max hit points, experience, rank, NPC/player booleans, current room, room name/vnum/zone, object id/name/vnum, direct object room, object carrier/wearer for live direct character ownership, trigger metadata, root host type, speech/damage role snapshots (`speaker`, `attacker`, `victim`) where current legacy call sites provide them, damage `weapon` snapshots where the current call site provides a live weapon object, requested `wearSlot` snapshots for the real wear path, text payload, and pure `isValid()` helpers for present character/object/room snapshots.
-  - Remaining read-only drift to close before side effects: audit trigger-specific `ScriptContext` payload fields such as `killer`, command arguments, movement directions, death/equipment payloads, generic targets, and deferred Mudlle target slots against the legacy ASIMA call sites.
+  - Implemented for JavaScript context snapshots: character id, name, vnum/prototype vnum where available, level, race, current hit points, max hit points, experience, rank, NPC/player booleans, current room, room name/vnum/zone, object id/name/vnum, direct object room, object carrier/wearer for live direct character ownership, trigger metadata, root host type, death `killer` snapshots where the central death call site provides a live killer, speech/damage role snapshots (`speaker`, `attacker`, `victim`) where current legacy call sites provide them, damage `weapon` snapshots where the current call site provides a live weapon object, requested `wearSlot` snapshots for the real wear path, text payload, and pure `isValid()` helpers for present character/object/room snapshots.
+  - Remaining read-only drift to close before side effects: audit trigger-specific `ScriptContext` payload fields such as command arguments, movement directions, death/equipment payloads, generic targets, and deferred Mudlle target slots against the legacy ASIMA call sites.
   - Legacy temporary variable assignment commands such as `SCRIPT_ASSIGN_STR`, `SCRIPT_ASSIGN_INV`, `SCRIPT_ASSIGN_EQ`, `SCRIPT_ASSIGN_ROOM`, `SCRIPT_SET_INT_VALUE`, `SCRIPT_SET_INT_SUM`, `SCRIPT_SET_INT_SUB`, `SCRIPT_SET_INT_MULT`, `SCRIPT_SET_INT_DIV`, `SCRIPT_SET_INT_RANDOM`, and `SCRIPT_SET_INT_WAR_STATUS` should map to JavaScript local variables and explicit read-only helper APIs where game state is required.
 - Output helper candidates:
   - `SCRIPT_SEND_TO_CHAR`, `SCRIPT_SEND_TO_ROOM`, and `SCRIPT_SEND_TO_ROOM_X` should become the first side-effect family only after bounded text length, no format-string behavior, recursion prevention, visibility policy, test fixture capture, live audit/logging, and fail-closed diagnostics are designed.

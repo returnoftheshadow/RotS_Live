@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, room, direct object-room, direct object-owner, trigger role snapshots, damage weapon parity, and requested wear-slot parity are in place before any world mutation/output helpers.
-- Active slice: wear `ScriptContext.wearSlot` backing is complete. The typed `perform_wear()` path now exposes the requested pre-fallback equipment slot to JavaScript `ON_WEAR`, while generic/direct wear trigger calls preserve `wearSlot: null`.
-- Next slice: continue remaining `ScriptContext` payload drift with explicit null/unsupported handling for `killer`, command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
+- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, room, direct object-room, direct object-owner, trigger role snapshots, damage weapon parity, requested wear-slot parity, and central death-killer parity are in place before any world mutation/output helpers.
+- Latest completed slice: death `ScriptContext.killer` backing. Central `call_trigger(ON_DIE, dead, killer, ...)` now exposes a live-gated optional `ctx.killer` snapshot to JavaScript, while direct `trigger_char_die()` keeps `killer: null` and legacy ASIMA locals stay unchanged.
+- Next slice: continue remaining `ScriptContext` payload drift with explicit null/unsupported handling for command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.

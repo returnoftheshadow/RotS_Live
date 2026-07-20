@@ -464,6 +464,7 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     input.speaker = &stale_actor;
     input.attacker = &stale_actor;
     input.victim = &stale_actor;
+    input.killer = &stale_actor;
     input.object = &object;
     input.weapon = &stale_weapon;
     input.room = 0;
@@ -478,6 +479,7 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     EXPECT_FALSE(context.has_speaker);
     EXPECT_FALSE(context.has_attacker);
     EXPECT_FALSE(context.has_victim);
+    EXPECT_FALSE(context.has_killer);
     EXPECT_TRUE(context.has_object);
     EXPECT_FALSE(context.has_weapon);
     EXPECT_EQ(context.object.vnum, -1);
@@ -512,6 +514,7 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     input.speaker = &actor;
     input.attacker = &actor;
     input.victim = &self;
+    input.killer = &actor;
     input.object = &object;
     input.weapon = &weapon;
     input.wear_slot = WIELD;
@@ -523,6 +526,8 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     EXPECT_EQ(context.speaker.id, "speaker");
     EXPECT_EQ(context.attacker.id, "attacker");
     EXPECT_EQ(context.victim.id, "victim");
+    ASSERT_TRUE(context.has_killer);
+    EXPECT_EQ(context.killer.id, "killer");
     EXPECT_EQ(context.object.id, "object");
     EXPECT_EQ(context.weapon.id, "weapon");
     ASSERT_TRUE(context.has_wear_slot);
@@ -532,6 +537,7 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     EXPECT_EQ(context.speaker.id.find("11111"), std::string::npos);
     EXPECT_EQ(context.attacker.id.find("11111"), std::string::npos);
     EXPECT_EQ(context.victim.id.find("98765"), std::string::npos);
+    EXPECT_EQ(context.killer.id.find("11111"), std::string::npos);
     EXPECT_EQ(context.object.id.find("55"), std::string::npos);
 }
 

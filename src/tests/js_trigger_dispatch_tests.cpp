@@ -762,6 +762,65 @@ TEST(JsTriggerDispatch, ObjectHostProvidesWornBySnapshot)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
+TEST(JsTriggerDispatch, CharacterDieProvidesKillerRoleSnapshot)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_package(5608, JsScriptPackageHost::Character,
+        JsScriptingManifestKind::LegacyScriptTrigger, ON_DIE, "onDie",
+        "function onDie(ctx) {\n"
+        "  if (ctx.hostType !== 'character') throw new TypeError('host');\n"
+        "  if (ctx.self.name !== 'Victim') throw new TypeError('self');\n"
+        "  if (ctx.killer.name !== 'Killer') throw new TypeError('killer');\n"
+        "  return ctx.killer.isValid();\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data victim = make_character("Victim");
+    char_data killer = make_character("Killer");
+    const char_data* live_characters[] = { &victim, &killer };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_DIE;
+    request.context_input.self = &victim;
+    request.context_input.killer = &killer;
+    request.context_input.room = 0;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+}
+
+TEST(JsTriggerDispatch, CharacterDieModelsMissingKillerAsNull)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_package(5609, JsScriptPackageHost::Character,
+        JsScriptingManifestKind::LegacyScriptTrigger, ON_DIE, "onDie",
+        "function onDie(ctx) { return ctx.self.name === 'Victim' && ctx.killer === null; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data victim = make_character("Victim");
+    const char_data* live_characters[] = { &victim };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_DIE;
+    request.context_input.self = &victim;
+    request.context_input.room = 0;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+}
+
 TEST(JsTriggerDispatch, CharacterDamageProvidesAttackerAndVictimRoleSnapshots)
 {
     JsScriptPackageRegistry registry;

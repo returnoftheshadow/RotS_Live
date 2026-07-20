@@ -302,6 +302,7 @@ JsGameTriggerContextFixture js_game_adapter_context_fixture(
     context.has_attacker =
         js_game_adapter_character_fixture(input.attacker, options, &context.attacker);
     context.has_victim = js_game_adapter_character_fixture(input.victim, options, &context.victim);
+    context.has_killer = js_game_adapter_character_fixture(input.killer, options, &context.killer);
     context.has_object = js_game_adapter_object_fixture(input.object, options, &context.object);
     context.has_weapon = js_game_adapter_object_fixture(input.weapon, options, &context.weapon);
     if (context.has_self)
@@ -314,6 +315,8 @@ JsGameTriggerContextFixture js_game_adapter_context_fixture(
         context.attacker.id = "attacker";
     if (context.has_victim)
         context.victim.id = "victim";
+    if (context.has_killer)
+        context.killer.id = "killer";
     if (context.has_object)
         context.object.id = "object";
     if (context.has_weapon)

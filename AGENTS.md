@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: wear `ScriptContext.wearSlot` backing. The typed `perform_wear()` path exposes the requested pre-fallback equipment slot to JavaScript `ON_WEAR`, while generic/direct wear trigger calls preserve `wearSlot: null`.
-- Next slice: continue remaining `ScriptContext` payload drift with explicit null/unsupported handling for `killer`, command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
+- Latest completed slice: death `ScriptContext.killer` backing. Central `call_trigger(ON_DIE, dead, killer, ...)` exposes a live-gated optional `ctx.killer` snapshot to JavaScript while direct `trigger_char_die()` keeps `killer: null` and legacy ASIMA locals stay unchanged.
+- Next slice: continue remaining `ScriptContext` payload drift with explicit null/unsupported handling for command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

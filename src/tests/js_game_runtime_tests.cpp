@@ -241,6 +241,8 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots)
     context.attacker = context.actor;
     context.has_victim = true;
     context.victim = context.self;
+    context.has_killer = true;
+    context.killer = context.actor;
     context.trigger.host_type = "character";
 
     JsGameRuntime runtime;
@@ -249,6 +251,7 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots)
         "  && ctx.speaker.id === 'player:7'\n"
         "  && ctx.attacker.name === 'Builder'\n"
         "  && ctx.victim.name === 'Aldren'\n"
+        "  && ctx.killer.name === 'Builder'\n"
         "  && ctx.trigger.hostType === ctx.hostType;",
         context);
 
@@ -432,6 +435,7 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
     context.has_speaker = false;
     context.has_attacker = false;
     context.has_victim = false;
+    context.has_killer = false;
     context.has_object = false;
     context.has_weapon = false;
     context.has_room = false;
@@ -446,6 +450,7 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
         "  && ctx.speaker === null\n"
         "  && ctx.attacker === null\n"
         "  && ctx.victim === null\n"
+        "  && ctx.killer === null\n"
         "  && ctx.object === null\n"
         "  && ctx.weapon === null\n"
         "  && ctx.room === null\n"
@@ -585,6 +590,7 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"speaker\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"attacker\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"victim\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"killer\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"weapon\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"wearSlot\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"hostType\":\"object\""), std::string::npos);

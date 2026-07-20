@@ -569,7 +569,8 @@ TEST(JsLegacyTriggerDispatch, LiveServerFacadeExecutesActivatedPackagesAcrossGam
                          "return !(ctx.self.name === 'Guard' && ctx.actor.name === 'Actor' && "
                          "ctx.room.vnum === 100); "
                          "}\n"
-                         "function onDie(ctx) { return ctx.self.name !== 'Victim'; }\n"
+                         "function onDie(ctx) { return !(ctx.self.name === 'Victim' && "
+                         "ctx.killer.name === 'Attacker'); }\n"
                          "function onDamage(ctx) { "
                          "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker' && "
                          "ctx.attacker.name === 'Attacker' && ctx.victim.name === 'Victim' && "
@@ -856,6 +857,152 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptOnDieRuntimeErrorBlocksDeath) {
     EXPECT_EQ(trigger_char_die(&self), 0);
 }
 
+TEST(JsLegacyTriggerDispatch, CallTriggerOnDieProvidesKillerToJavaScript) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6183,
+                         "function onDie(ctx) { "
+                         "return !(ctx.self.name === 'Victim' && ctx.killer.name === 'Killer'); "
+                         "}",
+                         ON_DIE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    char_data killer = make_character("Killer");
+    victim.next = &killer;
+    killer.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(call_trigger(ON_DIE, &victim, &killer, nullptr), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, DirectOnDieModelsKillerAsNull) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6184,
+                         "function onDie(ctx) { return ctx.self.name === 'Victim' && "
+                         "ctx.killer === null; }",
+                         ON_DIE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    victim.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_die(&victim), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, CallTriggerOnDieModelsNullKillerAsNull) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6186,
+                         "function onDie(ctx) { return ctx.self.name === 'Victim' && "
+                         "ctx.killer === null; }",
+                         ON_DIE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    victim.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(call_trigger(ON_DIE, &victim, nullptr, nullptr), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, CallTriggerOnDieModelsStaleKillerAsNull) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6185,
+                         "function onDie(ctx) { return ctx.self.name === 'Victim' && "
+                         "ctx.killer === null; }",
+                         ON_DIE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    char_data stale_killer = make_character("StaleKiller");
+    victim.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(call_trigger(ON_DIE, &victim, &stale_killer, nullptr), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, CallTriggerOnDieKeepsSelfKillRoleAliases) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6187,
+                         "function onDie(ctx) { return ctx.self.name === ctx.killer.name && "
+                         "ctx.self.id === 'self' && ctx.killer.id === 'killer'; }",
+                         ON_DIE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    victim.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(call_trigger(ON_DIE, &victim, &victim, nullptr), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, CallTriggerOnDieSkipsJavaScriptForStaleVictimWithLiveKiller) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6188, "function onDie(ctx) { return false; }", ON_DIE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data stale_victim = make_character("StaleVictim");
+    char_data killer = make_character("Killer");
+    killer.next = nullptr;
+    character_list = &killer;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(call_trigger(ON_DIE, &stale_victim, &killer, nullptr), 1);
+}
+
 TEST(JsLegacyTriggerDispatch, LegacyOnDieBlockPreventsJavaScriptDispatch) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;
@@ -889,6 +1036,43 @@ TEST(JsLegacyTriggerDispatch, LegacyOnDieBlockPreventsJavaScriptDispatch) {
     top_of_world = 0;
 
     EXPECT_EQ(trigger_char_die(&self), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, LegacyOnDieBlockWithKillerPreventsJavaScriptDispatch) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalScriptTableGuard script_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6189, "function onDie(ctx) { return true; }", ON_DIE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    script_data on_die {};
+    script_data return_false {};
+    on_die.command_type = ON_DIE;
+    on_die.next = &return_false;
+    return_false.command_type = SCRIPT_RETURN_FALSE;
+    return_false.prev = &on_die;
+    script_head script {};
+    script.number = 9015;
+    script.script = &on_die;
+    script_table = &script;
+    top_of_script_table = 0;
+
+    char_data victim = make_character("Victim");
+    char_data killer = make_character("Killer");
+    victim.specials.script_number = 9015;
+    victim.next = &killer;
+    killer.next = nullptr;
+    character_list = &victim;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(call_trigger(ON_DIE, &victim, &killer, nullptr), 0);
 }
 
 TEST(JsLegacyTriggerDispatch, EnabledScriptOnDiePathSkipsWhenCharacterIsNoLongerLive) {
@@ -2517,7 +2701,7 @@ TEST(JsLegacyTriggerDispatch, ActiveLegacyTriggerInventoryHasServerFacadeCoverag
             "dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_ENTER)"},
         {ON_BEFORE_ENTER, "onBeforeEnter",
             "dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_BEFORE_ENTER)"},
-        {ON_DIE, "onDie", "dispatch_javascript_character_death_trigger(ch)"},
+        {ON_DIE, "onDie", "dispatch_javascript_character_death_trigger(ch, killer)"},
         {ON_DAMAGE, "onDamage", "dispatch_javascript_character_damage_trigger(vict, ch)"},
         {ON_RECEIVE, "onReceive", "dispatch_javascript_character_receive_trigger(ch1, ch2, ob1)"},
         {ON_HEAR_SAY, "onHearSay",
@@ -2568,7 +2752,7 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
         count_occurrences(script, "dispatch_javascript_character_movement_entry_trigger(ch, vict, room,"),
         2u);
     EXPECT_EQ(
-        count_occurrences(script, "dispatch_javascript_character_death_trigger(ch)"), 1u);
+        count_occurrences(script, "dispatch_javascript_character_death_trigger(ch,"), 1u);
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_character_damage_trigger(vict, ch)"),
         1u);
@@ -2596,6 +2780,7 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(contains(script, "if (ch->in_room != room_index)"));
     EXPECT_TRUE(contains(script, "if (legacy_value == ON_ENTER && vict->in_room != room_index)"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_DIE;"));
+    EXPECT_TRUE(contains(script, "request.context_input.killer = killer;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_DAMAGE;"));
     EXPECT_TRUE(contains(script, "request.context_input.attacker = ch;"));
     EXPECT_TRUE(contains(script, "request.context_input.victim = vict;"));
@@ -2620,9 +2805,13 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(contains(script, "request.host = JsScriptPackageHost::Character;"));
     EXPECT_TRUE(contains(script, "bool javascript_legacy_trigger_dispatch_enabled = false;"));
     EXPECT_TRUE(contains(script, "if (return_value)"));
-    EXPECT_TRUE(appears_before_after(script, "int trigger_char_die",
+    EXPECT_TRUE(
+        contains(script, "trigger_char_die_with_killer((char_data*)subject, (char_data*)subject2)"));
+    EXPECT_TRUE(contains(script,
+        "int trigger_char_die(char_data* ch)\n{\n    return trigger_char_die_with_killer(ch, nullptr);\n}"));
+    EXPECT_TRUE(appears_before_after(script, "int trigger_char_die_with_killer",
         "return_value = run_script(ch->specials.script_info",
-        "return_value = dispatch_javascript_character_death_trigger(ch);"));
+        "return_value = dispatch_javascript_character_death_trigger(ch, killer);"));
     EXPECT_TRUE(appears_before_after(script, "int trigger_char_damage",
         "return_value = run_script(vict->specials.script_info",
         "return_value = dispatch_javascript_character_damage_trigger(vict, ch);"));

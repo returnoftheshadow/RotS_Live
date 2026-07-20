@@ -77,6 +77,9 @@ struct JsGameTriggerContextFixture {
     bool has_victim = false;
     JsGameCharacterFixture victim;
 
+    bool has_killer = false;
+    JsGameCharacterFixture killer;
+
     bool has_object = false;
     JsGameObjectFixture object;
 

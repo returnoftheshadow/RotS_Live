@@ -357,6 +357,8 @@ std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& c
         << nullable_literal(context.has_attacker, character_literal(context.attacker)) << ","
         << "\"victim\":"
         << nullable_literal(context.has_victim, character_literal(context.victim)) << ","
+        << "\"killer\":"
+        << nullable_literal(context.has_killer, character_literal(context.killer)) << ","
         << "\"object\":"
         << nullable_literal(context.has_object, object_literal(context.object)) << ","
         << "\"weapon\":"

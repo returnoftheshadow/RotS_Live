@@ -79,6 +79,7 @@ script_data* char_has_script(int* index, char_data* ch, int script_type);
 int run_char_script(char_data* ch, void* sub1, void* sub2, script_data* position);
 int script_char_do_say(char_data* ch, char* line);
 int trigger_char_die(char_data* ch);
+int trigger_char_die_with_killer(char_data* ch, char_data* killer);
 int trigger_char_receive(char_data* ch1, char_data* ch2, obj_data* ob1);
 int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room);
 int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch);
@@ -204,7 +205,7 @@ int dispatch_javascript_character_movement_entry_trigger(
         : 1;
 }
 
-int dispatch_javascript_character_death_trigger(char_data* ch)
+int dispatch_javascript_character_death_trigger(char_data* ch, char_data* killer = nullptr)
 {
     if (!javascript_legacy_trigger_dispatch_enabled || ch == nullptr)
         return 1;
@@ -212,6 +213,8 @@ int dispatch_javascript_character_death_trigger(char_data* ch)
     const std::vector<const char_data*> characters = live_character_snapshot();
     if (!live_character_snapshot_contains(characters, ch))
         return 1;
+    if (killer != nullptr && !live_character_snapshot_contains(characters, killer))
+        killer = nullptr;
 
     const std::vector<const obj_data*> objects = live_object_snapshot();
     const JsGameAdapterOptions adapter_options =
@@ -222,6 +225,7 @@ int dispatch_javascript_character_death_trigger(char_data* ch)
     request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
     request.legacy_value = ON_DIE;
     request.context_input.self = ch;
+    request.context_input.killer = killer;
     if (js_game_adapter_room_is_valid(ch->in_room, adapter_options))
         request.context_input.room = ch->in_room;
 
@@ -1085,7 +1089,7 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         break;
 
     case ON_DIE:
-        return_value = trigger_char_die((char_data*)subject); // we don't do anything with killer yet
+        return_value = trigger_char_die_with_killer((char_data*)subject, (char_data*)subject2);
         break;
 
     case ON_DRINK:
@@ -2071,6 +2075,11 @@ int trigger_char_damage(char_data* vict, char_data* ch)
 
 int trigger_char_die(char_data* ch)
 {
+    return trigger_char_die_with_killer(ch, nullptr);
+}
+
+int trigger_char_die_with_killer(char_data* ch, char_data* killer)
+{
     int index;
     int return_value = 1;
     script_data* script_position;
@@ -2085,7 +2094,7 @@ int trigger_char_die(char_data* ch)
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
     if (return_value)
-        return_value = dispatch_javascript_character_death_trigger(ch);
+        return_value = dispatch_javascript_character_death_trigger(ch, killer);
     return return_value;
 }
 

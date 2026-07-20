@@ -41,6 +41,7 @@ struct JsGameAdapterContextInput {
     const char_data *speaker = nullptr;
     const char_data *attacker = nullptr;
     const char_data *victim = nullptr;
+    const char_data *killer = nullptr;
     const obj_data *object = nullptr;
     const obj_data *weapon = nullptr;
     int room = -1;
