@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: read-only legacy character parameter parity. JavaScript character snapshots expose `experience`, `rank`, `room`, and pure `isValid()`, matching legacy `CHx_EXP`, `CHx_RANK`, and `CHx_ROOM` script parameters through the API contract, adapter, runtime literal, and tests; room snapshots expose `zone` and pure `isValid()`.
-- Next slice: complete the JavaScript API capability alignment matrix for the remaining ASIMA script commands and close the next read-only contract/runtime drift item, likely `Mob.prototypeVnum` or object relationship fields before any bounded output helper implementation.
+- Latest completed slice: JavaScript API capability alignment matrix. `FEATURES.md` classifies legacy ASIMA flow control, read-only parameter access, output helpers, command/behavior helpers, world/entity mutation, and continuations against the JavaScript API plan.
+- Next slice: close the next read-only contract/runtime drift item identified by the matrix, likely `Mob.prototypeVnum` or object relationship fields before any bounded output helper implementation.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

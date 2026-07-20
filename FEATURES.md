@@ -204,6 +204,26 @@ Legacy `.scr` trigger inventory requiring JavaScript equivalents:
   - whether the trigger is implemented, reserved, unsupported, or deferred in the current engine version
   - parity tests proving the JavaScript trigger reaches the same gameplay call sites as the ASIMA trigger
 
+Legacy ASIMA command/API parity matrix for JavaScript:
+- Flow and return control:
+  - `SCRIPT_BEGIN`, `SCRIPT_END`, `SCRIPT_END_ELSE_BEGIN`, `SCRIPT_IF_INT_EQUAL`, `SCRIPT_IF_INT_LESS`, `SCRIPT_IF_INT_GREATER`, `SCRIPT_IF_INT_TRUE`, `SCRIPT_IF_INT_FALSE`, `SCRIPT_IF_IS_NPC`, `SCRIPT_IF_STR_EQUAL`, and `SCRIPT_IF_STR_CONTAINS` map to normal TypeScript/JavaScript control flow and do not need host APIs.
+  - `SCRIPT_ABORT` maps to returning/finishing the handler with an allow result.
+  - `SCRIPT_RETURN_FALSE` maps to `return false` or `return RotS.ScriptResult.block()`.
+- Read-only character/object/room parameter parity:
+  - Implemented for JavaScript context snapshots: character id, name, vnum/prototype vnum where available, level, race, current hit points, max hit points, experience, rank, NPC/player booleans, current room, room name/vnum/zone, object id/name/vnum, trigger metadata, text payload, and pure `isValid()` helpers for present character/object/room snapshots.
+  - Remaining read-only drift to close before side effects: `Mob.prototypeVnum` should be explicitly backed or removed from active typings; object relationship fields `GameObject.room`, `GameObject.carriedBy`, and `GameObject.wornBy` are documented but still need safe snapshot backing; `Room.isSunlit` should be added for `SCRIPT_IF_ROOM_SUNLIT` parity.
+  - Legacy temporary variable assignment commands such as `SCRIPT_ASSIGN_STR`, `SCRIPT_ASSIGN_INV`, `SCRIPT_ASSIGN_EQ`, `SCRIPT_ASSIGN_ROOM`, `SCRIPT_SET_INT_VALUE`, `SCRIPT_SET_INT_SUM`, `SCRIPT_SET_INT_SUB`, `SCRIPT_SET_INT_MULT`, `SCRIPT_SET_INT_DIV`, `SCRIPT_SET_INT_RANDOM`, and `SCRIPT_SET_INT_WAR_STATUS` should map to JavaScript local variables and explicit read-only helper APIs where game state is required.
+- Output helper candidates:
+  - `SCRIPT_SEND_TO_CHAR`, `SCRIPT_SEND_TO_ROOM`, and `SCRIPT_SEND_TO_ROOM_X` should become the first side-effect family only after bounded text length, no format-string behavior, recursion prevention, visibility policy, test fixture capture, live audit/logging, and fail-closed diagnostics are designed.
+  - `SCRIPT_DO_SAY`, `SCRIPT_DO_YELL`, and `SCRIPT_DO_EMOTE` should not be exposed as generic command execution; if needed, expose narrow speech/emote output helpers with the same bounds and recursion rules as direct output helpers.
+  - `SCRIPT_PAGE_ZONE_MAP` remains deferred until map generation/output ownership is modeled for offline fixtures and live server delivery.
+- Command/behavior helpers that must stay gated:
+  - `SCRIPT_DO_HIT`, `SCRIPT_DO_FLEE`, `SCRIPT_DO_FOLLOW`, `SCRIPT_DO_GIVE`, `SCRIPT_DO_DROP`, `SCRIPT_DO_REMOVE`, `SCRIPT_DO_WEAR`, and `SCRIPT_DO_SOCIAL` currently force normal game command paths from scripts. JavaScript must not expose a generic `doCommand` helper. Each behavior needs a separate narrow API, liveness validation, recursion guard, target authorization, and audit before support.
+- World/entity mutation that must stay unsupported or admin-gated:
+  - `SCRIPT_LOAD_MOB`, `SCRIPT_LOAD_OBJ`, `SCRIPT_LOAD_OBJ_X`, `SCRIPT_EQUIP_CHAR`, `SCRIPT_OBJ_TO_CHAR`, `SCRIPT_OBJ_TO_ROOM`, `SCRIPT_OBJ_FROM_ROOM`, `SCRIPT_OBJ_FROM_CHAR`, `SCRIPT_EXTRACT_CHAR`, `SCRIPT_EXTRACT_OBJ`, `SCRIPT_TELEPORT_CHAR`, `SCRIPT_TELEPORT_CHAR_X`, `SCRIPT_TELEPORT_CHAR_XL`, `SCRIPT_SET_EXIT_STATE`, `SCRIPT_CHANGE_EXIT_TO`, `SCRIPT_RAW_KILL`, and `SCRIPT_GAIN_EXP` remain unsupported for builder JavaScript v1 unless a future admin-grade permission/audit/rollback design explicitly enables one narrow operation.
+- Continuations:
+  - `SCRIPT_DO_WAIT` remains unsupported for JavaScript v1. Any future wait/continuation API must not reuse raw legacy `script_info` pointers and must revalidate every handle after the delay.
+
 ASIMA/Mudlle mobile-program call flags requiring JavaScript parity decisions:
 - ASIMA/Mudlle programs use `SPECIAL_*` call flags from `src/interpre.h` and `CALL_MASK(host)` rather than the `.scr` `ON_*` constants.
 - The builder-facing ASIMA documentation currently describes the `I` call-mask bits for command, self, and enter-room only, but the engine can pass additional call flags through the generic special dispatcher. JavaScript planning must decide whether each flag gets a supported JavaScript equivalent, remains hard-coded-special-only, or is explicitly unsupported for builder scripts.
