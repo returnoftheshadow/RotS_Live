@@ -1,6 +1,7 @@
 #include "js_manifest_export.h"
 
 #include "js_api_contract.h"
+#include "js_api_struct_mapping.h"
 #include "js_scripting_manifest.h"
 #include "js_scripting_runtime_policy.h"
 #include "json_utils.h"
@@ -165,16 +166,12 @@ void append_api_metadata(std::ostringstream &out, const JsManifestExportOptions 
     out << '}';
 }
 
-void append_dispatch_statuses(std::ostringstream &out)
-{
+void append_dispatch_statuses(std::ostringstream &out) {
     out << '[';
     const JsTriggerDispatchStatus statuses[] = {
-        JsTriggerDispatchStatus::NoMatch,
-        JsTriggerDispatchStatus::Allow,
-        JsTriggerDispatchStatus::Block,
-        JsTriggerDispatchStatus::Error,
-        JsTriggerDispatchStatus::BudgetExceeded,
-        JsTriggerDispatchStatus::DepthExceeded,
+        JsTriggerDispatchStatus::NoMatch,        JsTriggerDispatchStatus::Allow,
+        JsTriggerDispatchStatus::Block,          JsTriggerDispatchStatus::Error,
+        JsTriggerDispatchStatus::BudgetExceeded, JsTriggerDispatchStatus::DepthExceeded,
     };
     for (std::size_t index = 0; index < sizeof(statuses) / sizeof(statuses[0]); ++index) {
         if (index > 0)
@@ -184,9 +181,8 @@ void append_dispatch_statuses(std::ostringstream &out)
     out << ']';
 }
 
-void append_runtime_safety_policy(std::ostringstream &out, const JsManifestExportOptions &options)
-{
-    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
+void append_runtime_safety_policy(std::ostringstream &out, const JsManifestExportOptions &options) {
+    const JsScriptingRuntimeSafetyPolicy &policy = js_scripting_runtime_safety_policy();
     out << '{';
     append_size_field(out, "memoryLimitBytes", policy.runtime_limits.memory_limit_bytes);
     out << ',';
@@ -195,15 +191,15 @@ void append_runtime_safety_policy(std::ostringstream &out, const JsManifestExpor
     append_size_field(out, "instructionBudget", policy.runtime_limits.instruction_budget);
     out << ',';
     append_size_field(out, "maxInvocationsPerPulse",
-        policy.budget_limits.max_invocations_per_pulse);
+                      policy.budget_limits.max_invocations_per_pulse);
     out << ',';
     append_size_field(out, "maxInvocationsPerPackagePerPulse",
-        policy.budget_limits.max_invocations_per_package_per_pulse);
+                      policy.budget_limits.max_invocations_per_package_per_pulse);
     out << ',';
     append_size_field(out, "maxDispatchDepth", policy.depth_limits.max_dispatch_depth);
     out << ',';
     append_size_field(out, "maxDispatchFailureLogsPerPulse",
-        policy.max_dispatch_failure_logs_per_pulse);
+                      policy.max_dispatch_failure_logs_per_pulse);
     out << ',';
     append_key(out, "dispatchStatuses");
     append_dispatch_statuses(out);
@@ -223,6 +219,87 @@ void append_runtime_safety_policy(std::ostringstream &out, const JsManifestExpor
     out << ',';
     append_documentation_field(out, "failureLoggingPolicy", policy.failure_logging_policy);
     out << '}';
+}
+
+const char *public_struct_owner_name(JsApiStructOwner owner) {
+    switch (owner) {
+    case JsApiStructOwner::CharData:
+        return "Character";
+    case JsApiStructOwner::ObjData:
+        return "GameObject";
+    case JsApiStructOwner::RoomData:
+        return "Room";
+    case JsApiStructOwner::ZoneData:
+        return "Zone";
+    }
+    return "Unknown";
+}
+
+bool mapping_is_public(const JsApiStructFieldMapping &mapping) {
+    return std::string(mapping.getter_status) != "internal-only";
+}
+
+std::string public_mapping_field_id(const JsApiStructFieldMapping &mapping) {
+    return std::string(public_struct_owner_name(mapping.owner)) + "." + mapping.js_property;
+}
+
+void append_struct_field_mappings(std::ostringstream &out, const JsManifestExportOptions &options) {
+    out << '[';
+    bool first = true;
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        if (!mapping_is_public(mapping))
+            continue;
+        if (!first)
+            out << ',';
+        first = false;
+        out << '{';
+        append_string_field(out, "owner", public_struct_owner_name(mapping.owner));
+        out << ',';
+        append_string_field(out, "fieldId", public_mapping_field_id(mapping).c_str());
+        out << ',';
+        append_string_field(out, "property", mapping.js_property);
+        out << ',';
+        append_string_field(out, "getterName", mapping.getter_name);
+        out << ',';
+        append_string_field(out, "setterName", mapping.setter_name);
+        out << ',';
+        append_string_field(out, "typeName", mapping.type_name);
+        out << ',';
+        append_bool_field(out, "nullable", mapping.nullable);
+        out << ',';
+        append_string_field(out, "getterStatus", mapping.getter_status);
+        out << ',';
+        append_string_field(out, "setterStatus", mapping.setter_status);
+        out << ',';
+        append_string_field(out, "sideEffect", mapping.side_effect);
+        out << ',';
+        append_bool_field(out, "getterCallable",
+                          std::string(mapping.getter_status) == "implemented-read-only-getter");
+        out << ',';
+        append_bool_field(out, "setterCallable", false);
+        out << ',';
+        append_bool_field(out, "documentationOnly", true);
+        if (options.include_documentation) {
+            out << ',';
+            append_documentation_field(out, "getterDocs", mapping.getter_docs);
+            out << ',';
+            append_documentation_field(out, "setterDocs", mapping.setter_docs);
+            out << ',';
+            append_documentation_field(out, "notes", mapping.notes);
+        }
+        out << '}';
+    }
+    out << ']';
+}
+
+std::size_t public_struct_field_mapping_count() {
+    std::size_t count = 0;
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        if (mapping_is_public(js_api_struct_field_mappings()[index]))
+            ++count;
+    }
+    return count;
 }
 
 } // namespace
@@ -327,6 +404,8 @@ std::string js_export_api_contract_json(const JsManifestExportOptions &options) 
     out << ',';
     append_size_field(out, "typeCount", js_api_contract_type_count());
     out << ',';
+    append_size_field(out, "structFieldMappingCount", public_struct_field_mapping_count());
+    out << ',';
     append_key(out, "types");
     out << '[';
     for (std::size_t type_index = 0; type_index < js_api_contract_type_count(); ++type_index) {
@@ -380,6 +459,9 @@ std::string js_export_api_contract_json(const JsManifestExportOptions &options) 
         out << '}';
     }
     out << ']';
+    out << ',';
+    append_key(out, "structFieldMappings");
+    append_struct_field_mappings(out, options);
     out << '}';
     return out.str();
 }

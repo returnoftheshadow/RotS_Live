@@ -92,7 +92,7 @@ js_builder_session_store.o : js_builder_session_store.cpp js_builder_session_sto
 js_builder_session.o : js_builder_session.cpp js_builder_session.h account_management.h account_management_types.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h structs.h
 	$(CC) -c $(CFLAGS) js_builder_session.cpp
 
-js_builder_artifacts.o : js_builder_artifacts.cpp js_builder_artifacts.h js_api_contract.h js_manifest_export.h json_utils.h js_scripting_runtime_policy.h js_scripting_manifest.h
+js_builder_artifacts.o : js_builder_artifacts.cpp js_builder_artifacts.h js_api_contract.h js_api_struct_mapping.h js_manifest_export.h json_utils.h js_scripting_runtime_policy.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_builder_artifacts.cpp
 
 js_game_adapter.o : js_game_adapter.cpp js_game_adapter.h js_game_runtime.h structs.h db.h zone.h
@@ -122,7 +122,7 @@ js_live_registry_reload_service.o : js_live_registry_reload_service.cpp js_live_
 js_live_registry_status.o : js_live_registry_status.cpp js_live_registry_status.h js_live_registry_reload_service.h js_live_package_store.h js_script_registry.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_live_registry_status.cpp
 
-js_manifest_export.o : js_manifest_export.cpp js_manifest_export.h js_api_contract.h json_utils.h js_scripting_runtime_policy.h js_scripting_manifest.h
+js_manifest_export.o : js_manifest_export.cpp js_manifest_export.h js_api_contract.h js_api_struct_mapping.h json_utils.h js_scripting_runtime_policy.h js_scripting_manifest.h
 	$(CC) -c $(CFLAGS) js_manifest_export.cpp
 
 js_publish_activation.o : js_publish_activation.cpp js_publish_activation.h js_live_package_store.h js_live_package_store_persistence.h js_publish_staging.h js_script_registry.h js_staged_package_repository.h js_staged_package_identity.h js_publish_authorization.h js_script_package.h js_scripting_manifest.h

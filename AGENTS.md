@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API public struct mapping catalog. Server-owned metadata now inventories every public top-level field on `char_data`, `obj_data`, `room_data`, and `zone_data`, with getter/setter policy docs, sensitive/internal-field denial, source drift guards, critical mapping pins, and API-contract parity checks for implemented read-only fields.
-- Next slice: JavaScript API generated documentation. Include the public struct mapping catalog in generated API markdown/manifest output so BuilderClient can surface getter/setter policy docs offline without making planned or unsupported setters callable.
+- Latest completed slice: JavaScript API generated documentation/export. Public server artifacts now include non-internal struct accessor mapping rows in API markdown and manifest JSON, using public `fieldId` values, callable flags, and documentation-only markers; BuilderClient loads and preserves those public rows while filtering internal-only rows.
+- Next slice: JavaScript API generated typings getter promotion. Promote the next safe read-only getter group from the mapping catalog into `rots.d.ts`, live QuickJS snapshots, and BuilderClient offline fixtures together, with parity tests.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

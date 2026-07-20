@@ -1,6 +1,7 @@
 #include "js_builder_artifacts.h"
 
 #include "js_api_contract.h"
+#include "js_api_struct_mapping.h"
 #include "js_scripting_manifest.h"
 #include "js_scripting_runtime_policy.h"
 #include "json_utils.h"
@@ -69,6 +70,28 @@ std::string markdown_cell(const char *value) {
 }
 
 std::string markdown_inline_code(const char *value) { return "`" + markdown_cell(value) + "`"; }
+
+bool mapping_is_public(const JsApiStructFieldMapping &mapping) {
+    return std::string(mapping.getter_status) != "internal-only";
+}
+
+const char *public_owner_name(JsApiStructOwner owner) {
+    switch (owner) {
+    case JsApiStructOwner::CharData:
+        return "Character";
+    case JsApiStructOwner::ObjData:
+        return "GameObject";
+    case JsApiStructOwner::RoomData:
+        return "Room";
+    case JsApiStructOwner::ZoneData:
+        return "Zone";
+    }
+    return "Unknown";
+}
+
+std::string public_field_id(const JsApiStructFieldMapping &mapping) {
+    return std::string(public_owner_name(mapping.owner)) + "." + mapping.js_property;
+}
 
 std::string markdown_host_names(unsigned flags) {
     std::string names;
@@ -310,10 +333,12 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_EQ(declarations.find("loadMob"), std::string::npos);
     EXPECT_EQ(declarations.find("extractCharacter"), std::string::npos);
     EXPECT_EQ(declarations.find("runtimeSafety:"), std::string::npos);
+    EXPECT_EQ(declarations.find("setName("), std::string::npos);
+    EXPECT_EQ(declarations.find("ownerId"), std::string::npos);
+    EXPECT_EQ(declarations.find("getOwners"), std::string::npos);
 }
 
-TEST(JsBuilderArtifacts, TypescriptDeclarationsExposeTypedTargetContext)
-{
+TEST(JsBuilderArtifacts, TypescriptDeclarationsExposeTypedTargetContext) {
     const std::string declarations = js_generate_typescript_declarations();
     const std::string block = declaration_block(declarations, "export interface ScriptContext");
 
@@ -366,6 +391,8 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     expect_contains(markdown, std::to_string(policy.depth_limits.max_dispatch_depth));
     expect_contains(markdown, markdown_cell(policy.failure_logging_policy));
     expect_contains(markdown, "## API Types");
+    expect_contains(markdown, "## Public Field Accessor Mapping");
+    expect_contains(markdown, "Implemented read-only getters may appear in TypeScript");
     expect_contains(markdown, "Context fields");
     expect_contains(markdown, "Dispatch order");
     expect_contains(markdown, "Notes");
@@ -402,6 +429,34 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
                                 " | " + markdown_cell(member.docs) + " |");
         }
     }
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        if (!mapping_is_public(mapping))
+            continue;
+        const std::string row =
+            "| " + markdown_inline_code(public_owner_name(mapping.owner)) + " | " +
+            markdown_inline_code(public_field_id(mapping).c_str()) + " | " +
+            markdown_inline_code(mapping.js_property) + " | " +
+            markdown_inline_code(mapping.getter_name) + " | " +
+            markdown_inline_code(mapping.setter_name) + " | " +
+            markdown_inline_code(mapping.type_name) + " | " +
+            markdown_inline_code(mapping.nullable ? "yes" : "no") + " | " +
+            markdown_inline_code(mapping.getter_status) + " | " +
+            markdown_inline_code(mapping.setter_status) + " | " +
+            markdown_inline_code(
+                std::string(mapping.getter_status) == "implemented-read-only-getter" ? "yes"
+                                                                                     : "no") +
+            " | " + markdown_inline_code("no") + " | " + markdown_inline_code("yes") + " | " +
+            markdown_inline_code(mapping.side_effect) + " | " + markdown_cell(mapping.getter_docs) +
+            " | " + markdown_cell(mapping.setter_docs) + " | " + markdown_cell(mapping.notes) +
+            " |";
+        expect_contains(markdown, row);
+    }
+    expect_contains(markdown,
+                    "| `GameObject` | `GameObject.vnum` | `vnum` | `getVnum` | `setVnum`");
+    EXPECT_EQ(markdown.find("ownerId"), std::string::npos);
+    EXPECT_EQ(markdown.find("getOwners"), std::string::npos);
+    EXPECT_EQ(markdown.find("internal-only"), std::string::npos);
 }
 
 TEST(JsBuilderArtifacts, GeneratesValidVscodeStyleLspConfig) {
@@ -423,19 +478,20 @@ TEST(JsBuilderArtifacts, GeneratesValidVscodeStyleLspConfig) {
     expect_contains(json, "\"builderManifest\":\"generated/rots-builder-manifest.json\"");
     expect_contains(json, "\"runtimeSafety\":{");
     expect_contains(json, "\"memoryLimitBytes\":" +
-            std::to_string(policy.runtime_limits.memory_limit_bytes));
+                              std::to_string(policy.runtime_limits.memory_limit_bytes));
     expect_contains(json, "\"stackLimitBytes\":" +
-            std::to_string(policy.runtime_limits.stack_limit_bytes));
+                              std::to_string(policy.runtime_limits.stack_limit_bytes));
     expect_contains(json, "\"instructionBudget\":" +
-            std::to_string(policy.runtime_limits.instruction_budget));
+                              std::to_string(policy.runtime_limits.instruction_budget));
     expect_contains(json, "\"maxInvocationsPerPulse\":" +
-            std::to_string(policy.budget_limits.max_invocations_per_pulse));
-    expect_contains(json, "\"maxInvocationsPerPackagePerPulse\":" +
-            std::to_string(policy.budget_limits.max_invocations_per_package_per_pulse));
+                              std::to_string(policy.budget_limits.max_invocations_per_pulse));
+    expect_contains(json,
+                    "\"maxInvocationsPerPackagePerPulse\":" +
+                        std::to_string(policy.budget_limits.max_invocations_per_package_per_pulse));
     expect_contains(json, "\"maxDispatchDepth\":" +
-            std::to_string(policy.depth_limits.max_dispatch_depth));
+                              std::to_string(policy.depth_limits.max_dispatch_depth));
     expect_contains(json, "\"maxDispatchFailureLogsPerPulse\":" +
-            std::to_string(policy.max_dispatch_failure_logs_per_pulse));
+                              std::to_string(policy.max_dispatch_failure_logs_per_pulse));
     expect_contains(json, policy.failure_logging_policy);
     expect_contains(json, manifest.manifest_checksum);
     expect_contains(json, api.contract_checksum);

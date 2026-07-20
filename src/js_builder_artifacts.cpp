@@ -1,6 +1,7 @@
 #include "js_builder_artifacts.h"
 
 #include "js_api_contract.h"
+#include "js_api_struct_mapping.h"
 #include "js_manifest_export.h"
 #include "js_scripting_manifest.h"
 #include "js_scripting_runtime_policy.h"
@@ -81,6 +82,28 @@ std::string markdown_host_names(unsigned flags) {
     return names.empty() ? "none" : names;
 }
 
+const char *markdown_struct_owner_name(JsApiStructOwner owner) {
+    switch (owner) {
+    case JsApiStructOwner::CharData:
+        return "Character";
+    case JsApiStructOwner::ObjData:
+        return "GameObject";
+    case JsApiStructOwner::RoomData:
+        return "Room";
+    case JsApiStructOwner::ZoneData:
+        return "Zone";
+    }
+    return "Unknown";
+}
+
+bool markdown_mapping_is_public(const JsApiStructFieldMapping &mapping) {
+    return std::string(mapping.getter_status) != "internal-only";
+}
+
+std::string markdown_mapping_field_id(const JsApiStructFieldMapping &mapping) {
+    return std::string(markdown_struct_owner_name(mapping.owner)) + "." + mapping.js_property;
+}
+
 bool member_is_active_typing(const JsApiMember &member) {
     return member.status == JsApiMemberStatus::PlannedReadOnly ||
            member.status == JsApiMemberStatus::PlannedPureHelper;
@@ -153,20 +176,17 @@ void append_trigger_handler_union(std::ostringstream &out) {
     }
 }
 
-void append_runtime_safety_json(std::ostringstream &out)
-{
-    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
+void append_runtime_safety_json(std::ostringstream &out) {
+    const JsScriptingRuntimeSafetyPolicy &policy = js_scripting_runtime_safety_policy();
     out << "\"runtimeSafety\":{";
     out << "\"memoryLimitBytes\":" << policy.runtime_limits.memory_limit_bytes;
     out << ",\"stackLimitBytes\":" << policy.runtime_limits.stack_limit_bytes;
     out << ",\"instructionBudget\":" << policy.runtime_limits.instruction_budget;
-    out << ",\"maxInvocationsPerPulse\":"
-        << policy.budget_limits.max_invocations_per_pulse;
+    out << ",\"maxInvocationsPerPulse\":" << policy.budget_limits.max_invocations_per_pulse;
     out << ",\"maxInvocationsPerPackagePerPulse\":"
         << policy.budget_limits.max_invocations_per_package_per_pulse;
     out << ",\"maxDispatchDepth\":" << policy.depth_limits.max_dispatch_depth;
-    out << ",\"maxDispatchFailureLogsPerPulse\":"
-        << policy.max_dispatch_failure_logs_per_pulse;
+    out << ",\"maxDispatchFailureLogsPerPulse\":" << policy.max_dispatch_failure_logs_per_pulse;
     out << ",\"failureLoggingPolicy\":";
     append_quoted_json(out, policy.failure_logging_policy);
     out << '}';
@@ -204,7 +224,8 @@ std::string js_generate_typescript_declarations() {
     out << "    readonly instructionBudget: number;\n";
     out << "    /** Maximum JavaScript trigger invocations allowed in one server pulse. */\n";
     out << "    readonly maxInvocationsPerPulse: number;\n";
-    out << "    /** Maximum JavaScript trigger invocations for one package in one server pulse. */\n";
+    out << "    /** Maximum JavaScript trigger invocations for one package in one server pulse. "
+           "*/\n";
     out << "    readonly maxInvocationsPerPackagePerPulse: number;\n";
     out << "    /** Maximum nested JavaScript trigger-entry depth before dispatch is denied. */\n";
     out << "    readonly maxDispatchDepth: number;\n";
@@ -276,20 +297,22 @@ std::string js_generate_api_markdown_reference() {
            "handlers and active read-only or pure helper API members. Reserved, unsupported, "
            "and deferred side-effect APIs are documented here for compatibility planning but are "
            "not callable from builder scripts.\n\n";
-    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
+    const JsScriptingRuntimeSafetyPolicy &policy = js_scripting_runtime_safety_policy();
     out << "## Runtime Safety\n\n";
     out << "| Limit | Value |\n";
     out << "| --- | --- |\n";
-    out << "| QuickJS memory limit bytes | `" << policy.runtime_limits.memory_limit_bytes << "` |\n";
+    out << "| QuickJS memory limit bytes | `" << policy.runtime_limits.memory_limit_bytes
+        << "` |\n";
     out << "| QuickJS stack limit bytes | `" << policy.runtime_limits.stack_limit_bytes << "` |\n";
-    out << "| QuickJS instruction budget | `" << policy.runtime_limits.instruction_budget << "` |\n";
+    out << "| QuickJS instruction budget | `" << policy.runtime_limits.instruction_budget
+        << "` |\n";
     out << "| Max invocations per server pulse | `"
         << policy.budget_limits.max_invocations_per_pulse << "` |\n";
     out << "| Max invocations per package per server pulse | `"
         << policy.budget_limits.max_invocations_per_package_per_pulse << "` |\n";
     out << "| Max nested dispatch depth | `" << policy.depth_limits.max_dispatch_depth << "` |\n";
-    out << "| Max dispatch failure logs per pulse | `"
-        << policy.max_dispatch_failure_logs_per_pulse << "` |\n\n";
+    out << "| Max dispatch failure logs per pulse | `" << policy.max_dispatch_failure_logs_per_pulse
+        << "` |\n\n";
     out << markdown_cell(policy.failure_logging_policy) << "\n\n";
     out << "## Trigger Handlers\n\n";
     out << "| Legacy name | Handler | Status | Hosts | Blocks gameplay | Context fields | Dispatch "
@@ -325,6 +348,39 @@ std::string js_generate_api_markdown_reference() {
                 << markdown_cell(member.docs) << " |\n";
         }
         out << "\n";
+    }
+    out << "## Public Field Accessor Mapping\n\n";
+    out << "This catalog maps legacy server fields onto the documented JavaScript handle API. "
+           "Implemented read-only getters may appear in TypeScript declarations when the live "
+           "runtime and offline fixture runner both support them. Planned, deferred, and "
+           "unsupported setters are documented for review but are not callable from builder "
+           "scripts until the generated API contract exposes them. Internal server fields are "
+           "omitted from this public artifact.\n\n";
+    out << "| Owner | Field id | Property | Getter | Setter | Type | Nullable | Getter status | "
+           "Setter status | Getter callable | Setter callable | Documentation only | Side effect | "
+           "Getter docs | Setter docs | Notes |\n";
+    out << "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | "
+           "--- | --- |\n";
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        if (!markdown_mapping_is_public(mapping))
+            continue;
+        out << "| " << markdown_inline_code(markdown_struct_owner_name(mapping.owner)) << " | "
+            << markdown_inline_code(markdown_mapping_field_id(mapping).c_str()) << " | "
+            << markdown_inline_code(mapping.js_property) << " | "
+            << markdown_inline_code(mapping.getter_name) << " | "
+            << markdown_inline_code(mapping.setter_name) << " | "
+            << markdown_inline_code(mapping.type_name) << " | "
+            << markdown_inline_code(mapping.nullable ? "yes" : "no") << " | "
+            << markdown_inline_code(mapping.getter_status) << " | "
+            << markdown_inline_code(mapping.setter_status) << " | "
+            << markdown_inline_code(
+                   std::string(mapping.getter_status) == "implemented-read-only-getter" ? "yes"
+                                                                                        : "no")
+            << " | " << markdown_inline_code("no") << " | " << markdown_inline_code("yes") << " | "
+            << markdown_inline_code(mapping.side_effect) << " | "
+            << markdown_cell(mapping.getter_docs) << " | " << markdown_cell(mapping.setter_docs)
+            << " | " << markdown_cell(mapping.notes) << " |\n";
     }
     return out.str();
 }

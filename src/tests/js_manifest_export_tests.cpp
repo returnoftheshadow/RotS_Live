@@ -1,6 +1,7 @@
 #include "js_manifest_export.h"
 
 #include "js_api_contract.h"
+#include "js_api_struct_mapping.h"
 #include "js_scripting_manifest.h"
 #include "js_scripting_runtime_policy.h"
 #include "json_utils.h"
@@ -47,6 +48,10 @@ void expect_contains_int_field(const std::string &json, const char *key, int val
     EXPECT_NE(json.find(expected), std::string::npos) << expected;
 }
 
+void expect_contains_json_object(const std::string &json, const std::string &object) {
+    EXPECT_NE(json.find(object), std::string::npos) << object;
+}
+
 bool contains_raw_cpp_type_text(const std::string &json) {
     const char *forbidden[] = {
         "char_data",   "obj_data", "room_data", "zone_data", "script_data",
@@ -58,6 +63,33 @@ bool contains_raw_cpp_type_text(const std::string &json) {
             return true;
     }
     return false;
+}
+
+bool mapping_is_public(const JsApiStructFieldMapping &mapping) {
+    return std::string(mapping.getter_status) != "internal-only";
+}
+
+std::size_t public_mapping_count() {
+    std::size_t count = 0;
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        if (mapping_is_public(js_api_struct_field_mappings()[index]))
+            ++count;
+    }
+    return count;
+}
+
+const char *public_owner_name(JsApiStructOwner owner) {
+    switch (owner) {
+    case JsApiStructOwner::CharData:
+        return "Character";
+    case JsApiStructOwner::ObjData:
+        return "GameObject";
+    case JsApiStructOwner::RoomData:
+        return "Room";
+    case JsApiStructOwner::ZoneData:
+        return "Zone";
+    }
+    return "Unknown";
 }
 
 std::string trim_ascii_space(const std::string &value) {
@@ -169,6 +201,8 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     expect_contains_field(json, "generatedTypingsVersion", metadata.generated_typings_version);
     expect_contains_field(json, "documentationVersion", metadata.documentation_version);
     expect_contains_int_field(json, "typeCount", static_cast<int>(js_api_contract_type_count()));
+    expect_contains_int_field(json, "structFieldMappingCount",
+                              static_cast<int>(public_mapping_count()));
 
     for (std::size_t type_index = 0; type_index < js_api_contract_type_count(); ++type_index) {
         const JsApiType &type = js_api_contract_types()[type_index];
@@ -183,6 +217,66 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
             expect_contains_field(json, "permission", member.permission);
         }
     }
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        if (!mapping_is_public(mapping))
+            continue;
+        expect_contains_field(json, "owner", public_owner_name(mapping.owner));
+        expect_contains_field(
+            json, "fieldId",
+            (std::string(public_owner_name(mapping.owner)) + "." + mapping.js_property).c_str());
+        expect_contains_field(json, "property", mapping.js_property);
+        expect_contains_field(json, "getterName", mapping.getter_name);
+        expect_contains_field(json, "setterName", mapping.setter_name);
+        expect_contains_field(json, "typeName", mapping.type_name);
+        expect_contains_field(json, "getterStatus", mapping.getter_status);
+        expect_contains_field(json, "setterStatus", mapping.setter_status);
+        expect_contains_field(json, "sideEffect", mapping.side_effect);
+    }
+    expect_contains_field(json, "owner", "Character");
+    expect_contains_field(json, "owner", "GameObject");
+    expect_contains_field(json, "owner", "Room");
+    expect_contains_field(json, "owner", "Zone");
+    expect_contains_field(json, "fieldId", "GameObject.vnum");
+    expect_contains_field(json, "property", "vnum");
+    expect_contains_field(json, "getterStatus", "implemented-read-only-getter");
+    EXPECT_EQ(json.find("\"getterStatus\":\"internal-only\""), std::string::npos);
+    expect_contains_field(json, "setterStatus", "planned-validated-setter");
+    expect_contains_field(json, "setterStatus", "unsupported");
+    EXPECT_EQ(json.find("\"property\":\"ownerId\""), std::string::npos);
+    EXPECT_EQ(json.find("\"getterName\":\"getOwners\""), std::string::npos);
+    EXPECT_EQ(json.find("\"getterStatus\":\"internal-only\""), std::string::npos);
+    expect_contains_json_object(
+        json,
+        "{\"owner\":\"GameObject\",\"fieldId\":\"GameObject.vnum\",\"property\":\"vnum\","
+        "\"getterName\":\"getVnum\",\"setterName\":\"setVnum\",\"typeName\":\"number | null\","
+        "\"nullable\":true,\"getterStatus\":\"implemented-read-only-getter\","
+        "\"setterStatus\":\"unsupported\",\"sideEffect\":\"none\",\"getterCallable\":true,"
+        "\"setterCallable\":false,\"documentationOnly\":true,\"getterDocs\":\"Returns the object "
+        "prototype vnum when the prototype can be resolved; otherwise null.\",\"setterDocs\":"
+        "\"Changing a live object's prototype from JavaScript is "
+        "unsupported.\",\"notes\":\"Already "
+        "exposed as GameObject.vnum for implemented snapshots.\"}");
+    expect_contains_json_object(
+        json,
+        "{\"owner\":\"Zone\",\"fieldId\":\"Zone.name\",\"property\":\"name\","
+        "\"getterName\":\"getName\",\"setterName\":\"setName\",\"typeName\":\"string\","
+        "\"nullable\":false,\"getterStatus\":\"implemented-read-only-getter\","
+        "\"setterStatus\":\"planned-validated-setter\",\"sideEffect\":\"mutation\","
+        "\"getterCallable\":true,\"setterCallable\":false,\"documentationOnly\":true,"
+        "\"getterDocs\":\"Returns the zone display name.\",\"setterDocs\":\"Sets the zone display "
+        "name after ownership, length, and sanitization checks.\",\"notes\":\"Already exposed as "
+        "Zone.name for reads.\"}");
+    expect_contains_json_object(
+        json,
+        "{\"owner\":\"GameObject\",\"fieldId\":\"GameObject.description\","
+        "\"property\":\"description\",\"getterName\":\"getDescription\","
+        "\"setterName\":\"setDescription\",\"typeName\":\"string\",\"nullable\":false,"
+        "\"getterStatus\":\"deferred\",\"setterStatus\":\"planned-validated-setter\","
+        "\"sideEffect\":\"mutation\",\"getterCallable\":false,\"setterCallable\":false,"
+        "\"documentationOnly\":true,\"getterDocs\":\"Planned getter for the room-visible object "
+        "description.\",\"setterDocs\":\"Sets the room-visible object description after length, "
+        "ownership, and sanitization checks.\",\"notes\":\"String ownership must be explicit.\"}");
 }
 
 TEST(JsManifestExport, ExportsCombinedBuilderCompatibilityBlock) {
@@ -234,18 +328,33 @@ TEST(JsManifestExport, CanOmitDocumentationFieldsForCompactConsumers) {
     EXPECT_EQ(trigger_json.find("\"notes\":"), std::string::npos);
     EXPECT_EQ(trigger_json.find("\"reason\":"), std::string::npos);
     EXPECT_EQ(api_json.find("\"docs\":"), std::string::npos);
+    EXPECT_EQ(api_json.find("\"getterDocs\":"), std::string::npos);
+    EXPECT_EQ(api_json.find("\"setterDocs\":"), std::string::npos);
     EXPECT_EQ(api_json.find("\"notes\":"), std::string::npos);
     EXPECT_EQ(builder_json.find("\"docs\":"), std::string::npos);
+    EXPECT_EQ(builder_json.find("\"getterDocs\":"), std::string::npos);
+    EXPECT_EQ(builder_json.find("\"setterDocs\":"), std::string::npos);
     EXPECT_EQ(builder_json.find("\"notes\":"), std::string::npos);
     EXPECT_EQ(builder_json.find("\"reason\":"), std::string::npos);
+    expect_contains_int_field(api_json, "structFieldMappingCount",
+                              static_cast<int>(public_mapping_count()));
+    EXPECT_NE(api_json.find("\"structFieldMappings\":["), std::string::npos);
+    expect_contains_json_object(
+        api_json,
+        "{\"owner\":\"GameObject\",\"fieldId\":\"GameObject.vnum\",\"property\":\"vnum\","
+        "\"getterName\":\"getVnum\",\"setterName\":\"setVnum\",\"typeName\":\"number | null\","
+        "\"nullable\":true,\"getterStatus\":\"implemented-read-only-getter\","
+        "\"setterStatus\":\"unsupported\",\"sideEffect\":\"none\",\"getterCallable\":true,"
+        "\"setterCallable\":false,\"documentationOnly\":true}");
+    EXPECT_EQ(api_json.find("\"sourceField\":"), std::string::npos);
     EXPECT_NE(builder_json.find("\"failureLoggingPolicy\":"), std::string::npos);
     EXPECT_NE(builder_json.find("\"runtimeSafety\":{"), std::string::npos);
     EXPECT_NE(builder_json.find("\"dispatchStatuses\":[\"no-match\",\"allow\",\"block\",\"error\","
-                                 "\"budget-exceeded\",\"depth-exceeded\"]"),
+                                "\"budget-exceeded\",\"depth-exceeded\"]"),
               std::string::npos);
     EXPECT_NE(builder_json.find("\"loggedFailureStatuses\":[\"registry-not-ready\","
-                                 "\"stale-registry\",\"error\",\"budget-exceeded\","
-                                 "\"depth-exceeded\"]"),
+                                "\"stale-registry\",\"error\",\"budget-exceeded\","
+                                "\"depth-exceeded\"]"),
               std::string::npos);
 }
 
