@@ -678,6 +678,44 @@ TEST(JsGameAdapter, TargetMappingSkipsStaleAndUnsupportedSlots)
     }
 }
 
+TEST(JsGameAdapter, RejectsStaleObjectTargetDataAndFallsBackToLiveSecondSlot)
+{
+    char_data self = make_character("Self", 1, 11, 22, 33, false);
+    obj_data live_object = make_object("live object", -1);
+    obj_data stale_object = make_object("stale object", 0);
+    const char_data *live_characters[] = { &self };
+    const obj_data *live_objects[] = { &live_object };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    target_data stale_targ1;
+    stale_targ1.type = TARGET_OBJ;
+    stale_targ1.ptr.obj = &stale_object;
+    target_data live_targ2;
+    live_targ2.type = TARGET_OBJ;
+    live_targ2.ptr.obj = &live_object;
+
+    JsGameAdapterContextInput input;
+    input.self = &self;
+    input.targ1 = &stale_targ1;
+    input.targ2 = &live_targ2;
+
+    JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
+
+    EXPECT_FALSE(context.has_targ1);
+    ASSERT_TRUE(context.has_targ2);
+    ASSERT_TRUE(context.targ2.has_object);
+    EXPECT_EQ(context.targ2.object.id, "targ2");
+    EXPECT_EQ(context.targ2.object.name, "live object");
+    ASSERT_TRUE(context.has_target);
+    ASSERT_TRUE(context.target.has_object);
+    EXPECT_EQ(context.target.object.id, "target");
+    EXPECT_EQ(context.target.object.name, "live object");
+    ASSERT_EQ(context.target_types.size(), 2u);
+    EXPECT_EQ(context.target_types[0], "object");
+    EXPECT_EQ(context.target_types[1], "object");
+}
+
 TEST(JsGameAdapter, ExplicitStaleTargetDoesNotFallbackToTargetSlots)
 {
     char_data self = make_character("Self", 1, 11, 22, 33, false);

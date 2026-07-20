@@ -2553,6 +2553,51 @@ TEST(JsLegacyTriggerDispatch, SpecialSelfRunsFromOneMobileActivityAfterLegacyDec
     top_of_world = 0;
     pulse = 99;
 
+    // SPECIAL_SELF false/block consumes the heartbeat; true/allow continues mobile activity and
+    // would clear interrupt_count if JavaScript ran after the legacy Mudlle program consumed.
+    one_mobile_activity(&host);
+
+    EXPECT_EQ(host.interrupt_count, 5);
+}
+
+TEST(JsLegacyTriggerDispatch, SpecialSelfLegacyConsumePreventsPostLegacyJavaScriptFallthrough) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalPulseGuard pulse_guard;
+    GlobalMobileProgramGuard mobile_program_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6225,
+                         "function onSpecialSelf(ctx) { return true; }",
+                         SPECIAL_SELF));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    std::vector<char *> programs(6226, nullptr);
+    programs[6225] = const_cast<char *>(";");
+    mobile_program = programs.data();
+    char_data host = make_character("Guard");
+    host.nr = 0;
+    host.specials.position = POSITION_STANDING;
+    host.specials.default_pos = POSITION_STANDING;
+    host.interrupt_count = 5;
+    int call_list[SPECIAL_CALLLIST];
+    int prog_points[SPECIAL_CALLLIST] {};
+    special_list list {};
+    attach_mudlle_program(host, 6225, SPECIAL_SELF, call_list);
+    host.specials.union2.prog_point = prog_points;
+    host.specials.poofOut = reinterpret_cast<char *>(&list);
+    host.next = nullptr;
+    host.next_in_room = nullptr;
+    character_list = &host;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &host;
+    top_of_world = 0;
+    pulse = 100;
+
     one_mobile_activity(&host);
 
     EXPECT_EQ(host.interrupt_count, 5);

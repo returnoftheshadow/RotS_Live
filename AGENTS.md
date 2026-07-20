@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript context manifest/API parity cleanup. The manifest now advertises live-backed `ctx.room` for death, receive, hear, damage, and object action call sites; removes `target` from `SPECIAL_COMMAND` required context fields because typed targets are backed by `SPECIAL_TARGET`; keeps `SPECIAL_DELAY` continuation unsupported without advertising a runtime field; and pins null/default target behavior plus unsupported Mudlle target type names in tests.
-- Next slice: add behavior-test hardening from review, starting with a reliable legacy `SPECIAL_SELF` consume-before-JavaScript regression if Mudlle fixture syntax can be pinned, then stale `TARGET_OBJ` target_data coverage; after that reassess whether side-effect/output API planning can begin.
+- Latest completed slice: JavaScript behavior-test hardening for legacy consume and stale targets. Added real Mudlle `SPECIAL_SELF` `;` consume coverage proving `one_mobile_activity()` does not fall through into JavaScript after legacy handling consumes, plus adapter coverage proving stale `TARGET_OBJ` target_data is rejected while a live second target slot can still become the fallback primary target with identity preserved.
+- Next slice: begin the server-side execution safety slice for per-pulse/per-package JavaScript invocation budgeting across high-frequency hooks before enabling any side-effect/output APIs.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
