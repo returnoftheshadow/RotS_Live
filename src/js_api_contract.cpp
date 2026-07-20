@@ -178,39 +178,49 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "Requested equipment slot name for ON_WEAR when the legacy wear path provides it, or null."},
     {"command", JsApiMemberKind::Property, "string | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Command name for ASIMA/Mudlle command and target call flags."},
+     "Command name for ASIMA/Mudlle command and target call flags; null until a live dispatcher "
+     "provides command payload backing."},
     {"args", JsApiMemberKind::Property, "string | null", "", true, false, JsApiSideEffect::None,
-     JsApiMemberStatus::PlannedReadOnly, "read-only", "Sanitized command argument string."},
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Sanitized command argument string; null until a live dispatcher provides command payload "
+     "backing."},
     {"target", JsApiMemberKind::Property, "Character | GameObject | Room | null", "", true, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Primary command or special-procedure target when available."},
+     "Primary command or special-procedure target when available; currently an explicit null "
+     "placeholder until safe typed target backing is implemented."},
     {"tick", JsApiMemberKind::Property, "number | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Server tick or heartbeat metadata for periodic hooks when available."},
+     "Server tick or heartbeat metadata for periodic hooks when available; null until a live "
+     "periodic dispatcher provides it."},
     {"direction", JsApiMemberKind::Property, "string | null", "", true, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Movement direction for enter-room special hooks when available."},
+     "Movement direction for enter-room special hooks when available; null until a live "
+     "dispatcher provides movement payload backing."},
     {"reverseDirection", JsApiMemberKind::Property, "string | null", "", true, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Reverse movement direction for enter-room special hooks when available."},
+     "Reverse movement direction for enter-room special hooks when available; null until a live "
+     "dispatcher provides movement payload backing."},
     {"continuation", JsApiMemberKind::Property, "never", "", false, false, JsApiSideEffect::None,
      JsApiMemberStatus::Unsupported, "unsupported",
      "JavaScript continuations are not part of v1; SPECIAL_DELAY remains unsupported."},
     {"targ1", JsApiMemberKind::Property, "unknown | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::Deferred, "deferred",
-     "Legacy target slot whose safe typed shape is deferred."},
+     "Legacy target slot whose safe typed shape is deferred; currently an explicit null "
+     "placeholder."},
     {"targ2", JsApiMemberKind::Property, "unknown | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::Deferred, "deferred",
-     "Second legacy target slot whose safe typed shape is deferred."},
+     "Second legacy target slot whose safe typed shape is deferred; currently an explicit null "
+     "placeholder."},
     {"targetTypes", JsApiMemberKind::Property, "readonly string[]", "", false, false,
      JsApiSideEffect::None, JsApiMemberStatus::Deferred, "deferred",
-     "Legacy target type names after a safe mapping is defined."},
+     "Legacy target type names after a safe mapping is defined; currently an empty frozen array."},
     {"victim", JsApiMemberKind::Property, "Character | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Damage victim role snapshot for ON_DAMAGE triggers when the combat call site provides it."},
     {"dying", JsApiMemberKind::Property, "Character | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Dying character for death special hooks when distinct from self."},
+     "Dying character for death special hooks when distinct from self; currently an explicit null "
+     "placeholder until SPECIAL_DEATH backing is implemented."},
 };
 
 constexpr JsApiMember ScriptResultMembers[] = {

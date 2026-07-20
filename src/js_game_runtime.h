@@ -98,6 +98,21 @@ struct JsGameTriggerContextFixture {
     bool has_wear_slot = false;
     std::string wear_slot;
 
+    bool has_command = false;
+    std::string command;
+
+    bool has_args = false;
+    std::string args;
+
+    bool has_tick = false;
+    int tick = 0;
+
+    bool has_direction = false;
+    std::string direction;
+
+    bool has_reverse_direction = false;
+    std::string reverse_direction;
+
     JsGameTriggerFixture trigger;
 };
 

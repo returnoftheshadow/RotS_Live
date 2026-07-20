@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, room, direct object-room, direct object-owner, trigger role snapshots, damage weapon parity, requested wear-slot parity, and central death-killer parity are in place before any world mutation/output helpers.
-- Latest completed slice: death `ScriptContext.killer` backing. Central `call_trigger(ON_DIE, dead, killer, ...)` now exposes a live-gated optional `ctx.killer` snapshot to JavaScript, while direct `trigger_char_die()` keeps `killer: null` and legacy ASIMA locals stay unchanged.
-- Next slice: continue remaining `ScriptContext` payload drift with explicit null/unsupported handling for command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
+- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, room, direct object-room, direct object-owner, trigger role snapshots, damage weapon parity, requested wear-slot parity, central death-killer parity, and stable explicit defaults for remaining documented context payload fields are in place before any world mutation/output helpers.
+- Latest completed slice: stable `ScriptContext` payload defaults. The runtime context now exposes documented but not-yet-backed payload fields as stable immutable values: `command`, `args`, `target`, `tick`, `direction`, `reverseDirection`, `targ1`, `targ2`, `targetTypes`, and `dying` are present as either supplied scalar fixture values, `null`, or an empty frozen array.
+- Next slice: wire the first live Mudlle/special scalar payloads for `SPECIAL_COMMAND` and `SPECIAL_ENTER`, including command name, sanitized args, movement direction, and reverse direction where the current dispatcher provides them.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.

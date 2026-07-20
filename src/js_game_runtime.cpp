@@ -370,6 +370,23 @@ std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& c
         << "\"text\":" << nullable_literal(context.has_text, js_quote(context.text)) << ","
         << "\"wearSlot\":" << nullable_literal(context.has_wear_slot, js_quote(context.wear_slot))
         << ","
+        << "\"command\":" << nullable_literal(context.has_command, js_quote(context.command)) << ","
+        << "\"args\":" << nullable_literal(context.has_args, js_quote(context.args)) << ","
+        << "\"target\":null,"
+        << "\"tick\":";
+    if (context.has_tick)
+        out << context.tick;
+    else
+        out << "null";
+    out << ","
+        << "\"direction\":"
+        << nullable_literal(context.has_direction, js_quote(context.direction)) << ","
+        << "\"reverseDirection\":"
+        << nullable_literal(context.has_reverse_direction, js_quote(context.reverse_direction)) << ","
+        << "\"targ1\":null,"
+        << "\"targ2\":null,"
+        << "\"targetTypes\":[],"
+        << "\"dying\":null,"
         << "\"hostType\":" << js_quote(context.trigger.host_type) << ","
         << "\"trigger\":" << trigger_literal(context.trigger) << "}";
     return out.str();

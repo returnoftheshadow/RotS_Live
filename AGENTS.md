@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: death `ScriptContext.killer` backing. Central `call_trigger(ON_DIE, dead, killer, ...)` exposes a live-gated optional `ctx.killer` snapshot to JavaScript while direct `trigger_char_die()` keeps `killer: null` and legacy ASIMA locals stay unchanged.
-- Next slice: continue remaining `ScriptContext` payload drift with explicit null/unsupported handling for command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
+- Latest completed slice: stable `ScriptContext` payload defaults. The runtime context exposes documented but not-yet-backed payload fields as immutable explicit values: supplied scalar fixture values, `null`, or an empty frozen array instead of `undefined`.
+- Next slice: wire the first live Mudlle/special scalar payloads for `SPECIAL_COMMAND` and `SPECIAL_ENTER`, including command name, sanitized args, movement direction, and reverse direction where the current dispatcher provides them.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

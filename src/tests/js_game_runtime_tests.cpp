@@ -82,6 +82,17 @@ void expect_ok_allows(const JsRuntimeEvalResult &result)
     EXPECT_EQ(result.value, JsRuntimeValue::Allow) << result.diagnostic;
 }
 
+std::size_t count_occurrences(const std::string &haystack, const std::string &needle)
+{
+    std::size_t count = 0;
+    std::size_t offset = 0;
+    while ((offset = haystack.find(needle, offset)) != std::string::npos) {
+        ++count;
+        offset += needle.size();
+    }
+    return count;
+}
+
 } // namespace
 
 TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
@@ -442,6 +453,11 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
     context.has_zone = false;
     context.has_text = false;
     context.has_wear_slot = false;
+    context.has_command = false;
+    context.has_args = false;
+    context.has_tick = false;
+    context.has_direction = false;
+    context.has_reverse_direction = false;
 
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
@@ -456,10 +472,28 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
         "  && ctx.room === null\n"
         "  && ctx.zone === null\n"
         "  && ctx.text === null\n"
-        "  && ctx.wearSlot === null;",
+        "  && ctx.wearSlot === null\n"
+        "  && ctx.command === null\n"
+        "  && ctx.args === null\n"
+        "  && ctx.target === null\n"
+        "  && ctx.tick === null\n"
+        "  && ctx.direction === null\n"
+        "  && ctx.reverseDirection === null\n"
+        "  && ctx.targ1 === null\n"
+        "  && ctx.targ2 === null\n"
+        "  && Array.isArray(ctx.targetTypes)\n"
+        "  && ctx.targetTypes.length === 0\n"
+        "  && Object.isFrozen(ctx.targetTypes)\n"
+        "  && Object.getPrototypeOf(ctx.targetTypes) === null\n"
+        "  && typeof ctx.targetTypes.constructor === 'undefined'\n"
+        "  && ctx.dying === null;",
         context);
 
     expect_ok_allows(result);
+
+    JsRuntimeEvalResult target_types_mutation_result =
+        runtime.evaluate_trigger_body("ctx.targetTypes[0] = 'char'; return true;", context);
+    EXPECT_EQ(target_types_mutation_result.status, JsRuntimeStatus::Error);
 
     JsRuntimeEvalResult dereference_result =
         runtime.evaluate_trigger_body("return ctx.self.name === 'Aldren';", context);
@@ -482,6 +516,47 @@ TEST(JsGameRuntime, ExposesWearSlotWhenPresent)
     expect_ok_allows(result);
 }
 
+TEST(JsGameRuntime, ExposesScalarCommandAndMovementPayloadsWhenPresent)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.has_command = true;
+    context.command = "open";
+    context.has_args = true;
+    context.args = "north gate";
+    context.has_tick = true;
+    context.tick = 42;
+    context.has_direction = true;
+    context.direction = "north";
+    context.has_reverse_direction = true;
+    context.reverse_direction = "south";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.command === 'open'\n"
+        "  && ctx.args === 'north gate'\n"
+        "  && ctx.tick === 42\n"
+        "  && ctx.direction === 'north'\n"
+        "  && ctx.reverseDirection === 'south'\n"
+        "  && ctx.target === null\n"
+        "  && ctx.dying === null;",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, TreatsZeroTickAsPresent)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.has_tick = true;
+    context.tick = 0;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.tick === 0;", context);
+
+    expect_ok_allows(result);
+}
+
 TEST(JsGameRuntime, EscapesFixtureStringsBeforeEvaluation)
 {
     JsGameTriggerContextFixture context = make_context();
@@ -493,6 +568,14 @@ TEST(JsGameRuntime, EscapesFixtureStringsBeforeEvaluation)
     context.trigger.name = "trigger `name`";
     context.trigger.legacy_name = "ON_\"PULL\"";
     context.text = "line one\r\nline \"two\" \\\\ end";
+    context.has_command = true;
+    context.command = "cmd\nname";
+    context.has_args = true;
+    context.args = "arg \"quoted\"";
+    context.has_direction = true;
+    context.direction = "north\r";
+    context.has_reverse_direction = true;
+    context.reverse_direction = "south\t";
 
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
@@ -505,7 +588,11 @@ TEST(JsGameRuntime, EscapesFixtureStringsBeforeEvaluation)
         "  && ctx.trigger.legacyName === 'ON_\"PULL\"'\n"
         "  && ctx.text.indexOf('line one\\r\\n') === 0\n"
         "  && ctx.text.includes('line \"two\"')\n"
-        "  && ctx.text.includes('\\\\\\\\ end');",
+        "  && ctx.text.includes('\\\\\\\\ end')\n"
+        "  && ctx.command === 'cmd\\nname'\n"
+        "  && ctx.args === 'arg \"quoted\"'\n"
+        "  && ctx.direction === 'north\\r'\n"
+        "  && ctx.reverseDirection === 'south\\t';",
         context);
 
     expect_ok_allows(result);
@@ -593,9 +680,29 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"killer\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"weapon\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"wearSlot\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"command\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"args\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"target\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"tick\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"direction\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"reverseDirection\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"targ1\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"targ2\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"targetTypes\":[]"), std::string::npos);
+    EXPECT_NE(literal.find("\"dying\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"hostType\":\"object\""), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"legacyName\":\"ON_PULL\""), std::string::npos);
+    EXPECT_EQ(count_occurrences(literal, "\"command\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"args\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"target\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"tick\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"direction\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"reverseDirection\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"targ1\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"targ2\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"targetTypes\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"dying\":"), 1);
     EXPECT_EQ(literal.find("char_data"), std::string::npos);
     EXPECT_EQ(literal.find("obj_data"), std::string::npos);
 }
