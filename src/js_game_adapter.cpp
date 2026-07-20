@@ -135,6 +135,7 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->name = character_name(*character);
     fixture->race = race_name(*character, options);
     fixture->vnum = character_vnum(*character, options);
+    fixture->prototype_vnum = fixture->vnum;
     fixture->level = character->player.level;
     fixture->experience = character->points.exp;
     fixture->rank = character->player.ranking;

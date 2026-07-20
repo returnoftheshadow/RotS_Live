@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character data parity is in place before any world mutation/output helpers.
-- Active slice: JavaScript API capability alignment matrix complete. `FEATURES.md` now classifies legacy ASIMA flow control, read-only parameter access, output helpers, command/behavior helpers, world/entity mutation, and continuations against the JavaScript API plan.
-- Next slice: close the next read-only contract/runtime drift item identified by the matrix, likely `Mob.prototypeVnum` or object relationship fields before any bounded output helper implementation.
+- Active slice: `Mob.prototypeVnum` runtime backing complete. Character snapshots now carry an explicit `prototypeVnum` value for mob-shaped contexts, backed by the adapter and runtime literal with focused tests.
+- Next slice: close the next read-only object relationship drift item identified by the matrix, likely `GameObject.room` before any bounded output helper implementation.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.

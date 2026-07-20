@@ -101,6 +101,41 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
     expect_ok_allows(result);
 }
 
+TEST(JsGameRuntime, ExposesMobPrototypeVnumWhenPresent)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.self.is_npc = true;
+    context.self.vnum = 5100;
+    context.self.prototype_vnum = 5100;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.self.isNpc === true\n"
+        "  && ctx.self.isPlayer === false\n"
+        "  && ctx.self.vnum === 5100\n"
+        "  && ctx.self.prototypeVnum === 5100;",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, ModelsUnresolvedMobPrototypeVnumAsNull)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.self.is_npc = true;
+    context.self.vnum = -1;
+    context.self.prototype_vnum = -1;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.self.isNpc === true\n"
+        "  && ctx.self.vnum === null\n"
+        "  && ctx.self.prototypeVnum === null;",
+        context);
+
+    expect_ok_allows(result);
+}
+
 TEST(JsGameRuntime, PreservesBlockingReturnSemantics)
 {
     JsGameRuntime runtime;

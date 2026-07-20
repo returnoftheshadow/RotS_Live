@@ -240,6 +240,14 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_EQ(rank->status, JsApiMemberStatus::PlannedReadOnly);
     EXPECT_NE(std::string(rank->docs).find("CHx_RANK"), std::string::npos);
 
+    const JsApiType* mob = find_js_api_contract_type("Mob");
+    ASSERT_NE(mob, nullptr);
+    const JsApiMember* prototype_vnum = find_js_api_contract_member(*mob, "prototypeVnum");
+    ASSERT_NE(prototype_vnum, nullptr);
+    EXPECT_STREQ(prototype_vnum->type_name, "number | null");
+    EXPECT_TRUE(prototype_vnum->nullable);
+    EXPECT_EQ(prototype_vnum->status, JsApiMemberStatus::PlannedReadOnly);
+
     EXPECT_EQ(find_js_api_contract_type("Missing"), nullptr);
     EXPECT_EQ(find_js_api_contract_member(*character, "missing"), nullptr);
 }

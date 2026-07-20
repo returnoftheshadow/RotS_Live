@@ -25,6 +25,7 @@ struct JsGameCharacterFixture {
     std::string name;
     std::string race;
     int vnum = -1;
+    int prototype_vnum = -1;
     int level = 0;
     int experience = 0;
     int rank = 0;

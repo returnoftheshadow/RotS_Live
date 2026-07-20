@@ -116,6 +116,7 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.name, "Gate Guard");
     EXPECT_EQ(fixture.race, "Dwarf");
     EXPECT_EQ(fixture.vnum, 5100);
+    EXPECT_EQ(fixture.prototype_vnum, 5100);
     EXPECT_EQ(fixture.level, 15);
     EXPECT_EQ(fixture.experience, 15000);
     EXPECT_EQ(fixture.rank, 18);
@@ -143,6 +144,7 @@ TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum)
     EXPECT_EQ(fixture.name, "PlayerOne");
     EXPECT_EQ(fixture.race, "Human");
     EXPECT_EQ(fixture.vnum, -1);
+    EXPECT_EQ(fixture.prototype_vnum, -1);
     EXPECT_EQ(fixture.experience, 29000);
     EXPECT_EQ(fixture.rank, 32);
     EXPECT_FALSE(fixture.is_npc);

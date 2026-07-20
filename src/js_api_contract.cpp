@@ -65,8 +65,9 @@ constexpr JsApiMember PlayerMembers[] = {
 };
 
 constexpr JsApiMember MobMembers[] = {
-    {"prototypeVnum", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
-     JsApiMemberStatus::PlannedReadOnly, "read-only", "Mobile prototype vnum backing this NPC."},
+    {"prototypeVnum", JsApiMemberKind::Property, "number | null", "", true, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Mobile prototype vnum backing this NPC, or null when the prototype cannot be resolved."},
 };
 
 constexpr JsApiMember GameObjectMembers[] = {

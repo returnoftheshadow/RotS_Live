@@ -94,6 +94,12 @@ std::string character_literal(const JsGameCharacterFixture& character)
     else
         out << "null";
     out << ","
+        << "\"prototypeVnum\":";
+    if (character.prototype_vnum >= 0)
+        out << character.prototype_vnum;
+    else
+        out << "null";
+    out << ","
         << "\"level\":" << character.level << ","
         << "\"experience\":" << character.experience << ","
         << "\"rank\":" << character.rank << ","
