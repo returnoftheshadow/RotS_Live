@@ -2,7 +2,7 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: BuilderClient offline/local editor hardening is complete across Monaco/generated typing hardening, zoom controls, and tooltip coverage, so publish workflow slices can resume.
-- Active slice: BuilderClient end-to-end CLI publish workflow documentation complete. `BuilderClient/README.md` now documents the package/status/stage/activate/rollback order, how to get and reuse server `liveChecksum` and `stagedDigest` values, why local package checksums are not server staged digests, rollback target recovery, workspace identity consistency, proxy/test-server prerequisites, current bearer-token argv limitations, and non-secret rollback audit reason guidance.
+- Active slice: BuilderClient end-to-end CLI publish workflow documentation complete. `BuilderClient/README.md` now documents the package/status/stage/activate/rollback order, how to get and reuse server `liveChecksum` and `stagedDigest` values, first-publish `status.not-found`/`live:initial` handling, why local package checksums are not server staged digests, rollback target recovery, workspace identity consistency, proxy/test-server prerequisites, URL normalization behavior, current bearer-token argv limitations, and non-secret rollback audit reason guidance.
 - Next slice: add safer CLI bearer-token input for publish commands so authenticated CLI publish does not require tokens in argv or shell history.
 - Current blocker: none.
 - Temporary fixture plan:

@@ -18,7 +18,7 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient end-to-end CLI publish workflow documentation. The client README now documents the `rots-script` package/status/stage/activate/rollback order, required server `liveChecksum` and `stagedDigest` values, rollback checksum recovery, workspace identity, proxy/test-server prerequisites, current CLI bearer-token argv limitation, and non-secret audit reason guidance.
+- Latest completed slice: BuilderClient end-to-end CLI publish workflow documentation. The client README now documents the `rots-script` package/status/stage/activate/rollback order, required server `liveChecksum` and `stagedDigest` values, first-publish `status.not-found`/`live:initial` handling, rollback checksum recovery, workspace identity, proxy/test-server prerequisites, current CLI bearer-token argv limitation, URL normalization behavior, and non-secret audit reason guidance.
 - Next slice: BuilderClient safer CLI bearer-token input. Add a publish-command token input path that avoids bearer tokens in argv and shell history, such as stdin, OS credential/session lookup, or a dedicated CLI login/logout flow.
 
 ## Build, Test, and Development Commands
