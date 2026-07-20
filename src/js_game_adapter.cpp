@@ -2,6 +2,7 @@
 
 #include "db.h"
 #include "structs.h"
+#include "utils.h"
 #include "zone.h"
 
 #include <algorithm>
@@ -103,6 +104,20 @@ std::string object_id(const obj_data &object, const JsGameAdapterOptions &option
     return out.str();
 }
 
+bool room_is_dark(const room_data &room)
+{
+    return !room.light &&
+        (IS_SET(room.room_flags, DARK) ||
+            ((room.sector_type != SECT_INSIDE && room.sector_type != SECT_CITY) &&
+                weather_info.sunlight == SUN_DARK));
+}
+
+bool room_is_sunlit(const room_data &room)
+{
+    return (weather_info.sunlight == SUN_LIGHT || weather_info.sunlight == SUN_RISE) &&
+        !room_is_dark(room);
+}
+
 } // namespace
 
 bool js_game_adapter_is_live_character(
@@ -169,6 +184,7 @@ bool js_game_adapter_room_fixture(
     fixture->id = "room:" + std::to_string(room_data.number);
     fixture->name = copy_c_string(room_data.name);
     fixture->vnum = room_data.number;
+    fixture->is_sunlit = room_is_sunlit(room_data);
     fixture->has_zone = js_game_adapter_zone_fixture(room_data.zone, options, &fixture->zone);
     return true;
 }

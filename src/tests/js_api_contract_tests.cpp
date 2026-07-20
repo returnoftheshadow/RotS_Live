@@ -248,6 +248,15 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_TRUE(prototype_vnum->nullable);
     EXPECT_EQ(prototype_vnum->status, JsApiMemberStatus::PlannedReadOnly);
 
+    const JsApiType* room = find_js_api_contract_type("Room");
+    ASSERT_NE(room, nullptr);
+    const JsApiMember* is_sunlit = find_js_api_contract_member(*room, "isSunlit");
+    ASSERT_NE(is_sunlit, nullptr);
+    EXPECT_STREQ(is_sunlit->type_name, "boolean");
+    EXPECT_FALSE(is_sunlit->nullable);
+    EXPECT_EQ(is_sunlit->status, JsApiMemberStatus::PlannedReadOnly);
+    EXPECT_NE(std::string(is_sunlit->docs).find("SCRIPT_IF_ROOM_SUNLIT"), std::string::npos);
+
     EXPECT_EQ(find_js_api_contract_type("Missing"), nullptr);
     EXPECT_EQ(find_js_api_contract_member(*character, "missing"), nullptr);
 }

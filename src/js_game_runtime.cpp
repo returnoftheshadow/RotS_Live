@@ -75,6 +75,7 @@ std::string room_literal(const JsGameRoomFixture& room)
         << "\"id\":" << js_quote(room.id) << ","
         << "\"name\":" << js_quote(room.name) << ","
         << "\"vnum\":" << room.vnum << ","
+        << "\"isSunlit\":" << js_bool(room.is_sunlit) << ","
         << "\"zone\":" << nullable_literal(room.has_zone, zone_literal(room.zone)) << ","
         << "\"isValid\":function() { return true; }"
         << "}";

@@ -97,7 +97,7 @@ JavaScript execution model:
   - Live trigger execution exposes frozen `RotS.ScriptResult.allow()` and `RotS.ScriptResult.block()` helpers, matching the generated TypeScript declarations and offline runner behavior instead of requiring builders to return raw booleans.
   - Live trigger execution exposes a no-op `console.log(...)` shim so scripts that log during offline fixture testing do not fail live solely because `console` is absent; live gameplay output APIs remain deferred until explicit host bindings exist.
   - Character snapshots now include read-only `experience`, `rank`, `room`, and pure `isValid()` fields so JavaScript can inspect the legacy `CHx_EXP`, `CHx_RANK`, and `CHx_ROOM` values currently available to ASIMA scripts.
-  - Room snapshots now include read-only `zone` and pure `isValid()` fields, matching the generated API contract for currently loaded room handles.
+  - Room snapshots now include read-only `zone`, `isSunlit`, and pure `isValid()` fields, matching the generated API contract for currently loaded room handles and the legacy `SCRIPT_IF_ROOM_SUNLIT` check.
   - Mob-shaped character snapshots now include read-only `prototypeVnum`, matching the generated `Mob` API contract and the legacy mobile prototype vnum access pattern.
   - Object snapshots now include read-only `room` for objects directly located in a valid room; carried, worn, and contained objects expose `room` as null until relationship-specific snapshot rules are implemented.
 - Initial live game-struct adapter implementation:
@@ -213,7 +213,7 @@ Legacy ASIMA command/API parity matrix for JavaScript:
   - `SCRIPT_RETURN_FALSE` maps to `return false` or `return RotS.ScriptResult.block()`.
 - Read-only character/object/room parameter parity:
   - Implemented for JavaScript context snapshots: character id, name, vnum/prototype vnum where available, level, race, current hit points, max hit points, experience, rank, NPC/player booleans, current room, room name/vnum/zone, object id/name/vnum, trigger metadata, text payload, and pure `isValid()` helpers for present character/object/room snapshots.
-  - Remaining read-only drift to close before side effects: object relationship fields `GameObject.carriedBy` and `GameObject.wornBy` are documented but still need safe snapshot backing; `Room.isSunlit` should be added for `SCRIPT_IF_ROOM_SUNLIT` parity.
+  - Remaining read-only drift to close before side effects: object relationship fields `GameObject.carriedBy` and `GameObject.wornBy` are documented but still need safe snapshot backing.
   - Legacy temporary variable assignment commands such as `SCRIPT_ASSIGN_STR`, `SCRIPT_ASSIGN_INV`, `SCRIPT_ASSIGN_EQ`, `SCRIPT_ASSIGN_ROOM`, `SCRIPT_SET_INT_VALUE`, `SCRIPT_SET_INT_SUM`, `SCRIPT_SET_INT_SUB`, `SCRIPT_SET_INT_MULT`, `SCRIPT_SET_INT_DIV`, `SCRIPT_SET_INT_RANDOM`, and `SCRIPT_SET_INT_WAR_STATUS` should map to JavaScript local variables and explicit read-only helper APIs where game state is required.
 - Output helper candidates:
   - `SCRIPT_SEND_TO_CHAR`, `SCRIPT_SEND_TO_ROOM`, and `SCRIPT_SEND_TO_ROOM_X` should become the first side-effect family only after bounded text length, no format-string behavior, recursion prevention, visibility policy, test fixture capture, live audit/logging, and fail-closed diagnostics are designed.

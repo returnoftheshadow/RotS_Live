@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character and mob data parity is in place before any world mutation/output helpers.
-- Active slice: `GameObject.room` runtime backing complete. Object snapshots now include a safe room snapshot for objects that are directly in a valid room, while carried/worn/container relationships remain deferred until their liveness rules are designed.
-- Next slice: close the next read-only object relationship drift item identified by the matrix, likely `GameObject.carriedBy`/`wornBy` planning or `Room.isSunlit` before any bounded output helper implementation.
+- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, mob, and direct object-room data parity is in place before any world mutation/output helpers.
+- Active slice: `Room.isSunlit` runtime backing complete. Room snapshots now expose a read-only sunlight boolean for `SCRIPT_IF_ROOM_SUNLIT` parity using the same light/dark semantics as the legacy script check.
+- Next slice: close the next read-only object relationship drift item identified by the matrix, likely `GameObject.carriedBy`/`wornBy` planning before any bounded output helper implementation.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.

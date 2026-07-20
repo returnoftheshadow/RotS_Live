@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: `GameObject.room` runtime backing. Object snapshots include a safe room snapshot for objects that are directly in a valid room; carried/worn/container relationships remain deferred until their liveness rules are designed.
-- Next slice: close the next read-only drift item identified by the matrix, likely `GameObject.carriedBy`/`wornBy` planning or `Room.isSunlit` before any bounded output helper implementation.
+- Latest completed slice: `Room.isSunlit` runtime backing. Room snapshots expose a read-only sunlight boolean for `SCRIPT_IF_ROOM_SUNLIT` parity using the same light/dark semantics as the legacy script check.
+- Next slice: close the next read-only drift item identified by the matrix, likely `GameObject.carriedBy`/`wornBy` planning before any bounded output helper implementation.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

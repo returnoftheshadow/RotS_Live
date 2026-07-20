@@ -2,6 +2,7 @@
 
 #include "../db.h"
 #include "../structs.h"
+#include "../utils.h"
 #include "../zone.h"
 
 #include <gtest/gtest.h>
@@ -69,6 +70,20 @@ JsGameTriggerFixture make_trigger()
     trigger.legacy_value = 11;
     return trigger;
 }
+
+class ScopedSunlight {
+  public:
+    explicit ScopedSunlight(int sunlight)
+        : previous_sunlight_(weather_info.sunlight)
+    {
+        weather_info.sunlight = sunlight;
+    }
+
+    ~ScopedSunlight() { weather_info.sunlight = previous_sunlight_; }
+
+  private:
+    int previous_sunlight_;
+};
 
 JsGameAdapterOptions make_options(const char_data *const *characters, std::size_t character_count,
     const obj_data *const *objects, std::size_t object_count, room_data *world, int top_of_world,
@@ -196,12 +211,49 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(room_fixture.id, "room:1204");
     EXPECT_EQ(room_fixture.name, "Northern Gate");
     EXPECT_EQ(room_fixture.vnum, 1204);
+    EXPECT_FALSE(room_fixture.is_sunlit);
 
     JsGameZoneFixture zone_fixture;
     ASSERT_TRUE(js_game_adapter_zone_fixture(0, options, &zone_fixture));
     EXPECT_EQ(zone_fixture.id, "zone:12");
     EXPECT_EQ(zone_fixture.name, "Old City");
     EXPECT_EQ(zone_fixture.vnum, 12);
+}
+
+TEST(JsGameAdapter, SnapshotsRoomSunlitStateFromCurrentWeatherAndRoomFlags)
+{
+    struct Case {
+        const char *name;
+        int sunlight;
+        int sector_type;
+        long room_flags;
+        byte light;
+        bool expected_is_sunlit;
+    };
+    const Case cases[] = {
+        { "daylight lit room", SUN_LIGHT, SECT_FIELD, 0, 1, true },
+        { "sunrise lit room", SUN_RISE, SECT_FIELD, 0, 1, true },
+        { "sunset lit room", SUN_SET, SECT_FIELD, 0, 1, false },
+        { "dark outdoor room", SUN_DARK, SECT_FIELD, 0, 0, false },
+        { "dark flagged unlit room", SUN_LIGHT, SECT_FIELD, DARK, 0, false },
+        { "dark flagged room with light source", SUN_LIGHT, SECT_FIELD, DARK, 1, true },
+        { "inside night room", SUN_DARK, SECT_INSIDE, 0, 0, false },
+        { "city night room", SUN_DARK, SECT_CITY, 0, 0, false },
+    };
+
+    for (const Case &test_case : cases) {
+        ScopedSunlight sunlight(test_case.sunlight);
+        room_data world[1] = { make_room(test_case.name, 101, 0) };
+        world[0].sector_type = test_case.sector_type;
+        world[0].room_flags = test_case.room_flags;
+        world[0].light = test_case.light;
+        JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
+            nullptr, 0, nullptr, 0, nullptr, 0);
+
+        JsGameRoomFixture room;
+        ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room)) << test_case.name;
+        EXPECT_EQ(room.is_sunlit, test_case.expected_is_sunlit) << test_case.name;
+    }
 }
 
 TEST(JsGameAdapter, RejectsStaleObjectsAndInvalidRoomBounds)

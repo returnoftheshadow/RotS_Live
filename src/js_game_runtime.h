@@ -15,6 +15,7 @@ struct JsGameRoomFixture {
     std::string id;
     std::string name;
     int vnum = 0;
+    bool is_sunlit = false;
 
     bool has_zone = false;
     JsGameZoneFixture zone;

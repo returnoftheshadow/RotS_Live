@@ -20,6 +20,7 @@ JsGameTriggerContextFixture make_context()
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
     context.self.room.vnum = 1204;
+    context.self.room.is_sunlit = true;
     context.self.room.has_zone = true;
     context.self.room.zone.id = "zone:12";
     context.self.room.zone.name = "Old City";
@@ -43,6 +44,7 @@ JsGameTriggerContextFixture make_context()
     context.object.room.id = "room:1204";
     context.object.room.name = "Northern Gate";
     context.object.room.vnum = 1204;
+    context.object.room.is_sunlit = true;
     context.object.room.has_zone = true;
     context.object.room.zone.id = "zone:12";
     context.object.room.zone.name = "Old City";
@@ -52,6 +54,7 @@ JsGameTriggerContextFixture make_context()
     context.room.id = "room:1204";
     context.room.name = "Northern Gate";
     context.room.vnum = 1204;
+    context.room.is_sunlit = true;
     context.room.has_zone = true;
     context.room.zone.id = "zone:12";
     context.room.zone.name = "Old City";
@@ -92,15 +95,18 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.rank === 9\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
+        "  && ctx.self.room.isSunlit === true\n"
         "  && ctx.self.room.zone.name === 'Old City'\n"
         "  && ctx.actor.race === 'Elf'\n"
         "  && ctx.actor.experience === 31000\n"
         "  && ctx.actor.rank === 4\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
+        "  && ctx.object.room.isSunlit === true\n"
         "  && ctx.object.room.zone.vnum === 12\n"
         "  && ctx.object.isValid() === true\n"
         "  && ctx.room.name === 'Northern Gate'\n"
+        "  && ctx.room.isSunlit === true\n"
         "  && ctx.room.zone.vnum === 12\n"
         "  && ctx.room.isValid() === true\n"
         "  && ctx.zone.vnum === 12\n"
@@ -154,6 +160,23 @@ TEST(JsGameRuntime, ModelsObjectRoomAsNullWhenMissing)
     JsGameRuntime runtime;
     JsRuntimeEvalResult result =
         runtime.evaluate_trigger_body("return ctx.object.room === null;", context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, SerializesFalseRoomSunlitState)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.room.is_sunlit = false;
+    context.self.room.is_sunlit = false;
+    context.object.room.is_sunlit = false;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.room.isSunlit === false\n"
+        "  && ctx.self.room.isSunlit === false\n"
+        "  && ctx.object.room.isSunlit === false;",
+        context);
 
     expect_ok_allows(result);
 }
@@ -401,6 +424,7 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"experience\":42000"), std::string::npos);
     EXPECT_NE(literal.find("\"rank\":9"), std::string::npos);
     EXPECT_NE(literal.find("\"room\":{\"id\":\"room:1204\""), std::string::npos);
+    EXPECT_NE(literal.find("\"isSunlit\":true"), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"isValid\":function() { return true; }"), std::string::npos);
     EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\""), std::string::npos);
