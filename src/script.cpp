@@ -31,6 +31,7 @@
 #include "js_legacy_trigger_dispatch.h"
 #include "js_live_registry_admin.h"
 #include "limits.h"
+#include "mudlle.h"
 #include "pkill.h"
 #include "protos.h"
 #include "script.h"
@@ -70,6 +71,8 @@ extern int top_of_world;
 extern struct char_data* character_list;
 extern struct obj_data* object_list;
 extern char* pc_races[];
+extern const char* command[];
+extern char* dirs[];
 
 // Internal declarations
 int trigger_room_enter(room_data* room, char_data* ch);
@@ -454,10 +457,118 @@ int dispatch_javascript_character_hear_trigger(int trigger_type, char_data* list
     return 1;
 }
 
+int mudlle_mobile_package_vnum(const char_data* host)
+{
+    if (host == nullptr || !IS_NPC(host) || MOB_FLAGGED(host, MOB_SPEC) ||
+        host->specials.union1.prog_number == nullptr)
+        return 0;
+    const int tactics = host->specials.tactics;
+    if (tactics < 0 || tactics >= SPECIAL_CALLLIST)
+        return 0;
+    return PROG_NUMBER(host);
+}
+
+const char* command_name_for_index(int cmd)
+{
+    if (cmd <= 0 || cmd > MAX_CMD_LIST)
+        return nullptr;
+    for (int index = 0; index < MAX_CMD_LIST && command[index] != nullptr &&
+         command[index][0] != '\n';
+         ++index) {
+        if (index == cmd - 1)
+            return command[index];
+    }
+    return nullptr;
+}
+
+const char* normalized_mudlle_command_args(char* arg)
+{
+    if (arg == nullptr)
+        return nullptr;
+    while (*arg != '\0' && isspace(static_cast<unsigned char>(*arg)))
+        ++arg;
+    return arg;
+}
+
+const char* direction_name_for_special_enter(int cmd)
+{
+    const int direction_index = cmd - 1;
+    if (direction_index < 0 || direction_index >= NUM_OF_DIRS)
+        return nullptr;
+    return dirs[direction_index];
+}
+
+const char* reverse_direction_name_for_special_enter(int cmd)
+{
+    const int direction_index = cmd - 1;
+    if (direction_index < 0 || direction_index >= NUM_OF_DIRS)
+        return nullptr;
+    return dirs[rev_dir[direction_index]];
+}
+
+int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data* actor, int cmd,
+    char* arg, int callflag, int in_room)
+{
+    if (!javascript_legacy_trigger_dispatch_enabled || host == nullptr || actor == nullptr ||
+        (callflag != SPECIAL_COMMAND && callflag != SPECIAL_ENTER))
+        return 0;
+    if (!IS_NPC(host) || !IS_SET(CALL_MASK(host), callflag))
+        return 0;
+
+    const int package_vnum = mudlle_mobile_package_vnum(host);
+    if (package_vnum <= 0)
+        return 0;
+
+    const std::vector<const char_data*> characters = live_character_snapshot();
+    if (!live_character_snapshot_contains(characters, host) ||
+        !live_character_snapshot_contains(characters, actor))
+        return 0;
+
+    const std::vector<const obj_data*> objects = live_object_snapshot();
+    const JsGameAdapterOptions adapter_options =
+        js_game_adapter_options_from_world(characters, objects);
+
+    if (in_room == NOWHERE)
+        in_room = host->in_room;
+    if (!js_game_adapter_room_is_valid(in_room, adapter_options) || host->in_room != in_room)
+        return 0;
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::MudlleMobile;
+    request.kind = JsScriptingManifestKind::MudlleCallFlag;
+    request.legacy_value = callflag;
+    request.package_vnum = package_vnum;
+    request.context_input.self = host;
+    request.context_input.actor = actor;
+    request.context_input.room = in_room;
+    if (callflag == SPECIAL_COMMAND) {
+        request.context_input.command = command_name_for_index(cmd);
+        request.context_input.args = normalized_mudlle_command_args(arg);
+    } else {
+        request.context_input.direction = direction_name_for_special_enter(cmd);
+        request.context_input.reverse_direction = reverse_direction_name_for_special_enter(cmd);
+    }
+
+    JsLegacyTriggerDispatchOptions options;
+    options.enabled = javascript_legacy_trigger_dispatch_enabled;
+    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+
+    const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    return result.status == JsLegacyTriggerDispatchStatus::Block ? 1 : 0;
+}
+
 } // namespace
 
 // Returns the index position of a script in the script_table when supplied with a vnum
 // -1 == script not found (0 is a valid position in the script_table)
+
+int js_script_dispatch_mudlle_mobile_special(char_data* host, char_data* actor, int cmd,
+    char* arg, int callflag, waiting_type* /*wtl*/, int in_room)
+{
+    return dispatch_javascript_mudlle_mobile_special_trigger(host, actor, cmd, arg, callflag,
+        in_room);
+}
 
 int find_script_by_number(const int number)
 {

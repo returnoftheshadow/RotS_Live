@@ -30,6 +30,7 @@
 #include "profs.h"
 #include "protos.h"
 #include "savebench.h"
+#include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -1592,6 +1593,11 @@ int activate_char_special(char_data* character, char_data* victim, int cmd, char
         if (tmp_func && tmp_func(character, victim, cmd, argument, callflag, wait_data)) {
             return 1;
         }
+    }
+
+    if (js_script_dispatch_mudlle_mobile_special(
+            character, victim, cmd, argument, callflag, wait_data, in_room)) {
+        return 1;
     }
 
     return 0;

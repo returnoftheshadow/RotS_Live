@@ -178,12 +178,12 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "Requested equipment slot name for ON_WEAR when the legacy wear path provides it, or null."},
     {"command", JsApiMemberKind::Property, "string | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Command name for ASIMA/Mudlle command and target call flags; null until a live dispatcher "
-     "provides command payload backing."},
+     "Command name for Mudlle SPECIAL_COMMAND mobile hooks when available; null for other hooks "
+     "until their live dispatchers provide command payload backing."},
     {"args", JsApiMemberKind::Property, "string | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Sanitized command argument string; null until a live dispatcher provides command payload "
-     "backing."},
+     "Sanitized command argument string for Mudlle SPECIAL_COMMAND mobile hooks when available; "
+     "null for other hooks until their live dispatchers provide command payload backing."},
     {"target", JsApiMemberKind::Property, "Character | GameObject | Room | null", "", true, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Primary command or special-procedure target when available; currently an explicit null "
@@ -194,12 +194,12 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "periodic dispatcher provides it."},
     {"direction", JsApiMemberKind::Property, "string | null", "", true, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Movement direction for enter-room special hooks when available; null until a live "
-     "dispatcher provides movement payload backing."},
+     "Movement direction for Mudlle SPECIAL_ENTER mobile hooks when available; null for other "
+     "hooks until their live dispatchers provide movement payload backing."},
     {"reverseDirection", JsApiMemberKind::Property, "string | null", "", true, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Reverse movement direction for enter-room special hooks when available; null until a live "
-     "dispatcher provides movement payload backing."},
+     "Reverse movement direction for Mudlle SPECIAL_ENTER mobile hooks when available; null for "
+     "other hooks until their live dispatchers provide movement payload backing."},
     {"continuation", JsApiMemberKind::Property, "never", "", false, false, JsApiSideEffect::None,
      JsApiMemberStatus::Unsupported, "unsupported",
      "JavaScript continuations are not part of v1; SPECIAL_DELAY remains unsupported."},

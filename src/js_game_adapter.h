@@ -47,6 +47,12 @@ struct JsGameAdapterContextInput {
     int room = -1;
     const char *text = nullptr;
     int wear_slot = -1;
+    const char *command = nullptr;
+    const char *args = nullptr;
+    bool has_tick = false;
+    int tick = 0;
+    const char *direction = nullptr;
+    const char *reverse_direction = nullptr;
     JsGameTriggerFixture trigger;
 };
 

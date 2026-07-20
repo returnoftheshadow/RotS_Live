@@ -109,8 +109,9 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      MudlleMobileHost, false, true, false, true, JsScriptingExceptionPolicy::FailOpen,
      "special dispatcher command checks for mobile programs and hard-coded specials",
      "self, actor, command, args, target, room, trigger, hostType",
-     "True/handled consumes normal command flow; broader object/room hard-coded-special bridging "
-     "is deferred."},
+     "Targeted Mudlle-mobile JavaScript packages receive live command names and sanitized args "
+     "after legacy special handling declines to consume the call. Broader object/room "
+     "hard-coded-special bridging and typed targets are deferred."},
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_SELF, "SPECIAL_SELF", "onSpecialSelf",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, MudlleMobileHost,
      false, true, false, true, JsScriptingExceptionPolicy::FailOpen,
@@ -121,7 +122,8 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      false, true, false, true, JsScriptingExceptionPolicy::FailOpen,
      "special dispatcher enter-room checks",
      "self, actor, direction, reverseDirection, room, trigger, hostType",
-     "Caller-specific handled semantics must be documented before enablement."},
+     "Targeted Mudlle-mobile JavaScript packages receive live direction and reverseDirection "
+     "payloads after legacy special handling declines to consume the call."},
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_DELAY, "SPECIAL_DELAY", "onSpecialDelay",
      JsScriptingSupportStatus::Unsupported, JsScriptingBuilderStatus::Unsupported, MudlleMobileHost,
      false, false, false, true, JsScriptingExceptionPolicy::RejectAtPublish,

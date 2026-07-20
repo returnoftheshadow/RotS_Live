@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: stable `ScriptContext` payload defaults. The runtime context exposes documented but not-yet-backed payload fields as immutable explicit values: supplied scalar fixture values, `null`, or an empty frozen array instead of `undefined`.
-- Next slice: wire the first live Mudlle/special scalar payloads for `SPECIAL_COMMAND` and `SPECIAL_ENTER`, including command name, sanitized args, movement direction, and reverse direction where the current dispatcher provides them.
+- Latest completed slice: Mudlle special scalar payload backing. Targeted `mudlle-mobile` JavaScript packages now run from the live special dispatcher after legacy special handling declines to consume `SPECIAL_COMMAND` or `SPECIAL_ENTER`, with command args and movement direction payloads populated from the current dispatcher.
+- Next slice: continue Mudlle payload alignment for typed targets and remaining special flags: `SPECIAL_TARGET`, `SPECIAL_DAMAGE`, `SPECIAL_DEATH`, and the `dying`/`target`/`targ1`/`targ2`/`targetTypes` fields.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

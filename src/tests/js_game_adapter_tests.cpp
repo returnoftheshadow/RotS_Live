@@ -470,6 +470,12 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     input.room = 0;
     input.text = "hello";
     input.wear_slot = MAX_WEAR;
+    input.command = "say";
+    input.args = "open sesame";
+    input.has_tick = true;
+    input.tick = 0;
+    input.direction = "south";
+    input.reverse_direction = "north";
     input.trigger = make_trigger();
 
     JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
@@ -488,6 +494,16 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     EXPECT_TRUE(context.has_text);
     EXPECT_EQ(context.text, "hello");
     EXPECT_FALSE(context.has_wear_slot);
+    EXPECT_TRUE(context.has_command);
+    EXPECT_EQ(context.command, "say");
+    EXPECT_TRUE(context.has_args);
+    EXPECT_EQ(context.args, "open sesame");
+    EXPECT_TRUE(context.has_tick);
+    EXPECT_EQ(context.tick, 0);
+    EXPECT_TRUE(context.has_direction);
+    EXPECT_EQ(context.direction, "south");
+    EXPECT_TRUE(context.has_reverse_direction);
+    EXPECT_EQ(context.reverse_direction, "north");
     EXPECT_EQ(context.trigger.legacy_name, "ON_ENTER");
 }
 

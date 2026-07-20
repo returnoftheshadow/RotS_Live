@@ -170,5 +170,7 @@ bool js_script_legacy_trigger_dispatch_enabled();
 void js_script_invalidate_live_registry_generation();
 bool js_script_capture_live_registry_generation();
 bool js_script_refresh_live_registry_after_publish();
+int js_script_dispatch_mudlle_mobile_special(char_data* host, char_data* actor, int cmd,
+    char* arg, int callflag, waiting_type* wtl, int in_room);
 
 #endif /* SCRIPT_H */

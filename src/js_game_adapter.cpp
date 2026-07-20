@@ -335,6 +335,20 @@ JsGameTriggerContextFixture js_game_adapter_context_fixture(
         context.has_wear_slot = true;
         context.wear_slot = slot_name;
     }
+    context.has_command = input.command != nullptr;
+    if (input.command != nullptr)
+        context.command = copy_c_string(input.command, MaxAdapterTextLength);
+    context.has_args = input.args != nullptr;
+    if (input.args != nullptr)
+        context.args = copy_c_string(input.args, MaxAdapterTextLength);
+    context.has_tick = input.has_tick;
+    context.tick = input.tick;
+    context.has_direction = input.direction != nullptr;
+    if (input.direction != nullptr)
+        context.direction = copy_c_string(input.direction, MaxAdapterTextLength);
+    context.has_reverse_direction = input.reverse_direction != nullptr;
+    if (input.reverse_direction != nullptr)
+        context.reverse_direction = copy_c_string(input.reverse_direction, MaxAdapterTextLength);
     context.trigger = input.trigger;
     return context;
 }
