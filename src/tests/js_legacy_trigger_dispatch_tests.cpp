@@ -3417,6 +3417,36 @@ TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeMapsBudgetExceeded) {
     EXPECT_FALSE(contains(second.diagnostic, "function onEnter"));
 }
 
+TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeMapsDepthExceeded) {
+    JsLiveRegistryReloadService service = make_refreshed_service(
+        make_package(6111, "function onEnter(ctx) { return false; }"));
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
+    JsGameAdapterOptions adapter_options = make_options(live_characters, 1, world, 0);
+    JsTriggerDispatchDepthGuard depth_guard;
+    JsTriggerDispatchDepthLimits depth_limits;
+    depth_limits.max_dispatch_depth = 1;
+    ASSERT_TRUE(depth_guard.try_enter(depth_limits));
+    JsLegacyTriggerDispatchOptions options = enabled_options(service);
+    options.depth_guard = &depth_guard;
+    options.depth_limits = depth_limits;
+
+    JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
+        service, character_enter_request(&self), adapter_options, options);
+
+    EXPECT_EQ(result.status, JsLegacyTriggerDispatchStatus::DepthExceeded);
+    EXPECT_EQ(result.dispatch_result.status, JsTriggerDispatchStatus::DepthExceeded);
+    EXPECT_EQ(result.dispatch_result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(result.dispatch_result.package_vnum, 6111);
+    EXPECT_EQ(result.dispatch_result.handler_name, "onEnter");
+    EXPECT_STREQ("depth-exceeded", js_legacy_trigger_dispatch_status_name(result.status));
+    EXPECT_TRUE(contains(result.diagnostic, "depth exceeded"));
+    EXPECT_FALSE(contains(result.diagnostic, "function onEnter"));
+    EXPECT_EQ(depth_guard.current_depth(), 1u);
+    depth_guard.leave();
+}
+
 TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeUsesFirstLivePackageWhenMultiplePackagesMatch) {
     JsStagedPackageRepository repository;
     JsLivePackageStore live_store;
@@ -3652,6 +3682,9 @@ TEST(JsLegacyTriggerDispatch, StatusNamesAreStable) {
     EXPECT_STREQ("budget-exceeded",
                  js_legacy_trigger_dispatch_status_name(
                      JsLegacyTriggerDispatchStatus::BudgetExceeded));
+    EXPECT_STREQ("depth-exceeded",
+                 js_legacy_trigger_dispatch_status_name(
+                     JsLegacyTriggerDispatchStatus::DepthExceeded));
 }
 
 TEST(JsLegacyTriggerDispatch, BuildFilesReferenceFacadeSourcesAndTests) {
@@ -3761,7 +3794,11 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
         8u);
     EXPECT_TRUE(contains(script, "options.budget = &javascript_legacy_trigger_dispatch_budget;"));
     EXPECT_TRUE(contains(script, "options.budget_limits = JavascriptLegacyTriggerBudgetLimits;"));
+    EXPECT_TRUE(contains(script, "options.depth_guard = &javascript_legacy_trigger_dispatch_depth_guard;"));
+    EXPECT_TRUE(contains(script, "options.depth_limits = JavascriptLegacyTriggerDepthLimits;"));
     EXPECT_TRUE(contains(script, "options.current_pulse = pulse;"));
+    EXPECT_EQ(count_occurrences(script, "if (javascript_legacy_trigger_depth_would_exceed())"),
+        8u);
     EXPECT_TRUE(contains(script, "javascript_fail_closed_status_blocks(result.status) ? 0 : 1"));
     EXPECT_TRUE(contains(script, "javascript_fail_closed_status_blocks(result.status) ? 1 : 0"));
     EXPECT_EQ(

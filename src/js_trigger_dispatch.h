@@ -18,6 +18,7 @@ enum class JsTriggerDispatchStatus {
     Block,
     Error,
     BudgetExceeded,
+    DepthExceeded,
 };
 
 struct JsTriggerDispatchBudgetLimits {
@@ -37,10 +38,28 @@ class JsTriggerDispatchBudget {
     std::unordered_map<int, std::size_t> m_package_invocations;
 };
 
+struct JsTriggerDispatchDepthLimits {
+    std::size_t max_dispatch_depth = 0;
+};
+
+class JsTriggerDispatchDepthGuard {
+  public:
+    bool would_exceed(const JsTriggerDispatchDepthLimits& limits) const;
+    bool try_enter(const JsTriggerDispatchDepthLimits& limits);
+    void leave();
+    void reset();
+    std::size_t current_depth() const;
+
+  private:
+    std::size_t m_current_depth = 0;
+};
+
 struct JsTriggerDispatchOptions {
     JsRuntimeLimits runtime_limits;
     JsTriggerDispatchBudget* budget = nullptr;
     JsTriggerDispatchBudgetLimits budget_limits;
+    JsTriggerDispatchDepthGuard* depth_guard = nullptr;
+    JsTriggerDispatchDepthLimits depth_limits;
     int current_pulse = 0;
 };
 

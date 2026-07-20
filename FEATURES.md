@@ -411,6 +411,7 @@ Sandbox and safety requirements:
 - Set memory and instruction/runtime limits per invocation, plus a per-game-tick script budget.
   Initial live dispatch now enforces per-pulse and per-package invocation counts before QuickJS execution; future slices still need configurable limits, recursion depth accounting, and output/action budget accounting once side-effect APIs exist.
 - Guard recursive trigger entry and script-induced action loops with a maximum depth and action/output budget.
+  Initial live dispatch now enforces a shared JavaScript trigger-entry depth guard before QuickJS execution, maps depth exhaustion through the same fail-closed/fail-open policy as other JavaScript execution failures, and leaves future output/action APIs responsible for using the same guard when they can re-enter gameplay triggers.
 - Define partial-mutation behavior for exceptions, timeouts, and memory failures. Blocking triggers should either run precondition-only JavaScript before mutation or have documented compensation behavior.
 - Validate all game handles before use and fail gracefully if an entity is extracted during script execution.
 - Log script errors with vnum, engine type, trigger type, sanitized error class/location, and stable entity ids/vnums without raw player speech, account email, descriptor data, full source text, or arbitrary argument values by default.

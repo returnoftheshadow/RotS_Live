@@ -26,6 +26,8 @@ JsLegacyTriggerDispatchStatus facade_status_from_dispatch(JsTriggerDispatchStatu
         return JsLegacyTriggerDispatchStatus::Error;
     case JsTriggerDispatchStatus::BudgetExceeded:
         return JsLegacyTriggerDispatchStatus::BudgetExceeded;
+    case JsTriggerDispatchStatus::DepthExceeded:
+        return JsLegacyTriggerDispatchStatus::DepthExceeded;
     }
     return JsLegacyTriggerDispatchStatus::Error;
 }
@@ -62,6 +64,8 @@ const char *js_legacy_trigger_dispatch_status_name(JsLegacyTriggerDispatchStatus
         return "error";
     case JsLegacyTriggerDispatchStatus::BudgetExceeded:
         return "budget-exceeded";
+    case JsLegacyTriggerDispatchStatus::DepthExceeded:
+        return "depth-exceeded";
     }
     return "unknown";
 }
@@ -103,6 +107,8 @@ JsLegacyTriggerDispatchResult js_legacy_trigger_dispatch(
     dispatch_options.runtime_limits = options.runtime_limits;
     dispatch_options.budget = options.budget;
     dispatch_options.budget_limits = options.budget_limits;
+    dispatch_options.depth_guard = options.depth_guard;
+    dispatch_options.depth_limits = options.depth_limits;
     dispatch_options.current_pulse = options.current_pulse;
 
     result.dispatch_result = js_trigger_dispatch_live_first_match(

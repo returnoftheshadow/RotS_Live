@@ -100,10 +100,14 @@ namespace {
 bool javascript_legacy_trigger_dispatch_enabled = false;
 JsLegacyTriggerReloadGeneration javascript_legacy_trigger_reload_generation;
 JsTriggerDispatchBudget javascript_legacy_trigger_dispatch_budget;
+JsTriggerDispatchDepthGuard javascript_legacy_trigger_dispatch_depth_guard;
 // Temporary server defaults until publish/admin config can own per-zone script limits.
 constexpr JsTriggerDispatchBudgetLimits JavascriptLegacyTriggerBudgetLimits = {
     1024,
     256,
+};
+constexpr JsTriggerDispatchDepthLimits JavascriptLegacyTriggerDepthLimits = {
+    8,
 };
 
 JsLegacyTriggerDispatchOptions javascript_legacy_trigger_options()
@@ -113,6 +117,8 @@ JsLegacyTriggerDispatchOptions javascript_legacy_trigger_options()
     options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
     options.budget = &javascript_legacy_trigger_dispatch_budget;
     options.budget_limits = JavascriptLegacyTriggerBudgetLimits;
+    options.depth_guard = &javascript_legacy_trigger_dispatch_depth_guard;
+    options.depth_limits = JavascriptLegacyTriggerDepthLimits;
     options.current_pulse = pulse;
     return options;
 }
@@ -121,7 +127,14 @@ bool javascript_fail_closed_status_blocks(JsLegacyTriggerDispatchStatus status)
 {
     return status == JsLegacyTriggerDispatchStatus::Block ||
         status == JsLegacyTriggerDispatchStatus::Error ||
-        status == JsLegacyTriggerDispatchStatus::BudgetExceeded;
+        status == JsLegacyTriggerDispatchStatus::BudgetExceeded ||
+        status == JsLegacyTriggerDispatchStatus::DepthExceeded;
+}
+
+bool javascript_legacy_trigger_depth_would_exceed()
+{
+    return javascript_legacy_trigger_dispatch_depth_guard.would_exceed(
+        JavascriptLegacyTriggerDepthLimits);
 }
 
 std::vector<const char_data*> live_character_snapshot()
@@ -195,6 +208,8 @@ int dispatch_javascript_character_movement_entry_trigger(
     if (!javascript_legacy_trigger_dispatch_enabled || ch == nullptr || vict == nullptr ||
         room == nullptr)
         return 1;
+    if (javascript_legacy_trigger_depth_would_exceed())
+        return 0;
 
     const std::vector<const char_data*> characters = live_character_snapshot();
     if (!live_character_snapshot_contains(characters, ch) ||
@@ -232,6 +247,8 @@ int dispatch_javascript_character_death_trigger(char_data* ch, char_data* killer
 {
     if (!javascript_legacy_trigger_dispatch_enabled || ch == nullptr)
         return 1;
+    if (javascript_legacy_trigger_depth_would_exceed())
+        return 0;
 
     const std::vector<const char_data*> characters = live_character_snapshot();
     if (!live_character_snapshot_contains(characters, ch))
@@ -263,6 +280,8 @@ int dispatch_javascript_character_damage_trigger(char_data* vict, char_data* ch)
 {
     if (!javascript_legacy_trigger_dispatch_enabled || vict == nullptr || ch == nullptr)
         return 1;
+    if (javascript_legacy_trigger_depth_would_exceed())
+        return 0;
 
     const std::vector<const char_data*> characters = live_character_snapshot();
     if (!live_character_snapshot_contains(characters, vict) ||
@@ -297,6 +316,8 @@ int dispatch_javascript_object_damage_trigger(obj_data* obj, char_data* vict, ch
     if (!javascript_legacy_trigger_dispatch_enabled || obj == nullptr || vict == nullptr ||
         ch == nullptr)
         return 1;
+    if (javascript_legacy_trigger_depth_would_exceed())
+        return 0;
 
     const std::vector<const char_data*> characters = live_character_snapshot();
     if (!live_character_snapshot_contains(characters, vict) ||
@@ -341,6 +362,8 @@ int dispatch_javascript_object_event_trigger(
     if (!javascript_legacy_trigger_dispatch_enabled ||
         !is_javascript_object_event_trigger(trigger_type) || obj == nullptr || ch == nullptr)
         return 1;
+    if (javascript_legacy_trigger_depth_would_exceed())
+        return 0;
 
     const std::vector<const char_data*> characters = live_character_snapshot();
     if (!live_character_snapshot_contains(characters, ch))
@@ -377,6 +400,8 @@ int dispatch_javascript_character_receive_trigger(char_data* receiver, char_data
     if (!javascript_legacy_trigger_dispatch_enabled || receiver == nullptr || giver == nullptr ||
         object == nullptr)
         return 1;
+    if (javascript_legacy_trigger_depth_would_exceed())
+        return 0;
 
     const std::vector<const char_data*> characters = live_character_snapshot();
     if (!live_character_snapshot_contains(characters, receiver) ||
@@ -416,6 +441,8 @@ int dispatch_javascript_character_hear_trigger(int trigger_type, char_data* list
     if (!javascript_legacy_trigger_dispatch_enabled ||
         (trigger_type != ON_HEAR_SAY && trigger_type != ON_HEAR_YELL) || listener == nullptr ||
         speaker == nullptr || text == nullptr)
+        return 1;
+    if (javascript_legacy_trigger_depth_would_exceed())
         return 1;
 
     const std::vector<const char_data*> characters = live_character_snapshot();
@@ -514,6 +541,8 @@ int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data
     const int package_vnum = mudlle_mobile_package_vnum(host);
     if (package_vnum <= 0)
         return 0;
+    if (javascript_legacy_trigger_depth_would_exceed())
+        return callflag == SPECIAL_DAMAGE || callflag == SPECIAL_DEATH ? 1 : 0;
 
     const std::vector<const char_data*> characters = live_character_snapshot();
     if (!live_character_snapshot_contains(characters, host) ||

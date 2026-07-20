@@ -15,6 +15,7 @@ enum class JsLegacyTriggerDispatchStatus {
     Block,
     Error,
     BudgetExceeded,
+    DepthExceeded,
 };
 
 class JsLegacyTriggerReloadGeneration {
@@ -41,6 +42,8 @@ struct JsLegacyTriggerDispatchOptions {
     JsRuntimeLimits runtime_limits;
     JsTriggerDispatchBudget* budget = nullptr;
     JsTriggerDispatchBudgetLimits budget_limits;
+    JsTriggerDispatchDepthGuard* depth_guard = nullptr;
+    JsTriggerDispatchDepthLimits depth_limits;
     int current_pulse = 0;
 };
 

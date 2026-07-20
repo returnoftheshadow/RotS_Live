@@ -86,6 +86,20 @@ JsTriggerDispatchResult make_budget_exceeded_result(const JsScriptPackage& packa
     return result;
 }
 
+JsTriggerDispatchResult make_depth_exceeded_result(const JsScriptPackage& package,
+    const JsScriptTriggerBinding& binding, std::size_t matched_package_count)
+{
+    JsTriggerDispatchResult result;
+    result.status = JsTriggerDispatchStatus::DepthExceeded;
+    result.runtime_status = JsRuntimeStatus::Ok;
+    result.package_vnum = package.vnum;
+    result.package_id = package.package_id;
+    result.handler_name = binding.handler_name;
+    result.diagnostic = "JavaScript trigger recursion depth exceeded";
+    result.matched_package_count = matched_package_count;
+    return result;
+}
+
 std::vector<const JsScriptPackage*> find_requested_packages(const JsScriptPackageRegistry& registry,
     const JsTriggerDispatchRequest& request)
 {
@@ -102,6 +116,32 @@ std::vector<const JsScriptPackage*> find_requested_packages(const JsScriptPackag
     return { package };
 }
 
+class JsTriggerDispatchDepthScope {
+  public:
+    JsTriggerDispatchDepthScope(
+        JsTriggerDispatchDepthGuard* guard, const JsTriggerDispatchDepthLimits& limits)
+        : m_guard(guard)
+    {
+        if (m_guard != nullptr)
+            m_entered = m_guard->try_enter(limits);
+    }
+
+    ~JsTriggerDispatchDepthScope()
+    {
+        if (m_guard != nullptr && m_entered)
+            m_guard->leave();
+    }
+
+    bool exceeded() const
+    {
+        return m_guard != nullptr && !m_entered;
+    }
+
+  private:
+    JsTriggerDispatchDepthGuard* m_guard = nullptr;
+    bool m_entered = false;
+};
+
 } // namespace
 
 const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status)
@@ -117,6 +157,8 @@ const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status)
         return "error";
     case JsTriggerDispatchStatus::BudgetExceeded:
         return "budget-exceeded";
+    case JsTriggerDispatchStatus::DepthExceeded:
+        return "depth-exceeded";
     }
     return "unknown";
 }
@@ -151,6 +193,37 @@ void JsTriggerDispatchBudget::reset()
     m_has_current_pulse = false;
     m_pulse_invocations = 0;
     m_package_invocations.clear();
+}
+
+bool JsTriggerDispatchDepthGuard::would_exceed(const JsTriggerDispatchDepthLimits& limits) const
+{
+    if (limits.max_dispatch_depth > 0 && m_current_depth >= limits.max_dispatch_depth)
+        return true;
+    return false;
+}
+
+bool JsTriggerDispatchDepthGuard::try_enter(const JsTriggerDispatchDepthLimits& limits)
+{
+    if (would_exceed(limits))
+        return false;
+    ++m_current_depth;
+    return true;
+}
+
+void JsTriggerDispatchDepthGuard::leave()
+{
+    if (m_current_depth > 0)
+        --m_current_depth;
+}
+
+void JsTriggerDispatchDepthGuard::reset()
+{
+    m_current_depth = 0;
+}
+
+std::size_t JsTriggerDispatchDepthGuard::current_depth() const
+{
+    return m_current_depth;
 }
 
 JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
@@ -203,6 +276,10 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
                 + std::string(js_script_package_host_name(request.host)),
             matches.size());
     }
+
+    JsTriggerDispatchDepthScope depth_scope(options.depth_guard, options.depth_limits);
+    if (depth_scope.exceeded())
+        return make_depth_exceeded_result(package, *binding, matches.size());
 
     if (options.budget != nullptr &&
         !options.budget->try_consume(options.current_pulse, package.vnum, options.budget_limits)) {

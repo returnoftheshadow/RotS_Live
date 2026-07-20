@@ -1311,6 +1311,277 @@ TEST(JsTriggerDispatch, ZeroBudgetLimitsAreUnlimitedWhenBudgetIsProvided)
     }
 }
 
+TEST(JsTriggerDispatch, DepthExceededSkipsRuntimeExecution)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5780,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchDepthGuard depth_guard;
+    JsTriggerDispatchDepthLimits depth_limits;
+    depth_limits.max_dispatch_depth = 1;
+    ASSERT_TRUE(depth_guard.try_enter(depth_limits));
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.depth_guard = &depth_guard;
+    dispatch_options.depth_limits = depth_limits;
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::DepthExceeded);
+    EXPECT_STREQ(js_trigger_dispatch_status_name(result.status), "depth-exceeded");
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(result.package_vnum, 5780);
+    EXPECT_EQ(result.handler_name, "onEnter");
+    EXPECT_TRUE(contains(result.diagnostic, "depth exceeded"));
+    EXPECT_FALSE(contains(result.diagnostic, "function onEnter"));
+    EXPECT_EQ(depth_guard.current_depth(), 1U);
+    depth_guard.leave();
+}
+
+TEST(JsTriggerDispatch, SuccessfulDispatchLeavesDepthForNextInvocation)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5781,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchDepthGuard depth_guard;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.depth_guard = &depth_guard;
+    dispatch_options.depth_limits.max_dispatch_depth = 1;
+
+    JsTriggerDispatchResult first =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+    JsTriggerDispatchResult second =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(first.status, JsTriggerDispatchStatus::Block) << first.diagnostic;
+    EXPECT_EQ(second.status, JsTriggerDispatchStatus::Block) << second.diagnostic;
+    EXPECT_EQ(depth_guard.current_depth(), 0U);
+}
+
+TEST(JsTriggerDispatch, ZeroDepthLimitIsUnlimitedWhenGuardIsProvided)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5782,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchDepthGuard depth_guard;
+    JsTriggerDispatchDepthLimits unlimited_limits;
+    ASSERT_TRUE(depth_guard.try_enter(unlimited_limits));
+    ASSERT_TRUE(depth_guard.try_enter(unlimited_limits));
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.depth_guard = &depth_guard;
+    dispatch_options.depth_limits = unlimited_limits;
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Block) << result.diagnostic;
+    EXPECT_EQ(depth_guard.current_depth(), 2U);
+    depth_guard.leave();
+    depth_guard.leave();
+}
+
+TEST(JsTriggerDispatch, RuntimeErrorReleasesTriggerDepthForNextDispatch)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage first = make_character_enter_package(5783,
+        "function onEnter(ctx) { throw new Error('boom'); }");
+    JsScriptPackage second = make_character_enter_package(5784,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchDepthGuard depth_guard;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.depth_guard = &depth_guard;
+    dispatch_options.depth_limits.max_dispatch_depth = 1;
+    JsTriggerDispatchRequest first_request = character_request(&self);
+    first_request.package_vnum = 5783;
+    JsTriggerDispatchRequest second_request = character_request(&self);
+    second_request.package_vnum = 5784;
+
+    JsTriggerDispatchResult first_result =
+        js_trigger_dispatch_first_match(registry, first_request, adapter_options, dispatch_options);
+    JsTriggerDispatchResult second_result =
+        js_trigger_dispatch_first_match(registry, second_request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(first_result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(depth_guard.current_depth(), 0U);
+    EXPECT_EQ(second_result.status, JsTriggerDispatchStatus::Block) << second_result.diagnostic;
+}
+
+TEST(JsTriggerDispatch, InterruptedRuntimeReleasesTriggerDepthForNextDispatch)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage first = make_character_enter_package(5785,
+        "function onEnter(ctx) { while (true) {} }");
+    JsScriptPackage second = make_character_enter_package(5786,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchDepthGuard depth_guard;
+    JsTriggerDispatchOptions interrupt_options;
+    interrupt_options.depth_guard = &depth_guard;
+    interrupt_options.depth_limits.max_dispatch_depth = 1;
+    interrupt_options.runtime_limits.instruction_budget = 1;
+    JsTriggerDispatchOptions normal_options;
+    normal_options.depth_guard = &depth_guard;
+    normal_options.depth_limits.max_dispatch_depth = 1;
+    JsTriggerDispatchRequest first_request = character_request(&self);
+    first_request.package_vnum = 5785;
+    JsTriggerDispatchRequest second_request = character_request(&self);
+    second_request.package_vnum = 5786;
+
+    JsTriggerDispatchResult first_result =
+        js_trigger_dispatch_first_match(registry, first_request, adapter_options, interrupt_options);
+    JsTriggerDispatchResult second_result =
+        js_trigger_dispatch_first_match(registry, second_request, adapter_options, normal_options);
+
+    EXPECT_EQ(first_result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(first_result.runtime_status, JsRuntimeStatus::Interrupted);
+    EXPECT_EQ(depth_guard.current_depth(), 0U);
+    EXPECT_EQ(second_result.status, JsTriggerDispatchStatus::Block) << second_result.diagnostic;
+}
+
+TEST(JsTriggerDispatch, DepthExceededAttemptDoesNotConsumeDepth)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5787,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchDepthGuard depth_guard;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.depth_guard = &depth_guard;
+    dispatch_options.depth_limits.max_dispatch_depth = 1;
+    ASSERT_TRUE(depth_guard.try_enter(dispatch_options.depth_limits));
+
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+                  dispatch_options)
+                  .status,
+        JsTriggerDispatchStatus::DepthExceeded);
+    EXPECT_EQ(depth_guard.current_depth(), 1U);
+    depth_guard.leave();
+
+    JsTriggerDispatchResult after_release =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(after_release.status, JsTriggerDispatchStatus::Block) << after_release.diagnostic;
+    EXPECT_EQ(depth_guard.current_depth(), 0U);
+}
+
+TEST(JsTriggerDispatch, DepthExceededDoesNotConsumeBudget)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5788,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchBudget budget;
+    JsTriggerDispatchDepthGuard depth_guard;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.budget = &budget;
+    dispatch_options.budget_limits.max_invocations_per_pulse = 1;
+    dispatch_options.depth_guard = &depth_guard;
+    dispatch_options.depth_limits.max_dispatch_depth = 1;
+    dispatch_options.current_pulse = 97;
+    ASSERT_TRUE(depth_guard.try_enter(dispatch_options.depth_limits));
+
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+                  dispatch_options)
+                  .status,
+        JsTriggerDispatchStatus::DepthExceeded);
+    depth_guard.leave();
+    JsTriggerDispatchResult after_release =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(after_release.status, JsTriggerDispatchStatus::Block) << after_release.diagnostic;
+}
+
+TEST(JsTriggerDispatch, NoMatchAndMissingLiveContextDoNotAcquireTriggerDepth)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5789,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data stale_self = make_character("Stale");
+    char_data live_self = make_character("Live");
+    const char_data* live_characters[] = { &live_self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchDepthGuard depth_guard;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.depth_guard = &depth_guard;
+    dispatch_options.depth_limits.max_dispatch_depth = 1;
+
+    JsTriggerDispatchRequest no_match = character_request(&live_self);
+    no_match.legacy_value = ON_DAMAGE;
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, no_match, adapter_options,
+                  dispatch_options)
+                  .status,
+        JsTriggerDispatchStatus::NoMatch);
+    EXPECT_EQ(depth_guard.current_depth(), 0U);
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&stale_self),
+                  adapter_options, dispatch_options)
+                  .status,
+        JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(depth_guard.current_depth(), 0U);
+
+    JsTriggerDispatchResult live_result =
+        js_trigger_dispatch_first_match(registry, character_request(&live_self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(live_result.status, JsTriggerDispatchStatus::Block) << live_result.diagnostic;
+    EXPECT_EQ(depth_guard.current_depth(), 0U);
+}
+
 TEST(JsTriggerDispatch, MissingLiveContextDoesNotConsumeBudget)
 {
     JsScriptPackageRegistry registry;
