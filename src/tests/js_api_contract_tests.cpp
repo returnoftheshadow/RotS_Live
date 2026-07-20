@@ -248,12 +248,44 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
 
     const JsApiType* room = find_js_api_contract_type("Room");
     ASSERT_NE(room, nullptr);
+    const JsApiMember* room_description = find_js_api_contract_member(*room, "description");
+    ASSERT_NE(room_description, nullptr);
+    EXPECT_STREQ(room_description->type_name, "string");
+    EXPECT_EQ(room_description->status, JsApiMemberStatus::PlannedReadOnly);
+
+    const JsApiMember* room_level = find_js_api_contract_member(*room, "level");
+    ASSERT_NE(room_level, nullptr);
+    EXPECT_STREQ(room_level->type_name, "number");
+    EXPECT_EQ(room_level->status, JsApiMemberStatus::PlannedReadOnly);
+
+    const JsApiMember* room_alignment = find_js_api_contract_member(*room, "alignment");
+    ASSERT_NE(room_alignment, nullptr);
+    EXPECT_STREQ(room_alignment->type_name, "number");
+    EXPECT_EQ(room_alignment->status, JsApiMemberStatus::PlannedReadOnly);
+
     const JsApiMember* is_sunlit = find_js_api_contract_member(*room, "isSunlit");
     ASSERT_NE(is_sunlit, nullptr);
     EXPECT_STREQ(is_sunlit->type_name, "boolean");
     EXPECT_FALSE(is_sunlit->nullable);
     EXPECT_EQ(is_sunlit->status, JsApiMemberStatus::PlannedReadOnly);
     EXPECT_NE(std::string(is_sunlit->docs).find("SCRIPT_IF_ROOM_SUNLIT"), std::string::npos);
+
+    const JsApiType* object = find_js_api_contract_type("GameObject");
+    ASSERT_NE(object, nullptr);
+    const JsApiMember* object_description = find_js_api_contract_member(*object, "description");
+    ASSERT_NE(object_description, nullptr);
+    EXPECT_STREQ(object_description->type_name, "string");
+
+    const JsApiMember* object_short_description =
+        find_js_api_contract_member(*object, "shortDescription");
+    ASSERT_NE(object_short_description, nullptr);
+    EXPECT_STREQ(object_short_description->type_name, "string");
+
+    const JsApiType* zone = find_js_api_contract_type("Zone");
+    ASSERT_NE(zone, nullptr);
+    const JsApiMember* zone_level = find_js_api_contract_member(*zone, "level");
+    ASSERT_NE(zone_level, nullptr);
+    EXPECT_STREQ(zone_level->type_name, "number");
 
     EXPECT_EQ(find_js_api_contract_type("Missing"), nullptr);
     EXPECT_EQ(find_js_api_contract_member(*character, "missing"), nullptr);

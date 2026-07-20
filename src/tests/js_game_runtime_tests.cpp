@@ -19,12 +19,16 @@ JsGameTriggerContextFixture make_context()
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
+    context.self.room.description = "A gatehouse opens toward the old road.";
     context.self.room.vnum = 1204;
+    context.self.room.level = 7;
+    context.self.room.alignment = -2;
     context.self.room.is_sunlit = true;
     context.self.room.has_zone = true;
     context.self.room.zone.id = "zone:12";
     context.self.room.zone.name = "Old City";
     context.self.room.zone.vnum = 12;
+    context.self.room.zone.level = 6;
 
     context.has_actor = true;
     context.actor.id = "player:7";
@@ -39,31 +43,42 @@ JsGameTriggerContextFixture make_context()
     context.has_object = true;
     context.object.id = "object:300";
     context.object.name = "silver lever";
+    context.object.description = "A silver lever is bolted to the wall.";
+    context.object.short_description = "a silver lever";
     context.object.vnum = 300;
     context.object.has_room = true;
     context.object.room.id = "room:1204";
     context.object.room.name = "Northern Gate";
+    context.object.room.description = "A gatehouse opens toward the old road.";
     context.object.room.vnum = 1204;
+    context.object.room.level = 7;
+    context.object.room.alignment = -2;
     context.object.room.is_sunlit = true;
     context.object.room.has_zone = true;
     context.object.room.zone.id = "zone:12";
     context.object.room.zone.name = "Old City";
     context.object.room.zone.vnum = 12;
+    context.object.room.zone.level = 6;
 
     context.has_room = true;
     context.room.id = "room:1204";
     context.room.name = "Northern Gate";
+    context.room.description = "A gatehouse opens toward the old road.";
     context.room.vnum = 1204;
+    context.room.level = 7;
+    context.room.alignment = -2;
     context.room.is_sunlit = true;
     context.room.has_zone = true;
     context.room.zone.id = "zone:12";
     context.room.zone.name = "Old City";
     context.room.zone.vnum = 12;
+    context.room.zone.level = 6;
 
     context.has_zone = true;
     context.zone.id = "zone:12";
     context.zone.name = "Old City";
     context.zone.vnum = 12;
+    context.zone.level = 6;
 
     context.has_text = true;
     context.text = "say \"open\"\\close\nnext line";
@@ -177,6 +192,25 @@ TEST(JsGameRuntime, ModelsObjectRoomAsNullWhenMissing)
             "  && ctx.object.carriedBy === null\n"
             "  && ctx.object.wornBy === null;",
             context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
+{
+    JsGameTriggerContextFixture context = make_context();
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.object.description === 'A silver lever is bolted to the wall.'\n"
+        "  && ctx.object.shortDescription === 'a silver lever'\n"
+        "  && ctx.room.description === 'A gatehouse opens toward the old road.'\n"
+        "  && ctx.room.level === 7\n"
+        "  && ctx.room.alignment === -2\n"
+        "  && ctx.zone.level === 6\n"
+        "  && ctx.object.room.description === ctx.room.description\n"
+        "  && ctx.object.room.zone.level === ctx.zone.level;",
+        context);
 
     expect_ok_allows(result);
 }
@@ -730,7 +764,9 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"isValid\":function() { return true; }"), std::string::npos);
     EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\""), std::string::npos);
     EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\",\"name\":\"silver lever\","
-                           "\"vnum\":300,\"room\":{\"id\":\"room:1204\""),
+                           "\"description\":\"A silver lever is bolted to the wall.\","
+                           "\"shortDescription\":\"a silver lever\",\"vnum\":300,"
+                           "\"room\":{\"id\":\"room:1204\""),
         std::string::npos);
     EXPECT_NE(literal.find("\"speaker\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"attacker\":null"), std::string::npos);

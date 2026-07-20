@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API generated documentation/export. Public server artifacts now include non-internal struct accessor mapping rows in API markdown and manifest JSON, using public `fieldId` values, callable flags, and documentation-only markers; BuilderClient loads and preserves those public rows while filtering internal-only rows.
-- Next slice: JavaScript API generated typings getter promotion. Promote the next safe read-only getter group from the mapping catalog into `rots.d.ts`, live QuickJS snapshots, and BuilderClient offline fixtures together, with parity tests.
+- Latest completed slice: JavaScript API first generated typings getter promotion. `GameObject.description`, `GameObject.shortDescription`, `Room.description`, `Room.level`, `Room.alignment`, and `Zone.level` are now documented in the server API contract, marked as implemented read-only mappings, emitted into generated typings/artifacts, copied into live QuickJS snapshots, normalized in BuilderClient offline fixtures, preserved through fixture validation, and editable through role-filtered fixture controls.
+- Next slice: JavaScript API next getter promotion group. Continue through safe remaining read-only getters, starting with nullable text/scalar fields that can be snapshot safely (`GameObject.actionDescription`, `Zone.description`, `Zone.map`, and similar low-risk scalar zone fields), and add parity tests before moving to setter foundation.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

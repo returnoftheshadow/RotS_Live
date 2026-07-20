@@ -350,8 +350,12 @@ bool js_game_adapter_object_fixture(
     if (fixture == nullptr || !js_game_adapter_is_live_object(object, options))
         return false;
 
+    const char *display_name =
+        object->short_description != nullptr ? object->short_description : object->name;
     fixture->id = object_id(*object, options);
-    fixture->name = copy_c_string(object->short_description != nullptr ? object->short_description : object->name);
+    fixture->name = copy_c_string(display_name);
+    fixture->description = copy_c_string(object->description);
+    fixture->short_description = copy_c_string(display_name);
     fixture->vnum = object_vnum(*object, options);
     fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
 
@@ -379,7 +383,10 @@ bool js_game_adapter_room_fixture(
     const room_data &room_data = options.world[room];
     fixture->id = "room:" + std::to_string(room_data.number);
     fixture->name = copy_c_string(room_data.name);
+    fixture->description = copy_c_string(room_data.description);
     fixture->vnum = room_data.number;
+    fixture->level = room_data.level;
+    fixture->alignment = room_data.alignment;
     fixture->is_sunlit = room_is_sunlit(room_data);
     fixture->has_zone = js_game_adapter_zone_fixture(room_data.zone, options, &fixture->zone);
     return true;
@@ -397,6 +404,7 @@ bool js_game_adapter_zone_fixture(
     fixture->id = "zone:" + std::to_string(zone_data.number);
     fixture->name = copy_c_string(zone_data.name);
     fixture->vnum = zone_data.number;
+    fixture->level = zone_data.level;
     return true;
 }
 

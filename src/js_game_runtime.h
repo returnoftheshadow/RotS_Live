@@ -10,12 +10,16 @@ struct JsGameZoneFixture {
     std::string id;
     std::string name;
     int vnum = 0;
+    int level = 0;
 };
 
 struct JsGameRoomFixture {
     std::string id;
     std::string name;
+    std::string description;
     int vnum = 0;
+    int level = 0;
+    int alignment = 0;
     bool is_sunlit = false;
 
     bool has_zone = false;
@@ -42,6 +46,8 @@ struct JsGameCharacterFixture {
 struct JsGameObjectFixture {
     std::string id;
     std::string name;
+    std::string description;
+    std::string short_description;
     int vnum = 0;
 
     bool has_room = false;
@@ -145,19 +151,19 @@ struct JsGameTriggerContextFixture {
 };
 
 class JsGameRuntime {
-  public:
-    explicit JsGameRuntime(const JsRuntimeLimits &limits = {});
+public:
+    explicit JsGameRuntime(const JsRuntimeLimits& limits = {});
 
-    JsRuntimeEvalResult evaluate_trigger_body(const std::string &source,
-        const JsGameTriggerContextFixture &context, const char *filename = "game-script.js");
-    JsRuntimeEvalResult evaluate_trigger_package_handler(const std::string &package_source,
-        const std::string &handler_name, const JsGameTriggerContextFixture &context,
-        const char *filename = "game-script.js");
+    JsRuntimeEvalResult evaluate_trigger_body(const std::string& source,
+        const JsGameTriggerContextFixture& context, const char* filename = "game-script.js");
+    JsRuntimeEvalResult evaluate_trigger_package_handler(const std::string& package_source,
+        const std::string& handler_name, const JsGameTriggerContextFixture& context,
+        const char* filename = "game-script.js");
 
-  private:
+private:
     JsRuntimeLimits m_limits;
 };
 
-std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture &context);
+std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& context);
 
 #endif

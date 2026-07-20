@@ -324,6 +324,32 @@ TEST(JsApiStructMapping, ImplementedReadOnlyFieldsExistInApiContract) {
     }
 }
 
+TEST(JsApiStructMapping, PinsPromotedGetterGroupStatus) {
+    struct ExpectedPromotedGetter {
+        JsApiStructOwner owner;
+        const char *field;
+        const char *property;
+    };
+
+    const ExpectedPromotedGetter expected[] = {
+        {JsApiStructOwner::ObjData, "description", "description"},
+        {JsApiStructOwner::ObjData, "short_description", "shortDescription"},
+        {JsApiStructOwner::RoomData, "description", "description"},
+        {JsApiStructOwner::RoomData, "level", "level"},
+        {JsApiStructOwner::RoomData, "alignment", "alignment"},
+        {JsApiStructOwner::ZoneData, "level", "level"},
+    };
+
+    for (const ExpectedPromotedGetter &entry : expected) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(entry.owner, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->js_property, entry.property);
+        EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
+        EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+    }
+}
+
 TEST(JsApiStructMapping, PinsCriticalBuilderFacingMappings) {
     struct ExpectedMapping {
         JsApiStructOwner owner;

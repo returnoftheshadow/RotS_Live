@@ -64,7 +64,8 @@ std::string zone_literal(const JsGameZoneFixture& zone)
     out << "{"
         << "\"id\":" << js_quote(zone.id) << ","
         << "\"name\":" << js_quote(zone.name) << ","
-        << "\"vnum\":" << zone.vnum << "}";
+        << "\"vnum\":" << zone.vnum << ","
+        << "\"level\":" << zone.level << "}";
     return out.str();
 }
 
@@ -74,7 +75,10 @@ std::string room_literal(const JsGameRoomFixture& room)
     out << "{"
         << "\"id\":" << js_quote(room.id) << ","
         << "\"name\":" << js_quote(room.name) << ","
+        << "\"description\":" << js_quote(room.description) << ","
         << "\"vnum\":" << room.vnum << ","
+        << "\"level\":" << room.level << ","
+        << "\"alignment\":" << room.alignment << ","
         << "\"isSunlit\":" << js_bool(room.is_sunlit) << ","
         << "\"zone\":" << nullable_literal(room.has_zone, zone_literal(room.zone)) << ","
         << "\"isValid\":function() { return true; }"
@@ -120,6 +124,8 @@ std::string object_literal(const JsGameObjectFixture& object)
     out << "{"
         << "\"id\":" << js_quote(object.id) << ","
         << "\"name\":" << js_quote(object.name) << ","
+        << "\"description\":" << js_quote(object.description) << ","
+        << "\"shortDescription\":" << js_quote(object.short_description) << ","
         << "\"vnum\":";
     if (object.vnum >= 0)
         out << object.vnum;

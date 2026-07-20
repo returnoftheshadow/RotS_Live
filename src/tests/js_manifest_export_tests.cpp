@@ -272,11 +272,62 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         "{\"owner\":\"GameObject\",\"fieldId\":\"GameObject.description\","
         "\"property\":\"description\",\"getterName\":\"getDescription\","
         "\"setterName\":\"setDescription\",\"typeName\":\"string\",\"nullable\":false,"
-        "\"getterStatus\":\"deferred\",\"setterStatus\":\"planned-validated-setter\","
-        "\"sideEffect\":\"mutation\",\"getterCallable\":false,\"setterCallable\":false,"
-        "\"documentationOnly\":true,\"getterDocs\":\"Planned getter for the room-visible object "
-        "description.\",\"setterDocs\":\"Sets the room-visible object description after length, "
+        "\"getterStatus\":\"implemented-read-only-getter\","
+        "\"setterStatus\":\"planned-validated-setter\",\"sideEffect\":\"mutation\","
+        "\"getterCallable\":true,\"setterCallable\":false,\"documentationOnly\":true,"
+        "\"getterDocs\":\"Returns the room-visible object description copied into the invocation "
+        "snapshot.\",\"setterDocs\":\"Sets the room-visible object description after length, "
         "ownership, and sanitization checks.\",\"notes\":\"String ownership must be explicit.\"}");
+    expect_contains_json_object(
+        json,
+        "{\"owner\":\"GameObject\",\"fieldId\":\"GameObject.shortDescription\","
+        "\"property\":\"shortDescription\",\"getterName\":\"getShortDescription\","
+        "\"setterName\":\"setShortDescription\",\"typeName\":\"string\",\"nullable\":false,"
+        "\"getterStatus\":\"implemented-read-only-getter\","
+        "\"setterStatus\":\"planned-validated-setter\",\"sideEffect\":\"mutation\","
+        "\"getterCallable\":true,\"setterCallable\":false,\"documentationOnly\":true,"
+        "\"getterDocs\":\"Returns the carried/worn short description copied into the invocation "
+        "snapshot.\",\"setterDocs\":\"Sets the carried/worn short description after length, "
+        "ownership, and sanitization checks.\",\"notes\":\"String ownership must be explicit.\"}");
+    expect_contains_json_object(
+        json,
+        "{\"owner\":\"Room\",\"fieldId\":\"Room.description\",\"property\":\"description\","
+        "\"getterName\":\"getDescription\",\"setterName\":\"setDescription\","
+        "\"typeName\":\"string\",\"nullable\":false,"
+        "\"getterStatus\":\"implemented-read-only-getter\","
+        "\"setterStatus\":\"planned-validated-setter\",\"sideEffect\":\"mutation\","
+        "\"getterCallable\":true,\"setterCallable\":false,\"documentationOnly\":true,"
+        "\"getterDocs\":\"Returns the room long description copied into the invocation snapshot.\","
+        "\"setterDocs\":\"Sets the room long description after length, ownership, and "
+        "sanitization checks.\",\"notes\":\"String ownership must be explicit.\"}");
+    expect_contains_json_object(
+        json,
+        "{\"owner\":\"Room\",\"fieldId\":\"Room.level\",\"property\":\"level\","
+        "\"getterName\":\"getLevel\",\"setterName\":\"setLevel\",\"typeName\":\"number\","
+        "\"nullable\":false,\"getterStatus\":\"implemented-read-only-getter\","
+        "\"setterStatus\":\"deferred\",\"sideEffect\":\"mutation\",\"getterCallable\":true,"
+        "\"setterCallable\":false,\"documentationOnly\":true,"
+        "\"getterDocs\":\"Returns the room level value.\","
+        "\"setterDocs\":\"Room level writes are deferred.\",\"notes\":\"\"}");
+    expect_contains_json_object(
+        json,
+        "{\"owner\":\"Room\",\"fieldId\":\"Room.alignment\",\"property\":\"alignment\","
+        "\"getterName\":\"getAlignment\",\"setterName\":\"setAlignment\",\"typeName\":\"number\","
+        "\"nullable\":false,\"getterStatus\":\"implemented-read-only-getter\","
+        "\"setterStatus\":\"deferred\",\"sideEffect\":\"mutation\",\"getterCallable\":true,"
+        "\"setterCallable\":false,\"documentationOnly\":true,"
+        "\"getterDocs\":\"Returns the room alignment value.\","
+        "\"setterDocs\":\"Room alignment writes are deferred.\",\"notes\":\"\"}");
+    expect_contains_json_object(
+        json,
+        "{\"owner\":\"Zone\",\"fieldId\":\"Zone.level\",\"property\":\"level\","
+        "\"getterName\":\"getLevel\",\"setterName\":\"setLevel\",\"typeName\":\"number\","
+        "\"nullable\":false,\"getterStatus\":\"implemented-read-only-getter\","
+        "\"setterStatus\":\"deferred\",\"sideEffect\":\"mutation\",\"getterCallable\":true,"
+        "\"setterCallable\":false,\"documentationOnly\":true,"
+        "\"getterDocs\":\"Returns the zone level value.\","
+        "\"setterDocs\":\"Zone level writes are deferred until builder ownership and balance "
+        "rules are mapped.\",\"notes\":\"\"}");
 }
 
 TEST(JsManifestExport, ExportsCombinedBuilderCompatibilityBlock) {
