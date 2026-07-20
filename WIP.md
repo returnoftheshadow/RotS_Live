@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: BuilderClient offline/local editor hardening is complete across Monaco/generated typing hardening, zoom controls, and tooltip coverage, so publish workflow slices can resume.
-- Active slice: BuilderClient safer CLI bearer-token input complete pending final review/commit. Added `--bearer-token-stdin` to publish stage/status/activate/rollback, kept `--bearer-token` compatibility, avoided stdin reads for help/conflicts/earlier usage failures, enforced bounded UTF-8 byte input, rejected empty/control-character stdin tokens, redacted stdin tokens from server echoes and local diagnostics, and updated CLI docs to prefer stdin examples.
-- Next slice: reassess remaining BuilderClient publish workflow gaps, with priority on local/offline polish before new upload behavior unless a server issue blocks testing.
+- Active slice: BuilderClient publish workflow gap reassessment complete. Recorded the remaining client-side gaps after the safer CLI token path and selected an offline-only `rots-script docs` command as the next small slice, with reviewer guardrails for deterministic JSON, no network/auth/upload behavior, hardened generated-artifact loading, bounded sanitized output, and no writes.
+- Next slice: BuilderClient read-only CLI docs command. Add `rots-script docs` so builders can inspect local/generated JavaScript API docs and provenance through deterministic JSON without auth, upload, or server mutation.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.

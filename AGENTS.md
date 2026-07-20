@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient safer CLI bearer-token input. Publish stage/status/activate/rollback now support `--bearer-token-stdin`, avoid stdin reads for help/conflicts/earlier usage failures, enforce bounded UTF-8 byte input, reject empty/control-character stdin tokens, preserve `--bearer-token` compatibility, redact stdin tokens from server echoes and local diagnostics, and document stdin as the preferred CLI publish path.
-- Next slice: BuilderClient publish workflow gap reassessment. Review what remains after local/offline editor hardening and safer CLI token input, then pick the next small slice with priority on local/offline polish before new upload behavior unless a server issue blocks testing.
+- Latest completed slice: BuilderClient publish workflow gap reassessment. Remaining client-side gaps are documented after the safer CLI token path, and the next small offline-first slice is a read-only `rots-script docs` command with deterministic JSON, no network/auth/upload behavior, hardened generated-artifact loading, bounded sanitized output, and no writes.
+- Next slice: BuilderClient read-only CLI docs command. Add `rots-script docs` so builders can inspect local/generated JavaScript API docs and provenance through deterministic JSON without auth, upload, or server mutation.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
