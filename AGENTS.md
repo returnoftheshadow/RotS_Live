@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient read-only CLI docs command. `rots-script docs` reports local/generated JavaScript API docs and provenance through deterministic JSON without auth, upload, network, server mutation, project-root/path disclosure, or writes; docs output is bounded and sanitized while preserving checksum provenance.
-- Next slice: BuilderClient local manifest/status or diff inspection. Add the next offline-first CLI/read-only workflow gap so builders can understand generated artifact freshness and local-vs-package state before upload behavior expands.
+- Latest completed slice: BuilderClient fixture action feedback fix. Compile, Run Selected, and Run All now surface output-panel diagnostics when the Electron bridge is unavailable, the workspace is still loading, a fixture operation is busy, required fixture inputs are missing, compile returns no result, or fixture execution returns missing results.
+- Next slice: BuilderClient renderer interaction test harness for App-level fixture actions. Add behavior-level coverage for Compile, Run Selected, and Run All with mocked Electron APIs so no-op regressions are caught through actual UI clicks instead of source-shape guards.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

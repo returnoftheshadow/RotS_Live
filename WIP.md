@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: BuilderClient offline/local editor hardening is complete across Monaco/generated typing hardening, zoom controls, and tooltip coverage, so publish workflow slices can resume.
-- Active slice: BuilderClient read-only CLI docs command complete. Added `rots-script docs` with deterministic JSON over local/generated API docs and provenance, no auth/network/upload/server mutation, bounded sanitized output, checksum provenance preservation, normalized manifest fields, no project-root/path disclosure, and directory-aware no-write coverage.
-- Next slice: add the next offline-first CLI/read-only workflow gap from the reassessment, likely local manifest/status or diff inspection so builders can understand generated artifact freshness and local-vs-package state before upload behavior expands.
+- Active planning update: BuilderClient offline/local editor hardening remains the priority while builders validate scripts locally.
+- Active slice: BuilderClient fixture action feedback fix complete. Compile, Run Selected, and Run All now surface output-panel diagnostics when the Electron bridge is unavailable, the workspace is still loading, a fixture operation is busy, required fixture inputs are missing, compile returns no result, or fixture execution returns missing results.
+- Next slice: BuilderClient renderer interaction test harness for App-level fixture actions. Add behavior-level coverage for Compile, Run Selected, and Run All with mocked Electron APIs so no-op regressions are caught through actual UI clicks instead of source-shape guards.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
