@@ -122,6 +122,8 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.room.isValid() === true\n"
         "  && ctx.zone.vnum === 12\n"
         "  && ctx.trigger.name === 'onPull'\n"
+        "  && ctx.trigger.handlerName === 'onPull'\n"
+        "  && ctx.trigger.kind === 'legacy'\n"
         "  && ctx.trigger.blocksGameplay === true;",
         make_context());
 
@@ -639,6 +641,8 @@ TEST(JsGameRuntime, EscapesFixtureStringsBeforeEvaluation)
         "  && ctx.room.name === 'room\\rname'\n"
         "  && ctx.zone.name === 'zone\\tname'\n"
         "  && ctx.trigger.name === 'trigger `name`'\n"
+        "  && ctx.trigger.handlerName === 'trigger `name`'\n"
+        "  && ctx.trigger.kind === 'legacy'\n"
         "  && ctx.trigger.legacyName === 'ON_\"PULL\"'\n"
         "  && ctx.text.indexOf('line one\\r\\n') === 0\n"
         "  && ctx.text.includes('line \"two\"')\n"
@@ -745,6 +749,8 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"targetTypes\":[]"), std::string::npos);
     EXPECT_NE(literal.find("\"dying\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"hostType\":\"object\""), std::string::npos);
+    EXPECT_NE(literal.find("\"kind\":\"legacy\""), std::string::npos);
+    EXPECT_NE(literal.find("\"handlerName\":\"onPull\""), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"legacyName\":\"ON_PULL\""), std::string::npos);
     EXPECT_EQ(count_occurrences(literal, "\"command\":"), 1);
@@ -759,6 +765,23 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_EQ(count_occurrences(literal, "\"dying\":"), 1);
     EXPECT_EQ(literal.find("char_data"), std::string::npos);
     EXPECT_EQ(literal.find("obj_data"), std::string::npos);
+}
+
+TEST(JsGameRuntime, EmitsMudlleTriggerKindForSpecialCallFlags)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.trigger.name = "onMudlleCommand";
+    context.trigger.legacy_name = "SPECIAL_COMMAND";
+    context.trigger.host_type = "mudlleMobile";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.trigger.kind === 'mudlle'\n"
+        "  && ctx.trigger.handlerName === 'onMudlleCommand'\n"
+        "  && ctx.trigger.legacyName === 'SPECIAL_COMMAND';",
+        context);
+
+    expect_ok_allows(result);
 }
 
 TEST(JsGameRuntime, DispatchesCompiledCommonJsExports)

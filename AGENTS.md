@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript runtime safety metadata. Extracted the live QuickJS runtime limits, trigger budget/depth limits, and dispatch failure logging policy into a shared server-owned policy and surfaced it through the builder manifest, generated docs/editor config, and BuilderClient artifact model without declaring a script-visible runtime-safety value that live QuickJS does not inject.
-- Next slice: audit script-visible API parity between generated TypeScript declarations, offline fixtures, and the live QuickJS runtime so any remaining documented values or helpers are either actually injected live or explicitly downgraded to metadata/null/defaults before side-effect/output API work.
+- Latest completed slice: JavaScript trigger metadata parity. Live QuickJS now injects generated `TriggerInfo.kind` and `TriggerInfo.handlerName`, keeps `name` as a documented handler-name compatibility alias, exposes root `ctx.zone` through the generated contract, and BuilderClient fallback/offline execution normalizes fixture trigger metadata to the live script-visible shape instead of leaking the fixture-editor-only `blocking` field.
+- Next slice: normalize BuilderClient offline fixture handles and context fields into the same live-shaped read-only API objects that QuickJS receives, including `isValid()`, character stats/room, nested room zone, room `isSunlit`, object owner links, explicit null defaults for trigger-specific fields, and tests proving generated typings compile and run offline for those fields.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

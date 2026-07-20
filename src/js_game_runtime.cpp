@@ -138,9 +138,12 @@ std::string object_literal(const JsGameObjectFixture& object)
 
 std::string trigger_literal(const JsGameTriggerFixture& trigger)
 {
+    const char* trigger_kind = trigger.legacy_name.rfind("SPECIAL_", 0) == 0 ? "mudlle" : "legacy";
     std::ostringstream out;
     out << "{"
+        << "\"kind\":" << js_quote(trigger_kind) << ","
         << "\"name\":" << js_quote(trigger.name) << ","
+        << "\"handlerName\":" << js_quote(trigger.name) << ","
         << "\"legacyName\":" << js_quote(trigger.legacy_name) << ","
         << "\"hostType\":" << js_quote(trigger.host_type) << ","
         << "\"legacyValue\":" << trigger.legacy_value << ","
