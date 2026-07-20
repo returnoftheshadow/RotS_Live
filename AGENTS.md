@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript trigger metadata parity. Live QuickJS now injects generated `TriggerInfo.kind` and `TriggerInfo.handlerName`, keeps `name` as a documented handler-name compatibility alias, exposes root `ctx.zone` through the generated contract, and BuilderClient fallback/offline execution normalizes fixture trigger metadata to the live script-visible shape instead of leaking the fixture-editor-only `blocking` field.
-- Next slice: normalize BuilderClient offline fixture handles and context fields into the same live-shaped read-only API objects that QuickJS receives, including `isValid()`, character stats/room, nested room zone, room `isSunlit`, object owner links, explicit null defaults for trigger-specific fields, and tests proving generated typings compile and run offline for those fields.
+- Latest completed slice: BuilderClient offline handle normalization. Offline fixture execution now converts persisted fixture handles into live-shaped read-only `Character`, `GameObject`, `Room`, and `Zone` objects and creates helper functions inside the VM realm instead of exposing host-realm constructors.
+- Next slice: expand BuilderClient offline fixture schemas, validation, templates, and runner normalization so builders can model every generated/live `ScriptContext` role and scalar field (`speaker`, `attacker`, `victim`, `killer`, `weapon`, `wearSlot`, `command`, `args`, `target`, `tick`, movement fields, `targ1`, `targ2`, `targetTypes`, and `dying`) instead of hardcoded null/defaults.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
