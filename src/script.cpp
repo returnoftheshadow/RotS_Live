@@ -254,6 +254,8 @@ int dispatch_javascript_character_damage_trigger(char_data* vict, char_data* ch)
     request.legacy_value = ON_DAMAGE;
     request.context_input.self = vict;
     request.context_input.actor = ch;
+    request.context_input.attacker = ch;
+    request.context_input.victim = vict;
     if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))
         request.context_input.room = vict->in_room;
 
@@ -293,6 +295,8 @@ int dispatch_javascript_object_damage_trigger(obj_data* obj, char_data* vict, ch
     request.legacy_value = ON_DAMAGE;
     request.context_input.object = obj;
     request.context_input.actor = ch;
+    request.context_input.attacker = ch;
+    request.context_input.victim = vict;
     if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))
         request.context_input.room = vict->in_room;
 
@@ -425,6 +429,7 @@ int dispatch_javascript_character_hear_trigger(int trigger_type, char_data* list
     request.legacy_value = trigger_type;
     request.context_input.self = listener;
     request.context_input.actor = speaker;
+    request.context_input.speaker = speaker;
     request.context_input.room = listener->in_room;
     request.context_input.text = text;
 

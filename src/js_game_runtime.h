@@ -68,6 +68,15 @@ struct JsGameTriggerContextFixture {
     bool has_actor = false;
     JsGameCharacterFixture actor;
 
+    bool has_speaker = false;
+    JsGameCharacterFixture speaker;
+
+    bool has_attacker = false;
+    JsGameCharacterFixture attacker;
+
+    bool has_victim = false;
+    JsGameCharacterFixture victim;
+
     bool has_object = false;
     JsGameObjectFixture object;
 

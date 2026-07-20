@@ -762,6 +762,121 @@ TEST(JsTriggerDispatch, ObjectHostProvidesWornBySnapshot)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
+TEST(JsTriggerDispatch, CharacterDamageProvidesAttackerAndVictimRoleSnapshots)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_package(5610, JsScriptPackageHost::Character,
+        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+        "function onDamage(ctx) {\n"
+        "  if (ctx.hostType !== 'character') throw new TypeError('host');\n"
+        "  if (ctx.self.name !== 'Victim') throw new TypeError('self');\n"
+        "  if (ctx.actor.name !== 'Attacker') throw new TypeError('actor');\n"
+        "  if (ctx.attacker.name !== 'Attacker') throw new TypeError('attacker');\n"
+        "  if (ctx.victim.name !== 'Victim') throw new TypeError('victim');\n"
+        "  return ctx.attacker.isValid() && ctx.victim.isValid();\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    const char_data* live_characters[] = { &victim, &attacker };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_DAMAGE;
+    request.context_input.self = &victim;
+    request.context_input.actor = &attacker;
+    request.context_input.attacker = &attacker;
+    request.context_input.victim = &victim;
+    request.context_input.room = 0;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+}
+
+TEST(JsTriggerDispatch, ObjectDamageProvidesAttackerAndVictimRoleSnapshots)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_package(5612, JsScriptPackageHost::Object,
+        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+        "function onDamage(ctx) {\n"
+        "  if (ctx.hostType !== 'object') throw new TypeError('host');\n"
+        "  if (ctx.self !== null) throw new TypeError('self');\n"
+        "  if (ctx.object.name !== 'Blade') throw new TypeError('object');\n"
+        "  if (ctx.actor.name !== 'Attacker') throw new TypeError('actor');\n"
+        "  if (ctx.attacker.name !== 'Attacker') throw new TypeError('attacker');\n"
+        "  if (ctx.victim.name !== 'Victim') throw new TypeError('victim');\n"
+        "  return ctx.attacker.isValid() && ctx.victim.isValid();\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    obj_data object = make_object("Blade", 0);
+    const char_data* live_characters[] = { &victim, &attacker };
+    const obj_data* live_objects[] = { &object };
+    index_data object_index[1] {};
+    object_index[0].virt = 300;
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Object;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_DAMAGE;
+    request.context_input.object = &object;
+    request.context_input.actor = &attacker;
+    request.context_input.attacker = &attacker;
+    request.context_input.victim = &victim;
+    request.context_input.room = 0;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+}
+
+TEST(JsTriggerDispatch, CharacterHearProvidesSpeakerRoleSnapshot)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_package(5611, JsScriptPackageHost::Character,
+        JsScriptingManifestKind::LegacyScriptTrigger, ON_HEAR_SAY, "onHearSay",
+        "function onHearSay(ctx) {\n"
+        "  if (ctx.hostType !== 'character') throw new TypeError('host');\n"
+        "  if (ctx.self.name !== 'Listener') throw new TypeError('self');\n"
+        "  if (ctx.actor.name !== 'Speaker') throw new TypeError('actor');\n"
+        "  if (ctx.speaker.name !== 'Speaker') throw new TypeError('speaker');\n"
+        "  return ctx.text === 'hello there' && ctx.speaker.isValid();\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    const char_data* live_characters[] = { &listener, &speaker };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_HEAR_SAY;
+    request.context_input.self = &listener;
+    request.context_input.actor = &speaker;
+    request.context_input.speaker = &speaker;
+    request.context_input.room = 0;
+    request.context_input.text = "hello there";
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+}
+
 TEST(JsTriggerDispatch, RejectsMudlleMobileDispatchWhenSelfIsNotNpc)
 {
     JsScriptPackageRegistry registry;

@@ -570,7 +570,8 @@ TEST(JsLegacyTriggerDispatch, LiveServerFacadeExecutesActivatedPackagesAcrossGam
                          "}\n"
                          "function onDie(ctx) { return ctx.self.name !== 'Victim'; }\n"
                          "function onDamage(ctx) { "
-                         "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker'); "
+                         "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker' && "
+                         "ctx.attacker.name === 'Attacker' && ctx.victim.name === 'Victim'); "
                          "}\n"
                          "function onReceive(ctx) { "
                          "return !(ctx.self.name === 'Receiver' && ctx.actor.name === 'Giver' && "
@@ -590,7 +591,11 @@ TEST(JsLegacyTriggerDispatch, LiveServerFacadeExecutesActivatedPackagesAcrossGam
                          "function onDrink(ctx) { return !objectNamed(ctx, 'Flask', 'Actor'); }\n"
                          "function onWear(ctx) { return !objectNamed(ctx, 'Coat', 'Actor'); }\n"
                          "function onPull(ctx) { return !objectNamed(ctx, 'Lever', 'Actor'); }\n"
-                         "function onDamage(ctx) { return !objectNamed(ctx, 'Blade', 'Attacker'); }",
+                         "function onDamage(ctx) { "
+                         "return !(objectNamed(ctx, 'Blade', 'Attacker') && "
+                         "ctx.attacker.name === 'Attacker' && "
+                         "ctx.victim.name === 'VictimForObject'); "
+                         "}",
                          {ON_ENTER, ON_EXAMINE_OBJECT, ON_EAT, ON_DRINK, ON_WEAR, ON_PULL,
                              ON_DAMAGE},
                          JsScriptPackageHost::Object));
@@ -912,7 +917,8 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptOnDamagePathBlocksDamage) {
     activate_package(repository, service.live_store(),
                      make_package(6124,
                          "function onDamage(ctx) { "
-                         "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker'); "
+                         "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker' && "
+                         "ctx.attacker.name === 'Attacker' && ctx.victim.name === 'Victim'); "
                          "}",
                          ON_DAMAGE));
     ASSERT_TRUE(service.refresh().ok);
@@ -1686,7 +1692,7 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptHearSayPathAllowsWhenHandlerReturnsFa
                      make_package(6160,
                          "function onHearSay(ctx) { "
                          "return !(ctx.self.name === 'Listener' && ctx.actor.name === 'Speaker' && "
-                         "ctx.text === 'hello'); "
+                         "ctx.speaker.name === 'Speaker' && ctx.text === 'hello'); "
                          "}",
                          ON_HEAR_SAY));
     ASSERT_TRUE(service.refresh().ok);
@@ -2397,8 +2403,11 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(contains(script, "if (legacy_value == ON_ENTER && vict->in_room != room_index)"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_DIE;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_DAMAGE;"));
+    EXPECT_TRUE(contains(script, "request.context_input.attacker = ch;"));
+    EXPECT_TRUE(contains(script, "request.context_input.victim = vict;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_RECEIVE;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = trigger_type;"));
+    EXPECT_TRUE(contains(script, "request.context_input.speaker = speaker;"));
     EXPECT_TRUE(contains(script, "request.context_input.text = text;"));
     EXPECT_TRUE(contains(script, "!js_game_adapter_room_is_valid(speaker->in_room, adapter_options)"));
     EXPECT_TRUE(contains(script, "trigger_type == ON_HEAR_SAY && listener->in_room != speaker->in_room"));

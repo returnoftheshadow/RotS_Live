@@ -38,6 +38,9 @@ struct JsGameAdapterOptions {
 struct JsGameAdapterContextInput {
     const char_data *self = nullptr;
     const char_data *actor = nullptr;
+    const char_data *speaker = nullptr;
+    const char_data *attacker = nullptr;
+    const char_data *victim = nullptr;
     const obj_data *object = nullptr;
     int room = -1;
     const char *text = nullptr;

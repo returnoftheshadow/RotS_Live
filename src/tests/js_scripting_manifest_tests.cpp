@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <set>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -13,13 +14,34 @@ bool has_host(const JsScriptingManifestEntry &entry, JsScriptingHostFlag host_fl
     return (entry.host_flags & host_flag) != 0;
 }
 
+std::string trim_copy(const std::string &value) {
+    const std::size_t first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos)
+        return "";
+    const std::size_t last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+
+std::set<std::string> context_field_set(const char *context_fields) {
+    std::set<std::string> fields;
+    std::istringstream input(context_fields == nullptr ? "" : context_fields);
+    std::string token;
+    while (std::getline(input, token, ',')) {
+        std::string field = trim_copy(token);
+        if (!field.empty())
+            fields.insert(field);
+    }
+    return fields;
+}
+
 void expect_context_fields(int legacy_value, const std::initializer_list<const char *> fields) {
     const JsScriptingManifestEntry *entry = find_js_scripting_manifest_entry(
         JsScriptingManifestKind::LegacyScriptTrigger, legacy_value);
     ASSERT_NE(entry, nullptr) << legacy_value;
-    const std::string context = entry->context_fields;
+    std::set<std::string> expected_fields;
     for (const char *field : fields)
-        EXPECT_NE(context.find(field), std::string::npos) << entry->legacy_name << " " << field;
+        expected_fields.insert(field);
+    EXPECT_EQ(context_field_set(entry->context_fields), expected_fields) << entry->legacy_name;
 }
 
 void expect_deferred_handler(JsScriptingManifestKind kind, int legacy_value,
@@ -345,19 +367,23 @@ TEST(JsScriptingManifest, KeepsRoomOwnedJavaScriptPublishingDeferred) {
 }
 
 TEST(JsScriptingManifest, RecordsRequiredContextFieldsForLegacyTriggers) {
-    expect_context_fields(ON_ENTER, {"self", "actor", "room", "trigger", "hostType"});
+    expect_context_fields(ON_ENTER, {"self", "object", "actor", "room", "trigger", "hostType"});
     expect_context_fields(ON_BEFORE_ENTER, {"self", "actor", "room", "trigger", "hostType"});
     expect_context_fields(ON_BEFORE_DIE, {"self", "killer", "trigger", "hostType"});
     expect_context_fields(ON_DIE, {"self", "killer", "trigger", "hostType"});
     expect_context_fields(ON_RECEIVE, {"self", "actor", "object", "trigger", "hostType"});
     expect_context_fields(ON_EXAMINE_OBJECT, {"object", "actor", "trigger", "hostType"});
-    expect_context_fields(ON_HEAR_SAY, {"self", "actor", "text", "trigger", "hostType"});
-    expect_context_fields(ON_DAMAGE, {"self", "object", "actor", "trigger", "hostType"});
+    expect_context_fields(ON_HEAR_SAY,
+                          {"self", "actor", "speaker", "text", "trigger", "hostType"});
+    expect_context_fields(ON_DAMAGE,
+                          {"self", "object", "actor", "attacker", "victim", "trigger",
+                           "hostType"});
     expect_context_fields(ON_EAT, {"object", "actor", "trigger", "hostType"});
     expect_context_fields(ON_DRINK, {"object", "actor", "trigger", "hostType"});
     expect_context_fields(ON_WEAR, {"object", "actor", "wearSlot", "trigger", "hostType"});
     expect_context_fields(ON_PULL, {"object", "actor", "trigger", "hostType"});
-    expect_context_fields(ON_HEAR_YELL, {"self", "actor", "text", "trigger", "hostType"});
+    expect_context_fields(ON_HEAR_YELL,
+                          {"self", "actor", "speaker", "text", "trigger", "hostType"});
 }
 
 TEST(JsScriptingManifest, RecordsRequiredContextFieldsForMudlleCallFlags) {

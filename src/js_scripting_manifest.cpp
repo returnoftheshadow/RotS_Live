@@ -66,14 +66,14 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, false, false, JsScriptingExceptionPolicy::FailOpen,
      "character hear helper; legacy helper also checks ON_HEAR_YELL",
-     "self, actor, text, trigger, hostType",
+     "self, actor, speaker, text, trigger, hostType",
      "Listener is self, speaker is actor. Preserve the say/yell compatibility quirk for parity "
      "unless a later manifest revision intentionally splits the handlers."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "ON_DAMAGE", "onDamage",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred,
      CharacterHost | ObjectHost, false, false, true, false, JsScriptingExceptionPolicy::FailClosed,
      "victim character script first, then wielded object script if damage remains allowed",
-     "self, object, actor, trigger, hostType",
+     "self, object, actor, attacker, victim, trigger, hostType",
      "False/block prevents damage and prevents downstream weapon-object dispatch. Object-host "
      "handlers use object and actor; self is reserved for character hosts."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_EAT, "ON_EAT", "onEat",
@@ -100,7 +100,7 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, false, false, JsScriptingExceptionPolicy::FailOpen,
      "character hear helper; legacy helper also checks ON_HEAR_SAY",
-     "self, actor, text, trigger, hostType",
+     "self, actor, speaker, text, trigger, hostType",
      "Listener is self, speaker is actor. Preserve the say/yell compatibility quirk for parity "
      "unless a later manifest revision intentionally splits the handlers."},
 

@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: `GameObject.carriedBy`/`wornBy` runtime backing. Object snapshots expose direct live carriers only when the object is linked from the carrier inventory list, expose live wearers only when the object is in an equipment slot, and keep room/nested/stale/unlinked relationship pointers null.
-- Next slice: audit remaining `ScriptContext` alias drift for trigger-specific fields such as `attacker`, `speaker`, `victim`, `weapon`, and `wearSlot`, then implement the first safe alias group against legacy call-site context mapping.
+- Latest completed slice: first `ScriptContext` role-snapshot group. JavaScript contexts expose root `ctx.hostType`, hear-trigger `ctx.speaker`, and damage-trigger `ctx.attacker`/`ctx.victim` snapshots through the existing live-character adapter gates.
+- Next slice: continue remaining `ScriptContext` payload drift with fields that need additional call-site data or product rules, likely `weapon` for damage, `wearSlot` for wear, and explicit null/unsupported handling for `killer`, command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

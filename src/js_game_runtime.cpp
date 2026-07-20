@@ -351,6 +351,12 @@ std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& c
         << nullable_literal(context.has_self, character_literal(context.self)) << ","
         << "\"actor\":"
         << nullable_literal(context.has_actor, character_literal(context.actor)) << ","
+        << "\"speaker\":"
+        << nullable_literal(context.has_speaker, character_literal(context.speaker)) << ","
+        << "\"attacker\":"
+        << nullable_literal(context.has_attacker, character_literal(context.attacker)) << ","
+        << "\"victim\":"
+        << nullable_literal(context.has_victim, character_literal(context.victim)) << ","
         << "\"object\":"
         << nullable_literal(context.has_object, object_literal(context.object)) << ","
         << "\"room\":"
@@ -358,6 +364,7 @@ std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& c
         << "\"zone\":"
         << nullable_literal(context.has_zone, zone_literal(context.zone)) << ","
         << "\"text\":" << nullable_literal(context.has_text, js_quote(context.text)) << ","
+        << "\"hostType\":" << js_quote(context.trigger.host_type) << ","
         << "\"trigger\":" << trigger_literal(context.trigger) << "}";
     return out.str();
 }

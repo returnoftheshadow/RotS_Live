@@ -192,8 +192,6 @@ TEST(JsApiContract, CoversManifestContextFields)
     for (std::size_t index = 0; index < js_scripting_manifest_entry_count(); ++index) {
         const JsScriptingManifestEntry& entry = js_scripting_manifest_entries()[index];
         for (const std::string& field : split_context_fields(entry.context_fields)) {
-            if (field == "hostType")
-                continue;
             EXPECT_NE(find_js_api_contract_member(*context, field.c_str()), nullptr)
                 << entry.legacy_name << " missing " << field;
         }

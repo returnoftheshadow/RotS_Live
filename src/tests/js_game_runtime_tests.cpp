@@ -232,6 +232,29 @@ TEST(JsGameRuntime, RejectsMutationOfObjectOwnerSnapshots)
     EXPECT_EQ(proto_result.status, JsRuntimeStatus::Error);
 }
 
+TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.has_speaker = true;
+    context.speaker = context.actor;
+    context.has_attacker = true;
+    context.attacker = context.actor;
+    context.has_victim = true;
+    context.victim = context.self;
+    context.trigger.host_type = "character";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.hostType === 'character'\n"
+        "  && ctx.speaker.id === 'player:7'\n"
+        "  && ctx.attacker.name === 'Builder'\n"
+        "  && ctx.victim.name === 'Aldren'\n"
+        "  && ctx.trigger.hostType === ctx.hostType;",
+        context);
+
+    expect_ok_allows(result);
+}
+
 TEST(JsGameRuntime, SerializesFalseRoomSunlitState)
 {
     JsGameTriggerContextFixture context = make_context();
@@ -372,6 +395,9 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
     JsGameTriggerContextFixture context = make_context();
     context.has_self = false;
     context.has_actor = false;
+    context.has_speaker = false;
+    context.has_attacker = false;
+    context.has_victim = false;
     context.has_object = false;
     context.has_room = false;
     context.has_zone = false;
@@ -381,6 +407,9 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "return ctx.self === null\n"
         "  && ctx.actor === null\n"
+        "  && ctx.speaker === null\n"
+        "  && ctx.attacker === null\n"
+        "  && ctx.victim === null\n"
         "  && ctx.object === null\n"
         "  && ctx.room === null\n"
         "  && ctx.zone === null\n"
@@ -499,6 +528,10 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\",\"name\":\"silver lever\","
                            "\"vnum\":300,\"room\":{\"id\":\"room:1204\""),
         std::string::npos);
+    EXPECT_NE(literal.find("\"speaker\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"attacker\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"victim\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"hostType\":\"object\""), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"legacyName\":\"ON_PULL\""), std::string::npos);
     EXPECT_EQ(literal.find("char_data"), std::string::npos);

@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, room, direct object-room, and direct object-owner snapshot parity is in place before any world mutation/output helpers.
-- Active slice: `GameObject.carriedBy`/`wornBy` runtime backing complete. Object snapshots now expose live direct inventory owners through `carriedBy` only when the object is linked from the carrier's inventory list, expose live equipment owners through `wornBy` only when the object is in an equipment slot, and keep room/nested/stale/unlinked relationship pointers null.
-- Next slice: audit remaining `ScriptContext` alias drift for trigger-specific fields such as `attacker`, `speaker`, `victim`, `weapon`, and `wearSlot`, then implement the first safe alias group against legacy call-site context mapping.
+- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, room, direct object-room, direct object-owner, and first trigger role-snapshot parity is in place before any world mutation/output helpers.
+- Active slice: first `ScriptContext` role-snapshot group complete. JavaScript contexts now expose root `ctx.hostType`, hear-trigger `ctx.speaker`, and damage-trigger `ctx.attacker`/`ctx.victim` snapshots only where existing legacy call sites already provide those typed character inputs.
+- Next slice: continue remaining `ScriptContext` payload drift with fields that need additional call-site data or product rules, likely `weapon` for damage, `wearSlot` for wear, and explicit null/unsupported handling for `killer`, command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.

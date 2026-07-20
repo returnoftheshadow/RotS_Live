@@ -460,6 +460,9 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     JsGameAdapterContextInput input;
     input.self = &self;
     input.actor = &stale_actor;
+    input.speaker = &stale_actor;
+    input.attacker = &stale_actor;
+    input.victim = &stale_actor;
     input.object = &object;
     input.room = 0;
     input.text = "hello";
@@ -469,6 +472,9 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
 
     EXPECT_TRUE(context.has_self);
     EXPECT_FALSE(context.has_actor);
+    EXPECT_FALSE(context.has_speaker);
+    EXPECT_FALSE(context.has_attacker);
+    EXPECT_FALSE(context.has_victim);
     EXPECT_TRUE(context.has_object);
     EXPECT_EQ(context.object.vnum, -1);
     EXPECT_TRUE(context.has_room);
@@ -497,15 +503,24 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     JsGameAdapterContextInput input;
     input.self = &self;
     input.actor = &actor;
+    input.speaker = &actor;
+    input.attacker = &actor;
+    input.victim = &self;
     input.object = &object;
 
     JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
 
     EXPECT_EQ(context.self.id, "self");
     EXPECT_EQ(context.actor.id, "actor");
+    EXPECT_EQ(context.speaker.id, "speaker");
+    EXPECT_EQ(context.attacker.id, "attacker");
+    EXPECT_EQ(context.victim.id, "victim");
     EXPECT_EQ(context.object.id, "object");
     EXPECT_EQ(context.self.id.find("98765"), std::string::npos);
     EXPECT_EQ(context.actor.id.find("11111"), std::string::npos);
+    EXPECT_EQ(context.speaker.id.find("11111"), std::string::npos);
+    EXPECT_EQ(context.attacker.id.find("11111"), std::string::npos);
+    EXPECT_EQ(context.victim.id.find("98765"), std::string::npos);
     EXPECT_EQ(context.object.id.find("55"), std::string::npos);
 }
 

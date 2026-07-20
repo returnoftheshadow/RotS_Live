@@ -245,11 +245,22 @@ JsGameTriggerContextFixture js_game_adapter_context_fixture(
     JsGameTriggerContextFixture context;
     context.has_self = js_game_adapter_character_fixture(input.self, options, &context.self);
     context.has_actor = js_game_adapter_character_fixture(input.actor, options, &context.actor);
+    context.has_speaker =
+        js_game_adapter_character_fixture(input.speaker, options, &context.speaker);
+    context.has_attacker =
+        js_game_adapter_character_fixture(input.attacker, options, &context.attacker);
+    context.has_victim = js_game_adapter_character_fixture(input.victim, options, &context.victim);
     context.has_object = js_game_adapter_object_fixture(input.object, options, &context.object);
     if (context.has_self)
         context.self.id = "self";
     if (context.has_actor)
         context.actor.id = "actor";
+    if (context.has_speaker)
+        context.speaker.id = "speaker";
+    if (context.has_attacker)
+        context.attacker.id = "attacker";
+    if (context.has_victim)
+        context.victim.id = "victim";
     if (context.has_object)
         context.object.id = "object";
     context.has_room = js_game_adapter_room_fixture(input.room, options, &context.room);
