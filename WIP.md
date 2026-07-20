@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: BuilderClient offline/local editor hardening is complete across Monaco/generated typing hardening, zoom controls, and tooltip coverage, so publish workflow slices can resume.
-- Active slice: BuilderClient publish checksum autofill complete. The renderer routes publish server results through a shared functional field-state helper so staged digest and base-live checksum refresh consistently, successful activation/rollback preserves the request-time live checksum as the next rollback/backout target, operation-mismatched responses do not mutate checksum fields, explicit empty staged/live metadata clears stale UI values, and blank/malformed checksum metadata is ignored instead of overwriting useful fields.
-- Next slice: add renderer publish operation readiness/affordance hardening so Status, Stage, Activate, and Rollback expose missing input reasons and avoid sending obviously incomplete activation/rollback requests from the UI.
+- Active slice: BuilderClient publish operation readiness/affordance hardening complete. Status, Stage, Activate, and Rollback now expose missing-input readiness in the Publish output and button tooltips, use the same effective applied package id that publish requests send, disable incomplete actions in the UI, and return a client-side missing-input result before busy state or publish IPC when obvious required fields are blank. Server-side IPC/proxy/game validation remains authoritative for canonical ids, checksums, auth, and stale/replay handling.
+- Next slice: add end-to-end CLI publish workflow documentation covering package, stage, status, activate, rollback, required checksums/digests, and the proxy/test-server boundary.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.

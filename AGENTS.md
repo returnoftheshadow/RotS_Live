@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient publish checksum autofill. Publish server responses now update staged digest and base-live checksum through one functional field-state helper, preserve request-time live checksum as the rollback/backout target after successful activation/rollback, ignore operation-mismatched responses, clear explicit no-staged/no-live metadata, and guard malformed/blank checksum metadata with focused tests.
-- Next slice: BuilderClient publish operation readiness/affordance hardening. Add UI-visible missing-input reasons for Status, Stage, Activate, and Rollback, disable obviously incomplete activation/rollback requests before IPC, and keep server-side validation authoritative.
+- Latest completed slice: BuilderClient publish operation readiness/affordance hardening. Status, Stage, Activate, and Rollback now show missing-input readiness in the Publish output and button tooltips, use the effective applied package id rather than unapplied metadata draft text, and return a client-side missing-input result before busy state or publish IPC when obvious required inputs are blank.
+- Next slice: BuilderClient end-to-end CLI publish workflow documentation. Document `rots-script package`, `publish stage`, `publish status`, `publish activate`, and `publish rollback` with required checksums/digests, proxy/test-server boundary, and common failure recovery.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
