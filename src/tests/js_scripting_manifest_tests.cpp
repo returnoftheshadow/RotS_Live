@@ -376,7 +376,7 @@ TEST(JsScriptingManifest, RecordsRequiredContextFieldsForLegacyTriggers) {
     expect_context_fields(ON_HEAR_SAY,
                           {"self", "actor", "speaker", "text", "trigger", "hostType"});
     expect_context_fields(ON_DAMAGE,
-                          {"self", "object", "actor", "attacker", "victim", "trigger",
+                          {"self", "object", "actor", "attacker", "victim", "weapon", "trigger",
                            "hostType"});
     expect_context_fields(ON_EAT, {"object", "actor", "trigger", "hostType"});
     expect_context_fields(ON_DRINK, {"object", "actor", "trigger", "hostType"});

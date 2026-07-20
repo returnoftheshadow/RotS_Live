@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, room, direct object-room, direct object-owner, and first trigger role-snapshot parity is in place before any world mutation/output helpers.
-- Active slice: first `ScriptContext` role-snapshot group complete. JavaScript contexts now expose root `ctx.hostType`, hear-trigger `ctx.speaker`, and damage-trigger `ctx.attacker`/`ctx.victim` snapshots only where existing legacy call sites already provide those typed character inputs.
-- Next slice: continue remaining `ScriptContext` payload drift with fields that need additional call-site data or product rules, likely `weapon` for damage, `wearSlot` for wear, and explicit null/unsupported handling for `killer`, command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
+- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, room, direct object-room, direct object-owner, trigger role snapshots, and damage weapon parity are in place before any world mutation/output helpers.
+- Active slice: damage `ScriptContext.weapon` backing is complete. Character-host `ON_DAMAGE` now exposes the attacker's live wielded weapon when available, object-host `ON_DAMAGE` exposes the weapon object itself, and unarmed/stale weapon inputs remain `null`.
+- Next slice: continue remaining `ScriptContext` payload drift with fields that need additional call-site data or product rules, starting with `wearSlot` for wear, and explicit null/unsupported handling for `killer`, command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.

@@ -450,6 +450,7 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     char_data self = make_character("Self", 1, 11, 22, 33, false);
     char_data stale_actor = make_character("StaleActor", 1, 44, 55, 66, false);
     obj_data object = make_object("key", -1);
+    obj_data stale_weapon = make_object("stale weapon", 0);
     const char_data *live_characters[] = { &self };
     const obj_data *live_objects[] = { &object };
     room_data world[1] = { make_room("Room", 100, 0) };
@@ -464,6 +465,7 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     input.attacker = &stale_actor;
     input.victim = &stale_actor;
     input.object = &object;
+    input.weapon = &stale_weapon;
     input.room = 0;
     input.text = "hello";
     input.trigger = make_trigger();
@@ -476,6 +478,7 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     EXPECT_FALSE(context.has_attacker);
     EXPECT_FALSE(context.has_victim);
     EXPECT_TRUE(context.has_object);
+    EXPECT_FALSE(context.has_weapon);
     EXPECT_EQ(context.object.vnum, -1);
     EXPECT_TRUE(context.has_room);
     EXPECT_TRUE(context.has_zone);
@@ -493,11 +496,12 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     obj_data object = make_object("object", 0);
     object.owner = 98765;
     object.touched = 55;
+    obj_data weapon = make_object("weapon", 0);
     index_data object_index[1] {};
     object_index[0].virt = 400;
     const char_data *live_characters[] = { &self, &actor };
-    const obj_data *live_objects[] = { &object };
-    JsGameAdapterOptions options = make_options(live_characters, 2, live_objects, 1, nullptr, -1,
+    const obj_data *live_objects[] = { &object, &weapon };
+    JsGameAdapterOptions options = make_options(live_characters, 2, live_objects, 2, nullptr, -1,
         nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
 
     JsGameAdapterContextInput input;
@@ -507,6 +511,7 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     input.attacker = &actor;
     input.victim = &self;
     input.object = &object;
+    input.weapon = &weapon;
 
     JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
 
@@ -516,6 +521,7 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     EXPECT_EQ(context.attacker.id, "attacker");
     EXPECT_EQ(context.victim.id, "victim");
     EXPECT_EQ(context.object.id, "object");
+    EXPECT_EQ(context.weapon.id, "weapon");
     EXPECT_EQ(context.self.id.find("98765"), std::string::npos);
     EXPECT_EQ(context.actor.id.find("11111"), std::string::npos);
     EXPECT_EQ(context.speaker.id.find("11111"), std::string::npos);

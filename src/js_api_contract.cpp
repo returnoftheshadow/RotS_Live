@@ -172,7 +172,7 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "Damage source role snapshot for ON_DAMAGE triggers when the combat call site provides it."},
     {"weapon", JsApiMemberKind::Property, "GameObject | null", "", true, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Weapon object involved in damage, or null."},
+     "Weapon object snapshot for ON_DAMAGE when the attacker is wielding a live object, or null."},
     {"wearSlot", JsApiMemberKind::Property, "string | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Equipment slot name for wear triggers when known."},

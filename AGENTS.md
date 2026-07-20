@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: first `ScriptContext` role-snapshot group. JavaScript contexts expose root `ctx.hostType`, hear-trigger `ctx.speaker`, and damage-trigger `ctx.attacker`/`ctx.victim` snapshots through the existing live-character adapter gates.
-- Next slice: continue remaining `ScriptContext` payload drift with fields that need additional call-site data or product rules, likely `weapon` for damage, `wearSlot` for wear, and explicit null/unsupported handling for `killer`, command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
+- Latest completed slice: damage `ScriptContext.weapon` backing. Character-host `ON_DAMAGE` exposes the attacker's live wielded weapon when available, object-host `ON_DAMAGE` exposes the weapon object itself, and unarmed/stale weapon inputs stay `null`.
+- Next slice: continue remaining `ScriptContext` payload drift with fields that need additional call-site data or product rules, starting with `wearSlot` for wear, and explicit null/unsupported handling for `killer`, command args, movement directions, `dying`, `target`, and deferred Mudlle target slots.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

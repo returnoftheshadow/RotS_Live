@@ -80,6 +80,9 @@ struct JsGameTriggerContextFixture {
     bool has_object = false;
     JsGameObjectFixture object;
 
+    bool has_weapon = false;
+    JsGameObjectFixture weapon;
+
     bool has_room = false;
     JsGameRoomFixture room;
 

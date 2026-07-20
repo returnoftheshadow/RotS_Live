@@ -256,6 +256,7 @@ int dispatch_javascript_character_damage_trigger(char_data* vict, char_data* ch)
     request.context_input.actor = ch;
     request.context_input.attacker = ch;
     request.context_input.victim = vict;
+    request.context_input.weapon = ch->equipment[WIELD];
     if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))
         request.context_input.room = vict->in_room;
 
@@ -297,6 +298,7 @@ int dispatch_javascript_object_damage_trigger(obj_data* obj, char_data* vict, ch
     request.context_input.actor = ch;
     request.context_input.attacker = ch;
     request.context_input.victim = vict;
+    request.context_input.weapon = obj;
     if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))
         request.context_input.room = vict->in_room;
 

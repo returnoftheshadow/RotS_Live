@@ -73,7 +73,7 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred,
      CharacterHost | ObjectHost, false, false, true, false, JsScriptingExceptionPolicy::FailClosed,
      "victim character script first, then wielded object script if damage remains allowed",
-     "self, object, actor, attacker, victim, trigger, hostType",
+     "self, object, actor, attacker, victim, weapon, trigger, hostType",
      "False/block prevents damage and prevents downstream weapon-object dispatch. Object-host "
      "handlers use object and actor; self is reserved for character hosts."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_EAT, "ON_EAT", "onEat",

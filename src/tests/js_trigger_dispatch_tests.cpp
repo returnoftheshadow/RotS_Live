@@ -773,16 +773,21 @@ TEST(JsTriggerDispatch, CharacterDamageProvidesAttackerAndVictimRoleSnapshots)
         "  if (ctx.actor.name !== 'Attacker') throw new TypeError('actor');\n"
         "  if (ctx.attacker.name !== 'Attacker') throw new TypeError('attacker');\n"
         "  if (ctx.victim.name !== 'Victim') throw new TypeError('victim');\n"
-        "  return ctx.attacker.isValid() && ctx.victim.isValid();\n"
+        "  if (ctx.weapon.name !== 'Blade') throw new TypeError('weapon');\n"
+        "  return ctx.attacker.isValid() && ctx.victim.isValid() && ctx.weapon.isValid();\n"
         "}");
     ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
 
     char_data victim = make_character("Victim");
     char_data attacker = make_character("Attacker");
+    obj_data weapon = make_object("Blade", 0);
     const char_data* live_characters[] = { &victim, &attacker };
+    const obj_data* live_objects[] = { &weapon };
+    index_data object_index[1] {};
+    object_index[0].virt = 300;
     room_data world[1] = { make_room("Room", 100, 0) };
     JsGameAdapterOptions options =
-        make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+        make_options(live_characters, 2, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
 
     JsTriggerDispatchRequest request;
     request.host = JsScriptPackageHost::Character;
@@ -792,6 +797,7 @@ TEST(JsTriggerDispatch, CharacterDamageProvidesAttackerAndVictimRoleSnapshots)
     request.context_input.actor = &attacker;
     request.context_input.attacker = &attacker;
     request.context_input.victim = &victim;
+    request.context_input.weapon = &weapon;
     request.context_input.room = 0;
 
     JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
@@ -811,7 +817,8 @@ TEST(JsTriggerDispatch, ObjectDamageProvidesAttackerAndVictimRoleSnapshots)
         "  if (ctx.actor.name !== 'Attacker') throw new TypeError('actor');\n"
         "  if (ctx.attacker.name !== 'Attacker') throw new TypeError('attacker');\n"
         "  if (ctx.victim.name !== 'Victim') throw new TypeError('victim');\n"
-        "  return ctx.attacker.isValid() && ctx.victim.isValid();\n"
+        "  if (ctx.weapon.name !== 'Blade') throw new TypeError('weapon');\n"
+        "  return ctx.attacker.isValid() && ctx.victim.isValid() && ctx.weapon.isValid();\n"
         "}");
     ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
 
@@ -831,6 +838,37 @@ TEST(JsTriggerDispatch, ObjectDamageProvidesAttackerAndVictimRoleSnapshots)
     request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
     request.legacy_value = ON_DAMAGE;
     request.context_input.object = &object;
+    request.context_input.actor = &attacker;
+    request.context_input.attacker = &attacker;
+    request.context_input.victim = &victim;
+    request.context_input.weapon = &object;
+    request.context_input.room = 0;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+}
+
+TEST(JsTriggerDispatch, CharacterDamageModelsMissingWeaponAsNull)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_package(5613, JsScriptPackageHost::Character,
+        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+        "function onDamage(ctx) { return ctx.weapon === null && ctx.attacker.name === 'Attacker'; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    const char_data* live_characters[] = { &victim, &attacker };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Character;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_DAMAGE;
+    request.context_input.self = &victim;
     request.context_input.actor = &attacker;
     request.context_input.attacker = &attacker;
     request.context_input.victim = &victim;

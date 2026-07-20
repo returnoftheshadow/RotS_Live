@@ -255,6 +255,40 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots)
     expect_ok_allows(result);
 }
 
+TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.has_weapon = true;
+    context.weapon = context.object;
+    context.trigger.name = "onDamage";
+    context.trigger.legacy_name = "ON_DAMAGE";
+    context.trigger.legacy_value = 18;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.weapon !== null\n"
+        "  && ctx.weapon.name === 'silver lever'\n"
+        "  && ctx.weapon.room.vnum === 1204\n"
+        "  && ctx.weapon.isValid();",
+        context);
+
+    expect_ok_allows(result);
+
+    JsRuntimeEvalResult assign_result = runtime.evaluate_trigger_body(
+        "ctx.weapon.name = 'changed';\n"
+        "return true;",
+        context);
+    EXPECT_EQ(assign_result.status, JsRuntimeStatus::Error);
+    EXPECT_NE(assign_result.diagnostic.find("read-only"), std::string::npos)
+        << assign_result.diagnostic;
+
+    JsRuntimeEvalResult proto_result = runtime.evaluate_trigger_body(
+        "Object.setPrototypeOf(ctx.weapon, { injected: true });\n"
+        "return true;",
+        context);
+    EXPECT_EQ(proto_result.status, JsRuntimeStatus::Error);
+}
+
 TEST(JsGameRuntime, SerializesFalseRoomSunlitState)
 {
     JsGameTriggerContextFixture context = make_context();
@@ -399,6 +433,7 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
     context.has_attacker = false;
     context.has_victim = false;
     context.has_object = false;
+    context.has_weapon = false;
     context.has_room = false;
     context.has_zone = false;
     context.has_text = false;
@@ -411,6 +446,7 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
         "  && ctx.attacker === null\n"
         "  && ctx.victim === null\n"
         "  && ctx.object === null\n"
+        "  && ctx.weapon === null\n"
         "  && ctx.room === null\n"
         "  && ctx.zone === null\n"
         "  && ctx.text === null;",
@@ -531,6 +567,7 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"speaker\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"attacker\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"victim\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"weapon\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"hostType\":\"object\""), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"legacyName\":\"ON_PULL\""), std::string::npos);

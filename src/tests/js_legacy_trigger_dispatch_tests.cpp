@@ -571,7 +571,8 @@ TEST(JsLegacyTriggerDispatch, LiveServerFacadeExecutesActivatedPackagesAcrossGam
                          "function onDie(ctx) { return ctx.self.name !== 'Victim'; }\n"
                          "function onDamage(ctx) { "
                          "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker' && "
-                         "ctx.attacker.name === 'Attacker' && ctx.victim.name === 'Victim'); "
+                         "ctx.attacker.name === 'Attacker' && ctx.victim.name === 'Victim' && "
+                         "ctx.weapon.name === 'Blade'); "
                          "}\n"
                          "function onReceive(ctx) { "
                          "return !(ctx.self.name === 'Receiver' && ctx.actor.name === 'Giver' && "
@@ -594,7 +595,7 @@ TEST(JsLegacyTriggerDispatch, LiveServerFacadeExecutesActivatedPackagesAcrossGam
                          "function onDamage(ctx) { "
                          "return !(objectNamed(ctx, 'Blade', 'Attacker') && "
                          "ctx.attacker.name === 'Attacker' && "
-                         "ctx.victim.name === 'VictimForObject'); "
+                         "ctx.victim.name === 'VictimForObject' && ctx.weapon.name === 'Blade'); "
                          "}",
                          {ON_ENTER, ON_EXAMINE_OBJECT, ON_EAT, ON_DRINK, ON_WEAR, ON_PULL,
                              ON_DAMAGE},
@@ -918,7 +919,38 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptOnDamagePathBlocksDamage) {
                      make_package(6124,
                          "function onDamage(ctx) { "
                          "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker' && "
-                         "ctx.attacker.name === 'Attacker' && ctx.victim.name === 'Victim'); "
+                         "ctx.attacker.name === 'Attacker' && ctx.victim.name === 'Victim' && "
+                         "ctx.weapon.name === 'Blade'); "
+                         "}",
+                         ON_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    victim.next = &attacker;
+    attacker.next = nullptr;
+    character_list = &victim;
+    obj_data weapon = make_object("Blade");
+    weapon.next = nullptr;
+    object_list = &weapon;
+    attacker.equipment[WIELD] = &weapon;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_damage(&victim, &attacker), 0);
+}
+
+TEST(JsLegacyTriggerDispatch, CharacterOnDamageModelsUnarmedWeaponAsNull) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6177,
+                         "function onDamage(ctx) { "
+                         "return ctx.weapon === null && ctx.attacker.name === 'Attacker'; "
                          "}",
                          ON_DAMAGE));
     ASSERT_TRUE(service.refresh().ok);
@@ -934,7 +966,36 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptOnDamagePathBlocksDamage) {
     world = make_room("Room", 100, -1);
     top_of_world = 0;
 
-    EXPECT_EQ(trigger_char_damage(&victim, &attacker), 0);
+    EXPECT_EQ(trigger_char_damage(&victim, &attacker), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, CharacterOnDamageModelsStaleEquippedWeaponAsNull) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6178,
+                         "function onDamage(ctx) { "
+                         "return ctx.weapon === null && ctx.attacker.name === 'Attacker'; "
+                         "}",
+                         ON_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data victim = make_character("Victim");
+    char_data attacker = make_character("Attacker");
+    victim.next = &attacker;
+    attacker.next = nullptr;
+    character_list = &victim;
+    obj_data stale_weapon = make_object("Stale Blade");
+    attacker.equipment[WIELD] = &stale_weapon;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_char_damage(&victim, &attacker), 1);
 }
 
 TEST(JsLegacyTriggerDispatch, EnabledScriptOnDamageRuntimeErrorBlocksDamage) {
@@ -1089,7 +1150,9 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptObjectOnDamagePathBlocksDamage) {
     activate_package(repository, service.live_store(),
                      make_package(6130,
                          "function onDamage(ctx) { "
-                         "return !(ctx.object.name === 'Blade' && ctx.actor.name === 'Attacker' && ctx.self === null); "
+                         "return !(ctx.object.name === 'Blade' && ctx.weapon.name === ctx.object.name && "
+                         "ctx.object.id === 'object' && ctx.weapon.id === 'weapon' && "
+                         "ctx.actor.name === 'Attacker' && ctx.self === null); "
                          "}",
                          ON_DAMAGE, JsScriptPackageHost::Object));
     ASSERT_TRUE(service.refresh().ok);
@@ -2405,6 +2468,8 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_DAMAGE;"));
     EXPECT_TRUE(contains(script, "request.context_input.attacker = ch;"));
     EXPECT_TRUE(contains(script, "request.context_input.victim = vict;"));
+    EXPECT_TRUE(contains(script, "request.context_input.weapon = ch->equipment[WIELD];"));
+    EXPECT_TRUE(contains(script, "request.context_input.weapon = obj;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = ON_RECEIVE;"));
     EXPECT_TRUE(contains(script, "request.legacy_value = trigger_type;"));
     EXPECT_TRUE(contains(script, "request.context_input.speaker = speaker;"));
