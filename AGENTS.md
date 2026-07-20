@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient fixture finite-vocabulary drift guard. BuilderClient tests now compare local Mudlle target type, wear slot, and movement direction domains against server-owned C++ source strings until these domains are exported as generated manifest data.
-- Next slice: export finite fixture context domains from server-owned generated artifacts and consume them in BuilderClient so target types, wear slots, directions, and future finite context domains come from generated data instead of source-reading drift guards.
+- Latest completed slice: JavaScript API public struct mapping catalog. Server-owned metadata now inventories every public top-level field on `char_data`, `obj_data`, `room_data`, and `zone_data`, with getter/setter policy docs, sensitive/internal-field denial, source drift guards, critical mapping pins, and API-contract parity checks for implemented read-only fields.
+- Next slice: JavaScript API generated documentation. Include the public struct mapping catalog in generated API markdown/manifest output so BuilderClient can surface getter/setter policy docs offline without making planned or unsupported setters callable.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
