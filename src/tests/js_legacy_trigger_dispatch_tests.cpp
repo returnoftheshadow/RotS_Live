@@ -3928,11 +3928,14 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_EQ(count_occurrences(script,
                   "JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();"),
         8u);
-    EXPECT_TRUE(contains(script, "MaxJavascriptLegacyTriggerLogMessagesPerPulse = 16"));
+    EXPECT_TRUE(contains(script, "#include \"js_scripting_runtime_policy.h\""));
+    EXPECT_TRUE(contains(script, "const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();"));
+    EXPECT_TRUE(contains(script, "policy.max_dispatch_failure_logs_per_pulse"));
     EXPECT_TRUE(contains(script, "options.budget = &javascript_legacy_trigger_dispatch_budget;"));
-    EXPECT_TRUE(contains(script, "options.budget_limits = JavascriptLegacyTriggerBudgetLimits;"));
+    EXPECT_TRUE(contains(script, "options.budget_limits = policy.budget_limits;"));
     EXPECT_TRUE(contains(script, "options.depth_guard = &javascript_legacy_trigger_dispatch_depth_guard;"));
-    EXPECT_TRUE(contains(script, "options.depth_limits = JavascriptLegacyTriggerDepthLimits;"));
+    EXPECT_TRUE(contains(script, "options.depth_limits = policy.depth_limits;"));
+    EXPECT_TRUE(contains(script, "options.runtime_limits = policy.runtime_limits;"));
     EXPECT_TRUE(contains(script, "options.current_pulse = pulse;"));
     EXPECT_EQ(count_occurrences(script, "if (javascript_legacy_trigger_depth_would_exceed())"),
         8u);

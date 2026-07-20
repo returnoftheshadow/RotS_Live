@@ -3,6 +3,7 @@
 #include "js_api_contract.h"
 #include "js_manifest_export.h"
 #include "js_scripting_manifest.h"
+#include "js_scripting_runtime_policy.h"
 #include "json_utils.h"
 
 #include <sstream>
@@ -152,6 +153,25 @@ void append_trigger_handler_union(std::ostringstream &out) {
     }
 }
 
+void append_runtime_safety_json(std::ostringstream &out)
+{
+    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
+    out << "\"runtimeSafety\":{";
+    out << "\"memoryLimitBytes\":" << policy.runtime_limits.memory_limit_bytes;
+    out << ",\"stackLimitBytes\":" << policy.runtime_limits.stack_limit_bytes;
+    out << ",\"instructionBudget\":" << policy.runtime_limits.instruction_budget;
+    out << ",\"maxInvocationsPerPulse\":"
+        << policy.budget_limits.max_invocations_per_pulse;
+    out << ",\"maxInvocationsPerPackagePerPulse\":"
+        << policy.budget_limits.max_invocations_per_package_per_pulse;
+    out << ",\"maxDispatchDepth\":" << policy.depth_limits.max_dispatch_depth;
+    out << ",\"maxDispatchFailureLogsPerPulse\":"
+        << policy.max_dispatch_failure_logs_per_pulse;
+    out << ",\"failureLoggingPolicy\":";
+    append_quoted_json(out, policy.failure_logging_policy);
+    out << '}';
+}
+
 } // namespace
 
 std::string js_generate_typescript_declarations() {
@@ -168,6 +188,31 @@ std::string js_generate_typescript_declarations() {
     out << "declare namespace RotS {\n";
     out << "export type HostType = 'character' | 'object' | 'room' | 'mudlleMobile';\n";
     out << "export type TriggerKind = 'legacy-script-trigger' | 'mudlle-call-flag';\n\n";
+    out << "export type DispatchStatus =\n";
+    out << "    | 'no-match'\n";
+    out << "    | 'allow'\n";
+    out << "    | 'block'\n";
+    out << "    | 'error'\n";
+    out << "    | 'budget-exceeded'\n";
+    out << "    | 'depth-exceeded';\n\n";
+    out << "export interface RuntimeSafetyPolicy {\n";
+    out << "    /** Maximum QuickJS heap bytes allowed for one trigger invocation. */\n";
+    out << "    readonly memoryLimitBytes: number;\n";
+    out << "    /** Maximum QuickJS stack bytes allowed for one trigger invocation. */\n";
+    out << "    readonly stackLimitBytes: number;\n";
+    out << "    /** Approximate QuickJS instruction budget before interruption. */\n";
+    out << "    readonly instructionBudget: number;\n";
+    out << "    /** Maximum JavaScript trigger invocations allowed in one server pulse. */\n";
+    out << "    readonly maxInvocationsPerPulse: number;\n";
+    out << "    /** Maximum JavaScript trigger invocations for one package in one server pulse. */\n";
+    out << "    readonly maxInvocationsPerPackagePerPulse: number;\n";
+    out << "    /** Maximum nested JavaScript trigger-entry depth before dispatch is denied. */\n";
+    out << "    readonly maxDispatchDepth: number;\n";
+    out << "    /** Maximum repeated dispatch failure logs emitted in one server pulse. */\n";
+    out << "    readonly maxDispatchFailureLogsPerPulse: number;\n";
+    out << "    /** Sanitized server logging policy for runtime, budget, and depth failures. */\n";
+    out << "    readonly failureLoggingPolicy: string;\n";
+    out << "}\n\n";
     append_trigger_handler_union(out);
     out << "\n";
 
@@ -231,6 +276,21 @@ std::string js_generate_api_markdown_reference() {
            "handlers and active read-only or pure helper API members. Reserved, unsupported, "
            "and deferred side-effect APIs are documented here for compatibility planning but are "
            "not callable from builder scripts.\n\n";
+    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
+    out << "## Runtime Safety\n\n";
+    out << "| Limit | Value |\n";
+    out << "| --- | --- |\n";
+    out << "| QuickJS memory limit bytes | `" << policy.runtime_limits.memory_limit_bytes << "` |\n";
+    out << "| QuickJS stack limit bytes | `" << policy.runtime_limits.stack_limit_bytes << "` |\n";
+    out << "| QuickJS instruction budget | `" << policy.runtime_limits.instruction_budget << "` |\n";
+    out << "| Max invocations per server pulse | `"
+        << policy.budget_limits.max_invocations_per_pulse << "` |\n";
+    out << "| Max invocations per package per server pulse | `"
+        << policy.budget_limits.max_invocations_per_package_per_pulse << "` |\n";
+    out << "| Max nested dispatch depth | `" << policy.depth_limits.max_dispatch_depth << "` |\n";
+    out << "| Max dispatch failure logs per pulse | `"
+        << policy.max_dispatch_failure_logs_per_pulse << "` |\n\n";
+    out << markdown_cell(policy.failure_logging_policy) << "\n\n";
     out << "## Trigger Handlers\n\n";
     out << "| Legacy name | Handler | Status | Hosts | Blocks gameplay | Context fields | Dispatch "
            "order | Notes |\n";
@@ -302,6 +362,8 @@ std::string js_generate_editor_lsp_config_json() {
     out << "\"apiReference\":\"generated/rots-api.md\",";
     out << "\"builderManifest\":\"generated/rots-builder-manifest.json\"";
     out << "},";
+    append_runtime_safety_json(out);
+    out << ',';
     out << "\"compatibility\":{";
     out << "\"triggerManifestChecksum\":";
     append_quoted_json(out, manifest.manifest_checksum);

@@ -3,6 +3,7 @@
 #include "../db.h"
 #include "../interpre.h"
 #include "../js_live_registry_reload_service.h"
+#include "../js_scripting_runtime_policy.h"
 #include "../script.h"
 #include "../structs.h"
 #include "../zone.h"
@@ -222,6 +223,22 @@ TEST(JsTriggerDispatch, StartsWithExplicitNoMatchStatusForEmptyRegistry)
     EXPECT_STREQ(js_trigger_dispatch_status_name(result.status), "no-match");
     EXPECT_EQ(result.matched_package_count, 0U);
     EXPECT_TRUE(result.diagnostic.empty());
+}
+
+TEST(JsScriptingRuntimePolicy, PinsLiveDispatchDefaults)
+{
+    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
+
+    EXPECT_EQ(policy.runtime_limits.memory_limit_bytes, 1024U * 1024U);
+    EXPECT_EQ(policy.runtime_limits.stack_limit_bytes, 256U * 1024U);
+    EXPECT_EQ(policy.runtime_limits.instruction_budget, 100000U);
+    EXPECT_EQ(policy.budget_limits.max_invocations_per_pulse, 1024U);
+    EXPECT_EQ(policy.budget_limits.max_invocations_per_package_per_pulse, 256U);
+    EXPECT_EQ(policy.depth_limits.max_dispatch_depth, 8U);
+    EXPECT_EQ(policy.max_dispatch_failure_logs_per_pulse, 16U);
+    EXPECT_TRUE(contains(policy.failure_logging_policy, "Source text"));
+    EXPECT_TRUE(contains(policy.failure_logging_policy, "actor speech"));
+    EXPECT_TRUE(contains(policy.failure_logging_policy, "tokens"));
 }
 
 TEST(JsTriggerDispatch, NearMissHostKindAndValueDoNotExecutePackageSource)
@@ -1654,12 +1671,17 @@ TEST(JsTriggerDispatch, BuildFilesReferenceDispatchSourcesAndTests)
     ASSERT_FALSE(test_makefile.empty());
 
     EXPECT_TRUE(contains(cmake, "js_trigger_dispatch.cpp"));
+    EXPECT_TRUE(contains(cmake, "js_scripting_runtime_policy.cpp"));
     EXPECT_TRUE(contains(cmake, "tests/js_trigger_dispatch_tests.cpp"));
     EXPECT_TRUE(contains(server_makefile, "js_trigger_dispatch.o"));
     EXPECT_TRUE(contains(server_makefile, "js_trigger_dispatch.cpp"));
+    EXPECT_TRUE(contains(server_makefile, "js_scripting_runtime_policy.o"));
+    EXPECT_TRUE(contains(server_makefile, "js_scripting_runtime_policy.cpp"));
     EXPECT_TRUE(contains(server_makefile, "js_live_registry_reload_service.h"));
     EXPECT_TRUE(contains(server_makefile, "js_live_package_store.h"));
     EXPECT_TRUE(contains(test_makefile, "js_trigger_dispatch.o"));
+    EXPECT_TRUE(contains(test_makefile, "js_scripting_runtime_policy.o"));
+    EXPECT_TRUE(contains(test_makefile, "js_scripting_runtime_policy.cpp"));
     EXPECT_TRUE(contains(test_makefile, "js_trigger_dispatch_tests.cpp"));
     EXPECT_TRUE(contains(test_makefile, "js_live_registry_reload_service.h"));
     EXPECT_TRUE(contains(test_makefile, "js_live_package_store.h"));

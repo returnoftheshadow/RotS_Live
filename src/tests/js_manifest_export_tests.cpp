@@ -2,6 +2,7 @@
 
 #include "js_api_contract.h"
 #include "js_scripting_manifest.h"
+#include "js_scripting_runtime_policy.h"
 #include "json_utils.h"
 
 #include <gtest/gtest.h>
@@ -188,9 +189,11 @@ TEST(JsManifestExport, ExportsCombinedBuilderCompatibilityBlock) {
     const std::string json = js_export_builder_manifest_json();
     const JsScriptingManifestMetadata &trigger_metadata = js_scripting_manifest_metadata();
     const JsApiContractMetadata &api_metadata = js_api_contract_metadata();
+    const JsScriptingRuntimeSafetyPolicy &policy = js_scripting_runtime_safety_policy();
 
     expect_contains_field(json, "exportKind", "builderManifest");
     EXPECT_NE(json.find("\"compatibility\":{"), std::string::npos);
+    EXPECT_NE(json.find("\"runtimeSafety\":{"), std::string::npos);
     EXPECT_NE(json.find("\"triggerManifest\":{"), std::string::npos);
     EXPECT_NE(json.find("\"apiContract\":{"), std::string::npos);
     expect_contains_int_field(json, "packageFormatVersion",
@@ -200,6 +203,24 @@ TEST(JsManifestExport, ExportsCombinedBuilderCompatibilityBlock) {
     expect_contains_field(json, "apiContractChecksum", api_metadata.contract_checksum);
     expect_contains_field(json, "runtimeName", trigger_metadata.selected_runtime_name);
     expect_contains_field(json, "runtimeVersion", trigger_metadata.selected_runtime_version);
+    expect_contains_int_field(json, "memoryLimitBytes",
+                              static_cast<int>(policy.runtime_limits.memory_limit_bytes));
+    expect_contains_int_field(json, "stackLimitBytes",
+                              static_cast<int>(policy.runtime_limits.stack_limit_bytes));
+    expect_contains_int_field(json, "instructionBudget",
+                              static_cast<int>(policy.runtime_limits.instruction_budget));
+    expect_contains_int_field(json, "maxInvocationsPerPulse",
+                              static_cast<int>(policy.budget_limits.max_invocations_per_pulse));
+    expect_contains_int_field(
+        json, "maxInvocationsPerPackagePerPulse",
+        static_cast<int>(policy.budget_limits.max_invocations_per_package_per_pulse));
+    expect_contains_int_field(json, "maxDispatchDepth",
+                              static_cast<int>(policy.depth_limits.max_dispatch_depth));
+    expect_contains_int_field(json, "maxDispatchFailureLogsPerPulse",
+                              static_cast<int>(policy.max_dispatch_failure_logs_per_pulse));
+    expect_contains_json_string(json, "budget-exceeded");
+    expect_contains_json_string(json, "depth-exceeded");
+    expect_contains_json_string(json, "registry-not-ready");
 }
 
 TEST(JsManifestExport, CanOmitDocumentationFieldsForCompactConsumers) {
@@ -217,6 +238,15 @@ TEST(JsManifestExport, CanOmitDocumentationFieldsForCompactConsumers) {
     EXPECT_EQ(builder_json.find("\"docs\":"), std::string::npos);
     EXPECT_EQ(builder_json.find("\"notes\":"), std::string::npos);
     EXPECT_EQ(builder_json.find("\"reason\":"), std::string::npos);
+    EXPECT_NE(builder_json.find("\"failureLoggingPolicy\":"), std::string::npos);
+    EXPECT_NE(builder_json.find("\"runtimeSafety\":{"), std::string::npos);
+    EXPECT_NE(builder_json.find("\"dispatchStatuses\":[\"no-match\",\"allow\",\"block\",\"error\","
+                                 "\"budget-exceeded\",\"depth-exceeded\"]"),
+              std::string::npos);
+    EXPECT_NE(builder_json.find("\"loggedFailureStatuses\":[\"registry-not-ready\","
+                                 "\"stale-registry\",\"error\",\"budget-exceeded\","
+                                 "\"depth-exceeded\"]"),
+              std::string::npos);
 }
 
 TEST(JsManifestExport, BoundsDocumentationAndAvoidsRawCppTypes) {

@@ -77,6 +77,7 @@ set(ROTS_SERVER_SOURCES
     js_script_package.cpp
     js_script_registry.cpp
     js_trigger_dispatch.cpp
+    js_scripting_runtime_policy.cpp
     objects_json.cpp
     ban.cpp
     battle_mage_handler.cpp

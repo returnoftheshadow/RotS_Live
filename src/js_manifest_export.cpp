@@ -2,6 +2,7 @@
 
 #include "js_api_contract.h"
 #include "js_scripting_manifest.h"
+#include "js_scripting_runtime_policy.h"
 #include "json_utils.h"
 
 #include <cstddef>
@@ -161,6 +162,66 @@ void append_api_metadata(std::ostringstream &out, const JsManifestExportOptions 
         out << ',';
         append_documentation_field(out, "notes", metadata.notes);
     }
+    out << '}';
+}
+
+void append_dispatch_statuses(std::ostringstream &out)
+{
+    out << '[';
+    const JsTriggerDispatchStatus statuses[] = {
+        JsTriggerDispatchStatus::NoMatch,
+        JsTriggerDispatchStatus::Allow,
+        JsTriggerDispatchStatus::Block,
+        JsTriggerDispatchStatus::Error,
+        JsTriggerDispatchStatus::BudgetExceeded,
+        JsTriggerDispatchStatus::DepthExceeded,
+    };
+    for (std::size_t index = 0; index < sizeof(statuses) / sizeof(statuses[0]); ++index) {
+        if (index > 0)
+            out << ',';
+        append_json_string(out, js_trigger_dispatch_status_name(statuses[index]));
+    }
+    out << ']';
+}
+
+void append_runtime_safety_policy(std::ostringstream &out, const JsManifestExportOptions &options)
+{
+    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
+    out << '{';
+    append_size_field(out, "memoryLimitBytes", policy.runtime_limits.memory_limit_bytes);
+    out << ',';
+    append_size_field(out, "stackLimitBytes", policy.runtime_limits.stack_limit_bytes);
+    out << ',';
+    append_size_field(out, "instructionBudget", policy.runtime_limits.instruction_budget);
+    out << ',';
+    append_size_field(out, "maxInvocationsPerPulse",
+        policy.budget_limits.max_invocations_per_pulse);
+    out << ',';
+    append_size_field(out, "maxInvocationsPerPackagePerPulse",
+        policy.budget_limits.max_invocations_per_package_per_pulse);
+    out << ',';
+    append_size_field(out, "maxDispatchDepth", policy.depth_limits.max_dispatch_depth);
+    out << ',';
+    append_size_field(out, "maxDispatchFailureLogsPerPulse",
+        policy.max_dispatch_failure_logs_per_pulse);
+    out << ',';
+    append_key(out, "dispatchStatuses");
+    append_dispatch_statuses(out);
+    out << ',';
+    append_key(out, "loggedFailureStatuses");
+    out << '[';
+    append_json_string(out, "registry-not-ready");
+    out << ',';
+    append_json_string(out, "stale-registry");
+    out << ',';
+    append_json_string(out, "error");
+    out << ',';
+    append_json_string(out, "budget-exceeded");
+    out << ',';
+    append_json_string(out, "depth-exceeded");
+    out << ']';
+    out << ',';
+    append_documentation_field(out, "failureLoggingPolicy", policy.failure_logging_policy);
     out << '}';
 }
 
@@ -355,6 +416,9 @@ std::string js_export_builder_manifest_json(const JsManifestExportOptions &optio
     out << ',';
     append_string_field(out, "documentationVersion", api_metadata.documentation_version);
     out << '}';
+    out << ',';
+    append_key(out, "runtimeSafety");
+    append_runtime_safety_policy(out, options);
     out << ',';
     append_key(out, "triggerManifest");
     out << js_export_trigger_manifest_json(options);

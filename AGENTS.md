@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript dispatch diagnostics/logging. Added sanitized legacy-dispatch log message helpers, per-status log policy, per-pulse log capping in `script.cpp`, and failure logging after every live JavaScript dispatch call site.
-- Next slice: align final server-side runtime safety documentation and generated builder docs/status surfaces for budget, depth, and logging limits before revisiting side-effect/output API design.
+- Latest completed slice: JavaScript runtime safety metadata. Extracted the live QuickJS runtime limits, trigger budget/depth limits, and dispatch failure logging policy into a shared server-owned policy and surfaced it through the builder manifest, generated docs/editor config, and BuilderClient artifact model without declaring a script-visible runtime-safety value that live QuickJS does not inject.
+- Next slice: audit script-visible API parity between generated TypeScript declarations, offline fixtures, and the live QuickJS runtime so any remaining documented values or helpers are either actually injected live or explicitly downgraded to metadata/null/defaults before side-effect/output API work.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

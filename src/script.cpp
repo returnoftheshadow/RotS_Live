@@ -30,6 +30,7 @@
 #include "interpre.h"
 #include "js_legacy_trigger_dispatch.h"
 #include "js_live_registry_admin.h"
+#include "js_scripting_runtime_policy.h"
 #include "limits.h"
 #include "mudlle.h"
 #include "pkill.h"
@@ -103,15 +104,6 @@ bool javascript_legacy_trigger_dispatch_enabled = false;
 JsLegacyTriggerReloadGeneration javascript_legacy_trigger_reload_generation;
 JsTriggerDispatchBudget javascript_legacy_trigger_dispatch_budget;
 JsTriggerDispatchDepthGuard javascript_legacy_trigger_dispatch_depth_guard;
-// Temporary server defaults until publish/admin config can own per-zone script limits.
-constexpr JsTriggerDispatchBudgetLimits JavascriptLegacyTriggerBudgetLimits = {
-    1024,
-    256,
-};
-constexpr JsTriggerDispatchDepthLimits JavascriptLegacyTriggerDepthLimits = {
-    8,
-};
-constexpr std::size_t MaxJavascriptLegacyTriggerLogMessagesPerPulse = 16;
 constexpr std::size_t JavascriptLegacyTriggerLogStatusSlots = 9;
 int javascript_legacy_trigger_log_pulse = 0;
 bool javascript_legacy_trigger_log_has_pulse = false;
@@ -120,13 +112,15 @@ std::array<std::size_t, JavascriptLegacyTriggerLogStatusSlots> javascript_legacy
 
 JsLegacyTriggerDispatchOptions javascript_legacy_trigger_options()
 {
+    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
     JsLegacyTriggerDispatchOptions options;
     options.enabled = javascript_legacy_trigger_dispatch_enabled;
     options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    options.runtime_limits = policy.runtime_limits;
     options.budget = &javascript_legacy_trigger_dispatch_budget;
-    options.budget_limits = JavascriptLegacyTriggerBudgetLimits;
+    options.budget_limits = policy.budget_limits;
     options.depth_guard = &javascript_legacy_trigger_dispatch_depth_guard;
-    options.depth_limits = JavascriptLegacyTriggerDepthLimits;
+    options.depth_limits = policy.depth_limits;
     options.current_pulse = pulse;
     return options;
 }
@@ -141,8 +135,9 @@ bool javascript_fail_closed_status_blocks(JsLegacyTriggerDispatchStatus status)
 
 bool javascript_legacy_trigger_depth_would_exceed()
 {
+    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
     return javascript_legacy_trigger_dispatch_depth_guard.would_exceed(
-        JavascriptLegacyTriggerDepthLimits);
+        policy.depth_limits);
 }
 
 std::size_t javascript_legacy_trigger_log_status_index(JsLegacyTriggerDispatchStatus status)
@@ -167,7 +162,8 @@ void log_javascript_legacy_trigger_dispatch_failure(
         javascript_legacy_trigger_log_status_counts.fill(0);
     }
     const std::size_t status_index = javascript_legacy_trigger_log_status_index(result.status);
-    if (javascript_legacy_trigger_log_count >= MaxJavascriptLegacyTriggerLogMessagesPerPulse &&
+    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
+    if (javascript_legacy_trigger_log_count >= policy.max_dispatch_failure_logs_per_pulse &&
         javascript_legacy_trigger_log_status_counts[status_index] > 0) {
         return;
     }

@@ -2,6 +2,7 @@
 
 #include "js_api_contract.h"
 #include "js_scripting_manifest.h"
+#include "js_scripting_runtime_policy.h"
 #include "json_utils.h"
 
 #include <gtest/gtest.h>
@@ -252,6 +253,18 @@ TEST(JsBuilderArtifacts, GeneratesTypescriptDeclarationsWithCompatibilityHeader)
     expect_contains(declarations, api.contract_checksum);
     expect_contains(declarations, manifest.generated_typings_version);
     expect_contains(declarations, "export type HostType");
+    expect_contains(declarations, "export type DispatchStatus");
+    expect_contains(declarations, "export interface RuntimeSafetyPolicy");
+    expect_contains(declarations, "readonly memoryLimitBytes: number;");
+    expect_contains(declarations, "readonly stackLimitBytes: number;");
+    expect_contains(declarations, "readonly instructionBudget: number;");
+    expect_contains(declarations, "readonly maxInvocationsPerPulse: number;");
+    expect_contains(declarations, "readonly maxInvocationsPerPackagePerPulse: number;");
+    expect_contains(declarations, "readonly maxDispatchDepth: number;");
+    expect_contains(declarations, "readonly maxDispatchFailureLogsPerPulse: number;");
+    expect_contains(declarations, "readonly failureLoggingPolicy: string;");
+    expect_contains(declarations, "budget-exceeded");
+    expect_contains(declarations, "depth-exceeded");
     expect_contains(declarations, "export interface ScriptHandlers");
     expect_balanced_typescript_shape(declarations);
     EXPECT_EQ(declarations.find("*/ */"), std::string::npos);
@@ -296,6 +309,7 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_EQ(declarations.find("sendToRoom"), std::string::npos);
     EXPECT_EQ(declarations.find("loadMob"), std::string::npos);
     EXPECT_EQ(declarations.find("extractCharacter"), std::string::npos);
+    EXPECT_EQ(declarations.find("runtimeSafety:"), std::string::npos);
 }
 
 TEST(JsBuilderArtifacts, TypescriptDeclarationsExposeTypedTargetContext)
@@ -339,11 +353,18 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     const std::string markdown = js_generate_api_markdown_reference();
     const JsScriptingManifestMetadata &manifest = js_scripting_manifest_metadata();
     const JsApiContractMetadata &api = js_api_contract_metadata();
+    const JsScriptingRuntimeSafetyPolicy &policy = js_scripting_runtime_safety_policy();
 
     expect_contains(markdown, "# RotS JavaScript Builder API");
     expect_contains(markdown, manifest.manifest_checksum);
     expect_contains(markdown, api.contract_checksum);
     expect_contains(markdown, "## Trigger Handlers");
+    expect_contains(markdown, "## Runtime Safety");
+    expect_contains(markdown, "QuickJS memory limit bytes");
+    expect_contains(markdown, std::to_string(policy.runtime_limits.memory_limit_bytes));
+    expect_contains(markdown, std::to_string(policy.budget_limits.max_invocations_per_pulse));
+    expect_contains(markdown, std::to_string(policy.depth_limits.max_dispatch_depth));
+    expect_contains(markdown, markdown_cell(policy.failure_logging_policy));
     expect_contains(markdown, "## API Types");
     expect_contains(markdown, "Context fields");
     expect_contains(markdown, "Dispatch order");
@@ -387,6 +408,7 @@ TEST(JsBuilderArtifacts, GeneratesValidVscodeStyleLspConfig) {
     const std::string json = js_generate_editor_lsp_config_json();
     const JsScriptingManifestMetadata &manifest = js_scripting_manifest_metadata();
     const JsApiContractMetadata &api = js_api_contract_metadata();
+    const JsScriptingRuntimeSafetyPolicy &policy = js_scripting_runtime_safety_policy();
 
     expect_valid_json_object(json);
     expect_editor_config_structure(json);
@@ -399,6 +421,22 @@ TEST(JsBuilderArtifacts, GeneratesValidVscodeStyleLspConfig) {
     expect_contains(
         json, "\"include\":[\"scripts/**/*.ts\",\"fixtures/**/*.ts\",\"generated/**/*.d.ts\"]");
     expect_contains(json, "\"builderManifest\":\"generated/rots-builder-manifest.json\"");
+    expect_contains(json, "\"runtimeSafety\":{");
+    expect_contains(json, "\"memoryLimitBytes\":" +
+            std::to_string(policy.runtime_limits.memory_limit_bytes));
+    expect_contains(json, "\"stackLimitBytes\":" +
+            std::to_string(policy.runtime_limits.stack_limit_bytes));
+    expect_contains(json, "\"instructionBudget\":" +
+            std::to_string(policy.runtime_limits.instruction_budget));
+    expect_contains(json, "\"maxInvocationsPerPulse\":" +
+            std::to_string(policy.budget_limits.max_invocations_per_pulse));
+    expect_contains(json, "\"maxInvocationsPerPackagePerPulse\":" +
+            std::to_string(policy.budget_limits.max_invocations_per_package_per_pulse));
+    expect_contains(json, "\"maxDispatchDepth\":" +
+            std::to_string(policy.depth_limits.max_dispatch_depth));
+    expect_contains(json, "\"maxDispatchFailureLogsPerPulse\":" +
+            std::to_string(policy.max_dispatch_failure_logs_per_pulse));
+    expect_contains(json, policy.failure_logging_policy);
     expect_contains(json, manifest.manifest_checksum);
     expect_contains(json, api.contract_checksum);
     EXPECT_EQ(json.find("declarationRoots"), std::string::npos);

@@ -11,7 +11,7 @@ LDFLAGS = -lgtest -lcrypt
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
-		comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o js_api_contract.o js_builder_http_ingress.o js_builder_http_server_transport.o js_builder_http_transport.o js_builder_publish_context.o js_builder_session_endpoint.o js_builder_session_store.o js_builder_session.o js_builder_artifacts.o js_game_adapter.o js_game_runtime.o js_builder_manifest_endpoint.o js_legacy_trigger_dispatch.o js_live_package_store.o js_live_package_store_persistence.o js_live_registry_admin.o js_live_registry_reload_service.o js_live_registry_status.o js_manifest_export.o js_publish_activation.o js_publish_audit.o js_publish_authorization.o js_publish_endpoint_contract.o js_publish_http_endpoint.o js_publish_endpoint_service.o js_publish_endpoint_transport.o js_publish_staging.o js_runtime.o js_server_identity.o js_staged_package_identity.o js_staged_package_repository.o js_script_package_loader.o js_script_package_reload_service.o js_script_package.o js_script_registry.o js_trigger_dispatch.o js_scripting_manifest.o objects_json.o \
+		comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o js_api_contract.o js_builder_http_ingress.o js_builder_http_server_transport.o js_builder_http_transport.o js_builder_publish_context.o js_builder_session_endpoint.o js_builder_session_store.o js_builder_session.o js_builder_artifacts.o js_game_adapter.o js_game_runtime.o js_builder_manifest_endpoint.o js_legacy_trigger_dispatch.o js_live_package_store.o js_live_package_store_persistence.o js_live_registry_admin.o js_live_registry_reload_service.o js_live_registry_status.o js_manifest_export.o js_publish_activation.o js_publish_audit.o js_publish_authorization.o js_publish_endpoint_contract.o js_publish_http_endpoint.o js_publish_endpoint_service.o js_publish_endpoint_transport.o js_publish_staging.o js_runtime.o js_server_identity.o js_staged_package_identity.o js_staged_package_repository.o js_script_package_loader.o js_script_package_reload_service.o js_script_package.o js_script_registry.o js_trigger_dispatch.o js_scripting_runtime_policy.o js_scripting_manifest.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
 	pkill.o player_file_finalize.o profs.o protocol.o ranger.o save_benchmark.o savebench.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
@@ -59,7 +59,7 @@ js_builder_session_store.o : ../js_builder_session_store.cpp ../js_builder_sessi
 js_builder_session.o : ../js_builder_session.cpp ../js_builder_session.h ../account_management.h ../account_management_types.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h ../structs.h
 	$(CXX) -c $(CXXFLAGS) ../js_builder_session.cpp
 
-js_builder_artifacts.o : ../js_builder_artifacts.cpp ../js_builder_artifacts.h ../js_api_contract.h ../js_manifest_export.h ../json_utils.h ../js_scripting_manifest.h
+js_builder_artifacts.o : ../js_builder_artifacts.cpp ../js_builder_artifacts.h ../js_api_contract.h ../js_manifest_export.h ../json_utils.h ../js_scripting_runtime_policy.h ../js_scripting_manifest.h
 	$(CXX) -c $(CXXFLAGS) ../js_builder_artifacts.cpp
 
 js_game_adapter.o : ../js_game_adapter.cpp ../js_game_adapter.h ../js_game_runtime.h ../structs.h ../db.h ../zone.h
@@ -89,7 +89,7 @@ js_live_registry_reload_service.o : ../js_live_registry_reload_service.cpp ../js
 js_live_registry_status.o : ../js_live_registry_status.cpp ../js_live_registry_status.h ../js_live_registry_reload_service.h ../js_live_package_store.h ../js_script_registry.h ../js_staged_package_repository.h ../js_staged_package_identity.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h
 	$(CXX) -c $(CXXFLAGS) ../js_live_registry_status.cpp
 
-js_manifest_export.o : ../js_manifest_export.cpp ../js_manifest_export.h ../js_api_contract.h ../json_utils.h ../js_scripting_manifest.h
+js_manifest_export.o : ../js_manifest_export.cpp ../js_manifest_export.h ../js_api_contract.h ../json_utils.h ../js_scripting_runtime_policy.h ../js_scripting_manifest.h
 	$(CXX) -c $(CXXFLAGS) ../js_manifest_export.cpp
 
 js_publish_activation.o : ../js_publish_activation.cpp ../js_publish_activation.h ../js_live_package_store.h ../js_live_package_store_persistence.h ../js_publish_staging.h ../js_script_registry.h ../js_staged_package_repository.h ../js_staged_package_identity.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h
@@ -142,6 +142,9 @@ js_script_registry.o : ../js_script_registry.cpp ../js_script_registry.h ../js_s
 
 js_trigger_dispatch.o : ../js_trigger_dispatch.cpp ../js_trigger_dispatch.h ../js_game_adapter.h ../js_live_registry_reload_service.h ../js_live_package_store.h ../js_game_runtime.h ../js_runtime.h ../js_script_package.h ../js_script_registry.h ../js_scripting_manifest.h
 	$(CXX) -c $(CXXFLAGS) ../js_trigger_dispatch.cpp
+
+js_scripting_runtime_policy.o : ../js_scripting_runtime_policy.cpp ../js_scripting_runtime_policy.h ../js_runtime.h ../js_trigger_dispatch.h
+	$(CXX) -c $(CXXFLAGS) ../js_scripting_runtime_policy.cpp
 
 js_scripting_manifest.o : ../js_scripting_manifest.cpp ../js_scripting_manifest.h ../interpre.h ../script.h
 	$(CXX) -c $(CXXFLAGS) ../js_scripting_manifest.cpp
@@ -333,7 +336,7 @@ OBJS = $(SRCS:.cpp=.o)
 EXECUTABLE = ../../bin/tests
 
 js_api_contract_tests.o : js_api_contract_tests.cpp ../js_api_contract.h ../js_scripting_manifest.h
-js_builder_artifacts_tests.o : js_builder_artifacts_tests.cpp ../js_builder_artifacts.h ../js_api_contract.h ../json_utils.h ../js_scripting_manifest.h
+js_builder_artifacts_tests.o : js_builder_artifacts_tests.cpp ../js_builder_artifacts.h ../js_api_contract.h ../json_utils.h ../js_scripting_runtime_policy.h ../js_scripting_manifest.h
 js_builder_http_ingress_tests.o : js_builder_http_ingress_tests.cpp ../js_builder_http_ingress.h ../js_builder_manifest_endpoint.h ../js_builder_session_endpoint.h ../js_publish_http_endpoint.h ../json_utils.h ../js_script_package_loader.h ../script.h
 js_builder_http_server_transport_tests.o : js_builder_http_server_transport_tests.cpp ../js_builder_http_server_transport.h ../json_utils.h ../js_script_package_loader.h ../script.h
 js_builder_http_transport_tests.o : js_builder_http_transport_tests.cpp ../js_builder_http_transport.h ../js_builder_http_ingress.h ../json_utils.h
@@ -350,7 +353,7 @@ js_live_package_store_persistence_tests.o : js_live_package_store_persistence_te
 js_live_registry_admin_tests.o : js_live_registry_admin_tests.cpp ../js_live_registry_admin.h ../js_publish_http_endpoint.h ../js_publish_endpoint_transport.h ../js_publish_endpoint_service.h ../js_publish_endpoint_contract.h ../json_utils.h ../js_live_package_store.h ../js_live_registry_reload_service.h ../js_live_registry_status.h ../js_publish_activation.h ../js_publish_staging.h ../js_script_registry.h ../js_staged_package_repository.h ../js_staged_package_identity.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h
 js_live_registry_reload_service_tests.o : js_live_registry_reload_service_tests.cpp ../js_live_registry_reload_service.h ../js_live_package_store.h ../js_publish_activation.h ../js_publish_staging.h ../js_script_registry.h ../js_staged_package_repository.h ../js_staged_package_identity.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h
 js_live_registry_status_tests.o : js_live_registry_status_tests.cpp ../js_live_registry_status.h ../js_live_registry_reload_service.h ../js_live_package_store.h ../js_publish_activation.h ../js_publish_staging.h ../js_script_registry.h ../js_staged_package_repository.h ../js_staged_package_identity.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h
-js_manifest_export_tests.o : js_manifest_export_tests.cpp ../js_manifest_export.h ../js_api_contract.h ../json_utils.h ../js_scripting_manifest.h
+js_manifest_export_tests.o : js_manifest_export_tests.cpp ../js_manifest_export.h ../js_api_contract.h ../json_utils.h ../js_scripting_runtime_policy.h ../js_scripting_manifest.h
 js_publish_activation_tests.o : js_publish_activation_tests.cpp ../js_publish_activation.h ../js_live_package_store.h ../js_publish_staging.h ../js_script_registry.h ../js_staged_package_repository.h ../js_staged_package_identity.h ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h
 js_publish_audit_tests.o : js_publish_audit_tests.cpp ../js_publish_audit.h
 js_publish_authorization_tests.o : js_publish_authorization_tests.cpp ../js_publish_authorization.h ../js_script_package.h ../js_scripting_manifest.h
