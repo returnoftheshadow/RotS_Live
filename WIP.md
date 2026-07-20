@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: BuilderClient work is now offline/local first. Do not continue upload/publish UI or CLI status work until the editor has solid TypeScript IntelliSense/LSP behavior from generated server-owned typings and cached manifest artifacts.
-- Active slice: BuilderClient offline IntelliSense/LSP hardening complete. Monaco now consumes generated editor config, prefers server-shaped `tsconfig.compilerOptions`, refreshes generated declarations without stale API merging, keeps script and generated model URI roots separate, forces syntax/semantic diagnostics on, remounts on manifest/API/typings/editor-config changes, and uses fallback typings in browser preview/offline mode.
-- Next slice: BuilderClient client-wide zoom controls and tooltip coverage.
+- Active slice: BuilderClient client-wide zoom controls complete. Added bounded local zoom state, fail-soft localStorage persistence, compact title-bar zoom controls with tooltips, body-level client scaling for WSL/remote-rendered sizing, fixed-row toolbar no-wrap behavior, and kept Monaco from double-scaling its font.
+- Next slice: BuilderClient comprehensive tooltip coverage across existing builder-facing controls and fields.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
