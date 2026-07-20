@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: recursive JavaScript trigger-entry depth guard. Added a shared depth guard and maximum-depth limit to live dispatch options, threaded it through the legacy facade and all live `script.cpp` JavaScript dispatch entry points, and mapped depth-exceeded results through the existing trigger exception policy.
-- Next slice: align script execution diagnostics/logging for budget/depth/runtimes so live failures are visible to admins without leaking builder source, actor text, tokens, or raw pointers.
+- Latest completed slice: JavaScript dispatch diagnostics/logging. Added sanitized legacy-dispatch log message helpers, per-status log policy, per-pulse log capping in `script.cpp`, and failure logging after every live JavaScript dispatch call site.
+- Next slice: align final server-side runtime safety documentation and generated builder docs/status surfaces for budget, depth, and logging limits before revisiting side-effect/output API design.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

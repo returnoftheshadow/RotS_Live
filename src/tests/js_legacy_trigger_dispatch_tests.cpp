@@ -3447,6 +3447,97 @@ TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeMapsDepthExceeded) {
     depth_guard.leave();
 }
 
+TEST(JsLegacyTriggerDispatch, DispatchFailureLogPolicyOnlyLogsActionableFailures) {
+    EXPECT_FALSE(
+        js_legacy_trigger_dispatch_status_should_log(JsLegacyTriggerDispatchStatus::Disabled));
+    EXPECT_TRUE(js_legacy_trigger_dispatch_status_should_log(
+        JsLegacyTriggerDispatchStatus::RegistryNotReady));
+    EXPECT_TRUE(
+        js_legacy_trigger_dispatch_status_should_log(JsLegacyTriggerDispatchStatus::StaleRegistry));
+    EXPECT_FALSE(js_legacy_trigger_dispatch_status_should_log(JsLegacyTriggerDispatchStatus::NoMatch));
+    EXPECT_FALSE(js_legacy_trigger_dispatch_status_should_log(JsLegacyTriggerDispatchStatus::Allow));
+    EXPECT_FALSE(js_legacy_trigger_dispatch_status_should_log(JsLegacyTriggerDispatchStatus::Block));
+    EXPECT_TRUE(js_legacy_trigger_dispatch_status_should_log(JsLegacyTriggerDispatchStatus::Error));
+    EXPECT_TRUE(
+        js_legacy_trigger_dispatch_status_should_log(JsLegacyTriggerDispatchStatus::BudgetExceeded));
+    EXPECT_TRUE(
+        js_legacy_trigger_dispatch_status_should_log(JsLegacyTriggerDispatchStatus::DepthExceeded));
+}
+
+TEST(JsLegacyTriggerDispatch, DispatchFailureLogMessageUsesBoundedSafeMetadata) {
+    JsTriggerDispatchRequest request = character_hear_request(
+        ON_HEAR_SAY, nullptr, nullptr, "SECRET_ACTOR_TEXT");
+    request.context_input.text = "SECRET_ACTOR_TEXT";
+    JsLegacyTriggerDispatchResult result;
+    result.status = JsLegacyTriggerDispatchStatus::Error;
+    result.dispatch_result.status = JsTriggerDispatchStatus::Error;
+    result.dispatch_result.runtime_status = JsRuntimeStatus::Error;
+    result.dispatch_result.package_vnum = 6112;
+    result.dispatch_result.package_id = "pkg-6112";
+    result.dispatch_result.handler_name = "onHearSay";
+    result.diagnostic =
+        "JavaScript game script failed\nfunction onHearSay(ctx) { throw ctx.text; } 0x1234";
+
+    const std::string message = js_legacy_trigger_dispatch_log_message(result, request);
+
+    EXPECT_TRUE(contains(message, "JavaScript trigger dispatch failed"));
+    EXPECT_TRUE(contains(message, "status=error"));
+    EXPECT_TRUE(contains(message, "host=character"));
+    EXPECT_TRUE(contains(message, "kind=legacy-script-trigger"));
+    EXPECT_TRUE(contains(message, "legacy_value=" + std::to_string(ON_HEAR_SAY)));
+    EXPECT_TRUE(contains(message, "package_vnum=6112"));
+    EXPECT_FALSE(contains(message, "package_id="));
+    EXPECT_TRUE(contains(message, "handler=onHearSay"));
+    EXPECT_TRUE(contains(message, "diagnostic=runtime-error"));
+    EXPECT_FALSE(contains(message, "SECRET_ACTOR_TEXT"));
+    EXPECT_FALSE(contains(message, "function onHearSay"));
+    EXPECT_FALSE(contains(message, "0x1234"));
+    EXPECT_FALSE(contains(message, "\n"));
+    EXPECT_FALSE(contains(message, "\r"));
+    EXPECT_LE(message.size(), 220u);
+}
+
+TEST(JsLegacyTriggerDispatch, DispatchFailureLogMessageOmitsPackageIdAndRedactsUnsafeHandler) {
+    JsTriggerDispatchRequest request = character_enter_request(nullptr);
+    JsLegacyTriggerDispatchResult result;
+    result.status = JsLegacyTriggerDispatchStatus::BudgetExceeded;
+    result.dispatch_result.status = JsTriggerDispatchStatus::BudgetExceeded;
+    result.dispatch_result.package_vnum = 6113;
+    result.dispatch_result.package_id = "pkg-6113\nBearer SECRET_PACKAGE_TOKEN file:///tmp/source.js";
+    result.dispatch_result.handler_name = "bad-handler\nSECRET_HANDLER";
+    result.diagnostic = "JavaScript trigger execution budget exceeded";
+
+    const std::string message = js_legacy_trigger_dispatch_log_message(result, request);
+
+    EXPECT_TRUE(contains(message, "status=budget-exceeded"));
+    EXPECT_TRUE(contains(message, "package_vnum=6113"));
+    EXPECT_FALSE(contains(message, "package_id="));
+    EXPECT_FALSE(contains(message, "SECRET_PACKAGE_TOKEN"));
+    EXPECT_TRUE(contains(message, "handler=[redacted-handler]"));
+    EXPECT_FALSE(contains(message, "SECRET_HANDLER"));
+    EXPECT_TRUE(contains(message, "diagnostic=budget-exceeded"));
+    EXPECT_FALSE(contains(message, "\n"));
+    EXPECT_FALSE(contains(message, "\r"));
+}
+
+TEST(JsLegacyTriggerDispatch, DispatchFailureLogMessageReportsDepthExceededWithoutRuntimeText) {
+    JsTriggerDispatchRequest request = character_enter_request(nullptr);
+    JsLegacyTriggerDispatchResult result;
+    result.status = JsLegacyTriggerDispatchStatus::DepthExceeded;
+    result.dispatch_result.status = JsTriggerDispatchStatus::DepthExceeded;
+    result.dispatch_result.package_vnum = 6114;
+    result.dispatch_result.handler_name = "onEnter";
+    result.diagnostic = "JavaScript trigger recursion depth exceeded with SECRET_DEPTH_TEXT";
+
+    const std::string message = js_legacy_trigger_dispatch_log_message(result, request);
+
+    EXPECT_TRUE(contains(message, "status=depth-exceeded"));
+    EXPECT_TRUE(contains(message, "package_vnum=6114"));
+    EXPECT_TRUE(contains(message, "handler=onEnter"));
+    EXPECT_TRUE(contains(message, "diagnostic=depth-exceeded"));
+    EXPECT_FALSE(contains(message, "SECRET_DEPTH_TEXT"));
+}
+
 TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeUsesFirstLivePackageWhenMultiplePackagesMatch) {
     JsStagedPackageRepository repository;
     JsLivePackageStore live_store;
@@ -3662,6 +3753,50 @@ TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeRedactsHearRuntimeErrors) {
     EXPECT_LE(result.diagnostic.size(), 220u);
 }
 
+TEST(JsLegacyTriggerDispatch, HearRuntimeErrorsWriteSanitizedServerLogWithPerPulseCap) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalPulseGuard pulse_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6191,
+                         "function onHearSay(ctx) { throw ctx.text; }",
+                         ON_HEAR_SAY));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data listener = make_character("Listener");
+    char_data speaker = make_character("Speaker");
+    listener.next = &speaker;
+    speaker.next = nullptr;
+    character_list = &listener;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+    pulse = 9900;
+
+    testing::internal::CaptureStderr();
+    for (int invocation = 0; invocation < 20; ++invocation)
+        EXPECT_EQ(trigger_char_hear(&listener, &speaker, const_cast<char *>("SECRET_HEARD_TEXT")), 1);
+    ++pulse;
+    EXPECT_EQ(trigger_char_hear(&listener, &speaker, const_cast<char *>("SECRET_HEARD_TEXT")), 1);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(count_occurrences(stderr_output, "JavaScript trigger dispatch failed"), 17u);
+    EXPECT_TRUE(contains(stderr_output, "status=error"));
+    EXPECT_TRUE(contains(stderr_output, "host=character"));
+    EXPECT_TRUE(contains(stderr_output, "kind=legacy-script-trigger"));
+    EXPECT_TRUE(contains(stderr_output, "legacy_value=" + std::to_string(ON_HEAR_SAY)));
+    EXPECT_TRUE(contains(stderr_output, "package_vnum=6191"));
+    EXPECT_TRUE(contains(stderr_output, "handler=onHearSay"));
+    EXPECT_TRUE(contains(stderr_output, "diagnostic=runtime-error"));
+    EXPECT_FALSE(contains(stderr_output, "SECRET_HEARD_TEXT"));
+    EXPECT_FALSE(contains(stderr_output, "function onHearSay"));
+    EXPECT_FALSE(contains(stderr_output, "0x"));
+}
+
 TEST(JsLegacyTriggerDispatch, StatusNamesAreStable) {
     EXPECT_STREQ("disabled",
                  js_legacy_trigger_dispatch_status_name(JsLegacyTriggerDispatchStatus::Disabled));
@@ -3789,9 +3924,11 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     ASSERT_FALSE(interpre.empty());
     ASSERT_FALSE(mobact.empty());
     EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 8u);
+    EXPECT_EQ(count_occurrences(script, "log_javascript_legacy_trigger_dispatch_failure("), 9u);
     EXPECT_EQ(count_occurrences(script,
                   "JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();"),
         8u);
+    EXPECT_TRUE(contains(script, "MaxJavascriptLegacyTriggerLogMessagesPerPulse = 16"));
     EXPECT_TRUE(contains(script, "options.budget = &javascript_legacy_trigger_dispatch_budget;"));
     EXPECT_TRUE(contains(script, "options.budget_limits = JavascriptLegacyTriggerBudgetLimits;"));
     EXPECT_TRUE(contains(script, "options.depth_guard = &javascript_legacy_trigger_dispatch_depth_guard;"));

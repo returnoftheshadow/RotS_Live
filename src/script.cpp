@@ -39,7 +39,9 @@
 #include "utils.h"
 #include "zone.h"
 
+#include <array>
 #include <cstddef>
+#include <string>
 #include <vector>
 
 // External declarations
@@ -109,6 +111,12 @@ constexpr JsTriggerDispatchBudgetLimits JavascriptLegacyTriggerBudgetLimits = {
 constexpr JsTriggerDispatchDepthLimits JavascriptLegacyTriggerDepthLimits = {
     8,
 };
+constexpr std::size_t MaxJavascriptLegacyTriggerLogMessagesPerPulse = 16;
+constexpr std::size_t JavascriptLegacyTriggerLogStatusSlots = 9;
+int javascript_legacy_trigger_log_pulse = 0;
+bool javascript_legacy_trigger_log_has_pulse = false;
+std::size_t javascript_legacy_trigger_log_count = 0;
+std::array<std::size_t, JavascriptLegacyTriggerLogStatusSlots> javascript_legacy_trigger_log_status_counts {};
 
 JsLegacyTriggerDispatchOptions javascript_legacy_trigger_options()
 {
@@ -135,6 +143,39 @@ bool javascript_legacy_trigger_depth_would_exceed()
 {
     return javascript_legacy_trigger_dispatch_depth_guard.would_exceed(
         JavascriptLegacyTriggerDepthLimits);
+}
+
+std::size_t javascript_legacy_trigger_log_status_index(JsLegacyTriggerDispatchStatus status)
+{
+    const std::size_t index = static_cast<std::size_t>(status);
+    if (index >= JavascriptLegacyTriggerLogStatusSlots)
+        return JavascriptLegacyTriggerLogStatusSlots - 1;
+    return index;
+}
+
+void log_javascript_legacy_trigger_dispatch_failure(
+    const JsTriggerDispatchRequest& request, const JsLegacyTriggerDispatchResult& result)
+{
+    if (!js_legacy_trigger_dispatch_status_should_log(result.status))
+        return;
+
+    if (!javascript_legacy_trigger_log_has_pulse ||
+        javascript_legacy_trigger_log_pulse != pulse) {
+        javascript_legacy_trigger_log_pulse = pulse;
+        javascript_legacy_trigger_log_has_pulse = true;
+        javascript_legacy_trigger_log_count = 0;
+        javascript_legacy_trigger_log_status_counts.fill(0);
+    }
+    const std::size_t status_index = javascript_legacy_trigger_log_status_index(result.status);
+    if (javascript_legacy_trigger_log_count >= MaxJavascriptLegacyTriggerLogMessagesPerPulse &&
+        javascript_legacy_trigger_log_status_counts[status_index] > 0) {
+        return;
+    }
+    ++javascript_legacy_trigger_log_count;
+    ++javascript_legacy_trigger_log_status_counts[status_index];
+
+    const std::string message = js_legacy_trigger_dispatch_log_message(result, request);
+    log(message.c_str());
 }
 
 std::vector<const char_data*> live_character_snapshot()
@@ -240,6 +281,7 @@ int dispatch_javascript_character_movement_entry_trigger(
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    log_javascript_legacy_trigger_dispatch_failure(request, result);
     return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
@@ -273,6 +315,7 @@ int dispatch_javascript_character_death_trigger(char_data* ch, char_data* killer
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    log_javascript_legacy_trigger_dispatch_failure(request, result);
     return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
@@ -308,6 +351,7 @@ int dispatch_javascript_character_damage_trigger(char_data* vict, char_data* ch)
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    log_javascript_legacy_trigger_dispatch_failure(request, result);
     return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
@@ -347,6 +391,7 @@ int dispatch_javascript_object_damage_trigger(obj_data* obj, char_data* vict, ch
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    log_javascript_legacy_trigger_dispatch_failure(request, result);
     return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
@@ -391,6 +436,7 @@ int dispatch_javascript_object_event_trigger(
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    log_javascript_legacy_trigger_dispatch_failure(request, result);
     return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
@@ -432,6 +478,7 @@ int dispatch_javascript_character_receive_trigger(char_data* receiver, char_data
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    log_javascript_legacy_trigger_dispatch_failure(request, result);
     return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
@@ -472,8 +519,9 @@ int dispatch_javascript_character_hear_trigger(int trigger_type, char_data* list
 
     JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();
 
-    js_legacy_trigger_dispatch(
+    const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    log_javascript_legacy_trigger_dispatch_failure(request, result);
     return 1;
 }
 
@@ -598,6 +646,7 @@ int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    log_javascript_legacy_trigger_dispatch_failure(request, result);
     if (callflag == SPECIAL_DAMAGE || callflag == SPECIAL_DEATH) {
         return javascript_fail_closed_status_blocks(result.status) ? 1 : 0;
     }

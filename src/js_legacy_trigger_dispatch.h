@@ -54,6 +54,9 @@ struct JsLegacyTriggerDispatchResult {
 };
 
 const char *js_legacy_trigger_dispatch_status_name(JsLegacyTriggerDispatchStatus status);
+bool js_legacy_trigger_dispatch_status_should_log(JsLegacyTriggerDispatchStatus status);
+std::string js_legacy_trigger_dispatch_log_message(
+    const JsLegacyTriggerDispatchResult &result, const JsTriggerDispatchRequest &request);
 JsLegacyTriggerReloadGeneration
 js_legacy_trigger_reload_generation(const JsLiveRegistryReloadService &service);
 
