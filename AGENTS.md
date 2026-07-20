@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient offline handle normalization. Offline fixture execution now converts persisted fixture handles into live-shaped read-only `Character`, `GameObject`, `Room`, and `Zone` objects and creates helper functions inside the VM realm instead of exposing host-realm constructors.
-- Next slice: expand BuilderClient offline fixture schemas, validation, templates, and runner normalization so builders can model every generated/live `ScriptContext` role and scalar field (`speaker`, `attacker`, `victim`, `killer`, `weapon`, `wearSlot`, `command`, `args`, `target`, `tick`, movement fields, `targ1`, `targ2`, `targetTypes`, and `dying`) instead of hardcoded null/defaults.
+- Latest completed slice: BuilderClient offline role/scalar fixture modeling. Offline fixtures now preserve and normalize every generated/live `ScriptContext` role and scalar field, validate role-specific handle prefixes and live Mudlle target-type vocabulary, route CLI-loaded fixtures through the same validator, and bound offline runner logs/diagnostics.
+- Next slice: expand BuilderClient fixture templates and editor UI so builders can create, inspect, tooltip, and maintain the full generated/live `ScriptContext` role and scalar field set without editing raw fixture JSON.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
