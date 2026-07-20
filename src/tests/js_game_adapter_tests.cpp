@@ -299,6 +299,122 @@ TEST(JsGameAdapter, ModelsObjectRoomAsMissingWhenObjectIsNotDirectlyInRoom)
     EXPECT_EQ(object_fixture.room.id, "sentinel-room");
 }
 
+TEST(JsGameAdapter, SnapshotsObjectCarriedByWhenCarrierIsLive)
+{
+    char_data carrier = make_character("Carrier", 1, 20, 30, 40, false);
+    obj_data object = make_object("carried lever", 0);
+    object.in_room = -1;
+    object.carried_by = &carrier;
+    carrier.carrying = &object;
+    const char_data *live_characters[] = { &carrier };
+    const obj_data *live_objects[] = { &object };
+    index_data object_index[1] {};
+    object_index[0].virt = 300;
+    room_data world[1] = { make_room("Carrier Room", 100, 0) };
+    zone_data zones[1] = { make_zone("Carrier Zone", 10) };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, world, 0,
+        nullptr, 0, object_index, 1, zones, 1, nullptr, 0);
+
+    JsGameObjectFixture fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &fixture));
+
+    EXPECT_FALSE(fixture.has_room);
+    ASSERT_TRUE(fixture.has_carried_by);
+    EXPECT_FALSE(fixture.has_worn_by);
+    EXPECT_EQ(fixture.carried_by.name, "Carrier");
+    EXPECT_EQ(fixture.carried_by.level, 20);
+    ASSERT_TRUE(fixture.carried_by.has_room);
+    EXPECT_EQ(fixture.carried_by.room.vnum, 100);
+    ASSERT_TRUE(fixture.carried_by.room.has_zone);
+    EXPECT_EQ(fixture.carried_by.room.zone.vnum, 10);
+}
+
+TEST(JsGameAdapter, SnapshotsObjectWornByWhenCarrierHasObjectEquipped)
+{
+    char_data wearer = make_character("Wearer", 1, 21, 31, 41, false);
+    obj_data object = make_object("worn amulet", 0);
+    object.in_room = -1;
+    object.carried_by = &wearer;
+    wearer.equipment[WEAR_NECK_1] = &object;
+    const char_data *live_characters[] = { &wearer };
+    const obj_data *live_objects[] = { &object };
+    index_data object_index[1] {};
+    object_index[0].virt = 301;
+    room_data world[1] = { make_room("Wearer Room", 101, 0) };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, world, 0,
+        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &fixture));
+
+    EXPECT_FALSE(fixture.has_room);
+    EXPECT_FALSE(fixture.has_carried_by);
+    ASSERT_TRUE(fixture.has_worn_by);
+    EXPECT_EQ(fixture.worn_by.name, "Wearer");
+    EXPECT_EQ(fixture.worn_by.level, 21);
+    ASSERT_TRUE(fixture.worn_by.has_room);
+    EXPECT_EQ(fixture.worn_by.room.vnum, 101);
+}
+
+TEST(JsGameAdapter, DoesNotTrustUnlinkedObjectCarrierBackPointer)
+{
+    char_data carrier = make_character("Carrier", 1, 20, 30, 40, false);
+    obj_data object = make_object("unlinked lever", 0);
+    object.in_room = -1;
+    object.carried_by = &carrier;
+    const char_data *live_characters[] = { &carrier };
+    const obj_data *live_objects[] = { &object };
+    index_data object_index[1] {};
+    object_index[0].virt = 300;
+    room_data world[1] = { make_room("Only Room", 100, 0) };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, world, 0,
+        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &fixture));
+
+    EXPECT_FALSE(fixture.has_room);
+    EXPECT_FALSE(fixture.has_carried_by);
+    EXPECT_FALSE(fixture.has_worn_by);
+}
+
+TEST(JsGameAdapter, DoesNotExposeOwnerForRoomOrNestedObjects)
+{
+    char_data carrier = make_character("Carrier", 1, 20, 30, 40, false);
+    obj_data room_object = make_object("room lever", 0);
+    room_object.in_room = 0;
+    room_object.carried_by = &carrier;
+    obj_data container = make_object("container", 1);
+    obj_data nested_object = make_object("nested lever", 0);
+    nested_object.in_room = -1;
+    nested_object.in_obj = &container;
+    nested_object.carried_by = &carrier;
+    const char_data *live_characters[] = { &carrier };
+    const obj_data *live_objects[] = { &room_object, &nested_object };
+    index_data object_index[2] {};
+    object_index[0].virt = 300;
+    object_index[1].virt = 301;
+    room_data world[1] = { make_room("Only Room", 100, 0) };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 2, world, 0,
+        nullptr, 0, object_index, 2, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture room_fixture;
+    room_fixture.has_carried_by = true;
+    room_fixture.has_worn_by = true;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&room_object, options, &room_fixture));
+    ASSERT_TRUE(room_fixture.has_room);
+    EXPECT_FALSE(room_fixture.has_carried_by);
+    EXPECT_FALSE(room_fixture.has_worn_by);
+
+    JsGameObjectFixture nested_fixture;
+    nested_fixture.has_carried_by = true;
+    nested_fixture.has_worn_by = true;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&nested_object, options, &nested_fixture));
+    EXPECT_FALSE(nested_fixture.has_room);
+    EXPECT_FALSE(nested_fixture.has_carried_by);
+    EXPECT_FALSE(nested_fixture.has_worn_by);
+}
+
 TEST(JsGameAdapter, RejectionPathsDoNotModifyExistingFixtures)
 {
     char_data stale_character = make_character("Stale", 1, 1, 1, 1, false);
@@ -460,6 +576,13 @@ TEST(JsGameAdapter, DoesNotDereferenceObjectRelationshipPointers)
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &fixture));
     EXPECT_EQ(fixture.id, "object:300");
     EXPECT_EQ(fixture.name, "Nested");
+    EXPECT_FALSE(fixture.has_carried_by);
+    EXPECT_FALSE(fixture.has_worn_by);
+
+    object.in_obj = nullptr;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &fixture));
+    EXPECT_FALSE(fixture.has_carried_by);
+    EXPECT_FALSE(fixture.has_worn_by);
 }
 
 TEST(JsGameAdapter, BoundsCopiedStrings)

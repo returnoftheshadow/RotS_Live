@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: `Room.isSunlit` runtime backing. Room snapshots expose a read-only sunlight boolean for `SCRIPT_IF_ROOM_SUNLIT` parity using the same light/dark semantics as the legacy script check.
-- Next slice: close the next read-only drift item identified by the matrix, likely `GameObject.carriedBy`/`wornBy` planning before any bounded output helper implementation.
+- Latest completed slice: `GameObject.carriedBy`/`wornBy` runtime backing. Object snapshots expose direct live carriers only when the object is linked from the carrier inventory list, expose live wearers only when the object is in an equipment slot, and keep room/nested/stale/unlinked relationship pointers null.
+- Next slice: audit remaining `ScriptContext` alias drift for trigger-specific fields such as `attacker`, `speaker`, `victim`, `weapon`, and `wearSlot`, then implement the first safe alias group against legacy call-site context mapping.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

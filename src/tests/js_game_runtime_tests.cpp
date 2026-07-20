@@ -159,9 +159,77 @@ TEST(JsGameRuntime, ModelsObjectRoomAsNullWhenMissing)
 
     JsGameRuntime runtime;
     JsRuntimeEvalResult result =
-        runtime.evaluate_trigger_body("return ctx.object.room === null;", context);
+        runtime.evaluate_trigger_body(
+            "return ctx.object.room === null\n"
+            "  && ctx.object.carriedBy === null\n"
+            "  && ctx.object.wornBy === null;",
+            context);
 
     expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, ExposesObjectCarriedByWhenPresent)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.object.has_room = false;
+    context.object.has_carried_by = true;
+    context.object.carried_by = context.actor;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.object.room === null\n"
+        "  && ctx.object.carriedBy !== null\n"
+        "  && ctx.object.carriedBy.name === 'Builder'\n"
+        "  && ctx.object.carriedBy.rank === 4\n"
+        "  && ctx.object.carriedBy.isValid() === true\n"
+        "  && ctx.object.wornBy === null;",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, ExposesObjectWornByWhenPresent)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.object.has_room = false;
+    context.object.has_worn_by = true;
+    context.object.worn_by = context.self;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.object.room === null\n"
+        "  && ctx.object.carriedBy === null\n"
+        "  && ctx.object.wornBy !== null\n"
+        "  && ctx.object.wornBy.name === 'Aldren'\n"
+        "  && ctx.object.wornBy.room.zone.vnum === 12\n"
+        "  && ctx.object.wornBy.isValid() === true;",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, RejectsMutationOfObjectOwnerSnapshots)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.object.has_carried_by = true;
+    context.object.carried_by = context.actor;
+    context.object.has_worn_by = true;
+    context.object.worn_by = context.self;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult assign_result = runtime.evaluate_trigger_body(
+        "ctx.object.carriedBy.name = 'changed';\n"
+        "return true;",
+        context);
+    EXPECT_EQ(assign_result.status, JsRuntimeStatus::Error);
+    EXPECT_NE(assign_result.diagnostic.find("read-only"), std::string::npos)
+        << assign_result.diagnostic;
+
+    JsRuntimeEvalResult proto_result = runtime.evaluate_trigger_body(
+        "Object.setPrototypeOf(ctx.object.wornBy, { injected: true });\n"
+        "return true;",
+        context);
+    EXPECT_EQ(proto_result.status, JsRuntimeStatus::Error);
 }
 
 TEST(JsGameRuntime, SerializesFalseRoomSunlitState)

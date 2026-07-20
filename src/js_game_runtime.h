@@ -45,6 +45,12 @@ struct JsGameObjectFixture {
 
     bool has_room = false;
     JsGameRoomFixture room;
+
+    bool has_carried_by = false;
+    JsGameCharacterFixture carried_by;
+
+    bool has_worn_by = false;
+    JsGameCharacterFixture worn_by;
 };
 
 struct JsGameTriggerFixture {

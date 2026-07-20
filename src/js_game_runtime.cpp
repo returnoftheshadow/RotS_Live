@@ -127,6 +127,10 @@ std::string object_literal(const JsGameObjectFixture& object)
         out << "null";
     out << ","
         << "\"room\":" << nullable_literal(object.has_room, room_literal(object.room)) << ","
+        << "\"carriedBy\":"
+        << nullable_literal(object.has_carried_by, character_literal(object.carried_by)) << ","
+        << "\"wornBy\":" << nullable_literal(object.has_worn_by, character_literal(object.worn_by))
+        << ","
         << "\"isValid\":function() { return true; }"
         << "}";
     return out.str();

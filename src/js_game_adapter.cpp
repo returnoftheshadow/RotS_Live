@@ -118,6 +118,28 @@ bool room_is_sunlit(const room_data &room)
         !room_is_dark(room);
 }
 
+bool object_is_worn_by(const obj_data *object, const char_data *carrier)
+{
+    if (object == nullptr || carrier == nullptr)
+        return false;
+
+    return std::find(carrier->equipment, carrier->equipment + MAX_WEAR, object) !=
+        carrier->equipment + MAX_WEAR;
+}
+
+bool object_is_carried_by(const obj_data *object, const char_data *carrier)
+{
+    if (object == nullptr || carrier == nullptr)
+        return false;
+
+    for (const obj_data *carried = carrier->carrying; carried != nullptr;
+         carried = carried->next_content) {
+        if (carried == object)
+            return true;
+    }
+    return false;
+}
+
 } // namespace
 
 bool js_game_adapter_is_live_character(
@@ -171,6 +193,19 @@ bool js_game_adapter_object_fixture(
     fixture->name = copy_c_string(object->short_description != nullptr ? object->short_description : object->name);
     fixture->vnum = object_vnum(*object, options);
     fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
+
+    fixture->has_carried_by = false;
+    fixture->has_worn_by = false;
+    if (object->in_room == NOWHERE && object->in_obj == nullptr &&
+        js_game_adapter_is_live_character(object->carried_by, options)) {
+        if (object_is_worn_by(object, object->carried_by)) {
+            fixture->has_worn_by =
+                js_game_adapter_character_fixture(object->carried_by, options, &fixture->worn_by);
+        } else if (object_is_carried_by(object, object->carried_by)) {
+            fixture->has_carried_by =
+                js_game_adapter_character_fixture(object->carried_by, options, &fixture->carried_by);
+        }
+    }
     return true;
 }
 

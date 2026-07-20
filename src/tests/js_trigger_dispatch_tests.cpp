@@ -680,6 +680,88 @@ TEST(JsTriggerDispatch, ObjectHostProvidesObjectContextAndNoCharacterSelfAlias)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
+TEST(JsTriggerDispatch, ObjectHostProvidesCarriedBySnapshot)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_package(5602, JsScriptPackageHost::Object,
+        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+        "function onDamage(ctx) {\n"
+        "  if (ctx.object === null) throw new TypeError('missing-object');\n"
+        "  if (ctx.object.room !== null) throw new TypeError('unexpected-room');\n"
+        "  if (ctx.object.wornBy !== null) throw new TypeError('unexpected-worn');\n"
+        "  if (ctx.object.carriedBy === null) throw new TypeError('missing-carrier');\n"
+        "  if (ctx.object.carriedBy.name !== 'Carrier') throw new TypeError(ctx.object.carriedBy.name);\n"
+        "  if (ctx.object.carriedBy.room.vnum !== 100) throw new TypeError('carrier-room');\n"
+        "  return ctx.object.carriedBy.isValid();\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data carrier = make_character("Carrier");
+    obj_data object = make_object("Blade", 0);
+    object.in_room = -1;
+    object.carried_by = &carrier;
+    carrier.carrying = &object;
+    const char_data* live_characters[] = { &carrier };
+    const obj_data* live_objects[] = { &object };
+    index_data object_index[1] {};
+    object_index[0].virt = 300;
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Object;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_DAMAGE;
+    request.context_input.object = &object;
+    request.context_input.room = 0;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+}
+
+TEST(JsTriggerDispatch, ObjectHostProvidesWornBySnapshot)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_package(5603, JsScriptPackageHost::Object,
+        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+        "function onDamage(ctx) {\n"
+        "  if (ctx.object === null) throw new TypeError('missing-object');\n"
+        "  if (ctx.object.room !== null) throw new TypeError('unexpected-room');\n"
+        "  if (ctx.object.carriedBy !== null) throw new TypeError('unexpected-carried');\n"
+        "  if (ctx.object.wornBy === null) throw new TypeError('missing-wearer');\n"
+        "  if (ctx.object.wornBy.name !== 'Wearer') throw new TypeError(ctx.object.wornBy.name);\n"
+        "  if (ctx.object.wornBy.room.vnum !== 100) throw new TypeError('wearer-room');\n"
+        "  return ctx.object.wornBy.isValid();\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data wearer = make_character("Wearer");
+    obj_data object = make_object("Blade", 0);
+    object.in_room = -1;
+    object.carried_by = &wearer;
+    wearer.equipment[WIELD] = &object;
+    const char_data* live_characters[] = { &wearer };
+    const obj_data* live_objects[] = { &object };
+    index_data object_index[1] {};
+    object_index[0].virt = 300;
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Object;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_DAMAGE;
+    request.context_input.object = &object;
+    request.context_input.room = 0;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+}
+
 TEST(JsTriggerDispatch, RejectsMudlleMobileDispatchWhenSelfIsNotNpc)
 {
     JsScriptPackageRegistry registry;

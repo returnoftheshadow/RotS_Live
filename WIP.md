@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, mob, and direct object-room data parity is in place before any world mutation/output helpers.
-- Active slice: `Room.isSunlit` runtime backing complete. Room snapshots now expose a read-only sunlight boolean for `SCRIPT_IF_ROOM_SUNLIT` parity using the same light/dark semantics as the legacy script check.
-- Next slice: close the next read-only object relationship drift item identified by the matrix, likely `GameObject.carriedBy`/`wornBy` planning before any bounded output helper implementation.
+- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character, room, direct object-room, and direct object-owner snapshot parity is in place before any world mutation/output helpers.
+- Active slice: `GameObject.carriedBy`/`wornBy` runtime backing complete. Object snapshots now expose live direct inventory owners through `carriedBy` only when the object is linked from the carrier's inventory list, expose live equipment owners through `wornBy` only when the object is in an equipment slot, and keep room/nested/stale/unlinked relationship pointers null.
+- Next slice: audit remaining `ScriptContext` alias drift for trigger-specific fields such as `attacker`, `speaker`, `victim`, `weapon`, and `wearSlot`, then implement the first safe alias group against legacy call-site context mapping.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
