@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient publish workflow gap reassessment. Remaining client-side gaps are documented after the safer CLI token path, and the next small offline-first slice is a read-only `rots-script docs` command with deterministic JSON, no network/auth/upload behavior, hardened generated-artifact loading, bounded sanitized output, and no writes.
-- Next slice: BuilderClient read-only CLI docs command. Add `rots-script docs` so builders can inspect local/generated JavaScript API docs and provenance through deterministic JSON without auth, upload, or server mutation.
+- Latest completed slice: BuilderClient read-only CLI docs command. `rots-script docs` reports local/generated JavaScript API docs and provenance through deterministic JSON without auth, upload, network, server mutation, project-root/path disclosure, or writes; docs output is bounded and sanitized while preserving checksum provenance.
+- Next slice: BuilderClient local manifest/status or diff inspection. Add the next offline-first CLI/read-only workflow gap so builders can understand generated artifact freshness and local-vs-package state before upload behavior expands.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
