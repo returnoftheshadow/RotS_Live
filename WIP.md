@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: BuilderClient offline/local editor hardening remains the priority while builders validate scripts locally.
-- Active slice: BuilderClient fixture action feedback fix complete. Compile, Run Selected, and Run All now surface output-panel diagnostics when the Electron bridge is unavailable, the workspace is still loading, a fixture operation is busy, required fixture inputs are missing, compile returns no result, or fixture execution returns missing results.
-- Next slice: BuilderClient renderer interaction test harness for App-level fixture actions. Add behavior-level coverage for Compile, Run Selected, and Run All with mocked Electron APIs so no-op regressions are caught through actual UI clicks instead of source-shape guards.
+- Active slice: BuilderClient zoom clipping fix complete. Client zoom now uses zoom-adjusted shell/workspace height, zoom-aware bottom panel maximums, zoom-scaled pointer resize deltas, and viewport-resize reclamping so sidebar and bottom-panel content remain reachable when zoomed in.
+- Next slice: BuilderClient visual layout harness. Add browser/Electron-level coverage at maximum client zoom and constrained viewport sizes to assert title actions, sidebar scrolling, the editor, bottom resize handle, and bottom panel remain visible and reachable beyond source/CSS-string guards.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
