@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient fixture template/editor payload support. Trigger templates and the fixture editor now expose the generated/live context role and scalar payload fields, validate finite live vocabularies, support expanded readable handle properties, and let builders clear nullable handles without editing raw fixture JSON.
-- Next slice: expand BuilderClient nested handle relationship editing for object `carriedBy`/`wornBy` and handle `room`/`zone` links so builders can model the remaining live-shaped nested snapshots without raw fixture JSON.
+- Latest completed slice: BuilderClient nested handle relationship editing. Fixture editor/state/IPC validation now support live-shaped nested `room`, `zone`, `carriedBy`, and `wornBy` links for role/link combinations the offline runner consumes.
+- Next slice: replace or verify hand-maintained BuilderClient fixture vocabularies against server-owned generated artifacts so target types, wear slots, directions, and future finite context domains cannot drift from the live C++ adapter.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
