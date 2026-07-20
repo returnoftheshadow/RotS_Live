@@ -12,7 +12,8 @@ constexpr JsApiContractMetadata ContractMetadata = {
     "unpublished",
     "unpublished",
     "1",
-    "Static builder API contract only; no QuickJS host bindings or trigger dispatch are enabled.",
+    "Fixture and live trigger execution expose frozen read-only context data and pure result "
+    "helpers; side-effect host bindings remain deferred.",
 };
 
 constexpr JsApiMember CharacterMembers[] = {

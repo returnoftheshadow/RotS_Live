@@ -61,7 +61,9 @@ TEST(JsApiContract, ExposesStableMetadataForGeneratedConsumers)
     EXPECT_STREQ(metadata.generated_typings_version, "unpublished");
     EXPECT_STREQ(metadata.documentation_version, "unpublished");
     EXPECT_STREQ(metadata.minimum_trigger_catalog_revision, "1");
-    EXPECT_NE(std::string(metadata.notes).find("no QuickJS host bindings"), std::string::npos);
+    EXPECT_NE(std::string(metadata.notes).find("pure result helpers"), std::string::npos);
+    EXPECT_NE(std::string(metadata.notes).find("side-effect host bindings remain deferred"),
+        std::string::npos);
 }
 
 TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)

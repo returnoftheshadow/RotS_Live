@@ -279,6 +279,56 @@ TEST(JsTriggerDispatch, InvokesOnlyBoundHandlerFromFullCompiledPackage)
     EXPECT_EQ(result.matched_package_count, 1U);
 }
 
+TEST(JsTriggerDispatch, DispatchesBuilderClientCommonJsExportsAndScriptResultHelpers)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5151,
+        "\"use strict\";\n"
+        "Object.defineProperty(exports, \"__esModule\", { value: true });\n"
+        "exports.onEnter = onEnter;\n"
+        "function onEnter(ctx) {\n"
+        "  return ctx.self.name === 'Self' ? RotS.ScriptResult.block() : RotS.ScriptResult.allow();\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, character_request(&self), options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Block) << result.diagnostic;
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(result.package_vnum, 5151);
+    EXPECT_EQ(result.handler_name, "onEnter");
+}
+
+TEST(JsTriggerDispatch, PrefersCompiledExportOverGlobalHandlerFallback)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5152,
+        "exports.onEnter = function(ctx) { return RotS.ScriptResult.allow(); };\n"
+        "function onEnter(ctx) { return RotS.ScriptResult.block(); }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, character_request(&self), options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(result.package_vnum, 5152);
+    EXPECT_EQ(result.handler_name, "onEnter");
+}
+
 TEST(JsTriggerDispatch, MapsFalseReturnToBlockForBlockingManifestTriggers)
 {
     JsScriptPackageRegistry registry;

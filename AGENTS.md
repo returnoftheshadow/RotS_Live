@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient Electron preload bridge fix. The Electron window now loads the ES module preload so `window.rotsBuilder` is available for Compile, Run Selected, Run All, and IPC-backed offline fixture workflows; dev-server loading is restricted to the local Vite URL, and `smoke:preload` verifies the built bridge plus an IPC round trip.
-- Next slice: BuilderClient sandbox-compatible preload hardening. Replace the temporary `sandbox: false` compatibility posture with a sandbox-compatible preload build while keeping the `smoke:preload` bridge and no-Node-global assertions green.
+- Latest completed slice: live runtime compiler-shape parity. The server runtime accepts BuilderClient-compiled CommonJS handler exports alongside direct global handlers and exposes frozen `RotS.ScriptResult.allow()` / `RotS.ScriptResult.block()` helpers in live trigger execution.
+- Next slice: JavaScript API capability alignment matrix. Compare every API surface builders expect from ASIMA/current scripts against the server-owned `js_api_contract`, generated typings, offline runner, and live runtime; then expand the next smallest missing read/output capability with tests.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

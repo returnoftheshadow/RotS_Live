@@ -1,12 +1,13 @@
 #include "js_game_runtime.h"
 
+#include <cctype>
 #include <sstream>
 
 namespace {
 
 constexpr std::size_t MaxGameDiagnosticLength = 120;
 
-std::string js_quote(const std::string &value)
+std::string js_quote(const std::string& value)
 {
     std::ostringstream out;
     out << '"';
@@ -35,7 +36,7 @@ std::string js_quote(const std::string &value)
             break;
         default:
             if (ch < 0x20 || ch >= 0x80) {
-                static const char *hex = "0123456789abcdef";
+                static const char* hex = "0123456789abcdef";
                 out << "\\x" << hex[(ch >> 4) & 0x0f] << hex[ch & 0x0f];
             } else {
                 out << ch;
@@ -47,12 +48,12 @@ std::string js_quote(const std::string &value)
     return out.str();
 }
 
-const char *js_bool(bool value)
+const char* js_bool(bool value)
 {
     return value ? "true" : "false";
 }
 
-std::string character_literal(const JsGameCharacterFixture &character)
+std::string character_literal(const JsGameCharacterFixture& character)
 {
     std::ostringstream out;
     out << "{"
@@ -73,7 +74,7 @@ std::string character_literal(const JsGameCharacterFixture &character)
     return out.str();
 }
 
-std::string object_literal(const JsGameObjectFixture &object)
+std::string object_literal(const JsGameObjectFixture& object)
 {
     std::ostringstream out;
     out << "{"
@@ -88,7 +89,7 @@ std::string object_literal(const JsGameObjectFixture &object)
     return out.str();
 }
 
-std::string room_literal(const JsGameRoomFixture &room)
+std::string room_literal(const JsGameRoomFixture& room)
 {
     std::ostringstream out;
     out << "{"
@@ -98,7 +99,7 @@ std::string room_literal(const JsGameRoomFixture &room)
     return out.str();
 }
 
-std::string zone_literal(const JsGameZoneFixture &zone)
+std::string zone_literal(const JsGameZoneFixture& zone)
 {
     std::ostringstream out;
     out << "{"
@@ -108,7 +109,7 @@ std::string zone_literal(const JsGameZoneFixture &zone)
     return out.str();
 }
 
-std::string trigger_literal(const JsGameTriggerFixture &trigger)
+std::string trigger_literal(const JsGameTriggerFixture& trigger)
 {
     std::ostringstream out;
     out << "{"
@@ -120,12 +121,12 @@ std::string trigger_literal(const JsGameTriggerFixture &trigger)
     return out.str();
 }
 
-std::string nullable_literal(bool present, const std::string &literal)
+std::string nullable_literal(bool present, const std::string& literal)
 {
     return present ? literal : "null";
 }
 
-bool source_has_unsafe_wrapper_boundary(const std::string &source)
+bool source_has_unsafe_wrapper_boundary(const std::string& source)
 {
     int brace_depth = 0;
     int paren_depth = 0;
@@ -202,11 +203,33 @@ bool source_has_unsafe_wrapper_boundary(const std::string &source)
         }
     }
 
-    return string_quote != '\0' || in_block_comment || brace_depth != 0 || paren_depth != 0 ||
-           bracket_depth != 0;
+    return string_quote != '\0' || in_block_comment || brace_depth != 0 || paren_depth != 0 || bracket_depth != 0;
 }
 
-std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
+bool is_identifier_start(unsigned char ch)
+{
+    return std::isalpha(ch) || ch == '_' || ch == '$';
+}
+
+bool is_identifier_continue(unsigned char ch)
+{
+    return is_identifier_start(ch) || std::isdigit(ch);
+}
+
+bool is_safe_handler_identifier(const std::string& handler_name)
+{
+    if (handler_name.empty())
+        return false;
+    if (!is_identifier_start(static_cast<unsigned char>(handler_name[0])))
+        return false;
+    for (std::size_t index = 1; index < handler_name.size(); ++index) {
+        if (!is_identifier_continue(static_cast<unsigned char>(handler_name[index])))
+            return false;
+    }
+    return true;
+}
+
+std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
 {
     std::ostringstream wrapped;
     wrapped << "'use strict';\n"
@@ -216,13 +239,20 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
             << "Object.freeze(Object.prototype);\n"
             << "Object.freeze(__rotsFunctionPrototype);\n"
             << "function __rotsDeepFreeze(value) {\n"
-            << "  if (value && typeof value === 'object' && !Object.isFrozen(value)) {\n"
-            << "    Object.setPrototypeOf(value, null);\n"
+            << "  if (value && (typeof value === 'object' || typeof value === 'function') && !Object.isFrozen(value)) {\n"
+            << "    if (typeof value === 'object') Object.setPrototypeOf(value, null);\n"
             << "    Object.freeze(value);\n"
             << "    for (const key of Object.keys(value)) __rotsDeepFreeze(value[key]);\n"
             << "  }\n"
             << "  return value;\n"
             << "}\n"
+            << "const console = __rotsDeepFreeze({ log: function() { return undefined; } });\n"
+            << "const RotS = __rotsDeepFreeze({\n"
+            << "  ScriptResult: {\n"
+            << "    allow: function() { return true; },\n"
+            << "    block: function() { return false; }\n"
+            << "  }\n"
+            << "});\n"
             << "const ctx = __rotsDeepFreeze(" << js_game_trigger_context_literal(context) << ");\n";
     return wrapped.str();
 }
@@ -231,8 +261,7 @@ JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result)
 {
     if (result.status == JsRuntimeStatus::Error && result.diagnostic.size() > MaxGameDiagnosticLength)
         result.diagnostic.resize(MaxGameDiagnosticLength);
-    if (result.status == JsRuntimeStatus::Error && result.diagnostic.find("TypeError:") != 0 &&
-        result.diagnostic.find("SyntaxError:") != 0) {
+    if (result.status == JsRuntimeStatus::Error && result.diagnostic.find("TypeError:") != 0 && result.diagnostic.find("SyntaxError:") != 0) {
         result.diagnostic = "JavaScript game script failed";
     }
     return result;
@@ -240,13 +269,13 @@ JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result)
 
 } // namespace
 
-JsGameRuntime::JsGameRuntime(const JsRuntimeLimits &limits)
+JsGameRuntime::JsGameRuntime(const JsRuntimeLimits& limits)
     : m_limits(limits)
 {
 }
 
-JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string &source,
-    const JsGameTriggerContextFixture &context, const char *filename)
+JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string& source,
+    const JsGameTriggerContextFixture& context, const char* filename)
 {
     if (source_has_unsafe_wrapper_boundary(source)) {
         JsRuntimeEvalResult result;
@@ -267,21 +296,32 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string &sour
 }
 
 JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
-    const std::string &package_source, const std::string &handler_name,
-    const JsGameTriggerContextFixture &context, const char *filename)
+    const std::string& package_source, const std::string& handler_name,
+    const JsGameTriggerContextFixture& context, const char* filename)
 {
+    if (!is_safe_handler_identifier(handler_name)) {
+        JsRuntimeEvalResult result;
+        result.status = JsRuntimeStatus::Error;
+        result.diagnostic = "JavaScript game handler name is not a safe identifier";
+        return result;
+    }
+
     std::ostringstream wrapped;
     wrapped << trigger_context_preamble(context)
+            << "const exports = Object.create(null);\n"
             << package_source << "\n"
-            << "if (typeof " << handler_name
-            << " !== 'function') throw new TypeError('JavaScript game handler is not callable');\n"
-            << handler_name << "(ctx);";
+            << "const __rotsHandler = typeof exports." << handler_name << " === 'function' ? exports."
+            << handler_name << "\n"
+            << "  : typeof " << handler_name << " === 'function' ? " << handler_name
+            << " : undefined;\n"
+            << "if (typeof __rotsHandler !== 'function') throw new TypeError('JavaScript game handler is not callable');\n"
+            << "__rotsHandler(ctx);";
 
     JsRuntime runtime(m_limits);
     return sanitize_game_result(runtime.evaluate(wrapped.str(), filename));
 }
 
-std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture &context)
+std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& context)
 {
     std::ostringstream out;
     out << "{"

@@ -85,6 +85,41 @@ TEST(JsGameRuntime, PreservesBlockingReturnSemantics)
     EXPECT_EQ(result.value, JsRuntimeValue::Block);
 }
 
+TEST(JsGameRuntime, ExposesScriptResultHelpers)
+{
+    JsGameRuntime runtime;
+
+    JsRuntimeEvalResult allow_result =
+        runtime.evaluate_trigger_body("return RotS.ScriptResult.allow();", make_context());
+    JsRuntimeEvalResult block_result =
+        runtime.evaluate_trigger_body("return RotS.ScriptResult.block();", make_context());
+
+    expect_ok_allows(allow_result);
+    EXPECT_EQ(block_result.status, JsRuntimeStatus::Ok) << block_result.diagnostic;
+    EXPECT_EQ(block_result.value, JsRuntimeValue::Block);
+}
+
+TEST(JsGameRuntime, KeepsScriptResultHelpersImmutable)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "try { RotS.ScriptResult.allow = function() { return false; }; } catch (error) {}\n"
+        "try { RotS.ScriptResult.extra = true; } catch (error) {}\n"
+        "return RotS.ScriptResult.allow() === true && typeof RotS.ScriptResult.extra === 'undefined';",
+        make_context());
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, ExposesNoOpConsoleLogForOfflineParity)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("console.log('builder fixture note'); return true;", make_context());
+
+    expect_ok_allows(result);
+}
+
 TEST(JsGameRuntime, NormalizesWrapperReturnValues)
 {
     JsGameRuntime runtime;
@@ -250,6 +285,7 @@ TEST(JsGameRuntime, DoesNotExposeRawPointersOrProcessGlobals)
         "  && typeof ctx.room.raw === 'undefined'\n"
         "  && typeof ctx.self.constructor === 'undefined'\n"
         "  && typeof ctx.trigger.toString === 'undefined'\n"
+        "  && typeof RotS.ScriptResult.allow.constructor === 'undefined'\n"
         "  && typeof process === 'undefined'\n"
         "  && typeof require === 'undefined'\n"
         "  && typeof ({}).constructor === 'undefined'\n"
@@ -284,4 +320,40 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"legacyName\":\"ON_PULL\""), std::string::npos);
     EXPECT_EQ(literal.find("char_data"), std::string::npos);
     EXPECT_EQ(literal.find("obj_data"), std::string::npos);
+}
+
+TEST(JsGameRuntime, DispatchesCompiledCommonJsExports)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_package_handler(
+        "\"use strict\";\n"
+        "Object.defineProperty(exports, \"__esModule\", { value: true });\n"
+        "exports.onEnter = onEnter;\n"
+        "function onEnter(ctx) { return RotS.ScriptResult.block(); }\n",
+        "onEnter", make_context());
+
+    EXPECT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Block);
+}
+
+TEST(JsGameRuntime, PrefersCompiledExportOverGlobalHandlerFallback)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_package_handler(
+        "exports.onEnter = function(ctx) { return RotS.ScriptResult.allow(); };\n"
+        "function onEnter(ctx) { return RotS.ScriptResult.block(); }\n",
+        "onEnter", make_context());
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, RejectsUnsafePackageHandlerNamesBeforeEvaluation)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_package_handler("throw new Error('should not run');", "onEnter(); evil",
+            make_context());
+
+    EXPECT_EQ(result.status, JsRuntimeStatus::Error);
+    EXPECT_EQ(result.diagnostic, "JavaScript game handler name is not a safe identifier");
 }
