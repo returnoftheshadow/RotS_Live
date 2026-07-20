@@ -41,6 +41,9 @@ struct JsGameObjectFixture {
     std::string id;
     std::string name;
     int vnum = 0;
+
+    bool has_room = false;
+    JsGameRoomFixture room;
 };
 
 struct JsGameTriggerFixture {

@@ -125,6 +125,7 @@ std::string object_literal(const JsGameObjectFixture& object)
     else
         out << "null";
     out << ","
+        << "\"room\":" << nullable_literal(object.has_room, room_literal(object.room)) << ","
         << "\"isValid\":function() { return true; }"
         << "}";
     return out.str();

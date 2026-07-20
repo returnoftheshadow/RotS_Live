@@ -39,6 +39,14 @@ JsGameTriggerContextFixture make_context()
     context.object.id = "object:300";
     context.object.name = "silver lever";
     context.object.vnum = 300;
+    context.object.has_room = true;
+    context.object.room.id = "room:1204";
+    context.object.room.name = "Northern Gate";
+    context.object.room.vnum = 1204;
+    context.object.room.has_zone = true;
+    context.object.room.zone.id = "zone:12";
+    context.object.room.zone.name = "Old City";
+    context.object.room.zone.vnum = 12;
 
     context.has_room = true;
     context.room.id = "room:1204";
@@ -89,6 +97,8 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.experience === 31000\n"
         "  && ctx.actor.rank === 4\n"
         "  && ctx.object.vnum === 300\n"
+        "  && ctx.object.room.name === 'Northern Gate'\n"
+        "  && ctx.object.room.zone.vnum === 12\n"
         "  && ctx.object.isValid() === true\n"
         "  && ctx.room.name === 'Northern Gate'\n"
         "  && ctx.room.zone.vnum === 12\n"
@@ -132,6 +142,18 @@ TEST(JsGameRuntime, ModelsUnresolvedMobPrototypeVnumAsNull)
         "  && ctx.self.vnum === null\n"
         "  && ctx.self.prototypeVnum === null;",
         context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, ModelsObjectRoomAsNullWhenMissing)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.object.has_room = false;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.object.room === null;", context);
 
     expect_ok_allows(result);
 }
@@ -382,7 +404,9 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"isValid\":function() { return true; }"), std::string::npos);
     EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\""), std::string::npos);
-    EXPECT_NE(literal.find("\"room\":{\"id\":\"room:1204\""), std::string::npos);
+    EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\",\"name\":\"silver lever\","
+                           "\"vnum\":300,\"room\":{\"id\":\"room:1204\""),
+        std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"legacyName\":\"ON_PULL\""), std::string::npos);
     EXPECT_EQ(literal.find("char_data"), std::string::npos);

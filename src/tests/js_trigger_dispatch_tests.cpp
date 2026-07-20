@@ -53,6 +53,14 @@ room_data make_room(const char* name, int number, int zone)
     return room;
 }
 
+zone_data make_zone(const char* name, int number)
+{
+    zone_data zone {};
+    zone.name = const_cast<char*>(name);
+    zone.number = number;
+    return zone;
+}
+
 JsScriptRegistryReplaceOptions internal_options()
 {
     JsScriptRegistryReplaceOptions options;
@@ -644,6 +652,8 @@ TEST(JsTriggerDispatch, ObjectHostProvidesObjectContextAndNoCharacterSelfAlias)
         "  if (ctx.object.id !== 'object') throw new TypeError(ctx.object.id);\n"
         "  if (ctx.object.name !== 'Blade') throw new TypeError(ctx.object.name);\n"
         "  if (ctx.object.vnum !== 300) throw new TypeError(String(ctx.object.vnum));\n"
+        "  if (ctx.object.room.vnum !== 100) throw new TypeError(String(ctx.object.room && ctx.object.room.vnum));\n"
+        "  if (ctx.object.room.zone.vnum !== 10) throw new TypeError(String(ctx.object.room.zone && ctx.object.room.zone.vnum));\n"
         "  if (ctx.room.vnum !== 100) throw new TypeError(String(ctx.room.vnum));\n"
         "  return ctx.trigger.hostType === 'object';\n"
         "}");
@@ -654,8 +664,9 @@ TEST(JsTriggerDispatch, ObjectHostProvidesObjectContextAndNoCharacterSelfAlias)
     index_data object_index[1] {};
     object_index[0].virt = 300;
     room_data world[1] = { make_room("Room", 100, 0) };
+    zone_data zones[1] = { make_zone("Test Zone", 10) };
     JsGameAdapterOptions options =
-        make_options(nullptr, 0, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
+        make_options(nullptr, 0, live_objects, 1, world, 0, object_index, 1, zones, 1);
 
     JsTriggerDispatchRequest request;
     request.host = JsScriptPackageHost::Object;

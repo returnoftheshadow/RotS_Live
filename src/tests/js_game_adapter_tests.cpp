@@ -186,6 +186,10 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(object_fixture.id, "object:300");
     EXPECT_EQ(object_fixture.name, "silver lever");
     EXPECT_EQ(object_fixture.vnum, 300);
+    ASSERT_TRUE(object_fixture.has_room);
+    EXPECT_EQ(object_fixture.room.vnum, 1204);
+    ASSERT_TRUE(object_fixture.room.has_zone);
+    EXPECT_EQ(object_fixture.room.zone.vnum, 12);
 
     JsGameRoomFixture room_fixture;
     ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture));
@@ -222,6 +226,25 @@ TEST(JsGameAdapter, RejectsStaleObjectsAndInvalidRoomBounds)
     JsGameRoomFixture room_fixture;
     EXPECT_FALSE(js_game_adapter_room_fixture(-1, options, &room_fixture));
     EXPECT_FALSE(js_game_adapter_room_fixture(1, options, &room_fixture));
+}
+
+TEST(JsGameAdapter, ModelsObjectRoomAsMissingWhenObjectIsNotDirectlyInRoom)
+{
+    index_data object_index[1] {};
+    object_index[0].virt = 300;
+    obj_data object = make_object("carried lever", 0);
+    object.in_room = -1;
+    const obj_data *live_objects[] = { &object };
+    room_data world[1] = { make_room("Only Room", 1, 0) };
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, world, 0, nullptr, 0,
+        object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    object_fixture.has_room = true;
+    object_fixture.room.id = "sentinel-room";
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+    EXPECT_FALSE(object_fixture.has_room);
+    EXPECT_EQ(object_fixture.room.id, "sentinel-room");
 }
 
 TEST(JsGameAdapter, RejectionPathsDoNotModifyExistingFixtures)

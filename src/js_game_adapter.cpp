@@ -155,6 +155,7 @@ bool js_game_adapter_object_fixture(
     fixture->id = object_id(*object, options);
     fixture->name = copy_c_string(object->short_description != nullptr ? object->short_description : object->name);
     fixture->vnum = object_vnum(*object, options);
+    fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
     return true;
 }
 
