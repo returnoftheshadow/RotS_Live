@@ -10,6 +10,7 @@
 
 struct JsGameAdapterOptions;
 struct JsRuntimeLimits;
+struct JsTriggerDispatchOptions;
 struct JsTriggerDispatchRequest;
 struct JsTriggerDispatchResult;
 
@@ -90,6 +91,9 @@ class JsLiveRegistryReloadService {
     friend JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
         const JsLiveRegistryReloadService &service, const JsTriggerDispatchRequest &request,
         const JsGameAdapterOptions &adapter_options, const JsRuntimeLimits &limits);
+    friend JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
+        const JsLiveRegistryReloadService &service, const JsTriggerDispatchRequest &request,
+        const JsGameAdapterOptions &adapter_options, const JsTriggerDispatchOptions &options);
 
     JsLiveRegistryReloadOptions m_options;
     JsScriptPackageRegistry m_registry;

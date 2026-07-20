@@ -810,6 +810,35 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptBeforeEnterRuntimeErrorBlocksMovement
     EXPECT_EQ(trigger_before_char_enter(&self, &actor, &world), 0);
 }
 
+TEST(JsLegacyTriggerDispatch, EnabledScriptBeforeEnterBudgetExceededBlocksMovement) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalPulseGuard pulse_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6190, "function onBeforeEnter(ctx) { return true; }",
+                         ON_BEFORE_ENTER));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.next = &actor;
+    actor.next = nullptr;
+    character_list = &self;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+    pulse = 8800;
+
+    for (int invocation = 0; invocation < 256; ++invocation)
+        EXPECT_EQ(trigger_before_char_enter(&self, &actor, &world), 1) << invocation;
+
+    EXPECT_EQ(trigger_before_char_enter(&self, &actor, &world), 0);
+}
+
 TEST(JsLegacyTriggerDispatch, EnabledScriptBeforeEnterSkipsWhenObserverLeftTargetRoom) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;
@@ -3359,6 +3388,35 @@ TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeDispatchesAndMapsBlock) {
     EXPECT_TRUE(result.diagnostic.empty());
 }
 
+TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeMapsBudgetExceeded) {
+    JsLiveRegistryReloadService service = make_refreshed_service(
+        make_package(6110, "function onEnter(ctx) { return false; }"));
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
+    JsGameAdapterOptions adapter_options = make_options(live_characters, 1, world, 0);
+    JsTriggerDispatchBudget budget;
+    JsLegacyTriggerDispatchOptions options = enabled_options(service);
+    options.budget = &budget;
+    options.budget_limits.max_invocations_per_package_per_pulse = 1;
+    options.current_pulse = 700;
+
+    JsLegacyTriggerDispatchResult first = js_legacy_trigger_dispatch(
+        service, character_enter_request(&self), adapter_options, options);
+    JsLegacyTriggerDispatchResult second = js_legacy_trigger_dispatch(
+        service, character_enter_request(&self), adapter_options, options);
+
+    EXPECT_EQ(first.status, JsLegacyTriggerDispatchStatus::Block) << first.diagnostic;
+    EXPECT_EQ(second.status, JsLegacyTriggerDispatchStatus::BudgetExceeded);
+    EXPECT_EQ(second.dispatch_result.status, JsTriggerDispatchStatus::BudgetExceeded);
+    EXPECT_EQ(second.dispatch_result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(second.dispatch_result.package_vnum, 6110);
+    EXPECT_EQ(second.dispatch_result.handler_name, "onEnter");
+    EXPECT_STREQ("budget-exceeded", js_legacy_trigger_dispatch_status_name(second.status));
+    EXPECT_TRUE(contains(second.diagnostic, "budget exceeded"));
+    EXPECT_FALSE(contains(second.diagnostic, "function onEnter"));
+}
+
 TEST(JsLegacyTriggerDispatch, FreshEnabledFacadeUsesFirstLivePackageWhenMultiplePackagesMatch) {
     JsStagedPackageRepository repository;
     JsLivePackageStore live_store;
@@ -3591,6 +3649,9 @@ TEST(JsLegacyTriggerDispatch, StatusNamesAreStable) {
                  js_legacy_trigger_dispatch_status_name(JsLegacyTriggerDispatchStatus::Block));
     EXPECT_STREQ("error",
                  js_legacy_trigger_dispatch_status_name(JsLegacyTriggerDispatchStatus::Error));
+    EXPECT_STREQ("budget-exceeded",
+                 js_legacy_trigger_dispatch_status_name(
+                     JsLegacyTriggerDispatchStatus::BudgetExceeded));
 }
 
 TEST(JsLegacyTriggerDispatch, BuildFilesReferenceFacadeSourcesAndTests) {
@@ -3695,6 +3756,14 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     ASSERT_FALSE(interpre.empty());
     ASSERT_FALSE(mobact.empty());
     EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 8u);
+    EXPECT_EQ(count_occurrences(script,
+                  "JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();"),
+        8u);
+    EXPECT_TRUE(contains(script, "options.budget = &javascript_legacy_trigger_dispatch_budget;"));
+    EXPECT_TRUE(contains(script, "options.budget_limits = JavascriptLegacyTriggerBudgetLimits;"));
+    EXPECT_TRUE(contains(script, "options.current_pulse = pulse;"));
+    EXPECT_TRUE(contains(script, "javascript_fail_closed_status_blocks(result.status) ? 0 : 1"));
+    EXPECT_TRUE(contains(script, "javascript_fail_closed_status_blocks(result.status) ? 1 : 0"));
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_character_movement_entry_trigger(ch, vict, room,"),
         2u);

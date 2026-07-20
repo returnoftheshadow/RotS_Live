@@ -24,6 +24,8 @@ JsLegacyTriggerDispatchStatus facade_status_from_dispatch(JsTriggerDispatchStatu
         return JsLegacyTriggerDispatchStatus::Block;
     case JsTriggerDispatchStatus::Error:
         return JsLegacyTriggerDispatchStatus::Error;
+    case JsTriggerDispatchStatus::BudgetExceeded:
+        return JsLegacyTriggerDispatchStatus::BudgetExceeded;
     }
     return JsLegacyTriggerDispatchStatus::Error;
 }
@@ -58,6 +60,8 @@ const char *js_legacy_trigger_dispatch_status_name(JsLegacyTriggerDispatchStatus
         return "block";
     case JsLegacyTriggerDispatchStatus::Error:
         return "error";
+    case JsLegacyTriggerDispatchStatus::BudgetExceeded:
+        return "budget-exceeded";
     }
     return "unknown";
 }
@@ -95,8 +99,14 @@ JsLegacyTriggerDispatchResult js_legacy_trigger_dispatch(
         return result;
     }
 
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.runtime_limits = options.runtime_limits;
+    dispatch_options.budget = options.budget;
+    dispatch_options.budget_limits = options.budget_limits;
+    dispatch_options.current_pulse = options.current_pulse;
+
     result.dispatch_result = js_trigger_dispatch_live_first_match(
-        service, request, adapter_options, options.runtime_limits);
+        service, request, adapter_options, dispatch_options);
     result.status = facade_status_from_dispatch(result.dispatch_result.status);
     result.diagnostic = bounded_single_line(result.dispatch_result.diagnostic);
     return result;

@@ -14,6 +14,7 @@ enum class JsLegacyTriggerDispatchStatus {
     Allow,
     Block,
     Error,
+    BudgetExceeded,
 };
 
 class JsLegacyTriggerReloadGeneration {
@@ -38,6 +39,9 @@ struct JsLegacyTriggerDispatchOptions {
     bool require_fresh_reload = true;
     JsLegacyTriggerReloadGeneration expected_reload_generation;
     JsRuntimeLimits runtime_limits;
+    JsTriggerDispatchBudget* budget = nullptr;
+    JsTriggerDispatchBudgetLimits budget_limits;
+    int current_pulse = 0;
 };
 
 struct JsLegacyTriggerDispatchResult {

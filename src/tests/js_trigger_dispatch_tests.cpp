@@ -1119,6 +1119,230 @@ TEST(JsTriggerDispatch, RuntimeLimitsPropagateThroughFacade)
     EXPECT_FALSE(contains(result.diagnostic, "while"));
 }
 
+TEST(JsTriggerDispatch, SamePulsePerPackageBudgetSkipsRuntimeExecution)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5772,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchBudget budget;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.budget = &budget;
+    dispatch_options.budget_limits.max_invocations_per_package_per_pulse = 1;
+    dispatch_options.current_pulse = 90;
+
+    JsTriggerDispatchResult first =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+    JsTriggerDispatchResult second =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(first.status, JsTriggerDispatchStatus::Block) << first.diagnostic;
+    EXPECT_EQ(first.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(second.status, JsTriggerDispatchStatus::BudgetExceeded);
+    EXPECT_STREQ(js_trigger_dispatch_status_name(second.status), "budget-exceeded");
+    EXPECT_EQ(second.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_EQ(second.package_vnum, 5772);
+    EXPECT_EQ(second.package_id, "pkg-5772");
+    EXPECT_EQ(second.handler_name, "onEnter");
+    EXPECT_EQ(second.matched_package_count, 1U);
+    EXPECT_TRUE(contains(second.diagnostic, "budget exceeded"));
+    EXPECT_FALSE(contains(second.diagnostic, "function onEnter"));
+}
+
+TEST(JsTriggerDispatch, BudgetResetsWhenPulseChanges)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5773,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchBudget budget;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.budget = &budget;
+    dispatch_options.budget_limits.max_invocations_per_package_per_pulse = 1;
+    dispatch_options.current_pulse = 91;
+
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+                  dispatch_options)
+                  .status,
+        JsTriggerDispatchStatus::Block);
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+                  dispatch_options)
+                  .status,
+        JsTriggerDispatchStatus::BudgetExceeded);
+
+    dispatch_options.current_pulse = 92;
+    JsTriggerDispatchResult next_pulse =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(next_pulse.status, JsTriggerDispatchStatus::Block) << next_pulse.diagnostic;
+    EXPECT_EQ(next_pulse.package_vnum, 5773);
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+                  dispatch_options)
+                  .status,
+        JsTriggerDispatchStatus::BudgetExceeded);
+
+    dispatch_options.current_pulse = 0;
+    JsTriggerDispatchResult wrapped_pulse =
+        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(wrapped_pulse.status, JsTriggerDispatchStatus::Block) << wrapped_pulse.diagnostic;
+    EXPECT_EQ(wrapped_pulse.package_vnum, 5773);
+}
+
+TEST(JsTriggerDispatch, TotalPulseBudgetAppliesAcrossPackages)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage first = make_character_enter_package(5774,
+        "function onEnter(ctx) { return true; }");
+    JsScriptPackage second = make_character_enter_package(5775,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchBudget budget;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.budget = &budget;
+    dispatch_options.budget_limits.max_invocations_per_pulse = 1;
+    dispatch_options.budget_limits.max_invocations_per_package_per_pulse = 10;
+    dispatch_options.current_pulse = 93;
+
+    JsTriggerDispatchRequest first_request = character_request(&self);
+    first_request.package_vnum = 5774;
+    JsTriggerDispatchRequest second_request = character_request(&self);
+    second_request.package_vnum = 5775;
+
+    JsTriggerDispatchResult first_result =
+        js_trigger_dispatch_first_match(registry, first_request, adapter_options, dispatch_options);
+    JsTriggerDispatchResult second_result =
+        js_trigger_dispatch_first_match(registry, second_request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(first_result.status, JsTriggerDispatchStatus::Allow) << first_result.diagnostic;
+    EXPECT_EQ(first_result.package_vnum, 5774);
+    EXPECT_EQ(second_result.status, JsTriggerDispatchStatus::BudgetExceeded);
+    EXPECT_EQ(second_result.package_vnum, 5775);
+    EXPECT_EQ(second_result.handler_name, "onEnter");
+}
+
+TEST(JsTriggerDispatch, BudgetExceededAttemptDoesNotConsumeTotalBudget)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage first = make_character_enter_package(5777,
+        "function onEnter(ctx) { return true; }");
+    JsScriptPackage second = make_character_enter_package(5778,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchBudget budget;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.budget = &budget;
+    dispatch_options.budget_limits.max_invocations_per_pulse = 2;
+    dispatch_options.budget_limits.max_invocations_per_package_per_pulse = 1;
+    dispatch_options.current_pulse = 95;
+
+    JsTriggerDispatchRequest first_request = character_request(&self);
+    first_request.package_vnum = 5777;
+    JsTriggerDispatchRequest second_request = character_request(&self);
+    second_request.package_vnum = 5778;
+
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, first_request, adapter_options,
+                  dispatch_options)
+                  .status,
+        JsTriggerDispatchStatus::Allow);
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, first_request, adapter_options,
+                  dispatch_options)
+                  .status,
+        JsTriggerDispatchStatus::BudgetExceeded);
+    JsTriggerDispatchResult second_package =
+        js_trigger_dispatch_first_match(registry, second_request, adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(second_package.status, JsTriggerDispatchStatus::Block) << second_package.diagnostic;
+    EXPECT_EQ(second_package.package_vnum, 5778);
+}
+
+TEST(JsTriggerDispatch, ZeroBudgetLimitsAreUnlimitedWhenBudgetIsProvided)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5779,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchBudget budget;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.budget = &budget;
+    dispatch_options.current_pulse = 96;
+
+    for (int invocation = 0; invocation < 4; ++invocation) {
+        JsTriggerDispatchResult result =
+            js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
+                dispatch_options);
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Block) << invocation << ": "
+                                                                 << result.diagnostic;
+    }
+}
+
+TEST(JsTriggerDispatch, MissingLiveContextDoesNotConsumeBudget)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5776,
+        "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data stale_self = make_character("Stale");
+    char_data live_self = make_character("Live");
+    const char_data* live_characters[] = { &live_self };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
+    JsTriggerDispatchBudget budget;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.budget = &budget;
+    dispatch_options.budget_limits.max_invocations_per_package_per_pulse = 1;
+    dispatch_options.current_pulse = 94;
+
+    JsTriggerDispatchResult stale_result =
+        js_trigger_dispatch_first_match(registry, character_request(&stale_self), adapter_options,
+            dispatch_options);
+    JsTriggerDispatchResult live_result =
+        js_trigger_dispatch_first_match(registry, character_request(&live_self), adapter_options,
+            dispatch_options);
+
+    EXPECT_EQ(stale_result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_TRUE(contains(stale_result.diagnostic, "missing live character"));
+    EXPECT_EQ(live_result.status, JsTriggerDispatchStatus::Block) << live_result.diagnostic;
+    EXPECT_EQ(live_result.package_vnum, 5776);
+}
+
 TEST(JsTriggerDispatch, MissingHandlerFailsClosedInsteadOfAllowing)
 {
     JsScriptPackageRegistry registry;

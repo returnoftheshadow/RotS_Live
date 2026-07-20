@@ -99,6 +99,30 @@ namespace {
 
 bool javascript_legacy_trigger_dispatch_enabled = false;
 JsLegacyTriggerReloadGeneration javascript_legacy_trigger_reload_generation;
+JsTriggerDispatchBudget javascript_legacy_trigger_dispatch_budget;
+// Temporary server defaults until publish/admin config can own per-zone script limits.
+constexpr JsTriggerDispatchBudgetLimits JavascriptLegacyTriggerBudgetLimits = {
+    1024,
+    256,
+};
+
+JsLegacyTriggerDispatchOptions javascript_legacy_trigger_options()
+{
+    JsLegacyTriggerDispatchOptions options;
+    options.enabled = javascript_legacy_trigger_dispatch_enabled;
+    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    options.budget = &javascript_legacy_trigger_dispatch_budget;
+    options.budget_limits = JavascriptLegacyTriggerBudgetLimits;
+    options.current_pulse = pulse;
+    return options;
+}
+
+bool javascript_fail_closed_status_blocks(JsLegacyTriggerDispatchStatus status)
+{
+    return status == JsLegacyTriggerDispatchStatus::Block ||
+        status == JsLegacyTriggerDispatchStatus::Error ||
+        status == JsLegacyTriggerDispatchStatus::BudgetExceeded;
+}
 
 std::vector<const char_data*> live_character_snapshot()
 {
@@ -197,16 +221,11 @@ int dispatch_javascript_character_movement_entry_trigger(
     request.context_input.actor = vict;
     request.context_input.room = room_index;
 
-    JsLegacyTriggerDispatchOptions options;
-    options.enabled = javascript_legacy_trigger_dispatch_enabled;
-    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
-    return result.status == JsLegacyTriggerDispatchStatus::Block ||
-            result.status == JsLegacyTriggerDispatchStatus::Error
-        ? 0
-        : 1;
+    return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
 int dispatch_javascript_character_death_trigger(char_data* ch, char_data* killer = nullptr)
@@ -233,16 +252,11 @@ int dispatch_javascript_character_death_trigger(char_data* ch, char_data* killer
     if (js_game_adapter_room_is_valid(ch->in_room, adapter_options))
         request.context_input.room = ch->in_room;
 
-    JsLegacyTriggerDispatchOptions options;
-    options.enabled = javascript_legacy_trigger_dispatch_enabled;
-    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
-    return result.status == JsLegacyTriggerDispatchStatus::Block ||
-            result.status == JsLegacyTriggerDispatchStatus::Error
-        ? 0
-        : 1;
+    return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
 int dispatch_javascript_character_damage_trigger(char_data* vict, char_data* ch)
@@ -271,16 +285,11 @@ int dispatch_javascript_character_damage_trigger(char_data* vict, char_data* ch)
     if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))
         request.context_input.room = vict->in_room;
 
-    JsLegacyTriggerDispatchOptions options;
-    options.enabled = javascript_legacy_trigger_dispatch_enabled;
-    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
-    return result.status == JsLegacyTriggerDispatchStatus::Block ||
-            result.status == JsLegacyTriggerDispatchStatus::Error
-        ? 0
-        : 1;
+    return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
 int dispatch_javascript_object_damage_trigger(obj_data* obj, char_data* vict, char_data* ch)
@@ -313,16 +322,11 @@ int dispatch_javascript_object_damage_trigger(obj_data* obj, char_data* vict, ch
     if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))
         request.context_input.room = vict->in_room;
 
-    JsLegacyTriggerDispatchOptions options;
-    options.enabled = javascript_legacy_trigger_dispatch_enabled;
-    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
-    return result.status == JsLegacyTriggerDispatchStatus::Block ||
-            result.status == JsLegacyTriggerDispatchStatus::Error
-        ? 0
-        : 1;
+    return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
 bool is_javascript_object_event_trigger(int trigger_type)
@@ -360,16 +364,11 @@ int dispatch_javascript_object_event_trigger(
     if (js_game_adapter_room_is_valid(ch->in_room, adapter_options))
         request.context_input.room = ch->in_room;
 
-    JsLegacyTriggerDispatchOptions options;
-    options.enabled = javascript_legacy_trigger_dispatch_enabled;
-    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
-    return result.status == JsLegacyTriggerDispatchStatus::Block ||
-            result.status == JsLegacyTriggerDispatchStatus::Error
-        ? 0
-        : 1;
+    return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
 int dispatch_javascript_character_receive_trigger(char_data* receiver, char_data* giver,
@@ -404,16 +403,11 @@ int dispatch_javascript_character_receive_trigger(char_data* receiver, char_data
     request.context_input.object = object;
     request.context_input.room = receiver->in_room;
 
-    JsLegacyTriggerDispatchOptions options;
-    options.enabled = javascript_legacy_trigger_dispatch_enabled;
-    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
-    return result.status == JsLegacyTriggerDispatchStatus::Block ||
-            result.status == JsLegacyTriggerDispatchStatus::Error
-        ? 0
-        : 1;
+    return javascript_fail_closed_status_blocks(result.status) ? 0 : 1;
 }
 
 int dispatch_javascript_character_hear_trigger(int trigger_type, char_data* listener,
@@ -449,9 +443,7 @@ int dispatch_javascript_character_hear_trigger(int trigger_type, char_data* list
     request.context_input.room = listener->in_room;
     request.context_input.text = text;
 
-    JsLegacyTriggerDispatchOptions options;
-    options.enabled = javascript_legacy_trigger_dispatch_enabled;
-    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();
 
     js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
@@ -573,17 +565,12 @@ int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data
         request.context_input.target_character = host;
     }
 
-    JsLegacyTriggerDispatchOptions options;
-    options.enabled = javascript_legacy_trigger_dispatch_enabled;
-    options.expected_reload_generation = javascript_legacy_trigger_reload_generation;
+    JsLegacyTriggerDispatchOptions options = javascript_legacy_trigger_options();
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
     if (callflag == SPECIAL_DAMAGE || callflag == SPECIAL_DEATH) {
-        return result.status == JsLegacyTriggerDispatchStatus::Block ||
-                result.status == JsLegacyTriggerDispatchStatus::Error
-            ? 1
-            : 0;
+        return javascript_fail_closed_status_blocks(result.status) ? 1 : 0;
     }
     return result.status == JsLegacyTriggerDispatchStatus::Block ? 1 : 0;
 }

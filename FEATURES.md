@@ -236,7 +236,8 @@ ASIMA/Mudlle mobile-program call flags requiring JavaScript parity decisions:
 - `SPECIAL_SELF` (`2`):
   - JavaScript Mudlle-mobile packages now run from the periodic mobile activity heartbeat after legacy self handling declines to consume the tick.
   - Context includes `self`, current room, current server pulse as `tick`, host type, and trigger metadata.
-  - Runtime errors fail open for this non-blocking heartbeat hook; broader per-game-tick aggregate script budgeting remains a later hardening task because this path can run frequently.
+  - Runtime errors fail open for this non-blocking heartbeat hook.
+  - Live JavaScript trigger dispatch now uses a per-server-pulse budget with both aggregate and per-package invocation caps before runtime execution. Budget-exceeded dispatches return a distinct status, include only safe package/handler metadata, fail closed for trigger families that already fail closed on JavaScript runtime errors, and fail open only for hooks whose current runtime-error policy is explicitly fail-open.
 - `SPECIAL_ENTER` (`4`):
   - JavaScript Mudlle-mobile packages now run for targeted mobile program hosts when the existing special dispatcher reaches a Mudlle host, the host `CALL_MASK` includes `SPECIAL_ENTER`, and legacy hard-coded/Mudlle handling has not consumed the call.
   - Context includes `self`/host, `actor`/entrant, entering direction, reverse direction, room, host type, and trigger metadata.
@@ -408,6 +409,7 @@ Sandbox and safety requirements:
 - Do not register QuickJS-style `std`/`os` modules, host module loaders, native extension hooks, or finalizers that can touch game pointers after extraction.
 - Freeze or minimize global objects, and define the policy for `eval`, `Function`, dynamic import, and runtime code compilation before enabling builder scripts.
 - Set memory and instruction/runtime limits per invocation, plus a per-game-tick script budget.
+  Initial live dispatch now enforces per-pulse and per-package invocation counts before QuickJS execution; future slices still need configurable limits, recursion depth accounting, and output/action budget accounting once side-effect APIs exist.
 - Guard recursive trigger entry and script-induced action loops with a maximum depth and action/output budget.
 - Define partial-mutation behavior for exceptions, timeouts, and memory failures. Blocking triggers should either run precondition-only JavaScript before mutation or have documented compensation behavior.
 - Validate all game handles before use and fail gracefully if an entity is extracted during script execution.

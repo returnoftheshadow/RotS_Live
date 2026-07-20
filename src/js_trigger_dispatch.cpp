@@ -72,6 +72,20 @@ JsTriggerDispatchResult make_error_result(const JsScriptPackage& package,
     return result;
 }
 
+JsTriggerDispatchResult make_budget_exceeded_result(const JsScriptPackage& package,
+    const JsScriptTriggerBinding& binding, std::size_t matched_package_count)
+{
+    JsTriggerDispatchResult result;
+    result.status = JsTriggerDispatchStatus::BudgetExceeded;
+    result.runtime_status = JsRuntimeStatus::Ok;
+    result.package_vnum = package.vnum;
+    result.package_id = package.package_id;
+    result.handler_name = binding.handler_name;
+    result.diagnostic = "JavaScript trigger execution budget exceeded";
+    result.matched_package_count = matched_package_count;
+    return result;
+}
+
 std::vector<const JsScriptPackage*> find_requested_packages(const JsScriptPackageRegistry& registry,
     const JsTriggerDispatchRequest& request)
 {
@@ -101,13 +115,56 @@ const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status)
         return "block";
     case JsTriggerDispatchStatus::Error:
         return "error";
+    case JsTriggerDispatchStatus::BudgetExceeded:
+        return "budget-exceeded";
     }
     return "unknown";
+}
+
+bool JsTriggerDispatchBudget::try_consume(
+    int pulse, int package_vnum, const JsTriggerDispatchBudgetLimits& limits)
+{
+    if (!m_has_current_pulse || m_current_pulse != pulse) {
+        m_current_pulse = pulse;
+        m_has_current_pulse = true;
+        m_pulse_invocations = 0;
+        m_package_invocations.clear();
+    }
+
+    if (limits.max_invocations_per_pulse > 0 &&
+        m_pulse_invocations >= limits.max_invocations_per_pulse)
+        return false;
+
+    std::size_t& package_invocations = m_package_invocations[package_vnum];
+    if (limits.max_invocations_per_package_per_pulse > 0 &&
+        package_invocations >= limits.max_invocations_per_package_per_pulse)
+        return false;
+
+    ++m_pulse_invocations;
+    ++package_invocations;
+    return true;
+}
+
+void JsTriggerDispatchBudget::reset()
+{
+    m_current_pulse = 0;
+    m_has_current_pulse = false;
+    m_pulse_invocations = 0;
+    m_package_invocations.clear();
 }
 
 JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
     const JsRuntimeLimits& limits)
+{
+    JsTriggerDispatchOptions options;
+    options.runtime_limits = limits;
+    return js_trigger_dispatch_first_match(registry, request, adapter_options, options);
+}
+
+JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
+    const JsTriggerDispatchOptions& options)
 {
     const std::vector<const JsScriptPackage*> matches = find_requested_packages(registry, request);
     if (matches.empty())
@@ -147,7 +204,12 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
             matches.size());
     }
 
-    JsGameRuntime runtime(limits);
+    if (options.budget != nullptr &&
+        !options.budget->try_consume(options.current_pulse, package.vnum, options.budget_limits)) {
+        return make_budget_exceeded_result(package, *binding, matches.size());
+    }
+
+    JsGameRuntime runtime(options.runtime_limits);
     const std::string filename = "js-package-" + std::to_string(package.vnum) + ".js";
     const JsRuntimeEvalResult evaluation = runtime.evaluate_trigger_package_handler(
         package.compiled_javascript, binding->handler_name, context, filename.c_str());
@@ -175,5 +237,14 @@ JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
     const JsLiveRegistryReloadService& service, const JsTriggerDispatchRequest& request,
     const JsGameAdapterOptions& adapter_options, const JsRuntimeLimits& limits)
 {
-    return js_trigger_dispatch_first_match(service.m_registry, request, adapter_options, limits);
+    JsTriggerDispatchOptions options;
+    options.runtime_limits = limits;
+    return js_trigger_dispatch_live_first_match(service, request, adapter_options, options);
+}
+
+JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
+    const JsLiveRegistryReloadService& service, const JsTriggerDispatchRequest& request,
+    const JsGameAdapterOptions& adapter_options, const JsTriggerDispatchOptions& options)
+{
+    return js_trigger_dispatch_first_match(service.m_registry, request, adapter_options, options);
 }

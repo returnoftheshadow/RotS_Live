@@ -10,12 +10,38 @@
 
 #include <cstddef>
 #include <string>
+#include <unordered_map>
 
 enum class JsTriggerDispatchStatus {
     NoMatch,
     Allow,
     Block,
     Error,
+    BudgetExceeded,
+};
+
+struct JsTriggerDispatchBudgetLimits {
+    std::size_t max_invocations_per_pulse = 0;
+    std::size_t max_invocations_per_package_per_pulse = 0;
+};
+
+class JsTriggerDispatchBudget {
+  public:
+    bool try_consume(int pulse, int package_vnum, const JsTriggerDispatchBudgetLimits& limits);
+    void reset();
+
+  private:
+    int m_current_pulse = 0;
+    bool m_has_current_pulse = false;
+    std::size_t m_pulse_invocations = 0;
+    std::unordered_map<int, std::size_t> m_package_invocations;
+};
+
+struct JsTriggerDispatchOptions {
+    JsRuntimeLimits runtime_limits;
+    JsTriggerDispatchBudget* budget = nullptr;
+    JsTriggerDispatchBudgetLimits budget_limits;
+    int current_pulse = 0;
 };
 
 struct JsTriggerDispatchRequest {
@@ -41,9 +67,15 @@ const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status);
 JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
     const JsRuntimeLimits& limits = {});
+JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
+    const JsTriggerDispatchOptions& options);
 
 JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
     const JsLiveRegistryReloadService& service, const JsTriggerDispatchRequest& request,
     const JsGameAdapterOptions& adapter_options, const JsRuntimeLimits& limits = {});
+JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
+    const JsLiveRegistryReloadService& service, const JsTriggerDispatchRequest& request,
+    const JsGameAdapterOptions& adapter_options, const JsTriggerDispatchOptions& options);
 
 #endif

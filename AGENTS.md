@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript behavior-test hardening for legacy consume and stale targets. Added real Mudlle `SPECIAL_SELF` `;` consume coverage proving `one_mobile_activity()` does not fall through into JavaScript after legacy handling consumes, plus adapter coverage proving stale `TARGET_OBJ` target_data is rejected while a live second target slot can still become the fallback primary target with identity preserved.
-- Next slice: begin the server-side execution safety slice for per-pulse/per-package JavaScript invocation budgeting across high-frequency hooks before enabling any side-effect/output APIs.
+- Latest completed slice: server-side JavaScript trigger execution budgeting. Added a shared dispatch budget object with per-server-pulse and per-package invocation caps, threaded it through the legacy facade and all live `script.cpp` JavaScript dispatch entry points, and mapped budget-exceeded results through the existing trigger exception policy: fail closed for blocking/error-sensitive gameplay hooks and fail open only for hooks whose runtime-error behavior already fails open.
+- Next slice: align recursive trigger-entry protection by adding a JavaScript dispatch depth guard around legacy/gameplay trigger call sites before enabling any side-effect/output APIs.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
