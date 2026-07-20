@@ -148,6 +148,30 @@ std::string trigger_literal(const JsGameTriggerFixture& trigger)
     return out.str();
 }
 
+std::string target_literal(const JsGameTargetFixture& target)
+{
+    if (target.has_character)
+        return character_literal(target.character);
+    if (target.has_object)
+        return object_literal(target.object);
+    if (target.has_room)
+        return room_literal(target.room);
+    return "null";
+}
+
+std::string target_types_literal(const std::vector<std::string>& target_types)
+{
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < target_types.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << js_quote(target_types[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 bool source_has_unsafe_wrapper_boundary(const std::string& source)
 {
     int brace_depth = 0;
@@ -372,7 +396,8 @@ std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& c
         << ","
         << "\"command\":" << nullable_literal(context.has_command, js_quote(context.command)) << ","
         << "\"args\":" << nullable_literal(context.has_args, js_quote(context.args)) << ","
-        << "\"target\":null,"
+        << "\"target\":"
+        << nullable_literal(context.has_target, target_literal(context.target)) << ","
         << "\"tick\":";
     if (context.has_tick)
         out << context.tick;
@@ -383,10 +408,13 @@ std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& c
         << nullable_literal(context.has_direction, js_quote(context.direction)) << ","
         << "\"reverseDirection\":"
         << nullable_literal(context.has_reverse_direction, js_quote(context.reverse_direction)) << ","
-        << "\"targ1\":null,"
-        << "\"targ2\":null,"
-        << "\"targetTypes\":[],"
-        << "\"dying\":null,"
+        << "\"targ1\":"
+        << nullable_literal(context.has_targ1, target_literal(context.targ1)) << ","
+        << "\"targ2\":"
+        << nullable_literal(context.has_targ2, target_literal(context.targ2)) << ","
+        << "\"targetTypes\":" << target_types_literal(context.target_types) << ","
+        << "\"dying\":"
+        << nullable_literal(context.has_dying, character_literal(context.dying)) << ","
         << "\"hostType\":" << js_quote(context.trigger.host_type) << ","
         << "\"trigger\":" << trigger_literal(context.trigger) << "}";
     return out.str();

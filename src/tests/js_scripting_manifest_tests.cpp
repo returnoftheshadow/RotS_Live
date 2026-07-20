@@ -44,6 +44,16 @@ void expect_context_fields(int legacy_value, const std::initializer_list<const c
     EXPECT_EQ(context_field_set(entry->context_fields), expected_fields) << entry->legacy_name;
 }
 
+void expect_context_fields(JsScriptingManifestKind kind, int legacy_value,
+                           const std::initializer_list<const char *> fields) {
+    const JsScriptingManifestEntry *entry = find_js_scripting_manifest_entry(kind, legacy_value);
+    ASSERT_NE(entry, nullptr) << legacy_value;
+    std::set<std::string> expected_fields;
+    for (const char *field : fields)
+        expected_fields.insert(field);
+    EXPECT_EQ(context_field_set(entry->context_fields), expected_fields) << entry->legacy_name;
+}
+
 void expect_deferred_handler(JsScriptingManifestKind kind, int legacy_value,
                              const char *handler_name) {
     const JsScriptingManifestEntry *entry = find_js_scripting_manifest_entry(kind, legacy_value);
@@ -400,19 +410,17 @@ TEST(JsScriptingManifest, RecordsRequiredContextFieldsForMudlleCallFlags) {
          {"self", "actor", "direction", "reverseDirection", "room", "trigger", "hostType"}},
         {SPECIAL_DELAY, {"self", "continuation", "trigger", "hostType"}},
         {SPECIAL_TARGET,
-         {"self", "actor", "command", "args", "targ1", "targ2", "targetTypes", "trigger",
-          "hostType"}},
-        {SPECIAL_DAMAGE, {"self", "attacker", "victim", "target", "trigger", "hostType"}},
-        {SPECIAL_DEATH, {"self", "actor", "dying", "target", "trigger", "hostType"}},
+         {"self", "actor", "command", "args", "target", "targ1", "targ2", "targetTypes", "room",
+          "trigger", "hostType"}},
+        {SPECIAL_DAMAGE,
+         {"self", "actor", "attacker", "victim", "target", "targ1", "targ2", "targetTypes",
+          "room", "trigger", "hostType"}},
+        {SPECIAL_DEATH, {"self", "actor", "dying", "target", "room", "trigger", "hostType"}},
     };
 
     for (const ExpectedContext &expected : expected_contexts) {
-        const JsScriptingManifestEntry *entry = find_js_scripting_manifest_entry(
-            JsScriptingManifestKind::MudlleCallFlag, expected.legacy_value);
-        ASSERT_NE(entry, nullptr) << expected.legacy_value;
-        const std::string context = entry->context_fields;
-        for (const char *field : expected.fields)
-            EXPECT_NE(context.find(field), std::string::npos) << entry->legacy_name << " " << field;
+        expect_context_fields(
+            JsScriptingManifestKind::MudlleCallFlag, expected.legacy_value, expected.fields);
     }
 }
 

@@ -507,10 +507,13 @@ const char* reverse_direction_name_for_special_enter(int cmd)
 }
 
 int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data* actor, int cmd,
-    char* arg, int callflag, int in_room)
+    char* arg, int callflag, waiting_type* wtl, int in_room)
 {
     if (!javascript_legacy_trigger_dispatch_enabled || host == nullptr || actor == nullptr ||
-        (callflag != SPECIAL_COMMAND && callflag != SPECIAL_ENTER))
+        (callflag != SPECIAL_COMMAND && callflag != SPECIAL_ENTER && callflag != SPECIAL_TARGET &&
+            callflag != SPECIAL_DAMAGE && callflag != SPECIAL_DEATH))
+        return 0;
+    if ((callflag == SPECIAL_TARGET || callflag == SPECIAL_DAMAGE) && wtl == nullptr)
         return 0;
     if (!IS_NPC(host) || !IS_SET(CALL_MASK(host), callflag))
         return 0;
@@ -541,12 +544,28 @@ int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data
     request.context_input.self = host;
     request.context_input.actor = actor;
     request.context_input.room = in_room;
-    if (callflag == SPECIAL_COMMAND) {
+    if (callflag == SPECIAL_COMMAND || callflag == SPECIAL_TARGET) {
         request.context_input.command = command_name_for_index(cmd);
         request.context_input.args = normalized_mudlle_command_args(arg);
-    } else {
+    }
+    if (callflag == SPECIAL_ENTER) {
         request.context_input.direction = direction_name_for_special_enter(cmd);
         request.context_input.reverse_direction = reverse_direction_name_for_special_enter(cmd);
+    }
+    if (callflag == SPECIAL_TARGET || callflag == SPECIAL_DAMAGE) {
+        request.context_input.targ1 = &wtl->targ1;
+        request.context_input.targ2 = &wtl->targ2;
+    }
+    if (callflag == SPECIAL_TARGET)
+        request.context_input.target_character = host;
+    if (callflag == SPECIAL_DAMAGE) {
+        request.context_input.attacker = actor;
+        request.context_input.victim = host;
+        request.context_input.target_character = host;
+    }
+    if (callflag == SPECIAL_DEATH) {
+        request.context_input.dying = host;
+        request.context_input.target_character = host;
     }
 
     JsLegacyTriggerDispatchOptions options;
@@ -555,6 +574,12 @@ int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data
 
     const JsLegacyTriggerDispatchResult result = js_legacy_trigger_dispatch(
         js_live_registry_admin_service().reload_service(), request, adapter_options, options);
+    if (callflag == SPECIAL_DAMAGE || callflag == SPECIAL_DEATH) {
+        return result.status == JsLegacyTriggerDispatchStatus::Block ||
+                result.status == JsLegacyTriggerDispatchStatus::Error
+            ? 1
+            : 0;
+    }
     return result.status == JsLegacyTriggerDispatchStatus::Block ? 1 : 0;
 }
 
@@ -564,10 +589,10 @@ int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data
 // -1 == script not found (0 is a valid position in the script_table)
 
 int js_script_dispatch_mudlle_mobile_special(char_data* host, char_data* actor, int cmd,
-    char* arg, int callflag, waiting_type* /*wtl*/, int in_room)
+    char* arg, int callflag, waiting_type* wtl, int in_room)
 {
     return dispatch_javascript_mudlle_mobile_special_trigger(host, actor, cmd, arg, callflag,
-        in_room);
+        wtl, in_room);
 }
 
 int find_script_by_number(const int number)

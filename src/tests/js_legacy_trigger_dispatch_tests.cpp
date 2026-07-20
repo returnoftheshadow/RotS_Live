@@ -1,6 +1,7 @@
 #include "../js_legacy_trigger_dispatch.h"
 
 #include "../db.h"
+#include "../handler.h"
 #include "../interpre.h"
 #include "../json_utils.h"
 #include "../js_live_registry_admin.h"
@@ -2730,6 +2731,279 @@ TEST(JsLegacyTriggerDispatch, SpecialCommandSkipsStaleAndInvalidLiveInputs) {
     EXPECT_EQ(js_script_dispatch_mudlle_mobile_special(
                   &host, &actor, CMD_SAY, args, SPECIAL_COMMAND, nullptr, 0),
         0);
+}
+
+TEST(JsLegacyTriggerDispatch, SpecialTargetDispatchesMudlleMobileJavaScriptWithTypedTargets) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6212,
+                         "function onSpecialTarget(ctx) { "
+                         "return !(ctx.self.name === 'Target Guard' && "
+                         "ctx.actor.name === 'Builder' && ctx.command === 'say' && "
+                         "ctx.args === 'targeted' && ctx.targ1.name === 'Target Guard' && "
+                         "ctx.target.name === 'Target Guard' && "
+                         "ctx.targetTypes[0] === 'character'); "
+                         "}",
+                         SPECIAL_TARGET));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data actor = make_character("Builder");
+    char_data target = make_character("Target Guard");
+    target.abs_number = 201;
+    set_char_exists(target.abs_number);
+    int call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(target, 6212, SPECIAL_TARGET, call_list);
+    actor.next = &target;
+    target.next = nullptr;
+    actor.next_in_room = &target;
+    target.next_in_room = nullptr;
+    character_list = &actor;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &actor;
+    top_of_world = 0;
+    waiting_type wait {};
+    wait.targ1.type = TARGET_CHAR;
+    wait.targ1.ptr.ch = &target;
+    wait.targ1.ch_num = target.abs_number;
+    char args[] = " targeted";
+
+    EXPECT_EQ(special(&actor, CMD_SAY, args, SPECIAL_TARGET, &wait, 0), 1);
+    remove_char_exists(target.abs_number);
+}
+
+TEST(JsLegacyTriggerDispatch, SpecialTargetUsesActivatedTarg2HostAsPrimaryTarget) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6219,
+                         "function onSpecialTarget(ctx) { "
+                         "return !(ctx.self.name === 'TargetTwo' && "
+                         "ctx.target.name === 'TargetTwo' && "
+                         "ctx.targ1.name === 'OtherTarget' && ctx.targ2.name === 'TargetTwo'); "
+                         "}",
+                         SPECIAL_TARGET));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data actor = make_character("Builder");
+    char_data other_target = make_character("OtherTarget");
+    char_data target = make_character("TargetTwo");
+    other_target.abs_number = 206;
+    target.abs_number = 207;
+    set_char_exists(other_target.abs_number);
+    set_char_exists(target.abs_number);
+    int call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(target, 6219, SPECIAL_TARGET, call_list);
+    actor.next = &other_target;
+    other_target.next = &target;
+    target.next = nullptr;
+    actor.next_in_room = &other_target;
+    other_target.next_in_room = &target;
+    target.next_in_room = nullptr;
+    character_list = &actor;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &actor;
+    top_of_world = 0;
+    waiting_type wait {};
+    wait.targ1.type = TARGET_CHAR;
+    wait.targ1.ptr.ch = &other_target;
+    wait.targ1.ch_num = other_target.abs_number;
+    wait.targ2.type = TARGET_CHAR;
+    wait.targ2.ptr.ch = &target;
+    wait.targ2.ch_num = target.abs_number;
+    char args[] = "target";
+
+    EXPECT_EQ(special(&actor, CMD_SAY, args, SPECIAL_TARGET, &wait, 0), 1);
+    remove_char_exists(other_target.abs_number);
+    remove_char_exists(target.abs_number);
+}
+
+TEST(JsLegacyTriggerDispatch, SpecialDamageDispatchesMudlleMobileJavaScriptWithVictimTarget) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6213,
+                         "function onSpecialDamage(ctx) { "
+                         "return !(ctx.self.name === 'Victim' && ctx.actor.name === 'Attacker' && "
+                         "ctx.attacker.name === 'Attacker' && ctx.victim.name === 'Victim' && "
+                         "ctx.target.name === 'Victim' && ctx.targ1.name === 'Victim'); "
+                         "}",
+                         SPECIAL_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data attacker = make_character("Attacker");
+    char_data victim = make_character("Victim");
+    victim.abs_number = 202;
+    set_char_exists(victim.abs_number);
+    int call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(victim, 6213, SPECIAL_DAMAGE, call_list);
+    attacker.next = &victim;
+    victim.next = nullptr;
+    attacker.next_in_room = &victim;
+    victim.next_in_room = nullptr;
+    character_list = &attacker;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &attacker;
+    top_of_world = 0;
+    waiting_type wait {};
+    wait.targ1.type = TARGET_CHAR;
+    wait.targ1.ptr.ch = &victim;
+    wait.targ1.ch_num = victim.abs_number;
+
+    EXPECT_EQ(special(&attacker, 0, const_cast<char *>(""), SPECIAL_DAMAGE, &wait, 0), 1);
+    remove_char_exists(victim.abs_number);
+}
+
+TEST(JsLegacyTriggerDispatch, SpecialDamageUsesActivatedTarg2HostAsVictimTarget) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6218,
+                         "function onSpecialDamage(ctx) { "
+                         "return !(ctx.self.name === 'VictimTwo' && "
+                         "ctx.victim.name === 'VictimTwo' && ctx.target.name === 'VictimTwo' && "
+                         "ctx.targ1.name === 'OtherTarget' && ctx.targ2.name === 'VictimTwo' && "
+                         "ctx.targetTypes[0] === 'character' && "
+                         "ctx.targetTypes[1] === 'character'); "
+                         "}",
+                         SPECIAL_DAMAGE));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data attacker = make_character("Attacker");
+    char_data other_target = make_character("OtherTarget");
+    char_data victim = make_character("VictimTwo");
+    other_target.abs_number = 204;
+    victim.abs_number = 205;
+    set_char_exists(other_target.abs_number);
+    set_char_exists(victim.abs_number);
+    int call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(victim, 6218, SPECIAL_DAMAGE, call_list);
+    attacker.next = &other_target;
+    other_target.next = &victim;
+    victim.next = nullptr;
+    attacker.next_in_room = &other_target;
+    other_target.next_in_room = &victim;
+    victim.next_in_room = nullptr;
+    character_list = &attacker;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &attacker;
+    top_of_world = 0;
+    waiting_type wait {};
+    wait.targ1.type = TARGET_CHAR;
+    wait.targ1.ptr.ch = &other_target;
+    wait.targ1.ch_num = other_target.abs_number;
+    wait.targ2.type = TARGET_CHAR;
+    wait.targ2.ptr.ch = &victim;
+    wait.targ2.ch_num = victim.abs_number;
+
+    EXPECT_EQ(special(&attacker, 0, const_cast<char *>(""), SPECIAL_DAMAGE, &wait, 0), 1);
+    remove_char_exists(other_target.abs_number);
+    remove_char_exists(victim.abs_number);
+}
+
+TEST(JsLegacyTriggerDispatch, SpecialDeathDispatchesMudlleMobileJavaScriptWithDyingTarget) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6214,
+                         "function onSpecialDeath(ctx) { "
+                         "return !(ctx.self.name === 'Dying' && ctx.actor.name === 'Dying' && "
+                         "ctx.dying.name === 'Dying' && ctx.target.name === 'Dying' && "
+                         "ctx.killer === null); "
+                         "}",
+                         SPECIAL_DEATH));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data dying = make_character("Dying");
+    int call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(dying, 6214, SPECIAL_DEATH, call_list);
+    dying.next = nullptr;
+    dying.next_in_room = nullptr;
+    character_list = &dying;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &dying;
+    top_of_world = 0;
+    waiting_type wait {};
+
+    EXPECT_EQ(special(&dying, 0, const_cast<char *>(""), SPECIAL_DEATH, &wait, 0), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, RemainingMudlleSpecialErrorsUseManifestPolicy) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6215,
+                         "function onSpecialTarget(ctx) { throw new Error('boom'); }",
+                         SPECIAL_TARGET));
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6216,
+                         "function onSpecialDamage(ctx) { throw new Error('boom'); }",
+                         SPECIAL_DAMAGE));
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6217,
+                         "function onSpecialDeath(ctx) { throw new Error('boom'); }",
+                         SPECIAL_DEATH));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data actor = make_character("Actor");
+    char_data target = make_character("Target");
+    target.abs_number = 203;
+    set_char_exists(target.abs_number);
+    int target_call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(target, 6215, SPECIAL_TARGET, target_call_list);
+    actor.next = &target;
+    target.next = nullptr;
+    actor.next_in_room = &target;
+    target.next_in_room = nullptr;
+    character_list = &actor;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &actor;
+    top_of_world = 0;
+    waiting_type wait {};
+    wait.targ1.type = TARGET_CHAR;
+    wait.targ1.ptr.ch = &target;
+    wait.targ1.ch_num = target.abs_number;
+    char args[] = "target";
+    EXPECT_EQ(special(&actor, CMD_SAY, args, SPECIAL_TARGET, &wait, 0), 0);
+
+    int damage_call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(target, 6216, SPECIAL_DAMAGE, damage_call_list);
+    EXPECT_EQ(special(&actor, 0, const_cast<char *>(""), SPECIAL_DAMAGE, &wait, 0), 1);
+
+    int death_call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(target, 6217, SPECIAL_DEATH, death_call_list);
+    EXPECT_EQ(special(&target, 0, const_cast<char *>(""), SPECIAL_DEATH, &wait, 0), 1);
+    remove_char_exists(target.abs_number);
 }
 
 TEST(JsLegacyTriggerDispatch, EnabledFacadeRequiresLoadedRegistry) {

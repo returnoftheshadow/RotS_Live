@@ -4,6 +4,7 @@
 #include "js_runtime.h"
 
 #include <string>
+#include <vector>
 
 struct JsGameZoneFixture {
     std::string id;
@@ -61,6 +62,19 @@ struct JsGameTriggerFixture {
     bool blocks_gameplay = false;
 };
 
+struct JsGameTargetFixture {
+    std::string type;
+
+    bool has_character = false;
+    JsGameCharacterFixture character;
+
+    bool has_object = false;
+    JsGameObjectFixture object;
+
+    bool has_room = false;
+    JsGameRoomFixture room;
+};
+
 struct JsGameTriggerContextFixture {
     bool has_self = false;
     JsGameCharacterFixture self;
@@ -112,6 +126,20 @@ struct JsGameTriggerContextFixture {
 
     bool has_reverse_direction = false;
     std::string reverse_direction;
+
+    bool has_target = false;
+    JsGameTargetFixture target;
+
+    bool has_targ1 = false;
+    JsGameTargetFixture targ1;
+
+    bool has_targ2 = false;
+    JsGameTargetFixture targ2;
+
+    std::vector<std::string> target_types;
+
+    bool has_dying = false;
+    JsGameCharacterFixture dying;
 
     JsGameTriggerFixture trigger;
 };

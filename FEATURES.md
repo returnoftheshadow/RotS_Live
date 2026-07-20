@@ -212,8 +212,8 @@ Legacy ASIMA command/API parity matrix for JavaScript:
   - `SCRIPT_ABORT` maps to returning/finishing the handler with an allow result.
   - `SCRIPT_RETURN_FALSE` maps to `return false` or `return RotS.ScriptResult.block()`.
 - Read-only character/object/room parameter parity:
-  - Implemented for JavaScript context snapshots: character id, name, vnum/prototype vnum where available, level, race, current hit points, max hit points, experience, rank, NPC/player booleans, current room, room name/vnum/zone, object id/name/vnum, direct object room, object carrier/wearer for live direct character ownership, trigger metadata, root host type, death `killer` snapshots where the central death call site provides a live killer, speech/damage role snapshots (`speaker`, `attacker`, `victim`) where current legacy call sites provide them, damage `weapon` snapshots where the current call site provides a live weapon object, requested `wearSlot` snapshots for the real wear path, text payload, Mudlle mobile `SPECIAL_COMMAND` command/args payloads, Mudlle mobile `SPECIAL_ENTER` direction/reverse-direction payloads, stable explicit defaults for documented but not-yet-backed `ScriptContext` payload fields, and pure `isValid()` helpers for present character/object/room snapshots.
-  - Remaining read-only drift to close before side effects: wire live backing for trigger-specific `ScriptContext` payload fields such as death/equipment payloads, generic targets, and deferred Mudlle target slots against the legacy ASIMA call sites. Until each live call site is wired, documented unbacked fields must stay present as immutable `null` or an explicit empty default rather than being omitted.
+  - Implemented for JavaScript context snapshots: character id, name, vnum/prototype vnum where available, level, race, current hit points, max hit points, experience, rank, NPC/player booleans, current room, room name/vnum/zone, object id/name/vnum, direct object room, object carrier/wearer for live direct character ownership, trigger metadata, root host type, death `killer` snapshots where the central death call site provides a live killer, speech/damage role snapshots (`speaker`, `attacker`, `victim`) where current legacy call sites provide them, damage `weapon` snapshots where the current call site provides a live weapon object, requested `wearSlot` snapshots for the real wear path, text payload, Mudlle mobile `SPECIAL_COMMAND` command/args payloads, Mudlle mobile `SPECIAL_ENTER` direction/reverse-direction payloads, Mudlle mobile typed target handles for live character/object/room `SPECIAL_TARGET` and `SPECIAL_DAMAGE` target slots, Mudlle mobile `SPECIAL_DEATH` dying/target backing from the dying host, stable explicit defaults for documented but not-yet-backed `ScriptContext` payload fields, and pure `isValid()` helpers for present character/object/room snapshots.
+  - Remaining read-only drift to close before side effects: wire live backing for trigger-specific `ScriptContext` payload fields such as broader equipment/death payload variants and any deferred non-Mudlle generic targets against the legacy ASIMA call sites. Until each live call site is wired, documented unbacked fields must stay present as immutable `null` or an explicit empty default rather than being omitted.
   - Legacy temporary variable assignment commands such as `SCRIPT_ASSIGN_STR`, `SCRIPT_ASSIGN_INV`, `SCRIPT_ASSIGN_EQ`, `SCRIPT_ASSIGN_ROOM`, `SCRIPT_SET_INT_VALUE`, `SCRIPT_SET_INT_SUM`, `SCRIPT_SET_INT_SUB`, `SCRIPT_SET_INT_MULT`, `SCRIPT_SET_INT_DIV`, `SCRIPT_SET_INT_RANDOM`, and `SCRIPT_SET_INT_WAR_STATUS` should map to JavaScript local variables and explicit read-only helper APIs where game state is required.
 - Output helper candidates:
   - `SCRIPT_SEND_TO_CHAR`, `SCRIPT_SEND_TO_ROOM`, and `SCRIPT_SEND_TO_ROOM_X` should become the first side-effect family only after bounded text length, no format-string behavior, recursion prevention, visibility policy, test fixture capture, live audit/logging, and fail-closed diagnostics are designed.
@@ -231,7 +231,7 @@ ASIMA/Mudlle mobile-program call flags requiring JavaScript parity decisions:
 - The builder-facing ASIMA documentation currently describes the `I` call-mask bits for command, self, and enter-room only, but the engine can pass additional call flags through the generic special dispatcher. JavaScript planning must decide whether each flag gets a supported JavaScript equivalent, remains hard-coded-special-only, or is explicitly unsupported for builder scripts.
 - `SPECIAL_COMMAND` (`1`):
   - JavaScript Mudlle-mobile packages now run for targeted mobile program hosts when the existing special dispatcher reaches a Mudlle host, the host `CALL_MASK` includes `SPECIAL_COMMAND`, and legacy hard-coded/Mudlle handling has not consumed the call.
-  - Context includes `self`/host, `actor`, command name, sanitized argument text, source room, host type, and trigger metadata. Typed target data remains deferred to the `SPECIAL_TARGET` slice.
+  - Context includes `self`/host, `actor`, command name, sanitized argument text, source room, host type, and trigger metadata. Typed target data is exposed by `SPECIAL_TARGET`.
   - Preserve return semantics where a JavaScript block consumes normal command flow for this first live-backed path, while no-match/allow/runtime-error preserves the current fail-open special flow.
 - `SPECIAL_SELF` (`2`):
   - Create a JavaScript equivalent for mobile heartbeat/self activity.
@@ -246,17 +246,17 @@ ASIMA/Mudlle mobile-program call flags requiring JavaScript parity decisions:
   - V1 JavaScript may deliberately not support continuations, but the manifest and docs must say so explicitly and the offline runner should reject scripts that try to use delayed continuation APIs until they exist.
   - If supported later, continuation state must be independent from legacy `continue_char_script()` and must validate handles after the delay.
 - `SPECIAL_TARGET` (`16`):
-  - Decide whether JavaScript supports target-special behavior from command targeting paths.
-  - If supported, context should include `self`/target host, `actor`, command id/name, argument text, `targ1`, `targ2`, target types, and trigger metadata.
-  - If deferred, the manifest should mark it unsupported for builder-authored JavaScript even though hard-coded specials can receive it.
+  - JavaScript Mudlle-mobile packages now run for targeted mobile program hosts reached through the command targeting path after legacy hard-coded/Mudlle handling declines to consume the call.
+  - Context includes `self`/target host, `actor`, command name, sanitized argument text, safe typed `targ1`/`targ2` handles for live character/object/room slots, `targetTypes`, `target`, host type, room, and trigger metadata. Unsupported legacy union target kinds remain null handles with type names only.
+  - Preserve fail-open semantics: JavaScript block consumes command execution, while no-match/allow/runtime-error preserves legacy flow.
 - `SPECIAL_DAMAGE` (`32`):
-  - Decide whether JavaScript supports special-procedure damage hooks in addition to the `.scr` `ON_DAMAGE` trigger.
-  - If supported, context should distinguish this call flag from `.scr` `ON_DAMAGE`, include attacker/victim/target data, and preserve the special dispatcher's handled/blocking semantics.
-  - Add parity tests for combat call sites that invoke `special(..., SPECIAL_DAMAGE, ...)`.
+  - JavaScript Mudlle-mobile packages now run for targeted mobile program hosts reached through the special-procedure damage target path, distinct from `.scr` `ON_DAMAGE`.
+  - Context includes `self`/victim host, `actor`/attacker, `attacker`, `victim`, safe typed `targ1`/`targ2` handles, `targetTypes`, `target`, host type, room, and trigger metadata.
+  - Preserve fail-closed semantics: JavaScript block or runtime error consumes/blocks the damage special path, while no-match/allow preserves legacy flow.
 - `SPECIAL_DEATH` (`64`):
-  - Decide whether JavaScript supports special-procedure death hooks in addition to the `.scr` `ON_DIE` trigger.
-  - If supported, context should include dying character, killer/actor when available, target data from the waiting structure, and trigger metadata.
-  - Add parity tests for death call sites that invoke `special(..., SPECIAL_DEATH, ...)`.
+  - JavaScript Mudlle-mobile packages now run for the dying mobile host reached through the special-procedure death path, distinct from `.scr` `ON_DIE`.
+  - Context includes `self`, `actor`, `dying`, and `target` as the dying host plus host type, room, and trigger metadata. Legacy Mudlle `SPECIAL_DEATH` does not receive the killer through this path.
+  - Preserve fail-closed semantics: JavaScript block or runtime error consumes/blocks the death special path, while no-match/allow preserves legacy flow.
 - `SPECIAL_NONE` (`0`):
   - This is defined as a no-callflag/default path and is not enabled by `CALL_MASK`; do not expose it as a builder JavaScript trigger unless a specific existing hard-coded-special behavior is being ported.
 - Every ASIMA/Mudlle call flag above must appear in the server-owned JavaScript trigger manifest with:

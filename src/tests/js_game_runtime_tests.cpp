@@ -544,6 +544,60 @@ TEST(JsGameRuntime, ExposesScalarCommandAndMovementPayloadsWhenPresent)
     expect_ok_allows(result);
 }
 
+TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.has_targ1 = true;
+    context.targ1.type = "character";
+    context.targ1.has_character = true;
+    context.targ1.character = context.actor;
+    context.targ1.character.id = "targ1";
+    context.has_targ2 = true;
+    context.targ2.type = "object";
+    context.targ2.has_object = true;
+    context.targ2.object = context.object;
+    context.targ2.object.id = "targ2";
+    context.has_target = true;
+    context.target = context.targ1;
+    context.target.character.id = "target";
+    context.target_types = { "character", "object" };
+    context.has_dying = true;
+    context.dying = context.self;
+    context.dying.id = "dying";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.target.name === 'Builder'\n"
+        "  && ctx.target.id === 'target'\n"
+        "  && ctx.targ1.name === 'Builder'\n"
+        "  && ctx.targ1.id === 'targ1'\n"
+        "  && ctx.targ2.name === 'silver lever'\n"
+        "  && ctx.targ2.id === 'targ2'\n"
+        "  && ctx.dying.name === 'Aldren'\n"
+        "  && ctx.dying.id === 'dying'\n"
+        "  && ctx.targetTypes[0] === 'character'\n"
+        "  && ctx.targetTypes[1] === 'object'\n"
+        "  && Object.isFrozen(ctx.target)\n"
+        "  && Object.isFrozen(ctx.targ1)\n"
+        "  && Object.isFrozen(ctx.targ2)\n"
+        "  && Object.isFrozen(ctx.dying)\n"
+        "  && Object.isFrozen(ctx.targetTypes)\n"
+        "  && Object.getPrototypeOf(ctx.targ1) === null\n"
+        "  && Object.getPrototypeOf(ctx.targetTypes) === null\n"
+        "  && typeof ctx.targ1.constructor === 'undefined';",
+        context);
+
+    expect_ok_allows(result);
+
+    EXPECT_EQ(runtime.evaluate_trigger_body("ctx.targ1.name = 'mutated'; return true;", context).status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body("ctx.targetTypes[0] = 'room'; return true;", context).status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(
+        runtime.evaluate_trigger_body("ctx.targ1.room.name = 'mutated'; return true;", context).status,
+        JsRuntimeStatus::Error);
+}
+
 TEST(JsGameRuntime, TreatsZeroTickAsPresent)
 {
     JsGameTriggerContextFixture context = make_context();

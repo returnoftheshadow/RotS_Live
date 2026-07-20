@@ -557,6 +557,194 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     EXPECT_EQ(context.object.id.find("55"), std::string::npos);
 }
 
+TEST(JsGameAdapter, MapsTypedTargetsFromLiveInputs)
+{
+    char_data self = make_character("Self", 1, 11, 22, 33, false);
+    char_data target_character = make_character("Target", 1, 44, 55, 66, false);
+    obj_data target_object = make_object("target object", 0);
+    index_data object_index[1] {};
+    object_index[0].virt = 700;
+    const char_data *live_characters[] = { &self, &target_character };
+    const obj_data *live_objects[] = { &target_object };
+    room_data world[2] = { make_room("Room", 100, 0), make_room("Other", 101, 0) };
+    zone_data zones[1] = { make_zone("Zone", 10) };
+    JsGameAdapterOptions options = make_options(live_characters, 2, live_objects, 1, world, 1,
+        nullptr, 0, object_index, 1, zones, 1, nullptr, 0);
+
+    target_data targ1;
+    targ1.type = TARGET_CHAR;
+    targ1.ptr.ch = &target_character;
+    targ1.ch_num = target_character.abs_number;
+    target_data targ2;
+    targ2.type = TARGET_OBJ;
+    targ2.ptr.obj = &target_object;
+
+    JsGameAdapterContextInput input;
+    input.self = &self;
+    input.targ1 = &targ1;
+    input.targ2 = &targ2;
+    input.target_room = 1;
+    input.dying = &target_character;
+
+    JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
+
+    ASSERT_TRUE(context.has_targ1);
+    EXPECT_TRUE(context.targ1.has_character);
+    EXPECT_EQ(context.targ1.character.name, "Target");
+    EXPECT_EQ(context.targ1.character.id, "targ1");
+    ASSERT_TRUE(context.has_targ2);
+    EXPECT_TRUE(context.targ2.has_object);
+    EXPECT_EQ(context.targ2.object.vnum, 700);
+    EXPECT_EQ(context.targ2.object.id, "targ2");
+    ASSERT_TRUE(context.has_target);
+    EXPECT_TRUE(context.target.has_room);
+    EXPECT_EQ(context.target.room.vnum, 101);
+    EXPECT_EQ(context.target.room.id, "target");
+    ASSERT_TRUE(context.has_dying);
+    EXPECT_EQ(context.dying.name, "Target");
+    EXPECT_EQ(context.dying.id, "dying");
+    ASSERT_EQ(context.target_types.size(), 2u);
+    EXPECT_EQ(context.target_types[0], "character");
+    EXPECT_EQ(context.target_types[1], "object");
+}
+
+TEST(JsGameAdapter, TargetMappingSkipsStaleAndUnsupportedSlots)
+{
+    char_data self = make_character("Self", 1, 11, 22, 33, false);
+    char_data stale_character = make_character("Stale", 1, 44, 55, 66, false);
+    obj_data live_object = make_object("live object", -1);
+    obj_data stale_object = make_object("stale object", 0);
+    const char_data *live_characters[] = { &self };
+    const obj_data *live_objects[] = { &live_object };
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, world, 0,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    target_data stale_targ1;
+    stale_targ1.type = TARGET_CHAR;
+    stale_targ1.ptr.ch = &stale_character;
+    stale_targ1.ch_num = stale_character.abs_number;
+    target_data live_targ2;
+    live_targ2.type = TARGET_OBJ;
+    live_targ2.ptr.obj = &live_object;
+
+    JsGameAdapterContextInput input;
+    input.self = &self;
+    input.targ1 = &stale_targ1;
+    input.targ2 = &live_targ2;
+
+    JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
+
+    EXPECT_FALSE(context.has_targ1);
+    ASSERT_TRUE(context.has_targ2);
+    EXPECT_TRUE(context.targ2.has_object);
+    ASSERT_TRUE(context.has_target);
+    EXPECT_TRUE(context.target.has_object);
+    EXPECT_EQ(context.target.object.id, "target");
+    ASSERT_EQ(context.target_types.size(), 2u);
+    EXPECT_EQ(context.target_types[0], "character");
+    EXPECT_EQ(context.target_types[1], "object");
+
+    const signed char unsupported_types[] = { TARGET_TEXT, TARGET_DIR, TARGET_GOLD, TARGET_IN,
+        TARGET_ALL, TARGET_VALUE, TARGET_OTHER, TARGET_IGNORE, static_cast<signed char>(99) };
+    for (signed char unsupported_type : unsupported_types) {
+        target_data unsupported;
+        unsupported.type = unsupported_type;
+        unsupported.ptr.other = &stale_object;
+        JsGameAdapterContextInput unsupported_input;
+        unsupported_input.targ1 = &unsupported;
+
+        JsGameTriggerContextFixture unsupported_context =
+            js_game_adapter_context_fixture(unsupported_input, options);
+
+        EXPECT_FALSE(unsupported_context.has_targ1) << static_cast<int>(unsupported_type);
+        EXPECT_FALSE(unsupported_context.has_target) << static_cast<int>(unsupported_type);
+        ASSERT_EQ(unsupported_context.target_types.size(), 1u);
+    }
+}
+
+TEST(JsGameAdapter, ExplicitStaleTargetDoesNotFallbackToTargetSlots)
+{
+    char_data self = make_character("Self", 1, 11, 22, 33, false);
+    obj_data live_object = make_object("live object", -1);
+    obj_data stale_object = make_object("stale object", 0);
+    const char_data *live_characters[] = { &self };
+    const obj_data *live_objects[] = { &live_object };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+    target_data live_targ2;
+    live_targ2.type = TARGET_OBJ;
+    live_targ2.ptr.obj = &live_object;
+    JsGameAdapterContextInput input;
+    input.target_object = &stale_object;
+    input.targ2 = &live_targ2;
+
+    JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
+
+    ASSERT_TRUE(context.has_targ2);
+    EXPECT_FALSE(context.has_target);
+    ASSERT_EQ(context.target_types.size(), 1u);
+    EXPECT_EQ(context.target_types[0], "object");
+}
+
+TEST(JsGameAdapter, RejectsCharacterTargetDataWhenAbsNumberDoesNotMatch)
+{
+    char_data self = make_character("Self", 1, 11, 22, 33, false);
+    char_data target_character = make_character("Target", 1, 44, 55, 66, false);
+    const char_data *live_characters[] = { &self, &target_character };
+    JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+    target_data target;
+    target.type = TARGET_CHAR;
+    target.ptr.ch = &target_character;
+    target.ch_num = target_character.abs_number + 1;
+    JsGameAdapterContextInput input;
+    input.targ1 = &target;
+
+    JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
+
+    EXPECT_FALSE(context.has_targ1);
+    EXPECT_FALSE(context.has_target);
+    ASSERT_EQ(context.target_types.size(), 1u);
+    EXPECT_EQ(context.target_types[0], "character");
+}
+
+TEST(JsGameAdapter, MapsTargetDataRoomPointerToTypedRoom)
+{
+    room_data world[2] = { make_room("Room", 100, 0), make_room("Target Room", 101, 0) };
+    zone_data zones[1] = { make_zone("Zone", 10) };
+    JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 1, nullptr, 0,
+        nullptr, 0, zones, 1, nullptr, 0);
+    target_data room_target;
+    room_target.type = TARGET_ROOM;
+    room_target.ptr.room = &world[1];
+
+    JsGameAdapterContextInput input;
+    input.targ1 = &room_target;
+
+    JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
+
+    ASSERT_TRUE(context.has_targ1);
+    ASSERT_TRUE(context.targ1.has_room);
+    EXPECT_EQ(context.targ1.room.vnum, 101);
+    EXPECT_EQ(context.targ1.room.id, "targ1");
+    ASSERT_TRUE(context.has_target);
+    ASSERT_TRUE(context.target.has_room);
+    EXPECT_EQ(context.target.room.vnum, 101);
+    EXPECT_EQ(context.target.room.id, "target");
+    ASSERT_EQ(context.target_types.size(), 1u);
+    EXPECT_EQ(context.target_types[0], "room");
+
+    room_data detached_room = make_room("Detached", 999, 0);
+    room_target.ptr.room = &detached_room;
+    JsGameTriggerContextFixture detached_context =
+        js_game_adapter_context_fixture(input, options);
+    EXPECT_FALSE(detached_context.has_targ1);
+    EXPECT_FALSE(detached_context.has_target);
+    ASSERT_EQ(detached_context.target_types.size(), 1u);
+    EXPECT_EQ(detached_context.target_types[0], "room");
+}
+
 TEST(JsGameAdapter, MapsEveryWearSlotName)
 {
     struct ExpectedSlot {

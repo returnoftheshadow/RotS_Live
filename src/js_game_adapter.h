@@ -9,6 +9,7 @@ struct char_data;
 struct index_data;
 struct obj_data;
 struct room_data;
+struct target_data;
 struct zone_data;
 
 struct JsGameAdapterOptions {
@@ -53,6 +54,12 @@ struct JsGameAdapterContextInput {
     int tick = 0;
     const char *direction = nullptr;
     const char *reverse_direction = nullptr;
+    const char_data *target_character = nullptr;
+    const obj_data *target_object = nullptr;
+    int target_room = -1;
+    const target_data *targ1 = nullptr;
+    const target_data *targ2 = nullptr;
+    const char_data *dying = nullptr;
     JsGameTriggerFixture trigger;
 };
 

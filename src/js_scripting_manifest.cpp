@@ -133,18 +133,24 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, MudlleMobileHost,
      false, true, false, true, JsScriptingExceptionPolicy::FailOpen,
      "command targeting special path",
-     "self, actor, command, args, targ1, targ2, targetTypes, trigger, hostType",
-     "Target data lifetime and nullability must be specified before enablement."},
+     "self, actor, command, args, target, targ1, targ2, targetTypes, room, trigger, hostType",
+     "Targeted Mudlle-mobile JavaScript packages receive live command args plus safe typed "
+     "targ1/targ2 handles for live character, object, or room targets after legacy special "
+     "handling declines to consume the call. Unsupported target union payloads remain null."},
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_DAMAGE, "SPECIAL_DAMAGE", "onSpecialDamage",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, MudlleMobileHost,
      false, true, true, true, JsScriptingExceptionPolicy::FailClosed,
-     "special-procedure damage hook path", "self, attacker, victim, target, trigger, hostType",
-     "Must remain distinct from .scr ON_DAMAGE in diagnostics and tests."},
+     "special-procedure damage hook path",
+     "self, actor, attacker, victim, target, targ1, targ2, targetTypes, room, trigger, hostType",
+     "Targeted Mudlle-mobile JavaScript packages receive attacker, victim, target, and targ1 "
+     "from the live SPECIAL_DAMAGE target slot. This remains distinct from .scr ON_DAMAGE; "
+     "runtime errors fail closed for this hook."},
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_DEATH, "SPECIAL_DEATH", "onSpecialDeath",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, MudlleMobileHost,
      false, true, true, true, JsScriptingExceptionPolicy::FailClosed,
-     "special-procedure death hook path", "self, actor, dying, target, trigger, hostType",
-     "Must remain distinct from .scr ON_DIE in diagnostics and tests."},
+     "special-procedure death hook path", "self, actor, dying, target, room, trigger, hostType",
+     "Targeted Mudlle-mobile JavaScript packages receive dying and target from the dying host. "
+     "Legacy SPECIAL_DEATH does not provide a killer; runtime errors fail closed for this hook."},
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_NONE, "SPECIAL_NONE", "",
      JsScriptingSupportStatus::Unsupported, JsScriptingBuilderStatus::Unsupported, 0, false, false,
      false, false, JsScriptingExceptionPolicy::RejectAtPublish, "no-callflag/default path", "",

@@ -140,6 +140,115 @@ bool object_is_carried_by(const obj_data *object, const char_data *carrier)
     return false;
 }
 
+int room_index_for_pointer(const room_data *room, const JsGameAdapterOptions &options)
+{
+    if (room == nullptr || options.world == nullptr)
+        return -1;
+    for (std::size_t index = 0; index < options.world_count; ++index) {
+        if (&options.world[index] == room)
+            return static_cast<int>(index);
+    }
+    return -1;
+}
+
+const char *target_type_name(int target_type)
+{
+    switch (target_type) {
+    case TARGET_CHAR:
+        return "character";
+    case TARGET_OBJ:
+        return "object";
+    case TARGET_ROOM:
+        return "room";
+    case TARGET_TEXT:
+        return "text";
+    case TARGET_GOLD:
+        return "gold";
+    case TARGET_DIR:
+        return "direction";
+    case TARGET_IN:
+        return "in";
+    case TARGET_ALL:
+        return "all";
+    case TARGET_VALUE:
+        return "value";
+    case TARGET_OTHER:
+        return "other";
+    case TARGET_IGNORE:
+        return "ignore";
+    case TARGET_NONE:
+        return "none";
+    default:
+        return "unknown";
+    }
+}
+
+bool target_fixture_from_character(const char_data *character, const JsGameAdapterOptions &options,
+    JsGameTargetFixture *fixture)
+{
+    if (fixture == nullptr ||
+        !js_game_adapter_character_fixture(character, options, &fixture->character))
+        return false;
+    fixture->type = "character";
+    fixture->has_character = true;
+    fixture->character.id = "target";
+    return true;
+}
+
+bool target_fixture_from_object(
+    const obj_data *object, const JsGameAdapterOptions &options, JsGameTargetFixture *fixture)
+{
+    if (fixture == nullptr || !js_game_adapter_object_fixture(object, options, &fixture->object))
+        return false;
+    fixture->type = "object";
+    fixture->has_object = true;
+    fixture->object.id = "target";
+    return true;
+}
+
+bool target_fixture_from_room(
+    int room, const JsGameAdapterOptions &options, JsGameTargetFixture *fixture)
+{
+    if (fixture == nullptr || !js_game_adapter_room_fixture(room, options, &fixture->room))
+        return false;
+    fixture->type = "room";
+    fixture->has_room = true;
+    fixture->room.id = "target";
+    return true;
+}
+
+bool target_fixture_from_target_data(const target_data *target,
+    const JsGameAdapterOptions &options, JsGameTargetFixture *fixture)
+{
+    if (target == nullptr || fixture == nullptr)
+        return false;
+    switch (target->type) {
+    case TARGET_CHAR:
+        if (!js_game_adapter_is_live_character(target->ptr.ch, options) ||
+            GET_ABS_NUM(target->ptr.ch) != target->ch_num)
+            return false;
+        return target_fixture_from_character(target->ptr.ch, options, fixture);
+    case TARGET_OBJ:
+        return target_fixture_from_object(target->ptr.obj, options, fixture);
+    case TARGET_ROOM:
+        return target_fixture_from_room(room_index_for_pointer(target->ptr.room, options), options,
+            fixture);
+    default:
+        fixture->type = target_type_name(target->type);
+        return false;
+    }
+}
+
+void set_target_fixture_id(JsGameTargetFixture &fixture, const char *id)
+{
+    if (fixture.has_character)
+        fixture.character.id = id;
+    if (fixture.has_object)
+        fixture.object.id = id;
+    if (fixture.has_room)
+        fixture.room.id = id;
+}
+
 const char *wear_slot_name(int wear_slot)
 {
     switch (wear_slot) {
@@ -349,6 +458,39 @@ JsGameTriggerContextFixture js_game_adapter_context_fixture(
     context.has_reverse_direction = input.reverse_direction != nullptr;
     if (input.reverse_direction != nullptr)
         context.reverse_direction = copy_c_string(input.reverse_direction, MaxAdapterTextLength);
+    const bool has_explicit_target = input.target_character != nullptr || input.target_object != nullptr ||
+        input.target_room >= 0;
+    if (input.target_character != nullptr)
+        context.has_target =
+            target_fixture_from_character(input.target_character, options, &context.target);
+    else if (input.target_object != nullptr)
+        context.has_target = target_fixture_from_object(input.target_object, options, &context.target);
+    else if (input.target_room >= 0)
+        context.has_target = target_fixture_from_room(input.target_room, options, &context.target);
+    context.has_targ1 = target_fixture_from_target_data(input.targ1, options, &context.targ1);
+    context.has_targ2 = target_fixture_from_target_data(input.targ2, options, &context.targ2);
+    if (context.has_targ1)
+        set_target_fixture_id(context.targ1, "targ1");
+    if (context.has_targ2)
+        set_target_fixture_id(context.targ2, "targ2");
+    if (!has_explicit_target && !context.has_target) {
+        if (context.has_targ1) {
+            context.has_target = true;
+            context.target = context.targ1;
+        } else if (context.has_targ2) {
+            context.has_target = true;
+            context.target = context.targ2;
+        }
+    }
+    if (context.has_target)
+        set_target_fixture_id(context.target, "target");
+    if (input.targ1 != nullptr)
+        context.target_types.push_back(target_type_name(input.targ1->type));
+    if (input.targ2 != nullptr)
+        context.target_types.push_back(target_type_name(input.targ2->type));
+    context.has_dying = js_game_adapter_character_fixture(input.dying, options, &context.dying);
+    if (context.has_dying)
+        context.dying.id = "dying";
     context.trigger = input.trigger;
     return context;
 }

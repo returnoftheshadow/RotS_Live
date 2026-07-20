@@ -298,6 +298,19 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_EQ(declarations.find("extractCharacter"), std::string::npos);
 }
 
+TEST(JsBuilderArtifacts, TypescriptDeclarationsExposeTypedTargetContext)
+{
+    const std::string declarations = js_generate_typescript_declarations();
+    const std::string block = declaration_block(declarations, "export interface ScriptContext");
+
+    ASSERT_FALSE(block.empty());
+    expect_contains(block, "readonly target: Character | GameObject | Room | null;");
+    expect_contains(block, "readonly targ1: Character | GameObject | Room | null;");
+    expect_contains(block, "readonly targ2: Character | GameObject | Room | null;");
+    expect_contains(block, "readonly targetTypes: readonly string[];");
+    expect_contains(block, "readonly dying: Character | null;");
+}
+
 TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryTriggerHandler) {
     const std::string declarations = js_generate_typescript_declarations();
 

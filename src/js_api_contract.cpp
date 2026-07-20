@@ -186,8 +186,8 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "null for other hooks until their live dispatchers provide command payload backing."},
     {"target", JsApiMemberKind::Property, "Character | GameObject | Room | null", "", true, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Primary command or special-procedure target when available; currently an explicit null "
-     "placeholder until safe typed target backing is implemented."},
+     "Primary typed target when Mudlle SPECIAL_TARGET/SPECIAL_DAMAGE/SPECIAL_DEATH backing can "
+     "derive one safely; otherwise null."},
     {"tick", JsApiMemberKind::Property, "number | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Server tick or heartbeat metadata for periodic hooks when available; null until a live "
@@ -203,24 +203,25 @@ constexpr JsApiMember ScriptContextMembers[] = {
     {"continuation", JsApiMemberKind::Property, "never", "", false, false, JsApiSideEffect::None,
      JsApiMemberStatus::Unsupported, "unsupported",
      "JavaScript continuations are not part of v1; SPECIAL_DELAY remains unsupported."},
-    {"targ1", JsApiMemberKind::Property, "unknown | null", "", true, true, JsApiSideEffect::None,
-     JsApiMemberStatus::Deferred, "deferred",
-     "Legacy target slot whose safe typed shape is deferred; currently an explicit null "
-     "placeholder."},
-    {"targ2", JsApiMemberKind::Property, "unknown | null", "", true, true, JsApiSideEffect::None,
-     JsApiMemberStatus::Deferred, "deferred",
-     "Second legacy target slot whose safe typed shape is deferred; currently an explicit null "
-     "placeholder."},
+    {"targ1", JsApiMemberKind::Property, "Character | GameObject | Room | null", "", true, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "First Mudlle legacy target slot as a safe typed handle when the slot is a live character, "
+     "object, or room; unsupported target kinds remain null."},
+    {"targ2", JsApiMemberKind::Property, "Character | GameObject | Room | null", "", true, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Second Mudlle legacy target slot as a safe typed handle when the slot is a live character, "
+     "object, or room; unsupported target kinds remain null."},
     {"targetTypes", JsApiMemberKind::Property, "readonly string[]", "", false, false,
-     JsApiSideEffect::None, JsApiMemberStatus::Deferred, "deferred",
-     "Legacy target type names after a safe mapping is defined; currently an empty frozen array."},
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Legacy Mudlle target type names in slot order. The array is always frozen, and unsupported "
+     "target kinds are named without exposing raw union payloads."},
     {"victim", JsApiMemberKind::Property, "Character | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Damage victim role snapshot for ON_DAMAGE triggers when the combat call site provides it."},
     {"dying", JsApiMemberKind::Property, "Character | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Dying character for death special hooks when distinct from self; currently an explicit null "
-     "placeholder until SPECIAL_DEATH backing is implemented."},
+     "Dying character for Mudlle SPECIAL_DEATH when that legacy special path invokes JavaScript; "
+     "otherwise null."},
 };
 
 constexpr JsApiMember ScriptResultMembers[] = {
