@@ -47,71 +47,79 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_DIE, "ON_DIE", "onDie",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, true, false, JsScriptingExceptionPolicy::FailClosed,
-     "dying character script before death continues", "self, killer, trigger, hostType",
+     "dying character script before death continues", "self, killer, room, trigger, hostType",
      "call_trigger-originated death dispatch provides a live-gated killer snapshot; direct "
-     "trigger_char_die() dispatch preserves killer as null and legacy ASIMA locals stay unchanged."},
+     "trigger_char_die() dispatch preserves killer as null and legacy ASIMA locals stay unchanged. "
+     "Room is the dying character's current room when valid."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_RECEIVE, "ON_RECEIVE", "onReceive",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, true, false, JsScriptingExceptionPolicy::FailClosed,
      "receiver character script when an object is received",
-     "self, actor, object, trigger, hostType",
+     "self, actor, object, room, trigger, hostType",
      "Receiver is self, giver is actor, received item is object. False/block is surfaced through "
-     "call_trigger(), but the current give path does not roll back the already-completed transfer."},
+     "call_trigger(), but the current give path does not roll back the already-completed transfer. "
+     "Room is the receiver's current room when live-backed."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_EXAMINE_OBJECT, "ON_EXAMINE_OBJECT",
      "onExamineObject", JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred,
      ObjectHost, false, false, true, false, JsScriptingExceptionPolicy::FailClosed,
-     "object script from the look/examine path", "object, actor, trigger, hostType",
-     "Object-host handlers use object; self is reserved for character hosts."},
+     "object script from the look/examine path", "object, actor, room, trigger, hostType",
+     "Object-host handlers use object; self is reserved for character hosts. Room is the actor's "
+     "current room when live-backed."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_HEAR_SAY, "ON_HEAR_SAY", "onHearSay",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, false, false, JsScriptingExceptionPolicy::FailOpen,
      "character hear helper; legacy helper also checks ON_HEAR_YELL",
-     "self, actor, speaker, text, trigger, hostType",
+     "self, actor, speaker, text, room, trigger, hostType",
      "Listener is self, speaker is actor. Preserve the say/yell compatibility quirk for parity "
-     "unless a later manifest revision intentionally splits the handlers."},
+     "unless a later manifest revision intentionally splits the handlers. Room is the listener's "
+     "current room when live-backed."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "ON_DAMAGE", "onDamage",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred,
      CharacterHost | ObjectHost, false, false, true, false, JsScriptingExceptionPolicy::FailClosed,
      "victim character script first, then wielded object script if damage remains allowed",
-     "self, object, actor, attacker, victim, weapon, trigger, hostType",
+     "self, object, actor, attacker, victim, weapon, room, trigger, hostType",
      "False/block prevents damage and prevents downstream weapon-object dispatch. Object-host "
-     "handlers use object and actor; self is reserved for character hosts."},
+     "handlers use object and actor; self is reserved for character hosts. Room is the victim's "
+     "current room when live-backed."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_EAT, "ON_EAT", "onEat",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, ObjectHost, false,
      false, true, false, JsScriptingExceptionPolicy::FailClosed,
-     "object script from eat path", "object, actor, trigger, hostType",
-     "Object-host handlers use object; self is reserved for character hosts."},
+     "object script from eat path", "object, actor, room, trigger, hostType",
+     "Object-host handlers use object; self is reserved for character hosts. Room is the actor's "
+     "current room when live-backed."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_DRINK, "ON_DRINK", "onDrink",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, ObjectHost, false,
      false, true, false, JsScriptingExceptionPolicy::FailClosed,
-     "object script from drink path", "object, actor, trigger, hostType",
-     "Object-host handlers use object; self is reserved for character hosts."},
+     "object script from drink path", "object, actor, room, trigger, hostType",
+     "Object-host handlers use object; self is reserved for character hosts. Room is the actor's "
+     "current room when live-backed."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_WEAR, "ON_WEAR", "onWear",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, ObjectHost, false,
      false, true, false, JsScriptingExceptionPolicy::FailClosed,
-     "object script before equipment is worn", "object, actor, wearSlot, trigger, hostType",
-     "False/block prevents the wear action."},
+     "object script before equipment is worn", "object, actor, wearSlot, room, trigger, hostType",
+     "False/block prevents the wear action. Room is the actor's current room when live-backed."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_PULL, "ON_PULL", "onPull",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, ObjectHost, false,
      false, true, false, JsScriptingExceptionPolicy::FailClosed,
-     "object script before lever pull completes", "object, actor, trigger, hostType",
-     "False/block prevents the pull action."},
+     "object script before lever pull completes", "object, actor, room, trigger, hostType",
+     "False/block prevents the pull action. Room is the actor's current room when live-backed."},
     {JsScriptingManifestKind::LegacyScriptTrigger, ON_HEAR_YELL, "ON_HEAR_YELL", "onHearYell",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, CharacterHost, false,
      false, false, false, JsScriptingExceptionPolicy::FailOpen,
      "character hear helper; legacy helper also checks ON_HEAR_SAY",
-     "self, actor, speaker, text, trigger, hostType",
+     "self, actor, speaker, text, room, trigger, hostType",
      "Listener is self, speaker is actor. Preserve the say/yell compatibility quirk for parity "
-     "unless a later manifest revision intentionally splits the handlers."},
+     "unless a later manifest revision intentionally splits the handlers. Room is the listener's "
+     "current room when live-backed."},
 
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_COMMAND, "SPECIAL_COMMAND",
      "onSpecialCommand", JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred,
      MudlleMobileHost, false, true, false, true, JsScriptingExceptionPolicy::FailOpen,
      "special dispatcher command checks for mobile programs and hard-coded specials",
-     "self, actor, command, args, target, room, trigger, hostType",
+     "self, actor, command, args, room, trigger, hostType",
      "Targeted Mudlle-mobile JavaScript packages receive live command names and sanitized args "
-     "after legacy special handling declines to consume the call. Broader object/room "
-     "hard-coded-special bridging and typed targets are deferred."},
+     "after legacy special handling declines to consume the call. Typed targets are exposed by "
+     "SPECIAL_TARGET; broader object/room hard-coded-special bridging is deferred."},
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_SELF, "SPECIAL_SELF", "onSpecialSelf",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, MudlleMobileHost,
      false, true, false, true, JsScriptingExceptionPolicy::FailOpen,
@@ -129,8 +137,9 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_DELAY, "SPECIAL_DELAY", "onSpecialDelay",
      JsScriptingSupportStatus::Unsupported, JsScriptingBuilderStatus::Unsupported, MudlleMobileHost,
      false, false, false, true, JsScriptingExceptionPolicy::RejectAtPublish,
-     "legacy ASIMA delayed continuation path", "self, continuation, trigger, hostType",
-     "JavaScript continuations are unsupported until a separate audited state model exists."},
+     "legacy ASIMA delayed continuation path", "",
+     "JavaScript continuations are unsupported until a separate audited state model exists. The "
+     "runtime does not expose a continuation field for v1 supported hooks."},
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_TARGET, "SPECIAL_TARGET", "onSpecialTarget",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, MudlleMobileHost,
      false, true, false, true, JsScriptingExceptionPolicy::FailOpen,
@@ -144,9 +153,9 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      false, true, true, true, JsScriptingExceptionPolicy::FailClosed,
      "special-procedure damage hook path",
      "self, actor, attacker, victim, target, targ1, targ2, targetTypes, room, trigger, hostType",
-     "Targeted Mudlle-mobile JavaScript packages receive attacker, victim, target, and targ1 "
-     "from the live SPECIAL_DAMAGE target slot. This remains distinct from .scr ON_DAMAGE; "
-     "runtime errors fail closed for this hook."},
+     "Targeted Mudlle-mobile JavaScript packages receive the activated Mudlle host as victim and "
+     "primary target, while targ1/targ2 preserve the legacy target slots when they can be exposed "
+     "safely. This remains distinct from .scr ON_DAMAGE; runtime errors fail closed for this hook."},
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_DEATH, "SPECIAL_DEATH", "onSpecialDeath",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, MudlleMobileHost,
      false, true, true, true, JsScriptingExceptionPolicy::FailClosed,

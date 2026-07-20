@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: Mudlle `SPECIAL_SELF` heartbeat/tick backing. Periodic mobile activity now runs targeted `mudlle-mobile` JavaScript packages after legacy self handling declines, exposes the current server pulse as `ctx.tick`, keeps live host/actor/room validation, skips stale or masked inputs, and fails open on runtime errors for the non-blocking heartbeat path.
-- Next slice: final read-only parity drift audit for remaining documented `ScriptContext` payload fields that are still default-only, especially broader equipment/death payload variants and deferred non-Mudlle generic targets against legacy ASIMA call sites, before starting any side-effect/output APIs.
+- Latest completed slice: JavaScript context manifest/API parity cleanup. The manifest now advertises live-backed `ctx.room` for death, receive, hear, damage, and object action call sites; removes `target` from `SPECIAL_COMMAND` required context fields because typed targets are backed by `SPECIAL_TARGET`; keeps `SPECIAL_DELAY` continuation unsupported without advertising a runtime field; and pins null/default target behavior plus unsupported Mudlle target type names in tests.
+- Next slice: add behavior-test hardening from review, starting with a reliable legacy `SPECIAL_SELF` consume-before-JavaScript regression if Mudlle fixture syntax can be pinned, then stale `TARGET_OBJ` target_data coverage; after that reassess whether side-effect/output API planning can begin.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

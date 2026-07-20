@@ -645,11 +645,24 @@ TEST(JsGameAdapter, TargetMappingSkipsStaleAndUnsupportedSlots)
     EXPECT_EQ(context.target_types[0], "character");
     EXPECT_EQ(context.target_types[1], "object");
 
-    const signed char unsupported_types[] = { TARGET_TEXT, TARGET_DIR, TARGET_GOLD, TARGET_IN,
-        TARGET_ALL, TARGET_VALUE, TARGET_OTHER, TARGET_IGNORE, static_cast<signed char>(99) };
-    for (signed char unsupported_type : unsupported_types) {
+    struct UnsupportedTargetType {
+        signed char type;
+        const char *name;
+    };
+    const UnsupportedTargetType unsupported_types[] = {
+        { TARGET_TEXT, "text" },
+        { TARGET_DIR, "direction" },
+        { TARGET_GOLD, "gold" },
+        { TARGET_IN, "in" },
+        { TARGET_ALL, "all" },
+        { TARGET_VALUE, "value" },
+        { TARGET_OTHER, "other" },
+        { TARGET_IGNORE, "ignore" },
+        { static_cast<signed char>(99), "unknown" },
+    };
+    for (const UnsupportedTargetType &unsupported_type : unsupported_types) {
         target_data unsupported;
-        unsupported.type = unsupported_type;
+        unsupported.type = unsupported_type.type;
         unsupported.ptr.other = &stale_object;
         JsGameAdapterContextInput unsupported_input;
         unsupported_input.targ1 = &unsupported;
@@ -657,9 +670,11 @@ TEST(JsGameAdapter, TargetMappingSkipsStaleAndUnsupportedSlots)
         JsGameTriggerContextFixture unsupported_context =
             js_game_adapter_context_fixture(unsupported_input, options);
 
-        EXPECT_FALSE(unsupported_context.has_targ1) << static_cast<int>(unsupported_type);
-        EXPECT_FALSE(unsupported_context.has_target) << static_cast<int>(unsupported_type);
+        EXPECT_FALSE(unsupported_context.has_targ1) << static_cast<int>(unsupported_type.type);
+        EXPECT_FALSE(unsupported_context.has_target) << static_cast<int>(unsupported_type.type);
         ASSERT_EQ(unsupported_context.target_types.size(), 1u);
+        EXPECT_EQ(unsupported_context.target_types[0], unsupported_type.name)
+            << static_cast<int>(unsupported_type.type);
     }
 }
 

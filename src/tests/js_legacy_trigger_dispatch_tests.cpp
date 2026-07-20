@@ -2411,6 +2411,40 @@ TEST(JsLegacyTriggerDispatch, SpecialCommandDispatchesMudlleMobileJavaScriptWith
     EXPECT_EQ(special(&actor, CMD_SAY, args, SPECIAL_COMMAND, nullptr, 0), 1);
 }
 
+TEST(JsLegacyTriggerDispatch, SpecialCommandModelsTargetFieldsAsDefaultsUntilTargetBacking) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6224,
+                         "function onSpecialCommand(ctx) { "
+                         "return !(ctx.command === 'say' && ctx.args === 'open sesame' && "
+                         "ctx.target === null && ctx.targ1 === null && ctx.targ2 === null && "
+                         "Array.isArray(ctx.targetTypes) && ctx.targetTypes.length === 0); "
+                         "}"));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data actor = make_character("Builder");
+    char_data host = make_character("Guard");
+    int call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(host, 6224, SPECIAL_COMMAND, call_list);
+    actor.next = &host;
+    host.next = nullptr;
+    actor.next_in_room = &host;
+    host.next_in_room = nullptr;
+    character_list = &actor;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &actor;
+    top_of_world = 0;
+    char args[] = "   open sesame";
+
+    EXPECT_EQ(special(&actor, CMD_SAY, args, SPECIAL_COMMAND, nullptr, 0), 1);
+}
+
 TEST(JsLegacyTriggerDispatch, SpecialEnterDispatchesMudlleMobileJavaScriptWithDirections) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;

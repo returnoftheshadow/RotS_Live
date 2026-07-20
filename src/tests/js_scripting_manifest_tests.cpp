@@ -380,20 +380,20 @@ TEST(JsScriptingManifest, RecordsRequiredContextFieldsForLegacyTriggers) {
     expect_context_fields(ON_ENTER, {"self", "object", "actor", "room", "trigger", "hostType"});
     expect_context_fields(ON_BEFORE_ENTER, {"self", "actor", "room", "trigger", "hostType"});
     expect_context_fields(ON_BEFORE_DIE, {"self", "killer", "trigger", "hostType"});
-    expect_context_fields(ON_DIE, {"self", "killer", "trigger", "hostType"});
-    expect_context_fields(ON_RECEIVE, {"self", "actor", "object", "trigger", "hostType"});
-    expect_context_fields(ON_EXAMINE_OBJECT, {"object", "actor", "trigger", "hostType"});
+    expect_context_fields(ON_DIE, {"self", "killer", "room", "trigger", "hostType"});
+    expect_context_fields(ON_RECEIVE, {"self", "actor", "object", "room", "trigger", "hostType"});
+    expect_context_fields(ON_EXAMINE_OBJECT, {"object", "actor", "room", "trigger", "hostType"});
     expect_context_fields(ON_HEAR_SAY,
-                          {"self", "actor", "speaker", "text", "trigger", "hostType"});
+                          {"self", "actor", "speaker", "text", "room", "trigger", "hostType"});
     expect_context_fields(ON_DAMAGE,
-                          {"self", "object", "actor", "attacker", "victim", "weapon", "trigger",
-                           "hostType"});
-    expect_context_fields(ON_EAT, {"object", "actor", "trigger", "hostType"});
-    expect_context_fields(ON_DRINK, {"object", "actor", "trigger", "hostType"});
-    expect_context_fields(ON_WEAR, {"object", "actor", "wearSlot", "trigger", "hostType"});
-    expect_context_fields(ON_PULL, {"object", "actor", "trigger", "hostType"});
+                          {"self", "object", "actor", "attacker", "victim", "weapon", "room",
+                           "trigger", "hostType"});
+    expect_context_fields(ON_EAT, {"object", "actor", "room", "trigger", "hostType"});
+    expect_context_fields(ON_DRINK, {"object", "actor", "room", "trigger", "hostType"});
+    expect_context_fields(ON_WEAR, {"object", "actor", "wearSlot", "room", "trigger", "hostType"});
+    expect_context_fields(ON_PULL, {"object", "actor", "room", "trigger", "hostType"});
     expect_context_fields(ON_HEAR_YELL,
-                          {"self", "actor", "speaker", "text", "trigger", "hostType"});
+                          {"self", "actor", "speaker", "text", "room", "trigger", "hostType"});
 }
 
 TEST(JsScriptingManifest, RecordsRequiredContextFieldsForMudlleCallFlags) {
@@ -403,12 +403,11 @@ TEST(JsScriptingManifest, RecordsRequiredContextFieldsForMudlleCallFlags) {
     };
 
     const ExpectedContext expected_contexts[] = {
-        {SPECIAL_COMMAND,
-         {"self", "actor", "command", "args", "target", "room", "trigger", "hostType"}},
+        {SPECIAL_COMMAND, {"self", "actor", "command", "args", "room", "trigger", "hostType"}},
         {SPECIAL_SELF, {"self", "room", "tick", "trigger", "hostType"}},
         {SPECIAL_ENTER,
          {"self", "actor", "direction", "reverseDirection", "room", "trigger", "hostType"}},
-        {SPECIAL_DELAY, {"self", "continuation", "trigger", "hostType"}},
+        {SPECIAL_DELAY, {}},
         {SPECIAL_TARGET,
          {"self", "actor", "command", "args", "target", "targ1", "targ2", "targetTypes", "room",
           "trigger", "hostType"}},

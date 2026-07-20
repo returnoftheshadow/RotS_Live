@@ -178,12 +178,13 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "Requested equipment slot name for ON_WEAR when the legacy wear path provides it, or null."},
     {"command", JsApiMemberKind::Property, "string | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Command name for Mudlle SPECIAL_COMMAND mobile hooks when available; null for other hooks "
-     "until their live dispatchers provide command payload backing."},
+     "Command name for Mudlle SPECIAL_COMMAND and SPECIAL_TARGET mobile hooks when available; "
+     "null for other hooks until their live dispatchers provide command payload backing."},
     {"args", JsApiMemberKind::Property, "string | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Sanitized command argument string for Mudlle SPECIAL_COMMAND mobile hooks when available; "
-     "null for other hooks until their live dispatchers provide command payload backing."},
+     "Sanitized command argument string for Mudlle SPECIAL_COMMAND and SPECIAL_TARGET mobile "
+     "hooks when available; null for other hooks until their live dispatchers provide command "
+     "payload backing."},
     {"target", JsApiMemberKind::Property, "Character | GameObject | Room | null", "", true, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Primary typed target when Mudlle SPECIAL_TARGET/SPECIAL_DAMAGE/SPECIAL_DEATH backing can "
@@ -202,7 +203,8 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "other hooks until their live dispatchers provide movement payload backing."},
     {"continuation", JsApiMemberKind::Property, "never", "", false, false, JsApiSideEffect::None,
      JsApiMemberStatus::Unsupported, "unsupported",
-     "JavaScript continuations are not part of v1; SPECIAL_DELAY remains unsupported."},
+     "JavaScript continuations are not part of v1; SPECIAL_DELAY remains unsupported and this "
+     "field is not emitted for supported runtime hooks."},
     {"targ1", JsApiMemberKind::Property, "Character | GameObject | Room | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "First Mudlle legacy target slot as a safe typed handle when the slot is a live character, "
