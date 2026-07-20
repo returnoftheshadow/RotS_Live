@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: BuilderClient offline/local editor hardening is complete across Monaco/generated typing hardening, zoom controls, and tooltip coverage, so publish workflow slices can resume.
-- Active slice: BuilderClient canonical package identity complete. Default project metadata, renderer starter metadata, CLI project loading, project metadata validation, and publish IPC validation now align with the server-owned `js:<zone>:<host>:<vnum>` logical package id shape so renderer and CLI workflows do not carry descriptive package ids into publish/status/activate/rollback paths.
-- Next slice: reassess remaining publish workflow gaps, likely renderer activation/rollback usability or end-to-end CLI publish flow documentation.
+- Active slice: BuilderClient publish checksum autofill complete. The renderer routes publish server results through a shared functional field-state helper so staged digest and base-live checksum refresh consistently, successful activation/rollback preserves the request-time live checksum as the next rollback/backout target, operation-mismatched responses do not mutate checksum fields, explicit empty staged/live metadata clears stale UI values, and blank/malformed checksum metadata is ignored instead of overwriting useful fields.
+- Next slice: add renderer publish operation readiness/affordance hardening so Status, Stage, Activate, and Rollback expose missing input reasons and avoid sending obviously incomplete activation/rollback requests from the UI.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
