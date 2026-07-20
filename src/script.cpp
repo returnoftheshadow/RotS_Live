@@ -43,6 +43,7 @@
 #include <vector>
 
 // External declarations
+extern int pulse;
 ACMD(do_say);
 ACMD(do_hit);
 ACMD(do_flee);
@@ -510,8 +511,8 @@ int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data
     char* arg, int callflag, waiting_type* wtl, int in_room)
 {
     if (!javascript_legacy_trigger_dispatch_enabled || host == nullptr || actor == nullptr ||
-        (callflag != SPECIAL_COMMAND && callflag != SPECIAL_ENTER && callflag != SPECIAL_TARGET &&
-            callflag != SPECIAL_DAMAGE && callflag != SPECIAL_DEATH))
+        (callflag != SPECIAL_COMMAND && callflag != SPECIAL_SELF && callflag != SPECIAL_ENTER &&
+            callflag != SPECIAL_TARGET && callflag != SPECIAL_DAMAGE && callflag != SPECIAL_DEATH))
         return 0;
     if ((callflag == SPECIAL_TARGET || callflag == SPECIAL_DAMAGE) && wtl == nullptr)
         return 0;
@@ -544,6 +545,10 @@ int dispatch_javascript_mudlle_mobile_special_trigger(char_data* host, char_data
     request.context_input.self = host;
     request.context_input.actor = actor;
     request.context_input.room = in_room;
+    if (callflag == SPECIAL_SELF) {
+        request.context_input.has_tick = true;
+        request.context_input.tick = pulse;
+    }
     if (callflag == SPECIAL_COMMAND || callflag == SPECIAL_TARGET) {
         request.context_input.command = command_name_for_index(cmd);
         request.context_input.args = normalized_mudlle_command_args(arg);

@@ -31,8 +31,11 @@ int trigger_object_event(int trigger_type, obj_data *obj, char_data *ch);
 int trigger_room_event(int trigger_type, room_data *room, char_data *ch);
 int trigger_char_hear(char_data *ch, char_data *speaking, char *text);
 void perform_wear(char_data *character, obj_data *item, int item_slot, bool wearall = false);
+void one_mobile_activity(char_data *ch);
 extern room_data world;
 extern int top_of_world;
+extern int pulse;
+extern char **mobile_program;
 extern script_head *script_table;
 extern int top_of_script_table;
 extern char_data *character_list;
@@ -463,6 +466,18 @@ struct GlobalScriptTableGuard {
         script_table = saved_script_table;
         top_of_script_table = saved_top_of_script_table;
     }
+};
+
+struct GlobalPulseGuard {
+    int saved_pulse = pulse;
+
+    ~GlobalPulseGuard() { pulse = saved_pulse; }
+};
+
+struct GlobalMobileProgramGuard {
+    char **saved_mobile_program = mobile_program;
+
+    ~GlobalMobileProgramGuard() { mobile_program = saved_mobile_program; }
 };
 
 } // namespace
@@ -2429,6 +2444,164 @@ TEST(JsLegacyTriggerDispatch, SpecialEnterDispatchesMudlleMobileJavaScriptWithDi
     EXPECT_EQ(special(&actor, 3, const_cast<char *>(""), SPECIAL_ENTER, nullptr, 0), 1);
 }
 
+TEST(JsLegacyTriggerDispatch, SpecialSelfDispatchesMudlleMobileJavaScriptWithPulseTick) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalPulseGuard pulse_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6220,
+                         "function onSpecialSelf(ctx) { "
+                         "return !(ctx.self.name === 'Guard' && ctx.actor.name === 'Guard' && "
+                         "ctx.tick === 77 && ctx.room.vnum === 100); "
+                         "}",
+                         SPECIAL_SELF));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data host = make_character("Guard");
+    int call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(host, 6220, SPECIAL_SELF, call_list);
+    host.next = nullptr;
+    host.next_in_room = nullptr;
+    character_list = &host;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &host;
+    top_of_world = 0;
+    pulse = 77;
+
+    EXPECT_EQ(js_script_dispatch_mudlle_mobile_special(
+                  &host, &host, 0, const_cast<char *>(""), SPECIAL_SELF, nullptr, NOWHERE),
+        1);
+}
+
+TEST(JsLegacyTriggerDispatch, SpecialSelfRunsFromOneMobileActivityAfterLegacyDeclines) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalPulseGuard pulse_guard;
+    GlobalMobileProgramGuard mobile_program_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6222,
+                         "function onSpecialSelf(ctx) { "
+                         "return !(ctx.self.name === 'Guard' && ctx.actor.name === 'Guard' && "
+                         "ctx.tick === 99 && ctx.room.vnum === 100); "
+                         "}",
+                         SPECIAL_SELF));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    std::vector<char *> programs(6223, nullptr);
+    programs[6222] = const_cast<char *>("");
+    mobile_program = programs.data();
+    char_data host = make_character("Guard");
+    host.nr = 0;
+    host.specials.position = POSITION_STANDING;
+    host.specials.default_pos = POSITION_STANDING;
+    host.interrupt_count = 5;
+    int call_list[SPECIAL_CALLLIST];
+    int prog_points[SPECIAL_CALLLIST] {};
+    special_list list {};
+    attach_mudlle_program(host, 6222, SPECIAL_SELF, call_list);
+    host.specials.union2.prog_point = prog_points;
+    host.specials.poofOut = reinterpret_cast<char *>(&list);
+    host.next = nullptr;
+    host.next_in_room = nullptr;
+    character_list = &host;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &host;
+    top_of_world = 0;
+    pulse = 99;
+
+    one_mobile_activity(&host);
+
+    EXPECT_EQ(host.interrupt_count, 5);
+}
+
+TEST(JsLegacyTriggerDispatch, SpecialSelfRuntimeErrorFailsOpen) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    GlobalPulseGuard pulse_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6221,
+                         "function onSpecialSelf(ctx) { throw new Error('boom'); }",
+                         SPECIAL_SELF));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data host = make_character("Guard");
+    int call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(host, 6221, SPECIAL_SELF, call_list);
+    host.next = nullptr;
+    host.next_in_room = nullptr;
+    character_list = &host;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    world.people = &host;
+    top_of_world = 0;
+    pulse = 88;
+
+    EXPECT_EQ(js_script_dispatch_mudlle_mobile_special(
+                  &host, &host, 0, const_cast<char *>(""), SPECIAL_SELF, nullptr, NOWHERE),
+        0);
+}
+
+TEST(JsLegacyTriggerDispatch, SpecialSelfSkipsStaleInvalidAndMaskedInputs) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_mudlle_package(6223,
+                         "function onSpecialSelf(ctx) { return false; }",
+                         SPECIAL_SELF));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data actor = make_character("Actor");
+    char_data host = make_character("Guard");
+    int call_list[SPECIAL_CALLLIST];
+    attach_mudlle_program(host, 6223, SPECIAL_SELF, call_list);
+    actor.next = &host;
+    host.next = nullptr;
+    character_list = &actor;
+    object_list = nullptr;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    actor.next = nullptr;
+    character_list = &actor;
+    EXPECT_EQ(js_script_dispatch_mudlle_mobile_special(
+                  &host, &host, 0, const_cast<char *>(""), SPECIAL_SELF, nullptr, NOWHERE),
+        0);
+
+    actor.next = &host;
+    character_list = &host;
+    EXPECT_EQ(js_script_dispatch_mudlle_mobile_special(
+                  &host, &actor, 0, const_cast<char *>(""), SPECIAL_SELF, nullptr, NOWHERE),
+        0);
+
+    character_list = &host;
+    EXPECT_EQ(js_script_dispatch_mudlle_mobile_special(
+                  &host, &host, 0, const_cast<char *>(""), SPECIAL_SELF, nullptr, 1),
+        0);
+
+    attach_mudlle_program(host, 6223, SPECIAL_COMMAND, call_list);
+    EXPECT_EQ(js_script_dispatch_mudlle_mobile_special(
+                  &host, &host, 0, const_cast<char *>(""), SPECIAL_SELF, nullptr, NOWHERE),
+        0);
+}
+
 TEST(JsLegacyTriggerDispatch, SpecialCommandUsesMudlleProgramVnumWithoutFallback) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;
@@ -3348,10 +3521,12 @@ TEST(JsLegacyTriggerDispatch, BuildFilesReferenceFacadeSourcesAndTests) {
         read_first_available_file({"src/Makefile", "../src/Makefile"});
     const std::string test_makefile =
         read_first_available_file({"src/tests/Makefile", "../src/tests/Makefile"});
+    const std::string mobact = read_first_available_file({"src/mobact.cpp", "../src/mobact.cpp"});
 
     ASSERT_FALSE(cmake.empty());
     ASSERT_FALSE(server_makefile.empty());
     ASSERT_FALSE(test_makefile.empty());
+    ASSERT_FALSE(mobact.empty());
     EXPECT_TRUE(contains(cmake, "js_legacy_trigger_dispatch.cpp"));
     EXPECT_TRUE(contains(cmake, "tests/js_legacy_trigger_dispatch_tests.cpp"));
     EXPECT_TRUE(contains(server_makefile, "js_legacy_trigger_dispatch.o"));
@@ -3359,6 +3534,8 @@ TEST(JsLegacyTriggerDispatch, BuildFilesReferenceFacadeSourcesAndTests) {
     EXPECT_TRUE(contains(server_makefile, "js_legacy_trigger_dispatch.h"));
     EXPECT_TRUE(contains(server_makefile, "js_trigger_dispatch.h"));
     EXPECT_TRUE(contains(server_makefile, "js_live_registry_reload_service.h"));
+    EXPECT_TRUE(contains(server_makefile, "mobact.o : mobact.cpp"));
+    EXPECT_TRUE(contains(server_makefile, "script.h"));
     EXPECT_TRUE(contains(test_makefile, "js_legacy_trigger_dispatch.o"));
     EXPECT_TRUE(contains(test_makefile, "js_legacy_trigger_dispatch_tests.cpp"));
     EXPECT_TRUE(contains(test_makefile, "js_legacy_trigger_dispatch.h"));
@@ -3433,9 +3610,11 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     const std::string act_obj2 = read_first_available_file({"src/act_obj2.cpp", "../act_obj2.cpp"});
     const std::string act_info = read_first_available_file({"src/act_info.cpp", "../act_info.cpp"});
     const std::string interpre = read_first_available_file({"src/interpre.cpp", "../interpre.cpp"});
+    const std::string mobact = read_first_available_file({"src/mobact.cpp", "../mobact.cpp"});
 
     ASSERT_FALSE(script.empty());
     ASSERT_FALSE(interpre.empty());
+    ASSERT_FALSE(mobact.empty());
     EXPECT_EQ(count_occurrences(script, "js_legacy_trigger_dispatch("), 8u);
     EXPECT_EQ(
         count_occurrences(script, "dispatch_javascript_character_movement_entry_trigger(ch, vict, room,"),
@@ -3492,6 +3671,9 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(contains(script, "request.package_vnum = package_vnum;"));
     EXPECT_TRUE(contains(script, "request.context_input.command = command_name_for_index(cmd);"));
     EXPECT_TRUE(contains(script, "request.context_input.args = normalized_mudlle_command_args(arg);"));
+    EXPECT_TRUE(contains(script, "callflag != SPECIAL_SELF"));
+    EXPECT_TRUE(contains(script, "request.context_input.has_tick = true;"));
+    EXPECT_TRUE(contains(script, "request.context_input.tick = pulse;"));
     EXPECT_TRUE(contains(script, "request.context_input.direction = direction_name_for_special_enter(cmd);"));
     EXPECT_TRUE(contains(
         script, "request.context_input.reverse_direction = reverse_direction_name_for_special_enter(cmd);"));
@@ -3500,6 +3682,14 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(appears_before_after(interpre, "int activate_char_special",
         "intelligent(character, victim, cmd, argument, callflag, wait_data)",
         "js_script_dispatch_mudlle_mobile_special("));
+    EXPECT_TRUE(contains(mobact, "#include \"script.h\""));
+    EXPECT_TRUE(contains(mobact, "static int dispatch_javascript_mobile_self(char_data* ch)"));
+    EXPECT_EQ(count_occurrences(mobact, "dispatch_javascript_mobile_self(ch)"), 1u);
+    EXPECT_TRUE(contains(mobact,
+        "if (intelligent(ch, ch, 0, \"\", SPECIAL_SELF, 0)) {\n"
+        "                    return;\n"
+        "                }\n"
+        "                if (dispatch_javascript_mobile_self(ch))"));
     EXPECT_TRUE(contains(act_obj2, "trigger_object_wear_event(item, character, item_slot)"));
     EXPECT_FALSE(contains(script, "static_cast<int*>(subject3)"));
     EXPECT_TRUE(contains(script, "if (js_game_adapter_room_is_valid(ch->in_room, adapter_options))"));

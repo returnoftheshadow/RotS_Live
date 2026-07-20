@@ -290,7 +290,7 @@ mage.o  : mage.cpp structs.h utils.h comm.h spells.h handler.h limits.h \
 spell_pa.o : spell_pa.cpp structs.h utils.h comm.h db.h interpre.h \
 	spells.h handler.h
 	$(CC) -c $(CFLAGS) spell_pa.cpp
-mobact.o : mobact.cpp utils.h structs.h db.h comm.h interpre.h handler.h
+mobact.o : mobact.cpp utils.h structs.h db.h comm.h interpre.h handler.h script.h
 	$(CC) -c $(CFLAGS) mobact.cpp
 modify.o : modify.cpp structs.h utils.h interpre.h handler.h db.h comm.h
 	$(CC) -c $(CFLAGS) modify.cpp

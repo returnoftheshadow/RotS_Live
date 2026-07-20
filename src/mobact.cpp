@@ -17,6 +17,7 @@
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "script.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -43,6 +44,12 @@ void* virt_program_number(int number);
 int find_first_step(int, int);
 
 void enforce_position(struct char_data*, int);
+
+static int dispatch_javascript_mobile_self(char_data* ch)
+{
+    return js_script_dispatch_mudlle_mobile_special(
+        ch, ch, 0, const_cast<char*>(""), SPECIAL_SELF, nullptr, NOWHERE);
+}
 
 void mobile_activity(void)
 {
@@ -134,6 +141,9 @@ void one_mobile_activity(char_data* ch)
         } else {
             if (ch->specials.union1.prog_number) {
                 if (intelligent(ch, ch, 0, "", SPECIAL_SELF, 0)) {
+                    return;
+                }
+                if (dispatch_javascript_mobile_self(ch)) {
                     return;
                 }
             }

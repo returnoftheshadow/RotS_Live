@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: Mudlle typed target/damage/death backing. Targeted `mudlle-mobile` JavaScript packages now run from the live special dispatcher for `SPECIAL_TARGET`, `SPECIAL_DAMAGE`, and `SPECIAL_DEATH`, with safe live character/object/room target snapshots exposed through `target`, `targ1`, `targ2`, `targetTypes`, and `dying`.
-- Next slice: continue ASIMA/Mudlle parity cleanup with `SPECIAL_SELF` heartbeat/tick alignment and any remaining documented context payload fields that are still default-only instead of backed by live call-site data.
+- Latest completed slice: Mudlle `SPECIAL_SELF` heartbeat/tick backing. Periodic mobile activity now runs targeted `mudlle-mobile` JavaScript packages after legacy self handling declines, exposes the current server pulse as `ctx.tick`, keeps live host/actor/room validation, skips stale or masked inputs, and fails open on runtime errors for the non-blocking heartbeat path.
+- Next slice: final read-only parity drift audit for remaining documented `ScriptContext` payload fields that are still default-only, especially broader equipment/death payload variants and deferred non-Mudlle generic targets against legacy ASIMA call sites, before starting any side-effect/output APIs.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

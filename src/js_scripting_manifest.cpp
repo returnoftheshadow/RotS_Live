@@ -116,7 +116,9 @@ constexpr JsScriptingManifestEntry ManifestEntries[] = {
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, MudlleMobileHost,
      false, true, false, true, JsScriptingExceptionPolicy::FailOpen,
      "periodic mobile activity path", "self, room, tick, trigger, hostType",
-     "Requires strict tick budget before enablement."},
+     "Targeted Mudlle-mobile JavaScript packages receive the current server pulse as tick after "
+     "legacy SPECIAL_SELF handling declines to consume the mobile activity heartbeat. Runtime "
+     "errors fail open for this hook."},
     {JsScriptingManifestKind::MudlleCallFlag, SPECIAL_ENTER, "SPECIAL_ENTER", "onSpecialEnter",
      JsScriptingSupportStatus::Deferred, JsScriptingBuilderStatus::Deferred, MudlleMobileHost,
      false, true, false, true, JsScriptingExceptionPolicy::FailOpen,

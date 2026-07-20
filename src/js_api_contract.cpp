@@ -190,8 +190,8 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "derive one safely; otherwise null."},
     {"tick", JsApiMemberKind::Property, "number | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Server tick or heartbeat metadata for periodic hooks when available; null until a live "
-     "periodic dispatcher provides it."},
+     "Server pulse value for Mudlle SPECIAL_SELF heartbeat hooks when live-backed; null for "
+     "non-periodic trigger paths."},
     {"direction", JsApiMemberKind::Property, "string | null", "", true, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Movement direction for Mudlle SPECIAL_ENTER mobile hooks when available; null for other "
