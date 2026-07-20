@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient zoom clipping fix. Client zoom now uses zoom-adjusted shell/workspace height, zoom-aware bottom panel maximums, zoom-scaled pointer resize deltas, and viewport-resize reclamping so sidebar and bottom-panel content remain reachable when zoomed in.
-- Next slice: BuilderClient visual layout harness. Add browser/Electron-level coverage at maximum client zoom and constrained viewport sizes to assert title actions, sidebar scrolling, the editor, bottom resize handle, and bottom panel remain visible and reachable beyond source/CSS-string guards.
+- Latest completed slice: BuilderClient Electron preload bridge fix. The Electron window now loads the ES module preload so `window.rotsBuilder` is available for Compile, Run Selected, Run All, and IPC-backed offline fixture workflows; dev-server loading is restricted to the local Vite URL, and `smoke:preload` verifies the built bridge plus an IPC round trip.
+- Next slice: BuilderClient sandbox-compatible preload hardening. Replace the temporary `sandbox: false` compatibility posture with a sandbox-compatible preload build while keeping the `smoke:preload` bridge and no-Node-global assertions green.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
