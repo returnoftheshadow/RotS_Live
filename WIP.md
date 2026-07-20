@@ -2,8 +2,8 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active planning update: BuilderClient offline/local editor hardening is complete across Monaco/generated typing hardening, zoom controls, and tooltip coverage, so publish workflow slices can resume.
-- Active slice: BuilderClient publish operation readiness/affordance hardening complete. Status, Stage, Activate, and Rollback now expose missing-input readiness in the Publish output and button tooltips, use the same effective applied package id that publish requests send, disable incomplete actions in the UI, and return a client-side missing-input result before busy state or publish IPC when obvious required fields are blank. Server-side IPC/proxy/game validation remains authoritative for canonical ids, checksums, auth, and stale/replay handling.
-- Next slice: add end-to-end CLI publish workflow documentation covering package, stage, status, activate, rollback, required checksums/digests, and the proxy/test-server boundary.
+- Active slice: BuilderClient end-to-end CLI publish workflow documentation complete. `BuilderClient/README.md` now documents the package/status/stage/activate/rollback order, how to get and reuse server `liveChecksum` and `stagedDigest` values, why local package checksums are not server staged digests, rollback target recovery, workspace identity consistency, proxy/test-server prerequisites, current bearer-token argv limitations, and non-secret rollback audit reason guidance.
+- Next slice: add safer CLI bearer-token input for publish commands so authenticated CLI publish does not require tokens in argv or shell history.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
@@ -28,7 +28,7 @@
   - BuilderClient offline/local editor correctness now comes before more upload work. Builders must be able to edit, typecheck, inspect hover docs, get completions, and validate scripts from cached/generated artifacts without authentication or server access.
   - BuilderClient must support client-wide zoom controls for WSL/remote rendering so editor fonts and shell sizing can be increased without breaking resizable panes or minimum layout constraints.
   - BuilderClient must provide tooltips across builder-facing fields, buttons, disabled controls, status indicators, resize handles, validation markers, and workflow actions so builders can understand expected values and available actions in place.
-  - `rots-script publish status`, publish activation/rollback client wiring, and further upload UX are deferred until the offline IntelliSense/LSP slice is complete.
+  - `rots-script publish status`, publish activation, publish rollback, and Electron publish affordance slices are implemented; remaining publish UX work should focus on safer CLI token input, clearer recovery flows, and server-backed smoke ergonomics.
   - Before upload, BuilderClient compiles TypeScript to JavaScript and sends the publish package through the proxy; the game server remains authoritative for validation and execution.
   - Finish server publish/admin hardening before runtime execution tests, then defer BuilderClient UI/client work until server publish and runtime execution are stable.
   - Repeated activation of the same package/version/base checksum after the live pointer changes is rejected as stale/replay.

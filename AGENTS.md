@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient publish operation readiness/affordance hardening. Status, Stage, Activate, and Rollback now show missing-input readiness in the Publish output and button tooltips, use the effective applied package id rather than unapplied metadata draft text, and return a client-side missing-input result before busy state or publish IPC when obvious required inputs are blank.
-- Next slice: BuilderClient end-to-end CLI publish workflow documentation. Document `rots-script package`, `publish stage`, `publish status`, `publish activate`, and `publish rollback` with required checksums/digests, proxy/test-server boundary, and common failure recovery.
+- Latest completed slice: BuilderClient end-to-end CLI publish workflow documentation. The client README now documents the `rots-script` package/status/stage/activate/rollback order, required server `liveChecksum` and `stagedDigest` values, rollback checksum recovery, workspace identity, proxy/test-server prerequisites, current CLI bearer-token argv limitation, and non-secret audit reason guidance.
+- Next slice: BuilderClient safer CLI bearer-token input. Add a publish-command token input path that avoids bearer tokens in argv and shell history, such as stdin, OS credential/session lookup, or a dedicated CLI login/logout flow.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
