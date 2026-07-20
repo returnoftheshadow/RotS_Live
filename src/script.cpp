@@ -82,6 +82,9 @@ int trigger_char_die(char_data* ch);
 int trigger_char_receive(char_data* ch1, char_data* ch2, obj_data* ob1);
 int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room);
 int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch);
+int trigger_object_event_with_wear_slot(int trigger_type, obj_data* obj, char_data* ch,
+    int wear_slot);
+int trigger_object_wear_event(obj_data* obj, char_data* ch, int wear_slot);
 void clear_script_info(info_script* inf);
 int trigger_char_hear(char_data* ch, char_data* speaking, char* text);
 int trigger_char_damage(char_data* vict, char_data* ch);
@@ -320,7 +323,8 @@ bool is_javascript_object_event_trigger(int trigger_type)
         trigger_type == ON_DRINK || trigger_type == ON_WEAR || trigger_type == ON_PULL;
 }
 
-int dispatch_javascript_object_event_trigger(int trigger_type, obj_data* obj, char_data* ch)
+int dispatch_javascript_object_event_trigger(
+    int trigger_type, obj_data* obj, char_data* ch, int wear_slot = -1)
 {
     if (!javascript_legacy_trigger_dispatch_enabled ||
         !is_javascript_object_event_trigger(trigger_type) || obj == nullptr || ch == nullptr)
@@ -343,6 +347,8 @@ int dispatch_javascript_object_event_trigger(int trigger_type, obj_data* obj, ch
     request.legacy_value = trigger_type;
     request.context_input.object = obj;
     request.context_input.actor = ch;
+    if (trigger_type == ON_WEAR)
+        request.context_input.wear_slot = wear_slot;
     if (js_game_adapter_room_is_valid(ch->in_room, adapter_options))
         request.context_input.room = ch->in_room;
 
@@ -1123,6 +1129,11 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         return 1;
     } // switch (trigger_type)
     return return_value;
+}
+
+int trigger_object_wear_event(obj_data* obj, char_data* ch, int wear_slot)
+{
+    return trigger_object_event_with_wear_slot(ON_WEAR, obj, ch, wear_slot);
 }
 
 int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
@@ -2183,6 +2194,12 @@ int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch)
 
 int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch)
 {
+    return trigger_object_event_with_wear_slot(trigger_type, obj, ch, -1);
+}
+
+int trigger_object_event_with_wear_slot(int trigger_type, obj_data* obj, char_data* ch,
+    int wear_slot)
+{
     int index;
     script_data* script_position;
     int return_value = 1;
@@ -2256,7 +2273,7 @@ int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch)
         break;
     }
     if (return_value)
-        return_value = dispatch_javascript_object_event_trigger(trigger_type, obj, ch);
+        return_value = dispatch_javascript_object_event_trigger(trigger_type, obj, ch, wear_slot);
 
     return return_value;
 }

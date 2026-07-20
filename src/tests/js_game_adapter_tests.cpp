@@ -468,6 +468,7 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     input.weapon = &stale_weapon;
     input.room = 0;
     input.text = "hello";
+    input.wear_slot = MAX_WEAR;
     input.trigger = make_trigger();
 
     JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
@@ -484,6 +485,7 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     EXPECT_TRUE(context.has_zone);
     EXPECT_TRUE(context.has_text);
     EXPECT_EQ(context.text, "hello");
+    EXPECT_FALSE(context.has_wear_slot);
     EXPECT_EQ(context.trigger.legacy_name, "ON_ENTER");
 }
 
@@ -512,6 +514,7 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     input.victim = &self;
     input.object = &object;
     input.weapon = &weapon;
+    input.wear_slot = WIELD;
 
     JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
 
@@ -522,12 +525,65 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     EXPECT_EQ(context.victim.id, "victim");
     EXPECT_EQ(context.object.id, "object");
     EXPECT_EQ(context.weapon.id, "weapon");
+    ASSERT_TRUE(context.has_wear_slot);
+    EXPECT_EQ(context.wear_slot, "wield");
     EXPECT_EQ(context.self.id.find("98765"), std::string::npos);
     EXPECT_EQ(context.actor.id.find("11111"), std::string::npos);
     EXPECT_EQ(context.speaker.id.find("11111"), std::string::npos);
     EXPECT_EQ(context.attacker.id.find("11111"), std::string::npos);
     EXPECT_EQ(context.victim.id.find("98765"), std::string::npos);
     EXPECT_EQ(context.object.id.find("55"), std::string::npos);
+}
+
+TEST(JsGameAdapter, MapsEveryWearSlotName)
+{
+    struct ExpectedSlot {
+        int slot;
+        const char *name;
+    };
+    const ExpectedSlot expected_slots[] = {
+        { WEAR_LIGHT, "light" },
+        { WEAR_FINGER_R, "fingerRight" },
+        { WEAR_FINGER_L, "fingerLeft" },
+        { WEAR_NECK_1, "neck1" },
+        { WEAR_NECK_2, "neck2" },
+        { WEAR_BODY, "body" },
+        { WEAR_HEAD, "head" },
+        { WEAR_LEGS, "legs" },
+        { WEAR_FEET, "feet" },
+        { WEAR_HANDS, "hands" },
+        { WEAR_ARMS, "arms" },
+        { WEAR_SHIELD, "shield" },
+        { WEAR_ABOUT, "aboutBody" },
+        { WEAR_WAISTE, "waist" },
+        { WEAR_WRIST_R, "wristRight" },
+        { WEAR_WRIST_L, "wristLeft" },
+        { WIELD, "wield" },
+        { HOLD, "hold" },
+        { WEAR_BACK, "back" },
+        { WEAR_BELT_1, "belt1" },
+        { WEAR_BELT_2, "belt2" },
+        { WEAR_BELT_3, "belt3" },
+    };
+    JsGameAdapterOptions options;
+
+    for (const ExpectedSlot &expected : expected_slots) {
+        JsGameAdapterContextInput input;
+        input.wear_slot = expected.slot;
+
+        JsGameTriggerContextFixture context = js_game_adapter_context_fixture(input, options);
+
+        ASSERT_TRUE(context.has_wear_slot) << expected.slot;
+        EXPECT_EQ(context.wear_slot, expected.name) << expected.slot;
+    }
+
+    JsGameAdapterContextInput negative_input;
+    negative_input.wear_slot = -1;
+    EXPECT_FALSE(js_game_adapter_context_fixture(negative_input, options).has_wear_slot);
+
+    JsGameAdapterContextInput too_large_input;
+    too_large_input.wear_slot = MAX_WEAR;
+    EXPECT_FALSE(js_game_adapter_context_fixture(too_large_input, options).has_wear_slot);
 }
 
 TEST(JsGameAdapter, HandlesInvalidRoomZoneMetadata)

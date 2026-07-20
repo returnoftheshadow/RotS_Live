@@ -879,6 +879,43 @@ TEST(JsTriggerDispatch, CharacterDamageModelsMissingWeaponAsNull)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
+TEST(JsTriggerDispatch, ObjectWearProvidesWearSlot)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_package(5614, JsScriptPackageHost::Object,
+        JsScriptingManifestKind::LegacyScriptTrigger, ON_WEAR, "onWear",
+        "function onWear(ctx) {\n"
+        "  if (ctx.hostType !== 'object') throw new TypeError('host');\n"
+        "  if (ctx.object.name !== 'Helm') throw new TypeError('object');\n"
+        "  if (ctx.actor.name !== 'Actor') throw new TypeError('actor');\n"
+        "  return ctx.wearSlot === 'head';\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data actor = make_character("Actor");
+    obj_data object = make_object("Helm", 0);
+    const char_data* live_characters[] = { &actor };
+    const obj_data* live_objects[] = { &object };
+    index_data object_index[1] {};
+    object_index[0].virt = 300;
+    room_data world[1] = { make_room("Room", 100, 0) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
+
+    JsTriggerDispatchRequest request;
+    request.host = JsScriptPackageHost::Object;
+    request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    request.legacy_value = ON_WEAR;
+    request.context_input.object = &object;
+    request.context_input.actor = &actor;
+    request.context_input.wear_slot = WEAR_HEAD;
+    request.context_input.room = 0;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+}
+
 TEST(JsTriggerDispatch, CharacterHearProvidesSpeakerRoleSnapshot)
 {
     JsScriptPackageRegistry registry;

@@ -140,6 +140,58 @@ bool object_is_carried_by(const obj_data *object, const char_data *carrier)
     return false;
 }
 
+const char *wear_slot_name(int wear_slot)
+{
+    switch (wear_slot) {
+    case WEAR_LIGHT:
+        return "light";
+    case WEAR_FINGER_R:
+        return "fingerRight";
+    case WEAR_FINGER_L:
+        return "fingerLeft";
+    case WEAR_NECK_1:
+        return "neck1";
+    case WEAR_NECK_2:
+        return "neck2";
+    case WEAR_BODY:
+        return "body";
+    case WEAR_HEAD:
+        return "head";
+    case WEAR_LEGS:
+        return "legs";
+    case WEAR_FEET:
+        return "feet";
+    case WEAR_HANDS:
+        return "hands";
+    case WEAR_ARMS:
+        return "arms";
+    case WEAR_SHIELD:
+        return "shield";
+    case WEAR_ABOUT:
+        return "aboutBody";
+    case WEAR_WAISTE:
+        return "waist";
+    case WEAR_WRIST_R:
+        return "wristRight";
+    case WEAR_WRIST_L:
+        return "wristLeft";
+    case WIELD:
+        return "wield";
+    case HOLD:
+        return "hold";
+    case WEAR_BACK:
+        return "back";
+    case WEAR_BELT_1:
+        return "belt1";
+    case WEAR_BELT_2:
+        return "belt2";
+    case WEAR_BELT_3:
+        return "belt3";
+    default:
+        return nullptr;
+    }
+}
+
 } // namespace
 
 bool js_game_adapter_is_live_character(
@@ -276,6 +328,10 @@ JsGameTriggerContextFixture js_game_adapter_context_fixture(
     context.has_text = input.text != nullptr;
     if (input.text != nullptr)
         context.text = copy_c_string(input.text, MaxAdapterTextLength);
+    if (const char *slot_name = wear_slot_name(input.wear_slot)) {
+        context.has_wear_slot = true;
+        context.wear_slot = slot_name;
+    }
     context.trigger = input.trigger;
     return context;
 }

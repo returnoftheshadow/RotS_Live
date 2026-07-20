@@ -175,7 +175,7 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "Weapon object snapshot for ON_DAMAGE when the attacker is wielding a live object, or null."},
     {"wearSlot", JsApiMemberKind::Property, "string | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Equipment slot name for wear triggers when known."},
+     "Requested equipment slot name for ON_WEAR when the legacy wear path provides it, or null."},
     {"command", JsApiMemberKind::Property, "string | null", "", true, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Command name for ASIMA/Mudlle command and target call flags."},

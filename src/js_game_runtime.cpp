@@ -366,6 +366,8 @@ std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& c
         << "\"zone\":"
         << nullable_literal(context.has_zone, zone_literal(context.zone)) << ","
         << "\"text\":" << nullable_literal(context.has_text, js_quote(context.text)) << ","
+        << "\"wearSlot\":" << nullable_literal(context.has_wear_slot, js_quote(context.wear_slot))
+        << ","
         << "\"hostType\":" << js_quote(context.trigger.host_type) << ","
         << "\"trigger\":" << trigger_literal(context.trigger) << "}";
     return out.str();

@@ -437,6 +437,7 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
     context.has_room = false;
     context.has_zone = false;
     context.has_text = false;
+    context.has_wear_slot = false;
 
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
@@ -449,7 +450,8 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
         "  && ctx.weapon === null\n"
         "  && ctx.room === null\n"
         "  && ctx.zone === null\n"
-        "  && ctx.text === null;",
+        "  && ctx.text === null\n"
+        "  && ctx.wearSlot === null;",
         context);
 
     expect_ok_allows(result);
@@ -457,6 +459,22 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
     JsRuntimeEvalResult dereference_result =
         runtime.evaluate_trigger_body("return ctx.self.name === 'Aldren';", context);
     EXPECT_EQ(dereference_result.status, JsRuntimeStatus::Error);
+}
+
+TEST(JsGameRuntime, ExposesWearSlotWhenPresent)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.has_wear_slot = true;
+    context.wear_slot = "head";
+    context.trigger.name = "onWear";
+    context.trigger.legacy_name = "ON_WEAR";
+    context.trigger.legacy_value = 21;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.wearSlot === 'head' && Object.isFrozen(ctx);", context);
+
+    expect_ok_allows(result);
 }
 
 TEST(JsGameRuntime, EscapesFixtureStringsBeforeEvaluation)
@@ -568,6 +586,7 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"attacker\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"victim\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"weapon\":null"), std::string::npos);
+    EXPECT_NE(literal.find("\"wearSlot\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"hostType\":\"object\""), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"legacyName\":\"ON_PULL\""), std::string::npos);

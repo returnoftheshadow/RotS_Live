@@ -45,6 +45,7 @@ struct JsGameAdapterContextInput {
     const obj_data *weapon = nullptr;
     int room = -1;
     const char *text = nullptr;
+    int wear_slot = -1;
     JsGameTriggerFixture trigger;
 };
 

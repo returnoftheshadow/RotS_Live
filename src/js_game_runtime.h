@@ -92,6 +92,9 @@ struct JsGameTriggerContextFixture {
     bool has_text = false;
     std::string text;
 
+    bool has_wear_slot = false;
+    std::string wear_slot;
+
     JsGameTriggerFixture trigger;
 };
 

@@ -782,7 +782,7 @@ void perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
         return;
     }
 
-    if (!call_trigger(ON_WEAR, item, character, 0))
+    if (!trigger_object_wear_event(item, character, item_slot))
         return;
 
     /* for neck, finger, and wrist, try pos 2 if pos 1 is already full */

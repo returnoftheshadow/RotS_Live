@@ -26,6 +26,7 @@ int trigger_object_damage(obj_data *obj, char_data *vict, char_data *ch);
 int trigger_object_event(int trigger_type, obj_data *obj, char_data *ch);
 int trigger_room_event(int trigger_type, room_data *room, char_data *ch);
 int trigger_char_hear(char_data *ch, char_data *speaking, char *text);
+void perform_wear(char_data *character, obj_data *item, int item_slot, bool wearall = false);
 extern room_data world;
 extern int top_of_world;
 extern script_head *script_table;
@@ -1426,6 +1427,135 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptObjectEventRuntimeErrorBlocksAction) 
     EXPECT_EQ(trigger_object_event(ON_WEAR, &object, &actor), 0);
 }
 
+TEST(JsLegacyTriggerDispatch, PerformWearProvidesRequestedWearSlotToJavaScript) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6179,
+                         "function onWear(ctx) { "
+                         "return !(ctx.object.name === 'Helm' && ctx.actor.name === 'Actor' && "
+                         "ctx.wearSlot === 'head'); "
+                         "}",
+                         ON_WEAR, JsScriptPackageHost::Object));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data actor = make_character("Actor");
+    actor.next = nullptr;
+    character_list = &actor;
+
+    obj_data object = make_object("Helm");
+    object.obj_flags.wear_flags = ITEM_TAKE | ITEM_WEAR_HEAD;
+    object.carried_by = &actor;
+    object.next_content = nullptr;
+    actor.carrying = &object;
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    perform_wear(&actor, &object, WEAR_HEAD);
+
+    EXPECT_EQ(actor.equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(object.carried_by, &actor);
+}
+
+TEST(JsLegacyTriggerDispatch, PerformWearReportsRequestedSlotBeforeAlternateFallback) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6180,
+                         "function onWear(ctx) { "
+                         "return !(ctx.object.name === 'Ring' && ctx.wearSlot === 'fingerRight'); "
+                         "}",
+                         ON_WEAR, JsScriptPackageHost::Object));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data actor = make_character("Actor");
+    actor.next = nullptr;
+    character_list = &actor;
+
+    obj_data worn_ring = make_object("Existing Ring");
+    actor.equipment[WEAR_FINGER_R] = &worn_ring;
+
+    obj_data object = make_object("Ring");
+    object.obj_flags.wear_flags = ITEM_TAKE | ITEM_WEAR_FINGER;
+    object.carried_by = &actor;
+    object.next_content = nullptr;
+    actor.carrying = &object;
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    perform_wear(&actor, &object, WEAR_FINGER_R);
+
+    EXPECT_EQ(actor.equipment[WEAR_FINGER_L], nullptr);
+    EXPECT_EQ(object.carried_by, &actor);
+}
+
+TEST(JsLegacyTriggerDispatch, DirectObjectWearEventModelsWearSlotAsNull) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6181,
+                         "function onWear(ctx) { return ctx.object.name === 'Relic' && "
+                         "ctx.wearSlot === null; }",
+                         ON_WEAR, JsScriptPackageHost::Object));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data actor = make_character("Actor");
+    actor.next = nullptr;
+    character_list = &actor;
+
+    obj_data object = make_object("Relic");
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+
+    EXPECT_EQ(trigger_object_event(ON_WEAR, &object, &actor), 1);
+}
+
+TEST(JsLegacyTriggerDispatch, CallTriggerWearIgnoresInvalidSubject3AndModelsWearSlotAsNull) {
+    GlobalWorldFixtureGuard guard;
+    GlobalLiveRegistryGuard registry_guard;
+    JsLiveRegistryAdminService &service = registry_guard.service;
+    JsStagedPackageRepository repository;
+    activate_package(repository, service.live_store(),
+                     make_package(6182,
+                         "function onWear(ctx) { return ctx.object.name === 'Relic' && "
+                         "ctx.wearSlot === null; }",
+                         ON_WEAR, JsScriptPackageHost::Object));
+    ASSERT_TRUE(service.refresh().ok);
+    ASSERT_TRUE(js_script_capture_live_registry_generation());
+    js_script_set_legacy_trigger_dispatch_enabled(true);
+
+    char_data actor = make_character("Actor");
+    actor.next = nullptr;
+    character_list = &actor;
+
+    obj_data object = make_object("Relic");
+    object.next = nullptr;
+    object_list = &object;
+    world = make_room("Room", 100, -1);
+    top_of_world = 0;
+    int invalid_slot = MAX_WEAR;
+
+    EXPECT_EQ(call_trigger(ON_WEAR, &object, &actor, &invalid_slot), 1);
+}
+
 TEST(JsLegacyTriggerDispatch, LegacyObjectEventBlockPreventsJavaScriptDispatch) {
     GlobalWorldFixtureGuard guard;
     GlobalLiveRegistryGuard registry_guard;
@@ -2413,7 +2543,8 @@ TEST(JsLegacyTriggerDispatch, ActiveLegacyTriggerInventoryHasServerFacadeCoverag
     }
 
     EXPECT_TRUE(contains(script, "dispatch_javascript_object_damage_trigger(obj, vict, ch)"));
-    EXPECT_TRUE(contains(script, "dispatch_javascript_object_event_trigger(trigger_type, obj, ch)"));
+    EXPECT_TRUE(
+        contains(script, "dispatch_javascript_object_event_trigger(trigger_type, obj, ch, wear_slot)"));
     EXPECT_TRUE(contains(script,
         "trigger_type == ON_ENTER || trigger_type == ON_EXAMINE_OBJECT || trigger_type == ON_EAT"));
     EXPECT_TRUE(contains(script, "trigger_type == ON_DRINK || trigger_type == ON_WEAR || trigger_type == ON_PULL"));
@@ -2451,7 +2582,7 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
         count_occurrences(script, "dispatch_javascript_object_damage_trigger(obj, vict, ch)"),
         1u);
     EXPECT_EQ(
-        count_occurrences(script, "dispatch_javascript_object_event_trigger(trigger_type, obj, ch)"),
+        count_occurrences(script, "dispatch_javascript_object_event_trigger(trigger_type, obj, ch,"),
         1u);
     EXPECT_TRUE(contains(script,
         "dispatch_javascript_character_movement_entry_trigger(ch, vict, room, ON_BEFORE_ENTER)"));
@@ -2481,6 +2612,9 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(contains(script, "trigger_type == ON_DRINK || trigger_type == ON_WEAR || trigger_type == ON_PULL"));
     EXPECT_TRUE(contains(script, "request.host = JsScriptPackageHost::Object;"));
     EXPECT_TRUE(contains(script, "request.context_input.object = obj;"));
+    EXPECT_TRUE(contains(script, "request.context_input.wear_slot = wear_slot;"));
+    EXPECT_TRUE(contains(act_obj2, "trigger_object_wear_event(item, character, item_slot)"));
+    EXPECT_FALSE(contains(script, "static_cast<int*>(subject3)"));
     EXPECT_TRUE(contains(script, "if (js_game_adapter_room_is_valid(ch->in_room, adapter_options))"));
     EXPECT_TRUE(contains(script, "if (js_game_adapter_room_is_valid(vict->in_room, adapter_options))"));
     EXPECT_TRUE(contains(script, "request.host = JsScriptPackageHost::Character;"));
@@ -2510,9 +2644,9 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(appears_before_after(script, "int trigger_object_damage",
         "return_value = run_script(obj->obj_flags.script_info",
         "return_value = dispatch_javascript_object_damage_trigger(obj, vict, ch);"));
-    EXPECT_TRUE(appears_before_after(script, "int trigger_object_event",
+    EXPECT_TRUE(appears_before_after(script, "int trigger_object_event_with_wear_slot",
         "return_value = run_script(obj->obj_flags.script_info",
-        "return_value = dispatch_javascript_object_event_trigger(trigger_type, obj, ch);"));
+        "return_value = dispatch_javascript_object_event_trigger(trigger_type, obj, ch, wear_slot);"));
     EXPECT_TRUE(appears_before_after(script, "case ON_DAMAGE:",
         "return_value = trigger_char_damage((char_data*)subject, (char_data*)subject2);",
         "if (return_value)"));
