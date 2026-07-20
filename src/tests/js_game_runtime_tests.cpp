@@ -12,14 +12,26 @@ JsGameTriggerContextFixture make_context()
     context.self.name = "Aldren";
     context.self.race = "Human";
     context.self.level = 42;
+    context.self.experience = 42000;
+    context.self.rank = 9;
     context.self.hit_points = 125;
     context.self.max_hit_points = 150;
+    context.self.has_room = true;
+    context.self.room.id = "room:1204";
+    context.self.room.name = "Northern Gate";
+    context.self.room.vnum = 1204;
+    context.self.room.has_zone = true;
+    context.self.room.zone.id = "zone:12";
+    context.self.room.zone.name = "Old City";
+    context.self.room.zone.vnum = 12;
 
     context.has_actor = true;
     context.actor.id = "player:7";
     context.actor.name = "Builder";
     context.actor.race = "Elf";
     context.actor.level = 31;
+    context.actor.experience = 31000;
+    context.actor.rank = 4;
     context.actor.hit_points = 88;
     context.actor.max_hit_points = 92;
 
@@ -32,6 +44,10 @@ JsGameTriggerContextFixture make_context()
     context.room.id = "room:1204";
     context.room.name = "Northern Gate";
     context.room.vnum = 1204;
+    context.room.has_zone = true;
+    context.room.zone.id = "zone:12";
+    context.room.zone.name = "Old City";
+    context.room.zone.vnum = 12;
 
     context.has_zone = true;
     context.zone.id = "zone:12";
@@ -64,9 +80,19 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "return ctx.self.id === 'char:1001'\n"
         "  && ctx.self.name === 'Aldren'\n"
         "  && ctx.self.isPlayer === true\n"
+        "  && ctx.self.experience === 42000\n"
+        "  && ctx.self.rank === 9\n"
+        "  && ctx.self.isValid() === true\n"
+        "  && ctx.self.room.vnum === 1204\n"
+        "  && ctx.self.room.zone.name === 'Old City'\n"
         "  && ctx.actor.race === 'Elf'\n"
+        "  && ctx.actor.experience === 31000\n"
+        "  && ctx.actor.rank === 4\n"
         "  && ctx.object.vnum === 300\n"
+        "  && ctx.object.isValid() === true\n"
         "  && ctx.room.name === 'Northern Gate'\n"
+        "  && ctx.room.zone.vnum === 12\n"
+        "  && ctx.room.isValid() === true\n"
         "  && ctx.zone.vnum === 12\n"
         "  && ctx.trigger.name === 'onPull'\n"
         "  && ctx.trigger.blocksGameplay === true;",
@@ -284,6 +310,7 @@ TEST(JsGameRuntime, DoesNotExposeRawPointersOrProcessGlobals)
         "  && typeof ctx.self.address === 'undefined'\n"
         "  && typeof ctx.room.raw === 'undefined'\n"
         "  && typeof ctx.self.constructor === 'undefined'\n"
+        "  && typeof ctx.self.isValid.constructor === 'undefined'\n"
         "  && typeof ctx.trigger.toString === 'undefined'\n"
         "  && typeof RotS.ScriptResult.allow.constructor === 'undefined'\n"
         "  && typeof process === 'undefined'\n"
@@ -314,6 +341,11 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     std::string literal = js_game_trigger_context_literal(make_context());
 
     EXPECT_NE(literal.find("\"self\":{\"id\":\"char:1001\""), std::string::npos);
+    EXPECT_NE(literal.find("\"experience\":42000"), std::string::npos);
+    EXPECT_NE(literal.find("\"rank\":9"), std::string::npos);
+    EXPECT_NE(literal.find("\"room\":{\"id\":\"room:1204\""), std::string::npos);
+    EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
+    EXPECT_NE(literal.find("\"isValid\":function() { return true; }"), std::string::npos);
     EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\""), std::string::npos);
     EXPECT_NE(literal.find("\"room\":{\"id\":\"room:1204\""), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);

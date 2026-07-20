@@ -136,9 +136,12 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->race = race_name(*character, options);
     fixture->vnum = character_vnum(*character, options);
     fixture->level = character->player.level;
+    fixture->experience = character->points.exp;
+    fixture->rank = character->player.ranking;
     fixture->hit_points = character->tmpabilities.hit;
     fixture->max_hit_points = character->abilities.hit;
     fixture->is_npc = character_is_npc(*character);
+    fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;
 }
 
@@ -164,6 +167,7 @@ bool js_game_adapter_room_fixture(
     fixture->id = "room:" + std::to_string(room_data.number);
     fixture->name = copy_c_string(room_data.name);
     fixture->vnum = room_data.number;
+    fixture->has_zone = js_game_adapter_zone_fixture(room_data.zone, options, &fixture->zone);
     return true;
 }
 

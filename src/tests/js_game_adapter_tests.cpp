@@ -21,6 +21,8 @@ char_data make_character(const char *name, int race, int level, int hit, int max
     character.player.short_descr = const_cast<char *>(name);
     character.player.race = race;
     character.player.level = level;
+    character.player.ranking = level + 3;
+    character.points.exp = level * 1000;
     character.tmpabilities.hit = hit;
     character.abilities.hit = max_hit;
     character.specials2.idnum = npc ? -1 : 1234;
@@ -102,8 +104,10 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     mobile_index[1].virt = 5100;
     char_data npc = make_character("Gate Guard", 2, 15, 41, 55, true);
     const char_data *live_characters[] = { &npc };
-    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        mobile_index, 2, nullptr, 0, nullptr, 0, races, 3);
+    room_data world[1] = { make_room("Northern Gate", 1204, 0) };
+    zone_data zones[1] = { make_zone("Old City", 12) };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, world, 0,
+        mobile_index, 2, nullptr, 0, zones, 1, races, 3);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&npc, options, &fixture));
@@ -113,9 +117,15 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.race, "Dwarf");
     EXPECT_EQ(fixture.vnum, 5100);
     EXPECT_EQ(fixture.level, 15);
+    EXPECT_EQ(fixture.experience, 15000);
+    EXPECT_EQ(fixture.rank, 18);
     EXPECT_EQ(fixture.hit_points, 41);
     EXPECT_EQ(fixture.max_hit_points, 55);
     EXPECT_TRUE(fixture.is_npc);
+    ASSERT_TRUE(fixture.has_room);
+    EXPECT_EQ(fixture.room.vnum, 1204);
+    ASSERT_TRUE(fixture.room.has_zone);
+    EXPECT_EQ(fixture.room.zone.vnum, 12);
 }
 
 TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum)
@@ -133,6 +143,8 @@ TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum)
     EXPECT_EQ(fixture.name, "PlayerOne");
     EXPECT_EQ(fixture.race, "Human");
     EXPECT_EQ(fixture.vnum, -1);
+    EXPECT_EQ(fixture.experience, 29000);
+    EXPECT_EQ(fixture.rank, 32);
     EXPECT_FALSE(fixture.is_npc);
 }
 

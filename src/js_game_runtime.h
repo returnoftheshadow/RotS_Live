@@ -5,18 +5,7 @@
 
 #include <string>
 
-struct JsGameCharacterFixture {
-    std::string id;
-    std::string name;
-    std::string race;
-    int vnum = -1;
-    int level = 0;
-    int hit_points = 0;
-    int max_hit_points = 0;
-    bool is_npc = false;
-};
-
-struct JsGameObjectFixture {
+struct JsGameZoneFixture {
     std::string id;
     std::string name;
     int vnum = 0;
@@ -26,9 +15,28 @@ struct JsGameRoomFixture {
     std::string id;
     std::string name;
     int vnum = 0;
+
+    bool has_zone = false;
+    JsGameZoneFixture zone;
 };
 
-struct JsGameZoneFixture {
+struct JsGameCharacterFixture {
+    std::string id;
+    std::string name;
+    std::string race;
+    int vnum = -1;
+    int level = 0;
+    int experience = 0;
+    int rank = 0;
+    int hit_points = 0;
+    int max_hit_points = 0;
+    bool is_npc = false;
+
+    bool has_room = false;
+    JsGameRoomFixture room;
+};
+
+struct JsGameObjectFixture {
     std::string id;
     std::string name;
     int vnum = 0;

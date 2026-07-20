@@ -226,6 +226,20 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_EQ(name->kind, JsApiMemberKind::Property);
     EXPECT_STREQ(name->type_name, "string");
 
+    const JsApiMember* experience = find_js_api_contract_member(*character, "experience");
+    ASSERT_NE(experience, nullptr);
+    EXPECT_EQ(experience->kind, JsApiMemberKind::Property);
+    EXPECT_STREQ(experience->type_name, "number");
+    EXPECT_EQ(experience->status, JsApiMemberStatus::PlannedReadOnly);
+    EXPECT_NE(std::string(experience->docs).find("CHx_EXP"), std::string::npos);
+
+    const JsApiMember* rank = find_js_api_contract_member(*character, "rank");
+    ASSERT_NE(rank, nullptr);
+    EXPECT_EQ(rank->kind, JsApiMemberKind::Property);
+    EXPECT_STREQ(rank->type_name, "number");
+    EXPECT_EQ(rank->status, JsApiMemberStatus::PlannedReadOnly);
+    EXPECT_NE(std::string(rank->docs).find("CHx_RANK"), std::string::npos);
+
     EXPECT_EQ(find_js_api_contract_type("Missing"), nullptr);
     EXPECT_EQ(find_js_api_contract_member(*character, "missing"), nullptr);
 }

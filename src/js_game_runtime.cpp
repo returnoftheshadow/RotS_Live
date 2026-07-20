@@ -53,6 +53,34 @@ const char* js_bool(bool value)
     return value ? "true" : "false";
 }
 
+std::string nullable_literal(bool present, const std::string& literal)
+{
+    return present ? literal : "null";
+}
+
+std::string zone_literal(const JsGameZoneFixture& zone)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"id\":" << js_quote(zone.id) << ","
+        << "\"name\":" << js_quote(zone.name) << ","
+        << "\"vnum\":" << zone.vnum << "}";
+    return out.str();
+}
+
+std::string room_literal(const JsGameRoomFixture& room)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"id\":" << js_quote(room.id) << ","
+        << "\"name\":" << js_quote(room.name) << ","
+        << "\"vnum\":" << room.vnum << ","
+        << "\"zone\":" << nullable_literal(room.has_zone, zone_literal(room.zone)) << ","
+        << "\"isValid\":function() { return true; }"
+        << "}";
+    return out.str();
+}
+
 std::string character_literal(const JsGameCharacterFixture& character)
 {
     std::ostringstream out;
@@ -67,10 +95,15 @@ std::string character_literal(const JsGameCharacterFixture& character)
         out << "null";
     out << ","
         << "\"level\":" << character.level << ","
+        << "\"experience\":" << character.experience << ","
+        << "\"rank\":" << character.rank << ","
         << "\"hitPoints\":" << character.hit_points << ","
         << "\"maxHitPoints\":" << character.max_hit_points << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
-        << "\"isPlayer\":" << js_bool(!character.is_npc) << "}";
+        << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
+        << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","
+        << "\"isValid\":function() { return true; }"
+        << "}";
     return out.str();
 }
 
@@ -85,27 +118,9 @@ std::string object_literal(const JsGameObjectFixture& object)
         out << object.vnum;
     else
         out << "null";
-    out << "}";
-    return out.str();
-}
-
-std::string room_literal(const JsGameRoomFixture& room)
-{
-    std::ostringstream out;
-    out << "{"
-        << "\"id\":" << js_quote(room.id) << ","
-        << "\"name\":" << js_quote(room.name) << ","
-        << "\"vnum\":" << room.vnum << "}";
-    return out.str();
-}
-
-std::string zone_literal(const JsGameZoneFixture& zone)
-{
-    std::ostringstream out;
-    out << "{"
-        << "\"id\":" << js_quote(zone.id) << ","
-        << "\"name\":" << js_quote(zone.name) << ","
-        << "\"vnum\":" << zone.vnum << "}";
+    out << ","
+        << "\"isValid\":function() { return true; }"
+        << "}";
     return out.str();
 }
 
@@ -119,11 +134,6 @@ std::string trigger_literal(const JsGameTriggerFixture& trigger)
         << "\"legacyValue\":" << trigger.legacy_value << ","
         << "\"blocksGameplay\":" << js_bool(trigger.blocks_gameplay) << "}";
     return out.str();
-}
-
-std::string nullable_literal(bool present, const std::string& literal)
-{
-    return present ? literal : "null";
 }
 
 bool source_has_unsafe_wrapper_boundary(const std::string& source)

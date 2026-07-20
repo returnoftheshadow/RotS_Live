@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: live runtime compiler-shape parity. The server runtime accepts BuilderClient-compiled CommonJS handler exports alongside direct global handlers and exposes frozen `RotS.ScriptResult.allow()` / `RotS.ScriptResult.block()` helpers in live trigger execution.
-- Next slice: JavaScript API capability alignment matrix. Compare every API surface builders expect from ASIMA/current scripts against the server-owned `js_api_contract`, generated typings, offline runner, and live runtime; then expand the next smallest missing read/output capability with tests.
+- Latest completed slice: read-only legacy character parameter parity. JavaScript character snapshots expose `experience`, `rank`, `room`, and pure `isValid()`, matching legacy `CHx_EXP`, `CHx_RANK`, and `CHx_ROOM` script parameters through the API contract, adapter, runtime literal, and tests; room snapshots expose `zone` and pure `isValid()`.
+- Next slice: complete the JavaScript API capability alignment matrix for the remaining ASIMA script commands and close the next read-only contract/runtime drift item, likely `Mob.prototypeVnum` or object relationship fields before any bounded output helper implementation.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

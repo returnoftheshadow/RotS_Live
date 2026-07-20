@@ -1,9 +1,9 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active planning update: live JavaScript execution is being aligned with the BuilderClient/offline TypeScript implementation before expanding additional scripting capabilities.
-- Active slice: live runtime compiler-shape parity. The server runtime now accepts BuilderClient-compiled CommonJS handler exports alongside legacy/global handler functions and exposes the same `RotS.ScriptResult.allow()` / `RotS.ScriptResult.block()` helpers used by offline fixtures.
-- Next slice: JavaScript API capability alignment matrix. Compare every API surface builders expect from ASIMA/current scripts against the server-owned `js_api_contract`, generated typings, offline runner, and live runtime; then expand the next smallest missing read/output capability with tests.
+- Active planning update: live package execution now matches the BuilderClient/offline compiled TypeScript shape; read-only character data parity is being expanded before any world mutation/output helpers.
+- Active slice: read-only legacy character parameter parity. JavaScript character snapshots now expose `experience`, `rank`, `room`, and pure `isValid()`, matching the legacy `CHx_EXP`, `CHx_RANK`, and `CHx_ROOM` script parameters in the API contract, adapter, runtime literal, and tests. Room snapshots now expose `zone` and pure `isValid()`.
+- Next slice: complete the JavaScript API capability alignment matrix for the remaining ASIMA script commands and close the next read-only contract/runtime drift item, likely `Mob.prototypeVnum` or object relationship fields before any bounded output helper implementation.
 - Current blocker: none.
 - Temporary fixture plan:
   - Create a fresh local account through the existing account menu/proxy flow with captured verification email, so authentication still uses the real account system.
