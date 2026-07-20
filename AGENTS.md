@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: BuilderClient nested handle relationship editing. Fixture editor/state/IPC validation now support live-shaped nested `room`, `zone`, `carriedBy`, and `wornBy` links for role/link combinations the offline runner consumes.
-- Next slice: replace or verify hand-maintained BuilderClient fixture vocabularies against server-owned generated artifacts so target types, wear slots, directions, and future finite context domains cannot drift from the live C++ adapter.
+- Latest completed slice: BuilderClient fixture finite-vocabulary drift guard. BuilderClient tests now compare local Mudlle target type, wear slot, and movement direction domains against server-owned C++ source strings until these domains are exported as generated manifest data.
+- Next slice: export finite fixture context domains from server-owned generated artifacts and consume them in BuilderClient so target types, wear slots, directions, and future finite context domains come from generated data instead of source-reading drift guards.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
