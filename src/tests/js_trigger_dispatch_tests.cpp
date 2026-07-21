@@ -6,6 +6,7 @@
 #include "../js_scripting_runtime_policy.h"
 #include "../script.h"
 #include "../structs.h"
+#include "../utils.h"
 #include "../zone.h"
 
 #include <gtest/gtest.h>
@@ -223,6 +224,96 @@ TEST(JsTriggerDispatch, StartsWithExplicitNoMatchStatusForEmptyRegistry)
     EXPECT_STREQ(js_trigger_dispatch_status_name(result.status), "no-match");
     EXPECT_EQ(result.matched_package_count, 0U);
     EXPECT_TRUE(result.diagnostic.empty());
+}
+
+TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5825,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('lever keys');\n"
+        "  ctx.object.setDescription('A brass lever has new glyphs.');\n"
+        "  ctx.object.setShortDescription('a renamed lever');\n"
+        "  ctx.object.setActionDescription(null);\n"
+        "  ctx.room.setName('Changed Gate');\n"
+        "  ctx.room.setDescription('The gate was changed by script.');\n"
+        "  ctx.zone.setName('Changed Zone');\n"
+        "  ctx.zone.setDescription(null);\n"
+        "  return RotS.ScriptResult.block();\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.name = str_dup("lever keys old");
+    object.description = str_dup("A lever is here.");
+    object.short_description = str_dup("a lever");
+    object.action_description = str_dup("Pulling the lever does nothing.");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    world[0].name = str_dup("Gate");
+    world[0].description = str_dup("The old gate.");
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].name = str_dup("Zone");
+    zones[0].description = str_dup("The old zone.");
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Block) << result.diagnostic;
+    EXPECT_STREQ(object.name, "lever keys");
+    EXPECT_STREQ(object.description, "A brass lever has new glyphs.");
+    EXPECT_STREQ(object.short_description, "a renamed lever");
+    EXPECT_EQ(object.action_description, nullptr);
+    EXPECT_STREQ(world[0].name, "Changed Gate");
+    EXPECT_STREQ(world[0].description, "The gate was changed by script.");
+    EXPECT_STREQ(zones[0].name, "Changed Zone");
+    EXPECT_EQ(zones[0].description, nullptr);
+
+    free(object.name);
+    free(object.description);
+    free(object.short_description);
+    free(object.action_description);
+    free(world[0].name);
+    free(world[0].description);
+    free(zones[0].name);
+    free(zones[0].description);
+}
+
+TEST(JsTriggerDispatch, DoesNotPersistSetterSnapshotsWhenHandlerFails)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5826,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('unsafe changed name');\n"
+        "  throw new TypeError('boom');\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.name = str_dup("lever keys old");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_STREQ(object.name, "lever keys old");
+
+    free(object.name);
+    free(object.short_description);
 }
 
 TEST(JsScriptingRuntimePolicy, PinsLiveDispatchDefaults)

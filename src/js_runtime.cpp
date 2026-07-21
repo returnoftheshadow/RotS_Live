@@ -17,8 +17,9 @@ struct InterruptState {
     bool interrupted = false;
 };
 
-int interrupt_handler(JSRuntime *, void *opaque) {
-    InterruptState *state = static_cast<InterruptState *>(opaque);
+int interrupt_handler(JSRuntime*, void* opaque)
+{
+    InterruptState* state = static_cast<InterruptState*>(opaque);
     if (state == nullptr)
         return 1;
     if (state->remaining_budget == 0) {
@@ -29,7 +30,8 @@ int interrupt_handler(JSRuntime *, void *opaque) {
     return 0;
 }
 
-std::string clamp_diagnostic(std::string diagnostic) {
+std::string clamp_diagnostic(std::string diagnostic)
+{
     diagnostic.erase(std::remove(diagnostic.begin(), diagnostic.end(), '\r'), diagnostic.end());
     diagnostic.erase(std::remove(diagnostic.begin(), diagnostic.end(), '\n'), diagnostic.end());
     if (diagnostic.size() > MaxDiagnosticLength)
@@ -37,9 +39,10 @@ std::string clamp_diagnostic(std::string diagnostic) {
     return diagnostic;
 }
 
-std::string exception_to_string(JSContext *context) {
+std::string exception_to_string(JSContext* context)
+{
     JSValue exception = JS_GetException(context);
-    const char *exception_text = JS_ToCString(context, exception);
+    const char* exception_text = JS_ToCString(context, exception);
     std::string diagnostic = exception_text != nullptr ? exception_text : "JavaScript exception";
     if (exception_text != nullptr)
         JS_FreeCString(context, exception_text);
@@ -47,17 +50,19 @@ std::string exception_to_string(JSContext *context) {
     return clamp_diagnostic(diagnostic);
 }
 
-bool contains_dynamic_import(const std::string &source) {
-    return source.find("import(") != std::string::npos ||
-           source.find("import (") != std::string::npos;
+bool contains_dynamic_import(const std::string& source)
+{
+    return source.find("import(") != std::string::npos || source.find("import (") != std::string::npos;
 }
 
-JSModuleDef *deny_module_load(JSContext *context, const char *module_name, void *) {
+JSModuleDef* deny_module_load(JSContext* context, const char* module_name, void*)
+{
     JS_ThrowReferenceError(context, "module loading is not supported: %s", module_name);
     return nullptr;
 }
 
-void delete_global_property(JSContext *context, const char *name) {
+void delete_global_property(JSContext* context, const char* name)
+{
     JSValue global = JS_GetGlobalObject(context);
     JSAtom atom = JS_NewAtom(context, name);
     if (atom != JS_ATOM_NULL) {
@@ -67,7 +72,8 @@ void delete_global_property(JSContext *context, const char *name) {
     JS_FreeValue(context, global);
 }
 
-void configure_context(JSContext *context) {
+void configure_context(JSContext* context)
+{
     delete_global_property(context, "eval");
     delete_global_property(context, "Function");
 }
@@ -78,11 +84,16 @@ struct JsRuntime::Impl {
     JsRuntimeLimits limits;
 };
 
-JsRuntime::JsRuntime(const JsRuntimeLimits &limits) : m_impl(new Impl) { m_impl->limits = limits; }
+JsRuntime::JsRuntime(const JsRuntimeLimits& limits)
+    : m_impl(new Impl)
+{
+    m_impl->limits = limits;
+}
 
 JsRuntime::~JsRuntime() { delete m_impl; }
 
-JsRuntimeEvalResult JsRuntime::evaluate(const std::string &source, const char *filename) {
+JsRuntimeEvalResult JsRuntime::evaluate(const std::string& source, const char* filename)
+{
     JsRuntimeEvalResult result;
     if (contains_dynamic_import(source)) {
         result.status = JsRuntimeStatus::Error;
@@ -93,7 +104,7 @@ JsRuntimeEvalResult JsRuntime::evaluate(const std::string &source, const char *f
     InterruptState interrupt_state;
     interrupt_state.remaining_budget = m_impl->limits.instruction_budget;
 
-    JSRuntime *runtime = JS_NewRuntime();
+    JSRuntime* runtime = JS_NewRuntime();
     if (runtime == nullptr) {
         result.status = JsRuntimeStatus::OutOfMemory;
         result.diagnostic = "JavaScript runtime initialization failed";
@@ -107,7 +118,7 @@ JsRuntimeEvalResult JsRuntime::evaluate(const std::string &source, const char *f
     JS_SetInterruptHandler(runtime, interrupt_handler, &interrupt_state);
     JS_SetModuleLoaderFunc(runtime, nullptr, deny_module_load, nullptr);
 
-    JSContext *context = JS_NewContext(runtime);
+    JSContext* context = JS_NewContext(runtime);
     if (context == nullptr) {
         JS_FreeRuntime(runtime);
         result.status = JsRuntimeStatus::OutOfMemory;
@@ -117,10 +128,9 @@ JsRuntimeEvalResult JsRuntime::evaluate(const std::string &source, const char *f
     configure_context(context);
 
     JSValue value = JS_Eval(context, source.c_str(), source.size(), filename,
-                            JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT);
+        JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT);
     if (JS_IsException(value)) {
-        result.status =
-            interrupt_state.interrupted ? JsRuntimeStatus::Interrupted : JsRuntimeStatus::Error;
+        result.status = interrupt_state.interrupted ? JsRuntimeStatus::Interrupted : JsRuntimeStatus::Error;
         result.diagnostic = exception_to_string(context);
         if (result.diagnostic.find("out of memory") != std::string::npos)
             result.status = JsRuntimeStatus::OutOfMemory;
@@ -136,6 +146,21 @@ JsRuntimeEvalResult JsRuntime::evaluate(const std::string &source, const char *f
         JS_FreeContext(context);
         JS_FreeRuntime(runtime);
         return result;
+    }
+
+    if (JS_IsString(value)) {
+        const char* string_value = JS_ToCString(context, value);
+        if (string_value == nullptr) {
+            result.status = JsRuntimeStatus::Error;
+            result.diagnostic = exception_to_string(context);
+            JS_FreeValue(context, value);
+            JS_FreeContext(context);
+            JS_FreeRuntime(runtime);
+            return result;
+        }
+        result.has_string_value = true;
+        result.string_value = string_value;
+        JS_FreeCString(context, string_value);
     }
 
     if (JS_PromiseState(context, value) != static_cast<JSPromiseStateEnum>(-1)) {
@@ -164,7 +189,8 @@ JsRuntimeEvalResult JsRuntime::evaluate(const std::string &source, const char *f
     return result;
 }
 
-const char *js_runtime_status_name(JsRuntimeStatus status) {
+const char* js_runtime_status_name(JsRuntimeStatus status)
+{
     switch (status) {
     case JsRuntimeStatus::Ok:
         return "ok";
@@ -178,7 +204,8 @@ const char *js_runtime_status_name(JsRuntimeStatus status) {
     return "unknown";
 }
 
-const char *js_runtime_value_name(JsRuntimeValue value) {
+const char* js_runtime_value_name(JsRuntimeValue value)
+{
     switch (value) {
     case JsRuntimeValue::Allow:
         return "allow";

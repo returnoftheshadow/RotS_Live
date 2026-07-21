@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 enum class JsRuntimeStatus {
     Ok,
@@ -17,6 +18,14 @@ enum class JsRuntimeValue {
     Block,
 };
 
+struct JsRuntimeMutation {
+    std::string target_type;
+    std::string target_id;
+    std::string property;
+    bool has_value = false;
+    std::string value;
+};
+
 struct JsRuntimeLimits {
     std::size_t memory_limit_bytes = 1024 * 1024;
     std::size_t stack_limit_bytes = 256 * 1024;
@@ -27,24 +36,27 @@ struct JsRuntimeEvalResult {
     JsRuntimeStatus status = JsRuntimeStatus::Error;
     JsRuntimeValue value = JsRuntimeValue::Allow;
     std::string diagnostic;
+    bool has_string_value = false;
+    std::string string_value;
+    std::vector<JsRuntimeMutation> mutations;
 };
 
 class JsRuntime {
-  public:
-    explicit JsRuntime(const JsRuntimeLimits &limits = {});
+public:
+    explicit JsRuntime(const JsRuntimeLimits& limits = {});
     ~JsRuntime();
 
-    JsRuntime(const JsRuntime &) = delete;
-    JsRuntime &operator=(const JsRuntime &) = delete;
+    JsRuntime(const JsRuntime&) = delete;
+    JsRuntime& operator=(const JsRuntime&) = delete;
 
-    JsRuntimeEvalResult evaluate(const std::string &source, const char *filename = "script.js");
+    JsRuntimeEvalResult evaluate(const std::string& source, const char* filename = "script.js");
 
-  private:
+private:
     struct Impl;
-    Impl *m_impl;
+    Impl* m_impl;
 };
 
-const char *js_runtime_status_name(JsRuntimeStatus status);
-const char *js_runtime_value_name(JsRuntimeValue value);
+const char* js_runtime_status_name(JsRuntimeStatus status);
+const char* js_runtime_value_name(JsRuntimeValue value);
 
 #endif

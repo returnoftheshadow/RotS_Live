@@ -671,6 +671,38 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
     expect_ok_allows(runtime.evaluate_trigger_body("return ctx.object.name === 'silver lever';", context));
 }
 
+TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult body_result = runtime.evaluate_trigger_body(
+        "let bodyBlocked = false;\n"
+        "try { __rotsMutations.push({ targetType: 'object' }); } catch (error) { bodyBlocked = true; }\n"
+        "return bodyBlocked && typeof __rotsJsonStringify === 'undefined';",
+        make_context());
+    JsRuntimeEvalResult package_result = runtime.evaluate_trigger_package_handler(
+        "exports.onEnter = function(ctx) {\n"
+        "  let packageBlocked = false;\n"
+        "  try { __rotsMutations.push({ targetType: 'object' }); } catch (error) { packageBlocked = true; }\n"
+        "  return packageBlocked && typeof __rotsJsonStringify === 'undefined';\n"
+        "};\n",
+        "onEnter", make_context());
+
+    expect_ok_allows(body_result);
+    expect_ok_allows(package_result);
+}
+
+TEST(JsGameRuntime, RejectsExcessiveSetterMutationCounts)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "for (let index = 0; index < 65; index += 1) ctx.object.setDescription('edit ' + index);\n"
+        "return true;",
+        make_context());
+
+    EXPECT_EQ(result.status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(result.mutations.empty());
+}
+
 TEST(JsGameRuntime, ExposesNoOpConsoleLogForOfflineParity)
 {
     JsGameRuntime runtime;

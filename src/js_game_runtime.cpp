@@ -1,11 +1,19 @@
 #include "js_game_runtime.h"
 
+#include "json_utils.h"
+
 #include <cctype>
 #include <sstream>
+#include <utility>
 
 namespace {
 
+using json_utils::JsonReader;
+
 constexpr std::size_t MaxGameDiagnosticLength = 120;
+constexpr std::size_t MaxGameMutationCount = 64;
+
+JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result);
 
 std::string js_quote(const std::string& value)
 {
@@ -331,6 +339,98 @@ bool is_safe_handler_identifier(const std::string& handler_name)
     return true;
 }
 
+bool parse_mutation(JsonReader* reader, JsRuntimeMutation* mutation, std::string* error_message)
+{
+    if (reader == nullptr || mutation == nullptr)
+        return false;
+
+    std::string value_kind;
+    return reader->parse_object(
+               [&](const std::string& name, JsonReader* nested_reader, std::string* nested_error) {
+                   if (name == "targetType")
+                       return nested_reader->parse_string(&mutation->target_type, nested_error);
+                   if (name == "targetId")
+                       return nested_reader->parse_string(&mutation->target_id, nested_error);
+                   if (name == "property")
+                       return nested_reader->parse_string(&mutation->property, nested_error);
+                   if (name == "valueKind")
+                       return nested_reader->parse_string(&value_kind, nested_error);
+                   if (name == "value")
+                       return nested_reader->parse_string(&mutation->value, nested_error);
+                   return nested_reader->skip_value(nested_error);
+               },
+               error_message)
+        && (value_kind == "string" || value_kind == "null") && (mutation->has_value = value_kind == "string", true);
+}
+
+bool parse_game_envelope(const std::string& envelope, JsRuntimeEvalResult* result)
+{
+    if (result == nullptr)
+        return false;
+
+    bool saw_allow = false;
+    bool saw_mutations = false;
+    std::string parse_error;
+    JsonReader reader(envelope);
+    const bool parsed = reader.parse_root_object(
+        [&](const std::string& name, JsonReader* nested_reader, std::string* error_message) {
+            if (name == "allow") {
+                bool allow = true;
+                if (!nested_reader->parse_bool(&allow, error_message))
+                    return false;
+                result->value = allow ? JsRuntimeValue::Allow : JsRuntimeValue::Block;
+                saw_allow = true;
+                return true;
+            }
+            if (name == "mutations") {
+                saw_mutations = true;
+                return nested_reader->parse_array(
+                    [&](JsonReader* mutation_reader, std::string* mutation_error) {
+                        if (result->mutations.size() >= MaxGameMutationCount) {
+                            if (mutation_error)
+                                *mutation_error = "JavaScript game mutation limit exceeded.";
+                            return false;
+                        }
+                        JsRuntimeMutation mutation;
+                        if (!parse_mutation(mutation_reader, &mutation, mutation_error))
+                            return false;
+                        result->mutations.push_back(std::move(mutation));
+                        return true;
+                    },
+                    error_message);
+            }
+            return nested_reader->skip_value(error_message);
+        },
+        &parse_error);
+
+    if (!parsed || !saw_allow || !saw_mutations) {
+        result->status = JsRuntimeStatus::Error;
+        result->diagnostic = "JavaScript game script returned an invalid internal result";
+        result->mutations.clear();
+        return false;
+    }
+
+    return true;
+}
+
+JsRuntimeEvalResult evaluate_game_source(
+    const std::string& source, const JsRuntimeLimits& limits, const char* filename)
+{
+    JsRuntime runtime(limits);
+    JsRuntimeEvalResult result = sanitize_game_result(runtime.evaluate(source, filename));
+    if (result.status != JsRuntimeStatus::Ok)
+        return result;
+    if (!result.has_string_value) {
+        result.status = JsRuntimeStatus::Error;
+        result.diagnostic = "JavaScript game script returned an invalid internal result";
+        return result;
+    }
+    parse_game_envelope(result.string_value, &result);
+    result.has_string_value = false;
+    result.string_value.clear();
+    return sanitize_game_result(std::move(result));
+}
+
 std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
 {
     std::ostringstream wrapped;
@@ -344,6 +444,9 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
             << "Object.freeze(Object.prototype);\n"
             << "Object.freeze(Array.prototype);\n"
             << "Object.freeze(__rotsFunctionPrototype);\n"
+            << "const __rotsJsonStringify = JSON.stringify;\n"
+            << "Object.freeze(JSON);\n"
+            << "const __rotsMutations = [];\n"
             << "function __rotsDeepFreeze(value) {\n"
             << "  if (value && (typeof value === 'object' || typeof value === 'function') && !Object.isFrozen(value)) {\n"
             << "    if (typeof value === 'object' && !Array.isArray(value)) Object.setPrototypeOf(value, null);\n"
@@ -365,7 +468,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
             << "  if (value.length > maxLength) return __rotsMutationResult(false, 'out-of-range', 'Text is too long.', field);\n"
             << "  return __rotsMutationResult(true, 'ok', null, field);\n"
             << "}\n"
-            << "function __rotsAttachTextSetter(handle, property, setterName, maxLength, nullable) {\n"
+            << "function __rotsAttachTextSetter(handle, targetType, property, setterName, maxLength, nullable) {\n"
             << "  if (!handle || typeof handle !== 'object') return;\n"
             << "  let current = handle[property];\n"
             << "  Object.defineProperty(handle, property, {\n"
@@ -379,7 +482,10 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
             << "    writable: false,\n"
             << "    value: (value) => {\n"
             << "      const result = __rotsValidateTextSetter(value, property, maxLength, nullable);\n"
-            << "      if (result.ok) current = value;\n"
+            << "      if (result.ok) {\n"
+            << "        current = value;\n"
+            << "        __rotsMutations.push({ targetType: targetType, targetId: String(handle.id), property: property, valueKind: value === null ? 'null' : 'string', value: value === null ? '' : value });\n"
+            << "      }\n"
             << "      return result;\n"
             << "    }\n"
             << "  });\n"
@@ -389,18 +495,18 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
             << "  if (seen.indexOf(value) !== -1) return;\n"
             << "  seen.push(value);\n"
             << "  if ('shortDescription' in value || 'actionDescription' in value || 'carriedBy' in value) {\n"
-            << "    __rotsAttachTextSetter(value, 'name', 'setName', 256, false);\n"
-            << "    __rotsAttachTextSetter(value, 'description', 'setDescription', 8192, false);\n"
-            << "    __rotsAttachTextSetter(value, 'shortDescription', 'setShortDescription', 8192, false);\n"
-            << "    __rotsAttachTextSetter(value, 'actionDescription', 'setActionDescription', 8192, true);\n"
+            << "    __rotsAttachTextSetter(value, 'object', 'name', 'setName', 256, false);\n"
+            << "    __rotsAttachTextSetter(value, 'object', 'description', 'setDescription', 8192, false);\n"
+            << "    __rotsAttachTextSetter(value, 'object', 'shortDescription', 'setShortDescription', 8192, false);\n"
+            << "    __rotsAttachTextSetter(value, 'object', 'actionDescription', 'setActionDescription', 8192, true);\n"
             << "  }\n"
             << "  if ('sectorType' in value || 'isSunlit' in value) {\n"
-            << "    __rotsAttachTextSetter(value, 'name', 'setName', 256, false);\n"
-            << "    __rotsAttachTextSetter(value, 'description', 'setDescription', 8192, false);\n"
+            << "    __rotsAttachTextSetter(value, 'room', 'name', 'setName', 256, false);\n"
+            << "    __rotsAttachTextSetter(value, 'room', 'description', 'setDescription', 8192, false);\n"
             << "  }\n"
             << "  if ('topRoomVnum' in value || 'resetMode' in value) {\n"
-            << "    __rotsAttachTextSetter(value, 'name', 'setName', 256, false);\n"
-            << "    __rotsAttachTextSetter(value, 'description', 'setDescription', 8192, true);\n"
+            << "    __rotsAttachTextSetter(value, 'zone', 'name', 'setName', 256, false);\n"
+            << "    __rotsAttachTextSetter(value, 'zone', 'description', 'setDescription', 8192, true);\n"
             << "  }\n"
             << "  for (const key of Object.keys(value)) __rotsAttachSetterApi(value[key], seen);\n"
             << "}\n"
@@ -446,13 +552,18 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string& sour
 
     std::ostringstream wrapped;
     wrapped << trigger_context_preamble(context)
-            << "(function(ctx) {\n"
+            << "const __rotsReturn = (function(ctx, __rotsMutations, __rotsAttachTextSetter, "
+               "__rotsAttachSetterApi, __rotsValidateTextSetter, __rotsMutationResult, "
+               "__rotsDeepFreeze, __rotsJsonStringify) {\n"
             << "  'use strict';\n"
             << source << "\n"
-            << "})(ctx);";
+            << "})(ctx, undefined, undefined, undefined, undefined, undefined, undefined, "
+               "undefined);\n"
+            << "__rotsJsonStringify.call(JSON, { allow: __rotsReturn === undefined || "
+               "!!__rotsReturn, mutations: "
+               "__rotsMutations });";
 
-    JsRuntime runtime(m_limits);
-    return sanitize_game_result(runtime.evaluate(wrapped.str(), filename));
+    return evaluate_game_source(wrapped.str(), m_limits, filename);
 }
 
 JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
@@ -469,16 +580,25 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
     std::ostringstream wrapped;
     wrapped << trigger_context_preamble(context)
             << "const exports = Object.create(null);\n"
+            << "const __rotsPackage = (function(exports, __rotsMutations, __rotsAttachTextSetter, "
+               "__rotsAttachSetterApi, __rotsValidateTextSetter, __rotsMutationResult, "
+               "__rotsDeepFreeze, __rotsJsonStringify) {\n"
+            << "  'use strict';\n"
             << package_source << "\n"
+            << "  return { fallback: typeof " << handler_name << " === 'function' ? "
+            << handler_name << " : undefined };\n"
+            << "})(exports, undefined, undefined, undefined, undefined, undefined, undefined, "
+               "undefined);\n"
             << "const __rotsHandler = typeof exports." << handler_name << " === 'function' ? exports."
             << handler_name << "\n"
-            << "  : typeof " << handler_name << " === 'function' ? " << handler_name
-            << " : undefined;\n"
+            << "  : __rotsPackage.fallback;\n"
             << "if (typeof __rotsHandler !== 'function') throw new TypeError('JavaScript game handler is not callable');\n"
-            << "__rotsHandler(ctx);";
+            << "const __rotsReturn = __rotsHandler(ctx);\n"
+            << "__rotsJsonStringify.call(JSON, { allow: __rotsReturn === undefined || "
+               "!!__rotsReturn, mutations: "
+               "__rotsMutations });";
 
-    JsRuntime runtime(m_limits);
-    return sanitize_game_result(runtime.evaluate(wrapped.str(), filename));
+    return evaluate_game_source(wrapped.str(), m_limits, filename);
 }
 
 std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& context)
