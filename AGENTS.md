@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API persisted setter bridge slice. Live package dispatch now collects successful first-text setter calls through a private QuickJS mutation envelope, preserves existing allow/block truthiness, rejects internal envelope tampering and excessive mutation counts, validates mutation values again on the C++ side, resolves root and nested object/room/zone handles to live records, and applies all resolved `obj_data`, `room_data`, and `zone_data` text mutations only after a successful handler run.
-- Next slice: JavaScript API persisted setter authority hardening slice. Add explicit builder/zone ownership context to persisted setter application so live mutations are fail-closed outside authorized builder publish/test flows.
+- Latest completed slice: JavaScript API persisted setter authority hardening slice. Live setter mutations are now fail-closed unless dispatch explicitly enables persistent setter authority; unauthorized setter attempts return a dispatch error without mutating live records, while authorized dispatch keeps the all-or-nothing bridge behavior.
+- Next slice: JavaScript API builder-owned setter execution path slice. Thread explicit builder/session/zone authority into server-backed JavaScript execution tests so only authorized builder/test dispatch can opt in to persistent setter mutations.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

@@ -61,6 +61,7 @@ struct JsTriggerDispatchOptions {
     JsTriggerDispatchDepthGuard* depth_guard = nullptr;
     JsTriggerDispatchDepthLimits depth_limits;
     int current_pulse = 0;
+    bool allow_persistent_setter_mutations = false;
 };
 
 struct JsTriggerDispatchRequest {

@@ -262,7 +262,10 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     JsTriggerDispatchRequest request = character_request(&self);
     request.context_input.object = &object;
 
-    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.allow_persistent_setter_mutations = true;
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Block) << result.diagnostic;
     EXPECT_STREQ(object.name, "lever keys");
@@ -282,6 +285,40 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     free(world[0].description);
     free(zones[0].name);
     free(zones[0].description);
+}
+
+TEST(JsTriggerDispatch, RejectsPersistentSettersWithoutExplicitAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5827,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('unauthorized changed name');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.name = str_dup("lever keys old");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "explicit authority"));
+    EXPECT_STREQ(object.name, "lever keys old");
+
+    free(object.name);
+    free(object.short_description);
 }
 
 TEST(JsTriggerDispatch, DoesNotPersistSetterSnapshotsWhenHandlerFails)

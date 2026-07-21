@@ -494,6 +494,12 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
         result.status = JsTriggerDispatchStatus::Error;
     } else {
         std::vector<PendingTextMutation> pending_mutations;
+        if (!evaluation.mutations.empty() && !options.allow_persistent_setter_mutations) {
+            result.status = JsTriggerDispatchStatus::Error;
+            result.runtime_status = JsRuntimeStatus::Error;
+            result.diagnostic = "JavaScript trigger persistent mutations require explicit authority";
+            return result;
+        }
         if (!prepare_text_mutations(evaluation.mutations, request, adapter_options, &pending_mutations)) {
             result.status = JsTriggerDispatchStatus::Error;
             result.runtime_status = JsRuntimeStatus::Error;
