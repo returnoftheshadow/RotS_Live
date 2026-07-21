@@ -188,6 +188,17 @@ JsTriggerDispatchRequest character_request(const char_data* self)
     return request;
 }
 
+JsTriggerMutationAuthorityContext test_mutation_authority()
+{
+    JsTriggerMutationAuthorityContext authority;
+    authority.allow_persistent_setter_mutations = true;
+    authority.builder_account_id = "account:builder";
+    authority.eligible_character_id = 1001;
+    authority.target_zone = 30;
+    authority.decision_evidence = "zone-authority:test";
+    return authority;
+}
+
 bool contains(const std::string& value, const std::string& needle)
 {
     return value.find(needle) != std::string::npos;
@@ -263,7 +274,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     request.context_input.object = &object;
 
     JsTriggerDispatchOptions dispatch_options;
-    dispatch_options.allow_persistent_setter_mutations = true;
+    dispatch_options.mutation_authority = test_mutation_authority();
     JsTriggerDispatchResult result =
         js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
 
@@ -314,7 +325,47 @@ TEST(JsTriggerDispatch, RejectsPersistentSettersWithoutExplicitAuthority)
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
-    EXPECT_TRUE(contains(result.diagnostic, "explicit authority"));
+    EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
+    EXPECT_STREQ(object.name, "lever keys old");
+
+    free(object.name);
+    free(object.short_description);
+}
+
+TEST(JsTriggerDispatch, RejectsPersistentSettersWhenAuthorityEvidenceIsIncomplete)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5828,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('incomplete authority name');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.name = str_dup("lever keys old");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority.allow_persistent_setter_mutations = true;
+    dispatch_options.mutation_authority.builder_account_id = "account:builder";
+    dispatch_options.mutation_authority.target_zone = 30;
+    dispatch_options.mutation_authority.decision_evidence = "zone-authority:test";
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
     EXPECT_STREQ(object.name, "lever keys old");
 
     free(object.name);

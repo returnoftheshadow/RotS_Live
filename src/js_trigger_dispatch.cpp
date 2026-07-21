@@ -99,6 +99,13 @@ bool validate_text_mutation_value(const JsRuntimeMutation& mutation)
     return true;
 }
 
+bool has_persistent_setter_authority(const JsTriggerMutationAuthorityContext& authority)
+{
+    return authority.allow_persistent_setter_mutations && !authority.builder_account_id.empty() &&
+        authority.eligible_character_id > 0 && authority.target_zone >= 0 &&
+        !authority.decision_evidence.empty();
+}
+
 bool parse_id_number(const std::string& id, const char* prefix, int* number)
 {
     if (number == nullptr)
@@ -494,10 +501,12 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
         result.status = JsTriggerDispatchStatus::Error;
     } else {
         std::vector<PendingTextMutation> pending_mutations;
-        if (!evaluation.mutations.empty() && !options.allow_persistent_setter_mutations) {
+        if (!evaluation.mutations.empty() &&
+            !has_persistent_setter_authority(options.mutation_authority)) {
             result.status = JsTriggerDispatchStatus::Error;
             result.runtime_status = JsRuntimeStatus::Error;
-            result.diagnostic = "JavaScript trigger persistent mutations require explicit authority";
+            result.diagnostic =
+                "JavaScript trigger persistent mutations require explicit builder authority";
             return result;
         }
         if (!prepare_text_mutations(evaluation.mutations, request, adapter_options, &pending_mutations)) {

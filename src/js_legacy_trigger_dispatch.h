@@ -45,7 +45,7 @@ struct JsLegacyTriggerDispatchOptions {
     JsTriggerDispatchDepthGuard* depth_guard = nullptr;
     JsTriggerDispatchDepthLimits depth_limits;
     int current_pulse = 0;
-    bool allow_persistent_setter_mutations = false;
+    JsTriggerMutationAuthorityContext mutation_authority;
 };
 
 struct JsLegacyTriggerDispatchResult {

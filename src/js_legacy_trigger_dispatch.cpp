@@ -195,7 +195,7 @@ JsLegacyTriggerDispatchResult js_legacy_trigger_dispatch(
     dispatch_options.depth_guard = options.depth_guard;
     dispatch_options.depth_limits = options.depth_limits;
     dispatch_options.current_pulse = options.current_pulse;
-    dispatch_options.allow_persistent_setter_mutations = options.allow_persistent_setter_mutations;
+    dispatch_options.mutation_authority = options.mutation_authority;
 
     result.dispatch_result = js_trigger_dispatch_live_first_match(
         service, request, adapter_options, dispatch_options);

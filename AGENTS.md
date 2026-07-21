@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API builder-owned setter execution path slice. The legacy trigger facade now carries the explicit persistent setter authority flag into the lower-level JavaScript dispatcher, and server-backed facade tests prove setter persistence is rejected by default and only applies when the authorized/test execution path opts in.
-- Next slice: JavaScript API setter authority context model slice. Replace the boolean authority flag with a structured dispatch mutation authority context that records builder account, eligible character id, target zone, and authority decision evidence before broader setter groups are added.
+- Latest completed slice: JavaScript API setter authority context model slice. The persistent setter opt-in is now a structured dispatch mutation authority context requiring explicit allow, builder account id, eligible immortal character id, target zone, and decision evidence before live setter mutations can apply.
+- Next slice: JavaScript API next setter group classification slice. Classify the next safe setter candidates across `obj_data`, `room_data`, and `zone_data`, starting with low-risk nullable/scalar zone text (`Zone.map`) and explicitly deferring high-risk ownership, reset-command, linked-list, and balance-sensitive fields.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

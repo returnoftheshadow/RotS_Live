@@ -42,6 +42,14 @@ struct JsTriggerDispatchDepthLimits {
     std::size_t max_dispatch_depth = 0;
 };
 
+struct JsTriggerMutationAuthorityContext {
+    bool allow_persistent_setter_mutations = false;
+    std::string builder_account_id;
+    int eligible_character_id = 0;
+    int target_zone = -1;
+    std::string decision_evidence;
+};
+
 class JsTriggerDispatchDepthGuard {
   public:
     bool would_exceed(const JsTriggerDispatchDepthLimits& limits) const;
@@ -61,7 +69,7 @@ struct JsTriggerDispatchOptions {
     JsTriggerDispatchDepthGuard* depth_guard = nullptr;
     JsTriggerDispatchDepthLimits depth_limits;
     int current_pulse = 0;
-    bool allow_persistent_setter_mutations = false;
+    JsTriggerMutationAuthorityContext mutation_authority;
 };
 
 struct JsTriggerDispatchRequest {

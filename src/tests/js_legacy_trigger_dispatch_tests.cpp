@@ -379,6 +379,16 @@ JsLegacyTriggerDispatchOptions enabled_options(
     return options;
 }
 
+JsTriggerMutationAuthorityContext test_mutation_authority() {
+    JsTriggerMutationAuthorityContext authority;
+    authority.allow_persistent_setter_mutations = true;
+    authority.builder_account_id = "account:builder";
+    authority.eligible_character_id = 1001;
+    authority.target_zone = 30;
+    authority.decision_evidence = "zone-authority:test";
+    return authority;
+}
+
 std::string read_first_available_file(const std::vector<std::string> &paths) {
     for (const std::string &path : paths) {
         std::ifstream file(path);
@@ -574,10 +584,10 @@ TEST(JsLegacyTriggerDispatch, PersistentSettersRequireExplicitFacadeAuthority) {
     JsLegacyTriggerDispatchResult denied =
         js_legacy_trigger_dispatch(service, request, adapter_options, options);
     EXPECT_EQ(denied.status, JsLegacyTriggerDispatchStatus::Error);
-    EXPECT_TRUE(denied.diagnostic.find("explicit authority") != std::string::npos);
+    EXPECT_TRUE(denied.diagnostic.find("builder authority") != std::string::npos);
     EXPECT_STREQ(object.name, "old lever");
 
-    options.allow_persistent_setter_mutations = true;
+    options.mutation_authority = test_mutation_authority();
     JsLegacyTriggerDispatchResult allowed =
         js_legacy_trigger_dispatch(service, request, adapter_options, options);
     EXPECT_EQ(allowed.status, JsLegacyTriggerDispatchStatus::Allow) << allowed.diagnostic;
