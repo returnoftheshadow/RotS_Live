@@ -421,6 +421,25 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     }
 }
 
+TEST(JsManifestExport, KeepsAllStructSetterMappingsDocumentationOnly) {
+    const std::string json = js_export_api_contract_json();
+
+    EXPECT_EQ(json.find("\"setterCallable\":true"), std::string::npos);
+
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        if (!mapping_is_public(mapping))
+            continue;
+
+        const std::string object = expected_mapping_json_object(mapping);
+        expect_contains_json_object(json, object);
+        EXPECT_NE(object.find("\"setterCallable\":false"), std::string::npos)
+            << mapping.js_property;
+        EXPECT_NE(object.find("\"documentationOnly\":true"), std::string::npos)
+            << mapping.js_property;
+    }
+}
+
 TEST(JsManifestExport, ExportsCombinedBuilderCompatibilityBlock) {
     const std::string json = js_export_builder_manifest_json();
     const JsScriptingManifestMetadata &trigger_metadata = js_scripting_manifest_metadata();

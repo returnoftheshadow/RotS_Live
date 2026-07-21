@@ -278,6 +278,19 @@ TEST(JsBuilderArtifacts, GeneratesTypescriptDeclarationsWithCompatibilityHeader)
     expect_contains(declarations, "export type HostType");
     expect_contains(declarations, "export type DispatchStatus");
     expect_contains(declarations, "export interface RuntimeSafetyPolicy");
+    expect_contains(declarations, "export type MutationResult =");
+    expect_contains(declarations, "does not make any setter callable");
+    expect_contains(declarations, "readonly ok: true;");
+    expect_contains(declarations, "readonly ok: false;");
+    expect_contains(declarations, "readonly code: 'ok';");
+    expect_contains(declarations, "'invalid-value'");
+    expect_contains(declarations, "'out-of-range'");
+    expect_contains(declarations, "'not-authorized'");
+    expect_contains(declarations, "'stale-handle'");
+    expect_contains(declarations, "'unsupported'");
+    expect_contains(declarations, "'deferred'");
+    expect_contains(declarations, "readonly message: string | null;");
+    expect_contains(declarations, "readonly field: string | null;");
     expect_contains(declarations, "readonly memoryLimitBytes: number;");
     expect_contains(declarations, "readonly stackLimitBytes: number;");
     expect_contains(declarations, "readonly instructionBudget: number;");
@@ -299,16 +312,28 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
 
     for (std::size_t type_index = 0; type_index < js_api_contract_type_count(); ++type_index) {
         const JsApiType &type = js_api_contract_types()[type_index];
-        const std::string start = type.kind == JsApiTypeKind::Namespace
+        const std::string start = std::string(type.name) == "MutationResult"
+                                      ? "export type MutationResult ="
+                                      : type.kind == JsApiTypeKind::Namespace
                                       ? "export namespace " + std::string(type.name)
                                       : "export interface " + std::string(type.name);
         expect_contains(declarations, start);
         expect_contains(declarations, "/** " + std::string(type.docs) + " */");
-        const std::string block = declaration_block(declarations, start);
+        const std::size_t start_index = declarations.find(start);
+        const std::size_t next_doc = declarations.find("\n\n/**", start_index + start.size());
+        const std::string block =
+            std::string(type.name) == "MutationResult"
+                ? declarations.substr(start_index, next_doc - start_index)
+                : declaration_block(declarations, start);
         ASSERT_FALSE(block.empty()) << type.name;
 
         for (std::size_t member_index = 0; member_index < type.member_count; ++member_index) {
             const JsApiMember &member = type.members[member_index];
+            if (std::string(type.name) == "MutationResult") {
+                expect_contains(block, std::string(member.name));
+                expect_contains(block, "/** ");
+                continue;
+            }
             if (member_is_active_typing(member)) {
                 expect_contains(block, std::string(member.name));
                 expect_contains(block, "/** " + std::string(member.docs) + " */");
@@ -333,9 +358,35 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_EQ(declarations.find("loadMob"), std::string::npos);
     EXPECT_EQ(declarations.find("extractCharacter"), std::string::npos);
     EXPECT_EQ(declarations.find("runtimeSafety:"), std::string::npos);
-    EXPECT_EQ(declarations.find("setName("), std::string::npos);
+    EXPECT_EQ(declarations.find("namespace MutationResult"), std::string::npos);
+    EXPECT_EQ(declarations.find("export const MutationResult"), std::string::npos);
+    EXPECT_EQ(declarations.find("export function MutationResult"), std::string::npos);
+    EXPECT_EQ(declarations.find("class MutationResult"), std::string::npos);
+    EXPECT_EQ(declarations.find("MutationResult:"), std::string::npos);
     EXPECT_EQ(declarations.find("ownerId"), std::string::npos);
     EXPECT_EQ(declarations.find("getOwners"), std::string::npos);
+
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        if (!mapping_is_public(mapping) || std::string(mapping.setter_name).empty())
+            continue;
+        EXPECT_EQ(declarations.find(std::string(mapping.setter_name) + "("), std::string::npos)
+            << public_field_id(mapping);
+    }
+
+    const char *handle_interfaces[] = {
+        "export interface Character",
+        "export interface GameObject",
+        "export interface Room",
+        "export interface Zone",
+    };
+    for (const char *interface_name : handle_interfaces) {
+        const std::string block = declaration_block(declarations, interface_name);
+        ASSERT_FALSE(block.empty()) << interface_name;
+        EXPECT_EQ(block.find("setName("), std::string::npos) << interface_name;
+        EXPECT_EQ(block.find("setDescription("), std::string::npos) << interface_name;
+        EXPECT_EQ(block.find("setLevel("), std::string::npos) << interface_name;
+    }
 
     const std::string object_block = declaration_block(declarations, "export interface GameObject");
     ASSERT_FALSE(object_block.empty());
@@ -355,6 +406,30 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     for (const char *member_name : classification_only_members) {
         EXPECT_EQ(object_block.find(std::string(member_name)), std::string::npos) << member_name;
     }
+}
+
+TEST(JsBuilderArtifacts, EmitsDiscriminatedMutationResultType) {
+    const std::string declarations = js_generate_typescript_declarations();
+    const std::string start = "export type MutationResult =";
+    const std::size_t start_index = declarations.find(start);
+    ASSERT_NE(start_index, std::string::npos);
+    const std::size_t end_index = declarations.find("\n\n/** Pure return-value helpers. */",
+        start_index);
+    ASSERT_NE(end_index, std::string::npos);
+    const std::string block = declarations.substr(start_index, end_index - start_index);
+
+    expect_contains(block, "readonly ok: true;");
+    expect_contains(block, "readonly code: 'ok';");
+    expect_contains(block, "readonly ok: false;");
+    expect_contains(block, "'invalid-value'");
+    expect_contains(block, "'out-of-range'");
+    expect_contains(block, "'not-authorized'");
+    expect_contains(block, "'stale-handle'");
+    expect_contains(block, "'unsupported'");
+    expect_contains(block, "'deferred'");
+    expect_contains(block, "readonly message: string | null;");
+    expect_contains(block, "readonly field: string | null;");
+    EXPECT_EQ(block.find("MutationResult("), std::string::npos);
 }
 
 TEST(JsBuilderArtifacts, TypescriptDeclarationsExposeTypedTargetContext) {
@@ -410,6 +485,10 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     expect_contains(markdown, std::to_string(policy.depth_limits.max_dispatch_depth));
     expect_contains(markdown, markdown_cell(policy.failure_logging_policy));
     expect_contains(markdown, "## API Types");
+    expect_contains(markdown, "### MutationResult");
+    expect_contains(markdown, "does not make any setter callable");
+    expect_contains(markdown, "Stable machine-readable result code");
+    expect_contains(markdown, "Messages are bounded, single-line");
     expect_contains(markdown, "## Public Field Accessor Mapping");
     expect_contains(markdown, "Implemented read-only getters may appear in TypeScript");
     expect_contains(markdown, "Context fields");

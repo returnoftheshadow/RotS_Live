@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API object affect/deferred-classification slice. Remaining object affect, extra-description, nested container/content, traversal, touched-state, owner, and loader fields are explicitly pinned as deferred/internal/unsupported in the server mapping catalog with builder-facing rationale and regression tests. No new runtime getter or active TypeScript surface was emitted.
-- Next slice: JavaScript API setter foundation slice. Add a validated mutation-result contract for explicit setter methods without exposing raw struct writes.
+- Latest completed slice: JavaScript API setter foundation slice. `MutationResult` is documented in the server API contract and BuilderClient fallback typings as the future return shape for validated setters. It is a type-only contract with no runtime helper and no concrete setter methods marked callable yet.
+- Next slice: JavaScript API first setter parity slice. Implement the first low-risk setter group end-to-end in live QuickJS and offline fixtures with ownership/liveness/range tests.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

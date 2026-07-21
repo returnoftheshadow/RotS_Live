@@ -6,14 +6,14 @@ namespace {
 
 constexpr JsApiContractMetadata ContractMetadata = {
     1,
-    1,
+    2,
     "unpublished",
-    "rots-js-api-contract-v1-revision-1",
-    "unpublished",
-    "unpublished",
+    "rots-js-api-contract-v1-revision-2",
+    "unpublished-2",
+    "unpublished-2",
     "1",
-    "Fixture and live trigger execution expose frozen read-only context data and pure result "
-    "helpers; side-effect host bindings remain deferred.",
+    "Fixture and live trigger execution expose frozen read-only context data, pure result helpers, "
+    "and a type-only mutation result contract; side-effect host bindings remain deferred.",
 };
 
 constexpr JsApiMember CharacterMembers[] = {
@@ -324,6 +324,27 @@ constexpr JsApiMember ScriptContextMembers[] = {
      "otherwise null."},
 };
 
+constexpr JsApiMember MutationResultMembers[] = {
+    {"ok", JsApiMemberKind::Property, "boolean", "", false, false, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "True when a future validated setter applies the requested change."},
+    {"code", JsApiMemberKind::Property,
+     "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
+     "'unsupported' | 'deferred'",
+     "", false, false, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Stable machine-readable result code. Detailed authorization and audit diagnostics stay in "
+     "server logs, not script-visible result values."},
+    {"message", JsApiMemberKind::Property, "string | null", "", true, false,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Sanitized builder-facing detail text, or null when no safe detail is available. Messages "
+     "are bounded, single-line, and must not include file paths, private identifiers, or internal "
+     "field names."},
+    {"field", JsApiMemberKind::Property, "string | null", "", true, false,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Public API field or setter argument name related to the result, or null for whole-operation "
+     "results."},
+};
+
 constexpr JsApiMember ScriptResultMembers[] = {
     {"allow", JsApiMemberKind::Method, "() => true", "true", false, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedPureHelper, "pure",
@@ -368,6 +389,10 @@ constexpr JsApiType ApiTypes[] = {
     {"ScriptContext", JsApiTypeKind::Interface, "",
      "Per-invocation trigger context. Handles are not valid across invocations.",
      ScriptContextMembers, sizeof(ScriptContextMembers) / sizeof(ScriptContextMembers[0])},
+    {"MutationResult", JsApiTypeKind::Interface, "",
+     "Type-only result returned by future validated setter methods. It does not make any setter "
+     "callable by itself.",
+     MutationResultMembers, sizeof(MutationResultMembers) / sizeof(MutationResultMembers[0])},
     {"ScriptResult", JsApiTypeKind::Namespace, "", "Pure return-value helpers.",
      ScriptResultMembers, sizeof(ScriptResultMembers) / sizeof(ScriptResultMembers[0])},
     {"Script", JsApiTypeKind::Namespace, "",

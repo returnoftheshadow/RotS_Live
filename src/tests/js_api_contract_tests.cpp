@@ -55,13 +55,15 @@ TEST(JsApiContract, ExposesStableMetadataForGeneratedConsumers)
     const JsApiContractMetadata& metadata = js_api_contract_metadata();
 
     EXPECT_EQ(metadata.schema_version, 1);
-    EXPECT_EQ(metadata.api_revision, 1);
+    EXPECT_EQ(metadata.api_revision, 2);
     EXPECT_STREQ(metadata.api_version, "unpublished");
-    EXPECT_STREQ(metadata.contract_checksum, "rots-js-api-contract-v1-revision-1");
-    EXPECT_STREQ(metadata.generated_typings_version, "unpublished");
-    EXPECT_STREQ(metadata.documentation_version, "unpublished");
+    EXPECT_STREQ(metadata.contract_checksum, "rots-js-api-contract-v1-revision-2");
+    EXPECT_STREQ(metadata.generated_typings_version, "unpublished-2");
+    EXPECT_STREQ(metadata.documentation_version, "unpublished-2");
     EXPECT_STREQ(metadata.minimum_trigger_catalog_revision, "1");
     EXPECT_NE(std::string(metadata.notes).find("pure result helpers"), std::string::npos);
+    EXPECT_NE(std::string(metadata.notes).find("type-only mutation result contract"),
+        std::string::npos);
     EXPECT_NE(std::string(metadata.notes).find("side-effect host bindings remain deferred"),
         std::string::npos);
 }
@@ -77,6 +79,7 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
         "Zone",
         "TriggerInfo",
         "ScriptContext",
+        "MutationResult",
         "ScriptResult",
         "Script",
     };
@@ -368,6 +371,38 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
 
     EXPECT_EQ(find_js_api_contract_type("Missing"), nullptr);
     EXPECT_EQ(find_js_api_contract_member(*character, "missing"), nullptr);
+}
+
+TEST(JsApiContract, DefinesSetterMutationResultContract)
+{
+    const JsApiType* mutation_result = find_js_api_contract_type("MutationResult");
+    ASSERT_NE(mutation_result, nullptr);
+    EXPECT_EQ(mutation_result->kind, JsApiTypeKind::Interface);
+    EXPECT_NE(std::string(mutation_result->docs).find("does not make any setter callable"),
+        std::string::npos);
+
+    struct ExpectedMember {
+        const char* name;
+        const char* type_name;
+        bool nullable;
+    };
+    const ExpectedMember expected[] = {
+        {"ok", "boolean", false},
+        {"code",
+         "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
+         "'unsupported' | 'deferred'",
+         false},
+        {"message", "string | null", true},
+        {"field", "string | null", true},
+    };
+    for (const ExpectedMember& item : expected) {
+        const JsApiMember* member = find_js_api_contract_member(*mutation_result, item.name);
+        ASSERT_NE(member, nullptr) << item.name;
+        EXPECT_STREQ(member->type_name, item.type_name) << item.name;
+        EXPECT_EQ(member->nullable, item.nullable) << item.name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << item.name;
+        EXPECT_EQ(member->side_effect, JsApiSideEffect::None) << item.name;
+    }
 }
 
 TEST(JsApiContract, ExposesStableEnumNames)

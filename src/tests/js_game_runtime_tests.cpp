@@ -584,6 +584,32 @@ TEST(JsGameRuntime, KeepsScriptResultHelpersImmutable)
     expect_ok_allows(result);
 }
 
+TEST(JsGameRuntime, DoesNotInjectSetterFoundationRuntimeValues)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "let assignBlocked = false;\n"
+        "let defineBlocked = false;\n"
+        "try { ctx.object.setName = function() { return true; }; } catch (error) {\n"
+        "  assignBlocked = true;\n"
+        "}\n"
+        "try { Object.defineProperty(ctx.object, 'name', { value: 'unsafe' }); } catch (error) {\n"
+        "  defineBlocked = true;\n"
+        "}\n"
+        "return typeof RotS.MutationResult === 'undefined'\n"
+        "  && typeof MutationResult === 'undefined'\n"
+        "  && !('setName' in ctx.object)\n"
+        "  && !('setDescription' in ctx.object)\n"
+        "  && !('setDescription' in ctx.room)\n"
+        "  && !('setLevel' in ctx.zone)\n"
+        "  && ctx.object.name === 'silver lever'\n"
+        "  && assignBlocked\n"
+        "  && defineBlocked;",
+        make_context());
+
+    expect_ok_allows(result);
+}
+
 TEST(JsGameRuntime, ExposesNoOpConsoleLogForOfflineParity)
 {
     JsGameRuntime runtime;

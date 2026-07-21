@@ -145,6 +145,36 @@ void append_ts_doc_comment(std::ostringstream &out, const std::string &indent, c
     out << indent << "/** " << ts_doc_text(text) << " */\n";
 }
 
+void append_mutation_result_type(std::ostringstream &out) {
+    out << "export type MutationResult =\n";
+    out << "    | {\n";
+    out << "        /** True when a future validated setter applies the requested change. */\n";
+    out << "        readonly ok: true;\n";
+    out << "        /** Stable machine-readable result code for successful mutations. */\n";
+    out << "        readonly code: 'ok';\n";
+    out << "        /** Sanitized builder-facing detail text, or null when no safe detail is available. */\n";
+    out << "        readonly message: string | null;\n";
+    out << "        /** Public API field or setter argument name related to the result, or null for whole-operation results. */\n";
+    out << "        readonly field: string | null;\n";
+    out << "      }\n";
+    out << "    | {\n";
+    out << "        /** False when a future validated setter rejects or defers the requested change. */\n";
+    out << "        readonly ok: false;\n";
+    out << "        /** Stable machine-readable result code for rejected or deferred mutations. */\n";
+    out << "        readonly code:\n";
+    out << "          | 'invalid-value'\n";
+    out << "          | 'out-of-range'\n";
+    out << "          | 'not-authorized'\n";
+    out << "          | 'stale-handle'\n";
+    out << "          | 'unsupported'\n";
+    out << "          | 'deferred';\n";
+    out << "        /** Sanitized builder-facing detail text, or null when no safe detail is available. */\n";
+    out << "        readonly message: string | null;\n";
+    out << "        /** Public API field or setter argument name related to the result, or null for whole-operation results. */\n";
+    out << "        readonly field: string | null;\n";
+    out << "      };\n\n";
+}
+
 void append_literal_union_start(std::ostringstream &out, const char *name) {
     out << "export type " << name << " =\n";
 }
@@ -240,6 +270,10 @@ std::string js_generate_typescript_declarations() {
     for (std::size_t type_index = 0; type_index < js_api_contract_type_count(); ++type_index) {
         const JsApiType &type = js_api_contract_types()[type_index];
         append_ts_doc_comment(out, "", type.docs);
+        if (std::string(type.name) == "MutationResult") {
+            append_mutation_result_type(out);
+            continue;
+        }
         if (type.kind == JsApiTypeKind::Namespace) {
             out << "export namespace " << type.name << " {\n";
             for (std::size_t member_index = 0; member_index < type.member_count; ++member_index) {
