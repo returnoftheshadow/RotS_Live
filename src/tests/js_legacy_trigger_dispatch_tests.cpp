@@ -551,6 +551,42 @@ TEST(JsLegacyTriggerDispatch, EnabledScriptOnEnterPathExecutesLiveJavaScriptPack
     ASSERT_TRUE(service.refresh().ok);
 }
 
+TEST(JsLegacyTriggerDispatch, PersistentSettersRequireExplicitFacadeAuthority) {
+    GlobalWorldFixtureGuard guard;
+    JsLiveRegistryReloadService service =
+        make_refreshed_service(make_package(6102,
+            "function onEnter(ctx) { ctx.object.setName('authorized lever'); return true; }"));
+
+    char_data self = make_character("Watcher");
+    obj_data object = make_object("lever");
+    object.name = str_dup("old lever");
+    object.short_description = str_dup("a lever");
+    room_data local_world[1] = {make_room("Room", 100, -1)};
+    const char_data *characters[] = {&self};
+    const obj_data *objects[] = {&object};
+    JsGameAdapterOptions adapter_options = make_options(characters, 1, local_world, 0);
+    adapter_options.live_objects = objects;
+    adapter_options.live_object_count = 1;
+    JsTriggerDispatchRequest request = character_enter_request(&self);
+    request.context_input.object = &object;
+    JsLegacyTriggerDispatchOptions options = enabled_options(service);
+
+    JsLegacyTriggerDispatchResult denied =
+        js_legacy_trigger_dispatch(service, request, adapter_options, options);
+    EXPECT_EQ(denied.status, JsLegacyTriggerDispatchStatus::Error);
+    EXPECT_TRUE(denied.diagnostic.find("explicit authority") != std::string::npos);
+    EXPECT_STREQ(object.name, "old lever");
+
+    options.allow_persistent_setter_mutations = true;
+    JsLegacyTriggerDispatchResult allowed =
+        js_legacy_trigger_dispatch(service, request, adapter_options, options);
+    EXPECT_EQ(allowed.status, JsLegacyTriggerDispatchStatus::Allow) << allowed.diagnostic;
+    EXPECT_STREQ(object.name, "authorized lever");
+
+    free(object.name);
+    free(object.short_description);
+}
+
 TEST(JsLegacyTriggerDispatch,
      TransportPublishedJavaScriptExecutesThroughCharacterEnterCallSiteAfterActivation) {
     GlobalWorldFixtureGuard guard;
