@@ -384,7 +384,7 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
         EXPECT_STREQ(mapping->js_property, entry.property);
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
         if (std::string(entry.field) == "action_description" ||
-            std::string(entry.field) == "description") {
+            std::string(entry.field) == "description" || std::string(entry.field) == "map") {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -401,6 +401,9 @@ TEST(JsApiStructMapping, ImplementedSetterDocsReferencePersistentAuthority) {
         EXPECT_NE(std::string(mapping.setter_docs).find("persistent setter authority"),
             std::string::npos)
             << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
+        EXPECT_NE(std::string(mapping.setter_docs).find("target-scoped"),
+            std::string::npos)
+            << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
         EXPECT_NE(std::string(mapping.notes).find("dispatch mutation authority"),
             std::string::npos)
             << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
@@ -410,10 +413,10 @@ TEST(JsApiStructMapping, ImplementedSetterDocsReferencePersistentAuthority) {
             << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
     }
 
-    const JsApiStructFieldMapping *zone_map =
-        find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "map");
-    ASSERT_NE(zone_map, nullptr);
-    EXPECT_STREQ(zone_map->setter_status, "planned-validated-setter");
+    const JsApiStructFieldMapping *zone_lifespan =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "lifespan");
+    ASSERT_NE(zone_lifespan, nullptr);
+    EXPECT_STREQ(zone_lifespan->setter_status, "deferred");
 }
 
 TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {

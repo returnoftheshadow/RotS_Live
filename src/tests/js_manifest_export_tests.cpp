@@ -268,7 +268,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     expect_contains_field(json, "getterStatus", "implemented-read-only-getter");
     EXPECT_EQ(json.find("\"getterStatus\":\"internal-only\""), std::string::npos);
     expect_contains_field(json, "setterStatus", "implemented-validated-setter");
-    expect_contains_field(json, "setterStatus", "planned-validated-setter");
+    expect_contains_field(json, "setterStatus", "deferred");
     expect_contains_field(json, "setterStatus", "unsupported");
     EXPECT_EQ(json.find("\"property\":\"ownerId\""), std::string::npos);
     EXPECT_EQ(json.find("\"getterName\":\"getOwners\""), std::string::npos);
@@ -289,8 +289,13 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         const char *source_field;
     } implemented_setters[] = {
         {JsApiStructOwner::ZoneData, "name"},
+        {JsApiStructOwner::ZoneData, "description"},
+        {JsApiStructOwner::ZoneData, "map"},
+        {JsApiStructOwner::ObjData, "name"},
         {JsApiStructOwner::ObjData, "description"},
         {JsApiStructOwner::ObjData, "short_description"},
+        {JsApiStructOwner::ObjData, "action_description"},
+        {JsApiStructOwner::RoomData, "name"},
         {JsApiStructOwner::RoomData, "description"},
     };
     for (const auto &entry : implemented_setters) {

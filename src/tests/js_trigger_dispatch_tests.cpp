@@ -188,13 +188,13 @@ JsTriggerDispatchRequest character_request(const char_data* self)
     return request;
 }
 
-JsTriggerMutationAuthorityContext test_mutation_authority()
+JsTriggerMutationAuthorityContext test_mutation_authority(int target_zone = 30)
 {
     JsTriggerMutationAuthorityContext authority;
     authority.allow_persistent_setter_mutations = true;
     authority.builder_account_id = "account:builder";
     authority.eligible_character_id = 1001;
-    authority.target_zone = 30;
+    authority.target_zone = target_zone;
     authority.decision_evidence = "zone-authority:test";
     return authority;
 }
@@ -250,6 +250,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
         "  ctx.room.setDescription('The gate was changed by script.');\n"
         "  ctx.zone.setName('Changed Zone');\n"
         "  ctx.zone.setDescription(null);\n"
+        "  ctx.zone.setMap('N-G-S-E');\n"
         "  return RotS.ScriptResult.block();\n"
         "}");
     ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
@@ -268,6 +269,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     zone_data zones[1] = { make_zone("Zone", 30) };
     zones[0].name = str_dup("Zone");
     zones[0].description = str_dup("The old zone.");
+    zones[0].map = str_dup("N-G-S");
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -287,6 +289,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     EXPECT_STREQ(world[0].description, "The gate was changed by script.");
     EXPECT_STREQ(zones[0].name, "Changed Zone");
     EXPECT_EQ(zones[0].description, nullptr);
+    EXPECT_STREQ(zones[0].map, "N-G-S-E");
 
     free(object.name);
     free(object.description);
@@ -296,6 +299,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     free(world[0].description);
     free(zones[0].name);
     free(zones[0].description);
+    free(zones[0].map);
 }
 
 TEST(JsTriggerDispatch, RejectsPersistentSettersWithoutExplicitAuthority)
@@ -327,6 +331,375 @@ TEST(JsTriggerDispatch, RejectsPersistentSettersWithoutExplicitAuthority)
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
     EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
     EXPECT_STREQ(object.name, "lever keys old");
+
+    free(object.name);
+    free(object.short_description);
+}
+
+TEST(JsTriggerDispatch, RejectsZoneMapSetterWithoutExplicitAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5831,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setMap('unauthorized map');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].map = str_dup("N-G-S");
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
+    EXPECT_STREQ(zones[0].map, "N-G-S");
+
+    free(zones[0].map);
+}
+
+TEST(JsTriggerDispatch, PersistsNullableZoneMapSetterToLiveGameRecord)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5829,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setMap(null);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].map = str_dup("N-G-S");
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(zones[0].map, nullptr);
+
+    free(zones[0].map);
+}
+
+TEST(JsTriggerDispatch, RejectsZoneMapSetterWithZoneFileSyntaxMarkers)
+{
+    const char* scripts[] = {
+        "function onEnter(ctx) { ctx.zone.setMap('bad~map'); return true; }",
+        "function onEnter(ctx) { ctx.zone.setMap('ok\\n  #31'); return true; }",
+    };
+
+    for (const char* script : scripts) {
+        JsScriptPackageRegistry registry;
+        JsScriptPackage package = make_character_enter_package(5832, script);
+        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+        char_data self = make_character("Self");
+        const char_data* live_characters[] = { &self };
+        room_data world[1] = { make_room("Gate", 100, 0) };
+        zone_data zones[1] = { make_zone("Zone", 30) };
+        zones[0].map = str_dup("N-G-S");
+        JsGameAdapterOptions options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+        JsTriggerDispatchOptions dispatch_options;
+        dispatch_options.mutation_authority = test_mutation_authority();
+
+        JsTriggerDispatchResult result =
+            js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << script;
+        EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << script;
+        EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
+        EXPECT_STREQ(zones[0].map, "N-G-S") << script;
+
+        free(zones[0].map);
+    }
+}
+
+TEST(JsTriggerDispatch, RejectsZoneSetterWhenAuthorityTargetsAnotherZone)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5830,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setMap('unauthorized map');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].map = str_dup("N-G-S");
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_STREQ(zones[0].map, "N-G-S");
+
+    free(zones[0].map);
+}
+
+TEST(JsTriggerDispatch, RejectsObjectRoomAndZoneSettersOutsideAuthorityTargetWithoutPartialWrites)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5833,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('changed object');\n"
+        "  ctx.room.setName('Changed Room');\n"
+        "  ctx.zone.setMap('changed map');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.name = str_dup("lever");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    world[0].name = str_dup("Gate");
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].map = str_dup("N-G-S");
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_STREQ(object.name, "lever");
+    EXPECT_STREQ(world[0].name, "Gate");
+    EXPECT_STREQ(zones[0].map, "N-G-S");
+
+    free(object.name);
+    free(object.short_description);
+    free(world[0].name);
+    free(zones[0].map);
+}
+
+TEST(JsTriggerDispatch, PersistsCarriedWeaponSetterWhenCarrierRoomMatchesAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5834,
+        "function onEnter(ctx) {\n"
+        "  ctx.weapon.setName('authorized blade');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data weapon = make_object("blade");
+    weapon.in_room = NOWHERE;
+    weapon.carried_by = &self;
+    self.equipment[WIELD] = &weapon;
+    weapon.name = str_dup("old blade");
+    weapon.short_description = str_dup("a blade");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &weapon };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.weapon = &weapon;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_STREQ(weapon.name, "authorized blade");
+
+    free(weapon.name);
+    free(weapon.short_description);
+}
+
+TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierRoomIsOutsideAuthorityTarget)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5835,
+        "function onEnter(ctx) {\n"
+        "  ctx.weapon.setName('wrong zone blade');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data weapon = make_object("blade");
+    weapon.in_room = NOWHERE;
+    weapon.carried_by = &self;
+    self.equipment[WIELD] = &weapon;
+    weapon.name = str_dup("old blade");
+    weapon.short_description = str_dup("a blade");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &weapon };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.weapon = &weapon;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_STREQ(weapon.name, "old blade");
+
+    free(weapon.name);
+    free(weapon.short_description);
+}
+
+TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierPointerIsStale)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5836,
+        "function onEnter(ctx) {\n"
+        "  ctx.weapon.setName('stale carrier blade');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data weapon = make_object("blade");
+    weapon.in_room = NOWHERE;
+    weapon.carried_by = &self;
+    weapon.name = str_dup("old blade");
+    weapon.short_description = str_dup("a blade");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &weapon };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.weapon = &weapon;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_STREQ(weapon.name, "old blade");
+
+    free(weapon.name);
+    free(weapon.short_description);
+}
+
+TEST(JsTriggerDispatch, PersistsContainedObjectSetterWhenContainerRoomMatchesAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5837,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('authorized gem');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data container = make_object("box");
+    obj_data object = make_object("gem");
+    container.in_room = 0;
+    container.contains = &object;
+    object.in_room = NOWHERE;
+    object.in_obj = &container;
+    object.name = str_dup("old gem");
+    object.short_description = str_dup("a gem");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object, &container };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 2, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_STREQ(object.name, "authorized gem");
+
+    free(object.name);
+    free(object.short_description);
+}
+
+TEST(JsTriggerDispatch, RejectsContainedObjectSetterWhenContainerPointerIsStale)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5838,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('stale container gem');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data container = make_object("box");
+    obj_data object = make_object("gem");
+    container.in_room = 0;
+    object.in_room = NOWHERE;
+    object.in_obj = &container;
+    object.name = str_dup("old gem");
+    object.short_description = str_dup("a gem");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object, &container };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 2, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_STREQ(object.name, "old gem");
 
     free(object.name);
     free(object.short_description);

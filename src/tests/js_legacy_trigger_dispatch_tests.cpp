@@ -65,6 +65,13 @@ room_data make_room(const char *name, int number, int zone) {
     return room;
 }
 
+zone_data make_zone(const char *name, int number) {
+    zone_data zone {};
+    zone.name = const_cast<char *>(name);
+    zone.number = number;
+    return zone;
+}
+
 obj_data make_object(const char *name) {
     obj_data object {};
     object.item_number = -1;
@@ -571,12 +578,15 @@ TEST(JsLegacyTriggerDispatch, PersistentSettersRequireExplicitFacadeAuthority) {
     obj_data object = make_object("lever");
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    room_data local_world[1] = {make_room("Room", 100, -1)};
+    room_data local_world[1] = {make_room("Room", 100, 0)};
+    zone_data local_zones[1] = {make_zone("Zone", 30)};
     const char_data *characters[] = {&self};
     const obj_data *objects[] = {&object};
     JsGameAdapterOptions adapter_options = make_options(characters, 1, local_world, 0);
     adapter_options.live_objects = objects;
     adapter_options.live_object_count = 1;
+    adapter_options.zones = local_zones;
+    adapter_options.zone_count = 1;
     JsTriggerDispatchRequest request = character_enter_request(&self);
     request.context_input.object = &object;
     JsLegacyTriggerDispatchOptions options = enabled_options(service);

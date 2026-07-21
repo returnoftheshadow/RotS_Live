@@ -5,6 +5,7 @@
 #include "utils.h"
 #include "zone.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <utility>
@@ -78,9 +79,30 @@ bool is_blank_text(const std::string& value)
     return true;
 }
 
+bool has_zone_map_file_syntax_marker(const std::string& value)
+{
+    bool at_line_start = true;
+    for (char ch : value) {
+        if (ch == '~')
+            return true;
+        if (at_line_start && ch == '#')
+            return true;
+        if (ch == '\n' || ch == '\r') {
+            at_line_start = true;
+            continue;
+        }
+        if (at_line_start && std::isspace(static_cast<unsigned char>(ch)))
+            continue;
+        at_line_start = false;
+    }
+    return false;
+}
+
 bool is_nullable_text_property(const JsRuntimeMutation& mutation)
 {
-    return (mutation.target_type == "object" && mutation.property == "actionDescription") || (mutation.target_type == "zone" && mutation.property == "description");
+    return (mutation.target_type == "object" && mutation.property == "actionDescription") ||
+        (mutation.target_type == "zone" &&
+            (mutation.property == "description" || mutation.property == "map"));
 }
 
 bool validate_text_mutation_value(const JsRuntimeMutation& mutation)
@@ -95,6 +117,9 @@ bool validate_text_mutation_value(const JsRuntimeMutation& mutation)
     if (mutation.value.find('\0') != std::string::npos)
         return false;
     if (is_name && is_blank_text(mutation.value))
+        return false;
+    if (mutation.target_type == "zone" && mutation.property == "map" &&
+        has_zone_map_file_syntax_marker(mutation.value))
         return false;
     return true;
 }
@@ -129,24 +154,12 @@ bool parse_id_number(const std::string& id, const char* prefix, int* number)
 obj_data* mutable_live_object_for_id(const JsRuntimeMutation& mutation,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options)
 {
-    if (mutation.target_id == "object")
+    if (mutation.target_id == "object" &&
+        js_game_adapter_is_live_object(request.context_input.object, options))
         return const_cast<obj_data*>(request.context_input.object);
-    if (mutation.target_id == "weapon")
+    if (mutation.target_id == "weapon" &&
+        js_game_adapter_is_live_object(request.context_input.weapon, options))
         return const_cast<obj_data*>(request.context_input.weapon);
-
-    int object_vnum = -1;
-    if (!parse_id_number(mutation.target_id, "object:", &object_vnum) || options.live_objects == nullptr || options.object_index == nullptr) {
-        return nullptr;
-    }
-
-    for (std::size_t index = 0; index < options.live_object_count; ++index) {
-        const obj_data* object = options.live_objects[index];
-        if (object == nullptr || object->item_number < 0 || static_cast<std::size_t>(object->item_number) >= options.object_index_count) {
-            continue;
-        }
-        if (options.object_index[object->item_number].virt == object_vnum)
-            return const_cast<obj_data*>(object);
-    }
     return nullptr;
 }
 
@@ -189,12 +202,98 @@ zone_data* mutable_live_zone_for_id(const JsRuntimeMutation& mutation,
     return nullptr;
 }
 
+bool zone_matches_mutation_authority(
+    const zone_data& zone, const JsTriggerMutationAuthorityContext& authority)
+{
+    return zone.number == authority.target_zone;
+}
+
+bool zone_index_matches_mutation_authority(
+    int zone_index, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority)
+{
+    if (options.zones == nullptr || zone_index < 0 ||
+        static_cast<std::size_t>(zone_index) >= options.zone_count)
+        return false;
+    return zone_matches_mutation_authority(options.zones[zone_index], authority);
+}
+
+bool room_matches_mutation_authority(
+    const room_data& room, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority)
+{
+    return zone_index_matches_mutation_authority(room.zone, options, authority);
+}
+
+bool object_is_worn_by_live_carrier(const obj_data* object, const char_data* carrier)
+{
+    if (object == nullptr || carrier == nullptr)
+        return false;
+    return std::find(carrier->equipment, carrier->equipment + MAX_WEAR, object) !=
+        carrier->equipment + MAX_WEAR;
+}
+
+bool object_is_carried_by_live_carrier(const obj_data* object, const char_data* carrier)
+{
+    if (object == nullptr || carrier == nullptr)
+        return false;
+    for (const obj_data* carried = carrier->carrying; carried != nullptr;
+         carried = carried->next_content) {
+        if (carried == object)
+            return true;
+    }
+    return false;
+}
+
+bool object_is_contained_by_live_container(const obj_data* object, const obj_data* container)
+{
+    if (object == nullptr || container == nullptr)
+        return false;
+    for (const obj_data* contained = container->contains; contained != nullptr;
+         contained = contained->next_content) {
+        if (contained == object)
+            return true;
+    }
+    return false;
+}
+
+int effective_object_room(
+    const obj_data& object, const JsGameAdapterOptions& options, int depth = 0)
+{
+    if (depth > 8)
+        return NOWHERE;
+    if (js_game_adapter_room_is_valid(object.in_room, options))
+        return object.in_room;
+    if (object.in_obj != nullptr && js_game_adapter_is_live_object(object.in_obj, options) &&
+        object_is_contained_by_live_container(&object, object.in_obj))
+        return effective_object_room(*object.in_obj, options, depth + 1);
+    if (object.carried_by != nullptr && js_game_adapter_is_live_character(object.carried_by, options) &&
+        (object_is_worn_by_live_carrier(&object, object.carried_by) ||
+            object_is_carried_by_live_carrier(&object, object.carried_by)) &&
+        js_game_adapter_room_is_valid(object.carried_by->in_room, options))
+        return object.carried_by->in_room;
+    return NOWHERE;
+}
+
+bool object_matches_mutation_authority(
+    const obj_data& object, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority)
+{
+    const int room = effective_object_room(object, options);
+    if (!js_game_adapter_room_is_valid(room, options))
+        return false;
+    return room_matches_mutation_authority(options.world[room], options, authority);
+}
+
 char** resolve_text_mutation_target(const JsRuntimeMutation& mutation,
-    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options)
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority)
 {
     if (mutation.target_type == "object") {
         obj_data* object = mutable_live_object_for_id(mutation, request, options);
         if (object == nullptr)
+            return nullptr;
+        if (!object_matches_mutation_authority(*object, options, authority))
             return nullptr;
         if (mutation.property == "name")
             return &object->name;
@@ -211,6 +310,8 @@ char** resolve_text_mutation_target(const JsRuntimeMutation& mutation,
         room_data* room = mutable_live_room_for_id(mutation, request, options);
         if (room == nullptr)
             return nullptr;
+        if (!room_matches_mutation_authority(*room, options, authority))
+            return nullptr;
         if (mutation.property == "name")
             return &room->name;
         if (mutation.property == "description")
@@ -222,10 +323,14 @@ char** resolve_text_mutation_target(const JsRuntimeMutation& mutation,
         zone_data* zone = mutable_live_zone_for_id(mutation, request, options);
         if (zone == nullptr)
             return nullptr;
+        if (!zone_matches_mutation_authority(*zone, authority))
+            return nullptr;
         if (mutation.property == "name")
             return &zone->name;
         if (mutation.property == "description")
             return &zone->description;
+        if (mutation.property == "map")
+            return &zone->map;
         return nullptr;
     }
 
@@ -234,6 +339,7 @@ char** resolve_text_mutation_target(const JsRuntimeMutation& mutation,
 
 bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority,
     std::vector<PendingTextMutation>* pending)
 {
     if (pending == nullptr)
@@ -242,7 +348,8 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
     for (const JsRuntimeMutation& mutation : mutations) {
         if (!validate_text_mutation_value(mutation))
             return false;
-        char** target = resolve_text_mutation_target(mutation, request, options);
+        char** target = resolve_text_mutation_target(
+            mutation, request, options, authority);
         if (target == nullptr)
             return false;
         pending->push_back({ target, mutation.has_value, mutation.value });
@@ -509,7 +616,9 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
                 "JavaScript trigger persistent mutations require explicit builder authority";
             return result;
         }
-        if (!prepare_text_mutations(evaluation.mutations, request, adapter_options, &pending_mutations)) {
+        if (!prepare_text_mutations(
+                evaluation.mutations, request, adapter_options, options.mutation_authority,
+                &pending_mutations)) {
             result.status = JsTriggerDispatchStatus::Error;
             result.runtime_status = JsRuntimeStatus::Error;
             result.diagnostic = "JavaScript trigger mutation target rejected";
