@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API object flag/scalar getter promotion. `GameObject.flags` is documented in the server API contract, marked as an implemented read-only mapping, copied into live QuickJS snapshots as a frozen `ObjectFlags` object, normalized and validated in BuilderClient offline fixtures, typed for IntelliSense, and guarded by client/server vocabulary drift tests. Promoted fields are symbolic item type, wear flags, extra flags, material, and scalar level/weight/cost/rent/timer/rarity fields. Raw `obj_flags` bitvectors and legacy value slots remain unavailable.
-- Next slice: JavaScript API object affect/deferred-classification slice. Classify `affected[MAX_OBJ_AFFECT]`, nested contents/container relationships, and remaining object relationship/list fields before setter foundation.
+- Latest completed slice: JavaScript API object affect/deferred-classification slice. Remaining object affect, extra-description, nested container/content, traversal, touched-state, owner, and loader fields are explicitly pinned as deferred/internal/unsupported in the server mapping catalog with builder-facing rationale and regression tests. No new runtime getter or active TypeScript surface was emitted.
+- Next slice: JavaScript API setter foundation slice. Add a validated mutation-result contract for explicit setter methods without exposing raw struct writes.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

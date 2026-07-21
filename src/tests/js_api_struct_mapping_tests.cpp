@@ -452,6 +452,56 @@ TEST(JsApiStructMapping, PinsCriticalBuilderFacingMappings) {
     }
 }
 
+TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
+    struct ExpectedMapping {
+        const char *field;
+        const char *property;
+        const char *type_name;
+        const char *getter_status;
+        const char *setter_status;
+        const char *side_effect;
+        const char *getter_docs_fragment;
+        const char *notes_fragment;
+    };
+    const ExpectedMapping expected[] = {
+        {"affected", "affects", "readonly ObjectAffect[]", "deferred", "deferred", "mutation",
+         "Future entries must use named apply locations",
+         "no builder getter is emitted yet"},
+        {"ex_description", "extraDescriptions", "readonly ExtraDescription[]", "deferred",
+         "deferred", "mutation", "bounded list size", "not exposed to builders"},
+        {"owner", "ownerId", "never", "internal-only", "unsupported", "none",
+         "sensitive authorization data", "identity policy"},
+        {"in_obj", "container", "GameObject | null", "deferred", "deferred", "world-mutation",
+         "liveness checks, cycle guards", "not exposed to builders"},
+        {"contains", "contents", "readonly GameObject[]", "deferred", "unsupported",
+         "world-mutation", "bounded traversal", "not exposed to builders"},
+        {"next_content", "nextContent", "never", "internal-only", "unsupported", "none",
+         "traversal state is internal", "Internal traversal link"},
+        {"next", "next", "never", "internal-only", "unsupported", "none",
+         "traversal state is internal", "Internal traversal link"},
+        {"touched", "touched", "boolean", "deferred", "deferred", "mutation",
+         "gameplay meaning are confirmed", "normalized to boolean"},
+        {"loaded_by", "loadedBy", "number", "internal-only", "unsupported", "none",
+         "administrative audit data", "Administrative audit data"},
+    };
+
+    for (const ExpectedMapping &item : expected) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::ObjData, item.field);
+        ASSERT_NE(mapping, nullptr) << item.field;
+        EXPECT_STREQ(mapping->js_property, item.property) << item.field;
+        EXPECT_STREQ(mapping->type_name, item.type_name) << item.field;
+        EXPECT_STREQ(mapping->getter_status, item.getter_status) << item.field;
+        EXPECT_STREQ(mapping->setter_status, item.setter_status) << item.field;
+        EXPECT_STREQ(mapping->side_effect, item.side_effect) << item.field;
+        EXPECT_NE(std::string(mapping->getter_docs).find(item.getter_docs_fragment),
+            std::string::npos)
+            << item.field;
+        EXPECT_NE(std::string(mapping->notes).find(item.notes_fragment), std::string::npos)
+            << item.field;
+    }
+}
+
 TEST(JsApiStructMapping, UnsafeImplementationFieldsStayUnavailable) {
     const char *internal_character_fields[] = {
         "abs_number",       "player_index",  "desc", "next_in_room", "next",     "next_fighting",

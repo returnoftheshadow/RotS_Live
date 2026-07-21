@@ -388,6 +388,37 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     ASSERT_NE(object_flags, nullptr);
     EXPECT_STREQ(object_flags->getter_status, "implemented-read-only-getter");
     expect_contains_json_object(json, expected_mapping_json_object(*object_flags));
+
+    const char *deferred_object_fields[] = {
+        "affected",
+        "ex_description",
+        "in_obj",
+        "contains",
+        "touched",
+    };
+    for (const char *source_field : deferred_object_fields) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::ObjData, source_field);
+        ASSERT_NE(mapping, nullptr) << source_field;
+        EXPECT_STREQ(mapping->getter_status, "deferred") << source_field;
+        expect_contains_json_object(json, expected_mapping_json_object(*mapping));
+        EXPECT_NE(expected_mapping_json_object(*mapping).find("\"getterCallable\":false"),
+            std::string::npos)
+            << source_field;
+        EXPECT_NE(expected_mapping_json_object(*mapping).find("\"setterCallable\":false"),
+            std::string::npos)
+            << source_field;
+    }
+
+    const char *internal_object_properties[] = {
+        "ownerId",
+        "nextContent",
+        "loadedBy",
+    };
+    for (const char *property : internal_object_properties) {
+        EXPECT_EQ(json.find(std::string("\"property\":\"") + property + "\""), std::string::npos)
+            << property;
+    }
 }
 
 TEST(JsManifestExport, ExportsCombinedBuilderCompatibilityBlock) {

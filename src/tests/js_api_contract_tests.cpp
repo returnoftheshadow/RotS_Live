@@ -319,6 +319,24 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     ASSERT_NE(object_material, nullptr);
     EXPECT_STREQ(object_material->type_name, "string");
 
+    const char* classification_only_object_members[] = {
+        "affects",
+        "extraDescriptions",
+        "container",
+        "contents",
+        "nextContent",
+        "next",
+        "touched",
+        "ownerId",
+        "loadedBy",
+        "values",
+        "value0",
+        "rawValues",
+    };
+    for (const char* member_name : classification_only_object_members) {
+        EXPECT_EQ(find_js_api_contract_member(*object, member_name), nullptr) << member_name;
+    }
+
     const JsApiType* zone = find_js_api_contract_type("Zone");
     ASSERT_NE(zone, nullptr);
     const JsApiMember* zone_level = find_js_api_contract_member(*zone, "level");

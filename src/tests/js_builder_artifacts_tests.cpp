@@ -336,6 +336,25 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_EQ(declarations.find("setName("), std::string::npos);
     EXPECT_EQ(declarations.find("ownerId"), std::string::npos);
     EXPECT_EQ(declarations.find("getOwners"), std::string::npos);
+
+    const std::string object_block = declaration_block(declarations, "export interface GameObject");
+    ASSERT_FALSE(object_block.empty());
+    const char *classification_only_members[] = {
+        "affects",
+        "extraDescriptions",
+        "container",
+        "contents",
+        "nextContent",
+        "next",
+        "touched",
+        "loadedBy",
+        "values",
+        "value0",
+        "rawValues",
+    };
+    for (const char *member_name : classification_only_members) {
+        EXPECT_EQ(object_block.find(std::string(member_name)), std::string::npos) << member_name;
+    }
 }
 
 TEST(JsBuilderArtifacts, TypescriptDeclarationsExposeTypedTargetContext) {
@@ -455,6 +474,8 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     expect_contains(markdown,
                     "| `GameObject` | `GameObject.vnum` | `vnum` | `getVnum` | `setVnum`");
     EXPECT_EQ(markdown.find("ownerId"), std::string::npos);
+    EXPECT_EQ(markdown.find("nextContent"), std::string::npos);
+    EXPECT_EQ(markdown.find("loadedBy"), std::string::npos);
     EXPECT_EQ(markdown.find("getOwners"), std::string::npos);
     EXPECT_EQ(markdown.find("internal-only"), std::string::npos);
 }
