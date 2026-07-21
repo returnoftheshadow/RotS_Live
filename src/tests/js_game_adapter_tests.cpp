@@ -10,6 +10,9 @@
 #include <algorithm>
 #include <iterator>
 
+extern char *sector_types[];
+extern char num_of_sector_types;
+
 namespace {
 
 char_data make_character(const char *name, int race, int level, int hit, int max_hit, bool npc)
@@ -54,7 +57,9 @@ room_data make_room(const char *name, int number, int zone)
     room.number = number;
     room.zone = zone;
     room.level = 4;
+    room.sector_type = SECT_CITY;
     room.alignment = -3;
+    room.light = 2;
     return room;
 }
 
@@ -233,7 +238,9 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(room_fixture.description, "A detailed room description.");
     EXPECT_EQ(room_fixture.vnum, 1204);
     EXPECT_EQ(room_fixture.level, 4);
+    EXPECT_EQ(room_fixture.sector_type, "City");
     EXPECT_EQ(room_fixture.alignment, -3);
+    EXPECT_EQ(room_fixture.light, 2);
     EXPECT_FALSE(room_fixture.is_sunlit);
 
     JsGameZoneFixture zone_fixture;
@@ -254,6 +261,41 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(zone_fixture.symbol, "Z");
     EXPECT_EQ(zone_fixture.minimum_look_level, 3);
     EXPECT_EQ(zone_fixture.reset_mode, 2);
+}
+
+TEST(JsGameAdapter, ModelsUnknownRoomSectorTypes)
+{
+    room_data world[1] = { make_room("Strange Room", 1205, 0) };
+    JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
+        nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameRoomFixture room_fixture;
+
+    world[0].sector_type = -1;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture));
+    EXPECT_EQ(room_fixture.sector_type, "Unknown");
+
+    world[0].sector_type = num_of_sector_types;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture));
+    EXPECT_EQ(room_fixture.sector_type, "Unknown");
+}
+
+TEST(JsGameAdapter, SnapshotsEveryKnownRoomSectorTypeName)
+{
+    room_data world[1] = { make_room("Sector Room", 1206, 0) };
+    JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
+        nullptr, 0, nullptr, 0, nullptr, 0);
+
+    ASSERT_GT(num_of_sector_types, 0);
+    for (int sector = 0; sector < num_of_sector_types; ++sector) {
+        ASSERT_NE(sector_types[sector], nullptr) << sector;
+        ASSERT_STRNE(sector_types[sector], "\n") << "sentinel must not be in live sector range";
+
+        world[0].sector_type = sector;
+        JsGameRoomFixture room_fixture;
+        ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture)) << sector;
+        EXPECT_EQ(room_fixture.sector_type, sector_types[sector]) << sector;
+    }
 }
 
 TEST(JsGameAdapter, PreservesNullableTextGetterNulls)

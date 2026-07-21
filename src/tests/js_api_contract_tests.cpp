@@ -258,10 +258,22 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_STREQ(room_level->type_name, "number");
     EXPECT_EQ(room_level->status, JsApiMemberStatus::PlannedReadOnly);
 
+    const JsApiMember* room_sector_type = find_js_api_contract_member(*room, "sectorType");
+    ASSERT_NE(room_sector_type, nullptr);
+    EXPECT_STREQ(room_sector_type->type_name, "string");
+    EXPECT_EQ(room_sector_type->status, JsApiMemberStatus::PlannedReadOnly);
+
     const JsApiMember* room_alignment = find_js_api_contract_member(*room, "alignment");
     ASSERT_NE(room_alignment, nullptr);
     EXPECT_STREQ(room_alignment->type_name, "number");
     EXPECT_EQ(room_alignment->status, JsApiMemberStatus::PlannedReadOnly);
+
+    const JsApiMember* room_light = find_js_api_contract_member(*room, "light");
+    ASSERT_NE(room_light, nullptr);
+    EXPECT_STREQ(room_light->type_name, "number");
+    EXPECT_EQ(room_light->status, JsApiMemberStatus::PlannedReadOnly);
+
+    EXPECT_EQ(find_js_api_contract_member(*room, "flags"), nullptr);
 
     const JsApiMember* is_sunlit = find_js_api_contract_member(*room, "isSunlit");
     ASSERT_NE(is_sunlit, nullptr);

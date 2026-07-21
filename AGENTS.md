@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API nullable text/scalar getter promotion. `GameObject.actionDescription`, `Zone.description`, `Zone.map`, `Zone.lifespan`, `Zone.age`, `Zone.topRoomVnum`, `Zone.x`, `Zone.y`, `Zone.symbol`, `Zone.minimumLookLevel`, and `Zone.resetMode` are now documented in the server API contract, marked as implemented read-only mappings, copied into live QuickJS snapshots, normalized in BuilderClient offline fixtures, preserved through fixture validation, and editable through role-filtered fixture controls.
-- Next slice: JavaScript API remaining safe getter classification/promotion. Continue through remaining getter rows that need relationship/list/value-domain handling, starting with low-risk fields that can be represented as frozen snapshots without exposing raw pointers (`Room.sectorType`, `Room.flags`, `Room.light`, object flag/value snapshots, and read-only extra-description arrays where bounded copy semantics are clear) before moving to setter foundation.
+- Latest completed slice: JavaScript API room value-domain getter promotion. `Room.sectorType` and `Room.light` are now documented in the server API contract, marked as implemented read-only mappings, copied into live QuickJS snapshots, normalized in BuilderClient offline fixtures, preserved through fixture validation, and editable through role-filtered fixture controls. `Room.flags` remains deferred until filtered flag-domain semantics avoid exposing transient/internal bits.
+- Next slice: JavaScript API filtered flag/value getter slice. Continue with bounded frozen snapshot candidates that need explicit domain filtering, starting with `Room.flags` and object flag/value snapshots, while keeping raw reset command arrays, owner/account fields, traversal pointers, descriptors, and function pointers internal/unsupported.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

@@ -280,10 +280,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Room level writes are deferred.",
      "mutation", ""},
     {JsApiStructOwner::RoomData, "room_data", "sector_type", "sectorType", "getSectorType",
-     "setSectorType", "string", false, Deferred, Deferred, "Planned readable sector type name.",
+     "setSectorType", "string", false, ImplementedReadOnly, Deferred, "Returns the readable sector type name.",
      "Sector writes are deferred until movement costs and "
      "visibility effects are mapped.",
-     "mutation", "Integer domain should be generated."},
+     "mutation", "Invalid loaded sector values are exposed as Unknown, not raw integers."},
     {JsApiStructOwner::RoomData, "room_data", "name", "name", "getName", "setName", "string", false,
      ImplementedReadOnly, SetterPlanned, "Returns the room display name.",
      "Sets the room display name after length, ownership, and sanitization checks.", "mutation",
@@ -316,7 +316,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "setAlignment", "number", false, ImplementedReadOnly, Deferred, "Returns the room alignment value.",
      "Room alignment writes are deferred.", "mutation", ""},
     {JsApiStructOwner::RoomData, "room_data", "light", "light", "getLight", "setLight", "number",
-     false, Deferred, Unsupported, "Planned read-only light-source count.",
+     false, ImplementedReadOnly, Unsupported, "Returns the current room light-source count.",
      "Direct light counter writes are unsupported; use "
      "object/light mechanics instead.",
      "mutation", "Derived counter."},

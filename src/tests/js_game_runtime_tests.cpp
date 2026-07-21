@@ -22,7 +22,9 @@ JsGameTriggerContextFixture make_context()
     context.self.room.description = "A gatehouse opens toward the old road.";
     context.self.room.vnum = 1204;
     context.self.room.level = 7;
+    context.self.room.sector_type = "City";
     context.self.room.alignment = -2;
+    context.self.room.light = 1;
     context.self.room.is_sunlit = true;
     context.self.room.has_zone = true;
     context.self.room.zone.id = "zone:12";
@@ -66,7 +68,9 @@ JsGameTriggerContextFixture make_context()
     context.object.room.description = "A gatehouse opens toward the old road.";
     context.object.room.vnum = 1204;
     context.object.room.level = 7;
+    context.object.room.sector_type = "City";
     context.object.room.alignment = -2;
+    context.object.room.light = 1;
     context.object.room.is_sunlit = true;
     context.object.room.has_zone = true;
     context.object.room.zone.id = "zone:12";
@@ -92,7 +96,9 @@ JsGameTriggerContextFixture make_context()
     context.room.description = "A gatehouse opens toward the old road.";
     context.room.vnum = 1204;
     context.room.level = 7;
+    context.room.sector_type = "City";
     context.room.alignment = -2;
+    context.room.light = 1;
     context.room.is_sunlit = true;
     context.room.has_zone = true;
     context.room.zone.id = "zone:12";
@@ -257,7 +263,9 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
         "  && ctx.object.actionDescription === 'The lever clicks under your hand.'\n"
         "  && ctx.room.description === 'A gatehouse opens toward the old road.'\n"
         "  && ctx.room.level === 7\n"
+        "  && ctx.room.sectorType === 'City'\n"
         "  && ctx.room.alignment === -2\n"
+        "  && ctx.room.light === 1\n"
         "  && ctx.zone.level === 6\n"
         "  && ctx.zone.description === 'The old city zone.'\n"
         "  && ctx.zone.map === 'N-G-S'\n"
@@ -270,6 +278,8 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
         "  && ctx.zone.minimumLookLevel === 2\n"
         "  && ctx.zone.resetMode === 1\n"
         "  && ctx.object.room.description === ctx.room.description\n"
+        "  && ctx.object.room.sectorType === ctx.room.sectorType\n"
+        "  && ctx.object.room.light === ctx.room.light\n"
         "  && ctx.object.room.zone.description === ctx.zone.description\n"
         "  && ctx.object.room.zone.map === ctx.zone.map\n"
         "  && ctx.object.room.zone.level === ctx.zone.level;",
@@ -866,6 +876,8 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"rank\":9"), std::string::npos);
     EXPECT_NE(literal.find("\"room\":{\"id\":\"room:1204\""), std::string::npos);
     EXPECT_NE(literal.find("\"isSunlit\":true"), std::string::npos);
+    EXPECT_NE(literal.find("\"sectorType\":\"City\""), std::string::npos);
+    EXPECT_NE(literal.find("\"light\":1"), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"isValid\":function() { return true; }"), std::string::npos);
     EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\""), std::string::npos);

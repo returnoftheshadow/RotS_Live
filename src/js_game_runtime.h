@@ -31,7 +31,9 @@ struct JsGameRoomFixture {
     std::string description;
     int vnum = 0;
     int level = 0;
+    std::string sector_type;
     int alignment = 0;
+    int light = 0;
     bool is_sunlit = false;
 
     bool has_zone = false;

@@ -10,6 +10,9 @@
 #include <sstream>
 #include <string>
 
+extern char *sector_types[];
+extern char num_of_sector_types;
+
 namespace {
 
 constexpr std::size_t MaxAdapterStringLength = 512;
@@ -116,6 +119,16 @@ bool room_is_sunlit(const room_data &room)
 {
     return (weather_info.sunlight == SUN_LIGHT || weather_info.sunlight == SUN_RISE) &&
         !room_is_dark(room);
+}
+
+std::string room_sector_type_name(int sector_type)
+{
+    if (sector_type >= 0 && sector_type < num_of_sector_types && sector_types != nullptr &&
+        sector_types[sector_type] != nullptr) {
+        return copy_c_string(sector_types[sector_type]);
+    }
+
+    return "Unknown";
 }
 
 bool object_is_worn_by(const obj_data *object, const char_data *carrier)
@@ -388,7 +401,9 @@ bool js_game_adapter_room_fixture(
     fixture->description = copy_c_string(room_data.description);
     fixture->vnum = room_data.number;
     fixture->level = room_data.level;
+    fixture->sector_type = room_sector_type_name(room_data.sector_type);
     fixture->alignment = room_data.alignment;
+    fixture->light = room_data.light;
     fixture->is_sunlit = room_is_sunlit(room_data);
     fixture->has_zone = js_game_adapter_zone_fixture(room_data.zone, options, &fixture->zone);
     return true;

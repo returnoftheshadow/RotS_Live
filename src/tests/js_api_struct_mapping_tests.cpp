@@ -381,6 +381,34 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
     }
 }
 
+TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
+    struct ExpectedPromotedGetter {
+        const char *field;
+        const char *property;
+    };
+
+    const ExpectedPromotedGetter expected[] = {
+        {"sector_type", "sectorType"},
+        {"light", "light"},
+    };
+
+    for (const ExpectedPromotedGetter &entry : expected) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->js_property, entry.property);
+        EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
+        EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+    }
+
+    const JsApiStructFieldMapping *room_flags =
+        find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, "room_flags");
+    ASSERT_NE(room_flags, nullptr);
+    EXPECT_STREQ(room_flags->js_property, "flags");
+    EXPECT_STREQ(room_flags->getter_status, "deferred");
+    EXPECT_STREQ(room_flags->setter_status, "deferred");
+}
+
 TEST(JsApiStructMapping, PinsCriticalBuilderFacingMappings) {
     struct ExpectedMapping {
         JsApiStructOwner owner;
