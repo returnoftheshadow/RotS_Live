@@ -214,27 +214,30 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      ImplementedReadOnly, SetterImplemented,
      "Returns the object's keyword/name string for builder conditions and diagnostics.",
      "Updates the invocation snapshot object keyword/name after type, nonblank, length, and "
-     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
-     "mutation", "Snapshot-only setter; live owned-memory application is deferred."},
+     "unsupported-character checks, and applies to live owned memory only when dispatch provides "
+     "persistent setter authority.",
+     "mutation", "Persistent application requires dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "description", "description", "getDescription",
      "setDescription", "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the room-visible object description copied into the invocation snapshot.",
      "Updates the invocation snapshot object description after type, length, and "
-     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
-     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
+     "unsupported-character checks, and applies to live owned memory only when dispatch provides "
+     "persistent setter authority.",
+     "mutation", "Persistent application requires dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "short_description", "shortDescription",
      "getShortDescription", "setShortDescription", "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the carried/worn short description copied into the invocation snapshot.",
      "Updates the invocation snapshot short description after type, length, and "
-     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
-     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
+     "unsupported-character checks, and applies to live owned memory only when dispatch provides "
+     "persistent setter authority.",
+     "mutation", "Persistent application requires dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "action_description", "actionDescription",
      "getActionDescription", "setActionDescription", "string | null", true, ImplementedReadOnly, SetterImplemented,
      "Returns the optional use/action text copied into the invocation snapshot when present.",
      "Updates or clears the invocation snapshot action description after nullability, type, "
-     "length, and unsupported-character checks. Persistent world mutation and ownership checks "
-     "are deferred.",
-     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
+     "length, and unsupported-character checks, and applies to live owned memory only when "
+     "dispatch provides persistent setter authority.",
+     "mutation", "Persistent application requires dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "ex_description", "extraDescriptions",
      "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
      Deferred,
@@ -307,14 +310,16 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::RoomData, "room_data", "name", "name", "getName", "setName", "string", false,
      ImplementedReadOnly, SetterImplemented, "Returns the room display name.",
      "Updates the invocation snapshot room display name after type, nonblank, length, and "
-     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
-     "mutation", "Snapshot-only setter; already exposed as Room.name for reads."},
+     "unsupported-character checks, and applies to live owned memory only when dispatch provides "
+     "persistent setter authority.",
+     "mutation", "Persistent application requires dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "description", "description", "getDescription",
      "setDescription", "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the room long description copied into the invocation snapshot.",
      "Updates the invocation snapshot room long description after type, length, and "
-     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
-     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
+     "unsupported-character checks, and applies to live owned memory only when dispatch provides "
+     "persistent setter authority.",
+     "mutation", "Persistent application requires dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "ex_description", "extraDescriptions",
      "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
      Deferred, "Planned read-only extra-description snapshot.",
@@ -377,15 +382,16 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::ZoneData, "zone_data", "name", "name", "getName", "setName", "string", false,
      ImplementedReadOnly, SetterImplemented, "Returns the zone display name.",
      "Updates the invocation snapshot zone display name after type, nonblank, length, and "
-     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
-     "mutation", "Snapshot-only setter; already exposed as Zone.name for reads."},
+     "unsupported-character checks, and applies to live owned memory only when dispatch provides "
+     "persistent setter authority.",
+     "mutation", "Persistent application requires dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "description", "description", "getDescription",
      "setDescription", "string | null", true, ImplementedReadOnly, SetterImplemented,
      "Returns the optional zone description copied into the invocation snapshot when present.",
      "Updates or clears the invocation snapshot zone description after nullability, type, length, "
-     "and unsupported-character checks. Persistent world mutation and ownership checks are "
-     "deferred.",
-     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
+     "and unsupported-character checks, and applies to live owned memory only when dispatch "
+     "provides persistent setter authority.",
+     "mutation", "Persistent application requires dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "map", "map", "getMap", "setMap", "string | null",
      true, ImplementedReadOnly, SetterPlanned, "Returns the optional zone map text copied into the invocation snapshot when present.",
      "Sets or clears the zone map text after ownership, length, and sanitization checks.",

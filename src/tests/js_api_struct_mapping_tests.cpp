@@ -392,6 +392,30 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
     }
 }
 
+TEST(JsApiStructMapping, ImplementedSetterDocsReferencePersistentAuthority) {
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        if (std::string(mapping.setter_status) != "implemented-validated-setter")
+            continue;
+
+        EXPECT_NE(std::string(mapping.setter_docs).find("persistent setter authority"),
+            std::string::npos)
+            << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
+        EXPECT_NE(std::string(mapping.notes).find("dispatch mutation authority"),
+            std::string::npos)
+            << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
+        EXPECT_EQ(std::string(mapping.setter_docs).find("deferred"), std::string::npos)
+            << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
+        EXPECT_EQ(std::string(mapping.notes).find("Snapshot-only"), std::string::npos)
+            << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
+    }
+
+    const JsApiStructFieldMapping *zone_map =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "map");
+    ASSERT_NE(zone_map, nullptr);
+    EXPECT_STREQ(zone_map->setter_status, "planned-validated-setter");
+}
+
 TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
     struct ExpectedPromotedGetter {
         const char *field;
