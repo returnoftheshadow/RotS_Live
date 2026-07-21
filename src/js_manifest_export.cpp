@@ -239,6 +239,10 @@ bool mapping_is_public(const JsApiStructFieldMapping &mapping) {
     return std::string(mapping.getter_status) != "internal-only";
 }
 
+bool mapping_setter_is_callable(const JsApiStructFieldMapping &mapping) {
+    return std::string(mapping.setter_status) == "implemented-validated-setter";
+}
+
 std::string public_mapping_field_id(const JsApiStructFieldMapping &mapping) {
     return std::string(public_struct_owner_name(mapping.owner)) + "." + mapping.js_property;
 }
@@ -277,9 +281,9 @@ void append_struct_field_mappings(std::ostringstream &out, const JsManifestExpor
         append_bool_field(out, "getterCallable",
                           std::string(mapping.getter_status) == "implemented-read-only-getter");
         out << ',';
-        append_bool_field(out, "setterCallable", false);
+        append_bool_field(out, "setterCallable", mapping_setter_is_callable(mapping));
         out << ',';
-        append_bool_field(out, "documentationOnly", true);
+        append_bool_field(out, "documentationOnly", !mapping_setter_is_callable(mapping));
         if (options.include_documentation) {
             out << ',';
             append_documentation_field(out, "getterDocs", mapping.getter_docs);

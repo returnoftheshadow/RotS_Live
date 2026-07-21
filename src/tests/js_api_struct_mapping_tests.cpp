@@ -132,6 +132,7 @@ bool is_allowed_status(const char *value) {
         "implemented-read-only-getter",
         "planned-read-only-getter",
         "planned-validated-setter",
+        "implemented-validated-setter",
         "deferred",
         "internal-only",
         "unsupported",
@@ -346,7 +347,12 @@ TEST(JsApiStructMapping, PinsPromotedGetterGroupStatus) {
         ASSERT_NE(mapping, nullptr) << entry.field;
         EXPECT_STREQ(mapping->js_property, entry.property);
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
-        EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+        if (std::string(entry.field) == "description" ||
+            std::string(entry.field) == "short_description") {
+            EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
+        } else {
+            EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+        }
     }
 }
 
@@ -377,7 +383,12 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
         ASSERT_NE(mapping, nullptr) << entry.field;
         EXPECT_STREQ(mapping->js_property, entry.property);
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
-        EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+        if (std::string(entry.field) == "action_description" ||
+            std::string(entry.field) == "description") {
+            EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
+        } else {
+            EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+        }
     }
 }
 
@@ -437,7 +448,7 @@ TEST(JsApiStructMapping, PinsCriticalBuilderFacingMappings) {
         {JsApiStructOwner::ZoneData, "number", "vnum", "number", false,
          "implemented-read-only-getter", "unsupported"},
         {JsApiStructOwner::ZoneData, "name", "name", "string", false,
-         "implemented-read-only-getter", "planned-validated-setter"},
+         "implemented-read-only-getter", "implemented-validated-setter"},
     };
 
     for (const ExpectedMapping &item : expected) {

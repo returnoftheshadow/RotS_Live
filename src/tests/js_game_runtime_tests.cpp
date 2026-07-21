@@ -461,7 +461,8 @@ TEST(JsGameRuntime, RejectsMutationOfObjectOwnerSnapshots)
         "return true;",
         context);
     EXPECT_EQ(assign_result.status, JsRuntimeStatus::Error);
-    EXPECT_NE(assign_result.diagnostic.find("read-only"), std::string::npos)
+    EXPECT_TRUE(assign_result.diagnostic.find("read-only") != std::string::npos ||
+                assign_result.diagnostic.find("no setter") != std::string::npos)
         << assign_result.diagnostic;
 
     JsRuntimeEvalResult proto_result = runtime.evaluate_trigger_body(
@@ -521,7 +522,8 @@ TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent)
         "return true;",
         context);
     EXPECT_EQ(assign_result.status, JsRuntimeStatus::Error);
-    EXPECT_NE(assign_result.diagnostic.find("read-only"), std::string::npos)
+    EXPECT_TRUE(assign_result.diagnostic.find("read-only") != std::string::npos ||
+                assign_result.diagnostic.find("no setter") != std::string::npos)
         << assign_result.diagnostic;
 
     JsRuntimeEvalResult proto_result = runtime.evaluate_trigger_body(
@@ -584,30 +586,89 @@ TEST(JsGameRuntime, KeepsScriptResultHelpersImmutable)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, DoesNotInjectSetterFoundationRuntimeValues)
+TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
 {
+    JsGameTriggerContextFixture context = make_context();
+    context.actor.has_room = true;
+    context.actor.room = context.room;
+    context.has_weapon = true;
+    context.weapon.id = "object:weapon";
+    context.weapon.name = "iron sword";
+    context.weapon.description = "An iron sword rests here.";
+    context.weapon.short_description = "an iron sword";
+    context.weapon.vnum = 301;
+    context.weapon.has_room = true;
+    context.weapon.room = context.room;
+
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "let assignBlocked = false;\n"
         "let defineBlocked = false;\n"
-        "try { ctx.object.setName = function() { return true; }; } catch (error) {\n"
-        "  assignBlocked = true;\n"
-        "}\n"
+        "try { ctx.object.name = 'unsafe'; } catch (error) { assignBlocked = true; }\n"
         "try { Object.defineProperty(ctx.object, 'name', { value: 'unsafe' }); } catch (error) {\n"
         "  defineBlocked = true;\n"
         "}\n"
+        "const objectName = ctx.object.setName('bronze lever');\n"
+        "const objectDescription = ctx.object.setDescription('A bronze lever is bolted here.');\n"
+        "const objectShort = ctx.object.setShortDescription('a bronze lever');\n"
+        "const objectAction = ctx.object.setActionDescription(null);\n"
+        "const roomName = ctx.room.setName('Southern Gate');\n"
+        "const roomDescription = ctx.room.setDescription('A second gatehouse faces the road.');\n"
+        "const zoneName = ctx.zone.setName('New City');\n"
+        "const zoneDescription = ctx.zone.setDescription(null);\n"
+        "const badType = ctx.object.setName(42);\n"
+        "const badRange = ctx.room.setName('x'.repeat(300));\n"
+        "const blankName = ctx.zone.setName('   ');\n"
+        "const badNul = ctx.object.setDescription('bad\\u0000text');\n"
+        "const nestedWeapon = ctx.weapon.setName('tempered sword');\n"
+        "const nestedObjectRoom = ctx.object.room.setDescription('Nested object room edit.');\n"
+        "const nestedActorRoom = ctx.actor.room.setName('Actor Room Edit');\n"
+        "const nestedZone = ctx.room.zone.setName('Nested Zone Edit');\n"
+        "try { badType.code = 'ok'; } catch (error) {}\n"
+        "try { Object.defineProperty(badType, 'extra', { value: true }); } catch (error) {}\n"
         "return typeof RotS.MutationResult === 'undefined'\n"
         "  && typeof MutationResult === 'undefined'\n"
-        "  && !('setName' in ctx.object)\n"
-        "  && !('setDescription' in ctx.object)\n"
-        "  && !('setDescription' in ctx.room)\n"
+        "  && typeof ctx.object.setName === 'function'\n"
+        "  && typeof ctx.weapon.setName === 'function'\n"
+        "  && typeof ctx.object.room.setDescription === 'function'\n"
+        "  && typeof ctx.actor.room.setName === 'function'\n"
+        "  && typeof ctx.room.zone.setName === 'function'\n"
         "  && !('setLevel' in ctx.zone)\n"
-        "  && ctx.object.name === 'silver lever'\n"
+        "  && objectName.ok === true && objectName.code === 'ok'\n"
+        "  && objectDescription.ok === true && objectShort.ok === true && objectAction.ok === true\n"
+        "  && roomName.ok === true && roomDescription.ok === true\n"
+        "  && zoneName.ok === true && zoneDescription.ok === true\n"
+        "  && badType.ok === false && badType.code === 'invalid-value' && badType.field === 'name'\n"
+        "  && badRange.ok === false && badRange.code === 'out-of-range'\n"
+        "  && blankName.ok === false && blankName.code === 'invalid-value'\n"
+        "  && badNul.ok === false && badNul.code === 'invalid-value'\n"
+        "  && nestedWeapon.ok === true && nestedObjectRoom.ok === true\n"
+        "  && nestedActorRoom.ok === true && nestedZone.ok === true\n"
+        "  && Object.isFrozen(objectName) && Object.isFrozen(badType)\n"
+        "  && typeof objectName.constructor === 'undefined'\n"
+        "  && typeof badType.constructor === 'undefined'\n"
+        "  && typeof badType.extra === 'undefined'\n"
+        "  && typeof ctx.object.setName.prototype === 'undefined'\n"
+        "  && Object.isFrozen(ctx.object.setName)\n"
+        "  && ctx.object.name === 'bronze lever'\n"
+        "  && ctx.object.description === 'A bronze lever is bolted here.'\n"
+        "  && ctx.object.shortDescription === 'a bronze lever'\n"
+        "  && ctx.object.actionDescription === null\n"
+        "  && ctx.room.name === 'Southern Gate'\n"
+        "  && ctx.room.description === 'A second gatehouse faces the road.'\n"
+        "  && ctx.zone.name === 'New City'\n"
+        "  && ctx.zone.description === null\n"
+        "  && ctx.weapon.name === 'tempered sword'\n"
+        "  && ctx.object.room.description === 'Nested object room edit.'\n"
+        "  && ctx.actor.room.name === 'Actor Room Edit'\n"
+        "  && ctx.room.zone.name === 'Nested Zone Edit'\n"
         "  && assignBlocked\n"
         "  && defineBlocked;",
-        make_context());
+        context);
 
     expect_ok_allows(result);
+
+    expect_ok_allows(runtime.evaluate_trigger_body("return ctx.object.name === 'silver lever';", context));
 }
 
 TEST(JsGameRuntime, ExposesNoOpConsoleLogForOfflineParity)

@@ -7,6 +7,7 @@ namespace {
 constexpr const char *ImplementedReadOnly = "implemented-read-only-getter";
 constexpr const char *ReadOnly = "planned-read-only-getter";
 constexpr const char *SetterPlanned = "planned-validated-setter";
+constexpr const char *SetterImplemented = "implemented-validated-setter";
 constexpr const char *Deferred = "deferred";
 constexpr const char *Internal = "internal-only";
 constexpr const char *Unsupported = "unsupported";
@@ -210,25 +211,30 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "validation rules are mapped.",
      "mutation", "Fixed-size equipment modifier slots; no builder getter is emitted yet."},
     {JsApiStructOwner::ObjData, "obj_data", "name", "name", "getName", "setName", "string", false,
-     ImplementedReadOnly, SetterPlanned,
+     ImplementedReadOnly, SetterImplemented,
      "Returns the object's keyword/name string for builder conditions and diagnostics.",
-     "Sets the object's keyword/name string after length, ownership, and sanitization checks.",
-     "mutation", "Setter must copy owned memory safely."},
+     "Updates the invocation snapshot object keyword/name after type, nonblank, length, and "
+     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
+     "mutation", "Snapshot-only setter; live owned-memory application is deferred."},
     {JsApiStructOwner::ObjData, "obj_data", "description", "description", "getDescription",
-     "setDescription", "string", false, ImplementedReadOnly, SetterPlanned,
+     "setDescription", "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the room-visible object description copied into the invocation snapshot.",
-     "Sets the room-visible object description after length, ownership, and sanitization checks.",
-     "mutation", "String ownership must be explicit."},
+     "Updates the invocation snapshot object description after type, length, and "
+     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
+     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
     {JsApiStructOwner::ObjData, "obj_data", "short_description", "shortDescription",
-     "getShortDescription", "setShortDescription", "string", false, ImplementedReadOnly, SetterPlanned,
+     "getShortDescription", "setShortDescription", "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the carried/worn short description copied into the invocation snapshot.",
-     "Sets the carried/worn short description after length, ownership, and sanitization checks.",
-     "mutation", "String ownership must be explicit."},
+     "Updates the invocation snapshot short description after type, length, and "
+     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
+     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
     {JsApiStructOwner::ObjData, "obj_data", "action_description", "actionDescription",
-     "getActionDescription", "setActionDescription", "string | null", true, ImplementedReadOnly, SetterPlanned,
+     "getActionDescription", "setActionDescription", "string | null", true, ImplementedReadOnly, SetterImplemented,
      "Returns the optional use/action text copied into the invocation snapshot when present.",
-     "Sets or clears the action description after length, ownership, and sanitization checks.",
-     "mutation", "String ownership must be explicit."},
+     "Updates or clears the invocation snapshot action description after nullability, type, "
+     "length, and unsupported-character checks. Persistent world mutation and ownership checks "
+     "are deferred.",
+     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
     {JsApiStructOwner::ObjData, "obj_data", "ex_description", "extraDescriptions",
      "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
      Deferred,
@@ -299,14 +305,16 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "visibility effects are mapped.",
      "mutation", "Invalid loaded sector values are exposed as Unknown, not raw integers."},
     {JsApiStructOwner::RoomData, "room_data", "name", "name", "getName", "setName", "string", false,
-     ImplementedReadOnly, SetterPlanned, "Returns the room display name.",
-     "Sets the room display name after length, ownership, and sanitization checks.", "mutation",
-     "Already exposed as Room.name for reads."},
+     ImplementedReadOnly, SetterImplemented, "Returns the room display name.",
+     "Updates the invocation snapshot room display name after type, nonblank, length, and "
+     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
+     "mutation", "Snapshot-only setter; already exposed as Room.name for reads."},
     {JsApiStructOwner::RoomData, "room_data", "description", "description", "getDescription",
-     "setDescription", "string", false, ImplementedReadOnly, SetterPlanned,
+     "setDescription", "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the room long description copied into the invocation snapshot.",
-     "Sets the room long description after length, ownership, and sanitization checks.", "mutation",
-     "String ownership must be explicit."},
+     "Updates the invocation snapshot room long description after type, length, and "
+     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
+     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
     {JsApiStructOwner::RoomData, "room_data", "ex_description", "extraDescriptions",
      "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
      Deferred, "Planned read-only extra-description snapshot.",
@@ -367,15 +375,17 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Raw bleed-track mutation from JavaScript is unsupported.", "none", "Fixed internal array."},
 
     {JsApiStructOwner::ZoneData, "zone_data", "name", "name", "getName", "setName", "string", false,
-     ImplementedReadOnly, SetterPlanned, "Returns the zone display name.",
-     "Sets the zone display name after ownership, length, and sanitization checks.", "mutation",
-     "Already exposed as Zone.name for reads."},
+     ImplementedReadOnly, SetterImplemented, "Returns the zone display name.",
+     "Updates the invocation snapshot zone display name after type, nonblank, length, and "
+     "unsupported-character checks. Persistent world mutation and ownership checks are deferred.",
+     "mutation", "Snapshot-only setter; already exposed as Zone.name for reads."},
     {JsApiStructOwner::ZoneData, "zone_data", "description", "description", "getDescription",
-     "setDescription", "string | null", true, ImplementedReadOnly, SetterPlanned,
+     "setDescription", "string | null", true, ImplementedReadOnly, SetterImplemented,
      "Returns the optional zone description copied into the invocation snapshot when present.",
-     "Sets or clears the zone description after "
-     "ownership, length, and sanitization checks.",
-     "mutation", "String ownership must be explicit."},
+     "Updates or clears the invocation snapshot zone description after nullability, type, length, "
+     "and unsupported-character checks. Persistent world mutation and ownership checks are "
+     "deferred.",
+     "mutation", "Snapshot-only setter; string ownership must be explicit before persistence."},
     {JsApiStructOwner::ZoneData, "zone_data", "map", "map", "getMap", "setMap", "string | null",
      true, ImplementedReadOnly, SetterPlanned, "Returns the optional zone map text copied into the invocation snapshot when present.",
      "Sets or clears the zone map text after ownership, length, and sanitization checks.",

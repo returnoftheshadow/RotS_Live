@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API setter foundation slice. `MutationResult` is documented in the server API contract and BuilderClient fallback typings as the future return shape for validated setters. It is a type-only contract with no runtime helper and no concrete setter methods marked callable yet.
-- Next slice: JavaScript API first setter parity slice. Implement the first low-risk setter group end-to-end in live QuickJS and offline fixtures with ownership/liveness/range tests.
+- Latest completed slice: JavaScript API first setter parity slice. `GameObject.setName`, `setDescription`, `setShortDescription`, `setActionDescription`, `Room.setName`, `Room.setDescription`, `Zone.setName`, and `Zone.setDescription` are now callable in generated typings, manifest metadata, live QuickJS invocation snapshots, and BuilderClient offline fixtures. These setters update invocation snapshots only, recurse across nested handles, return frozen `MutationResult` values, reject blank names/type/NUL/length failures without mutating, and leave deferred setters absent.
+- Next slice: JavaScript API persisted setter bridge slice. Connect the first validated setter methods from invocation snapshots to explicit server-side mutation application against owned live game objects, rooms, and zones.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

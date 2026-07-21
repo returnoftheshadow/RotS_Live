@@ -69,6 +69,10 @@ bool mapping_is_public(const JsApiStructFieldMapping &mapping) {
     return std::string(mapping.getter_status) != "internal-only";
 }
 
+bool mapping_setter_is_callable(const JsApiStructFieldMapping &mapping) {
+    return std::string(mapping.setter_status) == "implemented-validated-setter";
+}
+
 std::size_t public_mapping_count() {
     std::size_t count = 0;
     for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
@@ -106,7 +110,9 @@ std::string expected_mapping_json_object(const JsApiStructFieldMapping &mapping)
         "\",\"sideEffect\":\"" + json_utils::escape_json_string(mapping.side_effect) +
         "\",\"getterCallable\":" +
         (std::string(mapping.getter_status) == "implemented-read-only-getter" ? "true" : "false") +
-        ",\"setterCallable\":false,\"documentationOnly\":true,\"getterDocs\":\"" +
+        ",\"setterCallable\":" + (mapping_setter_is_callable(mapping) ? "true" : "false") +
+        ",\"documentationOnly\":" + (mapping_setter_is_callable(mapping) ? "false" : "true") +
+        ",\"getterDocs\":\"" +
         json_utils::escape_json_string(mapping.getter_docs) +
         "\",\"setterDocs\":\"" + json_utils::escape_json_string(mapping.setter_docs) +
         "\",\"notes\":\"" + json_utils::escape_json_string(mapping.notes) + "\"}";
@@ -261,6 +267,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     expect_contains_field(json, "property", "vnum");
     expect_contains_field(json, "getterStatus", "implemented-read-only-getter");
     EXPECT_EQ(json.find("\"getterStatus\":\"internal-only\""), std::string::npos);
+    expect_contains_field(json, "setterStatus", "implemented-validated-setter");
     expect_contains_field(json, "setterStatus", "planned-validated-setter");
     expect_contains_field(json, "setterStatus", "unsupported");
     EXPECT_EQ(json.find("\"property\":\"ownerId\""), std::string::npos);
@@ -277,49 +284,23 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         "\"Changing a live object's prototype from JavaScript is "
         "unsupported.\",\"notes\":\"Already "
         "exposed as GameObject.vnum for implemented snapshots.\"}");
-    expect_contains_json_object(
-        json,
-        "{\"owner\":\"Zone\",\"fieldId\":\"Zone.name\",\"property\":\"name\","
-        "\"getterName\":\"getName\",\"setterName\":\"setName\",\"typeName\":\"string\","
-        "\"nullable\":false,\"getterStatus\":\"implemented-read-only-getter\","
-        "\"setterStatus\":\"planned-validated-setter\",\"sideEffect\":\"mutation\","
-        "\"getterCallable\":true,\"setterCallable\":false,\"documentationOnly\":true,"
-        "\"getterDocs\":\"Returns the zone display name.\",\"setterDocs\":\"Sets the zone display "
-        "name after ownership, length, and sanitization checks.\",\"notes\":\"Already exposed as "
-        "Zone.name for reads.\"}");
-    expect_contains_json_object(
-        json,
-        "{\"owner\":\"GameObject\",\"fieldId\":\"GameObject.description\","
-        "\"property\":\"description\",\"getterName\":\"getDescription\","
-        "\"setterName\":\"setDescription\",\"typeName\":\"string\",\"nullable\":false,"
-        "\"getterStatus\":\"implemented-read-only-getter\","
-        "\"setterStatus\":\"planned-validated-setter\",\"sideEffect\":\"mutation\","
-        "\"getterCallable\":true,\"setterCallable\":false,\"documentationOnly\":true,"
-        "\"getterDocs\":\"Returns the room-visible object description copied into the invocation "
-        "snapshot.\",\"setterDocs\":\"Sets the room-visible object description after length, "
-        "ownership, and sanitization checks.\",\"notes\":\"String ownership must be explicit.\"}");
-    expect_contains_json_object(
-        json,
-        "{\"owner\":\"GameObject\",\"fieldId\":\"GameObject.shortDescription\","
-        "\"property\":\"shortDescription\",\"getterName\":\"getShortDescription\","
-        "\"setterName\":\"setShortDescription\",\"typeName\":\"string\",\"nullable\":false,"
-        "\"getterStatus\":\"implemented-read-only-getter\","
-        "\"setterStatus\":\"planned-validated-setter\",\"sideEffect\":\"mutation\","
-        "\"getterCallable\":true,\"setterCallable\":false,\"documentationOnly\":true,"
-        "\"getterDocs\":\"Returns the carried/worn short description copied into the invocation "
-        "snapshot.\",\"setterDocs\":\"Sets the carried/worn short description after length, "
-        "ownership, and sanitization checks.\",\"notes\":\"String ownership must be explicit.\"}");
-    expect_contains_json_object(
-        json,
-        "{\"owner\":\"Room\",\"fieldId\":\"Room.description\",\"property\":\"description\","
-        "\"getterName\":\"getDescription\",\"setterName\":\"setDescription\","
-        "\"typeName\":\"string\",\"nullable\":false,"
-        "\"getterStatus\":\"implemented-read-only-getter\","
-        "\"setterStatus\":\"planned-validated-setter\",\"sideEffect\":\"mutation\","
-        "\"getterCallable\":true,\"setterCallable\":false,\"documentationOnly\":true,"
-        "\"getterDocs\":\"Returns the room long description copied into the invocation snapshot.\","
-        "\"setterDocs\":\"Sets the room long description after length, ownership, and "
-        "sanitization checks.\",\"notes\":\"String ownership must be explicit.\"}");
+    const struct {
+        JsApiStructOwner owner;
+        const char *source_field;
+    } implemented_setters[] = {
+        {JsApiStructOwner::ZoneData, "name"},
+        {JsApiStructOwner::ObjData, "description"},
+        {JsApiStructOwner::ObjData, "short_description"},
+        {JsApiStructOwner::RoomData, "description"},
+    };
+    for (const auto &entry : implemented_setters) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(entry.owner, entry.source_field);
+        ASSERT_NE(mapping, nullptr) << entry.source_field;
+        EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter")
+            << entry.source_field;
+        expect_contains_json_object(json, expected_mapping_json_object(*mapping));
+    }
     expect_contains_json_object(
         json,
         "{\"owner\":\"Room\",\"fieldId\":\"Room.level\",\"property\":\"level\","
@@ -421,10 +402,8 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     }
 }
 
-TEST(JsManifestExport, KeepsAllStructSetterMappingsDocumentationOnly) {
+TEST(JsManifestExport, MarksOnlyImplementedStructSettersCallable) {
     const std::string json = js_export_api_contract_json();
-
-    EXPECT_EQ(json.find("\"setterCallable\":true"), std::string::npos);
 
     for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
         const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
@@ -433,10 +412,17 @@ TEST(JsManifestExport, KeepsAllStructSetterMappingsDocumentationOnly) {
 
         const std::string object = expected_mapping_json_object(mapping);
         expect_contains_json_object(json, object);
-        EXPECT_NE(object.find("\"setterCallable\":false"), std::string::npos)
-            << mapping.js_property;
-        EXPECT_NE(object.find("\"documentationOnly\":true"), std::string::npos)
-            << mapping.js_property;
+        if (mapping_setter_is_callable(mapping)) {
+            EXPECT_NE(object.find("\"setterCallable\":true"), std::string::npos)
+                << mapping.js_property;
+            EXPECT_NE(object.find("\"documentationOnly\":false"), std::string::npos)
+                << mapping.js_property;
+        } else {
+            EXPECT_NE(object.find("\"setterCallable\":false"), std::string::npos)
+                << mapping.js_property;
+            EXPECT_NE(object.find("\"documentationOnly\":true"), std::string::npos)
+                << mapping.js_property;
+        }
     }
 }
 

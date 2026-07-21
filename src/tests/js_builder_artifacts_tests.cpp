@@ -75,6 +75,10 @@ bool mapping_is_public(const JsApiStructFieldMapping &mapping) {
     return std::string(mapping.getter_status) != "internal-only";
 }
 
+bool mapping_setter_is_callable(const JsApiStructFieldMapping &mapping) {
+    return std::string(mapping.setter_status) == "implemented-validated-setter";
+}
+
 const char *public_owner_name(JsApiStructOwner owner) {
     switch (owner) {
     case JsApiStructOwner::CharData:
@@ -370,8 +374,17 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
         if (!mapping_is_public(mapping) || std::string(mapping.setter_name).empty())
             continue;
-        EXPECT_EQ(declarations.find(std::string(mapping.setter_name) + "("), std::string::npos)
-            << public_field_id(mapping);
+        const std::string block = declaration_block(
+            declarations, "export interface " + std::string(public_owner_name(mapping.owner)));
+        ASSERT_FALSE(block.empty()) << public_field_id(mapping);
+        if (mapping_setter_is_callable(mapping)) {
+            expect_contains(block, std::string(mapping.setter_name) + "(value: " +
+                    mapping.type_name + "): MutationResult;");
+            expect_contains(block, "/** " + std::string(mapping.setter_docs) + " */");
+        } else {
+            EXPECT_EQ(block.find(std::string(mapping.setter_name) + "("), std::string::npos)
+                << public_field_id(mapping);
+        }
     }
 
     const char *handle_interfaces[] = {
@@ -383,8 +396,6 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     for (const char *interface_name : handle_interfaces) {
         const std::string block = declaration_block(declarations, interface_name);
         ASSERT_FALSE(block.empty()) << interface_name;
-        EXPECT_EQ(block.find("setName("), std::string::npos) << interface_name;
-        EXPECT_EQ(block.find("setDescription("), std::string::npos) << interface_name;
         EXPECT_EQ(block.find("setLevel("), std::string::npos) << interface_name;
     }
 
@@ -544,7 +555,9 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
             markdown_inline_code(
                 std::string(mapping.getter_status) == "implemented-read-only-getter" ? "yes"
                                                                                      : "no") +
-            " | " + markdown_inline_code("no") + " | " + markdown_inline_code("yes") + " | " +
+            " | " + markdown_inline_code(mapping_setter_is_callable(mapping) ? "yes" : "no") +
+            " | " + markdown_inline_code(mapping_setter_is_callable(mapping) ? "no" : "yes") +
+            " | " +
             markdown_inline_code(mapping.side_effect) + " | " + markdown_cell(mapping.getter_docs) +
             " | " + markdown_cell(mapping.setter_docs) + " | " + markdown_cell(mapping.notes) +
             " |";

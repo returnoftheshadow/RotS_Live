@@ -100,6 +100,10 @@ bool markdown_mapping_is_public(const JsApiStructFieldMapping &mapping) {
     return std::string(mapping.getter_status) != "internal-only";
 }
 
+bool mapping_setter_is_callable(const JsApiStructFieldMapping &mapping) {
+    return std::string(mapping.setter_status) == "implemented-validated-setter";
+}
+
 std::string markdown_mapping_field_id(const JsApiStructFieldMapping &mapping) {
     return std::string(markdown_struct_owner_name(mapping.owner)) + "." + mapping.js_property;
 }
@@ -298,6 +302,17 @@ std::string js_generate_typescript_declarations() {
             append_ts_doc_comment(out, "    ", member.docs);
             out << "    " << ts_member_signature(member) << "\n";
         }
+        for (std::size_t mapping_index = 0; mapping_index < js_api_struct_field_mapping_count();
+             ++mapping_index) {
+            const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[mapping_index];
+            if (!markdown_mapping_is_public(mapping) || !mapping_setter_is_callable(mapping))
+                continue;
+            if (std::string(markdown_struct_owner_name(mapping.owner)) != type.name)
+                continue;
+            append_ts_doc_comment(out, "    ", mapping.setter_docs);
+            out << "    " << mapping.setter_name << "(value: " << mapping.type_name
+                << "): MutationResult;\n";
+        }
         out << "}\n\n";
     }
 
@@ -411,7 +426,9 @@ std::string js_generate_api_markdown_reference() {
             << markdown_inline_code(
                    std::string(mapping.getter_status) == "implemented-read-only-getter" ? "yes"
                                                                                         : "no")
-            << " | " << markdown_inline_code("no") << " | " << markdown_inline_code("yes") << " | "
+            << " | " << markdown_inline_code(mapping_setter_is_callable(mapping) ? "yes" : "no")
+            << " | " << markdown_inline_code(mapping_setter_is_callable(mapping) ? "no" : "yes")
+            << " | "
             << markdown_inline_code(mapping.side_effect) << " | "
             << markdown_cell(mapping.getter_docs) << " | " << markdown_cell(mapping.setter_docs)
             << " | " << markdown_cell(mapping.notes) << " |\n";
