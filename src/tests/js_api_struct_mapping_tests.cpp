@@ -419,6 +419,83 @@ TEST(JsApiStructMapping, ImplementedSetterDocsReferencePersistentAuthority) {
     EXPECT_STREQ(zone_lifespan->setter_status, "deferred");
 }
 
+TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
+{
+    struct ExpectedZoneScalar {
+        const char *field;
+        const char *status;
+        const char *required_text;
+    };
+
+    const ExpectedZoneScalar expected[] = {
+        {"x", "planned-validated-setter", "coordinate range"},
+        {"y", "planned-validated-setter", "coordinate range"},
+        {"symbol", "planned-validated-setter", "symbol validation"},
+        {"min_level_look", "deferred", "Visibility-gating scalar"},
+        {"lifespan", "deferred", "Reset-scheduling scalar"},
+        {"reset_mode", "deferred", "Reset-sensitive scalar"},
+        {"age", "unsupported", "reset scheduling should own this value"},
+        {"top", "unsupported", "World topology field"},
+        {"level", "deferred", "Balance-sensitive scalar"},
+    };
+
+    for (const ExpectedZoneScalar &entry : expected) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter") << entry.field;
+        EXPECT_STREQ(mapping->setter_status, entry.status) << entry.field;
+        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
+                      .find(entry.required_text),
+            std::string::npos)
+            << entry.field;
+    }
+
+    const JsApiStructFieldMapping *zone_x =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "x");
+    ASSERT_NE(zone_x, nullptr);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("bounded integer"), std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("map layout"), std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("target-scoped persistent setter authority"),
+        std::string::npos);
+
+    const JsApiStructFieldMapping *zone_y =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "y");
+    ASSERT_NE(zone_y, nullptr);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("bounded integer"), std::string::npos);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("map layout"), std::string::npos);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("target-scoped persistent setter authority"),
+        std::string::npos);
+
+    const JsApiStructFieldMapping *zone_symbol =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "symbol");
+    ASSERT_NE(zone_symbol, nullptr);
+    for (const char *fragment :
+        {"single-character", "empty", "multi-character", "control", "whitespace-only",
+            "target-scoped persistent setter authority"}) {
+        EXPECT_NE(std::string(zone_symbol->setter_docs).find(fragment), std::string::npos)
+            << fragment;
+    }
+
+    const ExpectedZoneScalar guarded[] = {
+        {"white_power", "unsupported", "Derived gameplay state"},
+        {"dark_power", "unsupported", "Derived gameplay state"},
+        {"magi_power", "unsupported", "Derived gameplay state"},
+        {"owners", "unsupported", "Linked list pointer must never be exposed"},
+        {"number", "unsupported", "Changing a loaded zone vnum"},
+    };
+    for (const ExpectedZoneScalar &entry : guarded) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->setter_status, entry.status) << entry.field;
+        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
+                      .find(entry.required_text),
+            std::string::npos)
+            << entry.field;
+    }
+}
+
 TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
     struct ExpectedPromotedGetter {
         const char *field;

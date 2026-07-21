@@ -403,7 +403,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "number", false, ImplementedReadOnly, Deferred, "Returns the minutes between zone reset checks.",
      "Zone reset lifespan writes are deferred "
      "until reset scheduling rules are mapped.",
-     "mutation", ""},
+     "mutation", "Reset-scheduling scalar; defer until pulse/reset side effects are explicit."},
     {JsApiStructOwner::ZoneData, "zone_data", "age", "age", "getAge", "setAge", "number", false,
      ImplementedReadOnly, Unsupported, "Returns the current zone age in minutes.",
      "Direct age writes are unsupported; reset scheduling should own this value.", "mutation", ""},
@@ -414,18 +414,28 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "JavaScript is unsupported.",
      "none", "World topology field."},
     {JsApiStructOwner::ZoneData, "zone_data", "x", "x", "getX", "setX", "number", false, ImplementedReadOnly,
-     Deferred, "Returns the zone map x coordinate.",
-     "Zone coordinate writes are deferred until map validation is mapped.", "mutation", ""},
+     SetterPlanned, "Returns the zone map x coordinate.",
+     "Planned setter for the zone map x coordinate. It must validate a bounded integer map "
+     "coordinate, require target-scoped persistent setter authority, and preserve map layout "
+     "constraints before it becomes callable.",
+     "mutation", "Low-risk scalar candidate; implementation deferred until coordinate range is pinned."},
     {JsApiStructOwner::ZoneData, "zone_data", "y", "y", "getY", "setY", "number", false, ImplementedReadOnly,
-     Deferred, "Returns the zone map y coordinate.",
-     "Zone coordinate writes are deferred until map validation is mapped.", "mutation", ""},
+     SetterPlanned, "Returns the zone map y coordinate.",
+     "Planned setter for the zone map y coordinate. It must validate a bounded integer map "
+     "coordinate, require target-scoped persistent setter authority, and preserve map layout "
+     "constraints before it becomes callable.",
+     "mutation", "Low-risk scalar candidate; implementation deferred until coordinate range is pinned."},
     {JsApiStructOwner::ZoneData, "zone_data", "symbol", "symbol", "getSymbol", "setSymbol",
-     "string", false, ImplementedReadOnly, Deferred, "Returns the single-character zone map symbol.",
-     "Zone symbol writes are deferred until display validation is mapped.", "mutation", ""},
+     "string", false, ImplementedReadOnly, SetterPlanned,
+     "Returns the single-character zone map symbol.",
+     "Planned setter for the single-character zone map symbol. It must reject empty, multi-character, "
+     "control, and whitespace-only values, require target-scoped persistent setter authority, and "
+     "preserve map display safety before it becomes callable.",
+     "mutation", "Low-risk scalar candidate; implementation deferred until symbol validation is pinned."},
     {JsApiStructOwner::ZoneData, "zone_data", "level", "level", "getLevel", "setLevel", "number",
      false, ImplementedReadOnly, Deferred, "Returns the zone level value.",
      "Zone level writes are deferred until builder ownership and balance rules are mapped.",
-     "mutation", ""},
+     "mutation", "Balance-sensitive scalar; defer until gameplay impact and authority rules are explicit."},
     {JsApiStructOwner::ZoneData, "zone_data", "white_power", "whitePower", "getWhitePower",
      "setWhitePower", "number", false, Deferred, Unsupported,
      "Planned read-only White-side zone power.",
@@ -462,8 +472,9 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::ZoneData, "zone_data", "min_level_look", "minimumLookLevel",
      "getMinimumLookLevel", "setMinimumLookLevel", "number", false, ImplementedReadOnly, Deferred,
      "Returns the minimum level required to inspect zone map/details.",
-     "Minimum look level writes are deferred until builder authority rules are mapped.", "mutation",
-     ""},
+     "Minimum look level writes are deferred until level range, immortal visibility, and builder "
+     "authority rules are mapped.",
+     "mutation", "Visibility-gating scalar; defer until product range and permission semantics are pinned."},
     {JsApiStructOwner::ZoneData, "zone_data", "owners", "owners", "getOwners", "setOwners", "never",
      true, Internal, Unsupported,
      "Zone owner list is sensitive authorization data and no builder getter is emitted.",
@@ -473,7 +484,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "setResetMode", "number", false, ImplementedReadOnly, Deferred, "Returns the legacy zone reset mode.",
      "Reset mode writes are deferred until reset semantics "
      "and allowed domain values are documented.",
-     "mutation", ""},
+     "mutation", "Reset-sensitive scalar; defer until scheduling and reset side effects are explicit."},
     {JsApiStructOwner::ZoneData, "zone_data", "number", "vnum", "getVnum", "setVnum", "number",
      false, ImplementedReadOnly, Unsupported, "Returns the public zone vnum.",
      "Changing a loaded zone vnum from JavaScript is unsupported.", "none",

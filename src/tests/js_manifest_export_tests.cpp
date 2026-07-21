@@ -333,7 +333,18 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         "\"setterCallable\":false,\"documentationOnly\":true,"
         "\"getterDocs\":\"Returns the zone level value.\","
         "\"setterDocs\":\"Zone level writes are deferred until builder ownership and balance "
-        "rules are mapped.\",\"notes\":\"\"}");
+        "rules are mapped.\",\"notes\":\"Balance-sensitive scalar; defer until gameplay impact "
+        "and authority rules are explicit.\"}");
+    for (const char *field : {"x", "y", "symbol"}) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, field);
+        ASSERT_NE(mapping, nullptr) << field;
+        EXPECT_STREQ(mapping->setter_status, "planned-validated-setter") << field;
+        const std::string object = expected_mapping_json_object(*mapping);
+        expect_contains_json_object(json, object);
+        EXPECT_NE(object.find("\"setterCallable\":false"), std::string::npos) << field;
+        EXPECT_NE(object.find("\"documentationOnly\":true"), std::string::npos) << field;
+    }
 
     const struct {
         JsApiStructOwner owner;
