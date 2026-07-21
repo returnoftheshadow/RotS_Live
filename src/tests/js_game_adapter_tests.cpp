@@ -44,6 +44,16 @@ obj_data make_object(const char *name, int item_number)
     object.short_description = const_cast<char *>(name);
     object.description = const_cast<char *>("A detailed object description.");
     object.action_description = const_cast<char *>("A detailed action description.");
+    object.obj_flags.type_flag = ITEM_WEAPON;
+    object.obj_flags.wear_flags = ITEM_TAKE | ITEM_WIELD;
+    object.obj_flags.extra_flags = ITEM_GLOW | ITEM_MAGIC;
+    object.obj_flags.level = 12;
+    object.obj_flags.weight = 700;
+    object.obj_flags.cost = 450;
+    object.obj_flags.cost_per_day = 15;
+    object.obj_flags.timer = 30;
+    object.obj_flags.rarity = 2;
+    object.obj_flags.material = 4;
     object.owner = 88;
     object.touched = 1;
     return object;
@@ -227,6 +237,16 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_TRUE(object_fixture.has_action_description);
     EXPECT_EQ(object_fixture.action_description, "A detailed action description.");
     EXPECT_EQ(object_fixture.vnum, 300);
+    EXPECT_EQ(object_fixture.flags.item_type, "weapon");
+    EXPECT_EQ(object_fixture.flags.wear_flags, (std::vector<std::string> { "take", "wield" }));
+    EXPECT_EQ(object_fixture.flags.extra_flags, (std::vector<std::string> { "glow", "magic" }));
+    EXPECT_EQ(object_fixture.flags.level, 12);
+    EXPECT_EQ(object_fixture.flags.weight, 700);
+    EXPECT_EQ(object_fixture.flags.cost, 450);
+    EXPECT_EQ(object_fixture.flags.cost_per_day, 15);
+    EXPECT_EQ(object_fixture.flags.timer, 30);
+    EXPECT_EQ(object_fixture.flags.rarity, 2);
+    EXPECT_EQ(object_fixture.flags.material, "metal");
     ASSERT_TRUE(object_fixture.has_room);
     EXPECT_EQ(object_fixture.room.vnum, 1204);
     ASSERT_TRUE(object_fixture.room.has_zone);
@@ -263,6 +283,33 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(zone_fixture.symbol, "Z");
     EXPECT_EQ(zone_fixture.minimum_look_level, 3);
     EXPECT_EQ(zone_fixture.reset_mode, 2);
+}
+
+TEST(JsGameAdapter, FiltersUnknownObjectFlagDomains)
+{
+    index_data object_index[1] {};
+    object_index[0].virt = 301;
+    obj_data object = make_object("strange shard", 0);
+    object.obj_flags.type_flag = -1;
+    object.obj_flags.material = 999;
+    object.obj_flags.wear_flags = ITEM_TAKE | (1L << 29);
+    object.obj_flags.extra_flags = ITEM_GLOW | (1L << 13) | (1L << 29);
+    const obj_data *live_objects[] = { &object };
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1,
+        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+    EXPECT_EQ(object_fixture.flags.item_type, "Unknown");
+    EXPECT_EQ(object_fixture.flags.material, "Unknown");
+    EXPECT_EQ(object_fixture.flags.wear_flags, (std::vector<std::string> { "take" }));
+    EXPECT_EQ(object_fixture.flags.extra_flags, (std::vector<std::string> { "glow" }));
+
+    object.obj_flags.type_flag = 999;
+    object.obj_flags.material = -1;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+    EXPECT_EQ(object_fixture.flags.item_type, "Unknown");
+    EXPECT_EQ(object_fixture.flags.material, "Unknown");
 }
 
 TEST(JsGameAdapter, ModelsUnknownRoomSectorTypes)

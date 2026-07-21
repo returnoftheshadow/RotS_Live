@@ -382,6 +382,12 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter") << source_field;
         expect_contains_json_object(json, expected_mapping_json_object(*mapping));
     }
+
+    const JsApiStructFieldMapping *object_flags =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ObjData, "obj_flags");
+    ASSERT_NE(object_flags, nullptr);
+    EXPECT_STREQ(object_flags->getter_status, "implemented-read-only-getter");
+    expect_contains_json_object(json, expected_mapping_json_object(*object_flags));
 }
 
 TEST(JsManifestExport, ExportsCombinedBuilderCompatibilityBlock) {

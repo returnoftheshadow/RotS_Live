@@ -63,6 +63,16 @@ JsGameTriggerContextFixture make_context()
     context.object.has_action_description = true;
     context.object.action_description = "The lever clicks under your hand.";
     context.object.vnum = 300;
+    context.object.flags.item_type = "weapon";
+    context.object.flags.wear_flags = { "take", "wield" };
+    context.object.flags.extra_flags = { "glow", "magic" };
+    context.object.flags.level = 12;
+    context.object.flags.weight = 7;
+    context.object.flags.cost = 450;
+    context.object.flags.cost_per_day = 15;
+    context.object.flags.timer = 30;
+    context.object.flags.rarity = 2;
+    context.object.flags.material = "metal";
     context.object.has_room = true;
     context.object.room.id = "room:1204";
     context.object.room.name = "Northern Gate";
@@ -264,6 +274,17 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
         "return ctx.object.description === 'A silver lever is bolted to the wall.'\n"
         "  && ctx.object.shortDescription === 'a silver lever'\n"
         "  && ctx.object.actionDescription === 'The lever clicks under your hand.'\n"
+        "  && ctx.object.flags.itemType === 'weapon'\n"
+        "  && ctx.object.flags.wearFlags.join(',') === 'take,wield'\n"
+        "  && ctx.object.flags.extraFlags.join(',') === 'glow,magic'\n"
+        "  && typeof ctx.object.flags.values === 'undefined'\n"
+        "  && ctx.object.flags.level === 12\n"
+        "  && ctx.object.flags.weight === 7\n"
+        "  && ctx.object.flags.cost === 450\n"
+        "  && ctx.object.flags.costPerDay === 15\n"
+        "  && ctx.object.flags.timer === 30\n"
+        "  && ctx.object.flags.rarity === 2\n"
+        "  && ctx.object.flags.material === 'metal'\n"
         "  && ctx.room.description === 'A gatehouse opens toward the old road.'\n"
         "  && ctx.room.level === 7\n"
         "  && ctx.room.sectorType === 'City'\n"
@@ -290,6 +311,31 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
         "  && ctx.object.room.zone.map === ctx.zone.map\n"
         "  && ctx.object.room.zone.level === ctx.zone.level;",
         context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, KeepsObjectFlagArraysFrozenAndConstructorSafe)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "let pushBlocked = false;\n"
+        "let extraPushBlocked = false;\n"
+        "let indexBlocked = false;\n"
+        "let lengthBlocked = false;\n"
+        "try { ctx.object.flags.wearFlags.push('hold'); } catch (error) { pushBlocked = true; }\n"
+        "try { ctx.object.flags.extraFlags.push('dark'); } catch (error) { extraPushBlocked = true; }\n"
+        "try { ctx.object.flags.wearFlags[0] = 'hold'; } catch (error) { indexBlocked = true; }\n"
+        "try { ctx.object.flags.extraFlags.length = 0; } catch (error) { lengthBlocked = true; }\n"
+        "return ctx.object.flags.wearFlags.join(',') === 'take,wield'\n"
+        "  && ctx.object.flags.extraFlags.join(',') === 'glow,magic'\n"
+        "  && typeof ctx.object.flags.values === 'undefined'\n"
+        "  && Object.isFrozen(ctx.object.flags)\n"
+        "  && Object.isFrozen(ctx.object.flags.wearFlags)\n"
+        "  && Object.isFrozen(ctx.object.flags.extraFlags)\n"
+        "  && pushBlocked && extraPushBlocked && indexBlocked && lengthBlocked\n"
+        "  && typeof ctx.object.flags.wearFlags.join.constructor === 'undefined';",
+        make_context());
 
     expect_ok_allows(result);
 }
@@ -917,6 +963,10 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
                            "\"shortDescription\":\"a silver lever\","
                            "\"actionDescription\":\"The lever clicks under your hand.\","
                            "\"vnum\":300,"
+                           "\"flags\":{\"itemType\":\"weapon\",\"wearFlags\":[\"take\",\"wield\"],"
+                           "\"extraFlags\":[\"glow\",\"magic\"],\"level\":12,\"weight\":7,"
+                           "\"cost\":450,\"costPerDay\":15,\"timer\":30,\"rarity\":2,"
+                           "\"material\":\"metal\"},"
                            "\"room\":{\"id\":\"room:1204\""),
         std::string::npos);
     EXPECT_NE(literal.find("\"description\":\"The old city zone.\""), std::string::npos);

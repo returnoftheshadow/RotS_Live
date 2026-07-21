@@ -196,8 +196,9 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Moving objects requires explicit load/move/extract helpers and is deferred.",
      "world-mutation", "Setter must preserve container, carrier, and room contents invariants."},
     {JsApiStructOwner::ObjData, "obj_data", "obj_flags", "flags", "getFlags", "setFlags",
-     "ObjectFlags", false, Deferred, Deferred,
-     "Planned structured getter for object type, wear flags, values, level, weight, and flags.",
+     "ObjectFlags", false, ImplementedReadOnly, Deferred,
+     "Returns a structured read-only object flag snapshot with symbolic type, wear flags, extra "
+     "flags, material, and scalar economy/timer fields.",
      "Object flag writes are deferred until every subfield has validation.", "mutation",
      "Nested struct."},
     {JsApiStructOwner::ObjData, "obj_data", "affected", "affects", "getAffects", "setAffects",

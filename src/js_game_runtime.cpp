@@ -145,6 +145,23 @@ std::string character_literal(const JsGameCharacterFixture& character)
     return out.str();
 }
 
+std::string object_flags_literal(const JsGameObjectFlagsFixture& flags)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"itemType\":" << js_quote(flags.item_type) << ","
+        << "\"wearFlags\":" << string_array_literal(flags.wear_flags) << ","
+        << "\"extraFlags\":" << string_array_literal(flags.extra_flags) << ","
+        << "\"level\":" << flags.level << ","
+        << "\"weight\":" << flags.weight << ","
+        << "\"cost\":" << flags.cost << ","
+        << "\"costPerDay\":" << flags.cost_per_day << ","
+        << "\"timer\":" << flags.timer << ","
+        << "\"rarity\":" << flags.rarity << ","
+        << "\"material\":" << js_quote(flags.material) << "}";
+    return out.str();
+}
+
 std::string object_literal(const JsGameObjectFixture& object)
 {
     std::ostringstream out;
@@ -161,6 +178,7 @@ std::string object_literal(const JsGameObjectFixture& object)
     else
         out << "null";
     out << ","
+        << "\"flags\":" << object_flags_literal(object.flags) << ","
         << "\"room\":" << nullable_literal(object.has_room, room_literal(object.room)) << ","
         << "\"carriedBy\":"
         << nullable_literal(object.has_carried_by, character_literal(object.carried_by)) << ","

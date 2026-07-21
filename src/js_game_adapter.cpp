@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -165,6 +166,150 @@ std::vector<std::string> room_flag_names(long room_flags)
             flags.emplace_back(entry.name);
     }
     return flags;
+}
+
+struct IntName {
+    int value;
+    const char *name;
+};
+
+struct LongFlagName {
+    long bit;
+    const char *name;
+};
+
+constexpr IntName ObjectTypeNames[] = {
+    {ITEM_LIGHT, "light"},
+    {ITEM_SCROLL, "scroll"},
+    {ITEM_WAND, "wand"},
+    {ITEM_STAFF, "staff"},
+    {ITEM_WEAPON, "weapon"},
+    {ITEM_FIREWEAPON, "fireWeapon"},
+    {ITEM_MISSILE, "missile"},
+    {ITEM_TREASURE, "treasure"},
+    {ITEM_ARMOR, "armor"},
+    {ITEM_POTION, "potion"},
+    {ITEM_WORN, "worn"},
+    {ITEM_OTHER, "other"},
+    {ITEM_TRASH, "trash"},
+    {ITEM_TRAP, "trap"},
+    {ITEM_CONTAINER, "container"},
+    {ITEM_NOTE, "note"},
+    {ITEM_DRINKCON, "drinkContainer"},
+    {ITEM_KEY, "key"},
+    {ITEM_FOOD, "food"},
+    {ITEM_MONEY, "money"},
+    {ITEM_PEN, "pen"},
+    {ITEM_BOAT, "boat"},
+    {ITEM_FOUNTAIN, "fountain"},
+    {ITEM_SHIELD, "shield"},
+    {ITEM_LEVER, "lever"},
+};
+
+constexpr LongFlagName ObjectWearFlagNames[] = {
+    {ITEM_TAKE, "take"},
+    {ITEM_WEAR_FINGER, "finger"},
+    {ITEM_WEAR_NECK, "neck"},
+    {ITEM_WEAR_BODY, "body"},
+    {ITEM_WEAR_HEAD, "head"},
+    {ITEM_WEAR_LEGS, "legs"},
+    {ITEM_WEAR_FEET, "feet"},
+    {ITEM_WEAR_HANDS, "hands"},
+    {ITEM_WEAR_ARMS, "arms"},
+    {ITEM_WEAR_SHIELD, "shield"},
+    {ITEM_WEAR_ABOUT, "aboutBody"},
+    {ITEM_WEAR_WAISTE, "waist"},
+    {ITEM_WEAR_WRIST, "wrist"},
+    {ITEM_WIELD, "wield"},
+    {ITEM_HOLD, "hold"},
+    {ITEM_THROW, "throw"},
+    {ITEM_WEAR_BACK, "back"},
+    {ITEM_WEAR_BELT, "belt"},
+};
+
+constexpr LongFlagName ObjectExtraFlagNames[] = {
+    {ITEM_GLOW, "glow"},
+    {ITEM_HUM, "hum"},
+    {ITEM_DARK, "dark"},
+    {ITEM_BREAKABLE, "breakable"},
+    {ITEM_EVIL, "evil"},
+    {ITEM_INVISIBLE, "invisible"},
+    {ITEM_MAGIC, "magic"},
+    {ITEM_NODROP, "noDrop"},
+    {ITEM_BROKEN, "broken"},
+    {ITEM_ANTI_GOOD, "antiGood"},
+    {ITEM_ANTI_EVIL, "antiEvil"},
+    {ITEM_ANTI_NEUTRAL, "antiNeutral"},
+    {ITEM_NORENT, "noRent"},
+    {ITEM_NOINVIS, "noInvis"},
+    {ITEM_WILLPOWER, "willpower"},
+    {ITEM_IMM, "immortalOnly"},
+    {ITEM_HUMAN, "human"},
+    {ITEM_DWARF, "dwarf"},
+    {ITEM_WOODELF, "woodElf"},
+    {ITEM_HOBBIT, "hobbit"},
+    {ITEM_BEORNING, "beorning"},
+    {ITEM_URUK, "uruk"},
+    {ITEM_ORC, "orc"},
+    {ITEM_MOBORC, "mobOrc"},
+    {ITEM_MAGUS, "magus"},
+    {ITEM_OLOGHAI, "ologHai"},
+    {ITEM_HARADRIM, "haradrim"},
+    {ITEM_STAY_ZONE, "stayZone"},
+};
+
+constexpr IntName ObjectMaterialNames[] = {
+    {0, "usual"},
+    {1, "cloth"},
+    {2, "leather"},
+    {3, "chain"},
+    {4, "metal"},
+    {5, "wood"},
+    {6, "stone"},
+    {7, "crystal"},
+    {8, "gold"},
+    {9, "silver"},
+    {10, "mithril"},
+    {11, "fur"},
+    {12, "glass"},
+    {13, "plant"},
+};
+
+std::string named_value(int value, const IntName *names, std::size_t count)
+{
+    for (std::size_t index = 0; index < count; ++index) {
+        if (names[index].value == value)
+            return names[index].name;
+    }
+    return "Unknown";
+}
+
+std::vector<std::string> named_flags(long bitvector, const LongFlagName *names, std::size_t count)
+{
+    std::vector<std::string> flags;
+    for (std::size_t index = 0; index < count; ++index) {
+        if (IS_SET(bitvector, names[index].bit))
+            flags.emplace_back(names[index].name);
+    }
+    return flags;
+}
+
+JsGameObjectFlagsFixture object_flags_fixture(const obj_flag_data &flags)
+{
+    JsGameObjectFlagsFixture fixture;
+    fixture.item_type = named_value(flags.type_flag, ObjectTypeNames, std::size(ObjectTypeNames));
+    fixture.wear_flags =
+        named_flags(flags.wear_flags, ObjectWearFlagNames, std::size(ObjectWearFlagNames));
+    fixture.extra_flags =
+        named_flags(flags.extra_flags, ObjectExtraFlagNames, std::size(ObjectExtraFlagNames));
+    fixture.level = flags.level;
+    fixture.weight = flags.get_weight();
+    fixture.cost = flags.cost;
+    fixture.cost_per_day = flags.cost_per_day;
+    fixture.timer = flags.timer;
+    fixture.rarity = flags.rarity;
+    fixture.material = named_value(flags.material, ObjectMaterialNames, std::size(ObjectMaterialNames));
+    return fixture;
 }
 
 bool object_is_worn_by(const obj_data *object, const char_data *carrier)
@@ -408,6 +553,7 @@ bool js_game_adapter_object_fixture(
     fixture->has_action_description = object->action_description != nullptr;
     fixture->action_description = copy_c_string(object->action_description);
     fixture->vnum = object_vnum(*object, options);
+    fixture->flags = object_flags_fixture(object->obj_flags);
     fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
 
     fixture->has_carried_by = false;

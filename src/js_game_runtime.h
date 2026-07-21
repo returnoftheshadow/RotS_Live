@@ -58,6 +58,19 @@ struct JsGameCharacterFixture {
     JsGameRoomFixture room;
 };
 
+struct JsGameObjectFlagsFixture {
+    std::string item_type;
+    std::vector<std::string> wear_flags;
+    std::vector<std::string> extra_flags;
+    int level = 0;
+    int weight = 0;
+    int cost = 0;
+    int cost_per_day = 0;
+    int timer = 0;
+    int rarity = 0;
+    std::string material;
+};
+
 struct JsGameObjectFixture {
     std::string id;
     std::string name;
@@ -66,6 +79,7 @@ struct JsGameObjectFixture {
     bool has_action_description = false;
     std::string action_description;
     int vnum = 0;
+    JsGameObjectFlagsFixture flags;
 
     bool has_room = false;
     JsGameRoomFixture room;

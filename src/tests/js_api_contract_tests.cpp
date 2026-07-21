@@ -303,6 +303,22 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_STREQ(object_action_description->type_name, "string | null");
     EXPECT_TRUE(object_action_description->nullable);
 
+    const JsApiMember* object_flags = find_js_api_contract_member(*object, "flags");
+    ASSERT_NE(object_flags, nullptr);
+    EXPECT_STREQ(object_flags->type_name, "ObjectFlags");
+    EXPECT_EQ(object_flags->status, JsApiMemberStatus::PlannedReadOnly);
+
+    const JsApiType* object_flags_type = find_js_api_contract_type("ObjectFlags");
+    ASSERT_NE(object_flags_type, nullptr);
+    const JsApiMember* object_type = find_js_api_contract_member(*object_flags_type, "itemType");
+    ASSERT_NE(object_type, nullptr);
+    EXPECT_STREQ(object_type->type_name, "string");
+    const JsApiMember* object_values = find_js_api_contract_member(*object_flags_type, "values");
+    EXPECT_EQ(object_values, nullptr);
+    const JsApiMember* object_material = find_js_api_contract_member(*object_flags_type, "material");
+    ASSERT_NE(object_material, nullptr);
+    EXPECT_STREQ(object_material->type_name, "string");
+
     const JsApiType* zone = find_js_api_contract_type("Zone");
     ASSERT_NE(zone, nullptr);
     const JsApiMember* zone_level = find_js_api_contract_member(*zone, "level");

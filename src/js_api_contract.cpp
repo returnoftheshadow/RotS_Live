@@ -90,6 +90,11 @@ constexpr JsApiMember GameObjectMembers[] = {
     {"actionDescription", JsApiMemberKind::Property, "string | null", "", true, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Optional use/action description text copied into the invocation snapshot when present."},
+    {"flags", JsApiMemberKind::Property, "ObjectFlags", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Structured read-only object flag snapshot. It exposes symbolic item type, wear flags, extra "
+     "flags, material, and scalar economy/timer fields without exposing the "
+     "legacy flag storage or bitvectors."},
     {"room", JsApiMemberKind::Property, "Room | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Direct room containing the object, or null when carried, worn, nested, or invalid."},
@@ -102,6 +107,34 @@ constexpr JsApiMember GameObjectMembers[] = {
     {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
      "Checks whether this invocation-local handle still points at a live object."},
+};
+
+constexpr JsApiMember ObjectFlagsMembers[] = {
+    {"itemType", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Symbolic object type name, or Unknown when the loaded type is outside the server vocabulary."},
+    {"wearFlags", JsApiMemberKind::Property, "readonly string[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Builder-safe symbolic wear flag names in canonical server order."},
+    {"extraFlags", JsApiMemberKind::Property, "readonly string[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Builder-safe symbolic extra flag names in canonical server order, excluding unnamed bit "
+     "positions."},
+    {"level", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Object level from the loaded object flags."},
+    {"weight", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Effective object weight clamped by server rules."},
+    {"cost", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Object sale cost."},
+    {"costPerDay", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Object rent cost per real day."},
+    {"timer", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Object timer value."},
+    {"rarity", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Object rarity value."},
+    {"material", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Symbolic material name, or Unknown when the loaded material is outside the server vocabulary."},
 };
 
 constexpr JsApiMember RoomMembers[] = {
@@ -324,6 +357,8 @@ constexpr JsApiType ApiTypes[] = {
      MobMembers, sizeof(MobMembers) / sizeof(MobMembers[0])},
     {"GameObject", JsApiTypeKind::Interface, "", "Read-only object handle.", GameObjectMembers,
      sizeof(GameObjectMembers) / sizeof(GameObjectMembers[0])},
+    {"ObjectFlags", JsApiTypeKind::Interface, "", "Read-only object flag snapshot.",
+     ObjectFlagsMembers, sizeof(ObjectFlagsMembers) / sizeof(ObjectFlagsMembers[0])},
     {"Room", JsApiTypeKind::Interface, "", "Read-only room handle.", RoomMembers,
      sizeof(RoomMembers) / sizeof(RoomMembers[0])},
     {"Zone", JsApiTypeKind::Interface, "", "Read-only zone handle.", ZoneMembers,

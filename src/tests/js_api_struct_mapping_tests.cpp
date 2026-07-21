@@ -428,6 +428,8 @@ TEST(JsApiStructMapping, PinsCriticalBuilderFacingMappings) {
          "implemented-read-only-getter", "unsupported"},
         {JsApiStructOwner::ObjData, "carried_by", "carriedBy", "Character | null", true,
          "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::ObjData, "obj_flags", "flags", "ObjectFlags", false,
+         "implemented-read-only-getter", "deferred"},
         {JsApiStructOwner::RoomData, "number", "vnum", "number", false,
          "implemented-read-only-getter", "unsupported"},
         {JsApiStructOwner::RoomData, "zone", "zone", "Zone | null", true,
