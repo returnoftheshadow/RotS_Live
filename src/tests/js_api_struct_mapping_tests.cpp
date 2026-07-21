@@ -389,6 +389,7 @@ TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
 
     const ExpectedPromotedGetter expected[] = {
         {"sector_type", "sectorType"},
+        {"room_flags", "flags"},
         {"light", "light"},
     };
 
@@ -404,8 +405,7 @@ TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
     const JsApiStructFieldMapping *room_flags =
         find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, "room_flags");
     ASSERT_NE(room_flags, nullptr);
-    EXPECT_STREQ(room_flags->js_property, "flags");
-    EXPECT_STREQ(room_flags->getter_status, "deferred");
+    EXPECT_NE(std::string(room_flags->getter_docs).find("BFS_MARK"), std::string::npos);
     EXPECT_STREQ(room_flags->setter_status, "deferred");
 }
 

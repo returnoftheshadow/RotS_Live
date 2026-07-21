@@ -263,6 +263,12 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_STREQ(room_sector_type->type_name, "string");
     EXPECT_EQ(room_sector_type->status, JsApiMemberStatus::PlannedReadOnly);
 
+    const JsApiMember* room_flags = find_js_api_contract_member(*room, "flags");
+    ASSERT_NE(room_flags, nullptr);
+    EXPECT_STREQ(room_flags->type_name, "readonly string[]");
+    EXPECT_EQ(room_flags->status, JsApiMemberStatus::PlannedReadOnly);
+    EXPECT_NE(std::string(room_flags->docs).find("BFS_MARK"), std::string::npos);
+
     const JsApiMember* room_alignment = find_js_api_contract_member(*room, "alignment");
     ASSERT_NE(room_alignment, nullptr);
     EXPECT_STREQ(room_alignment->type_name, "number");
@@ -272,8 +278,6 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     ASSERT_NE(room_light, nullptr);
     EXPECT_STREQ(room_light->type_name, "number");
     EXPECT_EQ(room_light->status, JsApiMemberStatus::PlannedReadOnly);
-
-    EXPECT_EQ(find_js_api_contract_member(*room, "flags"), nullptr);
 
     const JsApiMember* is_sunlit = find_js_api_contract_member(*room, "isSunlit");
     ASSERT_NE(is_sunlit, nullptr);

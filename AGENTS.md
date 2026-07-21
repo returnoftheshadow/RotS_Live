@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API room value-domain getter promotion. `Room.sectorType` and `Room.light` are now documented in the server API contract, marked as implemented read-only mappings, copied into live QuickJS snapshots, normalized in BuilderClient offline fixtures, preserved through fixture validation, and editable through role-filtered fixture controls. `Room.flags` remains deferred until filtered flag-domain semantics avoid exposing transient/internal bits.
-- Next slice: JavaScript API filtered flag/value getter slice. Continue with bounded frozen snapshot candidates that need explicit domain filtering, starting with `Room.flags` and object flag/value snapshots, while keeping raw reset command arrays, owner/account fields, traversal pointers, descriptors, and function pointers internal/unsupported.
+- Latest completed slice: JavaScript API filtered room flag getter promotion. `Room.flags` is documented in the server API contract, marked as an implemented read-only mapping, copied into live QuickJS snapshots as a frozen array with safe array helpers, normalized in BuilderClient offline fixtures in canonical live order, preserved through fixture validation, editable through room fixture controls, and guarded by temporary client/server vocabulary drift tests. `BFS_MARK`, unnamed bits, and raw/internal flag integers remain unavailable, and flag setters are still deferred.
+- Next slice: JavaScript API object flag/value getter slice. Continue with bounded frozen snapshot candidates for `obj_flags` fields after explicitly defining safe string/value domains and keeping owner/account fields, traversal pointers, descriptors, and function pointers internal/unsupported.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

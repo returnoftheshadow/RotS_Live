@@ -23,6 +23,7 @@ JsGameTriggerContextFixture make_context()
     context.self.room.vnum = 1204;
     context.self.room.level = 7;
     context.self.room.sector_type = "City";
+    context.self.room.flags = { "dark", "indoors" };
     context.self.room.alignment = -2;
     context.self.room.light = 1;
     context.self.room.is_sunlit = true;
@@ -69,6 +70,7 @@ JsGameTriggerContextFixture make_context()
     context.object.room.vnum = 1204;
     context.object.room.level = 7;
     context.object.room.sector_type = "City";
+    context.object.room.flags = { "dark", "indoors" };
     context.object.room.alignment = -2;
     context.object.room.light = 1;
     context.object.room.is_sunlit = true;
@@ -97,6 +99,7 @@ JsGameTriggerContextFixture make_context()
     context.room.vnum = 1204;
     context.room.level = 7;
     context.room.sector_type = "City";
+    context.room.flags = { "dark", "indoors" };
     context.room.alignment = -2;
     context.room.light = 1;
     context.room.is_sunlit = true;
@@ -264,6 +267,8 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
         "  && ctx.room.description === 'A gatehouse opens toward the old road.'\n"
         "  && ctx.room.level === 7\n"
         "  && ctx.room.sectorType === 'City'\n"
+        "  && Array.isArray(ctx.room.flags)\n"
+        "  && ctx.room.flags.join(',') === 'dark,indoors'\n"
         "  && ctx.room.alignment === -2\n"
         "  && ctx.room.light === 1\n"
         "  && ctx.zone.level === 6\n"
@@ -279,11 +284,36 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
         "  && ctx.zone.resetMode === 1\n"
         "  && ctx.object.room.description === ctx.room.description\n"
         "  && ctx.object.room.sectorType === ctx.room.sectorType\n"
+        "  && ctx.object.room.flags.join(',') === ctx.room.flags.join(',')\n"
         "  && ctx.object.room.light === ctx.room.light\n"
         "  && ctx.object.room.zone.description === ctx.zone.description\n"
         "  && ctx.object.room.zone.map === ctx.zone.map\n"
         "  && ctx.object.room.zone.level === ctx.zone.level;",
         context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, KeepsRoomFlagArraysFrozenAndConstructorSafe)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "let pushBlocked = false;\n"
+        "let indexBlocked = false;\n"
+        "let lengthBlocked = false;\n"
+        "try { ctx.room.flags.push('death'); } catch (error) { pushBlocked = true; }\n"
+        "try { ctx.room.flags[0] = 'death'; } catch (error) { indexBlocked = true; }\n"
+        "try { ctx.room.flags.length = 0; } catch (error) { lengthBlocked = true; }\n"
+        "return Array.isArray(ctx.room.flags)\n"
+        "  && ctx.room.flags.includes('dark')\n"
+        "  && ctx.room.flags.join(',') === 'dark,indoors'\n"
+        "  && Object.isFrozen(ctx.room.flags)\n"
+        "  && pushBlocked && indexBlocked && lengthBlocked\n"
+        "  && typeof ctx.room.flags.constructor === 'undefined'\n"
+        "  && typeof ctx.room.flags.join.constructor === 'undefined'\n"
+        "  && typeof ctx.room.flags.filter.constructor === 'undefined'\n"
+        "  && typeof ctx.room.flags.__proto__.constructor === 'undefined';",
+        make_context());
 
     expect_ok_allows(result);
 }
@@ -636,7 +666,7 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
         "  && Array.isArray(ctx.targetTypes)\n"
         "  && ctx.targetTypes.length === 0\n"
         "  && Object.isFrozen(ctx.targetTypes)\n"
-        "  && Object.getPrototypeOf(ctx.targetTypes) === null\n"
+        "  && Object.getPrototypeOf(ctx.targetTypes) === Array.prototype\n"
         "  && typeof ctx.targetTypes.constructor === 'undefined'\n"
         "  && ctx.dying === null;",
         context);
@@ -735,7 +765,7 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent)
         "  && Object.isFrozen(ctx.dying)\n"
         "  && Object.isFrozen(ctx.targetTypes)\n"
         "  && Object.getPrototypeOf(ctx.targ1) === null\n"
-        "  && Object.getPrototypeOf(ctx.targetTypes) === null\n"
+        "  && Object.getPrototypeOf(ctx.targetTypes) === Array.prototype\n"
         "  && typeof ctx.targ1.constructor === 'undefined';",
         context);
 
@@ -877,6 +907,7 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"room\":{\"id\":\"room:1204\""), std::string::npos);
     EXPECT_NE(literal.find("\"isSunlit\":true"), std::string::npos);
     EXPECT_NE(literal.find("\"sectorType\":\"City\""), std::string::npos);
+    EXPECT_NE(literal.find("\"flags\":[\"dark\",\"indoors\"]"), std::string::npos);
     EXPECT_NE(literal.find("\"light\":1"), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"isValid\":function() { return true; }"), std::string::npos);

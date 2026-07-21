@@ -308,10 +308,11 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Room tracking data is internal unless a future tracking API is designed.",
      "Raw track mutation from JavaScript is unsupported.", "none", "Fixed internal array."},
     {JsApiStructOwner::RoomData, "room_data", "room_flags", "flags", "getFlags", "setFlags",
-     "readonly string[]", false, Deferred, Deferred, "Planned read-only room flag names.",
+     "readonly string[]", false, ImplementedReadOnly, Deferred,
+     "Returns builder-safe room flag names, excluding BFS_MARK and unnamed/internal bits.",
      "Room flag writes are deferred until flag-domain "
      "validation and side effects are mapped.",
-     "mutation", "Bitvector."},
+     "mutation", "Raw bitvector is filtered before reaching JavaScript."},
     {JsApiStructOwner::RoomData, "room_data", "alignment", "alignment", "getAlignment",
      "setAlignment", "number", false, ImplementedReadOnly, Deferred, "Returns the room alignment value.",
      "Room alignment writes are deferred.", "mutation", ""},

@@ -9,6 +9,7 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <vector>
 
 extern char *sector_types[];
 extern char num_of_sector_types;
@@ -129,6 +130,41 @@ std::string room_sector_type_name(int sector_type)
     }
 
     return "Unknown";
+}
+
+struct RoomFlagName {
+    long bit;
+    const char *name;
+};
+
+constexpr RoomFlagName RoomFlagNames[] = {
+    {DARK, "dark"},
+    {DEATH, "death"},
+    {NO_MOB, "noMob"},
+    {INDOORS, "indoors"},
+    {NORIDE, "noRide"},
+    {PERMAFFECT, "permanentAffect"},
+    {SHADOWY, "shadowy"},
+    {NO_MAGIC, "noMagic"},
+    {TUNNEL, "tunnel"},
+    {PRIVATE, "private"},
+    {GODROOM, "godRoom"},
+    {DRINK_WATER, "drinkWater"},
+    {DRINK_POISON, "drinkPoison"},
+    {SECURITYROOM, "securityRoom"},
+    {PEACEROOM, "peaceRoom"},
+    {NO_TELEPORT, "noTeleport"},
+    {HIDE_VNUM, "hideVnum"},
+};
+
+std::vector<std::string> room_flag_names(long room_flags)
+{
+    std::vector<std::string> flags;
+    for (const RoomFlagName &entry : RoomFlagNames) {
+        if (IS_SET(room_flags, entry.bit))
+            flags.emplace_back(entry.name);
+    }
+    return flags;
 }
 
 bool object_is_worn_by(const obj_data *object, const char_data *carrier)
@@ -402,6 +438,7 @@ bool js_game_adapter_room_fixture(
     fixture->vnum = room_data.number;
     fixture->level = room_data.level;
     fixture->sector_type = room_sector_type_name(room_data.sector_type);
+    fixture->flags = room_flag_names(room_data.room_flags);
     fixture->alignment = room_data.alignment;
     fixture->light = room_data.light;
     fixture->is_sunlit = room_is_sunlit(room_data);

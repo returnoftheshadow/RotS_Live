@@ -58,6 +58,19 @@ std::string nullable_literal(bool present, const std::string& literal)
     return present ? literal : "null";
 }
 
+std::string string_array_literal(const std::vector<std::string>& values)
+{
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << js_quote(values[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string zone_literal(const JsGameZoneFixture& zone)
 {
     std::ostringstream out;
@@ -90,6 +103,7 @@ std::string room_literal(const JsGameRoomFixture& room)
         << "\"vnum\":" << room.vnum << ","
         << "\"level\":" << room.level << ","
         << "\"sectorType\":" << js_quote(room.sector_type) << ","
+        << "\"flags\":" << string_array_literal(room.flags) << ","
         << "\"alignment\":" << room.alignment << ","
         << "\"light\":" << room.light << ","
         << "\"isSunlit\":" << js_bool(room.is_sunlit) << ","
@@ -305,12 +319,16 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
     wrapped << "'use strict';\n"
             << "delete Object.prototype.constructor;\n"
             << "const __rotsFunctionPrototype = Object.getPrototypeOf(function() {});\n"
-            << "delete __rotsFunctionPrototype.constructor;\n"
+            << "Object.defineProperty(__rotsFunctionPrototype, 'constructor', { value: "
+               "undefined, writable: false, configurable: false });\n"
+            << "Object.defineProperty(Array.prototype, 'constructor', { value: undefined, "
+               "writable: false, configurable: false });\n"
             << "Object.freeze(Object.prototype);\n"
+            << "Object.freeze(Array.prototype);\n"
             << "Object.freeze(__rotsFunctionPrototype);\n"
             << "function __rotsDeepFreeze(value) {\n"
             << "  if (value && (typeof value === 'object' || typeof value === 'function') && !Object.isFrozen(value)) {\n"
-            << "    if (typeof value === 'object') Object.setPrototypeOf(value, null);\n"
+            << "    if (typeof value === 'object' && !Array.isArray(value)) Object.setPrototypeOf(value, null);\n"
             << "    Object.freeze(value);\n"
             << "    for (const key of Object.keys(value)) __rotsDeepFreeze(value[key]);\n"
             << "  }\n"

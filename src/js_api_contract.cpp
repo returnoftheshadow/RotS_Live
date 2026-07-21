@@ -121,6 +121,10 @@ constexpr JsApiMember RoomMembers[] = {
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Readable sector type name copied from the loaded room snapshot, or Unknown when the loaded "
      "sector value is outside the server vocabulary."},
+    {"flags", JsApiMemberKind::Property, "readonly string[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Builder-safe room flag names copied from the loaded room snapshot. The list excludes "
+     "pathfinding scratch bits such as BFS_MARK and unnamed/internal bit positions."},
     {"alignment", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only", "Room alignment value."},
     {"light", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,

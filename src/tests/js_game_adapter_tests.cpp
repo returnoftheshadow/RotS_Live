@@ -58,6 +58,7 @@ room_data make_room(const char *name, int number, int zone)
     room.zone = zone;
     room.level = 4;
     room.sector_type = SECT_CITY;
+    room.room_flags = DARK | INDOORS;
     room.alignment = -3;
     room.light = 2;
     return room;
@@ -239,6 +240,7 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(room_fixture.vnum, 1204);
     EXPECT_EQ(room_fixture.level, 4);
     EXPECT_EQ(room_fixture.sector_type, "City");
+    EXPECT_EQ(room_fixture.flags, (std::vector<std::string> { "dark", "indoors" }));
     EXPECT_EQ(room_fixture.alignment, -3);
     EXPECT_EQ(room_fixture.light, 2);
     EXPECT_FALSE(room_fixture.is_sunlit);
@@ -402,6 +404,57 @@ TEST(JsGameAdapter, SnapshotsRoomSunlitStateFromCurrentWeatherAndRoomFlags)
         ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room)) << test_case.name;
         EXPECT_EQ(room.is_sunlit, test_case.expected_is_sunlit) << test_case.name;
     }
+}
+
+TEST(JsGameAdapter, FiltersRoomFlagsForBuilderSnapshots)
+{
+    room_data world[1] = { make_room("Northern Gate", 1204, 0) };
+    world[0].room_flags = BFS_MARK | (1L << 30);
+    JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
+        nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameRoomFixture room;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room));
+    EXPECT_TRUE(room.flags.empty());
+
+    struct ExpectedRoomFlag {
+        long bit;
+        const char *name;
+    };
+    const ExpectedRoomFlag expected_flags[] = {
+        {DARK, "dark"},
+        {DEATH, "death"},
+        {NO_MOB, "noMob"},
+        {INDOORS, "indoors"},
+        {NORIDE, "noRide"},
+        {PERMAFFECT, "permanentAffect"},
+        {SHADOWY, "shadowy"},
+        {NO_MAGIC, "noMagic"},
+        {TUNNEL, "tunnel"},
+        {PRIVATE, "private"},
+        {GODROOM, "godRoom"},
+        {DRINK_WATER, "drinkWater"},
+        {DRINK_POISON, "drinkPoison"},
+        {SECURITYROOM, "securityRoom"},
+        {PEACEROOM, "peaceRoom"},
+        {NO_TELEPORT, "noTeleport"},
+        {HIDE_VNUM, "hideVnum"},
+    };
+
+    long all_safe_flags = 0;
+    std::vector<std::string> all_safe_names;
+    for (const ExpectedRoomFlag &expected : expected_flags) {
+        world[0].room_flags = expected.bit;
+        ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room)) << expected.name;
+        EXPECT_EQ(room.flags, (std::vector<std::string> { expected.name })) << expected.name;
+        all_safe_flags |= expected.bit;
+        all_safe_names.emplace_back(expected.name);
+    }
+
+    world[0].room_flags = all_safe_flags | BFS_MARK | (1L << 30);
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room));
+    EXPECT_EQ(room.flags, all_safe_names);
+    EXPECT_EQ(std::find(room.flags.begin(), room.flags.end(), "BFS_MARK"), room.flags.end());
 }
 
 TEST(JsGameAdapter, RejectsStaleObjectsAndInvalidRoomBounds)

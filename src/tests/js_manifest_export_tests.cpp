@@ -374,7 +374,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         expect_contains_json_object(json, expected_mapping_json_object(*mapping));
     }
 
-    const char *room_value_domain_fields[] = { "sector_type", "light" };
+    const char *room_value_domain_fields[] = { "sector_type", "room_flags", "light" };
     for (const char *source_field : room_value_domain_fields) {
         const JsApiStructFieldMapping *mapping =
             find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, source_field);
