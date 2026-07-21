@@ -9,8 +9,20 @@
 struct JsGameZoneFixture {
     std::string id;
     std::string name;
+    bool has_description = false;
+    std::string description;
+    bool has_map = false;
+    std::string map;
     int vnum = 0;
     int level = 0;
+    int lifespan = 0;
+    int age = 0;
+    int top_room_vnum = 0;
+    int x = 0;
+    int y = 0;
+    std::string symbol;
+    int minimum_look_level = 0;
+    int reset_mode = 0;
 };
 
 struct JsGameRoomFixture {
@@ -48,6 +60,8 @@ struct JsGameObjectFixture {
     std::string name;
     std::string description;
     std::string short_description;
+    bool has_action_description = false;
+    std::string action_description;
     int vnum = 0;
 
     bool has_room = false;

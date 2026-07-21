@@ -350,6 +350,37 @@ TEST(JsApiStructMapping, PinsPromotedGetterGroupStatus) {
     }
 }
 
+TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
+    struct ExpectedPromotedGetter {
+        JsApiStructOwner owner;
+        const char *field;
+        const char *property;
+    };
+
+    const ExpectedPromotedGetter expected[] = {
+        {JsApiStructOwner::ObjData, "action_description", "actionDescription"},
+        {JsApiStructOwner::ZoneData, "description", "description"},
+        {JsApiStructOwner::ZoneData, "map", "map"},
+        {JsApiStructOwner::ZoneData, "lifespan", "lifespan"},
+        {JsApiStructOwner::ZoneData, "age", "age"},
+        {JsApiStructOwner::ZoneData, "top", "topRoomVnum"},
+        {JsApiStructOwner::ZoneData, "x", "x"},
+        {JsApiStructOwner::ZoneData, "y", "y"},
+        {JsApiStructOwner::ZoneData, "symbol", "symbol"},
+        {JsApiStructOwner::ZoneData, "min_level_look", "minimumLookLevel"},
+        {JsApiStructOwner::ZoneData, "reset_mode", "resetMode"},
+    };
+
+    for (const ExpectedPromotedGetter &entry : expected) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(entry.owner, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->js_property, entry.property);
+        EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
+        EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+    }
+}
+
 TEST(JsApiStructMapping, PinsCriticalBuilderFacingMappings) {
     struct ExpectedMapping {
         JsApiStructOwner owner;

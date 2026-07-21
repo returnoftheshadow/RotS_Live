@@ -92,6 +92,26 @@ const char *public_owner_name(JsApiStructOwner owner) {
     return "Unknown";
 }
 
+std::string expected_mapping_json_object(const JsApiStructFieldMapping &mapping) {
+    const std::string owner = public_owner_name(mapping.owner);
+    return "{\"owner\":\"" + json_utils::escape_json_string(owner) + "\",\"fieldId\":\"" +
+        json_utils::escape_json_string(owner + "." + mapping.js_property) +
+        "\",\"property\":\"" + json_utils::escape_json_string(mapping.js_property) +
+        "\",\"getterName\":\"" + json_utils::escape_json_string(mapping.getter_name) +
+        "\",\"setterName\":\"" + json_utils::escape_json_string(mapping.setter_name) +
+        "\",\"typeName\":\"" + json_utils::escape_json_string(mapping.type_name) +
+        "\",\"nullable\":" + (mapping.nullable ? "true" : "false") +
+        ",\"getterStatus\":\"" + json_utils::escape_json_string(mapping.getter_status) +
+        "\",\"setterStatus\":\"" + json_utils::escape_json_string(mapping.setter_status) +
+        "\",\"sideEffect\":\"" + json_utils::escape_json_string(mapping.side_effect) +
+        "\",\"getterCallable\":" +
+        (std::string(mapping.getter_status) == "implemented-read-only-getter" ? "true" : "false") +
+        ",\"setterCallable\":false,\"documentationOnly\":true,\"getterDocs\":\"" +
+        json_utils::escape_json_string(mapping.getter_docs) +
+        "\",\"setterDocs\":\"" + json_utils::escape_json_string(mapping.setter_docs) +
+        "\",\"notes\":\"" + json_utils::escape_json_string(mapping.notes) + "\"}";
+}
+
 std::string trim_ascii_space(const std::string &value) {
     const std::size_t first = value.find_first_not_of(" \t\r\n");
     if (first == std::string::npos)
@@ -328,6 +348,31 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         "\"getterDocs\":\"Returns the zone level value.\","
         "\"setterDocs\":\"Zone level writes are deferred until builder ownership and balance "
         "rules are mapped.\",\"notes\":\"\"}");
+
+    const struct {
+        JsApiStructOwner owner;
+        const char *source_field;
+    } promoted_second_group[] = {
+        {JsApiStructOwner::ObjData, "action_description"},
+        {JsApiStructOwner::ZoneData, "description"},
+        {JsApiStructOwner::ZoneData, "map"},
+        {JsApiStructOwner::ZoneData, "lifespan"},
+        {JsApiStructOwner::ZoneData, "age"},
+        {JsApiStructOwner::ZoneData, "top"},
+        {JsApiStructOwner::ZoneData, "x"},
+        {JsApiStructOwner::ZoneData, "y"},
+        {JsApiStructOwner::ZoneData, "symbol"},
+        {JsApiStructOwner::ZoneData, "min_level_look"},
+        {JsApiStructOwner::ZoneData, "reset_mode"},
+    };
+
+    for (const auto &entry : promoted_second_group) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(entry.owner, entry.source_field);
+        ASSERT_NE(mapping, nullptr) << entry.source_field;
+        EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter") << entry.source_field;
+        expect_contains_json_object(json, expected_mapping_json_object(*mapping));
+    }
 }
 
 TEST(JsManifestExport, ExportsCombinedBuilderCompatibilityBlock) {

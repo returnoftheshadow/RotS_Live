@@ -64,8 +64,19 @@ std::string zone_literal(const JsGameZoneFixture& zone)
     out << "{"
         << "\"id\":" << js_quote(zone.id) << ","
         << "\"name\":" << js_quote(zone.name) << ","
+        << "\"description\":" << nullable_literal(zone.has_description, js_quote(zone.description))
+        << ","
+        << "\"map\":" << nullable_literal(zone.has_map, js_quote(zone.map)) << ","
         << "\"vnum\":" << zone.vnum << ","
-        << "\"level\":" << zone.level << "}";
+        << "\"level\":" << zone.level << ","
+        << "\"lifespan\":" << zone.lifespan << ","
+        << "\"age\":" << zone.age << ","
+        << "\"topRoomVnum\":" << zone.top_room_vnum << ","
+        << "\"x\":" << zone.x << ","
+        << "\"y\":" << zone.y << ","
+        << "\"symbol\":" << js_quote(zone.symbol) << ","
+        << "\"minimumLookLevel\":" << zone.minimum_look_level << ","
+        << "\"resetMode\":" << zone.reset_mode << "}";
     return out.str();
 }
 
@@ -126,6 +137,8 @@ std::string object_literal(const JsGameObjectFixture& object)
         << "\"name\":" << js_quote(object.name) << ","
         << "\"description\":" << js_quote(object.description) << ","
         << "\"shortDescription\":" << js_quote(object.short_description) << ","
+        << "\"actionDescription\":"
+        << nullable_literal(object.has_action_description, js_quote(object.action_description)) << ","
         << "\"vnum\":";
     if (object.vnum >= 0)
         out << object.vnum;

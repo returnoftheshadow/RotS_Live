@@ -97,6 +97,8 @@ JavaScript execution model:
   - Initial accessor/mutator rollout order:
     - Inventory every public top-level field and classify each field as read-only, setter-planned, deferred, unsupported, or internal-only.
     - Promote safe scalar/string relationship getters into the generated `Character`, `GameObject`, `Room`, and `Zone` declarations only after the live adapter and BuilderClient offline runner expose the same shape.
+    - Current promoted read-only getter coverage includes character prototype/room and object room/carrier relationships, core object/room/zone names and vnums, room descriptions/level/alignment/sunlit state, object descriptions, object action descriptions, and safe nullable/scalar zone fields including description, map, lifespan, age, top room vnum, coordinates, symbol, minimum look level, reset mode, and level.
+    - Remaining getter work should classify relationship/list/value-domain fields into bounded frozen snapshots or explicit deferred/unsupported rows before setter work starts.
     - Add validated setter methods in narrow groups, starting with fields that already have clear legacy validation semantics and no ownership ambiguity.
     - Add parity tests for generated typings, API markdown, manifest export, BuilderClient offline fixtures, and live QuickJS execution before marking a getter/setter callable.
 - Initial fixture-backed game-context execution implementation:

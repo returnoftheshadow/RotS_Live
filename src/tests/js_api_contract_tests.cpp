@@ -281,11 +281,40 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     ASSERT_NE(object_short_description, nullptr);
     EXPECT_STREQ(object_short_description->type_name, "string");
 
+    const JsApiMember* object_action_description =
+        find_js_api_contract_member(*object, "actionDescription");
+    ASSERT_NE(object_action_description, nullptr);
+    EXPECT_STREQ(object_action_description->type_name, "string | null");
+    EXPECT_TRUE(object_action_description->nullable);
+
     const JsApiType* zone = find_js_api_contract_type("Zone");
     ASSERT_NE(zone, nullptr);
     const JsApiMember* zone_level = find_js_api_contract_member(*zone, "level");
     ASSERT_NE(zone_level, nullptr);
     EXPECT_STREQ(zone_level->type_name, "number");
+
+    const char* zone_text_members[] = { "description", "map" };
+    for (const char* member_name : zone_text_members) {
+        const JsApiMember* member = find_js_api_contract_member(*zone, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_STREQ(member->type_name, "string | null") << member_name;
+        EXPECT_TRUE(member->nullable) << member_name;
+    }
+
+    const char* zone_number_members[] = {
+        "lifespan", "age", "topRoomVnum", "x", "y", "minimumLookLevel", "resetMode",
+    };
+    for (const char* member_name : zone_number_members) {
+        const JsApiMember* member = find_js_api_contract_member(*zone, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_STREQ(member->type_name, "number") << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
+
+    const JsApiMember* zone_symbol = find_js_api_contract_member(*zone, "symbol");
+    ASSERT_NE(zone_symbol, nullptr);
+    EXPECT_STREQ(zone_symbol->type_name, "string");
+    EXPECT_EQ(zone_symbol->status, JsApiMemberStatus::PlannedReadOnly);
 
     EXPECT_EQ(find_js_api_contract_type("Missing"), nullptr);
     EXPECT_EQ(find_js_api_contract_member(*character, "missing"), nullptr);

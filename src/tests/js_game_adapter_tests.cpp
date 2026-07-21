@@ -40,6 +40,7 @@ obj_data make_object(const char *name, int item_number)
     object.name = const_cast<char *>(name);
     object.short_description = const_cast<char *>(name);
     object.description = const_cast<char *>("A detailed object description.");
+    object.action_description = const_cast<char *>("A detailed action description.");
     object.owner = 88;
     object.touched = 1;
     return object;
@@ -61,8 +62,18 @@ zone_data make_zone(const char *name, int number)
 {
     zone_data zone {};
     zone.name = const_cast<char *>(name);
+    zone.description = const_cast<char *>("A detailed zone description.");
+    zone.map = const_cast<char *>("N-G-S");
     zone.number = number;
     zone.level = 5;
+    zone.lifespan = 45;
+    zone.age = 7;
+    zone.top = number + 99;
+    zone.x = 11;
+    zone.y = -4;
+    zone.symbol = 'Z';
+    zone.min_level_look = 3;
+    zone.reset_mode = 2;
     return zone;
 }
 
@@ -207,6 +218,8 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(object_fixture.name, "silver lever");
     EXPECT_EQ(object_fixture.description, "A detailed object description.");
     EXPECT_EQ(object_fixture.short_description, "silver lever");
+    EXPECT_TRUE(object_fixture.has_action_description);
+    EXPECT_EQ(object_fixture.action_description, "A detailed action description.");
     EXPECT_EQ(object_fixture.vnum, 300);
     ASSERT_TRUE(object_fixture.has_room);
     EXPECT_EQ(object_fixture.room.vnum, 1204);
@@ -227,8 +240,74 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     ASSERT_TRUE(js_game_adapter_zone_fixture(0, options, &zone_fixture));
     EXPECT_EQ(zone_fixture.id, "zone:12");
     EXPECT_EQ(zone_fixture.name, "Old City");
+    EXPECT_TRUE(zone_fixture.has_description);
+    EXPECT_EQ(zone_fixture.description, "A detailed zone description.");
+    EXPECT_TRUE(zone_fixture.has_map);
+    EXPECT_EQ(zone_fixture.map, "N-G-S");
     EXPECT_EQ(zone_fixture.vnum, 12);
     EXPECT_EQ(zone_fixture.level, 5);
+    EXPECT_EQ(zone_fixture.lifespan, 45);
+    EXPECT_EQ(zone_fixture.age, 7);
+    EXPECT_EQ(zone_fixture.top_room_vnum, 111);
+    EXPECT_EQ(zone_fixture.x, 11);
+    EXPECT_EQ(zone_fixture.y, -4);
+    EXPECT_EQ(zone_fixture.symbol, "Z");
+    EXPECT_EQ(zone_fixture.minimum_look_level, 3);
+    EXPECT_EQ(zone_fixture.reset_mode, 2);
+}
+
+TEST(JsGameAdapter, PreservesNullableTextGetterNulls)
+{
+    index_data object_index[1] {};
+    object_index[0].virt = 301;
+    obj_data object = make_object("ancient key", 0);
+    object.action_description = nullptr;
+    const obj_data *live_objects[] = { &object };
+
+    zone_data zone = make_zone("Old City", 12);
+    zone.description = nullptr;
+    zone.map = nullptr;
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1,
+        nullptr, 0, object_index, 1, &zone, 1, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+    EXPECT_FALSE(object_fixture.has_action_description);
+    EXPECT_EQ(object_fixture.action_description, "");
+
+    JsGameZoneFixture zone_fixture;
+    ASSERT_TRUE(js_game_adapter_zone_fixture(0, options, &zone_fixture));
+    EXPECT_FALSE(zone_fixture.has_description);
+    EXPECT_EQ(zone_fixture.description, "");
+    EXPECT_FALSE(zone_fixture.has_map);
+    EXPECT_EQ(zone_fixture.map, "");
+}
+
+TEST(JsGameAdapter, PreservesPresentEmptyNullableTextGetters)
+{
+    index_data object_index[1] {};
+    object_index[0].virt = 302;
+    obj_data object = make_object("blank sign", 0);
+    object.action_description = const_cast<char *>("");
+    const obj_data *live_objects[] = { &object };
+
+    zone_data zone = make_zone("Old City", 12);
+    zone.description = const_cast<char *>("");
+    zone.map = const_cast<char *>("");
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1,
+        nullptr, 0, object_index, 1, &zone, 1, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+    EXPECT_TRUE(object_fixture.has_action_description);
+    EXPECT_EQ(object_fixture.action_description, "");
+
+    JsGameZoneFixture zone_fixture;
+    ASSERT_TRUE(js_game_adapter_zone_fixture(0, options, &zone_fixture));
+    EXPECT_TRUE(zone_fixture.has_description);
+    EXPECT_EQ(zone_fixture.description, "");
+    EXPECT_TRUE(zone_fixture.has_map);
+    EXPECT_EQ(zone_fixture.map, "");
 }
 
 TEST(JsGameAdapter, ObjectShortDescriptionFallsBackToObjectName)

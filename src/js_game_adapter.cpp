@@ -356,6 +356,8 @@ bool js_game_adapter_object_fixture(
     fixture->name = copy_c_string(display_name);
     fixture->description = copy_c_string(object->description);
     fixture->short_description = copy_c_string(display_name);
+    fixture->has_action_description = object->action_description != nullptr;
+    fixture->action_description = copy_c_string(object->action_description);
     fixture->vnum = object_vnum(*object, options);
     fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
 
@@ -403,8 +405,20 @@ bool js_game_adapter_zone_fixture(
     const zone_data &zone_data = options.zones[zone];
     fixture->id = "zone:" + std::to_string(zone_data.number);
     fixture->name = copy_c_string(zone_data.name);
+    fixture->has_description = zone_data.description != nullptr;
+    fixture->description = copy_c_string(zone_data.description);
+    fixture->has_map = zone_data.map != nullptr;
+    fixture->map = copy_c_string(zone_data.map);
     fixture->vnum = zone_data.number;
     fixture->level = zone_data.level;
+    fixture->lifespan = zone_data.lifespan;
+    fixture->age = zone_data.age;
+    fixture->top_room_vnum = zone_data.top;
+    fixture->x = zone_data.x;
+    fixture->y = zone_data.y;
+    fixture->symbol = zone_data.symbol == '\0' ? "" : std::string(1, zone_data.symbol);
+    fixture->minimum_look_level = zone_data.min_level_look;
+    fixture->reset_mode = zone_data.reset_mode;
     return true;
 }
 

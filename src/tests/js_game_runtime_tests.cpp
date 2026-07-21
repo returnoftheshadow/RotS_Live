@@ -27,8 +27,20 @@ JsGameTriggerContextFixture make_context()
     context.self.room.has_zone = true;
     context.self.room.zone.id = "zone:12";
     context.self.room.zone.name = "Old City";
+    context.self.room.zone.has_description = true;
+    context.self.room.zone.description = "The old city zone.";
+    context.self.room.zone.has_map = true;
+    context.self.room.zone.map = "N-G-S";
     context.self.room.zone.vnum = 12;
     context.self.room.zone.level = 6;
+    context.self.room.zone.lifespan = 30;
+    context.self.room.zone.age = 4;
+    context.self.room.zone.top_room_vnum = 1299;
+    context.self.room.zone.x = 8;
+    context.self.room.zone.y = -3;
+    context.self.room.zone.symbol = "C";
+    context.self.room.zone.minimum_look_level = 2;
+    context.self.room.zone.reset_mode = 1;
 
     context.has_actor = true;
     context.actor.id = "player:7";
@@ -45,6 +57,8 @@ JsGameTriggerContextFixture make_context()
     context.object.name = "silver lever";
     context.object.description = "A silver lever is bolted to the wall.";
     context.object.short_description = "a silver lever";
+    context.object.has_action_description = true;
+    context.object.action_description = "The lever clicks under your hand.";
     context.object.vnum = 300;
     context.object.has_room = true;
     context.object.room.id = "room:1204";
@@ -57,8 +71,20 @@ JsGameTriggerContextFixture make_context()
     context.object.room.has_zone = true;
     context.object.room.zone.id = "zone:12";
     context.object.room.zone.name = "Old City";
+    context.object.room.zone.has_description = true;
+    context.object.room.zone.description = "The old city zone.";
+    context.object.room.zone.has_map = true;
+    context.object.room.zone.map = "N-G-S";
     context.object.room.zone.vnum = 12;
     context.object.room.zone.level = 6;
+    context.object.room.zone.lifespan = 30;
+    context.object.room.zone.age = 4;
+    context.object.room.zone.top_room_vnum = 1299;
+    context.object.room.zone.x = 8;
+    context.object.room.zone.y = -3;
+    context.object.room.zone.symbol = "C";
+    context.object.room.zone.minimum_look_level = 2;
+    context.object.room.zone.reset_mode = 1;
 
     context.has_room = true;
     context.room.id = "room:1204";
@@ -71,14 +97,38 @@ JsGameTriggerContextFixture make_context()
     context.room.has_zone = true;
     context.room.zone.id = "zone:12";
     context.room.zone.name = "Old City";
+    context.room.zone.has_description = true;
+    context.room.zone.description = "The old city zone.";
+    context.room.zone.has_map = true;
+    context.room.zone.map = "N-G-S";
     context.room.zone.vnum = 12;
     context.room.zone.level = 6;
+    context.room.zone.lifespan = 30;
+    context.room.zone.age = 4;
+    context.room.zone.top_room_vnum = 1299;
+    context.room.zone.x = 8;
+    context.room.zone.y = -3;
+    context.room.zone.symbol = "C";
+    context.room.zone.minimum_look_level = 2;
+    context.room.zone.reset_mode = 1;
 
     context.has_zone = true;
     context.zone.id = "zone:12";
     context.zone.name = "Old City";
+    context.zone.has_description = true;
+    context.zone.description = "The old city zone.";
+    context.zone.has_map = true;
+    context.zone.map = "N-G-S";
     context.zone.vnum = 12;
     context.zone.level = 6;
+    context.zone.lifespan = 30;
+    context.zone.age = 4;
+    context.zone.top_room_vnum = 1299;
+    context.zone.x = 8;
+    context.zone.y = -3;
+    context.zone.symbol = "C";
+    context.zone.minimum_look_level = 2;
+    context.zone.reset_mode = 1;
 
     context.has_text = true;
     context.text = "say \"open\"\\close\nnext line";
@@ -204,12 +254,68 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "return ctx.object.description === 'A silver lever is bolted to the wall.'\n"
         "  && ctx.object.shortDescription === 'a silver lever'\n"
+        "  && ctx.object.actionDescription === 'The lever clicks under your hand.'\n"
         "  && ctx.room.description === 'A gatehouse opens toward the old road.'\n"
         "  && ctx.room.level === 7\n"
         "  && ctx.room.alignment === -2\n"
         "  && ctx.zone.level === 6\n"
+        "  && ctx.zone.description === 'The old city zone.'\n"
+        "  && ctx.zone.map === 'N-G-S'\n"
+        "  && ctx.zone.lifespan === 30\n"
+        "  && ctx.zone.age === 4\n"
+        "  && ctx.zone.topRoomVnum === 1299\n"
+        "  && ctx.zone.x === 8\n"
+        "  && ctx.zone.y === -3\n"
+        "  && ctx.zone.symbol === 'C'\n"
+        "  && ctx.zone.minimumLookLevel === 2\n"
+        "  && ctx.zone.resetMode === 1\n"
         "  && ctx.object.room.description === ctx.room.description\n"
+        "  && ctx.object.room.zone.description === ctx.zone.description\n"
+        "  && ctx.object.room.zone.map === ctx.zone.map\n"
         "  && ctx.object.room.zone.level === ctx.zone.level;",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, ModelsNullablePromotedStructGetterSnapshotsAsNull)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.object.has_action_description = false;
+    context.zone.has_description = false;
+    context.zone.has_map = false;
+    context.room.zone.has_description = false;
+    context.room.zone.has_map = false;
+    context.object.room.zone.has_description = false;
+    context.object.room.zone.has_map = false;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.object.actionDescription === null\n"
+        "  && ctx.zone.description === null\n"
+        "  && ctx.zone.map === null\n"
+        "  && ctx.room.zone.description === null\n"
+        "  && ctx.object.room.zone.map === null;",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, PreservesEmptyNullablePromotedStructGetterStrings)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.object.has_action_description = true;
+    context.object.action_description = "";
+    context.zone.has_description = true;
+    context.zone.description = "";
+    context.zone.has_map = true;
+    context.zone.map = "";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.object.actionDescription === ''\n"
+        "  && ctx.zone.description === ''\n"
+        "  && ctx.zone.map === '';",
         context);
 
     expect_ok_allows(result);
@@ -765,9 +871,16 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\""), std::string::npos);
     EXPECT_NE(literal.find("\"object\":{\"id\":\"object:300\",\"name\":\"silver lever\","
                            "\"description\":\"A silver lever is bolted to the wall.\","
-                           "\"shortDescription\":\"a silver lever\",\"vnum\":300,"
+                           "\"shortDescription\":\"a silver lever\","
+                           "\"actionDescription\":\"The lever clicks under your hand.\","
+                           "\"vnum\":300,"
                            "\"room\":{\"id\":\"room:1204\""),
         std::string::npos);
+    EXPECT_NE(literal.find("\"description\":\"The old city zone.\""), std::string::npos);
+    EXPECT_NE(literal.find("\"map\":\"N-G-S\""), std::string::npos);
+    EXPECT_NE(literal.find("\"topRoomVnum\":1299"), std::string::npos);
+    EXPECT_NE(literal.find("\"minimumLookLevel\":2"), std::string::npos);
+    EXPECT_NE(literal.find("\"resetMode\":1"), std::string::npos);
     EXPECT_NE(literal.find("\"speaker\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"attacker\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"victim\":null"), std::string::npos);
