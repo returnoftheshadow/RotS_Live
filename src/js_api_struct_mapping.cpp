@@ -209,30 +209,30 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Death-list traversal state is internal and no builder getter is emitted.",
      "Death-list mutation from JavaScript is unsupported.", "none", "Raw list pointer."},
     {JsApiStructOwner::CharData, "char_data", "classpoints", "classPoints", "getClassPoints",
-     "setClassPoints", "number", false, Deferred, Unsupported,
-     "Planned read-only character-creation class point value.",
+     "setClassPoints", "number", false, ImplementedReadOnly, Unsupported,
+     "Returns the character-creation class point value copied into the invocation snapshot.",
      "Class-point writes are unsupported for builder scripts because this is character-creation "
      "bookkeeping, not a builder-facing world script field; any future admin-only mutation needs "
      "account/admin audit and persistence rules.",
      "mutation",
      "Character creation bookkeeping."},
     {JsApiStructOwner::CharData, "char_data", "interrupt_count", "interruptCount",
-     "getInterruptCount", "setInterruptCount", "number", false, Deferred, Unsupported,
-     "Planned read-only interrupt count for combat/casting diagnostics.",
+     "getInterruptCount", "setInterruptCount", "number", false, ImplementedReadOnly, Unsupported,
+     "Returns the current interrupt count copied into the invocation snapshot for combat/casting diagnostics.",
      "Interrupt count writes are unsupported for builder scripts; any future admin-only helper "
      "must map caster AI, mental/combat interruption, decay timing, and wait-state interactions.",
      "mutation",
      "Combat AI bookkeeping."},
     {JsApiStructOwner::CharData, "char_data", "interrupt_time", "interruptTime", "getInterruptTime",
-     "setInterruptTime", "number", false, Deferred, Unsupported,
-     "Planned read-only countdown before interrupt count decays.",
+     "setInterruptTime", "number", false, ImplementedReadOnly, Unsupported,
+     "Returns the countdown before interrupt count decays copied into the invocation snapshot.",
      "Interrupt timer writes are unsupported for builder scripts; any future admin-only helper "
      "must map caster AI, mental/combat interruption, decay timing, and wait-state interactions.",
      "mutation",
      "Combat AI bookkeeping."},
     {JsApiStructOwner::CharData, "char_data", "spec_busy", "specialBusy", "isSpecialBusy",
-     "setSpecialBusy", "boolean", false, Deferred, Unsupported,
-     "Planned read-only flag showing whether a special procedure is busy.",
+     "setSpecialBusy", "boolean", false, ImplementedReadOnly, Unsupported,
+     "Returns whether a special procedure is busy in the invocation snapshot.",
      "Special busy writes are unsupported for builder scripts; any future admin-only helper must "
      "map special-procedure reentrancy, trigger dispatch, legacy wait-state, and reset/heartbeat "
      "interactions.",

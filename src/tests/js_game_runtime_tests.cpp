@@ -20,6 +20,10 @@ JsGameTriggerContextFixture make_context()
     context.self.rank = 9;
     context.self.hit_points = 125;
     context.self.max_hit_points = 150;
+    context.self.class_points = 6;
+    context.self.interrupt_count = 2;
+    context.self.interrupt_time = 11;
+    context.self.special_busy = true;
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -61,6 +65,10 @@ JsGameTriggerContextFixture make_context()
     context.actor.rank = 4;
     context.actor.hit_points = 88;
     context.actor.max_hit_points = 92;
+    context.actor.class_points = 3;
+    context.actor.interrupt_count = 1;
+    context.actor.interrupt_time = 5;
+    context.actor.special_busy = false;
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -370,6 +378,10 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.isPlayer === true\n"
         "  && ctx.self.experience === 42000\n"
         "  && ctx.self.rank === 9\n"
+        "  && ctx.self.classPoints === 6\n"
+        "  && ctx.self.interruptCount === 2\n"
+        "  && ctx.self.interruptTime === 11\n"
+        "  && ctx.self.specialBusy === true\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -377,6 +389,10 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.race === 'Elf'\n"
         "  && ctx.actor.experience === 31000\n"
         "  && ctx.actor.rank === 4\n"
+        "  && ctx.actor.classPoints === 3\n"
+        "  && ctx.actor.interruptCount === 1\n"
+        "  && ctx.actor.interruptTime === 5\n"
+        "  && ctx.actor.specialBusy === false\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"

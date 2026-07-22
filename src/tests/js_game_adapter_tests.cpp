@@ -29,6 +29,10 @@ char_data make_character(const char *name, int race, int level, int hit, int max
     character.points.exp = level * 1000;
     character.tmpabilities.hit = hit;
     character.abilities.hit = max_hit;
+    character.classpoints = 4;
+    character.interrupt_count = 2;
+    character.interrupt_time = 9;
+    character.spec_busy = true;
     character.specials2.idnum = npc ? -1 : 1234;
     if (npc)
         character.specials2.act |= MOB_ISNPC;
@@ -172,6 +176,10 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.rank, 18);
     EXPECT_EQ(fixture.hit_points, 41);
     EXPECT_EQ(fixture.max_hit_points, 55);
+    EXPECT_EQ(fixture.class_points, 4);
+    EXPECT_EQ(fixture.interrupt_count, 2);
+    EXPECT_EQ(fixture.interrupt_time, 9);
+    EXPECT_TRUE(fixture.special_busy);
     EXPECT_TRUE(fixture.is_npc);
     ASSERT_TRUE(fixture.has_room);
     EXPECT_EQ(fixture.room.vnum, 1204);

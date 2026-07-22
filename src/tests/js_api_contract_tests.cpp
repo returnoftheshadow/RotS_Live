@@ -241,6 +241,17 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_EQ(rank->status, JsApiMemberStatus::PlannedReadOnly);
     EXPECT_NE(std::string(rank->docs).find("CHx_RANK"), std::string::npos);
 
+    for (const char *member_name :
+        {"classPoints", "interruptCount", "interruptTime", "specialBusy"}) {
+        const JsApiMember *member = find_js_api_contract_member(*character, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
+    EXPECT_STREQ(find_js_api_contract_member(*character, "classPoints")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "interruptCount")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "interruptTime")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "specialBusy")->type_name, "boolean");
+
     const JsApiType* mob = find_js_api_contract_type("Mob");
     ASSERT_NE(mob, nullptr);
     const JsApiMember* prototype_vnum = find_js_api_contract_member(*mob, "prototypeVnum");

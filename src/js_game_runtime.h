@@ -55,6 +55,10 @@ struct JsGameCharacterFixture {
     int rank = 0;
     int hit_points = 0;
     int max_hit_points = 0;
+    int class_points = 0;
+    int interrupt_count = 0;
+    int interrupt_time = 0;
+    bool special_busy = false;
     bool is_npc = false;
 
     bool has_room = false;

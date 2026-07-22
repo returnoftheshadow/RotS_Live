@@ -533,6 +533,10 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->rank = character->player.ranking;
     fixture->hit_points = character->tmpabilities.hit;
     fixture->max_hit_points = character->abilities.hit;
+    fixture->class_points = character->classpoints;
+    fixture->interrupt_count = character->interrupt_count;
+    fixture->interrupt_time = character->interrupt_time;
+    fixture->special_busy = character->spec_busy;
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;
