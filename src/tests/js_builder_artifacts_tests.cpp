@@ -406,6 +406,8 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
                 << interface_name;
             EXPECT_NE(block.find("canonical live sector-name validation"), std::string::npos)
                 << interface_name;
+            EXPECT_EQ(block.find("setAlignment("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setFlags("), std::string::npos) << interface_name;
         } else {
             EXPECT_EQ(block.find("setSectorType("), std::string::npos) << interface_name;
         }

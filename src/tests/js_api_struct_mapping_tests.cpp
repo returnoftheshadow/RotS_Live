@@ -577,6 +577,27 @@ TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
     ASSERT_NE(room_flags, nullptr);
     EXPECT_NE(std::string(room_flags->getter_docs).find("BFS_MARK"), std::string::npos);
     EXPECT_STREQ(room_flags->setter_status, "deferred");
+    EXPECT_NE(std::string(room_flags->setter_docs).find("builder-facing flag vocabulary"),
+        std::string::npos);
+    EXPECT_NE(std::string(room_flags->setter_docs).find("room-affect synchronization"),
+        std::string::npos);
+    EXPECT_NE(std::string(room_flags->setter_docs).find("teleport"), std::string::npos);
+    EXPECT_NE(std::string(room_flags->notes).find("Raw bitvector"), std::string::npos);
+    EXPECT_NE(std::string(room_flags->notes).find("read-only permanentAffect"),
+        std::string::npos);
+    EXPECT_NE(std::string(room_flags->notes).find("PERMAFFECT"), std::string::npos);
+
+    const JsApiStructFieldMapping *alignment =
+        find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, "alignment");
+    ASSERT_NE(alignment, nullptr);
+    EXPECT_STREQ(alignment->getter_status, "implemented-read-only-getter");
+    EXPECT_STREQ(alignment->setter_status, "deferred");
+    EXPECT_NE(std::string(alignment->setter_docs).find("room file writer"),
+        std::string::npos);
+    EXPECT_NE(std::string(alignment->setter_docs).find("does not copy alignment"),
+        std::string::npos);
+    EXPECT_NE(std::string(alignment->notes).find("persistence/editing semantics"),
+        std::string::npos);
 }
 
 TEST(JsApiStructMapping, PinsCriticalBuilderFacingMappings) {

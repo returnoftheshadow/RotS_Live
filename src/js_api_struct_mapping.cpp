@@ -351,12 +351,23 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::RoomData, "room_data", "room_flags", "flags", "getFlags", "setFlags",
      "readonly string[]", false, ImplementedReadOnly, Deferred,
      "Returns builder-safe room flag names, excluding BFS_MARK and unnamed/internal bits.",
-     "Room flag writes are deferred until flag-domain "
-     "validation and side effects are mapped.",
-     "mutation", "Raw bitvector is filtered before reaching JavaScript."},
+     "Room flag writes are deferred until a builder-facing flag vocabulary, additive/removal "
+     "helper shape, internal/transient bit exclusions, room-affect synchronization, and "
+     "movement, combat, teleport, lighting, drinking, and security side effects are mapped.",
+     "mutation",
+     "Raw bitvector is filtered before reaching JavaScript. PERMAFFECT may be visible as "
+     "read-only permanentAffect metadata when present, but BFS_MARK, PERMAFFECT, and unnamed "
+     "bits must never be user-settable through a raw bitvector path."},
     {JsApiStructOwner::RoomData, "room_data", "alignment", "alignment", "getAlignment",
-     "setAlignment", "number", false, ImplementedReadOnly, Deferred, "Returns the room alignment value.",
-     "Room alignment writes are deferred.", "mutation", ""},
+     "setAlignment", "number", false, ImplementedReadOnly, Deferred,
+     "Returns the room alignment value.",
+     "Room alignment writes are deferred because the inspected room file writer stores the "
+     "leading alignment column as 0, the room implementation path does not copy alignment into "
+     "the live room record, and no builder-facing persistence or gameplay side-effect policy has "
+     "been confirmed for this field.",
+     "mutation",
+     "Do not make callable until persistence/editing semantics are deliberately added or "
+     "confirmed."},
     {JsApiStructOwner::RoomData, "room_data", "light", "light", "getLight", "setLight", "number",
      false, ImplementedReadOnly, Unsupported, "Returns the current room light-source count.",
      "Direct light counter writes are unsupported; use "

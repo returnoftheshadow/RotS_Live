@@ -379,15 +379,17 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         "provides target-scoped persistent setter authority. This changes the persisted "
         "room-file scalar value used by legacy same-level room filtering.\",\"notes\":\"Persistent "
         "application requires target-scoped dispatch mutation authority context.\"}");
-    expect_contains_json_object(
-        json,
-        "{\"owner\":\"Room\",\"fieldId\":\"Room.alignment\",\"property\":\"alignment\","
-        "\"getterName\":\"getAlignment\",\"setterName\":\"setAlignment\",\"typeName\":\"number\","
-        "\"nullable\":false,\"getterStatus\":\"implemented-read-only-getter\","
-        "\"setterStatus\":\"deferred\",\"sideEffect\":\"mutation\",\"getterCallable\":true,"
-        "\"setterCallable\":false,\"documentationOnly\":true,"
-        "\"getterDocs\":\"Returns the room alignment value.\","
-        "\"setterDocs\":\"Room alignment writes are deferred.\",\"notes\":\"\"}");
+    const JsApiStructFieldMapping *room_alignment =
+        find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, "alignment");
+    ASSERT_NE(room_alignment, nullptr);
+    const std::string room_alignment_object = expected_mapping_json_object(*room_alignment);
+    EXPECT_NE(room_alignment_object.find("\"setterCallable\":false"), std::string::npos);
+    EXPECT_NE(room_alignment_object.find("\"documentationOnly\":true"), std::string::npos);
+    for (const char *fragment :
+        {"room file writer", "does not copy alignment", "persistence/editing semantics"}) {
+        EXPECT_NE(room_alignment_object.find(fragment), std::string::npos) << fragment;
+    }
+    expect_contains_json_object(json, room_alignment_object);
     expect_contains_json_object(
         json,
         "{\"owner\":\"Zone\",\"fieldId\":\"Zone.level\",\"property\":\"level\","
