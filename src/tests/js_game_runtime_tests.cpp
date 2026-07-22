@@ -24,6 +24,12 @@ JsGameTriggerContextFixture make_context()
     context.self.interrupt_count = 2;
     context.self.interrupt_time = 11;
     context.self.special_busy = true;
+    context.self.current_abilities.strength = 18;
+    context.self.current_abilities.intelligence = 13;
+    context.self.current_abilities.willpower = 15;
+    context.self.current_abilities.dexterity = 17;
+    context.self.current_abilities.constitution = 16;
+    context.self.current_abilities.leadership = 9;
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -69,6 +75,12 @@ JsGameTriggerContextFixture make_context()
     context.actor.interrupt_count = 1;
     context.actor.interrupt_time = 5;
     context.actor.special_busy = false;
+    context.actor.current_abilities.strength = 11;
+    context.actor.current_abilities.intelligence = 19;
+    context.actor.current_abilities.willpower = 14;
+    context.actor.current_abilities.dexterity = 16;
+    context.actor.current_abilities.constitution = 12;
+    context.actor.current_abilities.leadership = 10;
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -382,6 +394,12 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.interruptCount === 2\n"
         "  && ctx.self.interruptTime === 11\n"
         "  && ctx.self.specialBusy === true\n"
+        "  && ctx.self.currentAbilities.strength === 18\n"
+        "  && ctx.self.currentAbilities.intelligence === 13\n"
+        "  && ctx.self.currentAbilities.willpower === 15\n"
+        "  && ctx.self.currentAbilities.dexterity === 17\n"
+        "  && ctx.self.currentAbilities.constitution === 16\n"
+        "  && ctx.self.currentAbilities.leadership === 9\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -393,6 +411,12 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.interruptCount === 1\n"
         "  && ctx.actor.interruptTime === 5\n"
         "  && ctx.actor.specialBusy === false\n"
+        "  && ctx.actor.currentAbilities.strength === 11\n"
+        "  && ctx.actor.currentAbilities.intelligence === 19\n"
+        "  && ctx.actor.currentAbilities.willpower === 14\n"
+        "  && ctx.actor.currentAbilities.dexterity === 16\n"
+        "  && ctx.actor.currentAbilities.constitution === 12\n"
+        "  && ctx.actor.currentAbilities.leadership === 10\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1485,13 +1509,26 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && !('raw' in ctx.room)\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.currentAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
+        "  && Object.isFrozen(ctx.self.currentAbilities)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
 
     expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, RejectsMutationOfNestedAbilitySnapshots)
+{
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "ctx.self.currentAbilities.strength = 1;\n"
+        "return true;",
+        make_context());
+
+    EXPECT_EQ(result.status, JsRuntimeStatus::Error);
 }
 
 TEST(JsGameRuntime, ModelsMissingHandlesAsNull)

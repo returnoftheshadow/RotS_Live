@@ -65,9 +65,30 @@ constexpr JsApiMember CharacterMembers[] = {
     {"specialBusy", JsApiMemberKind::Property, "boolean", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "True when a special procedure is busy in the invocation snapshot."},
+    {"currentAbilities", JsApiMemberKind::Property, "AbilityScores", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only snapshot of currently modified ability scores after active affects, "
+     "equipment, and recalculation helpers have been applied."},
     {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
      "Checks whether this invocation-local handle still points at a live entity."},
+};
+
+constexpr JsApiMember AbilityScoresMembers[] = {
+    {"strength", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current strength score."},
+    {"intelligence", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Current intelligence score."},
+    {"willpower", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current willpower score."},
+    {"dexterity", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current dexterity score."},
+    {"constitution", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Current constitution score."},
+    {"leadership", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current leadership score."},
 };
 
 constexpr JsApiMember PlayerMembers[] = {
@@ -393,6 +414,9 @@ constexpr JsApiMember ScriptMembers[] = {
 constexpr JsApiType ApiTypes[] = {
     {"Character", JsApiTypeKind::Interface, "", "Read-only character handle.", CharacterMembers,
      sizeof(CharacterMembers) / sizeof(CharacterMembers[0])},
+    {"AbilityScores", JsApiTypeKind::Interface, "",
+     "Frozen read-only character ability score snapshot.", AbilityScoresMembers,
+     sizeof(AbilityScoresMembers) / sizeof(AbilityScoresMembers[0])},
     {"Player", JsApiTypeKind::Interface, "Character", "Read-only player character handle.",
      PlayerMembers, sizeof(PlayerMembers) / sizeof(PlayerMembers[0])},
     {"Mob", JsApiTypeKind::Interface, "Character", "Read-only non-player mobile handle.",

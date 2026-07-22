@@ -44,6 +44,15 @@ struct JsGameRoomFixture {
     JsGameZoneFixture zone;
 };
 
+struct JsGameAbilityScoresFixture {
+    int strength = 0;
+    int intelligence = 0;
+    int willpower = 0;
+    int dexterity = 0;
+    int constitution = 0;
+    int leadership = 0;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -59,6 +68,7 @@ struct JsGameCharacterFixture {
     int interrupt_count = 0;
     int interrupt_time = 0;
     bool special_busy = false;
+    JsGameAbilityScoresFixture current_abilities;
     bool is_npc = false;
 
     bool has_room = false;

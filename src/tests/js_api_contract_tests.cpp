@@ -242,7 +242,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_NE(std::string(rank->docs).find("CHx_RANK"), std::string::npos);
 
     for (const char *member_name :
-        {"classPoints", "interruptCount", "interruptTime", "specialBusy"}) {
+        {"classPoints", "interruptCount", "interruptTime", "specialBusy", "currentAbilities"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -251,6 +251,18 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_STREQ(find_js_api_contract_member(*character, "interruptCount")->type_name, "number");
     EXPECT_STREQ(find_js_api_contract_member(*character, "interruptTime")->type_name, "number");
     EXPECT_STREQ(find_js_api_contract_member(*character, "specialBusy")->type_name, "boolean");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "currentAbilities")->type_name,
+        "AbilityScores");
+
+    const JsApiType *ability_scores = find_js_api_contract_type("AbilityScores");
+    ASSERT_NE(ability_scores, nullptr);
+    for (const char *member_name :
+        {"strength", "intelligence", "willpower", "dexterity", "constitution", "leadership"}) {
+        const JsApiMember *member = find_js_api_contract_member(*ability_scores, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_STREQ(member->type_name, "number") << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
 
     const JsApiType* mob = find_js_api_contract_type("Mob");
     ASSERT_NE(mob, nullptr);

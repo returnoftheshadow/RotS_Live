@@ -1035,7 +1035,7 @@ TEST(JsApiStructMapping, PinsCharacterNestedProfileAndStatSetterDeferrals) {
         {"abilities", "baseAbilities", "setBaseAbilities", "AbilityScores", false, "deferred",
             "unsupported", "mutation", "derived stat recalculation"},
         {"tmpabilities", "currentAbilities", "setCurrentAbilities", "AbilityScores", false,
-            "deferred", "unsupported", "mutation", "active affects"},
+            "implemented-read-only-getter", "unsupported", "mutation", "active affects"},
         {"constabilities", "rolledAbilities", "setRolledAbilities", "AbilityScores", false,
             "deferred", "unsupported", "mutation", "character-creation history"},
         {"points", "points", "setPoints", "CharacterPoints", false, "deferred", "unsupported",

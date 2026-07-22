@@ -80,6 +80,19 @@ std::string string_array_literal(const std::vector<std::string>& values)
     return out.str();
 }
 
+std::string ability_scores_literal(const JsGameAbilityScoresFixture& abilities)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"strength\":" << abilities.strength << ","
+        << "\"intelligence\":" << abilities.intelligence << ","
+        << "\"willpower\":" << abilities.willpower << ","
+        << "\"dexterity\":" << abilities.dexterity << ","
+        << "\"constitution\":" << abilities.constitution << ","
+        << "\"leadership\":" << abilities.leadership << "}";
+    return out.str();
+}
+
 std::string zone_literal(const JsGameZoneFixture& zone)
 {
     std::ostringstream out;
@@ -153,6 +166,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"interruptCount\":" << character.interrupt_count << ","
         << "\"interruptTime\":" << character.interrupt_time << ","
         << "\"specialBusy\":" << js_bool(character.special_busy) << ","
+        << "\"currentAbilities\":" << ability_scores_literal(character.current_abilities) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

@@ -53,8 +53,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "persistence.",
      "mutation", "Nested struct."},
     {JsApiStructOwner::CharData, "char_data", "tmpabilities", "currentAbilities",
-     "getCurrentAbilities", "setCurrentAbilities", "AbilityScores", false, Deferred, Unsupported,
-     "Planned read-only snapshot of currently modified ability scores.",
+     "getCurrentAbilities", "setCurrentAbilities", "AbilityScores", false, ImplementedReadOnly,
+     Unsupported,
+     "Returns a frozen read-only snapshot of currently modified ability scores: strength, "
+     "intelligence, willpower, dexterity, constitution, and leadership.",
      "Current ability writes are unsupported for builder scripts because these values are derived "
      "from base abilities, active affects, equipment, and recalculation helpers.",
      "mutation", "Nested struct."},

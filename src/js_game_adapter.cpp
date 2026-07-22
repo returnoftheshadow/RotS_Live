@@ -537,6 +537,12 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->interrupt_count = character->interrupt_count;
     fixture->interrupt_time = character->interrupt_time;
     fixture->special_busy = character->spec_busy;
+    fixture->current_abilities.strength = character->tmpabilities.str;
+    fixture->current_abilities.intelligence = character->tmpabilities.intel;
+    fixture->current_abilities.willpower = character->tmpabilities.wil;
+    fixture->current_abilities.dexterity = character->tmpabilities.dex;
+    fixture->current_abilities.constitution = character->tmpabilities.con;
+    fixture->current_abilities.leadership = character->tmpabilities.lea;
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;

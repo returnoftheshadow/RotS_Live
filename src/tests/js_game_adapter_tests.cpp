@@ -28,6 +28,12 @@ char_data make_character(const char *name, int race, int level, int hit, int max
     character.player.ranking = level + 3;
     character.points.exp = level * 1000;
     character.tmpabilities.hit = hit;
+    character.tmpabilities.str = 18;
+    character.tmpabilities.intel = 13;
+    character.tmpabilities.wil = 15;
+    character.tmpabilities.dex = 17;
+    character.tmpabilities.con = 16;
+    character.tmpabilities.lea = 9;
     character.abilities.hit = max_hit;
     character.classpoints = 4;
     character.interrupt_count = 2;
@@ -180,6 +186,12 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.interrupt_count, 2);
     EXPECT_EQ(fixture.interrupt_time, 9);
     EXPECT_TRUE(fixture.special_busy);
+    EXPECT_EQ(fixture.current_abilities.strength, 18);
+    EXPECT_EQ(fixture.current_abilities.intelligence, 13);
+    EXPECT_EQ(fixture.current_abilities.willpower, 15);
+    EXPECT_EQ(fixture.current_abilities.dexterity, 17);
+    EXPECT_EQ(fixture.current_abilities.constitution, 16);
+    EXPECT_EQ(fixture.current_abilities.leadership, 9);
     EXPECT_TRUE(fixture.is_npc);
     ASSERT_TRUE(fixture.has_room);
     EXPECT_EQ(fixture.room.vnum, 1204);
