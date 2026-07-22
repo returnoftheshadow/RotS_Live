@@ -296,6 +296,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         {JsApiStructOwner::ZoneData, "symbol"},
         {JsApiStructOwner::ZoneData, "reset_mode"},
         {JsApiStructOwner::ZoneData, "lifespan"},
+        {JsApiStructOwner::ZoneData, "level"},
         {JsApiStructOwner::ObjData, "name"},
         {JsApiStructOwner::ObjData, "description"},
         {JsApiStructOwner::ObjData, "short_description"},
@@ -341,6 +342,17 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         {"1 through 10080", "target-scoped persistent setter authority", "reset scheduling"}) {
         EXPECT_NE(zone_lifespan_object.find(fragment), std::string::npos) << fragment;
     }
+    const JsApiStructFieldMapping *zone_level =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "level");
+    ASSERT_NE(zone_level, nullptr);
+    const std::string zone_level_object = expected_mapping_json_object(*zone_level);
+    EXPECT_NE(zone_level_object.find("\"setterCallable\":true"), std::string::npos);
+    EXPECT_NE(zone_level_object.find("\"documentationOnly\":false"), std::string::npos);
+    for (const char *fragment :
+        {"0 through 100", "target-scoped persistent setter authority",
+            "builder-facing zone metadata"}) {
+        EXPECT_NE(zone_level_object.find(fragment), std::string::npos) << fragment;
+    }
     expect_contains_json_object(
         json,
         "{\"owner\":\"Room\",\"fieldId\":\"Room.level\",\"property\":\"level\","
@@ -364,12 +376,16 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         "{\"owner\":\"Zone\",\"fieldId\":\"Zone.level\",\"property\":\"level\","
         "\"getterName\":\"getLevel\",\"setterName\":\"setLevel\",\"typeName\":\"number\","
         "\"nullable\":false,\"getterStatus\":\"implemented-read-only-getter\","
-        "\"setterStatus\":\"deferred\",\"sideEffect\":\"mutation\",\"getterCallable\":true,"
-        "\"setterCallable\":false,\"documentationOnly\":true,"
+        "\"setterStatus\":\"implemented-validated-setter\",\"sideEffect\":\"mutation\","
+        "\"getterCallable\":true,\"setterCallable\":true,\"documentationOnly\":false,"
         "\"getterDocs\":\"Returns the zone level value.\","
-        "\"setterDocs\":\"Zone level writes are deferred until builder ownership and balance "
-        "rules are mapped.\",\"notes\":\"Balance-sensitive scalar; defer until gameplay impact "
-        "and authority rules are explicit.\"}");
+        "\"setterDocs\":\"Updates the invocation snapshot zone level after integer and 0 through "
+        "100 inclusive bounds checks, rejects negative values, values above 100, and fractional "
+        "or other non-integer values, and applies to live owned memory only when dispatch "
+        "provides target-scoped persistent setter authority. This changes the persisted "
+        "builder-facing zone metadata value shown by legacy zone inspection and shaping "
+        "paths.\",\"notes\":\"Persistent application requires target-scoped dispatch mutation "
+        "authority context.\"}");
     const struct {
         JsApiStructOwner owner;
         const char *source_field;

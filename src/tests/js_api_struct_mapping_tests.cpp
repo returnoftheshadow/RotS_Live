@@ -349,7 +349,8 @@ TEST(JsApiStructMapping, PinsPromotedGetterGroupStatus) {
         EXPECT_STREQ(mapping->js_property, entry.property);
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
         if (std::string(entry.field) == "description" ||
-            std::string(entry.field) == "short_description") {
+            std::string(entry.field) == "short_description" ||
+            (entry.owner == JsApiStructOwner::ZoneData && std::string(entry.field) == "level")) {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -388,7 +389,8 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
             std::string(entry.field) == "description" || std::string(entry.field) == "map" ||
             std::string(entry.field) == "symbol" || std::string(entry.field) == "x" ||
             std::string(entry.field) == "y" || std::string(entry.field) == "reset_mode" ||
-            std::string(entry.field) == "lifespan") {
+            std::string(entry.field) == "lifespan" ||
+            (entry.owner == JsApiStructOwner::ZoneData && std::string(entry.field) == "level")) {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -446,8 +448,8 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
             "target-scoped dispatch mutation authority"},
         {"age", "unsupported", "reset scheduling should own this value", ""},
         {"top", "unsupported", "Changing zone room bounds", "World topology field"},
-        {"level", "deferred", "builder ownership and balance rules are mapped",
-            "Balance-sensitive scalar"},
+        {"level", "implemented-validated-setter", "0 through 100",
+            "target-scoped dispatch mutation authority"},
     };
 
     for (const ExpectedZoneScalar &entry : expected) {

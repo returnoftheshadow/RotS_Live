@@ -195,6 +195,24 @@ bool parse_lifespan_value(const std::string& value, int* parsed)
     return true;
 }
 
+bool parse_level_value(const std::string& value, int* parsed)
+{
+    if (parsed == nullptr || value.empty())
+        return false;
+    if (value.size() > 3 || (value.size() > 1 && value[0] == '0'))
+        return false;
+    int result = 0;
+    for (char ch : value) {
+        if (!std::isdigit(static_cast<unsigned char>(ch)))
+            return false;
+        result = result * 10 + (ch - '0');
+        if (result > 100)
+            return false;
+    }
+    *parsed = result;
+    return true;
+}
+
 bool validate_coordinate_mutation_value(const JsRuntimeMutation& mutation)
 {
     if (mutation.target_type != "zone" ||
@@ -223,6 +241,15 @@ bool validate_lifespan_mutation_value(const JsRuntimeMutation& mutation)
     return parse_lifespan_value(mutation.value, &parsed);
 }
 
+bool validate_level_mutation_value(const JsRuntimeMutation& mutation)
+{
+    if (mutation.target_type != "zone" || mutation.property != "level" || !mutation.has_value ||
+        mutation.value_kind != "number")
+        return false;
+    int parsed = 0;
+    return parse_level_value(mutation.value, &parsed);
+}
+
 bool validate_mutation_value(const JsRuntimeMutation& mutation)
 {
     if (mutation.target_type == "zone" && mutation.property == "symbol")
@@ -233,6 +260,8 @@ bool validate_mutation_value(const JsRuntimeMutation& mutation)
         return validate_reset_mode_mutation_value(mutation);
     if (mutation.target_type == "zone" && mutation.property == "lifespan")
         return validate_lifespan_mutation_value(mutation);
+    if (mutation.target_type == "zone" && mutation.property == "level")
+        return validate_level_mutation_value(mutation);
     return validate_text_mutation_value(mutation);
 }
 
@@ -513,6 +542,18 @@ PendingCoordinateTarget resolve_lifespan_mutation_target(const JsRuntimeMutation
     return { &zone->lifespan, false };
 }
 
+PendingCoordinateTarget resolve_level_mutation_target(const JsRuntimeMutation& mutation,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority)
+{
+    if (mutation.target_type != "zone" || mutation.property != "level")
+        return {};
+    zone_data* zone = mutable_live_zone_for_id(mutation, request, options);
+    if (zone == nullptr || !zone_matches_mutation_authority(*zone, authority))
+        return {};
+    return { &zone->level, false };
+}
+
 bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
     const JsTriggerMutationAuthorityContext& authority,
@@ -558,6 +599,15 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
                 resolve_lifespan_mutation_target(mutation, request, options, authority);
             int parsed = 0;
             if (target.target == nullptr || !parse_lifespan_value(mutation.value, &parsed))
+                return false;
+            pending->push_back({ nullptr, nullptr, target.target, true, false, mutation.value, parsed });
+            continue;
+        }
+        if (mutation.target_type == "zone" && mutation.property == "level") {
+            PendingCoordinateTarget target =
+                resolve_level_mutation_target(mutation, request, options, authority);
+            int parsed = 0;
+            if (target.target == nullptr || !parse_level_value(mutation.value, &parsed))
                 return false;
             pending->push_back({ nullptr, nullptr, target.target, true, false, mutation.value, parsed });
             continue;

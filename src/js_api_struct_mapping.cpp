@@ -443,9 +443,13 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "memory only when dispatch provides target-scoped persistent setter authority.",
      "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "level", "level", "getLevel", "setLevel", "number",
-     false, ImplementedReadOnly, Deferred, "Returns the zone level value.",
-     "Zone level writes are deferred until builder ownership and balance rules are mapped.",
-     "mutation", "Balance-sensitive scalar; defer until gameplay impact and authority rules are explicit."},
+     false, ImplementedReadOnly, SetterImplemented, "Returns the zone level value.",
+     "Updates the invocation snapshot zone level after integer and 0 through 100 inclusive bounds "
+     "checks, rejects negative values, values above 100, and fractional or other non-integer "
+     "values, and applies to live owned memory only when dispatch provides target-scoped "
+     "persistent setter authority. This changes the persisted builder-facing zone metadata value "
+     "shown by legacy zone inspection and shaping paths.",
+     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "white_power", "whitePower", "getWhitePower",
      "setWhitePower", "number", false, Deferred, Unsupported,
      "Planned read-only White-side zone power.",

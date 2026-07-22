@@ -396,7 +396,6 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     for (const char *interface_name : handle_interfaces) {
         const std::string block = declaration_block(declarations, interface_name);
         ASSERT_FALSE(block.empty()) << interface_name;
-        EXPECT_EQ(block.find("setLevel("), std::string::npos) << interface_name;
         if (std::string(interface_name) == "export interface Zone") {
             EXPECT_NE(block.find("setX(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
@@ -406,7 +405,10 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
                 << interface_name;
             EXPECT_NE(block.find("setLifespan(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
+            EXPECT_NE(block.find("setLevel(value: number): MutationResult;"), std::string::npos)
+                << interface_name;
         } else {
+            EXPECT_EQ(block.find("setLevel("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setX("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setY("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setResetMode("), std::string::npos) << interface_name;
