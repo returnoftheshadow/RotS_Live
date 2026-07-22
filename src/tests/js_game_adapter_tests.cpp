@@ -35,6 +35,12 @@ char_data make_character(const char *name, int race, int level, int hit, int max
     character.tmpabilities.con = 16;
     character.tmpabilities.lea = 9;
     character.abilities.hit = max_hit;
+    character.abilities.str = 16;
+    character.abilities.intel = 12;
+    character.abilities.wil = 14;
+    character.abilities.dex = 15;
+    character.abilities.con = 13;
+    character.abilities.lea = 8;
     character.classpoints = 4;
     character.interrupt_count = 2;
     character.interrupt_time = 9;
@@ -186,6 +192,12 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.interrupt_count, 2);
     EXPECT_EQ(fixture.interrupt_time, 9);
     EXPECT_TRUE(fixture.special_busy);
+    EXPECT_EQ(fixture.base_abilities.strength, 16);
+    EXPECT_EQ(fixture.base_abilities.intelligence, 12);
+    EXPECT_EQ(fixture.base_abilities.willpower, 14);
+    EXPECT_EQ(fixture.base_abilities.dexterity, 15);
+    EXPECT_EQ(fixture.base_abilities.constitution, 13);
+    EXPECT_EQ(fixture.base_abilities.leadership, 8);
     EXPECT_EQ(fixture.current_abilities.strength, 18);
     EXPECT_EQ(fixture.current_abilities.intelligence, 13);
     EXPECT_EQ(fixture.current_abilities.willpower, 15);

@@ -24,6 +24,12 @@ JsGameTriggerContextFixture make_context()
     context.self.interrupt_count = 2;
     context.self.interrupt_time = 11;
     context.self.special_busy = true;
+    context.self.base_abilities.strength = 16;
+    context.self.base_abilities.intelligence = 12;
+    context.self.base_abilities.willpower = 14;
+    context.self.base_abilities.dexterity = 15;
+    context.self.base_abilities.constitution = 13;
+    context.self.base_abilities.leadership = 8;
     context.self.current_abilities.strength = 18;
     context.self.current_abilities.intelligence = 13;
     context.self.current_abilities.willpower = 15;
@@ -75,6 +81,12 @@ JsGameTriggerContextFixture make_context()
     context.actor.interrupt_count = 1;
     context.actor.interrupt_time = 5;
     context.actor.special_busy = false;
+    context.actor.base_abilities.strength = 10;
+    context.actor.base_abilities.intelligence = 18;
+    context.actor.base_abilities.willpower = 13;
+    context.actor.base_abilities.dexterity = 15;
+    context.actor.base_abilities.constitution = 11;
+    context.actor.base_abilities.leadership = 9;
     context.actor.current_abilities.strength = 11;
     context.actor.current_abilities.intelligence = 19;
     context.actor.current_abilities.willpower = 14;
@@ -394,6 +406,12 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.interruptCount === 2\n"
         "  && ctx.self.interruptTime === 11\n"
         "  && ctx.self.specialBusy === true\n"
+        "  && ctx.self.baseAbilities.strength === 16\n"
+        "  && ctx.self.baseAbilities.intelligence === 12\n"
+        "  && ctx.self.baseAbilities.willpower === 14\n"
+        "  && ctx.self.baseAbilities.dexterity === 15\n"
+        "  && ctx.self.baseAbilities.constitution === 13\n"
+        "  && ctx.self.baseAbilities.leadership === 8\n"
         "  && ctx.self.currentAbilities.strength === 18\n"
         "  && ctx.self.currentAbilities.intelligence === 13\n"
         "  && ctx.self.currentAbilities.willpower === 15\n"
@@ -411,6 +429,12 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.interruptCount === 1\n"
         "  && ctx.actor.interruptTime === 5\n"
         "  && ctx.actor.specialBusy === false\n"
+        "  && ctx.actor.baseAbilities.strength === 10\n"
+        "  && ctx.actor.baseAbilities.intelligence === 18\n"
+        "  && ctx.actor.baseAbilities.willpower === 13\n"
+        "  && ctx.actor.baseAbilities.dexterity === 15\n"
+        "  && ctx.actor.baseAbilities.constitution === 11\n"
+        "  && ctx.actor.baseAbilities.leadership === 9\n"
         "  && ctx.actor.currentAbilities.strength === 11\n"
         "  && ctx.actor.currentAbilities.intelligence === 19\n"
         "  && ctx.actor.currentAbilities.willpower === 14\n"
@@ -1507,12 +1531,16 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         " catch (error) {}\n"
         "return !('pointer' in ctx.self)\n"
         "  && !('raw' in ctx.room)\n"
+        "  && typeof ctx.self.baseAbilities.constructor === 'undefined'\n"
+        "  && typeof ctx.self.currentAbilities.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.baseAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.self.currentAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
+        "  && Object.isFrozen(ctx.self.baseAbilities)\n"
         "  && Object.isFrozen(ctx.self.currentAbilities)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -1523,12 +1551,14 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
 TEST(JsGameRuntime, RejectsMutationOfNestedAbilitySnapshots)
 {
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "ctx.self.currentAbilities.strength = 1;\n"
-        "return true;",
-        make_context());
+    for (const char *property : {"baseAbilities", "currentAbilities"}) {
+        JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+            std::string("ctx.self.") + property + ".strength = 1;\n"
+            "return true;",
+            make_context());
 
-    EXPECT_EQ(result.status, JsRuntimeStatus::Error);
+        EXPECT_EQ(result.status, JsRuntimeStatus::Error) << property;
+    }
 }
 
 TEST(JsGameRuntime, ModelsMissingHandlesAsNull)

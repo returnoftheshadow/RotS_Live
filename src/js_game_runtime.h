@@ -68,6 +68,7 @@ struct JsGameCharacterFixture {
     int interrupt_count = 0;
     int interrupt_time = 0;
     bool special_busy = false;
+    JsGameAbilityScoresFixture base_abilities;
     JsGameAbilityScoresFixture current_abilities;
     bool is_npc = false;
 

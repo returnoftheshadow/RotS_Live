@@ -65,6 +65,10 @@ constexpr JsApiMember CharacterMembers[] = {
     {"specialBusy", JsApiMemberKind::Property, "boolean", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "True when a special procedure is busy in the invocation snapshot."},
+    {"baseAbilities", JsApiMemberKind::Property, "AbilityScores", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only snapshot of base ability scores before active affects, equipment, and "
+     "other temporary recalculation modifiers."},
     {"currentAbilities", JsApiMemberKind::Property, "AbilityScores", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only snapshot of currently modified ability scores after active affects, "
@@ -76,19 +80,22 @@ constexpr JsApiMember CharacterMembers[] = {
 
 constexpr JsApiMember AbilityScoresMembers[] = {
     {"strength", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
-     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current strength score."},
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Strength score in this ability snapshot."},
     {"intelligence", JsApiMemberKind::Property, "number", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Current intelligence score."},
+     "Intelligence score in this ability snapshot."},
     {"willpower", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
-     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current willpower score."},
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Willpower score in this ability snapshot."},
     {"dexterity", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
-     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current dexterity score."},
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Dexterity score in this ability snapshot."},
     {"constitution", JsApiMemberKind::Property, "number", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Current constitution score."},
+     "Constitution score in this ability snapshot."},
     {"leadership", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
-     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current leadership score."},
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Leadership score in this ability snapshot."},
 };
 
 constexpr JsApiMember PlayerMembers[] = {

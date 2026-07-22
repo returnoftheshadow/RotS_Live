@@ -537,6 +537,12 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->interrupt_count = character->interrupt_count;
     fixture->interrupt_time = character->interrupt_time;
     fixture->special_busy = character->spec_busy;
+    fixture->base_abilities.strength = character->abilities.str;
+    fixture->base_abilities.intelligence = character->abilities.intel;
+    fixture->base_abilities.willpower = character->abilities.wil;
+    fixture->base_abilities.dexterity = character->abilities.dex;
+    fixture->base_abilities.constitution = character->abilities.con;
+    fixture->base_abilities.leadership = character->abilities.lea;
     fixture->current_abilities.strength = character->tmpabilities.str;
     fixture->current_abilities.intelligence = character->tmpabilities.intel;
     fixture->current_abilities.willpower = character->tmpabilities.wil;

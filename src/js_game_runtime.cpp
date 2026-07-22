@@ -166,6 +166,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"interruptCount\":" << character.interrupt_count << ","
         << "\"interruptTime\":" << character.interrupt_time << ","
         << "\"specialBusy\":" << js_bool(character.special_busy) << ","
+        << "\"baseAbilities\":" << ability_scores_literal(character.base_abilities) << ","
         << "\"currentAbilities\":" << ability_scores_literal(character.current_abilities) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","

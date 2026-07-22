@@ -46,8 +46,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "player/NPC authority rules.",
      "mutation", "Nested struct; do not expose as a raw object."},
     {JsApiStructOwner::CharData, "char_data", "abilities", "baseAbilities", "getBaseAbilities",
-     "setBaseAbilities", "AbilityScores", false, Deferred, Unsupported,
-     "Planned read-only snapshot of rolled/base ability scores.",
+     "setBaseAbilities", "AbilityScores", false, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only snapshot of base ability scores before active affects and "
+     "equipment modifiers: strength, intelligence, willpower, dexterity, constitution, and "
+     "leadership.",
      "Base ability-score writes are unsupported for builder scripts; any future admin-only helper "
      "must validate score ranges, creation/leveling rules, derived stat recalculation, and "
      "persistence.",
