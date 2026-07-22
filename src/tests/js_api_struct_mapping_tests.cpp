@@ -391,6 +391,19 @@ TEST(JsApiStructMapping, HasUniqueOwnerFieldPairs) {
     }
 }
 
+TEST(JsApiStructMapping, HasUniqueJavaScriptPropertiesAndSettersPerOwner) {
+    std::set<std::string> properties;
+    std::set<std::string> setters;
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        const std::string owner = js_api_struct_owner_name(mapping.owner);
+        EXPECT_TRUE(properties.insert(owner + "." + mapping.js_property).second)
+            << owner << "." << mapping.js_property;
+        EXPECT_TRUE(setters.insert(owner + "." + mapping.setter_name).second)
+            << owner << "." << mapping.setter_name;
+    }
+}
+
 TEST(JsApiStructMapping, ImplementedReadOnlyFieldsExistInApiContract) {
     for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
         const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];

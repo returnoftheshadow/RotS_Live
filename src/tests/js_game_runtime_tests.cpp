@@ -1,4 +1,5 @@
 #include "../js_game_runtime.h"
+#include "../js_api_struct_mapping.h"
 
 #include <gtest/gtest.h>
 
@@ -180,6 +181,99 @@ std::size_t count_occurrences(const std::string &haystack, const std::string &ne
     return count;
 }
 
+const char *runtime_owner_name(JsApiStructOwner owner)
+{
+    switch (owner) {
+    case JsApiStructOwner::CharData:
+        return "Character";
+    case JsApiStructOwner::ObjData:
+        return "GameObject";
+    case JsApiStructOwner::RoomData:
+        return "Room";
+    case JsApiStructOwner::ZoneData:
+        return "Zone";
+    }
+    return "Unknown";
+}
+
+std::string quoted_js_string(const char *value)
+{
+    std::string quoted = "'";
+    for (const char *cursor = value; *cursor; ++cursor) {
+        if (*cursor == '\\' || *cursor == '\'')
+            quoted += '\\';
+        quoted += *cursor;
+    }
+    quoted += "'";
+    return quoted;
+}
+
+std::string setter_surface_list(JsApiStructOwner owner, bool callable)
+{
+    std::set<std::string> names;
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        if (mapping.owner != owner)
+            continue;
+        const bool setter_is_callable =
+            std::string(mapping.setter_status) == "implemented-validated-setter";
+        if (setter_is_callable == callable)
+            names.insert(mapping.setter_name);
+    }
+    if (owner == JsApiStructOwner::ObjData && callable) {
+        names.insert("setLevel");
+        names.insert("setRarity");
+    }
+
+    std::ostringstream out;
+    out << '[';
+    bool first = true;
+    for (const std::string &name : names) {
+        if (!first)
+            out << ',';
+        first = false;
+        out << quoted_js_string(name.c_str());
+    }
+    out << ']';
+    return out.str();
+}
+
+std::string generated_setter_surface_script()
+{
+    std::ostringstream out;
+    out << "const expected = {\n";
+    const JsApiStructOwner owners[] = { JsApiStructOwner::CharData, JsApiStructOwner::ObjData,
+        JsApiStructOwner::RoomData, JsApiStructOwner::ZoneData };
+    for (std::size_t index = 0; index < sizeof(owners) / sizeof(owners[0]); ++index) {
+        if (index > 0)
+            out << ",\n";
+        out << "  " << runtime_owner_name(owners[index]) << ": { callable: "
+            << setter_surface_list(owners[index], true)
+            << ", absent: " << setter_surface_list(owners[index], false) << " }";
+    }
+    out << "\n};\n"
+        << "function check(handle, owner) {\n"
+        << "  if (!handle) return false;\n"
+        << "  const actual = Object.getOwnPropertyNames(handle)\n"
+        << "    .filter((name) => /^set[A-Z]/.test(name))\n"
+        << "    .sort();\n"
+        << "  const expectedCallable = expected[owner].callable.slice().sort();\n"
+        << "  return actual.length === expectedCallable.length\n"
+        << "    && actual.every((name, index) => name === expectedCallable[index])\n"
+        << "    && expected[owner].callable.every((name) => typeof handle[name] === 'function')\n"
+        << "    && expected[owner].absent.every((name) => typeof handle[name] === 'undefined');\n"
+        << "}\n"
+        << "return check(ctx.actor, 'Character')\n"
+        << "  && check(ctx.object, 'GameObject')\n"
+        << "  && check(ctx.weapon, 'GameObject')\n"
+        << "  && check(ctx.object.room, 'Room')\n"
+        << "  && check(ctx.actor.room, 'Room')\n"
+        << "  && check(ctx.room, 'Room')\n"
+        << "  && check(ctx.room.zone, 'Zone')\n"
+        << "  && check(ctx.zone, 'Zone');";
+    return out.str();
+}
+
 } // namespace
 
 TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
@@ -213,6 +307,21 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.trigger.kind === 'legacy'\n"
         "  && ctx.trigger.blocksGameplay === true;",
         make_context());
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, SetterSurfaceMatchesStructMappingCatalog)
+{
+    JsGameTriggerContextFixture context = make_context();
+    context.actor.has_room = true;
+    context.actor.room = context.room;
+    context.has_weapon = true;
+    context.weapon = context.object;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body(generated_setter_surface_script(), context);
 
     expect_ok_allows(result);
 }
