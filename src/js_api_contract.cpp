@@ -73,6 +73,9 @@ constexpr JsApiMember CharacterMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only snapshot of currently modified ability scores after active affects, "
      "equipment, and recalculation helpers have been applied."},
+    {"rolledAbilities", JsApiMemberKind::Property, "AbilityScores", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only snapshot of rolled character creation ability scores."},
     {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
      "Checks whether this invocation-local handle still points at a live entity."},

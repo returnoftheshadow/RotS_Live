@@ -243,7 +243,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
 
     for (const char *member_name :
         {"classPoints", "interruptCount", "interruptTime", "specialBusy", "baseAbilities",
-            "currentAbilities"}) {
+            "currentAbilities", "rolledAbilities"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -255,6 +255,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_STREQ(find_js_api_contract_member(*character, "baseAbilities")->type_name,
         "AbilityScores");
     EXPECT_STREQ(find_js_api_contract_member(*character, "currentAbilities")->type_name,
+        "AbilityScores");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "rolledAbilities")->type_name,
         "AbilityScores");
 
     const JsApiType *ability_scores = find_js_api_contract_type("AbilityScores");

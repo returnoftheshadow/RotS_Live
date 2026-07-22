@@ -70,6 +70,7 @@ struct JsGameCharacterFixture {
     bool special_busy = false;
     JsGameAbilityScoresFixture base_abilities;
     JsGameAbilityScoresFixture current_abilities;
+    JsGameAbilityScoresFixture rolled_abilities;
     bool is_npc = false;
 
     bool has_room = false;

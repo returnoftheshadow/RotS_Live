@@ -36,6 +36,12 @@ JsGameTriggerContextFixture make_context()
     context.self.current_abilities.dexterity = 17;
     context.self.current_abilities.constitution = 16;
     context.self.current_abilities.leadership = 9;
+    context.self.rolled_abilities.strength = 15;
+    context.self.rolled_abilities.intelligence = 11;
+    context.self.rolled_abilities.willpower = 13;
+    context.self.rolled_abilities.dexterity = 14;
+    context.self.rolled_abilities.constitution = 12;
+    context.self.rolled_abilities.leadership = 7;
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -93,6 +99,12 @@ JsGameTriggerContextFixture make_context()
     context.actor.current_abilities.dexterity = 16;
     context.actor.current_abilities.constitution = 12;
     context.actor.current_abilities.leadership = 10;
+    context.actor.rolled_abilities.strength = 9;
+    context.actor.rolled_abilities.intelligence = 17;
+    context.actor.rolled_abilities.willpower = 12;
+    context.actor.rolled_abilities.dexterity = 14;
+    context.actor.rolled_abilities.constitution = 10;
+    context.actor.rolled_abilities.leadership = 8;
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -418,6 +430,12 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.currentAbilities.dexterity === 17\n"
         "  && ctx.self.currentAbilities.constitution === 16\n"
         "  && ctx.self.currentAbilities.leadership === 9\n"
+        "  && ctx.self.rolledAbilities.strength === 15\n"
+        "  && ctx.self.rolledAbilities.intelligence === 11\n"
+        "  && ctx.self.rolledAbilities.willpower === 13\n"
+        "  && ctx.self.rolledAbilities.dexterity === 14\n"
+        "  && ctx.self.rolledAbilities.constitution === 12\n"
+        "  && ctx.self.rolledAbilities.leadership === 7\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -441,6 +459,12 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.currentAbilities.dexterity === 16\n"
         "  && ctx.actor.currentAbilities.constitution === 12\n"
         "  && ctx.actor.currentAbilities.leadership === 10\n"
+        "  && ctx.actor.rolledAbilities.strength === 9\n"
+        "  && ctx.actor.rolledAbilities.intelligence === 17\n"
+        "  && ctx.actor.rolledAbilities.willpower === 12\n"
+        "  && ctx.actor.rolledAbilities.dexterity === 14\n"
+        "  && ctx.actor.rolledAbilities.constitution === 10\n"
+        "  && ctx.actor.rolledAbilities.leadership === 8\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1533,15 +1557,18 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && !('raw' in ctx.room)\n"
         "  && typeof ctx.self.baseAbilities.constructor === 'undefined'\n"
         "  && typeof ctx.self.currentAbilities.constructor === 'undefined'\n"
+        "  && typeof ctx.self.rolledAbilities.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
         "  && Object.getPrototypeOf(ctx.self.baseAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.self.currentAbilities) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.rolledAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
         "  && Object.isFrozen(ctx.self.baseAbilities)\n"
         "  && Object.isFrozen(ctx.self.currentAbilities)\n"
+        "  && Object.isFrozen(ctx.self.rolledAbilities)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
 
@@ -1551,7 +1578,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
 TEST(JsGameRuntime, RejectsMutationOfNestedAbilitySnapshots)
 {
     JsGameRuntime runtime;
-    for (const char *property : {"baseAbilities", "currentAbilities"}) {
+    for (const char *property : {"baseAbilities", "currentAbilities", "rolledAbilities"}) {
         JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
             std::string("ctx.self.") + property + ".strength = 1;\n"
             "return true;",

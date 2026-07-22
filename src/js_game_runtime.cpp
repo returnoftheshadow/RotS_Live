@@ -168,6 +168,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"specialBusy\":" << js_bool(character.special_busy) << ","
         << "\"baseAbilities\":" << ability_scores_literal(character.base_abilities) << ","
         << "\"currentAbilities\":" << ability_scores_literal(character.current_abilities) << ","
+        << "\"rolledAbilities\":" << ability_scores_literal(character.rolled_abilities) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

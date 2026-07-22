@@ -63,8 +63,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "from base abilities, active affects, equipment, and recalculation helpers.",
      "mutation", "Nested struct."},
     {JsApiStructOwner::CharData, "char_data", "constabilities", "rolledAbilities",
-     "getRolledAbilities", "setRolledAbilities", "AbilityScores", false, Deferred, Unsupported,
-     "Planned read-only snapshot of rolled character creation abilities.",
+     "getRolledAbilities", "setRolledAbilities", "AbilityScores", false, ImplementedReadOnly,
+     Unsupported,
+     "Returns a frozen read-only snapshot of rolled character creation ability scores: strength, "
+     "intelligence, willpower, dexterity, constitution, and leadership.",
      "Rolled ability writes are unsupported for builder scripts; this is character-creation "
      "history and any future admin-only helper needs audit and persistence rules.",
      "mutation", "Nested struct."},
