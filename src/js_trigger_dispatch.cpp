@@ -244,7 +244,8 @@ bool validate_lifespan_mutation_value(const JsRuntimeMutation& mutation)
 
 bool validate_level_mutation_value(const JsRuntimeMutation& mutation)
 {
-    if ((mutation.target_type != "zone" && mutation.target_type != "room") ||
+    if ((mutation.target_type != "zone" && mutation.target_type != "room" &&
+            mutation.target_type != "object") ||
         mutation.property != "level" || !mutation.has_value || mutation.value_kind != "number")
         return false;
     int parsed = 0;
@@ -261,7 +262,8 @@ bool validate_mutation_value(const JsRuntimeMutation& mutation)
         return validate_reset_mode_mutation_value(mutation);
     if (mutation.target_type == "zone" && mutation.property == "lifespan")
         return validate_lifespan_mutation_value(mutation);
-    if ((mutation.target_type == "zone" || mutation.target_type == "room") &&
+    if ((mutation.target_type == "zone" || mutation.target_type == "room" ||
+            mutation.target_type == "object") &&
         mutation.property == "level")
         return validate_level_mutation_value(mutation);
     return validate_text_mutation_value(mutation);
@@ -562,6 +564,12 @@ PendingCoordinateTarget resolve_level_mutation_target(const JsRuntimeMutation& m
             return {};
         return { nullptr, false };
     }
+    if (mutation.target_type == "object") {
+        obj_data* object = mutable_live_object_for_id(mutation, request, options);
+        if (object == nullptr || !object_matches_mutation_authority(*object, options, authority))
+            return {};
+        return { nullptr, false };
+    }
     return {};
 }
 
@@ -614,7 +622,8 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
             pending->push_back({ nullptr, nullptr, target.target, nullptr, true, false, mutation.value, parsed });
             continue;
         }
-        if ((mutation.target_type == "zone" || mutation.target_type == "room") &&
+        if ((mutation.target_type == "zone" || mutation.target_type == "room" ||
+                mutation.target_type == "object") &&
             mutation.property == "level") {
             PendingCoordinateTarget target =
                 resolve_level_mutation_target(mutation, request, options, authority);
@@ -627,6 +636,12 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
                     return false;
                 pending->push_back(
                     { nullptr, nullptr, nullptr, &room->level, true, false, mutation.value, parsed });
+            } else if (mutation.target_type == "object") {
+                obj_data* object = mutable_live_object_for_id(mutation, request, options);
+                if (object == nullptr || !object_matches_mutation_authority(*object, options, authority))
+                    return false;
+                pending->push_back({ nullptr, nullptr, nullptr, &object->obj_flags.level, true,
+                    false, mutation.value, parsed });
             } else {
                 if (target.target == nullptr)
                     return false;

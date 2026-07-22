@@ -104,6 +104,13 @@ bool mapping_setter_is_callable(const JsApiStructFieldMapping &mapping) {
     return std::string(mapping.setter_status) == "implemented-validated-setter";
 }
 
+constexpr const char *GameObjectLevelSetterDocs =
+    "Updates the invocation snapshot object flags level after integer and 0 through 100 "
+    "inclusive bounds checks, rejects negative values, values above 100, and fractional or "
+    "other non-integer values, and applies to live owned memory only when dispatch provides "
+    "target-scoped persistent setter authority. This changes the persisted object-file scalar "
+    "level value visible as flags.level.";
+
 std::string markdown_mapping_field_id(const JsApiStructFieldMapping &mapping) {
     return std::string(markdown_struct_owner_name(mapping.owner)) + "." + mapping.js_property;
 }
@@ -313,6 +320,10 @@ std::string js_generate_typescript_declarations() {
             out << "    " << mapping.setter_name << "(value: " << mapping.type_name
                 << "): MutationResult;\n";
         }
+        if (std::string(type.name) == "GameObject") {
+            append_ts_doc_comment(out, "    ", GameObjectLevelSetterDocs);
+            out << "    setLevel(value: number): MutationResult;\n";
+        }
         out << "}\n\n";
     }
 
@@ -395,6 +406,16 @@ std::string js_generate_api_markdown_reference() {
                 << markdown_inline_code(member.permission) << " | "
                 << markdown_inline_code(js_api_side_effect_name(member.side_effect)) << " | "
                 << markdown_cell(member.docs) << " |\n";
+        }
+        if (std::string(type.name) == "GameObject") {
+            out << "| " << markdown_inline_code("setLevel") << " | "
+                << markdown_inline_code("function") << " | "
+                << markdown_inline_code("(value: number)") << " | "
+                << markdown_inline_code("MutationResult") << " | "
+                << markdown_inline_code("implemented") << " | "
+                << markdown_inline_code("validated-setter") << " | "
+                << markdown_inline_code("mutation") << " | "
+                << markdown_cell(GameObjectLevelSetterDocs) << " |\n";
         }
         out << "\n";
     }

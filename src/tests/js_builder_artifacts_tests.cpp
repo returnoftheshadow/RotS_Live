@@ -396,7 +396,8 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     for (const char *interface_name : handle_interfaces) {
         const std::string block = declaration_block(declarations, interface_name);
         ASSERT_FALSE(block.empty()) << interface_name;
-        if (std::string(interface_name) == "export interface Room") {
+        if (std::string(interface_name) == "export interface GameObject" ||
+            std::string(interface_name) == "export interface Room") {
             EXPECT_NE(block.find("setLevel(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
         }
@@ -413,7 +414,8 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
                 << interface_name;
             EXPECT_EQ(block.find("setMinimumLookLevel("), std::string::npos) << interface_name;
         } else {
-            if (std::string(interface_name) != "export interface Room")
+            if (std::string(interface_name) != "export interface GameObject" &&
+                std::string(interface_name) != "export interface Room")
                 EXPECT_EQ(block.find("setLevel("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setX("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setY("), std::string::npos) << interface_name;
@@ -439,7 +441,10 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         "rawValues",
     };
     for (const char *member_name : classification_only_members) {
-        EXPECT_EQ(object_block.find(std::string(member_name)), std::string::npos) << member_name;
+        EXPECT_EQ(object_block.find("readonly " + std::string(member_name) + ":"), std::string::npos)
+            << member_name;
+        EXPECT_EQ(object_block.find(std::string(member_name) + "("), std::string::npos)
+            << member_name;
     }
 }
 
@@ -526,6 +531,8 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     expect_contains(markdown, "Messages are bounded, single-line");
     expect_contains(markdown, "## Public Field Accessor Mapping");
     expect_contains(markdown, "Implemented read-only getters may appear in TypeScript");
+    expect_contains(markdown, "| `setLevel` | `function` | `(value: number)` | `MutationResult` |");
+    expect_contains(markdown, "persisted object-file scalar level value visible as flags.level");
     expect_contains(markdown, "Context fields");
     expect_contains(markdown, "Dispatch order");
     expect_contains(markdown, "Notes");

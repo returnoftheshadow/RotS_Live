@@ -200,9 +200,11 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "ObjectFlags", false, ImplementedReadOnly, Deferred,
      "Returns a structured read-only object flag snapshot with symbolic type, wear flags, extra "
      "flags, material, and scalar economy/timer fields.",
-     "Object flag writes are deferred until every subfield has validation.", "mutation",
+     "Whole-object flag writes are deferred; object level uses the dedicated "
+     "GameObject.setLevel(value: number) validated setter.", "mutation",
      "Legacy item-type value slots remain intentionally absent until each item type has a "
-     "documented builder-facing domain."},
+     "documented builder-facing domain. Object flags.level is the first implemented subfield "
+     "setter because it has a bounded persisted scalar path."},
     {JsApiStructOwner::ObjData, "obj_data", "affected", "affects", "getAffects", "setAffects",
      "readonly ObjectAffect[]", false, Deferred, Deferred,
      "Deferred fixed-slot equipment modifier snapshot. Future entries must use named apply "
