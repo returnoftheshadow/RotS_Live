@@ -400,10 +400,15 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "provides target-scoped persistent setter authority.",
      "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "lifespan", "lifespan", "getLifespan", "setLifespan",
-     "number", false, ImplementedReadOnly, Deferred, "Returns the minutes between zone reset checks.",
-     "Zone reset lifespan writes are deferred "
-     "until reset scheduling rules are mapped.",
-     "mutation", "Reset-scheduling scalar; defer until pulse/reset side effects are explicit."},
+     "number", false, ImplementedReadOnly, SetterImplemented,
+     "Returns the minutes between zone reset checks.",
+     "Updates the invocation snapshot zone reset lifespan after integer and 1 through 10080 "
+     "inclusive bounds checks, rejects zero, negative values, values above 10080, and fractional or "
+     "other non-integer values, and applies to live owned memory only when dispatch provides "
+     "target-scoped persistent setter authority. This changes the minute threshold used by "
+     "legacy zone reset scheduling for reset modes 1, 2, and 3; reset mode 0 still disables "
+     "automatic reset aging.",
+     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "age", "age", "getAge", "setAge", "number", false,
      ImplementedReadOnly, Unsupported, "Returns the current zone age in minutes.",
      "Direct age writes are unsupported; reset scheduling should own this value.", "mutation", ""},

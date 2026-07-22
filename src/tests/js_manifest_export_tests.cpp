@@ -295,6 +295,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         {JsApiStructOwner::ZoneData, "y"},
         {JsApiStructOwner::ZoneData, "symbol"},
         {JsApiStructOwner::ZoneData, "reset_mode"},
+        {JsApiStructOwner::ZoneData, "lifespan"},
         {JsApiStructOwner::ObjData, "name"},
         {JsApiStructOwner::ObjData, "description"},
         {JsApiStructOwner::ObjData, "short_description"},
@@ -329,6 +330,16 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     for (const char *fragment :
         {"0 through 3", "target-scoped persistent setter authority", "legacy mixed"}) {
         EXPECT_NE(zone_reset_mode_object.find(fragment), std::string::npos) << fragment;
+    }
+    const JsApiStructFieldMapping *zone_lifespan =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "lifespan");
+    ASSERT_NE(zone_lifespan, nullptr);
+    const std::string zone_lifespan_object = expected_mapping_json_object(*zone_lifespan);
+    EXPECT_NE(zone_lifespan_object.find("\"setterCallable\":true"), std::string::npos);
+    EXPECT_NE(zone_lifespan_object.find("\"documentationOnly\":false"), std::string::npos);
+    for (const char *fragment :
+        {"1 through 10080", "target-scoped persistent setter authority", "reset scheduling"}) {
+        EXPECT_NE(zone_lifespan_object.find(fragment), std::string::npos) << fragment;
     }
     expect_contains_json_object(
         json,
