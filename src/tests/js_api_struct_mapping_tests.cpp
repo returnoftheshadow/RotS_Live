@@ -527,11 +527,16 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
     };
 
     const ExpectedGuardedZoneScalar guarded[] = {
-        {"white_power", "unsupported", "Derived gameplay state"},
-        {"dark_power", "unsupported", "Derived gameplay state"},
-        {"magi_power", "unsupported", "Derived gameplay state"},
+        {"white_power", "unsupported", "future faction-power APIs must own recalculation"},
+        {"dark_power", "unsupported", "future faction-power APIs must own recalculation"},
+        {"magi_power", "unsupported", "future faction-power APIs must own recalculation"},
         {"owners", "unsupported", "Linked list pointer must never be exposed"},
         {"number", "unsupported", "Changing a loaded zone vnum"},
+        {"zone_short_description", "unsupported", "add/update/remove helper APIs"},
+        {"zone_description", "unsupported", "add/update/remove helper APIs"},
+        {"zone_map", "unsupported", "add/update/remove helper APIs"},
+        {"cmdno", "unsupported", "explicit reset-command helpers"},
+        {"cmd", "unsupported", "explicit reset-command helpers"},
     };
     for (const ExpectedGuardedZoneScalar &entry : guarded) {
         const JsApiStructFieldMapping *mapping =
@@ -542,6 +547,57 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
                       .find(entry.required_text),
             std::string::npos)
             << entry.field;
+    }
+
+    struct ExpectedZoneRemainder {
+        const char *field;
+        const char *property;
+        const char *setter_name;
+        const char *type_name;
+        bool nullable;
+        const char *getter_status;
+        const char *setter_status;
+        const char *side_effect;
+    };
+
+    const ExpectedZoneRemainder remaining[] = {
+        {"white_power", "whitePower", "setWhitePower", "number", false, "deferred",
+            "unsupported", "mutation"},
+        {"dark_power", "darkPower", "setDarkPower", "number", false, "deferred",
+            "unsupported", "mutation"},
+        {"magi_power", "magiPower", "setMagiPower", "number", false, "deferred",
+            "unsupported", "mutation"},
+        {"min_level_look", "minimumLookLevel", "setMinimumLookLevel", "number", false,
+            "implemented-read-only-getter", "deferred", "mutation"},
+        {"age", "age", "setAge", "number", false, "implemented-read-only-getter",
+            "unsupported", "mutation"},
+        {"top", "topRoomVnum", "setTopRoomVnum", "number", false,
+            "implemented-read-only-getter", "unsupported", "none"},
+        {"number", "vnum", "setVnum", "number", false, "implemented-read-only-getter",
+            "unsupported", "none"},
+        {"zone_short_description", "shortDescriptions", "setShortDescriptions",
+            "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation"},
+        {"zone_description", "extraDescriptions", "setExtraDescriptions",
+            "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation"},
+        {"zone_map", "mapDescriptions", "setMapDescriptions",
+            "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation"},
+        {"owners", "owners", "setOwners", "never", true, "internal-only", "unsupported", "none"},
+        {"cmdno", "resetCommandCount", "setResetCommandCount", "number", false,
+            "internal-only", "unsupported", "none"},
+        {"cmd", "resetCommands", "setResetCommands", "never", true, "internal-only",
+            "unsupported", "none"},
+    };
+    for (const ExpectedZoneRemainder &entry : remaining) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->js_property, entry.property) << entry.field;
+        EXPECT_STREQ(mapping->setter_name, entry.setter_name) << entry.field;
+        EXPECT_STREQ(mapping->type_name, entry.type_name) << entry.field;
+        EXPECT_EQ(mapping->nullable, entry.nullable) << entry.field;
+        EXPECT_STREQ(mapping->getter_status, entry.getter_status) << entry.field;
+        EXPECT_STREQ(mapping->setter_status, entry.setter_status) << entry.field;
+        EXPECT_STREQ(mapping->side_effect, entry.side_effect) << entry.field;
     }
 }
 

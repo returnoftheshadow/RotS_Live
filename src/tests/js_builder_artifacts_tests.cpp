@@ -429,6 +429,18 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
             EXPECT_NE(block.find("setLevel(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
             EXPECT_EQ(block.find("setMinimumLookLevel("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setAge("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setTopRoomVnum("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setVnum("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setWhitePower("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setDarkPower("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setMagiPower("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setShortDescriptions("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setExtraDescriptions("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setMapDescriptions("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setOwners("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setResetCommandCount("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setResetCommands("), std::string::npos) << interface_name;
         } else {
             if (std::string(interface_name) != "export interface GameObject" &&
                 std::string(interface_name) != "export interface Room")

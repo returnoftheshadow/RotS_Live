@@ -558,35 +558,45 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::ZoneData, "zone_data", "white_power", "whitePower", "getWhitePower",
      "setWhitePower", "number", false, Deferred, Unsupported,
      "Planned read-only White-side zone power.",
-     "Direct power writes are unsupported unless a "
-     "future faction-power API owns recalculation.",
-     "mutation", "Derived gameplay state."},
+     "Direct White-side power writes are unsupported for builder scripts because zone power is "
+     "derived from live character movement, race/allegiance power, recalculation sweeps, and "
+     "battlefield-control messaging.",
+     "mutation", "Derived gameplay state; future faction-power APIs must own recalculation."},
     {JsApiStructOwner::ZoneData, "zone_data", "dark_power", "darkPower", "getDarkPower",
      "setDarkPower", "number", false, Deferred, Unsupported,
      "Planned read-only Dark-side zone power.",
-     "Direct power writes are unsupported unless a "
-     "future faction-power API owns recalculation.",
-     "mutation", "Derived gameplay state."},
+     "Direct Dark-side power writes are unsupported for builder scripts because zone power is "
+     "derived from live character movement, race/allegiance power, recalculation sweeps, and "
+     "battlefield-control messaging.",
+     "mutation", "Derived gameplay state; future faction-power APIs must own recalculation."},
     {JsApiStructOwner::ZoneData, "zone_data", "magi_power", "magiPower", "getMagiPower",
      "setMagiPower", "number", false, Deferred, Unsupported,
      "Planned read-only Magi-side zone power.",
-     "Direct power writes are unsupported unless a "
-     "future faction-power API owns recalculation.",
-     "mutation", "Derived gameplay state."},
+     "Direct Magi-side power writes are unsupported for builder scripts because zone power is "
+     "derived from live character movement, race/allegiance power, recalculation sweeps, and "
+     "battlefield-control messaging.",
+     "mutation", "Derived gameplay state; future faction-power APIs must own recalculation."},
     {JsApiStructOwner::ZoneData, "zone_data", "zone_short_description", "shortDescriptions",
      "getShortDescriptions", "setShortDescriptions", "readonly ExtraDescription[]", true, Deferred,
-     Deferred, "Planned read-only zone short-description list.",
-     "Zone short-description writes are deferred until list ownership rules are mapped.",
+     Unsupported, "Planned read-only zone short-description list.",
+     "Whole zone short-description list writes are unsupported for builder scripts; future "
+     "add/update/remove helper APIs must own linked-list allocation, stale-handle protection, "
+     "bounded list size, text length, sanitization, persistence, rollback, and audit semantics.",
      "mutation", "Linked list pointer must never be exposed."},
     {JsApiStructOwner::ZoneData, "zone_data", "zone_description", "extraDescriptions",
      "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
-     Deferred, "Planned read-only zone extra-description list.",
-     "Zone extra-description writes are deferred until list ownership rules are mapped.",
+     Unsupported, "Planned read-only zone extra-description list.",
+     "Whole zone extra-description list writes are unsupported for builder scripts; future "
+     "add/update/remove helper APIs must own linked-list allocation, stale-handle protection, "
+     "bounded list size, text length, sanitization, persistence, rollback, and audit semantics.",
      "mutation", "Linked list pointer must never be exposed."},
     {JsApiStructOwner::ZoneData, "zone_data", "zone_map", "mapDescriptions", "getMapDescriptions",
-     "setMapDescriptions", "readonly ExtraDescription[]", true, Deferred, Deferred,
+     "setMapDescriptions", "readonly ExtraDescription[]", true, Deferred, Unsupported,
      "Planned read-only zone map-description list.",
-     "Zone map-description writes are deferred until list ownership rules are mapped.", "mutation",
+     "Whole zone map-description list writes are unsupported for builder scripts; future "
+     "add/update/remove helper APIs must own linked-list allocation, stale-handle protection, "
+     "bounded list size, text length, sanitization, persistence, rollback, and audit semantics.",
+     "mutation",
      "Linked list pointer must never be exposed."},
     {JsApiStructOwner::ZoneData, "zone_data", "min_level_look", "minimumLookLevel",
      "getMinimumLookLevel", "setMinimumLookLevel", "number", false, ImplementedReadOnly, Deferred,
@@ -618,11 +628,17 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::ZoneData, "zone_data", "cmdno", "resetCommandCount", "getResetCommandCount",
      "setResetCommandCount", "number", false, Internal, Unsupported,
      "Reset command count is internal and no builder getter is emitted by default.",
-     "Reset command count mutation from JavaScript is unsupported.", "none", "Reset loader data."},
+     "Reset command count mutation from JavaScript is unsupported because reset scripts must be "
+     "edited through explicit reset-command helpers that validate command type, room/object/mob "
+     "vnums, if-flag ordering, max counts, and zone persistence as one unit.",
+     "none", "Reset loader data."},
     {JsApiStructOwner::ZoneData, "zone_data", "cmd", "resetCommands", "getResetCommands",
      "setResetCommands", "never", true, Internal, Unsupported,
      "Raw reset command table is internal and no builder getter is emitted.",
-     "Raw reset command mutation from JavaScript is unsupported.", "none", "Raw command pointer."},
+     "Raw reset command mutation from JavaScript is unsupported because reset scripts must be "
+     "edited through explicit reset-command helpers that validate command type, room/object/mob "
+     "vnums, if-flag ordering, max counts, and zone persistence as one unit.",
+     "none", "Raw command pointer."},
 };
 
 } // namespace
