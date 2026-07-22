@@ -291,6 +291,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         {JsApiStructOwner::ZoneData, "name"},
         {JsApiStructOwner::ZoneData, "description"},
         {JsApiStructOwner::ZoneData, "map"},
+        {JsApiStructOwner::ZoneData, "symbol"},
         {JsApiStructOwner::ObjData, "name"},
         {JsApiStructOwner::ObjData, "description"},
         {JsApiStructOwner::ObjData, "short_description"},
@@ -335,7 +336,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         "\"setterDocs\":\"Zone level writes are deferred until builder ownership and balance "
         "rules are mapped.\",\"notes\":\"Balance-sensitive scalar; defer until gameplay impact "
         "and authority rules are explicit.\"}");
-    for (const char *field : {"x", "y", "symbol"}) {
+    for (const char *field : {"x", "y"}) {
         const JsApiStructFieldMapping *mapping =
             find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, field);
         ASSERT_NE(mapping, nullptr) << field;

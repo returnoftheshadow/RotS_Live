@@ -17,6 +17,9 @@
 #include <string>
 #include <vector>
 
+extern char world_map[];
+void draw_map();
+
 namespace {
 
 char_data make_character(const char* name, int race = 1, int level = 10, bool npc = false)
@@ -217,6 +220,11 @@ std::string read_first_available_file(const std::vector<std::string>& paths)
     return "";
 }
 
+std::size_t world_map_symbol_offset(int x, int y)
+{
+    return static_cast<std::size_t>((y + 1) * (WORLD_SIZE_X + 4) + x * 2 + 1);
+}
+
 } // namespace
 
 TEST(JsTriggerDispatch, StartsWithExplicitNoMatchStatusForEmptyRegistry)
@@ -251,6 +259,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
         "  ctx.zone.setName('Changed Zone');\n"
         "  ctx.zone.setDescription(null);\n"
         "  ctx.zone.setMap('N-G-S-E');\n"
+        "  ctx.zone.setSymbol('*');\n"
         "  return RotS.ScriptResult.block();\n"
         "}");
     ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
@@ -270,6 +279,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     zones[0].name = str_dup("Zone");
     zones[0].description = str_dup("The old zone.");
     zones[0].map = str_dup("N-G-S");
+    zones[0].symbol = 'Z';
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -290,6 +300,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     EXPECT_STREQ(zones[0].name, "Changed Zone");
     EXPECT_EQ(zones[0].description, nullptr);
     EXPECT_STREQ(zones[0].map, "N-G-S-E");
+    EXPECT_EQ(zones[0].symbol, '*');
 
     free(object.name);
     free(object.description);
@@ -365,6 +376,33 @@ TEST(JsTriggerDispatch, RejectsZoneMapSetterWithoutExplicitAuthority)
     free(zones[0].map);
 }
 
+TEST(JsTriggerDispatch, RejectsZoneSymbolSetterWithoutExplicitAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5839,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setSymbol('*');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].symbol = 'Z';
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
+    EXPECT_EQ(zones[0].symbol, 'Z');
+}
+
 TEST(JsTriggerDispatch, PersistsNullableZoneMapSetterToLiveGameRecord)
 {
     JsScriptPackageRegistry registry;
@@ -393,6 +431,133 @@ TEST(JsTriggerDispatch, PersistsNullableZoneMapSetterToLiveGameRecord)
     EXPECT_EQ(zones[0].map, nullptr);
 
     free(zones[0].map);
+}
+
+TEST(JsTriggerDispatch, IgnoresInvalidZoneSymbolSetterValues)
+{
+    const char* scripts[] = {
+        "function onEnter(ctx) { ctx.zone.setSymbol(''); return true; }",
+        "function onEnter(ctx) { ctx.zone.setSymbol(' '); return true; }",
+        "function onEnter(ctx) { ctx.zone.setSymbol('**'); return true; }",
+        "function onEnter(ctx) { ctx.zone.setSymbol(String.fromCharCode(0xe9)); return true; }",
+        "function onEnter(ctx) { ctx.zone.setSymbol(42); return true; }",
+    };
+
+    for (const char* script : scripts) {
+        JsScriptPackageRegistry registry;
+        JsScriptPackage package = make_character_enter_package(5840, script);
+        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+        char_data self = make_character("Self");
+        const char_data* live_characters[] = { &self };
+        room_data world[1] = { make_room("Gate", 100, 0) };
+        zone_data zones[1] = { make_zone("Zone", 30) };
+        zones[0].symbol = 'Z';
+        JsGameAdapterOptions options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+        JsTriggerDispatchOptions dispatch_options;
+        dispatch_options.mutation_authority = test_mutation_authority();
+
+        JsTriggerDispatchResult result =
+            js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << script;
+        EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << script;
+        EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
+        EXPECT_EQ(zones[0].symbol, 'Z') << script;
+    }
+}
+
+TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneSymbolSetter)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5842,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setSymbol('*');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].x = 10;
+    zones[0].y = 10;
+    zones[0].symbol = 'Z';
+    zone_data* previous_zone_table = zone_table;
+    const int previous_top_of_zone_table = top_of_zone_table;
+    zone_table = zones;
+    top_of_zone_table = 0;
+    draw_map();
+    EXPECT_EQ(world_map[world_map_symbol_offset(zones[0].x, zones[0].y)], 'Z');
+
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(zones[0].symbol, '*');
+    EXPECT_EQ(world_map[world_map_symbol_offset(zones[0].x, zones[0].y)], '*');
+
+    zone_table = previous_zone_table;
+    top_of_zone_table = previous_top_of_zone_table;
+    if (zone_table != nullptr && top_of_zone_table >= 0)
+        draw_map();
+}
+
+TEST(JsTriggerDispatch, RejectsMixedSymbolBatchWithoutPartialWrites)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5843,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setSymbol('*');\n"
+        "  ctx.object.setName('unauthorized object');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.in_room = 1;
+    object.name = str_dup("old lever");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[2] = {
+        make_room("Authorized Gate", 100, 0),
+        make_room("Other Gate", 200, 1),
+    };
+    zone_data zones[2] = {
+        make_zone("Zone", 30),
+        make_zone("Other Zone", 31),
+    };
+    zones[0].symbol = 'Z';
+    zones[1].symbol = 'O';
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_EQ(zones[0].symbol, 'Z');
+    EXPECT_STREQ(object.name, "old lever");
+
+    free(object.name);
+    free(object.short_description);
 }
 
 TEST(JsTriggerDispatch, RejectsZoneMapSetterWithZoneFileSyntaxMarkers)
@@ -460,6 +625,36 @@ TEST(JsTriggerDispatch, RejectsZoneSetterWhenAuthorityTargetsAnotherZone)
     EXPECT_STREQ(zones[0].map, "N-G-S");
 
     free(zones[0].map);
+}
+
+TEST(JsTriggerDispatch, RejectsZoneSymbolSetterWhenAuthorityTargetsAnotherZone)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5841,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setSymbol('*');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].symbol = 'Z';
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_EQ(zones[0].symbol, 'Z');
 }
 
 TEST(JsTriggerDispatch, RejectsObjectRoomAndZoneSettersOutsideAuthorityTargetWithoutPartialWrites)

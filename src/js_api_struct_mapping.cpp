@@ -426,12 +426,12 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "constraints before it becomes callable.",
      "mutation", "Low-risk scalar candidate; implementation deferred until coordinate range is pinned."},
     {JsApiStructOwner::ZoneData, "zone_data", "symbol", "symbol", "getSymbol", "setSymbol",
-     "string", false, ImplementedReadOnly, SetterPlanned,
+     "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the single-character zone map symbol.",
-     "Planned setter for the single-character zone map symbol. It must reject empty, multi-character, "
-     "control, and whitespace-only values, require target-scoped persistent setter authority, and "
-     "preserve map display safety before it becomes callable.",
-     "mutation", "Low-risk scalar candidate; implementation deferred until symbol validation is pinned."},
+     "Updates the invocation snapshot single-character printable ASCII zone map symbol after empty, "
+     "multi-character, control, whitespace-only, and non-ASCII checks, and applies to live owned "
+     "memory only when dispatch provides target-scoped persistent setter authority.",
+     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "level", "level", "getLevel", "setLevel", "number",
      false, ImplementedReadOnly, Deferred, "Returns the zone level value.",
      "Zone level writes are deferred until builder ownership and balance rules are mapped.",

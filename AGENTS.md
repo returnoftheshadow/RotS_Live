@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API scalar setter classification slice. `Zone.x`, `Zone.y`, and `Zone.symbol` are now planned validated setters with explicit validation and target-scoped authority requirements, while visibility, reset, balance, topology, owner, power, and list fields remain deferred, unsupported, or internal-only.
-- Next slice: JavaScript API `Zone.symbol` setter promotion slice. Promote `Zone.setSymbol(value: string): MutationResult` through server API mapping, generated typings/manifest/docs, live QuickJS scalar setter validation, target-scoped persistent mutation bridge, BuilderClient offline fixtures, and parity tests.
+- Latest completed slice: JavaScript API `Zone.symbol` setter promotion slice. `Zone.setSymbol(value: string): MutationResult` is now callable in generated typings, live QuickJS, and BuilderClient offline fixtures; it validates one printable ASCII symbol, persists only through target-scoped builder authority, redraws the global world map after committed live zone writes, and has parity tests.
+- Next slice: JavaScript API coordinate setter bounds-definition slice. Pin `Zone.x`/`Zone.y` validation ranges against legacy `WORLD_SIZE_X`/`WORLD_SIZE_Y`, negative-coordinate behavior, and `symbol_to_map`/`draw_map` map-buffer safety before making either coordinate setter callable.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

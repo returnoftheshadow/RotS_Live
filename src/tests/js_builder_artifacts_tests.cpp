@@ -399,7 +399,6 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         EXPECT_EQ(block.find("setLevel("), std::string::npos) << interface_name;
         EXPECT_EQ(block.find("setX("), std::string::npos) << interface_name;
         EXPECT_EQ(block.find("setY("), std::string::npos) << interface_name;
-        EXPECT_EQ(block.find("setSymbol("), std::string::npos) << interface_name;
     }
 
     const std::string object_block = declaration_block(declarations, "export interface GameObject");

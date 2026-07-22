@@ -11,6 +11,8 @@
 #include <utility>
 #include <vector>
 
+void draw_map();
+
 namespace {
 
 bool is_identifier_start(unsigned char ch)
@@ -66,7 +68,9 @@ bool required_host_context_is_present(
 
 struct PendingTextMutation {
     char** target = nullptr;
+    char* char_target = nullptr;
     bool has_value = false;
+    bool redraw_world_map = false;
     std::string value;
 };
 
@@ -122,6 +126,23 @@ bool validate_text_mutation_value(const JsRuntimeMutation& mutation)
         has_zone_map_file_syntax_marker(mutation.value))
         return false;
     return true;
+}
+
+bool validate_symbol_mutation_value(const JsRuntimeMutation& mutation)
+{
+    if (mutation.target_type != "zone" || mutation.property != "symbol" || !mutation.has_value)
+        return false;
+    if (mutation.value.size() != 1)
+        return false;
+    const unsigned char ch = static_cast<unsigned char>(mutation.value[0]);
+    return ch > 32 && ch < 127;
+}
+
+bool validate_mutation_value(const JsRuntimeMutation& mutation)
+{
+    if (mutation.target_type == "zone" && mutation.property == "symbol")
+        return validate_symbol_mutation_value(mutation);
+    return validate_text_mutation_value(mutation);
 }
 
 bool has_persistent_setter_authority(const JsTriggerMutationAuthorityContext& authority)
@@ -337,6 +358,29 @@ char** resolve_text_mutation_target(const JsRuntimeMutation& mutation,
     return nullptr;
 }
 
+struct PendingSymbolTarget {
+    char* target = nullptr;
+    bool redraw_world_map = false;
+};
+
+bool zone_uses_global_world_map(const zone_data* zone)
+{
+    return zone_table != nullptr && top_of_zone_table >= 0 && zone >= zone_table &&
+        zone <= zone_table + top_of_zone_table;
+}
+
+PendingSymbolTarget resolve_symbol_mutation_target(const JsRuntimeMutation& mutation,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority)
+{
+    if (mutation.target_type != "zone" || mutation.property != "symbol")
+        return {};
+    zone_data* zone = mutable_live_zone_for_id(mutation, request, options);
+    if (zone == nullptr || !zone_matches_mutation_authority(*zone, authority))
+        return {};
+    return { &zone->symbol, zone_uses_global_world_map(zone) };
+}
+
 bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
     const JsTriggerMutationAuthorityContext& authority,
@@ -346,23 +390,40 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
         return false;
     pending->clear();
     for (const JsRuntimeMutation& mutation : mutations) {
-        if (!validate_text_mutation_value(mutation))
+        if (!validate_mutation_value(mutation))
             return false;
+        if (mutation.target_type == "zone" && mutation.property == "symbol") {
+            PendingSymbolTarget target =
+                resolve_symbol_mutation_target(mutation, request, options, authority);
+            if (target.target == nullptr)
+                return false;
+            pending->push_back(
+                { nullptr, target.target, true, target.redraw_world_map, mutation.value });
+            continue;
+        }
         char** target = resolve_text_mutation_target(
             mutation, request, options, authority);
         if (target == nullptr)
             return false;
-        pending->push_back({ target, mutation.has_value, mutation.value });
+        pending->push_back({ target, nullptr, mutation.has_value, false, mutation.value });
     }
     return true;
 }
 
 void apply_text_mutations(const std::vector<PendingTextMutation>& mutations)
 {
+    bool redraw_world_map = false;
     for (const PendingTextMutation& mutation : mutations) {
+        if (mutation.char_target != nullptr) {
+            *mutation.char_target = mutation.value[0];
+            redraw_world_map = redraw_world_map || mutation.redraw_world_map;
+            continue;
+        }
         free(*mutation.target);
         *mutation.target = mutation.has_value ? str_dup(mutation.value.c_str()) : nullptr;
     }
+    if (redraw_world_map)
+        draw_map();
 }
 
 JsTriggerDispatchResult make_error_result(const JsScriptPackage& package,
