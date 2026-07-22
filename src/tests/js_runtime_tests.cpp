@@ -81,6 +81,56 @@ TEST(JsRuntime, EnforcesMemoryLimit) {
     EXPECT_NE(result.status, JsRuntimeStatus::Ok);
 }
 
+TEST(JsRuntime, FailsSafelyForRecursiveStackExhaustion) {
+    JsRuntimeLimits limits;
+    limits.stack_limit_bytes = 16 * 1024;
+    JsRuntime runtime(limits);
+
+    JsRuntimeEvalResult result =
+        runtime.evaluate("function recurse(depth) { return recurse(depth + 1); } recurse(0);");
+
+    EXPECT_NE(result.status, JsRuntimeStatus::Ok);
+    EXPECT_FALSE(result.diagnostic.empty());
+    EXPECT_EQ(result.diagnostic.find('\n'), std::string::npos);
+    EXPECT_EQ(result.diagnostic.find('\r'), std::string::npos);
+}
+
+TEST(JsRuntime, InterruptsRegexpWorkInsideInstructionBudget) {
+    JsRuntimeLimits limits;
+    limits.instruction_budget = 64;
+    JsRuntime runtime(limits);
+
+    JsRuntimeEvalResult result =
+        runtime.evaluate("while (true) { /a+/.test('aaaaaaaaaaaaaaaaaaaaaaaa'); }");
+
+    EXPECT_EQ(result.status, JsRuntimeStatus::Interrupted);
+}
+
+TEST(JsRuntime, InterruptsProxyTrapWorkInsideInstructionBudget) {
+    JsRuntimeLimits limits;
+    limits.instruction_budget = 64;
+    JsRuntime runtime(limits);
+
+    JsRuntimeEvalResult result = runtime.evaluate(
+        "const proxy = new Proxy({}, { get: function() { while (true) {} } }); proxy.field;");
+
+    EXPECT_EQ(result.status, JsRuntimeStatus::Interrupted);
+}
+
+TEST(JsRuntime, BoundsHostCallbackWorkDuringDiagnosticConversion) {
+    JsRuntimeLimits limits;
+    limits.instruction_budget = 64;
+    JsRuntime runtime(limits);
+
+    JsRuntimeEvalResult result =
+        runtime.evaluate("throw { toString: function() { while (true) {} } };");
+
+    EXPECT_EQ(result.status, JsRuntimeStatus::Interrupted);
+    EXPECT_FALSE(result.diagnostic.empty());
+    EXPECT_EQ(result.diagnostic.find('\n'), std::string::npos);
+    EXPECT_EQ(result.diagnostic.find('\r'), std::string::npos);
+}
+
 TEST(JsRuntime, DoesNotExposeHostOsOrModuleGlobals) {
     JsRuntime runtime;
 

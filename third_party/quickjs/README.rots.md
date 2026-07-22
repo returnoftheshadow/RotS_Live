@@ -10,6 +10,8 @@ Source archive SHA-256:
 b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a
 ```
 
+Vendored subset SHA-256 manifest: `SHA256SUMS.rots`.
+
 License: MIT-style license in `LICENSE`.
 
 Local vendoring policy:
@@ -22,3 +24,4 @@ Local vendoring policy:
 Build notes:
 - QuickJS is compiled as C with `-std=gnu11`.
 - `CONFIG_VERSION="2026-06-04"` is supplied by the game build.
+- Verify local vendored-source drift with `make verify-quickjs-hash` from the repository root, `cmake --build build --target verify_quickjs_hash`, or `make verify-quickjs-hash` from `src/` for the raw Makefile path.

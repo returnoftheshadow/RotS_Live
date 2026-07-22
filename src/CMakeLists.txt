@@ -341,6 +341,20 @@ if(CLANG_FORMAT_EXECUTABLE)
     )
 endif()
 
+find_program(SHA256SUM_EXECUTABLE sha256sum)
+if(SHA256SUM_EXECUTABLE)
+    add_custom_target(verify_quickjs_hash
+        COMMAND "${SHA256SUM_EXECUTABLE}" -c SHA256SUMS.rots
+        WORKING_DIRECTORY "${REPO_ROOT}/third_party/quickjs"
+        COMMENT "Verifying vendored QuickJS source checksums"
+    )
+else()
+    add_custom_target(verify_quickjs_hash
+        COMMAND "${CMAKE_COMMAND}" -E false
+        COMMENT "sha256sum is required to verify vendored QuickJS source checksums"
+    )
+endif()
+
 find_package(Python3 COMPONENTS Interpreter)
 find_program(CARGO_EXECUTABLE cargo)
 if(Python3_Interpreter_FOUND AND CARGO_EXECUTABLE)

@@ -159,6 +159,8 @@ JsRuntimeEvalResult JsRuntime::evaluate_trusted_wrapped_source(const std::string
     if (JS_IsException(value)) {
         result.status = interrupt_state.interrupted ? JsRuntimeStatus::Interrupted : JsRuntimeStatus::Error;
         result.diagnostic = exception_to_string(context);
+        if (interrupt_state.interrupted)
+            result.status = JsRuntimeStatus::Interrupted;
         if (result.diagnostic.find("out of memory") != std::string::npos)
             result.status = JsRuntimeStatus::OutOfMemory;
         JS_FreeContext(context);

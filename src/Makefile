@@ -46,6 +46,9 @@ ageland:        ../bin/ageland
 
 all:	ageland
 
+verify-quickjs-hash:
+	cd ../third_party/quickjs && sha256sum -c SHA256SUMS.rots
+
 clean:
 	rm -f *.o
 
