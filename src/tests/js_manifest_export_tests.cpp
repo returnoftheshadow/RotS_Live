@@ -297,6 +297,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         {JsApiStructOwner::ZoneData, "reset_mode"},
         {JsApiStructOwner::ZoneData, "lifespan"},
         {JsApiStructOwner::ZoneData, "level"},
+        {JsApiStructOwner::RoomData, "level"},
         {JsApiStructOwner::ObjData, "name"},
         {JsApiStructOwner::ObjData, "description"},
         {JsApiStructOwner::ObjData, "short_description"},
@@ -353,15 +354,31 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
             "builder-facing zone metadata"}) {
         EXPECT_NE(zone_level_object.find(fragment), std::string::npos) << fragment;
     }
+    const JsApiStructFieldMapping *room_level =
+        find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, "level");
+    ASSERT_NE(room_level, nullptr);
+    const std::string room_level_object = expected_mapping_json_object(*room_level);
+    EXPECT_NE(room_level_object.find("\"setterCallable\":true"), std::string::npos);
+    EXPECT_NE(room_level_object.find("\"documentationOnly\":false"), std::string::npos);
+    for (const char *fragment :
+        {"0 through 100", "target-scoped persistent setter authority",
+            "same-level room filtering"}) {
+        EXPECT_NE(room_level_object.find(fragment), std::string::npos) << fragment;
+    }
     expect_contains_json_object(
         json,
         "{\"owner\":\"Room\",\"fieldId\":\"Room.level\",\"property\":\"level\","
         "\"getterName\":\"getLevel\",\"setterName\":\"setLevel\",\"typeName\":\"number\","
         "\"nullable\":false,\"getterStatus\":\"implemented-read-only-getter\","
-        "\"setterStatus\":\"deferred\",\"sideEffect\":\"mutation\",\"getterCallable\":true,"
-        "\"setterCallable\":false,\"documentationOnly\":true,"
+        "\"setterStatus\":\"implemented-validated-setter\",\"sideEffect\":\"mutation\","
+        "\"getterCallable\":true,\"setterCallable\":true,\"documentationOnly\":false,"
         "\"getterDocs\":\"Returns the room level value.\","
-        "\"setterDocs\":\"Room level writes are deferred.\",\"notes\":\"\"}");
+        "\"setterDocs\":\"Updates the invocation snapshot room level after integer and 0 through "
+        "100 inclusive bounds checks, rejects negative values, values above 100, and fractional "
+        "or other non-integer values, and applies to live owned memory only when dispatch "
+        "provides target-scoped persistent setter authority. This changes the persisted "
+        "room-file scalar value used by legacy same-level room filtering.\",\"notes\":\"Persistent "
+        "application requires target-scoped dispatch mutation authority context.\"}");
     expect_contains_json_object(
         json,
         "{\"owner\":\"Room\",\"fieldId\":\"Room.alignment\",\"property\":\"alignment\","

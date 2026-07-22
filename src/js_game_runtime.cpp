@@ -645,6 +645,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
             << "  if ('sectorType' in value || 'isSunlit' in value) {\n"
             << "    __rotsAttachTextSetter(value, 'room', 'name', 'setName', 256, false);\n"
             << "    __rotsAttachTextSetter(value, 'room', 'description', 'setDescription', 8192, false);\n"
+            << "    __rotsAttachLevelSetter(value, 'room');\n"
             << "  }\n"
             << "  if ('topRoomVnum' in value || 'resetMode' in value) {\n"
             << "    __rotsAttachTextSetter(value, 'zone', 'name', 'setName', 256, false);\n"

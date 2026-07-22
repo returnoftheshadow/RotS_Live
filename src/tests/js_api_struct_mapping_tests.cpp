@@ -350,7 +350,9 @@ TEST(JsApiStructMapping, PinsPromotedGetterGroupStatus) {
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
         if (std::string(entry.field) == "description" ||
             std::string(entry.field) == "short_description" ||
-            (entry.owner == JsApiStructOwner::ZoneData && std::string(entry.field) == "level")) {
+            ((entry.owner == JsApiStructOwner::ZoneData ||
+                 entry.owner == JsApiStructOwner::RoomData) &&
+                std::string(entry.field) == "level")) {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -423,6 +425,10 @@ TEST(JsApiStructMapping, ImplementedSetterDocsReferencePersistentAuthority) {
         find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "lifespan");
     ASSERT_NE(zone_lifespan, nullptr);
     EXPECT_STREQ(zone_lifespan->setter_status, "implemented-validated-setter");
+    const JsApiStructFieldMapping *room_level =
+        find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, "level");
+    ASSERT_NE(room_level, nullptr);
+    EXPECT_STREQ(room_level->setter_status, "implemented-validated-setter");
 }
 
 TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)

@@ -299,9 +299,13 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Moving a room between zones from JavaScript is unsupported.", "none",
      "Already exposed as Room.zone."},
     {JsApiStructOwner::RoomData, "room_data", "level", "level", "getLevel", "setLevel", "number",
-     false, ImplementedReadOnly, Deferred, "Returns the room level value.",
-     "Room level writes are deferred.",
-     "mutation", ""},
+     false, ImplementedReadOnly, SetterImplemented, "Returns the room level value.",
+     "Updates the invocation snapshot room level after integer and 0 through 100 inclusive bounds "
+     "checks, rejects negative values, values above 100, and fractional or other non-integer "
+     "values, and applies to live owned memory only when dispatch provides target-scoped "
+     "persistent setter authority. This changes the persisted room-file scalar value used by "
+     "legacy same-level room filtering.",
+     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "sector_type", "sectorType", "getSectorType",
      "setSectorType", "string", false, ImplementedReadOnly, Deferred, "Returns the readable sector type name.",
      "Sector writes are deferred until movement costs and "

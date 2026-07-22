@@ -256,6 +256,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
         "  ctx.object.setActionDescription(null);\n"
         "  ctx.room.setName('Changed Gate');\n"
         "  ctx.room.setDescription('The gate was changed by script.');\n"
+        "  ctx.room.setLevel(42);\n"
         "  ctx.zone.setName('Changed Zone');\n"
         "  ctx.zone.setDescription(null);\n"
         "  ctx.zone.setMap('N-G-S-E');\n"
@@ -280,6 +281,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     room_data world[1] = { make_room("Gate", 100, 0) };
     world[0].name = str_dup("Gate");
     world[0].description = str_dup("The old gate.");
+    world[0].level = 5;
     zone_data zones[1] = { make_zone("Zone", 30) };
     zones[0].name = str_dup("Zone");
     zones[0].description = str_dup("The old zone.");
@@ -307,6 +309,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     EXPECT_EQ(object.action_description, nullptr);
     EXPECT_STREQ(world[0].name, "Changed Gate");
     EXPECT_STREQ(world[0].description, "The gate was changed by script.");
+    EXPECT_EQ(world[0].level, 42);
     EXPECT_STREQ(zones[0].name, "Changed Zone");
     EXPECT_EQ(zones[0].description, nullptr);
     EXPECT_STREQ(zones[0].map, "N-G-S-E");
@@ -778,6 +781,71 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneLevelSetterValues)
     }
 }
 
+TEST(JsTriggerDispatch, RejectsRoomLevelSetterWithoutExplicitAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5868,
+        "function onEnter(ctx) {\n"
+        "  ctx.room.setLevel(42);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    world[0].level = 5;
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
+    EXPECT_EQ(world[0].level, 5);
+}
+
+TEST(JsTriggerDispatch, IgnoresInvalidRoomLevelSetterValues)
+{
+    const char* scripts[] = {
+        "function onEnter(ctx) { ctx.room.setLevel(-1); return true; }",
+        "function onEnter(ctx) { ctx.room.setLevel(101); return true; }",
+        "function onEnter(ctx) { ctx.room.setLevel(1.5); return true; }",
+        "function onEnter(ctx) { ctx.room.setLevel(NaN); return true; }",
+        "function onEnter(ctx) { ctx.room.setLevel(Infinity); return true; }",
+        "function onEnter(ctx) { ctx.room.setLevel('42'); return true; }",
+    };
+
+    for (const char* script : scripts) {
+        JsScriptPackageRegistry registry;
+        JsScriptPackage package = make_character_enter_package(5869, script);
+        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+        char_data self = make_character("Self");
+        const char_data* live_characters[] = { &self };
+        room_data world[1] = { make_room("Gate", 100, 0) };
+        world[0].level = 5;
+        zone_data zones[1] = { make_zone("Zone", 30) };
+        JsGameAdapterOptions options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+        JsTriggerDispatchOptions dispatch_options;
+        dispatch_options.mutation_authority = test_mutation_authority();
+
+        JsTriggerDispatchResult result =
+            js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << script;
+        EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << script;
+        EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
+        EXPECT_EQ(world[0].level, 5) << script;
+    }
+}
+
 TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneSymbolSetter)
 {
     JsScriptPackageRegistry registry;
@@ -1056,6 +1124,39 @@ TEST(JsTriggerDispatch, PersistsNestedZoneLevelSetter)
     EXPECT_EQ(zones[0].level, 42);
 }
 
+TEST(JsTriggerDispatch, PersistsNestedRoomLevelSetter)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5870,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.room.setLevel(42);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.in_room = 0;
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    world[0].level = 5;
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(world[0].level, 42);
+}
+
 TEST(JsTriggerDispatch, RejectsZoneLifespanSetterWhenAuthorityTargetsAnotherZone)
 {
     JsScriptPackageRegistry registry;
@@ -1124,6 +1225,39 @@ TEST(JsTriggerDispatch, RejectsZoneLevelSetterWhenAuthorityTargetsAnotherZone)
     EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
     EXPECT_EQ(zones[0].level, 5);
     EXPECT_EQ(zones[1].level, 7);
+}
+
+TEST(JsTriggerDispatch, RejectsRoomLevelSetterWhenAuthorityTargetsAnotherZone)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5871,
+        "function onEnter(ctx) {\n"
+        "  ctx.room.setLevel(42);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    world[0].level = 5;
+    zone_data zones[2] = {
+        make_zone("Script Zone", 30),
+        make_zone("Other Zone", 31),
+    };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_EQ(world[0].level, 5);
 }
 
 TEST(JsTriggerDispatch, RejectsMixedSymbolBatchWithoutPartialWrites)
@@ -1409,6 +1543,53 @@ TEST(JsTriggerDispatch, RejectsMixedZoneLevelTargetFailureAfterEarlierValidMutat
     EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
     EXPECT_STREQ(object.name, "old lever");
     EXPECT_EQ(zones[0].level, 5);
+
+    free(object.name);
+    free(object.short_description);
+}
+
+TEST(JsTriggerDispatch, RejectsMixedRoomLevelTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5872,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('authorized object edit');\n"
+        "  ctx.room.setLevel(42);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.in_room = 1;
+    object.name = str_dup("old lever");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[2] = {
+        make_room("Script Room", 100, 0),
+        make_room("Authorized Object Room", 200, 1),
+    };
+    world[0].level = 5;
+    zone_data zones[2] = {
+        make_zone("Script Zone", 30),
+        make_zone("Authorized Object Zone", 31),
+    };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_STREQ(object.name, "old lever");
+    EXPECT_EQ(world[0].level, 5);
 
     free(object.name);
     free(object.short_description);

@@ -70,6 +70,7 @@ struct PendingTextMutation {
     char** target = nullptr;
     char* char_target = nullptr;
     int* int_target = nullptr;
+    unsigned char* byte_target = nullptr;
     bool has_value = false;
     bool redraw_world_map = false;
     std::string value;
@@ -243,8 +244,8 @@ bool validate_lifespan_mutation_value(const JsRuntimeMutation& mutation)
 
 bool validate_level_mutation_value(const JsRuntimeMutation& mutation)
 {
-    if (mutation.target_type != "zone" || mutation.property != "level" || !mutation.has_value ||
-        mutation.value_kind != "number")
+    if ((mutation.target_type != "zone" && mutation.target_type != "room") ||
+        mutation.property != "level" || !mutation.has_value || mutation.value_kind != "number")
         return false;
     int parsed = 0;
     return parse_level_value(mutation.value, &parsed);
@@ -260,7 +261,8 @@ bool validate_mutation_value(const JsRuntimeMutation& mutation)
         return validate_reset_mode_mutation_value(mutation);
     if (mutation.target_type == "zone" && mutation.property == "lifespan")
         return validate_lifespan_mutation_value(mutation);
-    if (mutation.target_type == "zone" && mutation.property == "level")
+    if ((mutation.target_type == "zone" || mutation.target_type == "room") &&
+        mutation.property == "level")
         return validate_level_mutation_value(mutation);
     return validate_text_mutation_value(mutation);
 }
@@ -546,12 +548,21 @@ PendingCoordinateTarget resolve_level_mutation_target(const JsRuntimeMutation& m
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
     const JsTriggerMutationAuthorityContext& authority)
 {
-    if (mutation.target_type != "zone" || mutation.property != "level")
+    if (mutation.property != "level")
         return {};
-    zone_data* zone = mutable_live_zone_for_id(mutation, request, options);
-    if (zone == nullptr || !zone_matches_mutation_authority(*zone, authority))
-        return {};
-    return { &zone->level, false };
+    if (mutation.target_type == "zone") {
+        zone_data* zone = mutable_live_zone_for_id(mutation, request, options);
+        if (zone == nullptr || !zone_matches_mutation_authority(*zone, authority))
+            return {};
+        return { &zone->level, false };
+    }
+    if (mutation.target_type == "room") {
+        room_data* room = mutable_live_room_for_id(mutation, request, options);
+        if (room == nullptr || !room_matches_mutation_authority(*room, options, authority))
+            return {};
+        return { nullptr, false };
+    }
+    return {};
 }
 
 bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
@@ -571,7 +582,7 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
             if (target.target == nullptr)
                 return false;
             pending->push_back(
-                { nullptr, target.target, nullptr, true, target.redraw_world_map, mutation.value, 0 });
+                { nullptr, target.target, nullptr, nullptr, true, target.redraw_world_map, mutation.value, 0 });
             continue;
         }
         if (mutation.target_type == "zone" &&
@@ -582,7 +593,7 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
             if (target.target == nullptr || !parse_coordinate_value(mutation.value, &parsed))
                 return false;
             pending->push_back(
-                { nullptr, nullptr, target.target, true, target.redraw_world_map, mutation.value, parsed });
+                { nullptr, nullptr, target.target, nullptr, true, target.redraw_world_map, mutation.value, parsed });
             continue;
         }
         if (mutation.target_type == "zone" && mutation.property == "resetMode") {
@@ -591,7 +602,7 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
             int parsed = 0;
             if (target.target == nullptr || !parse_reset_mode_value(mutation.value, &parsed))
                 return false;
-            pending->push_back({ nullptr, nullptr, target.target, true, false, mutation.value, parsed });
+            pending->push_back({ nullptr, nullptr, target.target, nullptr, true, false, mutation.value, parsed });
             continue;
         }
         if (mutation.target_type == "zone" && mutation.property == "lifespan") {
@@ -600,23 +611,35 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
             int parsed = 0;
             if (target.target == nullptr || !parse_lifespan_value(mutation.value, &parsed))
                 return false;
-            pending->push_back({ nullptr, nullptr, target.target, true, false, mutation.value, parsed });
+            pending->push_back({ nullptr, nullptr, target.target, nullptr, true, false, mutation.value, parsed });
             continue;
         }
-        if (mutation.target_type == "zone" && mutation.property == "level") {
+        if ((mutation.target_type == "zone" || mutation.target_type == "room") &&
+            mutation.property == "level") {
             PendingCoordinateTarget target =
                 resolve_level_mutation_target(mutation, request, options, authority);
             int parsed = 0;
-            if (target.target == nullptr || !parse_level_value(mutation.value, &parsed))
+            if (!parse_level_value(mutation.value, &parsed))
                 return false;
-            pending->push_back({ nullptr, nullptr, target.target, true, false, mutation.value, parsed });
+            if (mutation.target_type == "room") {
+                room_data* room = mutable_live_room_for_id(mutation, request, options);
+                if (room == nullptr || !room_matches_mutation_authority(*room, options, authority))
+                    return false;
+                pending->push_back(
+                    { nullptr, nullptr, nullptr, &room->level, true, false, mutation.value, parsed });
+            } else {
+                if (target.target == nullptr)
+                    return false;
+                pending->push_back(
+                    { nullptr, nullptr, target.target, nullptr, true, false, mutation.value, parsed });
+            }
             continue;
         }
         char** target = resolve_text_mutation_target(
             mutation, request, options, authority);
         if (target == nullptr)
             return false;
-        pending->push_back({ target, nullptr, nullptr, mutation.has_value, false, mutation.value, 0 });
+        pending->push_back({ target, nullptr, nullptr, nullptr, mutation.has_value, false, mutation.value, 0 });
     }
     return true;
 }
@@ -633,6 +656,10 @@ void apply_text_mutations(const std::vector<PendingTextMutation>& mutations)
         if (mutation.int_target != nullptr) {
             *mutation.int_target = mutation.int_value;
             redraw_world_map = redraw_world_map || mutation.redraw_world_map;
+            continue;
+        }
+        if (mutation.byte_target != nullptr) {
+            *mutation.byte_target = static_cast<unsigned char>(mutation.int_value);
             continue;
         }
         free(*mutation.target);
