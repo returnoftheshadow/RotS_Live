@@ -458,6 +458,18 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     const std::string character_block = declaration_block(declarations, "export interface Character");
     ASSERT_FALSE(character_block.empty());
     const char *character_relationship_setters[] = {
+        "setProfile",
+        "setBaseAbilities",
+        "setCurrentAbilities",
+        "setRolledAbilities",
+        "setPoints",
+        "setSpecials",
+        "setSpecials2",
+        "setProfessions",
+        "setSpecializations",
+        "setDamageDetails",
+        "setSkill",
+        "setKnowledge",
         "setRoom",
         "setAffects",
         "setEquipmentSlot",

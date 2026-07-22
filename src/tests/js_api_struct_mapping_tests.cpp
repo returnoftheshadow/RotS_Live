@@ -780,6 +780,65 @@ TEST(JsApiStructMapping, PinsCharacterRelationshipAndStateSetterDeferrals) {
     }
 }
 
+TEST(JsApiStructMapping, PinsCharacterNestedProfileAndStatSetterDeferrals) {
+    struct ExpectedCharacterDeferral {
+        const char *field;
+        const char *property;
+        const char *setter_name;
+        const char *type_name;
+        bool nullable;
+        const char *getter_status;
+        const char *setter_status;
+        const char *side_effect;
+        const char *required_text;
+    };
+
+    const ExpectedCharacterDeferral deferred[] = {
+        {"player", "profile", "setProfile", "CharacterProfile", false, "deferred",
+            "unsupported", "mutation", "account-backed fields"},
+        {"abilities", "baseAbilities", "setBaseAbilities", "AbilityScores", false, "deferred",
+            "unsupported", "mutation", "derived stat recalculation"},
+        {"tmpabilities", "currentAbilities", "setCurrentAbilities", "AbilityScores", false,
+            "deferred", "unsupported", "mutation", "active affects"},
+        {"constabilities", "rolledAbilities", "setRolledAbilities", "AbilityScores", false,
+            "deferred", "unsupported", "mutation", "character-creation history"},
+        {"points", "points", "setPoints", "CharacterPoints", false, "deferred", "unsupported",
+            "mutation", "death handling"},
+        {"specials", "specials", "setSpecials", "CharacterSpecials", false, "deferred",
+            "unsupported", "mutation", "combat targets"},
+        {"specials2", "specials2", "setSpecials2", "CharacterSpecials2", false, "deferred",
+            "unsupported", "mutation", "player/NPC flags"},
+        {"profs", "professions", "setProfessions", "readonly Profession[]", true, "deferred",
+            "unsupported", "mutation", "skill recalculation"},
+        {"extra_specialization_data", "specializations", "setSpecializations",
+            "SpecializationData", false, "deferred", "unsupported", "mutation",
+            "class-specific invariants"},
+        {"damage_details", "damageDetails", "setDamageDetails", "DamageDetails", false,
+            "deferred", "unsupported", "mutation", "combat participation"},
+        {"skills", "skills", "setSkill", "readonly SkillValue[]", true, "deferred",
+            "unsupported", "mutation", "practice sessions"},
+        {"knowledge", "knowledge", "setKnowledge", "readonly SkillValue[]", true, "deferred",
+            "unsupported", "mutation", "recalculation helpers"},
+    };
+
+    for (const ExpectedCharacterDeferral &entry : deferred) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::CharData, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->js_property, entry.property) << entry.field;
+        EXPECT_STREQ(mapping->setter_name, entry.setter_name) << entry.field;
+        EXPECT_STREQ(mapping->type_name, entry.type_name) << entry.field;
+        EXPECT_EQ(mapping->nullable, entry.nullable) << entry.field;
+        EXPECT_STREQ(mapping->getter_status, entry.getter_status) << entry.field;
+        EXPECT_STREQ(mapping->setter_status, entry.setter_status) << entry.field;
+        EXPECT_STREQ(mapping->side_effect, entry.side_effect) << entry.field;
+        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
+                      .find(entry.required_text),
+            std::string::npos)
+            << entry.field;
+    }
+}
+
 TEST(JsApiStructMapping, UnsafeImplementationFieldsStayUnavailable) {
     const char *internal_character_fields[] = {
         "abs_number",       "player_index",  "desc", "next_in_room", "next",     "next_fighting",
