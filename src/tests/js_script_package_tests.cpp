@@ -231,8 +231,15 @@ TEST(JsScriptPackage, RejectsUnsafeSourcePolicyWithoutExecutingRuntime)
         "import value from 'fs'; function onEnter(ctx) { return true; }",
         "function onEnter(ctx) { eval('1'); }",
         "function onEnter(ctx) { globalThis['eval']('1'); }",
+        "function onEnter(ctx) { globalThis[ 'constructor' ].constructor('return true')(); }",
+        "function onEnter(ctx) { globalThis['Function']('return true')(); }",
+        R"(function onEnter(ctx) { return globalThis['con\x73tructor']; })",
         "function onEnter(ctx) { Function('return true')(); }",
         "function onEnter(ctx) { return ({}).constructor.constructor('return true')(); }",
+        "function onEnter(ctx) { return `${Function('return true')()}`; }",
+        "function* onEnter(ctx) { yield true; }",
+        "function/**/ * onEnter(ctx) { yield true; }",
+        R"(function onEnter(ctx) { const r = /\/*/; const A = (async () => {})['con' + 'structor']; A('globalThis.pwned = true')(); return true; })",
         "async function onEnter(ctx) { return true; }",
         "function onEnter(ctx) { return Promise.resolve(true); }",
         "function onEnter(ctx) { return true; }\n//# sourceMappingURL=data:application/json;base64,ZXZhbA==",
@@ -254,7 +261,10 @@ TEST(JsScriptPackage, IgnoresForbiddenWordsInsideStringsAndComments)
 {
     JsScriptPackage package = make_package();
     package.compiled_javascript = "function onEnter(ctx) { const text = 'import eval Function Promise'; return true; }\n"
+                                  "function onReceive(ctx) { const bracketedText = \"globalThis['eval'] and ['constructor']\"; return !!bracketedText; }\n"
+                                  "function onDrink(ctx) { const staticTemplate = `import eval Function Promise constructor`; return !!staticTemplate; }\n"
                                   "// import eval Function Promise\n"
+                                  "// globalThis['eval'] and ['constructor']\n"
                                   "/* import eval Function Promise */";
     refresh_checksum(package);
 

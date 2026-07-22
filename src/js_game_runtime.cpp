@@ -1,4 +1,5 @@
 #include "js_game_runtime.h"
+#include "js_source_policy.h"
 
 #include "json_utils.h"
 
@@ -417,7 +418,8 @@ JsRuntimeEvalResult evaluate_game_source(
     const std::string& source, const JsRuntimeLimits& limits, const char* filename)
 {
     JsRuntime runtime(limits);
-    JsRuntimeEvalResult result = sanitize_game_result(runtime.evaluate(source, filename));
+    JsRuntimeEvalResult result =
+        sanitize_game_result(runtime.evaluate_trusted_wrapped_source(source, filename));
     if (result.status != JsRuntimeStatus::Ok)
         return result;
     if (!result.has_string_value) {
@@ -431,19 +433,45 @@ JsRuntimeEvalResult evaluate_game_source(
     return sanitize_game_result(std::move(result));
 }
 
+JsRuntimeEvalResult validate_builder_source_policy(const std::string& source)
+{
+    const std::vector<JsSourcePolicyViolation> violations = js_source_policy_validate(source);
+    JsRuntimeEvalResult result;
+    if (!violations.empty()) {
+        result.status = JsRuntimeStatus::Error;
+        result.diagnostic = violations.front().message;
+    } else {
+        result.status = JsRuntimeStatus::Ok;
+    }
+    return result;
+}
+
 std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
 {
     std::ostringstream wrapped;
     wrapped << "'use strict';\n"
-            << "delete Object.prototype.constructor;\n"
+            << "Object.defineProperty(Object.prototype, 'constructor', { value: undefined, "
+               "writable: false, configurable: false });\n"
             << "const __rotsFunctionPrototype = Object.getPrototypeOf(function() {});\n"
             << "Object.defineProperty(__rotsFunctionPrototype, 'constructor', { value: "
+               "undefined, writable: false, configurable: false });\n"
+            << "const __rotsAsyncFunctionPrototype = Object.getPrototypeOf(async function () {});\n"
+            << "Object.defineProperty(__rotsAsyncFunctionPrototype, 'constructor', { value: "
+               "undefined, writable: false, configurable: false });\n"
+            << "const __rotsGeneratorFunctionPrototype = Object.getPrototypeOf(function* () {});\n"
+            << "Object.defineProperty(__rotsGeneratorFunctionPrototype, 'constructor', { value: "
+               "undefined, writable: false, configurable: false });\n"
+            << "const __rotsAsyncGeneratorFunctionPrototype = Object.getPrototypeOf(async function* () {});\n"
+            << "Object.defineProperty(__rotsAsyncGeneratorFunctionPrototype, 'constructor', { value: "
                "undefined, writable: false, configurable: false });\n"
             << "Object.defineProperty(Array.prototype, 'constructor', { value: undefined, "
                "writable: false, configurable: false });\n"
             << "Object.freeze(Object.prototype);\n"
             << "Object.freeze(Array.prototype);\n"
             << "Object.freeze(__rotsFunctionPrototype);\n"
+            << "Object.freeze(__rotsAsyncFunctionPrototype);\n"
+            << "Object.freeze(__rotsGeneratorFunctionPrototype);\n"
+            << "Object.freeze(__rotsAsyncGeneratorFunctionPrototype);\n"
             << "const __rotsNumberIsInteger = Number.isInteger;\n"
             << "const __rotsString = String;\n"
             << "const __rotsJsonStringify = JSON.stringify;\n"
@@ -756,7 +784,9 @@ JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result)
 {
     if (result.status == JsRuntimeStatus::Error && result.diagnostic.size() > MaxGameDiagnosticLength)
         result.diagnostic.resize(MaxGameDiagnosticLength);
-    if (result.status == JsRuntimeStatus::Error && result.diagnostic.find("TypeError:") != 0 && result.diagnostic.find("SyntaxError:") != 0) {
+    if (result.status == JsRuntimeStatus::Error && result.diagnostic.find("TypeError:") != 0
+        && result.diagnostic.find("SyntaxError:") != 0
+        && result.diagnostic.find("compiled JavaScript ") != 0) {
         result.diagnostic = "JavaScript game script failed";
     }
     return result;
@@ -778,6 +808,9 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string& sour
         result.diagnostic = "JavaScript game script body is not structurally valid";
         return result;
     }
+    JsRuntimeEvalResult policy_result = validate_builder_source_policy(source);
+    if (policy_result.status == JsRuntimeStatus::Error)
+        return sanitize_game_result(policy_result);
 
     std::ostringstream wrapped;
     wrapped << trigger_context_preamble(context)
@@ -814,6 +847,9 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
         result.diagnostic = "JavaScript game handler name is not a safe identifier";
         return result;
     }
+    JsRuntimeEvalResult policy_result = validate_builder_source_policy(package_source);
+    if (policy_result.status == JsRuntimeStatus::Error)
+        return sanitize_game_result(policy_result);
 
     std::ostringstream wrapped;
     wrapped << trigger_context_preamble(context)

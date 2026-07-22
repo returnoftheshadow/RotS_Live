@@ -96,6 +96,57 @@ TEST(JsRuntime, DoesNotExposeHostOsOrModuleGlobals) {
     EXPECT_EQ(static_import_result.status, JsRuntimeStatus::Error);
 }
 
+TEST(JsRuntime, RejectsSourcePolicyBypassesBeforeEvaluation) {
+    JsRuntime runtime;
+
+    const char* bad_sources[] = {
+        "import/**/('fs')",
+        "import\n('fs')",
+        "({}).constructor.constructor('return true')()",
+        "globalThis['eval']('true')",
+        "globalThis[ 'constructor' ].constructor('return true')()",
+        "globalThis['Function']('return true')()",
+        R"(globalThis['con\x73tructor'])",
+        "`${Function('return true')()}`",
+        "function* run() { yield true; } run().next()",
+        "function/**/ * run() { yield true; } run().next()",
+        R"(const r = /\/*/; const A = (async () => {})['con' + 'structor']; A('globalThis.pwned = true')();)",
+        "AsyncFunction('return true')()",
+        "GeneratorFunction('yield true')()",
+        "setTimeout(function() {}, 1)",
+        "setInterval(function() {}, 1)",
+        "async function run() { return true; } run()",
+        "Promise.resolve(true)",
+    };
+
+    for (const char* source : bad_sources) {
+        JsRuntimeEvalResult result = runtime.evaluate(source);
+        EXPECT_EQ(result.status, JsRuntimeStatus::Error) << source;
+        EXPECT_FALSE(result.diagnostic.empty()) << source;
+    }
+
+    const char* runtime_hardened_sources[] = {
+        "(()=>{})['con' + 'structor']('return true')()",
+        "([])['con' + 'structor']['con' + 'structor']('return true')()",
+        "({})['con' + 'structor']['con' + 'structor']('return true')()",
+    };
+
+    for (const char* source : runtime_hardened_sources) {
+        JsRuntimeEvalResult result = runtime.evaluate(source);
+        EXPECT_EQ(result.status, JsRuntimeStatus::Error) << source;
+        EXPECT_FALSE(result.diagnostic.empty()) << source;
+    }
+
+    expect_allows(runtime,
+        "const text = 'import eval Function Promise constructor setTimeout';\n"
+        "const bracketedText = \"globalThis['eval'] and ['constructor']\";\n"
+        "const staticTemplate = `import eval Function Promise constructor setTimeout`;\n"
+        "// import eval Function Promise constructor setTimeout\n"
+        "// globalThis['eval'] and ['constructor']\n"
+        "/* import eval Function Promise constructor setTimeout */\n"
+        "true;");
+}
+
 TEST(JsRuntime, DoesNotPersistMutableStateAcrossEvaluations) {
     JsRuntime runtime;
 
@@ -112,21 +163,21 @@ TEST(JsRuntime, RejectsRuntimeCompilationAndPromiseResults) {
     JsRuntime runtime;
 
     JsRuntimeEvalResult eval_result = runtime.evaluate("typeof eval === 'undefined'");
-    EXPECT_EQ(eval_result.status, JsRuntimeStatus::Ok) << eval_result.diagnostic;
-    EXPECT_EQ(eval_result.value, JsRuntimeValue::Allow);
+    EXPECT_EQ(eval_result.status, JsRuntimeStatus::Error);
+    EXPECT_NE(eval_result.diagnostic.find("eval"), std::string::npos);
 
     JsRuntimeEvalResult function_result = runtime.evaluate("typeof Function === 'undefined'");
-    EXPECT_EQ(function_result.status, JsRuntimeStatus::Ok) << function_result.diagnostic;
-    EXPECT_EQ(function_result.value, JsRuntimeValue::Allow);
+    EXPECT_EQ(function_result.status, JsRuntimeStatus::Error);
+    EXPECT_NE(function_result.diagnostic.find("Function"), std::string::npos);
 
     JsRuntimeEvalResult promise_result = runtime.evaluate("Promise.resolve(false)");
     EXPECT_EQ(promise_result.status, JsRuntimeStatus::Error);
-    EXPECT_NE(promise_result.diagnostic.find("promise"), std::string::npos);
+    EXPECT_FALSE(promise_result.diagnostic.empty());
 
     JsRuntimeEvalResult async_result =
         runtime.evaluate("async function run() { return false; } run();");
     EXPECT_EQ(async_result.status, JsRuntimeStatus::Error);
-    EXPECT_NE(async_result.diagnostic.find("promise"), std::string::npos);
+    EXPECT_FALSE(async_result.diagnostic.empty());
 }
 
 TEST(JsRuntime, RemainsUsableAfterFailedEvaluations) {

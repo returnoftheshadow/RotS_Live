@@ -71,6 +71,7 @@ set(ROTS_SERVER_SOURCES
     js_publish_staging.cpp
     js_runtime.cpp
     js_server_identity.cpp
+    js_source_policy.cpp
     js_staged_package_identity.cpp
     js_staged_package_repository.cpp
     js_script_package_loader.cpp

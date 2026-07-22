@@ -51,6 +51,8 @@ public:
     JsRuntime& operator=(const JsRuntime&) = delete;
 
     JsRuntimeEvalResult evaluate(const std::string& source, const char* filename = "script.js");
+    JsRuntimeEvalResult evaluate_trusted_wrapped_source(const std::string& source,
+        const char* filename = "script.js");
 
 private:
     struct Impl;

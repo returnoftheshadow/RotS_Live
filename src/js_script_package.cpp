@@ -1,7 +1,7 @@
 #include "js_script_package.h"
+#include "js_source_policy.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <set>
@@ -84,20 +84,6 @@ void append_string(std::ostringstream& stream, const char* name, const std::stri
     stream << name << '=' << value.size() << ':' << value << '\n';
 }
 
-bool is_identifier_start(unsigned char ch) { return std::isalpha(ch) || ch == '_' || ch == '$'; }
-
-bool is_identifier_continue(unsigned char ch)
-{
-    return std::isalnum(ch) || ch == '_' || ch == '$';
-}
-
-void reject_token(JsScriptPackageValidationResult& result, const JsScriptPackage& package,
-    const std::string& token)
-{
-    add_diagnostic(result, JsScriptPackageDiagnosticCode::SourcePolicyViolation, package,
-        "compiled JavaScript uses forbidden token '" + token + "'");
-}
-
 void validate_source_policy(const JsScriptPackage& package,
     const JsScriptPackageValidationOptions& options,
     JsScriptPackageValidationResult& result)
@@ -113,98 +99,9 @@ void validate_source_policy(const JsScriptPackage& package,
             "compiled JavaScript exceeds maximum source size");
         return;
     }
-    if (source.find("sourceMappingURL") != std::string::npos
-        || source.find("sourceURL") != std::string::npos)
+    for (const JsSourcePolicyViolation& violation : js_source_policy_validate(source)) {
         add_diagnostic(result, JsScriptPackageDiagnosticCode::SourcePolicyViolation, package,
-            "compiled JavaScript must not include source map references");
-    if (source.find("['eval']") != std::string::npos
-        || source.find("[\"eval\"]") != std::string::npos
-        || source.find("[`eval`]") != std::string::npos)
-        add_diagnostic(result, JsScriptPackageDiagnosticCode::SourcePolicyViolation, package,
-            "compiled JavaScript uses forbidden eval property access");
-
-    const std::set<std::string> forbidden_tokens = {
-        "import",
-        "eval",
-        "Function",
-        "AsyncFunction",
-        "GeneratorFunction",
-        "AsyncGeneratorFunction",
-        "constructor",
-        "async",
-        "Promise",
-        "setTimeout",
-        "setInterval",
-    };
-
-    bool in_single_line_comment = false;
-    bool in_multi_line_comment = false;
-    bool in_string = false;
-    bool in_template = false;
-    char string_quote = 0;
-
-    for (std::size_t index = 0; index < source.size();) {
-        const char ch = source[index];
-        const char next = index + 1 < source.size() ? source[index + 1] : '\0';
-
-        if (in_single_line_comment) {
-            if (ch == '\n' || ch == '\r')
-                in_single_line_comment = false;
-            ++index;
-            continue;
-        }
-        if (in_multi_line_comment) {
-            if (ch == '*' && next == '/') {
-                in_multi_line_comment = false;
-                index += 2;
-            } else {
-                ++index;
-            }
-            continue;
-        }
-        if (in_string || in_template) {
-            if (ch == '\\') {
-                index += index + 1 < source.size() ? 2 : 1;
-                continue;
-            }
-            if (ch == string_quote) {
-                in_string = false;
-                in_template = false;
-                string_quote = 0;
-            }
-            ++index;
-            continue;
-        }
-
-        if (ch == '/' && next == '/') {
-            in_single_line_comment = true;
-            index += 2;
-            continue;
-        }
-        if (ch == '/' && next == '*') {
-            in_multi_line_comment = true;
-            index += 2;
-            continue;
-        }
-        if (ch == '\'' || ch == '"' || ch == '`') {
-            in_string = ch != '`';
-            in_template = ch == '`';
-            string_quote = ch;
-            ++index;
-            continue;
-        }
-        if (is_identifier_start(static_cast<unsigned char>(ch))) {
-            std::size_t end = index + 1;
-            while (end < source.size()
-                && is_identifier_continue(static_cast<unsigned char>(source[end])))
-                ++end;
-            const std::string token = source.substr(index, end - index);
-            if (forbidden_tokens.find(token) != forbidden_tokens.end())
-                reject_token(result, package, token);
-            index = end;
-            continue;
-        }
-        ++index;
+            violation.message);
     }
 }
 

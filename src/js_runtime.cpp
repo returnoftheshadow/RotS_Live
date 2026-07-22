@@ -1,4 +1,5 @@
 #include "js_runtime.h"
+#include "js_source_policy.h"
 
 extern "C" {
 #include "../third_party/quickjs/quickjs.h"
@@ -50,11 +51,6 @@ std::string exception_to_string(JSContext* context)
     return clamp_diagnostic(diagnostic);
 }
 
-bool contains_dynamic_import(const std::string& source)
-{
-    return source.find("import(") != std::string::npos || source.find("import (") != std::string::npos;
-}
-
 JSModuleDef* deny_module_load(JSContext* context, const char* module_name, void*)
 {
     JS_ThrowReferenceError(context, "module loading is not supported: %s", module_name);
@@ -76,6 +72,28 @@ void configure_context(JSContext* context)
 {
     delete_global_property(context, "eval");
     delete_global_property(context, "Function");
+    static const char* hardening_source =
+        "(function() {\n"
+        "  Object.defineProperty(Object.prototype, 'constructor', { value: undefined, "
+        "writable: false, configurable: false });\n"
+        "  const functionPrototype = Object.getPrototypeOf(function() {});\n"
+        "  Object.defineProperty(functionPrototype, 'constructor', { value: undefined, "
+        "writable: false, configurable: false });\n"
+        "  const asyncFunctionPrototype = Object.getPrototypeOf(async function () {});\n"
+        "  Object.defineProperty(asyncFunctionPrototype, 'constructor', { value: undefined, "
+        "writable: false, configurable: false });\n"
+        "  const generatorFunctionPrototype = Object.getPrototypeOf(function* () {});\n"
+        "  Object.defineProperty(generatorFunctionPrototype, 'constructor', { value: undefined, "
+        "writable: false, configurable: false });\n"
+        "  const asyncGeneratorFunctionPrototype = Object.getPrototypeOf(async function* () {});\n"
+        "  Object.defineProperty(asyncGeneratorFunctionPrototype, 'constructor', { value: undefined, "
+        "writable: false, configurable: false });\n"
+        "  Object.defineProperty(Array.prototype, 'constructor', { value: undefined, "
+        "writable: false, configurable: false });\n"
+        "}());\n";
+    JSValue value = JS_Eval(context, hardening_source, std::strlen(hardening_source),
+        "<rots-runtime-hardening>", JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT);
+    JS_FreeValue(context, value);
 }
 
 } // namespace
@@ -95,11 +113,20 @@ JsRuntime::~JsRuntime() { delete m_impl; }
 JsRuntimeEvalResult JsRuntime::evaluate(const std::string& source, const char* filename)
 {
     JsRuntimeEvalResult result;
-    if (contains_dynamic_import(source)) {
+    const std::vector<JsSourcePolicyViolation> policy_violations = js_source_policy_validate(source);
+    if (!policy_violations.empty()) {
         result.status = JsRuntimeStatus::Error;
-        result.diagnostic = "dynamic import is not supported";
+        result.diagnostic = clamp_diagnostic(policy_violations.front().message);
         return result;
     }
+
+    return evaluate_trusted_wrapped_source(source, filename);
+}
+
+JsRuntimeEvalResult JsRuntime::evaluate_trusted_wrapped_source(const std::string& source,
+    const char* filename)
+{
+    JsRuntimeEvalResult result;
 
     InterruptState interrupt_state;
     interrupt_state.remaining_budget = m_impl->limits.instruction_budget;
