@@ -275,6 +275,101 @@ TEST(JsApiStructMapping, CoversEveryPublicTopLevelStructField) {
         expect_field(JsApiStructOwner::ZoneData, field);
 }
 
+TEST(JsApiStructMapping, PublicMappingsHaveFinalExplicitAccessorPolicy)
+{
+    std::size_t public_count = 0;
+    std::size_t implemented_getter_count = 0;
+    std::size_t callable_setter_count = 0;
+    std::size_t documented_non_callable_setter_count = 0;
+
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        const std::string field_id =
+            std::string(js_api_struct_owner_name(mapping.owner)) + "." + mapping.source_field;
+        const std::string getter_status = mapping.getter_status;
+        const std::string setter_status = mapping.setter_status;
+        const std::string getter_docs = mapping.getter_docs;
+        const std::string setter_docs = mapping.setter_docs;
+        const std::string notes = mapping.notes;
+        const bool public_row = getter_status != "internal-only";
+
+        EXPECT_NE(getter_status, "planned-read-only-getter") << field_id;
+        EXPECT_NE(setter_status, "planned-validated-setter") << field_id;
+
+        if (!public_row) {
+            EXPECT_EQ(setter_status, "unsupported") << field_id;
+            EXPECT_STRNE(mapping.getter_docs, "") << field_id;
+            EXPECT_STRNE(mapping.setter_docs, "") << field_id;
+            continue;
+        }
+
+        ++public_count;
+        EXPECT_STRNE(mapping.js_property, "") << field_id;
+        EXPECT_STRNE(mapping.getter_name, "") << field_id;
+        EXPECT_STRNE(mapping.setter_name, "") << field_id;
+        EXPECT_STRNE(mapping.type_name, "") << field_id;
+        EXPECT_STRNE(mapping.getter_docs, "") << field_id;
+        EXPECT_STRNE(mapping.setter_docs, "") << field_id;
+
+        if (getter_status == "implemented-read-only-getter") {
+            ++implemented_getter_count;
+            EXPECT_NE(getter_docs.find("Returns"), std::string::npos) << field_id;
+        } else {
+            EXPECT_EQ(getter_status, "deferred") << field_id;
+            const std::string getter_policy = getter_docs + " " + notes;
+            EXPECT_TRUE(getter_policy.find("Planned") != std::string::npos ||
+                        getter_policy.find("Deferred") != std::string::npos)
+                << field_id;
+        }
+
+        if (setter_status == "implemented-validated-setter") {
+            ++callable_setter_count;
+            EXPECT_EQ(getter_status, "implemented-read-only-getter") << field_id;
+            EXPECT_NE(std::string(mapping.side_effect), "none") << field_id;
+            EXPECT_NE(setter_docs.find("target-scoped persistent setter authority"),
+                std::string::npos)
+                << field_id;
+        } else {
+            ++documented_non_callable_setter_count;
+            EXPECT_TRUE(setter_status == "deferred" || setter_status == "unsupported")
+                << field_id;
+            const std::string setter_policy = setter_docs + " " + notes;
+            EXPECT_TRUE(setter_policy.find("helper") != std::string::npos ||
+                        setter_policy.find("authority") != std::string::npos ||
+                        setter_policy.find("persistence") != std::string::npos ||
+                        setter_policy.find("internal") != std::string::npos ||
+                        setter_policy.find("linked-list") != std::string::npos ||
+                        setter_policy.find("recalculation") != std::string::npos ||
+                        setter_policy.find("side effect") != std::string::npos ||
+                        setter_policy.find("requires") != std::string::npos ||
+                        setter_policy.find("require") != std::string::npos ||
+                        setter_policy.find("need") != std::string::npos ||
+                        setter_policy.find("owned") != std::string::npos ||
+                        setter_policy.find("because") != std::string::npos ||
+                        setter_policy.find("until") != std::string::npos ||
+                        setter_policy.find("runtime") != std::string::npos ||
+                        setter_policy.find("visibility") != std::string::npos ||
+                        setter_policy.find("persist") != std::string::npos ||
+                        setter_policy.find("Changing") != std::string::npos ||
+                        setter_policy.find("Moving") != std::string::npos ||
+                        setter_policy.find("Replacing") != std::string::npos ||
+                        setter_policy.find("Direct") != std::string::npos ||
+                        setter_policy.find("bypass") != std::string::npos)
+                << field_id;
+            if (setter_status == "deferred") {
+                EXPECT_GT(setter_docs.size(), 24U) << field_id;
+            } else {
+                EXPECT_NE(setter_docs.find("unsupported"), std::string::npos) << field_id;
+            }
+        }
+    }
+
+    EXPECT_GT(public_count, 0U);
+    EXPECT_GT(implemented_getter_count, 0U);
+    EXPECT_GT(callable_setter_count, 0U);
+    EXPECT_GT(documented_non_callable_setter_count, 0U);
+}
+
 TEST(JsApiStructMapping, MatchesCurrentStructFieldDeclarations) {
     EXPECT_EQ(catalog_fields(JsApiStructOwner::CharData),
               source_public_fields("src/structs.h", "char_data"));
