@@ -13,6 +13,7 @@ using json_utils::JsonReader;
 
 constexpr std::size_t MaxGameDiagnosticLength = 120;
 constexpr std::size_t MaxGameMutationCount = 64;
+constexpr std::size_t CharacterBodypartHitCount = 11;
 
 JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result);
 
@@ -93,6 +94,36 @@ std::string ability_scores_literal(const JsGameAbilityScoresFixture& abilities)
     return out.str();
 }
 
+std::string character_points_literal(const JsGameCharacterPointsFixture& points)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"bodypartHits\":";
+    out << "[";
+    for (std::size_t index = 0; index < CharacterBodypartHitCount; ++index) {
+        if (index > 0)
+            out << ",";
+        out << (index < points.bodypart_hits.size() ? points.bodypart_hits[index] : 0);
+    }
+    out << "],"
+        << "\"gold\":" << points.gold << ","
+        << "\"experience\":" << points.experience << ","
+        << "\"spirit\":" << points.spirit << ","
+        << "\"manaRegen\":" << points.mana_regen << ","
+        << "\"healthRegen\":" << points.health_regen << ","
+        << "\"moveRegen\":" << points.move_regen << ","
+        << "\"offense\":" << points.offense << ","
+        << "\"damage\":" << points.damage << ","
+        << "\"energyRegen\":" << points.energy_regen << ","
+        << "\"parry\":" << points.parry << ","
+        << "\"dodge\":" << points.dodge << ","
+        << "\"encumbrance\":" << points.encumbrance << ","
+        << "\"willpower\":" << points.willpower << ","
+        << "\"spellPenetration\":" << points.spell_penetration << ","
+        << "\"spellPower\":" << points.spell_power << "}";
+    return out.str();
+}
+
 std::string zone_literal(const JsGameZoneFixture& zone)
 {
     std::ostringstream out;
@@ -169,6 +200,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"baseAbilities\":" << ability_scores_literal(character.base_abilities) << ","
         << "\"currentAbilities\":" << ability_scores_literal(character.current_abilities) << ","
         << "\"rolledAbilities\":" << ability_scores_literal(character.rolled_abilities) << ","
+        << "\"points\":" << character_points_literal(character.points) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

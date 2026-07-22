@@ -72,6 +72,8 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
 {
     const char* expected_types[] = {
         "Character",
+        "AbilityScores",
+        "CharacterPoints",
         "Player",
         "Mob",
         "GameObject",
@@ -90,6 +92,11 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
     const JsApiType* player = find_js_api_contract_type("Player");
     ASSERT_NE(player, nullptr);
     EXPECT_STREQ(player->extends, "Character");
+
+    const JsApiType* character_points = find_js_api_contract_type("CharacterPoints");
+    ASSERT_NE(character_points, nullptr);
+    EXPECT_NE(find_js_api_contract_member(*character_points, "bodypartHits"), nullptr);
+    EXPECT_NE(find_js_api_contract_member(*character_points, "spellPower"), nullptr);
 }
 
 TEST(JsApiContract, DocumentsEveryTypeAndMember)
@@ -243,7 +250,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
 
     for (const char *member_name :
         {"classPoints", "interruptCount", "interruptTime", "specialBusy", "baseAbilities",
-            "currentAbilities", "rolledAbilities"}) {
+            "currentAbilities", "rolledAbilities", "points"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -258,6 +265,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         "AbilityScores");
     EXPECT_STREQ(find_js_api_contract_member(*character, "rolledAbilities")->type_name,
         "AbilityScores");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "points")->type_name, "CharacterPoints");
 
     const JsApiType *ability_scores = find_js_api_contract_type("AbilityScores");
     ASSERT_NE(ability_scores, nullptr);

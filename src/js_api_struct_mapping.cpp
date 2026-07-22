@@ -71,8 +71,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "history and any future admin-only helper needs audit and persistence rules.",
      "mutation", "Nested struct."},
     {JsApiStructOwner::CharData, "char_data", "points", "points", "getPoints", "setPoints",
-     "CharacterPoints", false, Deferred, Unsupported,
-     "Planned structured getter for hit points, movement, mana, armor, dodge, and related values.",
+     "CharacterPoints", false, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only snapshot of character point data: body-part hit values, carried "
+     "gold, experience, spirit, regen, offense, damage, defense, encumbrance, willpower, and spell "
+     "combat values.",
      "Whole-points mutation is unsupported for builder scripts; hit/move/spirit/OB/damage/defense "
      "fields need separate helpers with clamping, death handling, combat state, regen, "
      "encumbrance, and persistence semantics.",

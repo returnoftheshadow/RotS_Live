@@ -53,6 +53,25 @@ struct JsGameAbilityScoresFixture {
     int leadership = 0;
 };
 
+struct JsGameCharacterPointsFixture {
+    std::vector<int> bodypart_hits = std::vector<int>(11, 0);
+    int gold = 0;
+    int experience = 0;
+    int spirit = 0;
+    int mana_regen = 0;
+    int health_regen = 0;
+    int move_regen = 0;
+    int offense = 0;
+    int damage = 0;
+    int energy_regen = 0;
+    int parry = 0;
+    int dodge = 0;
+    int encumbrance = 0;
+    int willpower = 0;
+    int spell_penetration = 0;
+    int spell_power = 0;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -71,6 +90,7 @@ struct JsGameCharacterFixture {
     JsGameAbilityScoresFixture base_abilities;
     JsGameAbilityScoresFixture current_abilities;
     JsGameAbilityScoresFixture rolled_abilities;
+    JsGameCharacterPointsFixture points;
     bool is_npc = false;
 
     bool has_room = false;

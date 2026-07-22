@@ -555,6 +555,25 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->rolled_abilities.dexterity = character->constabilities.dex;
     fixture->rolled_abilities.constitution = character->constabilities.con;
     fixture->rolled_abilities.leadership = character->constabilities.lea;
+    fixture->points.bodypart_hits.clear();
+    fixture->points.bodypart_hits.reserve(MAX_BODYPARTS);
+    for (int index = 0; index < MAX_BODYPARTS; ++index)
+        fixture->points.bodypart_hits.push_back(character->points.bodypart_hit[index]);
+    fixture->points.gold = character->points.gold;
+    fixture->points.experience = character->points.exp;
+    fixture->points.spirit = character->points.spirit;
+    fixture->points.mana_regen = character->points.mana_regen;
+    fixture->points.health_regen = character->points.health_regen;
+    fixture->points.move_regen = character->points.move_regen;
+    fixture->points.offense = character->points.OB;
+    fixture->points.damage = character->points.damage;
+    fixture->points.energy_regen = character->points.ENE_regen;
+    fixture->points.parry = character->points.parry;
+    fixture->points.dodge = character->points.dodge;
+    fixture->points.encumbrance = character->points.encumb;
+    fixture->points.willpower = character->points.willpower;
+    fixture->points.spell_penetration = character->points.spell_pen;
+    fixture->points.spell_power = character->points.spell_power;
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;

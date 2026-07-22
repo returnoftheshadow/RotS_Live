@@ -27,6 +27,22 @@ char_data make_character(const char *name, int race, int level, int hit, int max
     character.player.level = level;
     character.player.ranking = level + 3;
     character.points.exp = level * 1000;
+    character.points.gold = 321;
+    character.points.spirit = 44;
+    character.points.mana_regen = -2;
+    character.points.health_regen = 3;
+    character.points.move_regen = 4;
+    character.points.OB = 22;
+    character.points.damage = 7;
+    character.points.ENE_regen = 9;
+    character.points.parry = 18;
+    character.points.dodge = 20;
+    character.points.encumb = 5;
+    character.points.willpower = 14;
+    character.points.spell_pen = 8;
+    character.points.spell_power = 11;
+    for (int index = 0; index < MAX_BODYPARTS; ++index)
+        character.points.bodypart_hit[index] = static_cast<ubyte>(index + 1);
     character.tmpabilities.hit = hit;
     character.tmpabilities.str = 18;
     character.tmpabilities.intel = 13;
@@ -216,6 +232,24 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.rolled_abilities.dexterity, 14);
     EXPECT_EQ(fixture.rolled_abilities.constitution, 12);
     EXPECT_EQ(fixture.rolled_abilities.leadership, 7);
+    ASSERT_EQ(fixture.points.bodypart_hits.size(), static_cast<std::size_t>(MAX_BODYPARTS));
+    for (int index = 0; index < MAX_BODYPARTS; ++index)
+        EXPECT_EQ(fixture.points.bodypart_hits[index], index + 1);
+    EXPECT_EQ(fixture.points.gold, 321);
+    EXPECT_EQ(fixture.points.experience, 15000);
+    EXPECT_EQ(fixture.points.spirit, 44);
+    EXPECT_EQ(fixture.points.mana_regen, -2);
+    EXPECT_EQ(fixture.points.health_regen, 3);
+    EXPECT_EQ(fixture.points.move_regen, 4);
+    EXPECT_EQ(fixture.points.offense, 22);
+    EXPECT_EQ(fixture.points.damage, 7);
+    EXPECT_EQ(fixture.points.energy_regen, 9);
+    EXPECT_EQ(fixture.points.parry, 18);
+    EXPECT_EQ(fixture.points.dodge, 20);
+    EXPECT_EQ(fixture.points.encumbrance, 5);
+    EXPECT_EQ(fixture.points.willpower, 14);
+    EXPECT_EQ(fixture.points.spell_penetration, 8);
+    EXPECT_EQ(fixture.points.spell_power, 11);
     EXPECT_TRUE(fixture.is_npc);
     ASSERT_TRUE(fixture.has_room);
     EXPECT_EQ(fixture.room.vnum, 1204);

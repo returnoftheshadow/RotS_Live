@@ -42,6 +42,22 @@ JsGameTriggerContextFixture make_context()
     context.self.rolled_abilities.dexterity = 14;
     context.self.rolled_abilities.constitution = 12;
     context.self.rolled_abilities.leadership = 7;
+    context.self.points.bodypart_hits = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+    context.self.points.gold = 123;
+    context.self.points.experience = 42000;
+    context.self.points.spirit = 33;
+    context.self.points.mana_regen = -2;
+    context.self.points.health_regen = 4;
+    context.self.points.move_regen = 5;
+    context.self.points.offense = 17;
+    context.self.points.damage = 6;
+    context.self.points.energy_regen = 8;
+    context.self.points.parry = 19;
+    context.self.points.dodge = 21;
+    context.self.points.encumbrance = 2;
+    context.self.points.willpower = 14;
+    context.self.points.spell_penetration = 7;
+    context.self.points.spell_power = 9;
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -105,6 +121,22 @@ JsGameTriggerContextFixture make_context()
     context.actor.rolled_abilities.dexterity = 14;
     context.actor.rolled_abilities.constitution = 10;
     context.actor.rolled_abilities.leadership = 8;
+    context.actor.points.bodypart_hits = { 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 };
+    context.actor.points.gold = 77;
+    context.actor.points.experience = 31000;
+    context.actor.points.spirit = 12;
+    context.actor.points.mana_regen = 3;
+    context.actor.points.health_regen = -1;
+    context.actor.points.move_regen = 2;
+    context.actor.points.offense = 13;
+    context.actor.points.damage = 4;
+    context.actor.points.energy_regen = 5;
+    context.actor.points.parry = 8;
+    context.actor.points.dodge = 10;
+    context.actor.points.encumbrance = 1;
+    context.actor.points.willpower = 12;
+    context.actor.points.spell_penetration = 6;
+    context.actor.points.spell_power = 7;
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -436,6 +468,22 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.rolledAbilities.dexterity === 14\n"
         "  && ctx.self.rolledAbilities.constitution === 12\n"
         "  && ctx.self.rolledAbilities.leadership === 7\n"
+        "  && ctx.self.points.bodypartHits.join(',') === '1,2,3,4,5,6,7,8,9,10,11'\n"
+        "  && ctx.self.points.gold === 123\n"
+        "  && ctx.self.points.experience === 42000\n"
+        "  && ctx.self.points.spirit === 33\n"
+        "  && ctx.self.points.manaRegen === -2\n"
+        "  && ctx.self.points.healthRegen === 4\n"
+        "  && ctx.self.points.moveRegen === 5\n"
+        "  && ctx.self.points.offense === 17\n"
+        "  && ctx.self.points.damage === 6\n"
+        "  && ctx.self.points.energyRegen === 8\n"
+        "  && ctx.self.points.parry === 19\n"
+        "  && ctx.self.points.dodge === 21\n"
+        "  && ctx.self.points.encumbrance === 2\n"
+        "  && ctx.self.points.willpower === 14\n"
+        "  && ctx.self.points.spellPenetration === 7\n"
+        "  && ctx.self.points.spellPower === 9\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -465,6 +513,22 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.rolledAbilities.dexterity === 14\n"
         "  && ctx.actor.rolledAbilities.constitution === 10\n"
         "  && ctx.actor.rolledAbilities.leadership === 8\n"
+        "  && ctx.actor.points.bodypartHits.join(',') === '11,10,9,8,7,6,5,4,3,2,1'\n"
+        "  && ctx.actor.points.gold === 77\n"
+        "  && ctx.actor.points.experience === 31000\n"
+        "  && ctx.actor.points.spirit === 12\n"
+        "  && ctx.actor.points.manaRegen === 3\n"
+        "  && ctx.actor.points.healthRegen === -1\n"
+        "  && ctx.actor.points.moveRegen === 2\n"
+        "  && ctx.actor.points.offense === 13\n"
+        "  && ctx.actor.points.damage === 4\n"
+        "  && ctx.actor.points.energyRegen === 5\n"
+        "  && ctx.actor.points.parry === 8\n"
+        "  && ctx.actor.points.dodge === 10\n"
+        "  && ctx.actor.points.encumbrance === 1\n"
+        "  && ctx.actor.points.willpower === 12\n"
+        "  && ctx.actor.points.spellPenetration === 6\n"
+        "  && ctx.actor.points.spellPower === 7\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1558,24 +1622,29 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.baseAbilities.constructor === 'undefined'\n"
         "  && typeof ctx.self.currentAbilities.constructor === 'undefined'\n"
         "  && typeof ctx.self.rolledAbilities.constructor === 'undefined'\n"
+        "  && typeof ctx.self.points.constructor === 'undefined'\n"
+        "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
         "  && Object.getPrototypeOf(ctx.self.baseAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.self.currentAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.self.rolledAbilities) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.points) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
         "  && Object.isFrozen(ctx.self.baseAbilities)\n"
         "  && Object.isFrozen(ctx.self.currentAbilities)\n"
         "  && Object.isFrozen(ctx.self.rolledAbilities)\n"
+        "  && Object.isFrozen(ctx.self.points)\n"
+        "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, RejectsMutationOfNestedAbilitySnapshots)
+TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
 {
     JsGameRuntime runtime;
     for (const char *property : {"baseAbilities", "currentAbilities", "rolledAbilities"}) {
@@ -1586,6 +1655,37 @@ TEST(JsGameRuntime, RejectsMutationOfNestedAbilitySnapshots)
 
         EXPECT_EQ(result.status, JsRuntimeStatus::Error) << property;
     }
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.points.gold = 1;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.points.bodypartHits[0] = 1;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+}
+
+TEST(JsGameRuntime, DefaultsMissingCharacterPointBodypartsToLiveShape)
+{
+    JsGameTriggerContextFixture context;
+    context.has_self = true;
+    context.self.id = "char:default-points";
+    context.self.name = "Default Points";
+    context.self.points.bodypart_hits.clear();
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.self.points.bodypartHits.length === 11\n"
+        "  && ctx.self.points.bodypartHits.every(function(hit) { return hit === 0; })\n"
+        "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
+        "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined';",
+        context);
+
+    expect_ok_allows(result);
 }
 
 TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
