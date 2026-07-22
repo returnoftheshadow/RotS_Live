@@ -486,9 +486,11 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::ZoneData, "zone_data", "min_level_look", "minimumLookLevel",
      "getMinimumLookLevel", "setMinimumLookLevel", "number", false, ImplementedReadOnly, Deferred,
      "Returns the minimum level required to inspect zone map/details.",
-     "Minimum look level writes are deferred until level range, immortal visibility, and builder "
-     "authority rules are mapped.",
-     "mutation", "Visibility-gating scalar; defer until product range and permission semantics are pinned."},
+     "Minimum look level writes are deferred because the inspected legacy zone loader, saver, and "
+     "shaper paths do not currently persist or edit this value with the other zone scalar fields.",
+     "mutation",
+     "Visibility-gating scalar; defer until a persisted builder edit path and visibility semantics "
+     "are explicit."},
     {JsApiStructOwner::ZoneData, "zone_data", "owners", "owners", "getOwners", "setOwners", "never",
      true, Internal, Unsupported,
      "Zone owner list is sensitive authorization data and no builder getter is emitted.",

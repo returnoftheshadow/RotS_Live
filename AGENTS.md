@@ -19,8 +19,9 @@
 
 ### Current JavaScript Slice Handoff
 - Latest completed slice: JavaScript API `Zone.level` setter promotion slice. `Zone.setLevel(value: number): MutationResult` is now callable through server API mapping, generated typings/manifest/docs, live QuickJS integer validation, target-scoped persistent mutation dispatch, BuilderClient offline fixtures, and parity tests; callable values are integers `0` through `100`, persisted by legacy zone shaping, and displayed by legacy zone inspection as builder-facing metadata with no reset or map redraw side effects.
-- Current slice: JavaScript API `Zone.minimumLookLevel` setter decision slice. Map the persisted builder edit path and visibility semantics for `zone_data.min_level_look`; either promote `Zone.setMinimumLookLevel(value: number): MutationResult` with explicit bounds and parity coverage or keep it deferred with documented rationale.
-- Next slice: JavaScript API post-zone-scalar setter audit slice. After `minimumLookLevel` is resolved, rescan public `char_data`, `obj_data`, `room_data`, and `zone_data` mapping rows for any remaining safe scalar setters, then plan the next bounded group or document the remaining deferrals.
+- Latest completed slice: JavaScript API `Zone.minimumLookLevel` setter decision slice. `Zone.setMinimumLookLevel(...)` remains deferred and absent from generated typings because the inspected legacy zone loader, saver, and shaper paths do not currently persist or edit `zone_data.min_level_look` with the other zone scalar fields; mapping docs and tests pin the persisted-builder-edit-path requirement.
+- Current slice: JavaScript API post-zone-scalar setter audit slice. Rescan public `char_data`, `obj_data`, `room_data`, and `zone_data` mapping rows for any remaining safe scalar setters, then plan the next bounded group or document the remaining deferrals.
+- Next slice: JavaScript API next safe setter group selection slice. Use the audit results to pick the next implemented getter field with clear ownership, value domain, persistence, live dispatch target, and offline parity path.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

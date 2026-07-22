@@ -407,12 +407,14 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
                 << interface_name;
             EXPECT_NE(block.find("setLevel(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
+            EXPECT_EQ(block.find("setMinimumLookLevel("), std::string::npos) << interface_name;
         } else {
             EXPECT_EQ(block.find("setLevel("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setX("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setY("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setResetMode("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setLifespan("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setMinimumLookLevel("), std::string::npos) << interface_name;
         }
     }
 
