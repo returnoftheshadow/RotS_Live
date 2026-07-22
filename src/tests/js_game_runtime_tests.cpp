@@ -263,15 +263,88 @@ std::string generated_setter_surface_script()
         << "    && expected[owner].callable.every((name) => typeof handle[name] === 'function')\n"
         << "    && expected[owner].absent.every((name) => typeof handle[name] === 'undefined');\n"
         << "}\n"
-        << "return check(ctx.actor, 'Character')\n"
-        << "  && check(ctx.object, 'GameObject')\n"
-        << "  && check(ctx.weapon, 'GameObject')\n"
-        << "  && check(ctx.object.room, 'Room')\n"
-        << "  && check(ctx.actor.room, 'Room')\n"
-        << "  && check(ctx.room, 'Room')\n"
-        << "  && check(ctx.room.zone, 'Zone')\n"
-        << "  && check(ctx.zone, 'Zone');";
+        << "function inferredOwner(handle) {\n"
+        << "  if (!handle) return null;\n"
+        << "  const matches = [];\n"
+        << "  if ('isPlayer' in handle) matches.push('Character');\n"
+        << "  if ('isSunlit' in handle || 'sectorType' in handle) matches.push('Room');\n"
+        << "  if ('topRoomVnum' in handle || 'resetMode' in handle) matches.push('Zone');\n"
+        << "  if ('shortDescription' in handle || 'actionDescription' in handle || 'carriedBy' in handle) matches.push('GameObject');\n"
+        << "  return matches.length === 1 ? matches[0] : null;\n"
+        << "}\n"
+        << "function checkInferred(handle) {\n"
+        << "  const owner = inferredOwner(handle);\n"
+        << "  return owner !== null && check(handle, owner);\n"
+        << "}\n"
+        << "function checkNested(handle) {\n"
+        << "  const owner = inferredOwner(handle);\n"
+        << "  if (owner === null || !check(handle, owner)) return false;\n"
+        << "  if ((owner === 'Character' || owner === 'GameObject') && handle.room && !checkNested(handle.room)) return false;\n"
+        << "  if (owner === 'GameObject' && handle.carriedBy && !checkNested(handle.carriedBy)) return false;\n"
+        << "  if (owner === 'GameObject' && handle.wornBy && !checkNested(handle.wornBy)) return false;\n"
+        << "  if (owner === 'Room' && handle.zone && !checkNested(handle.zone)) return false;\n"
+        << "  return true;\n"
+        << "}\n"
+        << "function requireFixtureNestedPath(handle) {\n"
+        << "  const owner = inferredOwner(handle);\n"
+        << "  if (owner === 'Character') return !!handle.room && !!handle.room.zone;\n"
+        << "  if (owner === 'GameObject') return !!handle.room && !!handle.room.zone;\n"
+        << "  if (owner === 'Room') return !!handle.zone;\n"
+        << "  return owner === 'Zone';\n"
+        << "}\n"
+        << "return [ctx.self, ctx.actor, ctx.speaker, ctx.attacker, ctx.victim, ctx.killer, ctx.dying]\n"
+        << "    .every(requireFixtureNestedPath)\n"
+        << "  && [ctx.object, ctx.target, ctx.targ1, ctx.targ2].every(requireFixtureNestedPath)\n"
+        << "  && requireFixtureNestedPath(ctx.room)\n"
+        << "  && requireFixtureNestedPath(ctx.zone)\n"
+        << "  && ctx.weapon.carriedBy && requireFixtureNestedPath(ctx.weapon.carriedBy)\n"
+        << "  && ctx.weapon.wornBy && requireFixtureNestedPath(ctx.weapon.wornBy)\n"
+        << "  && checkNested(ctx.self)\n"
+        << "  && checkNested(ctx.actor)\n"
+        << "  && checkNested(ctx.speaker)\n"
+        << "  && checkNested(ctx.attacker)\n"
+        << "  && checkNested(ctx.victim)\n"
+        << "  && checkNested(ctx.killer)\n"
+        << "  && checkNested(ctx.object)\n"
+        << "  && checkNested(ctx.weapon)\n"
+        << "  && checkNested(ctx.room)\n"
+        << "  && checkNested(ctx.zone)\n"
+        << "  && checkInferred(ctx.target)\n"
+        << "  && checkInferred(ctx.targ1)\n"
+        << "  && checkInferred(ctx.targ2)\n"
+        << "  && checkNested(ctx.target)\n"
+        << "  && checkNested(ctx.targ1)\n"
+        << "  && checkNested(ctx.targ2)\n"
+        << "  && checkNested(ctx.dying);";
     return out.str();
+}
+
+void set_character_target(JsGameTargetFixture &target, const JsGameCharacterFixture &character,
+    const char *id)
+{
+    target = JsGameTargetFixture {};
+    target.type = "character";
+    target.has_character = true;
+    target.character = character;
+    target.character.id = id;
+}
+
+void set_object_target(JsGameTargetFixture &target, const JsGameObjectFixture &object, const char *id)
+{
+    target = JsGameTargetFixture {};
+    target.type = "object";
+    target.has_object = true;
+    target.object = object;
+    target.object.id = id;
+}
+
+void set_room_target(JsGameTargetFixture &target, const JsGameRoomFixture &room, const char *id)
+{
+    target = JsGameTargetFixture {};
+    target.type = "room";
+    target.has_room = true;
+    target.room = room;
+    target.room.id = id;
 }
 
 } // namespace
@@ -316,14 +389,61 @@ TEST(JsGameRuntime, SetterSurfaceMatchesStructMappingCatalog)
     JsGameTriggerContextFixture context = make_context();
     context.actor.has_room = true;
     context.actor.room = context.room;
+    context.has_speaker = true;
+    context.speaker = context.actor;
+    context.speaker.id = "speaker";
+    context.has_attacker = true;
+    context.attacker = context.self;
+    context.attacker.id = "attacker";
+    context.has_victim = true;
+    context.victim = context.actor;
+    context.victim.id = "victim";
+    context.has_killer = true;
+    context.killer = context.self;
+    context.killer.id = "killer";
     context.has_weapon = true;
     context.weapon = context.object;
+    context.weapon.has_carried_by = true;
+    context.weapon.carried_by = context.actor;
+    context.weapon.carried_by.id = "weapon-carrier";
+    context.weapon.has_worn_by = true;
+    context.weapon.worn_by = context.self;
+    context.weapon.worn_by.id = "weapon-wearer";
+    context.has_target = true;
+    set_character_target(context.target, context.actor, "target-character");
+    context.has_targ1 = true;
+    set_character_target(context.targ1, context.self, "targ1-character");
+    context.has_targ2 = true;
+    set_character_target(context.targ2, context.victim, "targ2-character");
+    context.has_dying = true;
+    context.dying = context.self;
+    context.dying.id = "dying";
 
     JsGameRuntime runtime;
     JsRuntimeEvalResult result =
         runtime.evaluate_trigger_body(generated_setter_surface_script(), context);
 
     expect_ok_allows(result);
+
+    JsGameTriggerContextFixture object_context = context;
+    set_object_target(object_context.target, object_context.object, "target-object");
+    set_object_target(object_context.targ1, object_context.weapon, "targ1-object");
+    set_object_target(object_context.targ2, object_context.object, "targ2-object");
+
+    JsRuntimeEvalResult object_result =
+        runtime.evaluate_trigger_body(generated_setter_surface_script(), object_context);
+
+    expect_ok_allows(object_result);
+
+    JsGameTriggerContextFixture room_context = context;
+    set_room_target(room_context.target, room_context.room, "target-room");
+    set_room_target(room_context.targ1, room_context.room, "targ1-room");
+    set_room_target(room_context.targ2, room_context.room, "targ2-room");
+
+    JsRuntimeEvalResult room_result =
+        runtime.evaluate_trigger_body(generated_setter_surface_script(), room_context);
+
+    expect_ok_allows(room_result);
 }
 
 TEST(JsGameRuntime, ExposesMobPrototypeVnumWhenPresent)
