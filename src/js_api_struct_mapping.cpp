@@ -422,13 +422,14 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "authority. Committed global zone writes redraw the cached world map.",
      "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "y", "y", "getY", "setY", "number", false, ImplementedReadOnly,
-     SetterPlanned, "Returns the zone map y coordinate.",
-     "Planned setter for the zone map y coordinate. It must validate an integer from 0 through "
-     "25 inclusive, accept boundary values 0 and 25, reject negative values, reject values above "
-     "25 such as 26, reject fractional or other non-integer values that would address outside the "
-     "map buffer, require target-scoped persistent setter authority, and redraw the map after "
-     "committed global zone writes before it becomes callable.",
-     "mutation", "Coordinate candidate; fail-closed bounds are pinned before promotion."},
+     SetterImplemented, "Returns the zone map y coordinate.",
+     "Updates the invocation snapshot zone map y coordinate after integer and 0 through 25 "
+     "inclusive bounds checks, accept boundary values 0 and 25, reject negative values, "
+     "reject values above 25 such as 26, and reject fractional or other non-integer values "
+     "instead of addressing outside the map buffer, and applies to live owned memory only when "
+     "dispatch provides target-scoped persistent setter authority. Committed global zone writes "
+     "redraw the map through the cached world map path.",
+     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "symbol", "symbol", "getSymbol", "setSymbol",
      "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the single-character zone map symbol.",

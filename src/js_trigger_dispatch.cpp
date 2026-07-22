@@ -164,7 +164,8 @@ bool parse_coordinate_value(const std::string& value, int* parsed)
 
 bool validate_coordinate_mutation_value(const JsRuntimeMutation& mutation)
 {
-    if (mutation.target_type != "zone" || mutation.property != "x" || !mutation.has_value ||
+    if (mutation.target_type != "zone" ||
+        (mutation.property != "x" && mutation.property != "y") || !mutation.has_value ||
         mutation.value_kind != "number")
         return false;
     int parsed = 0;
@@ -175,7 +176,7 @@ bool validate_mutation_value(const JsRuntimeMutation& mutation)
 {
     if (mutation.target_type == "zone" && mutation.property == "symbol")
         return validate_symbol_mutation_value(mutation);
-    if (mutation.target_type == "zone" && mutation.property == "x")
+    if (mutation.target_type == "zone" && (mutation.property == "x" || mutation.property == "y"))
         return validate_coordinate_mutation_value(mutation);
     return validate_text_mutation_value(mutation);
 }
@@ -425,12 +426,12 @@ PendingCoordinateTarget resolve_coordinate_mutation_target(const JsRuntimeMutati
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
     const JsTriggerMutationAuthorityContext& authority)
 {
-    if (mutation.target_type != "zone" || mutation.property != "x")
+    if (mutation.target_type != "zone" || (mutation.property != "x" && mutation.property != "y"))
         return {};
     zone_data* zone = mutable_live_zone_for_id(mutation, request, options);
     if (zone == nullptr || !zone_matches_mutation_authority(*zone, authority))
         return {};
-    return { &zone->x, zone_uses_global_world_map(zone) };
+    return { mutation.property == "x" ? &zone->x : &zone->y, zone_uses_global_world_map(zone) };
 }
 
 bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
@@ -453,7 +454,8 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
                 { nullptr, target.target, nullptr, true, target.redraw_world_map, mutation.value, 0 });
             continue;
         }
-        if (mutation.target_type == "zone" && mutation.property == "x") {
+        if (mutation.target_type == "zone" &&
+            (mutation.property == "x" || mutation.property == "y")) {
             PendingCoordinateTarget target =
                 resolve_coordinate_mutation_target(mutation, request, options, authority);
             int parsed = 0;

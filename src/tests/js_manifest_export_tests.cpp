@@ -292,6 +292,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         {JsApiStructOwner::ZoneData, "description"},
         {JsApiStructOwner::ZoneData, "map"},
         {JsApiStructOwner::ZoneData, "x"},
+        {JsApiStructOwner::ZoneData, "y"},
         {JsApiStructOwner::ZoneData, "symbol"},
         {JsApiStructOwner::ObjData, "name"},
         {JsApiStructOwner::ObjData, "description"},
@@ -307,6 +308,16 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter")
             << entry.source_field;
         expect_contains_json_object(json, expected_mapping_json_object(*mapping));
+    }
+    const JsApiStructFieldMapping *zone_y =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "y");
+    ASSERT_NE(zone_y, nullptr);
+    const std::string zone_y_object = expected_mapping_json_object(*zone_y);
+    EXPECT_NE(zone_y_object.find("\"setterCallable\":true"), std::string::npos);
+    EXPECT_NE(zone_y_object.find("\"documentationOnly\":false"), std::string::npos);
+    for (const char *fragment :
+        {"0 through 25", "target-scoped persistent setter authority", "redraw the map"}) {
+        EXPECT_NE(zone_y_object.find(fragment), std::string::npos) << fragment;
     }
     expect_contains_json_object(
         json,
@@ -337,17 +348,6 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         "\"setterDocs\":\"Zone level writes are deferred until builder ownership and balance "
         "rules are mapped.\",\"notes\":\"Balance-sensitive scalar; defer until gameplay impact "
         "and authority rules are explicit.\"}");
-    for (const char *field : {"y"}) {
-        const JsApiStructFieldMapping *mapping =
-            find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, field);
-        ASSERT_NE(mapping, nullptr) << field;
-        EXPECT_STREQ(mapping->setter_status, "planned-validated-setter") << field;
-        const std::string object = expected_mapping_json_object(*mapping);
-        expect_contains_json_object(json, object);
-        EXPECT_NE(object.find("\"setterCallable\":false"), std::string::npos) << field;
-        EXPECT_NE(object.find("\"documentationOnly\":true"), std::string::npos) << field;
-    }
-
     const struct {
         JsApiStructOwner owner;
         const char *source_field;

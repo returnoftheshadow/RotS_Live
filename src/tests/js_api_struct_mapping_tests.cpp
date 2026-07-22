@@ -386,7 +386,8 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
         if (std::string(entry.field) == "action_description" ||
             std::string(entry.field) == "description" || std::string(entry.field) == "map" ||
-            std::string(entry.field) == "symbol" || std::string(entry.field) == "x") {
+            std::string(entry.field) == "symbol" || std::string(entry.field) == "x" ||
+            std::string(entry.field) == "y") {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -433,7 +434,8 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
     const ExpectedZoneScalar expected[] = {
         {"x", "implemented-validated-setter", "0 through 25",
             "target-scoped dispatch mutation authority"},
-        {"y", "planned-validated-setter", "0 through 25", "fail-closed bounds"},
+        {"y", "implemented-validated-setter", "0 through 25",
+            "target-scoped dispatch mutation authority"},
         {"symbol", "implemented-validated-setter", "target-scoped persistent setter authority",
             "target-scoped dispatch mutation authority"},
         {"min_level_look", "deferred", "authority rules are mapped", "Visibility-gating scalar"},

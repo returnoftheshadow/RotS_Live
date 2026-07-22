@@ -261,6 +261,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
         "  ctx.zone.setMap('N-G-S-E');\n"
         "  ctx.zone.setSymbol('*');\n"
         "  ctx.zone.setX(25);\n"
+        "  ctx.zone.setY(24);\n"
         "  return RotS.ScriptResult.block();\n"
         "}");
     ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
@@ -282,6 +283,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     zones[0].map = str_dup("N-G-S");
     zones[0].symbol = 'Z';
     zones[0].x = 10;
+    zones[0].y = 11;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -304,6 +306,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     EXPECT_STREQ(zones[0].map, "N-G-S-E");
     EXPECT_EQ(zones[0].symbol, '*');
     EXPECT_EQ(zones[0].x, 25);
+    EXPECT_EQ(zones[0].y, 24);
 
     free(object.name);
     free(object.description);
@@ -433,6 +436,33 @@ TEST(JsTriggerDispatch, RejectsZoneXSetterWithoutExplicitAuthority)
     EXPECT_EQ(zones[0].x, 10);
 }
 
+TEST(JsTriggerDispatch, RejectsZoneYSetterWithoutExplicitAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5850,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setY(25);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].y = 10;
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
+    EXPECT_EQ(zones[0].y, 10);
+}
+
 TEST(JsTriggerDispatch, PersistsNullableZoneMapSetterToLiveGameRecord)
 {
     JsScriptPackageRegistry registry;
@@ -499,7 +529,7 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneSymbolSetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidZoneXSetterValues)
+TEST(JsTriggerDispatch, IgnoresInvalidZoneCoordinateSetterValues)
 {
     const char* scripts[] = {
         "function onEnter(ctx) { ctx.zone.setX(-1); return true; }",
@@ -508,6 +538,12 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneXSetterValues)
         "function onEnter(ctx) { ctx.zone.setX(NaN); return true; }",
         "function onEnter(ctx) { ctx.zone.setX(Infinity); return true; }",
         "function onEnter(ctx) { ctx.zone.setX('7'); return true; }",
+        "function onEnter(ctx) { ctx.zone.setY(-1); return true; }",
+        "function onEnter(ctx) { ctx.zone.setY(26); return true; }",
+        "function onEnter(ctx) { ctx.zone.setY(1.5); return true; }",
+        "function onEnter(ctx) { ctx.zone.setY(NaN); return true; }",
+        "function onEnter(ctx) { ctx.zone.setY(Infinity); return true; }",
+        "function onEnter(ctx) { ctx.zone.setY('7'); return true; }",
     };
 
     for (const char* script : scripts) {
@@ -520,6 +556,7 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneXSetterValues)
         room_data world[1] = { make_room("Gate", 100, 0) };
         zone_data zones[1] = { make_zone("Zone", 30) };
         zones[0].x = 10;
+        zones[0].y = 11;
         JsGameAdapterOptions options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
         JsTriggerDispatchRequest request = character_request(&self);
@@ -533,6 +570,7 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneXSetterValues)
         EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << script;
         EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
         EXPECT_EQ(zones[0].x, 10) << script;
+        EXPECT_EQ(zones[0].y, 11) << script;
     }
 }
 
@@ -631,6 +669,102 @@ TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneXSetter)
         draw_map();
 }
 
+TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneYSetter)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5849,
+        "function onEnter(ctx) {\n"
+        "  try { Number.isInteger = function() { return false; }; } catch (error) {}\n"
+        "  try { globalThis.String = function() { return '25'; }; } catch (error) {}\n"
+        "  ctx.zone.setY(0);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[2] = {
+        make_zone("Zone", 30),
+        make_zone("Stale Bad Coordinates", 31),
+    };
+    zones[0].x = 10;
+    zones[0].y = 10;
+    zones[0].symbol = 'Z';
+    zones[1].x = -1;
+    zones[1].y = WORLD_SIZE_Y;
+    zones[1].symbol = 'B';
+    zone_data* previous_zone_table = zone_table;
+    const int previous_top_of_zone_table = top_of_zone_table;
+    zone_table = zones;
+    top_of_zone_table = 1;
+    draw_map();
+    EXPECT_EQ(world_map[world_map_symbol_offset(zones[0].x, 10)], 'Z');
+
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(zones[0].y, 0);
+    EXPECT_EQ(world_map[world_map_symbol_offset(zones[0].x, 10)], ' ');
+    EXPECT_EQ(world_map[world_map_symbol_offset(zones[0].x, 0)], 'Z');
+
+    zone_table = previous_zone_table;
+    top_of_zone_table = previous_top_of_zone_table;
+    if (zone_table != nullptr && top_of_zone_table >= 0)
+        draw_map();
+}
+
+TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedNestedZoneYSetter)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5851,
+        "function onEnter(ctx) {\n"
+        "  ctx.room.zone.setY(25);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].x = 10;
+    zones[0].y = 10;
+    zones[0].symbol = 'Z';
+    zone_data* previous_zone_table = zone_table;
+    const int previous_top_of_zone_table = top_of_zone_table;
+    zone_table = zones;
+    top_of_zone_table = 0;
+    draw_map();
+    EXPECT_EQ(world_map[world_map_symbol_offset(zones[0].x, 10)], 'Z');
+
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(zones[0].y, 25);
+    EXPECT_EQ(world_map[world_map_symbol_offset(zones[0].x, 10)], ' ');
+    EXPECT_EQ(world_map[world_map_symbol_offset(zones[0].x, 25)], 'Z');
+
+    zone_table = previous_zone_table;
+    top_of_zone_table = previous_top_of_zone_table;
+    if (zone_table != nullptr && top_of_zone_table >= 0)
+        draw_map();
+}
+
 TEST(JsTriggerDispatch, RejectsMixedSymbolBatchWithoutPartialWrites)
 {
     JsScriptPackageRegistry registry;
@@ -679,12 +813,13 @@ TEST(JsTriggerDispatch, RejectsMixedSymbolBatchWithoutPartialWrites)
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedZoneXBatchWithoutPartialWrites)
+TEST(JsTriggerDispatch, RejectsMixedZoneCoordinateBatchWithoutPartialWrites)
 {
     JsScriptPackageRegistry registry;
     JsScriptPackage package = make_character_enter_package(5847,
         "function onEnter(ctx) {\n"
         "  ctx.zone.setX(25);\n"
+        "  ctx.zone.setY(24);\n"
         "  ctx.object.setName('unauthorized object');\n"
         "  return true;\n"
         "}");
@@ -706,6 +841,7 @@ TEST(JsTriggerDispatch, RejectsMixedZoneXBatchWithoutPartialWrites)
         make_zone("Other Zone", 31),
     };
     zones[0].x = 10;
+    zones[0].y = 11;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -720,19 +856,20 @@ TEST(JsTriggerDispatch, RejectsMixedZoneXBatchWithoutPartialWrites)
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
     EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
     EXPECT_EQ(zones[0].x, 10);
+    EXPECT_EQ(zones[0].y, 11);
     EXPECT_STREQ(object.name, "old lever");
 
     free(object.name);
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedZoneXTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
+TEST(JsTriggerDispatch, RejectsMixedZoneYTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
 {
     JsScriptPackageRegistry registry;
     JsScriptPackage package = make_character_enter_package(5848,
         "function onEnter(ctx) {\n"
         "  ctx.object.setName('authorized object edit');\n"
-        "  ctx.zone.setX(25);\n"
+        "  ctx.zone.setY(25);\n"
         "  return true;\n"
         "}");
     ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
@@ -753,6 +890,7 @@ TEST(JsTriggerDispatch, RejectsMixedZoneXTargetFailureAfterEarlierValidMutationW
         make_zone("Authorized Object Zone", 31),
     };
     zones[0].x = 10;
+    zones[0].y = 11;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -768,6 +906,7 @@ TEST(JsTriggerDispatch, RejectsMixedZoneXTargetFailureAfterEarlierValidMutationW
     EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
     EXPECT_STREQ(object.name, "old lever");
     EXPECT_EQ(zones[0].x, 10);
+    EXPECT_EQ(zones[0].y, 11);
 
     free(object.name);
     free(object.short_description);
@@ -898,6 +1037,36 @@ TEST(JsTriggerDispatch, RejectsZoneXSetterWhenAuthorityTargetsAnotherZone)
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
     EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
     EXPECT_EQ(zones[0].x, 10);
+}
+
+TEST(JsTriggerDispatch, RejectsZoneYSetterWhenAuthorityTargetsAnotherZone)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5852,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setY(25);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].y = 10;
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_EQ(zones[0].y, 10);
 }
 
 TEST(JsTriggerDispatch, RejectsObjectRoomAndZoneSettersOutsideAuthorityTargetWithoutPartialWrites)

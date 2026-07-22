@@ -571,6 +571,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
             << "    __rotsAttachTextSetter(value, 'zone', 'map', 'setMap', 8192, true);\n"
             << "    __rotsAttachSymbolSetter(value, 'zone');\n"
             << "    __rotsAttachCoordinateSetter(value, 'zone', 'x', 'setX');\n"
+            << "    __rotsAttachCoordinateSetter(value, 'zone', 'y', 'setY');\n"
             << "  }\n"
             << "  for (const key of Object.keys(value)) __rotsAttachSetterApi(value[key], seen);\n"
             << "}\n"

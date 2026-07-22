@@ -400,10 +400,12 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         if (std::string(interface_name) == "export interface Zone") {
             EXPECT_NE(block.find("setX(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
+            EXPECT_NE(block.find("setY(value: number): MutationResult;"), std::string::npos)
+                << interface_name;
         } else {
             EXPECT_EQ(block.find("setX("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("setY("), std::string::npos) << interface_name;
         }
-        EXPECT_EQ(block.find("setY("), std::string::npos) << interface_name;
     }
 
     const std::string object_block = declaration_block(declarations, "export interface GameObject");
