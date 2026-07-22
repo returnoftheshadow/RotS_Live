@@ -754,6 +754,9 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && typeof ctx.object.setName === 'function'\n"
         "  && typeof ctx.object.setLevel === 'function'\n"
         "  && typeof ctx.object.setRarity === 'function'\n"
+        "  && typeof ctx.object.setFlags === 'undefined'\n"
+        "  && typeof ctx.object.setAffects === 'undefined'\n"
+        "  && typeof ctx.object.setExtraDescriptions === 'undefined'\n"
         "  && typeof ctx.object.setRoom === 'undefined'\n"
         "  && typeof ctx.object.setCarriedBy === 'undefined'\n"
         "  && typeof ctx.object.setContainer === 'undefined'\n"
@@ -763,6 +766,9 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && typeof ctx.weapon.setName === 'function'\n"
         "  && typeof ctx.weapon.setLevel === 'function'\n"
         "  && typeof ctx.weapon.setRarity === 'function'\n"
+        "  && typeof ctx.weapon.setFlags === 'undefined'\n"
+        "  && typeof ctx.weapon.setAffects === 'undefined'\n"
+        "  && typeof ctx.weapon.setExtraDescriptions === 'undefined'\n"
         "  && typeof ctx.weapon.setRoom === 'undefined'\n"
         "  && typeof ctx.weapon.setCarriedBy === 'undefined'\n"
         "  && typeof ctx.weapon.setContainer === 'undefined'\n"
@@ -796,7 +802,22 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && typeof ctx.object.room.setDescription === 'function'\n"
         "  && typeof ctx.object.room.setLevel === 'function'\n"
         "  && typeof ctx.object.room.setSectorType === 'function'\n"
+        "  && typeof ctx.object.room.setExtraDescriptions === 'undefined'\n"
+        "  && typeof ctx.object.room.setExit === 'undefined'\n"
+        "  && typeof ctx.object.room.setContents === 'undefined'\n"
+        "  && typeof ctx.object.room.setCharacters === 'undefined'\n"
+        "  && typeof ctx.object.room.setAffects === 'undefined'\n"
         "  && typeof ctx.actor.room.setName === 'function'\n"
+        "  && typeof ctx.actor.room.setExtraDescriptions === 'undefined'\n"
+        "  && typeof ctx.actor.room.setExit === 'undefined'\n"
+        "  && typeof ctx.actor.room.setContents === 'undefined'\n"
+        "  && typeof ctx.actor.room.setCharacters === 'undefined'\n"
+        "  && typeof ctx.actor.room.setAffects === 'undefined'\n"
+        "  && typeof ctx.room.setExtraDescriptions === 'undefined'\n"
+        "  && typeof ctx.room.setExit === 'undefined'\n"
+        "  && typeof ctx.room.setContents === 'undefined'\n"
+        "  && typeof ctx.room.setCharacters === 'undefined'\n"
+        "  && typeof ctx.room.setAffects === 'undefined'\n"
         "  && typeof ctx.room.zone.setName === 'function'\n"
         "  && typeof ctx.room.zone.setMap === 'function'\n"
         "  && typeof ctx.room.zone.setSymbol === 'function'\n"
@@ -1321,6 +1342,12 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent)
         "  'setMaster', 'setMount', 'setGroup', 'setClassPoints', 'setInterruptCount',\n"
         "  'setInterruptTime', 'setSpecialBusy'\n"
         "];\n"
+        "const objectSetterNames = [\n"
+        "  'setFlags', 'setAffects', 'setExtraDescriptions', 'setContents'\n"
+        "];\n"
+        "const roomSetterNames = [\n"
+        "  'setExtraDescriptions', 'setExit', 'setContents', 'setCharacters', 'setAffects'\n"
+        "];\n"
         "return ctx.target.name === 'Builder'\n"
         "  && ctx.target.id === 'target'\n"
         "  && ctx.targ1.name === 'Builder'\n"
@@ -1343,10 +1370,45 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent)
         "      return typeof character[name] === 'undefined';\n"
         "    });\n"
         "  })\n"
+        "  && objectSetterNames.every(function(name) {\n"
+        "    return typeof ctx.targ2[name] === 'undefined';\n"
+        "  })\n"
+        "  && roomSetterNames.every(function(name) {\n"
+        "    return typeof ctx.targ2.room[name] === 'undefined';\n"
+        "  })\n"
         "  && typeof ctx.targ1.constructor === 'undefined';",
         context);
 
     expect_ok_allows(result);
+
+    JsGameTriggerContextFixture room_context = make_context();
+    room_context.has_target = true;
+    room_context.target.type = "room";
+    room_context.target.has_room = true;
+    room_context.target.room = room_context.room;
+    room_context.target.room.id = "target-room";
+    room_context.has_targ2 = true;
+    room_context.targ2.type = "room";
+    room_context.targ2.has_room = true;
+    room_context.targ2.room = room_context.room;
+    room_context.targ2.room.id = "targ2-room";
+
+    JsRuntimeEvalResult room_result = runtime.evaluate_trigger_body(
+        "const roomSetterNames = [\n"
+        "  'setExtraDescriptions', 'setExit', 'setContents', 'setCharacters', 'setAffects'\n"
+        "];\n"
+        "return ctx.target.id === 'target-room'\n"
+        "  && ctx.targ2.id === 'targ2-room'\n"
+        "  && Object.isFrozen(ctx.target)\n"
+        "  && Object.isFrozen(ctx.targ2)\n"
+        "  && [ctx.target, ctx.targ2].every(function(room) {\n"
+        "    return roomSetterNames.every(function(name) {\n"
+        "      return typeof room[name] === 'undefined';\n"
+        "    });\n"
+        "  });",
+        room_context);
+
+    expect_ok_allows(room_result);
 
     EXPECT_EQ(runtime.evaluate_trigger_body("ctx.targ1.name = 'mutated'; return true;", context).status,
         JsRuntimeStatus::Error);

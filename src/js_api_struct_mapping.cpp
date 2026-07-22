@@ -255,21 +255,22 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Setter must preserve container, carrier, and room contents invariants through audited "
      "movement helpers rather than raw field assignment."},
     {JsApiStructOwner::ObjData, "obj_data", "obj_flags", "flags", "getFlags", "setFlags",
-     "ObjectFlags", false, ImplementedReadOnly, Deferred,
+     "ObjectFlags", false, ImplementedReadOnly, Unsupported,
      "Returns a structured read-only object flag snapshot with symbolic type, wear flags, extra "
      "flags, material, and scalar economy/timer fields.",
-     "Whole-object flag writes are deferred; object level and rarity use the dedicated "
-     "GameObject.setLevel(value: number) and GameObject.setRarity(value: number) validated "
-     "setters.", "mutation",
+     "Whole-object flag writes are unsupported for builder scripts; object level and rarity use "
+     "the dedicated GameObject.setLevel(value: number) and GameObject.setRarity(value: number) "
+     "validated setters, while other flag/value domains need separate named helper APIs.",
+     "mutation",
      "Legacy item-type value slots remain intentionally absent until each item type has a "
      "documented builder-facing domain. Object flags.level and flags.rarity are implemented "
      "subfield setters because they have bounded persisted scalar paths."},
     {JsApiStructOwner::ObjData, "obj_data", "affected", "affects", "getAffects", "setAffects",
-     "readonly ObjectAffect[]", false, Deferred, Deferred,
+     "readonly ObjectAffect[]", false, Deferred, Unsupported,
      "Deferred fixed-slot equipment modifier snapshot. Future entries must use named apply "
      "locations, integer modifiers, canonical ordering, and omit empty slots.",
-     "Object affect writes are deferred until equipment recalculation and apply-location "
-     "validation rules are mapped.",
+     "Object affect writes are unsupported for builder scripts until a slot-specific helper owns "
+     "equipment recalculation, apply-location validation, canonical ordering, and persistence.",
      "mutation", "Fixed-size equipment modifier slots; no builder getter is emitted yet."},
     {JsApiStructOwner::ObjData, "obj_data", "name", "name", "getName", "setName", "string", false,
      ImplementedReadOnly, SetterImplemented,
@@ -301,11 +302,12 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "ex_description", "extraDescriptions",
      "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
-     Deferred,
+     Unsupported,
      "Deferred read-only snapshot of object extra descriptions. Future entries must expose only "
      "builder text fields such as keywords and description text, with bounded list size.",
-     "Extra-description writes are deferred until list ownership, text length, and sanitization "
-     "rules are mapped.",
+     "Whole extra-description list writes are unsupported for builder scripts; future "
+     "add/update/remove helper APIs must own linked-list allocation, stale-handle protection, "
+     "bounded list size, text length, sanitization, persistence, rollback, and audit semantics.",
      "mutation", "Linked-list storage is not exposed to builders."},
     {JsApiStructOwner::ObjData, "obj_data", "carried_by", "carriedBy", "getCarriedBy",
      "setCarriedBy", "Character | null", true, ImplementedReadOnly, Deferred,
@@ -345,12 +347,13 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Global object traversal state is internal and no builder getter is emitted.",
      "Global-list mutation from JavaScript is unsupported.", "none", "Internal traversal link."},
     {JsApiStructOwner::ObjData, "obj_data", "touched", "touched", "wasTouched", "setTouched",
-     "boolean", false, Deferred, Deferred,
+     "boolean", false, Deferred, Unsupported,
      "Deferred read-only boolean showing whether a player has touched the object. Getter remains "
      "deferred until persistence behavior and builder-visible gameplay meaning are confirmed.",
-     "Touched-state writes are deferred because the flag is runtime/player-interaction state that "
-     "is initialized on prototype instantiation, changed by player/admin object actions, and not "
-     "part of the object shaper's persisted prototype metadata.",
+     "Touched-state writes are unsupported for builder scripts because the flag is "
+     "runtime/player-interaction state that is initialized on prototype instantiation, changed by "
+     "player/admin object actions, and not part of the object shaper's persisted prototype "
+     "metadata.",
      "mutation",
      "Integer flag will be normalized to boolean before exposure if a future read-only getter is "
      "approved."},
@@ -403,13 +406,18 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "ex_description", "extraDescriptions",
      "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
-     Deferred, "Planned read-only extra-description snapshot.",
-     "Extra-description writes are deferred until list ownership rules are mapped.", "mutation",
-     "Linked list pointer must never be exposed."},
+     Unsupported, "Planned read-only extra-description snapshot.",
+     "Whole extra-description list writes are unsupported for builder scripts; future "
+     "add/update/remove helper APIs must own linked-list allocation, stale-handle protection, "
+     "bounded list size, text length, sanitization, persistence, rollback, and audit semantics.",
+     "mutation", "Linked list pointer must never be exposed."},
     {JsApiStructOwner::RoomData, "room_data", "dir_option", "exits", "getExits", "setExit",
      "readonly RoomExit[]", false, Deferred, Deferred,
      "Planned read-only room exit snapshot by direction.",
-     "Exit writes require explicit setExit/removeExit helpers and are deferred.", "world-mutation",
+     "Exit writes require explicit setExit/removeExit helpers and are deferred until direction, "
+     "door, destination-room, reset-command, bidirectional-link, permission, and persistence "
+     "semantics are mapped.",
+     "world-mutation",
      "Pointer array must never be exposed."},
     {JsApiStructOwner::RoomData, "room_data", "room_track", "tracks", "getTracks", "setTracks",
      "readonly RoomTrack[]", false, Internal, Unsupported,
@@ -454,17 +462,22 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::RoomData, "room_data", "contents", "contents", "getContents", "setContents",
      "readonly GameObject[]", true, Deferred, Unsupported,
      "Planned read-only snapshot of objects directly in the room.",
-     "Replacing the room contents linked list from JavaScript is unsupported.", "world-mutation",
-     "Use explicit object movement helpers if added later."},
+     "Replacing the room contents linked list from JavaScript is unsupported; use explicit "
+     "object movement/load/extract helpers so room contents, object container/carrier links, "
+     "light counters, crash-save flags, and stale-list checks stay centralized.",
+     "world-mutation", "Use explicit object movement helpers if added later."},
     {JsApiStructOwner::RoomData, "room_data", "people", "characters", "getCharacters",
      "setCharacters", "readonly Character[]", true, Deferred, Unsupported,
      "Planned read-only snapshot of characters currently in the room.",
-     "Replacing the room people linked list from JavaScript is unsupported.", "world-mutation",
-     "Use explicit movement helpers if added later."},
+     "Replacing the room people linked list from JavaScript is unsupported; use explicit "
+     "movement/teleport helpers so character room pointers, combat state, followers, mounts, "
+     "visibility, and room security checks stay centralized.",
+     "world-mutation", "Use explicit movement helpers if added later."},
     {JsApiStructOwner::RoomData, "room_data", "affected", "affects", "getAffects", "setAffects",
-     "readonly Affect[]", true, Deferred, Deferred, "Planned read-only room affect snapshot.",
-     "Room affect writes require explicit helpers and "
-     "are deferred.",
+     "readonly Affect[]", true, Deferred, Unsupported, "Planned read-only room affect snapshot.",
+     "Room affect writes are unsupported for builder scripts until explicit add/remove helpers "
+     "own duration accounting, room flag synchronization, movement/combat/light side effects, "
+     "and persistence.",
      "world-mutation", "Linked list pointer must never be exposed."},
     {JsApiStructOwner::RoomData, "room_data", "bleed_track", "bleedTracks", "getBleedTracks",
      "setBleedTracks", "readonly BleedTrack[]", false, Internal, Unsupported,

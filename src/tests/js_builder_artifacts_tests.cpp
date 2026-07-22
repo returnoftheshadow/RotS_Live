@@ -444,6 +444,9 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     const std::string object_block = declaration_block(declarations, "export interface GameObject");
     ASSERT_FALSE(object_block.empty());
     const char *object_lifecycle_setters[] = {
+        "setFlags",
+        "setAffects",
+        "setExtraDescriptions",
         "setRoom",
         "setCarriedBy",
         "setContainer",
@@ -485,6 +488,20 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     };
     for (const char *setter_name : character_relationship_setters) {
         EXPECT_EQ(character_block.find(std::string(setter_name) + "("), std::string::npos)
+            << setter_name;
+    }
+
+    const std::string room_block = declaration_block(declarations, "export interface Room");
+    ASSERT_FALSE(room_block.empty());
+    const char *room_nested_list_setters[] = {
+        "setExtraDescriptions",
+        "setExit",
+        "setContents",
+        "setCharacters",
+        "setAffects",
+    };
+    for (const char *setter_name : room_nested_list_setters) {
+        EXPECT_EQ(room_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
     }
 

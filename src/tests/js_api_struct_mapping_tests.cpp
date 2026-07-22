@@ -620,7 +620,7 @@ TEST(JsApiStructMapping, PinsCriticalBuilderFacingMappings) {
         {JsApiStructOwner::ObjData, "carried_by", "carriedBy", "Character | null", true,
          "implemented-read-only-getter", "deferred"},
         {JsApiStructOwner::ObjData, "obj_flags", "flags", "ObjectFlags", false,
-         "implemented-read-only-getter", "deferred"},
+         "implemented-read-only-getter", "unsupported"},
         {JsApiStructOwner::RoomData, "number", "vnum", "number", false,
          "implemented-read-only-getter", "unsupported"},
         {JsApiStructOwner::RoomData, "zone", "zone", "Zone | null", true,
@@ -655,11 +655,11 @@ TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
         const char *notes_fragment;
     };
     const ExpectedMapping expected[] = {
-        {"affected", "affects", "readonly ObjectAffect[]", "deferred", "deferred", "mutation",
+        {"affected", "affects", "readonly ObjectAffect[]", "deferred", "unsupported", "mutation",
          "Future entries must use named apply locations",
          "no builder getter is emitted yet"},
         {"ex_description", "extraDescriptions", "readonly ExtraDescription[]", "deferred",
-         "deferred", "mutation", "bounded list size", "not exposed to builders"},
+         "unsupported", "mutation", "bounded list size", "not exposed to builders"},
         {"owner", "ownerId", "never", "internal-only", "unsupported", "none",
          "sensitive authorization data", "identity policy"},
         {"in_obj", "container", "GameObject | null", "deferred", "deferred", "world-mutation",
@@ -670,7 +670,7 @@ TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
          "traversal state is internal", "Internal traversal link"},
         {"next", "next", "never", "internal-only", "unsupported", "none",
          "traversal state is internal", "Internal traversal link"},
-        {"touched", "touched", "boolean", "deferred", "deferred", "mutation",
+        {"touched", "touched", "boolean", "deferred", "unsupported", "mutation",
          "gameplay meaning are confirmed", "normalized to boolean"},
         {"loaded_by", "loadedBy", "number", "internal-only", "unsupported", "none",
          "administrative audit data", "Administrative audit data"},
@@ -706,7 +706,7 @@ TEST(JsApiStructMapping, PinsObjectRelationshipAndLifecycleSetterDeferrals) {
         {"carried_by", "implemented-read-only-getter", "deferred", "player crash-save"},
         {"in_obj", "deferred", "deferred", "cycle prevention"},
         {"contains", "deferred", "unsupported", "cycle guards"},
-        {"touched", "deferred", "deferred", "runtime/player-interaction state"},
+        {"touched", "deferred", "unsupported", "runtime/player-interaction state"},
     };
 
     for (const ExpectedDeferredSetter &entry : deferred) {
@@ -765,6 +765,62 @@ TEST(JsApiStructMapping, PinsCharacterRelationshipAndStateSetterDeferrals) {
     for (const ExpectedCharacterDeferral &entry : deferred) {
         const JsApiStructFieldMapping *mapping =
             find_js_api_struct_field_mapping(JsApiStructOwner::CharData, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->js_property, entry.property) << entry.field;
+        EXPECT_STREQ(mapping->setter_name, entry.setter_name) << entry.field;
+        EXPECT_STREQ(mapping->type_name, entry.type_name) << entry.field;
+        EXPECT_EQ(mapping->nullable, entry.nullable) << entry.field;
+        EXPECT_STREQ(mapping->getter_status, entry.getter_status) << entry.field;
+        EXPECT_STREQ(mapping->setter_status, entry.setter_status) << entry.field;
+        EXPECT_STREQ(mapping->side_effect, entry.side_effect) << entry.field;
+        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
+                      .find(entry.required_text),
+            std::string::npos)
+            << entry.field;
+    }
+}
+
+TEST(JsApiStructMapping, PinsObjectAndRoomNestedListSetterDeferrals) {
+    struct ExpectedNestedListDeferral {
+        JsApiStructOwner owner;
+        const char *field;
+        const char *property;
+        const char *setter_name;
+        const char *type_name;
+        bool nullable;
+        const char *getter_status;
+        const char *setter_status;
+        const char *side_effect;
+        const char *required_text;
+    };
+
+    const ExpectedNestedListDeferral deferred[] = {
+        {JsApiStructOwner::ObjData, "obj_flags", "flags", "setFlags", "ObjectFlags", false,
+            "implemented-read-only-getter", "unsupported", "mutation", "separate named helper APIs"},
+        {JsApiStructOwner::ObjData, "affected", "affects", "setAffects",
+            "readonly ObjectAffect[]", false, "deferred", "unsupported", "mutation",
+            "slot-specific helper"},
+        {JsApiStructOwner::ObjData, "ex_description", "extraDescriptions",
+            "setExtraDescriptions", "readonly ExtraDescription[]", true, "deferred", "unsupported",
+            "mutation", "add/update/remove helper APIs"},
+        {JsApiStructOwner::RoomData, "ex_description", "extraDescriptions",
+            "setExtraDescriptions", "readonly ExtraDescription[]", true, "deferred", "unsupported",
+            "mutation", "add/update/remove helper APIs"},
+        {JsApiStructOwner::RoomData, "dir_option", "exits", "setExit", "readonly RoomExit[]",
+            false, "deferred", "deferred", "world-mutation", "destination-room"},
+        {JsApiStructOwner::RoomData, "contents", "contents", "setContents",
+            "readonly GameObject[]", true, "deferred", "unsupported", "world-mutation",
+            "object movement/load/extract helpers"},
+        {JsApiStructOwner::RoomData, "people", "characters", "setCharacters",
+            "readonly Character[]", true, "deferred", "unsupported", "world-mutation",
+            "movement/teleport helpers"},
+        {JsApiStructOwner::RoomData, "affected", "affects", "setAffects", "readonly Affect[]",
+            true, "deferred", "unsupported", "world-mutation", "room flag synchronization"},
+    };
+
+    for (const ExpectedNestedListDeferral &entry : deferred) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(entry.owner, entry.field);
         ASSERT_NE(mapping, nullptr) << entry.field;
         EXPECT_STREQ(mapping->js_property, entry.property) << entry.field;
         EXPECT_STREQ(mapping->setter_name, entry.setter_name) << entry.field;
