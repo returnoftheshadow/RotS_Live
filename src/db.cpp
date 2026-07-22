@@ -1257,6 +1257,8 @@ void renum_world(void)
 
 void symbol_to_map(int x, int y, int symb)
 {
+    if (x < 0 || y < 0 || y >= WORLD_SIZE_Y)
+        return;
     if (x > WORLD_SIZE_X / 2)
         x = WORLD_SIZE_X / 2;
     world_map[(y + 1) * (WORLD_SIZE_X + 4) + x * 2 + 1] = symb;

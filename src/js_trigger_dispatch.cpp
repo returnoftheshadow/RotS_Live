@@ -69,9 +69,11 @@ bool required_host_context_is_present(
 struct PendingTextMutation {
     char** target = nullptr;
     char* char_target = nullptr;
+    int* int_target = nullptr;
     bool has_value = false;
     bool redraw_world_map = false;
     std::string value;
+    int int_value = 0;
 };
 
 bool is_blank_text(const std::string& value)
@@ -111,6 +113,9 @@ bool is_nullable_text_property(const JsRuntimeMutation& mutation)
 
 bool validate_text_mutation_value(const JsRuntimeMutation& mutation)
 {
+    if ((mutation.has_value && mutation.value_kind != "string") ||
+        (!mutation.has_value && mutation.value_kind != "null"))
+        return false;
     if (!mutation.has_value)
         return is_nullable_text_property(mutation);
 
@@ -130,7 +135,8 @@ bool validate_text_mutation_value(const JsRuntimeMutation& mutation)
 
 bool validate_symbol_mutation_value(const JsRuntimeMutation& mutation)
 {
-    if (mutation.target_type != "zone" || mutation.property != "symbol" || !mutation.has_value)
+    if (mutation.target_type != "zone" || mutation.property != "symbol" || !mutation.has_value ||
+        mutation.value_kind != "string")
         return false;
     if (mutation.value.size() != 1)
         return false;
@@ -138,10 +144,39 @@ bool validate_symbol_mutation_value(const JsRuntimeMutation& mutation)
     return ch > 32 && ch < 127;
 }
 
+bool parse_coordinate_value(const std::string& value, int* parsed)
+{
+    if (parsed == nullptr || value.empty())
+        return false;
+    if (value.size() > 2 || (value.size() > 1 && value[0] == '0'))
+        return false;
+    int result = 0;
+    for (char ch : value) {
+        if (!std::isdigit(static_cast<unsigned char>(ch)))
+            return false;
+        result = result * 10 + (ch - '0');
+        if (result > 25)
+            return false;
+    }
+    *parsed = result;
+    return true;
+}
+
+bool validate_coordinate_mutation_value(const JsRuntimeMutation& mutation)
+{
+    if (mutation.target_type != "zone" || mutation.property != "x" || !mutation.has_value ||
+        mutation.value_kind != "number")
+        return false;
+    int parsed = 0;
+    return parse_coordinate_value(mutation.value, &parsed);
+}
+
 bool validate_mutation_value(const JsRuntimeMutation& mutation)
 {
     if (mutation.target_type == "zone" && mutation.property == "symbol")
         return validate_symbol_mutation_value(mutation);
+    if (mutation.target_type == "zone" && mutation.property == "x")
+        return validate_coordinate_mutation_value(mutation);
     return validate_text_mutation_value(mutation);
 }
 
@@ -363,6 +398,11 @@ struct PendingSymbolTarget {
     bool redraw_world_map = false;
 };
 
+struct PendingCoordinateTarget {
+    int* target = nullptr;
+    bool redraw_world_map = false;
+};
+
 bool zone_uses_global_world_map(const zone_data* zone)
 {
     return zone_table != nullptr && top_of_zone_table >= 0 && zone >= zone_table &&
@@ -379,6 +419,18 @@ PendingSymbolTarget resolve_symbol_mutation_target(const JsRuntimeMutation& muta
     if (zone == nullptr || !zone_matches_mutation_authority(*zone, authority))
         return {};
     return { &zone->symbol, zone_uses_global_world_map(zone) };
+}
+
+PendingCoordinateTarget resolve_coordinate_mutation_target(const JsRuntimeMutation& mutation,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority)
+{
+    if (mutation.target_type != "zone" || mutation.property != "x")
+        return {};
+    zone_data* zone = mutable_live_zone_for_id(mutation, request, options);
+    if (zone == nullptr || !zone_matches_mutation_authority(*zone, authority))
+        return {};
+    return { &zone->x, zone_uses_global_world_map(zone) };
 }
 
 bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
@@ -398,14 +450,24 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
             if (target.target == nullptr)
                 return false;
             pending->push_back(
-                { nullptr, target.target, true, target.redraw_world_map, mutation.value });
+                { nullptr, target.target, nullptr, true, target.redraw_world_map, mutation.value, 0 });
+            continue;
+        }
+        if (mutation.target_type == "zone" && mutation.property == "x") {
+            PendingCoordinateTarget target =
+                resolve_coordinate_mutation_target(mutation, request, options, authority);
+            int parsed = 0;
+            if (target.target == nullptr || !parse_coordinate_value(mutation.value, &parsed))
+                return false;
+            pending->push_back(
+                { nullptr, nullptr, target.target, true, target.redraw_world_map, mutation.value, parsed });
             continue;
         }
         char** target = resolve_text_mutation_target(
             mutation, request, options, authority);
         if (target == nullptr)
             return false;
-        pending->push_back({ target, nullptr, mutation.has_value, false, mutation.value });
+        pending->push_back({ target, nullptr, nullptr, mutation.has_value, false, mutation.value, 0 });
     }
     return true;
 }
@@ -416,6 +478,11 @@ void apply_text_mutations(const std::vector<PendingTextMutation>& mutations)
     for (const PendingTextMutation& mutation : mutations) {
         if (mutation.char_target != nullptr) {
             *mutation.char_target = mutation.value[0];
+            redraw_world_map = redraw_world_map || mutation.redraw_world_map;
+            continue;
+        }
+        if (mutation.int_target != nullptr) {
+            *mutation.int_target = mutation.int_value;
             redraw_world_map = redraw_world_map || mutation.redraw_world_map;
             continue;
         }

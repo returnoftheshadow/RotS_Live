@@ -386,7 +386,7 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
         if (std::string(entry.field) == "action_description" ||
             std::string(entry.field) == "description" || std::string(entry.field) == "map" ||
-            std::string(entry.field) == "symbol") {
+            std::string(entry.field) == "symbol" || std::string(entry.field) == "x") {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -431,7 +431,8 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
     };
 
     const ExpectedZoneScalar expected[] = {
-        {"x", "planned-validated-setter", "0 through 25", "fail-closed bounds"},
+        {"x", "implemented-validated-setter", "0 through 25",
+            "target-scoped dispatch mutation authority"},
         {"y", "planned-validated-setter", "0 through 25", "fail-closed bounds"},
         {"symbol", "implemented-validated-setter", "target-scoped persistent setter authority",
             "target-scoped dispatch mutation authority"},
@@ -464,15 +465,15 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
     ASSERT_NE(zone_x, nullptr);
     EXPECT_EQ(WORLD_SIZE_X / 2, 25);
     EXPECT_NE(std::string(zone_x->setter_docs).find("0 through 25"), std::string::npos);
-    EXPECT_NE(std::string(zone_x->setter_docs).find("accept boundary values 0 and 25"),
+    EXPECT_NE(std::string(zone_x->setter_docs).find("integer"), std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("rejects negative values"), std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("values above 25 such as 26"),
         std::string::npos);
-    EXPECT_NE(std::string(zone_x->setter_docs).find("reject negative values"), std::string::npos);
-    EXPECT_NE(std::string(zone_x->setter_docs).find("reject values above 25 such as 26"),
-        std::string::npos);
-    EXPECT_NE(std::string(zone_x->setter_docs).find("reject fractional or other non-integer values"),
+    EXPECT_NE(std::string(zone_x->setter_docs).find("fractional or other non-integer values"),
         std::string::npos);
     EXPECT_NE(std::string(zone_x->setter_docs).find("legacy map clamping"), std::string::npos);
-    EXPECT_NE(std::string(zone_x->setter_docs).find("redraw the map"), std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("redraw the cached world map"),
+        std::string::npos);
     EXPECT_NE(std::string(zone_x->setter_docs).find("target-scoped persistent setter authority"),
         std::string::npos);
 

@@ -22,6 +22,7 @@ struct JsRuntimeMutation {
     std::string target_type;
     std::string target_id;
     std::string property;
+    std::string value_kind;
     bool has_value = false;
     std::string value;
 };

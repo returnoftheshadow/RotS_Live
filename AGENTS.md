@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API coordinate setter bounds-definition slice. `Zone.x`/`Zone.y` remain planned validated setters, but their callable contract is now pinned to integers from `0` through `25` inclusive, rejecting negative/out-of-map values instead of relying on legacy map clamping or unsafe buffer addressing, requiring target-scoped persistent setter authority, and redrawing the cached world map after committed global zone writes.
-- Next slice: JavaScript API `Zone.x` setter promotion slice. Promote `Zone.setX(value: number): MutationResult` through server API mapping, generated typings/manifest/docs, live QuickJS integer validation, target-scoped persistent mutation dispatch with world-map redraw for committed global zone writes, BuilderClient offline fixtures, and parity tests while keeping `Zone.y` planned until its own promotion slice.
+- Latest completed slice: JavaScript API `Zone.x` setter promotion slice. `Zone.setX(value: number): MutationResult` is now callable through server API mapping, generated typings/manifest/docs, live QuickJS integer validation, target-scoped persistent mutation dispatch, guarded map redraw, BuilderClient offline fixtures, and parity tests; mutation envelopes now retain `valueKind` so dispatcher validation binds text, symbol, and coordinate values to the correct field family.
+- Next slice: JavaScript API `Zone.y` setter promotion slice. Promote `Zone.setY(value: number): MutationResult` with the same integer `0` through `25` bounds, target-scoped persistent mutation authority, guarded world-map redraw, live/offline parity, generated typings/docs, and mixed-batch atomicity coverage.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.
