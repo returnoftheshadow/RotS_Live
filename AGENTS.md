@@ -19,8 +19,8 @@
 
 ### Current JavaScript Slice Handoff
 - Latest completed slice: JavaScript API `Zone.y` setter promotion slice. `Zone.setY(value: number): MutationResult` is now callable through server API mapping, generated typings/manifest/docs, live QuickJS integer validation, target-scoped persistent mutation dispatch, guarded map redraw, BuilderClient offline fixtures, and parity tests; review follow-up added nested zone setter parity, explicit y-coordinate authority failures, y-specific manifest docs checks, and fallback artifact identity bump.
-- Current slice: JavaScript API next scalar setter planning slice. Reassess remaining deferred zone scalars (`minimumLookLevel`, `lifespan`, `resetMode`, and `level`) and promote only the next field whose builder authority, value domain, side effects, live dispatch, offline emulation, and rollback/atomicity behavior can be pinned safely.
-- Next slice: JavaScript API next scalar setter planning slice. Reassess remaining deferred zone scalars (`minimumLookLevel`, `lifespan`, `resetMode`, and `level`) and promote only the next field whose builder authority, value domain, side effects, live dispatch, offline emulation, and rollback/atomicity behavior can be pinned safely.
+- Current slice: JavaScript API `Zone.resetMode` setter promotion slice. Promote `Zone.setResetMode(value: number): MutationResult` with integer `0` through `3` validation, target-scoped persistent mutation authority, live/offline parity, generated typings/docs, and atomicity coverage; keep `minimumLookLevel` deferred until its persisted builder edit path is mapped.
+- Next slice: JavaScript API next scalar setter planning slice. Reassess `Zone.lifespan`, `Zone.level`, and `Zone.minimumLookLevel` and promote only the next field whose builder authority, value domain, side effects, live dispatch, offline emulation, and rollback/atomicity behavior can be pinned safely.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

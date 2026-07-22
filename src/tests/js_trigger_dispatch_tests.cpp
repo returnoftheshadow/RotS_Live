@@ -262,6 +262,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
         "  ctx.zone.setSymbol('*');\n"
         "  ctx.zone.setX(25);\n"
         "  ctx.zone.setY(24);\n"
+        "  ctx.zone.setResetMode(3);\n"
         "  return RotS.ScriptResult.block();\n"
         "}");
     ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
@@ -284,6 +285,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     zones[0].symbol = 'Z';
     zones[0].x = 10;
     zones[0].y = 11;
+    zones[0].reset_mode = 1;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -307,6 +309,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     EXPECT_EQ(zones[0].symbol, '*');
     EXPECT_EQ(zones[0].x, 25);
     EXPECT_EQ(zones[0].y, 24);
+    EXPECT_EQ(zones[0].reset_mode, 3);
 
     free(object.name);
     free(object.description);
@@ -463,6 +466,33 @@ TEST(JsTriggerDispatch, RejectsZoneYSetterWithoutExplicitAuthority)
     EXPECT_EQ(zones[0].y, 10);
 }
 
+TEST(JsTriggerDispatch, RejectsZoneResetModeSetterWithoutExplicitAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5853,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setResetMode(3);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].reset_mode = 1;
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
+    EXPECT_EQ(zones[0].reset_mode, 1);
+}
+
 TEST(JsTriggerDispatch, PersistsNullableZoneMapSetterToLiveGameRecord)
 {
     JsScriptPackageRegistry registry;
@@ -571,6 +601,43 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneCoordinateSetterValues)
         EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
         EXPECT_EQ(zones[0].x, 10) << script;
         EXPECT_EQ(zones[0].y, 11) << script;
+    }
+}
+
+TEST(JsTriggerDispatch, IgnoresInvalidZoneResetModeSetterValues)
+{
+    const char* scripts[] = {
+        "function onEnter(ctx) { ctx.zone.setResetMode(-1); return true; }",
+        "function onEnter(ctx) { ctx.zone.setResetMode(4); return true; }",
+        "function onEnter(ctx) { ctx.zone.setResetMode(1.5); return true; }",
+        "function onEnter(ctx) { ctx.zone.setResetMode(NaN); return true; }",
+        "function onEnter(ctx) { ctx.zone.setResetMode(Infinity); return true; }",
+        "function onEnter(ctx) { ctx.zone.setResetMode('2'); return true; }",
+    };
+
+    for (const char* script : scripts) {
+        JsScriptPackageRegistry registry;
+        JsScriptPackage package = make_character_enter_package(5854, script);
+        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+        char_data self = make_character("Self");
+        const char_data* live_characters[] = { &self };
+        room_data world[1] = { make_room("Gate", 100, 0) };
+        zone_data zones[1] = { make_zone("Zone", 30) };
+        zones[0].reset_mode = 1;
+        JsGameAdapterOptions options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+        JsTriggerDispatchOptions dispatch_options;
+        dispatch_options.mutation_authority = test_mutation_authority();
+
+        JsTriggerDispatchResult result =
+            js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << script;
+        EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << script;
+        EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
+        EXPECT_EQ(zones[0].reset_mode, 1) << script;
     }
 }
 
@@ -765,6 +832,35 @@ TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedNestedZoneYSetter)
         draw_map();
 }
 
+TEST(JsTriggerDispatch, PersistsNestedZoneResetModeSetter)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5856,
+        "function onEnter(ctx) {\n"
+        "  ctx.room.zone.setResetMode(3);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].reset_mode = 1;
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(zones[0].reset_mode, 3);
+}
+
 TEST(JsTriggerDispatch, RejectsMixedSymbolBatchWithoutPartialWrites)
 {
     JsScriptPackageRegistry registry;
@@ -907,6 +1003,53 @@ TEST(JsTriggerDispatch, RejectsMixedZoneYTargetFailureAfterEarlierValidMutationW
     EXPECT_STREQ(object.name, "old lever");
     EXPECT_EQ(zones[0].x, 10);
     EXPECT_EQ(zones[0].y, 11);
+
+    free(object.name);
+    free(object.short_description);
+}
+
+TEST(JsTriggerDispatch, RejectsMixedZoneResetModeTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5857,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('authorized object edit');\n"
+        "  ctx.zone.setResetMode(3);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.in_room = 1;
+    object.name = str_dup("old lever");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[2] = {
+        make_room("Script Room", 100, 0),
+        make_room("Authorized Object Room", 200, 1),
+    };
+    zone_data zones[2] = {
+        make_zone("Script Zone", 30),
+        make_zone("Authorized Object Zone", 31),
+    };
+    zones[0].reset_mode = 1;
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_STREQ(object.name, "old lever");
+    EXPECT_EQ(zones[0].reset_mode, 1);
 
     free(object.name);
     free(object.short_description);
@@ -1067,6 +1210,36 @@ TEST(JsTriggerDispatch, RejectsZoneYSetterWhenAuthorityTargetsAnotherZone)
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
     EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
     EXPECT_EQ(zones[0].y, 10);
+}
+
+TEST(JsTriggerDispatch, RejectsZoneResetModeSetterWhenAuthorityTargetsAnotherZone)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5855,
+        "function onEnter(ctx) {\n"
+        "  ctx.zone.setResetMode(3);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].reset_mode = 1;
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_EQ(zones[0].reset_mode, 1);
 }
 
 TEST(JsTriggerDispatch, RejectsObjectRoomAndZoneSettersOutsideAuthorityTargetWithoutPartialWrites)

@@ -387,7 +387,7 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
         if (std::string(entry.field) == "action_description" ||
             std::string(entry.field) == "description" || std::string(entry.field) == "map" ||
             std::string(entry.field) == "symbol" || std::string(entry.field) == "x" ||
-            std::string(entry.field) == "y") {
+            std::string(entry.field) == "y" || std::string(entry.field) == "reset_mode") {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -440,7 +440,8 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
             "target-scoped dispatch mutation authority"},
         {"min_level_look", "deferred", "authority rules are mapped", "Visibility-gating scalar"},
         {"lifespan", "deferred", "reset scheduling rules are mapped", "Reset-scheduling scalar"},
-        {"reset_mode", "deferred", "allowed domain values are documented", "Reset-sensitive scalar"},
+        {"reset_mode", "implemented-validated-setter", "0 through 3",
+            "target-scoped dispatch mutation authority"},
         {"age", "unsupported", "reset scheduling should own this value", ""},
         {"top", "unsupported", "Changing zone room bounds", "World topology field"},
         {"level", "deferred", "builder ownership and balance rules are mapped",

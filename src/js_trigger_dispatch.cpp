@@ -162,6 +162,21 @@ bool parse_coordinate_value(const std::string& value, int* parsed)
     return true;
 }
 
+bool parse_reset_mode_value(const std::string& value, int* parsed)
+{
+    if (parsed == nullptr || value.empty())
+        return false;
+    if (value.size() != 1)
+        return false;
+    if (!std::isdigit(static_cast<unsigned char>(value[0])))
+        return false;
+    const int result = value[0] - '0';
+    if (result > 3)
+        return false;
+    *parsed = result;
+    return true;
+}
+
 bool validate_coordinate_mutation_value(const JsRuntimeMutation& mutation)
 {
     if (mutation.target_type != "zone" ||
@@ -172,12 +187,23 @@ bool validate_coordinate_mutation_value(const JsRuntimeMutation& mutation)
     return parse_coordinate_value(mutation.value, &parsed);
 }
 
+bool validate_reset_mode_mutation_value(const JsRuntimeMutation& mutation)
+{
+    if (mutation.target_type != "zone" || mutation.property != "resetMode" || !mutation.has_value ||
+        mutation.value_kind != "number")
+        return false;
+    int parsed = 0;
+    return parse_reset_mode_value(mutation.value, &parsed);
+}
+
 bool validate_mutation_value(const JsRuntimeMutation& mutation)
 {
     if (mutation.target_type == "zone" && mutation.property == "symbol")
         return validate_symbol_mutation_value(mutation);
     if (mutation.target_type == "zone" && (mutation.property == "x" || mutation.property == "y"))
         return validate_coordinate_mutation_value(mutation);
+    if (mutation.target_type == "zone" && mutation.property == "resetMode")
+        return validate_reset_mode_mutation_value(mutation);
     return validate_text_mutation_value(mutation);
 }
 
@@ -434,6 +460,18 @@ PendingCoordinateTarget resolve_coordinate_mutation_target(const JsRuntimeMutati
     return { mutation.property == "x" ? &zone->x : &zone->y, zone_uses_global_world_map(zone) };
 }
 
+PendingCoordinateTarget resolve_reset_mode_mutation_target(const JsRuntimeMutation& mutation,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority)
+{
+    if (mutation.target_type != "zone" || mutation.property != "resetMode")
+        return {};
+    zone_data* zone = mutable_live_zone_for_id(mutation, request, options);
+    if (zone == nullptr || !zone_matches_mutation_authority(*zone, authority))
+        return {};
+    return { &zone->reset_mode, false };
+}
+
 bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
     const JsTriggerMutationAuthorityContext& authority,
@@ -463,6 +501,15 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
                 return false;
             pending->push_back(
                 { nullptr, nullptr, target.target, true, target.redraw_world_map, mutation.value, parsed });
+            continue;
+        }
+        if (mutation.target_type == "zone" && mutation.property == "resetMode") {
+            PendingCoordinateTarget target =
+                resolve_reset_mode_mutation_target(mutation, request, options, authority);
+            int parsed = 0;
+            if (target.target == nullptr || !parse_reset_mode_value(mutation.value, &parsed))
+                return false;
+            pending->push_back({ nullptr, nullptr, target.target, true, false, mutation.value, parsed });
             continue;
         }
         char** target = resolve_text_mutation_target(

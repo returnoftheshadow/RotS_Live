@@ -486,10 +486,15 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Owner-list mutation from JavaScript is unsupported; use server authorization flows instead.",
      "none", "Linked list pointer must never be exposed."},
     {JsApiStructOwner::ZoneData, "zone_data", "reset_mode", "resetMode", "getResetMode",
-     "setResetMode", "number", false, ImplementedReadOnly, Deferred, "Returns the legacy zone reset mode.",
-     "Reset mode writes are deferred until reset semantics "
-     "and allowed domain values are documented.",
-     "mutation", "Reset-sensitive scalar; defer until scheduling and reset side effects are explicit."},
+     "setResetMode", "number", false, ImplementedReadOnly, SetterImplemented,
+     "Returns the legacy zone reset mode.",
+     "Updates the invocation snapshot legacy zone reset mode after integer and 0 through 3 "
+     "inclusive bounds checks, rejects negative values, values above 3, and fractional or other "
+     "non-integer values, and applies to live owned memory only when dispatch provides "
+     "target-scoped persistent setter authority. Reset mode 0 disables automatic reset aging, "
+     "1 resets only when the zone is empty, 2 resets whenever the lifespan expires, and 3 uses "
+     "the legacy mixed empty-or-extended-lifespan reset rule.",
+     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "number", "vnum", "getVnum", "setVnum", "number",
      false, ImplementedReadOnly, Unsupported, "Returns the public zone vnum.",
      "Changing a loaded zone vnum from JavaScript is unsupported.", "none",
