@@ -111,6 +111,13 @@ constexpr const char *GameObjectLevelSetterDocs =
     "target-scoped persistent setter authority. This changes the persisted object-file scalar "
     "level value visible as flags.level.";
 
+constexpr const char *GameObjectRaritySetterDocs =
+    "Updates the invocation snapshot object flags rarity after integer and 0 through 255 "
+    "inclusive bounds checks, rejects negative values, values above 255, and fractional or "
+    "other non-integer values, and applies to live owned memory only when dispatch provides "
+    "target-scoped persistent setter authority. This changes the persisted object-file scalar "
+    "rarity value visible as flags.rarity.";
+
 std::string markdown_mapping_field_id(const JsApiStructFieldMapping &mapping) {
     return std::string(markdown_struct_owner_name(mapping.owner)) + "." + mapping.js_property;
 }
@@ -323,6 +330,8 @@ std::string js_generate_typescript_declarations() {
         if (std::string(type.name) == "GameObject") {
             append_ts_doc_comment(out, "    ", GameObjectLevelSetterDocs);
             out << "    setLevel(value: number): MutationResult;\n";
+            append_ts_doc_comment(out, "    ", GameObjectRaritySetterDocs);
+            out << "    setRarity(value: number): MutationResult;\n";
         }
         out << "}\n\n";
     }
@@ -416,6 +425,14 @@ std::string js_generate_api_markdown_reference() {
                 << markdown_inline_code("validated-setter") << " | "
                 << markdown_inline_code("mutation") << " | "
                 << markdown_cell(GameObjectLevelSetterDocs) << " |\n";
+            out << "| " << markdown_inline_code("setRarity") << " | "
+                << markdown_inline_code("function") << " | "
+                << markdown_inline_code("(value: number)") << " | "
+                << markdown_inline_code("MutationResult") << " | "
+                << markdown_inline_code("implemented") << " | "
+                << markdown_inline_code("validated-setter") << " | "
+                << markdown_inline_code("mutation") << " | "
+                << markdown_cell(GameObjectRaritySetterDocs) << " |\n";
         }
         out << "\n";
     }

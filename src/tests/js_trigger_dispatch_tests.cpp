@@ -255,6 +255,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
         "  ctx.object.setShortDescription('a renamed lever');\n"
         "  ctx.object.setActionDescription(null);\n"
         "  ctx.object.setLevel(42);\n"
+        "  ctx.object.setRarity(201);\n"
         "  ctx.room.setName('Changed Gate');\n"
         "  ctx.room.setDescription('The gate was changed by script.');\n"
         "  ctx.room.setLevel(42);\n"
@@ -278,6 +279,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     object.short_description = str_dup("a lever");
     object.action_description = str_dup("Pulling the lever does nothing.");
     object.obj_flags.level = 5;
+    object.obj_flags.rarity = 7;
     const char_data* live_characters[] = { &self };
     const obj_data* live_objects[] = { &object };
     room_data world[1] = { make_room("Gate", 100, 0) };
@@ -310,6 +312,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     EXPECT_STREQ(object.short_description, "a renamed lever");
     EXPECT_EQ(object.action_description, nullptr);
     EXPECT_EQ(object.obj_flags.level, 42);
+    EXPECT_EQ(object.obj_flags.rarity, 201);
     EXPECT_STREQ(world[0].name, "Changed Gate");
     EXPECT_STREQ(world[0].description, "The gate was changed by script.");
     EXPECT_EQ(world[0].level, 42);
@@ -853,6 +856,183 @@ TEST(JsTriggerDispatch, IgnoresInvalidObjectLevelSetterValues)
         EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
         EXPECT_EQ(object.obj_flags.level, 5) << script;
     }
+}
+
+TEST(JsTriggerDispatch, RejectsObjectRaritySetterWithoutExplicitAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5867,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setRarity(201);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.obj_flags.rarity = 7;
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
+    EXPECT_EQ(object.obj_flags.rarity, 7);
+}
+
+TEST(JsTriggerDispatch, IgnoresInvalidObjectRaritySetterValues)
+{
+    const char* scripts[] = {
+        "function onEnter(ctx) { ctx.object.setRarity(-1); return true; }",
+        "function onEnter(ctx) { ctx.object.setRarity(256); return true; }",
+        "function onEnter(ctx) { ctx.object.setRarity(1.5); return true; }",
+        "function onEnter(ctx) { ctx.object.setRarity(NaN); return true; }",
+        "function onEnter(ctx) { ctx.object.setRarity(Infinity); return true; }",
+        "function onEnter(ctx) { ctx.object.setRarity('42'); return true; }",
+        "function onEnter(ctx) { ctx.object.setRarity(null); return true; }",
+    };
+
+    for (const char* script : scripts) {
+        JsScriptPackageRegistry registry;
+        JsScriptPackage package = make_character_enter_package(5868, script);
+        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+        char_data self = make_character("Self");
+        obj_data object = make_object("lever");
+        object.obj_flags.rarity = 7;
+        const char_data* live_characters[] = { &self };
+        const obj_data* live_objects[] = { &object };
+        room_data world[1] = { make_room("Gate", 100, 0) };
+        zone_data zones[1] = { make_zone("Zone", 30) };
+        JsGameAdapterOptions options =
+            make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+        request.context_input.object = &object;
+        JsTriggerDispatchOptions dispatch_options;
+        dispatch_options.mutation_authority = test_mutation_authority();
+
+        JsTriggerDispatchResult result =
+            js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << script;
+        EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << script;
+        EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
+        EXPECT_EQ(object.obj_flags.rarity, 7) << script;
+    }
+}
+
+TEST(JsTriggerDispatch, PersistsNestedWeaponRaritySetter)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5869,
+        "function onEnter(ctx) {\n"
+        "  ctx.weapon.setRarity(201);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data weapon = make_object("blade");
+    weapon.obj_flags.rarity = 7;
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &weapon };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.weapon = &weapon;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok);
+    EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
+    EXPECT_EQ(weapon.obj_flags.rarity, 201);
+}
+
+TEST(JsTriggerDispatch, RejectsObjectRaritySetterWhenAuthorityTargetsAnotherZone)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5870,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setRarity(201);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.obj_flags.rarity = 7;
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[1] = { make_room("Wrong Zone", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 31) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_EQ(object.obj_flags.rarity, 7);
+}
+
+TEST(JsTriggerDispatch, RejectsMixedObjectRarityTargetFailureWithoutPartialWrites)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5871,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setRarity(201);\n"
+        "  ctx.room.setLevel(42);\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    self.in_room = 1;
+    obj_data object = make_object("lever");
+    object.in_room = 0;
+    object.obj_flags.rarity = 7;
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[2] = { make_room("Authorized", 100, 0), make_room("Wrong Zone", 200, 1) };
+    world[1].level = 5;
+    zone_data zones[2] = { make_zone("Authorized Zone", 30), make_zone("Wrong Zone", 31) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.room = 1;
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_EQ(object.obj_flags.rarity, 7);
+    EXPECT_EQ(world[1].level, 5);
 }
 
 TEST(JsTriggerDispatch, RejectsRoomLevelSetterWithoutExplicitAuthority)

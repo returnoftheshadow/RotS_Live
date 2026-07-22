@@ -214,6 +214,24 @@ bool parse_level_value(const std::string& value, int* parsed)
     return true;
 }
 
+bool parse_rarity_value(const std::string& value, int* parsed)
+{
+    if (parsed == nullptr || value.empty())
+        return false;
+    if (value.size() > 3 || (value.size() > 1 && value[0] == '0'))
+        return false;
+    int result = 0;
+    for (char ch : value) {
+        if (!std::isdigit(static_cast<unsigned char>(ch)))
+            return false;
+        result = result * 10 + (ch - '0');
+        if (result > 255)
+            return false;
+    }
+    *parsed = result;
+    return true;
+}
+
 bool validate_coordinate_mutation_value(const JsRuntimeMutation& mutation)
 {
     if (mutation.target_type != "zone" ||
@@ -252,6 +270,15 @@ bool validate_level_mutation_value(const JsRuntimeMutation& mutation)
     return parse_level_value(mutation.value, &parsed);
 }
 
+bool validate_rarity_mutation_value(const JsRuntimeMutation& mutation)
+{
+    if (mutation.target_type != "object" || mutation.property != "rarity" ||
+        !mutation.has_value || mutation.value_kind != "number")
+        return false;
+    int parsed = 0;
+    return parse_rarity_value(mutation.value, &parsed);
+}
+
 bool validate_mutation_value(const JsRuntimeMutation& mutation)
 {
     if (mutation.target_type == "zone" && mutation.property == "symbol")
@@ -266,6 +293,8 @@ bool validate_mutation_value(const JsRuntimeMutation& mutation)
             mutation.target_type == "object") &&
         mutation.property == "level")
         return validate_level_mutation_value(mutation);
+    if (mutation.target_type == "object" && mutation.property == "rarity")
+        return validate_rarity_mutation_value(mutation);
     return validate_text_mutation_value(mutation);
 }
 
@@ -573,6 +602,18 @@ PendingCoordinateTarget resolve_level_mutation_target(const JsRuntimeMutation& m
     return {};
 }
 
+PendingCoordinateTarget resolve_rarity_mutation_target(const JsRuntimeMutation& mutation,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority)
+{
+    if (mutation.target_type != "object" || mutation.property != "rarity")
+        return {};
+    obj_data* object = mutable_live_object_for_id(mutation, request, options);
+    if (object == nullptr || !object_matches_mutation_authority(*object, options, authority))
+        return {};
+    return { nullptr, false };
+}
+
 bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
     const JsTriggerMutationAuthorityContext& authority,
@@ -648,6 +689,20 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
                 pending->push_back(
                     { nullptr, nullptr, target.target, nullptr, true, false, mutation.value, parsed });
             }
+            continue;
+        }
+        if (mutation.target_type == "object" && mutation.property == "rarity") {
+            PendingCoordinateTarget target =
+                resolve_rarity_mutation_target(mutation, request, options, authority);
+            int parsed = 0;
+            if (!parse_rarity_value(mutation.value, &parsed))
+                return false;
+            obj_data* object = mutable_live_object_for_id(mutation, request, options);
+            if (target.target != nullptr || object == nullptr ||
+                !object_matches_mutation_authority(*object, options, authority))
+                return false;
+            pending->push_back({ nullptr, nullptr, nullptr, &object->obj_flags.rarity, true,
+                false, mutation.value, parsed });
             continue;
         }
         char** target = resolve_text_mutation_target(

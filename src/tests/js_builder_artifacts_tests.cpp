@@ -401,6 +401,12 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
             EXPECT_NE(block.find("setLevel(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
         }
+        if (std::string(interface_name) == "export interface GameObject") {
+            EXPECT_NE(block.find("setRarity(value: number): MutationResult;"), std::string::npos)
+                << interface_name;
+        } else {
+            EXPECT_EQ(block.find("setRarity("), std::string::npos) << interface_name;
+        }
         if (std::string(interface_name) == "export interface Zone") {
             EXPECT_NE(block.find("setX(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
@@ -533,6 +539,8 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     expect_contains(markdown, "Implemented read-only getters may appear in TypeScript");
     expect_contains(markdown, "| `setLevel` | `function` | `(value: number)` | `MutationResult` |");
     expect_contains(markdown, "persisted object-file scalar level value visible as flags.level");
+    expect_contains(markdown, "| `setRarity` | `function` | `(value: number)` | `MutationResult` |");
+    expect_contains(markdown, "persisted object-file scalar rarity value visible as flags.rarity");
     expect_contains(markdown, "Context fields");
     expect_contains(markdown, "Dispatch order");
     expect_contains(markdown, "Notes");
