@@ -18,8 +18,8 @@
 - For the JavaScript scripting engine work, make one git commit after each completed slice using the user's configured git identity for this repository.
 
 ### Current JavaScript Slice Handoff
-- Latest completed slice: JavaScript API `Zone.symbol` setter promotion slice. `Zone.setSymbol(value: string): MutationResult` is now callable in generated typings, live QuickJS, and BuilderClient offline fixtures; it validates one printable ASCII symbol, persists only through target-scoped builder authority, redraws the global world map after committed live zone writes, and has parity tests.
-- Next slice: JavaScript API coordinate setter bounds-definition slice. Pin `Zone.x`/`Zone.y` validation ranges against legacy `WORLD_SIZE_X`/`WORLD_SIZE_Y`, negative-coordinate behavior, and `symbol_to_map`/`draw_map` map-buffer safety before making either coordinate setter callable.
+- Latest completed slice: JavaScript API coordinate setter bounds-definition slice. `Zone.x`/`Zone.y` remain planned validated setters, but their callable contract is now pinned to integers from `0` through `25` inclusive, rejecting negative/out-of-map values instead of relying on legacy map clamping or unsafe buffer addressing, requiring target-scoped persistent setter authority, and redrawing the cached world map after committed global zone writes.
+- Next slice: JavaScript API `Zone.x` setter promotion slice. Promote `Zone.setX(value: number): MutationResult` through server API mapping, generated typings/manifest/docs, live QuickJS integer validation, target-scoped persistent mutation dispatch with world-map redraw for committed global zone writes, BuilderClient offline fixtures, and parity tests while keeping `Zone.y` planned until its own promotion slice.
 
 ## Build, Test, and Development Commands
 - Configure: `make configure` — generates the CMake build tree in `build/`.

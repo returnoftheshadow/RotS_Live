@@ -415,16 +415,20 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "none", "World topology field."},
     {JsApiStructOwner::ZoneData, "zone_data", "x", "x", "getX", "setX", "number", false, ImplementedReadOnly,
      SetterPlanned, "Returns the zone map x coordinate.",
-     "Planned setter for the zone map x coordinate. It must validate a bounded integer map "
-     "coordinate, require target-scoped persistent setter authority, and preserve map layout "
-     "constraints before it becomes callable.",
-     "mutation", "Low-risk scalar candidate; implementation deferred until coordinate range is pinned."},
+     "Planned setter for the zone map x coordinate. It must validate an integer from 0 through "
+     "25 inclusive, accept boundary values 0 and 25, reject negative values, reject values above "
+     "25 such as 26, reject fractional or other non-integer values, avoid relying on legacy map "
+     "clamping, require target-scoped persistent setter authority, and redraw the map after "
+     "committed global zone writes before it becomes callable.",
+     "mutation", "Coordinate candidate; fail-closed bounds are pinned before promotion."},
     {JsApiStructOwner::ZoneData, "zone_data", "y", "y", "getY", "setY", "number", false, ImplementedReadOnly,
      SetterPlanned, "Returns the zone map y coordinate.",
-     "Planned setter for the zone map y coordinate. It must validate a bounded integer map "
-     "coordinate, require target-scoped persistent setter authority, and preserve map layout "
-     "constraints before it becomes callable.",
-     "mutation", "Low-risk scalar candidate; implementation deferred until coordinate range is pinned."},
+     "Planned setter for the zone map y coordinate. It must validate an integer from 0 through "
+     "25 inclusive, accept boundary values 0 and 25, reject negative values, reject values above "
+     "25 such as 26, reject fractional or other non-integer values that would address outside the "
+     "map buffer, require target-scoped persistent setter authority, and redraw the map after "
+     "committed global zone writes before it becomes callable.",
+     "mutation", "Coordinate candidate; fail-closed bounds are pinned before promotion."},
     {JsApiStructOwner::ZoneData, "zone_data", "symbol", "symbol", "getSymbol", "setSymbol",
      "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the single-character zone map symbol.",

@@ -1,5 +1,6 @@
 #include "../js_api_contract.h"
 #include "../js_api_struct_mapping.h"
+#include "../structs.h"
 
 #include <gtest/gtest.h>
 
@@ -425,19 +426,22 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
     struct ExpectedZoneScalar {
         const char *field;
         const char *status;
-        const char *required_text;
+        const char *setter_doc_text;
+        const char *note_text;
     };
 
     const ExpectedZoneScalar expected[] = {
-        {"x", "planned-validated-setter", "coordinate range"},
-        {"y", "planned-validated-setter", "coordinate range"},
-        {"symbol", "implemented-validated-setter", "target-scoped dispatch mutation authority"},
-        {"min_level_look", "deferred", "Visibility-gating scalar"},
-        {"lifespan", "deferred", "Reset-scheduling scalar"},
-        {"reset_mode", "deferred", "Reset-sensitive scalar"},
-        {"age", "unsupported", "reset scheduling should own this value"},
-        {"top", "unsupported", "World topology field"},
-        {"level", "deferred", "Balance-sensitive scalar"},
+        {"x", "planned-validated-setter", "0 through 25", "fail-closed bounds"},
+        {"y", "planned-validated-setter", "0 through 25", "fail-closed bounds"},
+        {"symbol", "implemented-validated-setter", "target-scoped persistent setter authority",
+            "target-scoped dispatch mutation authority"},
+        {"min_level_look", "deferred", "authority rules are mapped", "Visibility-gating scalar"},
+        {"lifespan", "deferred", "reset scheduling rules are mapped", "Reset-scheduling scalar"},
+        {"reset_mode", "deferred", "allowed domain values are documented", "Reset-sensitive scalar"},
+        {"age", "unsupported", "reset scheduling should own this value", ""},
+        {"top", "unsupported", "Changing zone room bounds", "World topology field"},
+        {"level", "deferred", "builder ownership and balance rules are mapped",
+            "Balance-sensitive scalar"},
     };
 
     for (const ExpectedZoneScalar &entry : expected) {
@@ -446,25 +450,46 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
         ASSERT_NE(mapping, nullptr) << entry.field;
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter") << entry.field;
         EXPECT_STREQ(mapping->setter_status, entry.status) << entry.field;
-        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
-                      .find(entry.required_text),
+        EXPECT_NE(std::string(mapping->setter_docs).find(entry.setter_doc_text),
             std::string::npos)
             << entry.field;
+        if (entry.note_text[0] != '\0') {
+            EXPECT_NE(std::string(mapping->notes).find(entry.note_text), std::string::npos)
+                << entry.field;
+        }
     }
 
     const JsApiStructFieldMapping *zone_x =
         find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "x");
     ASSERT_NE(zone_x, nullptr);
-    EXPECT_NE(std::string(zone_x->setter_docs).find("bounded integer"), std::string::npos);
-    EXPECT_NE(std::string(zone_x->setter_docs).find("map layout"), std::string::npos);
+    EXPECT_EQ(WORLD_SIZE_X / 2, 25);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("0 through 25"), std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("accept boundary values 0 and 25"),
+        std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("reject negative values"), std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("reject values above 25 such as 26"),
+        std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("reject fractional or other non-integer values"),
+        std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("legacy map clamping"), std::string::npos);
+    EXPECT_NE(std::string(zone_x->setter_docs).find("redraw the map"), std::string::npos);
     EXPECT_NE(std::string(zone_x->setter_docs).find("target-scoped persistent setter authority"),
         std::string::npos);
 
     const JsApiStructFieldMapping *zone_y =
         find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "y");
     ASSERT_NE(zone_y, nullptr);
-    EXPECT_NE(std::string(zone_y->setter_docs).find("bounded integer"), std::string::npos);
-    EXPECT_NE(std::string(zone_y->setter_docs).find("map layout"), std::string::npos);
+    EXPECT_EQ(WORLD_SIZE_Y - 1, 25);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("0 through 25"), std::string::npos);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("accept boundary values 0 and 25"),
+        std::string::npos);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("reject negative values"), std::string::npos);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("reject values above 25 such as 26"),
+        std::string::npos);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("reject fractional or other non-integer values"),
+        std::string::npos);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("outside the map buffer"), std::string::npos);
+    EXPECT_NE(std::string(zone_y->setter_docs).find("redraw the map"), std::string::npos);
     EXPECT_NE(std::string(zone_y->setter_docs).find("target-scoped persistent setter authority"),
         std::string::npos);
 
@@ -478,14 +503,20 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
             << fragment;
     }
 
-    const ExpectedZoneScalar guarded[] = {
+    struct ExpectedGuardedZoneScalar {
+        const char *field;
+        const char *status;
+        const char *required_text;
+    };
+
+    const ExpectedGuardedZoneScalar guarded[] = {
         {"white_power", "unsupported", "Derived gameplay state"},
         {"dark_power", "unsupported", "Derived gameplay state"},
         {"magi_power", "unsupported", "Derived gameplay state"},
         {"owners", "unsupported", "Linked list pointer must never be exposed"},
         {"number", "unsupported", "Changing a loaded zone vnum"},
     };
-    for (const ExpectedZoneScalar &entry : guarded) {
+    for (const ExpectedGuardedZoneScalar &entry : guarded) {
         const JsApiStructFieldMapping *mapping =
             find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, entry.field);
         ASSERT_NE(mapping, nullptr) << entry.field;
