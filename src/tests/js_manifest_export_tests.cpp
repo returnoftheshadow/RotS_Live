@@ -418,6 +418,9 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         {JsApiStructOwner::ZoneData, "x"},
         {JsApiStructOwner::ZoneData, "y"},
         {JsApiStructOwner::ZoneData, "symbol"},
+        {JsApiStructOwner::ZoneData, "white_power"},
+        {JsApiStructOwner::ZoneData, "dark_power"},
+        {JsApiStructOwner::ZoneData, "magi_power"},
         {JsApiStructOwner::ZoneData, "min_level_look"},
         {JsApiStructOwner::ZoneData, "reset_mode"},
     };

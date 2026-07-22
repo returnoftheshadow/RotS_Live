@@ -615,6 +615,9 @@ bool js_game_adapter_zone_fixture(
     fixture->x = zone_data.x;
     fixture->y = zone_data.y;
     fixture->symbol = zone_data.symbol == '\0' ? "" : std::string(1, zone_data.symbol);
+    fixture->white_power = zone_data.white_power;
+    fixture->dark_power = zone_data.dark_power;
+    fixture->magi_power = zone_data.magi_power;
     fixture->minimum_look_level = zone_data.min_level_look;
     fixture->reset_mode = zone_data.reset_mode;
     return true;

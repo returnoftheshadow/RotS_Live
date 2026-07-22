@@ -46,6 +46,9 @@ JsGameTriggerContextFixture make_context()
     context.self.room.zone.x = 8;
     context.self.room.zone.y = -3;
     context.self.room.zone.symbol = "C";
+    context.self.room.zone.white_power = 120;
+    context.self.room.zone.dark_power = 80;
+    context.self.room.zone.magi_power = 35;
     context.self.room.zone.minimum_look_level = 2;
     context.self.room.zone.reset_mode = 1;
 
@@ -103,6 +106,9 @@ JsGameTriggerContextFixture make_context()
     context.object.room.zone.x = 8;
     context.object.room.zone.y = -3;
     context.object.room.zone.symbol = "C";
+    context.object.room.zone.white_power = 120;
+    context.object.room.zone.dark_power = 80;
+    context.object.room.zone.magi_power = 35;
     context.object.room.zone.minimum_look_level = 2;
     context.object.room.zone.reset_mode = 1;
 
@@ -132,6 +138,9 @@ JsGameTriggerContextFixture make_context()
     context.room.zone.x = 8;
     context.room.zone.y = -3;
     context.room.zone.symbol = "C";
+    context.room.zone.white_power = 120;
+    context.room.zone.dark_power = 80;
+    context.room.zone.magi_power = 35;
     context.room.zone.minimum_look_level = 2;
     context.room.zone.reset_mode = 1;
 
@@ -150,6 +159,9 @@ JsGameTriggerContextFixture make_context()
     context.zone.x = 8;
     context.zone.y = -3;
     context.zone.symbol = "C";
+    context.zone.white_power = 120;
+    context.zone.dark_power = 80;
+    context.zone.magi_power = 35;
     context.zone.minimum_look_level = 2;
     context.zone.reset_mode = 1;
 
@@ -533,6 +545,9 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
         "  && ctx.zone.x === 8\n"
         "  && ctx.zone.y === -3\n"
         "  && ctx.zone.symbol === 'C'\n"
+        "  && ctx.zone.whitePower === 120\n"
+        "  && ctx.zone.darkPower === 80\n"
+        "  && ctx.zone.magiPower === 35\n"
         "  && ctx.zone.minimumLookLevel === 2\n"
         "  && ctx.zone.resetMode === 1\n"
         "  && ctx.object.room.description === ctx.room.description\n"
@@ -541,7 +556,10 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
         "  && ctx.object.room.light === ctx.room.light\n"
         "  && ctx.object.room.zone.description === ctx.zone.description\n"
         "  && ctx.object.room.zone.map === ctx.zone.map\n"
-        "  && ctx.object.room.zone.level === ctx.zone.level;",
+        "  && ctx.object.room.zone.level === ctx.zone.level\n"
+        "  && ctx.object.room.zone.whitePower === ctx.zone.whitePower\n"
+        "  && ctx.room.zone.darkPower === ctx.zone.darkPower\n"
+        "  && ctx.self.room.zone.magiPower === ctx.zone.magiPower;",
         context);
 
     expect_ok_allows(result);

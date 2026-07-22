@@ -485,6 +485,9 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
         {JsApiStructOwner::ZoneData, "x", "x"},
         {JsApiStructOwner::ZoneData, "y", "y"},
         {JsApiStructOwner::ZoneData, "symbol", "symbol"},
+        {JsApiStructOwner::ZoneData, "white_power", "whitePower"},
+        {JsApiStructOwner::ZoneData, "dark_power", "darkPower"},
+        {JsApiStructOwner::ZoneData, "magi_power", "magiPower"},
         {JsApiStructOwner::ZoneData, "min_level_look", "minimumLookLevel"},
         {JsApiStructOwner::ZoneData, "reset_mode", "resetMode"},
     };
@@ -565,6 +568,12 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
             "target-scoped dispatch mutation authority"},
         {"age", "unsupported", "reset scheduling should own this value", ""},
         {"top", "unsupported", "Changing zone room bounds", "World topology field"},
+        {"white_power", "unsupported", "Direct White-side power writes are unsupported",
+            "Derived gameplay state"},
+        {"dark_power", "unsupported", "Direct Dark-side power writes are unsupported",
+            "Derived gameplay state"},
+        {"magi_power", "unsupported", "Direct Magi-side power writes are unsupported",
+            "Derived gameplay state"},
         {"level", "implemented-validated-setter", "0 through 100",
             "target-scoped dispatch mutation authority"},
     };
@@ -669,11 +678,14 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
     };
 
     const ExpectedZoneRemainder remaining[] = {
-        {"white_power", "whitePower", "setWhitePower", "number", false, "deferred",
+        {"white_power", "whitePower", "setWhitePower", "number", false,
+            "implemented-read-only-getter",
             "unsupported", "mutation"},
-        {"dark_power", "darkPower", "setDarkPower", "number", false, "deferred",
+        {"dark_power", "darkPower", "setDarkPower", "number", false,
+            "implemented-read-only-getter",
             "unsupported", "mutation"},
-        {"magi_power", "magiPower", "setMagiPower", "number", false, "deferred",
+        {"magi_power", "magiPower", "setMagiPower", "number", false,
+            "implemented-read-only-getter",
             "unsupported", "mutation"},
         {"min_level_look", "minimumLookLevel", "setMinimumLookLevel", "number", false,
             "implemented-read-only-getter", "deferred", "mutation"},

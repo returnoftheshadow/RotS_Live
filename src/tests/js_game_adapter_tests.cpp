@@ -88,6 +88,9 @@ zone_data make_zone(const char *name, int number)
     zone.x = 11;
     zone.y = -4;
     zone.symbol = 'Z';
+    zone.white_power = 21;
+    zone.dark_power = 13;
+    zone.magi_power = 8;
     zone.min_level_look = 3;
     zone.reset_mode = 2;
     return zone;
@@ -281,6 +284,9 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(zone_fixture.x, 11);
     EXPECT_EQ(zone_fixture.y, -4);
     EXPECT_EQ(zone_fixture.symbol, "Z");
+    EXPECT_EQ(zone_fixture.white_power, 21);
+    EXPECT_EQ(zone_fixture.dark_power, 13);
+    EXPECT_EQ(zone_fixture.magi_power, 8);
     EXPECT_EQ(zone_fixture.minimum_look_level, 3);
     EXPECT_EQ(zone_fixture.reset_mode, 2);
 }

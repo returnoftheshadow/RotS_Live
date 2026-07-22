@@ -21,6 +21,9 @@ struct JsGameZoneFixture {
     int x = 0;
     int y = 0;
     std::string symbol;
+    int white_power = 0;
+    int dark_power = 0;
+    int magi_power = 0;
     int minimum_look_level = 0;
     int reset_mode = 0;
 };

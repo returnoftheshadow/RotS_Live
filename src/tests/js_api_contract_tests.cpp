@@ -355,7 +355,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     }
 
     const char* zone_number_members[] = {
-        "lifespan", "age", "topRoomVnum", "x", "y", "minimumLookLevel", "resetMode",
+        "lifespan", "age", "topRoomVnum", "x", "y", "whitePower", "darkPower", "magiPower",
+        "minimumLookLevel", "resetMode",
     };
     for (const char* member_name : zone_number_members) {
         const JsApiMember* member = find_js_api_contract_member(*zone, member_name);

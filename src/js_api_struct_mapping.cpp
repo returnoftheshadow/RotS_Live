@@ -556,22 +556,22 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "shown by legacy zone inspection and shaping paths.",
      "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "white_power", "whitePower", "getWhitePower",
-     "setWhitePower", "number", false, Deferred, Unsupported,
-     "Planned read-only White-side zone power.",
+     "setWhitePower", "number", false, ImplementedReadOnly, Unsupported,
+     "Returns the White-side zone power copied from the loaded zone table.",
      "Direct White-side power writes are unsupported for builder scripts because zone power is "
      "derived from live character movement, race/allegiance power, recalculation sweeps, and "
      "battlefield-control messaging.",
      "mutation", "Derived gameplay state; future faction-power APIs must own recalculation."},
     {JsApiStructOwner::ZoneData, "zone_data", "dark_power", "darkPower", "getDarkPower",
-     "setDarkPower", "number", false, Deferred, Unsupported,
-     "Planned read-only Dark-side zone power.",
+     "setDarkPower", "number", false, ImplementedReadOnly, Unsupported,
+     "Returns the Dark-side zone power copied from the loaded zone table.",
      "Direct Dark-side power writes are unsupported for builder scripts because zone power is "
      "derived from live character movement, race/allegiance power, recalculation sweeps, and "
      "battlefield-control messaging.",
      "mutation", "Derived gameplay state; future faction-power APIs must own recalculation."},
     {JsApiStructOwner::ZoneData, "zone_data", "magi_power", "magiPower", "getMagiPower",
-     "setMagiPower", "number", false, Deferred, Unsupported,
-     "Planned read-only Magi-side zone power.",
+     "setMagiPower", "number", false, ImplementedReadOnly, Unsupported,
+     "Returns the Magi-side zone power copied from the loaded zone table.",
      "Direct Magi-side power writes are unsupported for builder scripts because zone power is "
      "derived from live character movement, race/allegiance power, recalculation sweeps, and "
      "battlefield-control messaging.",

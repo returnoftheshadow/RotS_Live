@@ -97,6 +97,9 @@ std::string zone_literal(const JsGameZoneFixture& zone)
         << "\"x\":" << zone.x << ","
         << "\"y\":" << zone.y << ","
         << "\"symbol\":" << js_quote(zone.symbol) << ","
+        << "\"whitePower\":" << zone.white_power << ","
+        << "\"darkPower\":" << zone.dark_power << ","
+        << "\"magiPower\":" << zone.magi_power << ","
         << "\"minimumLookLevel\":" << zone.minimum_look_level << ","
         << "\"resetMode\":" << zone.reset_mode << "}";
     return out.str();
