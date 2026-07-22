@@ -194,8 +194,12 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      true, ImplementedReadOnly, Deferred,
      "Returns the direct containing room when the object is in a room; carried, worn, nested, or "
      "invalid objects return null.",
-     "Moving objects requires explicit load/move/extract helpers and is deferred.",
-     "world-mutation", "Setter must preserve container, carrier, and room contents invariants."},
+     "Moving objects requires explicit load/move/extract helpers and is deferred. Direct room "
+     "writes would bypass handler-maintained carrier, container, room contents, light, mount "
+     "carry-weight, player crash-save, and stale linked-list invariants.",
+     "world-mutation",
+     "Setter must preserve container, carrier, and room contents invariants through audited "
+     "movement helpers rather than raw field assignment."},
     {JsApiStructOwner::ObjData, "obj_data", "obj_flags", "flags", "getFlags", "setFlags",
      "ObjectFlags", false, ImplementedReadOnly, Deferred,
      "Returns a structured read-only object flag snapshot with symbolic type, wear flags, extra "
@@ -252,8 +256,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::ObjData, "obj_data", "carried_by", "carriedBy", "getCarriedBy",
      "setCarriedBy", "Character | null", true, ImplementedReadOnly, Deferred,
      "Returns the live character carrying the object when applicable; otherwise null.",
-     "Carrier changes require explicit inventory helpers and are deferred.", "world-mutation",
-     "Already exposed as GameObject.carriedBy for implemented snapshots."},
+     "Carrier changes require explicit inventory helpers and are deferred. Direct carrier writes "
+     "would bypass inventory/equipment list updates, carried weight, riding mount carry weight, "
+     "player crash-save flags, and worn-vs-carried ownership checks.",
+     "world-mutation", "Already exposed as GameObject.carriedBy for implemented snapshots."},
     {JsApiStructOwner::ObjData, "obj_data", "owner", "ownerId", "getOwnerId", "setOwnerId", "never",
      false, Internal, Unsupported,
      "Object owner id is sensitive authorization data and no builder getter is emitted.",
@@ -263,14 +269,17 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "GameObject | null", true, Deferred, Deferred,
      "Deferred safe handle for the containing object. Getter needs liveness checks, cycle guards, "
      "and depth limits before nested containers are exposed.",
-     "Container changes require explicit object movement helpers and are deferred.",
+     "Container changes require explicit object movement helpers and are deferred. Direct "
+     "container writes would bypass nested weight propagation, capacity/counting rules, decay "
+     "movement, cycle prevention, and linked-list ownership.",
      "world-mutation", "Object storage links are not exposed to builders."},
     {JsApiStructOwner::ObjData, "obj_data", "contains", "contents", "getContents", "setContents",
      "readonly GameObject[]", true, Deferred, Unsupported,
      "Deferred read-only snapshot of nested object contents. Getter needs bounded traversal, "
      "canonical ordering, stale-object filtering, and cycle protection.",
      "Replacing the contents list from JavaScript is unsupported; use explicit movement helpers "
-     "when they exist.",
+     "when they exist so nested ownership, capacity, weight propagation, decay extraction, and "
+     "cycle guards stay centralized.",
      "world-mutation", "Linked-list storage is not exposed to builders."},
     {JsApiStructOwner::ObjData, "obj_data", "next_content", "nextContent", "getNextContent",
      "setNextContent", "never", true, Internal, Unsupported,
@@ -285,8 +294,12 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "boolean", false, Deferred, Deferred,
      "Deferred read-only boolean showing whether a player has touched the object. Getter remains "
      "deferred until persistence behavior and builder-visible gameplay meaning are confirmed.",
-     "Touched-state writes are deferred until persistence and gameplay meaning are confirmed.",
-     "mutation", "Integer flag will be normalized to boolean before exposure."},
+     "Touched-state writes are deferred because the flag is runtime/player-interaction state that "
+     "is initialized on prototype instantiation, changed by player/admin object actions, and not "
+     "part of the object shaper's persisted prototype metadata.",
+     "mutation",
+     "Integer flag will be normalized to boolean before exposure if a future read-only getter is "
+     "approved."},
     {JsApiStructOwner::ObjData, "obj_data", "loaded_by", "loadedBy", "getLoadedBy", "setLoadedBy",
      "number", false, Internal, Unsupported,
      "Immortal loader id is administrative audit data and no builder getter is emitted by default.",

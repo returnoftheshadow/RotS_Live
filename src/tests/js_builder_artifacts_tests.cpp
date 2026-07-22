@@ -443,6 +443,17 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
 
     const std::string object_block = declaration_block(declarations, "export interface GameObject");
     ASSERT_FALSE(object_block.empty());
+    const char *object_lifecycle_setters[] = {
+        "setRoom",
+        "setCarriedBy",
+        "setContainer",
+        "setContents",
+        "setTouched",
+    };
+    for (const char *setter_name : object_lifecycle_setters) {
+        EXPECT_EQ(object_block.find(std::string(setter_name) + "("), std::string::npos)
+            << setter_name;
+    }
     const char *classification_only_members[] = {
         "affects",
         "extraDescriptions",

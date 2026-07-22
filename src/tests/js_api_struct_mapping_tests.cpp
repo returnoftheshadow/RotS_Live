@@ -693,6 +693,35 @@ TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
     }
 }
 
+TEST(JsApiStructMapping, PinsObjectRelationshipAndLifecycleSetterDeferrals) {
+    struct ExpectedDeferredSetter {
+        const char *field;
+        const char *getter_status;
+        const char *setter_status;
+        const char *required_text;
+    };
+
+    const ExpectedDeferredSetter deferred[] = {
+        {"in_room", "implemented-read-only-getter", "deferred", "handler-maintained carrier"},
+        {"carried_by", "implemented-read-only-getter", "deferred", "player crash-save"},
+        {"in_obj", "deferred", "deferred", "cycle prevention"},
+        {"contains", "deferred", "unsupported", "cycle guards"},
+        {"touched", "deferred", "deferred", "runtime/player-interaction state"},
+    };
+
+    for (const ExpectedDeferredSetter &entry : deferred) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::ObjData, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->getter_status, entry.getter_status) << entry.field;
+        EXPECT_STREQ(mapping->setter_status, entry.setter_status) << entry.field;
+        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
+                      .find(entry.required_text),
+            std::string::npos)
+            << entry.field;
+    }
+}
+
 TEST(JsApiStructMapping, UnsafeImplementationFieldsStayUnavailable) {
     const char *internal_character_fields[] = {
         "abs_number",       "player_index",  "desc", "next_in_room", "next",     "next_fighting",
