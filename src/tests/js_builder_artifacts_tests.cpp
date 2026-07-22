@@ -401,6 +401,14 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
             EXPECT_NE(block.find("setLevel(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
         }
+        if (std::string(interface_name) == "export interface Room") {
+            EXPECT_NE(block.find("setSectorType(value: string): MutationResult;"), std::string::npos)
+                << interface_name;
+            EXPECT_NE(block.find("canonical live sector-name validation"), std::string::npos)
+                << interface_name;
+        } else {
+            EXPECT_EQ(block.find("setSectorType("), std::string::npos) << interface_name;
+        }
         if (std::string(interface_name) == "export interface GameObject") {
             EXPECT_NE(block.find("setRarity(value: number): MutationResult;"), std::string::npos)
                 << interface_name;
@@ -541,6 +549,9 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     expect_contains(markdown, "persisted object-file scalar level value visible as flags.level");
     expect_contains(markdown, "| `setRarity` | `function` | `(value: number)` | `MutationResult` |");
     expect_contains(markdown, "persisted object-file scalar rarity value visible as flags.rarity");
+    expect_contains(markdown, "`setSectorType`");
+    expect_contains(markdown, "`MutationResult`");
+    expect_contains(markdown, "movement cost, swimming, weather/sunlight messaging, tracking");
     expect_contains(markdown, "Context fields");
     expect_contains(markdown, "Dispatch order");
     expect_contains(markdown, "Notes");

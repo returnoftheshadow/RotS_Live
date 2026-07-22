@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+extern char* sector_types[];
+extern char num_of_sector_types;
+
 namespace {
 
 JsGameTriggerContextFixture make_context()
@@ -620,6 +623,19 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "const roomDescription = ctx.room.setDescription('A second gatehouse faces the road.');\n"
         "const roomLevelLower = ctx.room.setLevel(0);\n"
         "const roomLevel = ctx.room.setLevel(100);\n"
+        "const roomSector = ctx.room.setSectorType('Water_noswim');\n"
+        "const badRoomSectorType = ctx.room.setSectorType(7);\n"
+        "const badRoomSectorNull = ctx.room.setSectorType(null);\n"
+        "const badRoomSectorUnknown = ctx.room.setSectorType('Unknown');\n"
+        "const badRoomSectorLower = ctx.room.setSectorType('water_noswim');\n"
+        "const badRoomSectorWhitespace = ctx.room.setSectorType(' Water_noswim');\n"
+        "const badRoomSectorTrailing = ctx.room.setSectorType('Water_noswim ');\n"
+        "const badRoomSectorDisplay = ctx.room.setSectorType('Water No Swim');\n"
+        "const badRoomSectorHyphen = ctx.room.setSectorType('Water-noswim');\n"
+        "const badRoomSectorDenseDisplay = ctx.room.setSectorType('Dense Forest');\n"
+        "const badRoomSectorDenseCaps = ctx.room.setSectorType('Dense_Forest');\n"
+        "const badRoomSectorNumericText = ctx.room.setSectorType('7');\n"
+        "const badRoomSectorEmpty = ctx.room.setSectorType('');\n"
         "const zoneName = ctx.zone.setName('New City');\n"
         "const zoneDescription = ctx.zone.setDescription(null);\n"
         "const zoneMap = ctx.zone.setMap('N-G-S-E');\n"
@@ -697,6 +713,7 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "const nestedWeaponRarity = ctx.weapon.setRarity(201);\n"
         "const nestedObjectRoom = ctx.object.room.setDescription('Nested object room edit.');\n"
         "const nestedObjectRoomLevel = ctx.object.room.setLevel(12);\n"
+        "const nestedObjectRoomSector = ctx.object.room.setSectorType('Underwater');\n"
         "const nestedActorRoom = ctx.actor.room.setName('Actor Room Edit');\n"
         "const nestedZone = ctx.room.zone.setName('Nested Zone Edit');\n"
         "const nestedZoneMap = ctx.room.zone.setMap(null);\n"
@@ -716,6 +733,7 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && typeof ctx.weapon.setRarity === 'function'\n"
         "  && typeof ctx.object.room.setDescription === 'function'\n"
         "  && typeof ctx.object.room.setLevel === 'function'\n"
+        "  && typeof ctx.object.room.setSectorType === 'function'\n"
         "  && typeof ctx.actor.room.setName === 'function'\n"
         "  && typeof ctx.room.zone.setName === 'function'\n"
         "  && typeof ctx.room.zone.setMap === 'function'\n"
@@ -740,6 +758,8 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && roomLevelLower.field === 'level'\n"
         "  && roomLevel.ok === true && roomLevel.code === 'ok'\n"
         "  && roomLevel.field === 'level' && roomLevel.message === null\n"
+        "  && roomSector.ok === true && roomSector.code === 'ok'\n"
+        "  && roomSector.field === 'sectorType' && roomSector.message === null\n"
         "  && zoneName.ok === true && zoneDescription.ok === true && zoneMap.ok === true\n"
         "  && zoneSymbol.ok === true && zoneSymbol.code === 'ok' && zoneSymbol.field === 'symbol'\n"
         "  && zoneSymbol.message === null\n"
@@ -783,6 +803,11 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && [badRoomLevelNegative, badRoomLevelRange]\n"
         "    .every((result) => result.ok === false && result.code === 'out-of-range'\n"
         "      && result.field === 'level' && typeof result.message === 'string'\n"
+        "      && result.message.length > 0 && result.message.length <= 120\n"
+        "      && result.message.indexOf('\\n') === -1 && result.message.indexOf('\\r') === -1)\n"
+        "  && [badRoomSectorType, badRoomSectorNull, badRoomSectorUnknown, badRoomSectorLower, badRoomSectorWhitespace, badRoomSectorTrailing, badRoomSectorDisplay, badRoomSectorHyphen, badRoomSectorDenseDisplay, badRoomSectorDenseCaps, badRoomSectorNumericText, badRoomSectorEmpty]\n"
+        "    .every((result) => result.ok === false && result.code === 'invalid-value'\n"
+        "      && result.field === 'sectorType' && typeof result.message === 'string'\n"
         "      && result.message.length > 0 && result.message.length <= 120\n"
         "      && result.message.indexOf('\\n') === -1 && result.message.indexOf('\\r') === -1)\n"
         "  && [badObjectLevelType, badObjectLevelFraction, badObjectLevelNaN]\n"
@@ -862,6 +887,8 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && nestedObjectRoom.ok === true\n"
         "  && nestedObjectRoomLevel.ok === true && nestedObjectRoomLevel.code === 'ok'\n"
         "  && nestedObjectRoomLevel.field === 'level' && nestedObjectRoomLevel.message === null\n"
+        "  && nestedObjectRoomSector.ok === true && nestedObjectRoomSector.code === 'ok'\n"
+        "  && nestedObjectRoomSector.field === 'sectorType'\n"
         "  && nestedActorRoom.ok === true && nestedZone.ok === true && nestedZoneMap.ok === true\n"
         "  && nestedZoneY.ok === true && nestedZoneY.code === 'ok'\n"
         "  && nestedZoneY.field === 'y' && nestedZoneY.message === null\n"
@@ -886,6 +913,7 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && ctx.room.name === 'Southern Gate'\n"
         "  && ctx.room.description === 'A second gatehouse faces the road.'\n"
         "  && ctx.room.level === 100\n"
+        "  && ctx.room.sectorType === 'Water_noswim'\n"
         "  && ctx.zone.name === 'New City'\n"
         "  && ctx.zone.description === null\n"
         "  && ctx.zone.map === 'N-G-S-E'\n"
@@ -899,6 +927,7 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && ctx.weapon.flags.rarity === 201\n"
         "  && ctx.object.room.description === 'Nested object room edit.'\n"
         "  && ctx.object.room.level === 12\n"
+        "  && ctx.object.room.sectorType === 'Underwater'\n"
         "  && ctx.actor.room.name === 'Actor Room Edit'\n"
         "  && ctx.room.zone.name === 'Nested Zone Edit'\n"
         "  && ctx.room.zone.map === null\n"
@@ -931,7 +960,9 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts)
         "  && typeof __rotsAttachLevelSetter === 'undefined'\n"
         "  && typeof __rotsAttachObjectLevelSetter === 'undefined'\n"
         "  && typeof __rotsAttachObjectRaritySetter === 'undefined'\n"
+        "  && typeof __rotsAttachSectorTypeSetter === 'undefined'\n"
         "  && typeof __rotsValidateRaritySetter === 'undefined'\n"
+        "  && typeof __rotsValidateSectorTypeSetter === 'undefined'\n"
         "  && typeof __rotsValidateTextSetter === 'undefined'\n"
         "  && typeof __rotsValidateSymbolSetter === 'undefined'\n"
         "  && typeof __rotsValidateCoordinateSetter === 'undefined'\n"
@@ -953,7 +984,9 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts)
         "    && typeof __rotsAttachLevelSetter === 'undefined'\n"
         "    && typeof __rotsAttachObjectLevelSetter === 'undefined'\n"
         "    && typeof __rotsAttachObjectRaritySetter === 'undefined'\n"
+        "    && typeof __rotsAttachSectorTypeSetter === 'undefined'\n"
         "    && typeof __rotsValidateRaritySetter === 'undefined'\n"
+        "    && typeof __rotsValidateSectorTypeSetter === 'undefined'\n"
         "    && typeof __rotsValidateTextSetter === 'undefined'\n"
         "    && typeof __rotsValidateSymbolSetter === 'undefined'\n"
         "    && typeof __rotsValidateCoordinateSetter === 'undefined'\n"
@@ -965,6 +998,34 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts)
 
     expect_ok_allows(body_result);
     expect_ok_allows(package_result);
+}
+
+TEST(JsGameRuntime, RoomSectorTypeSetterAcceptsEveryCanonicalLiveSectorName)
+{
+    ASSERT_NE(sector_types, nullptr);
+    ASSERT_GT(num_of_sector_types, 0);
+
+    JsGameRuntime runtime;
+    for (int sector = 0; sector < num_of_sector_types; ++sector) {
+        ASSERT_NE(sector_types[sector], nullptr) << sector;
+        const std::string sector_name = sector_types[sector];
+        ASSERT_NE(sector_name, "Unknown") << sector;
+        JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+            "const result = ctx.room.setSectorType('" + sector_name + "');\n"
+            "return result.ok === true && result.code === 'ok' && result.field === 'sectorType'\n"
+            "  && result.message === null && ctx.room.sectorType === '" +
+                sector_name + "';",
+            make_context());
+        EXPECT_EQ(result.status, JsRuntimeStatus::Ok) << sector_name << ": " << result.diagnostic;
+        EXPECT_EQ(result.value, JsRuntimeValue::Allow) << sector_name;
+    }
+
+    JsRuntimeEvalResult unknown_result = runtime.evaluate_trigger_body(
+        "const result = ctx.room.setSectorType('Unknown');\n"
+        "return result.ok === false && result.code === 'invalid-value'\n"
+        "  && result.field === 'sectorType' && ctx.room.sectorType === 'City';",
+        make_context());
+    expect_ok_allows(unknown_result);
 }
 
 TEST(JsGameRuntime, RejectsExcessiveSetterMutationCounts)

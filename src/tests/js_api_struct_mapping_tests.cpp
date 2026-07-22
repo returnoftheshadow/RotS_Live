@@ -392,7 +392,9 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
             std::string(entry.field) == "symbol" || std::string(entry.field) == "x" ||
             std::string(entry.field) == "y" || std::string(entry.field) == "reset_mode" ||
             std::string(entry.field) == "lifespan" ||
-            (entry.owner == JsApiStructOwner::ZoneData && std::string(entry.field) == "level")) {
+            (entry.owner == JsApiStructOwner::ZoneData && std::string(entry.field) == "level") ||
+            (entry.owner == JsApiStructOwner::RoomData &&
+                std::string(entry.field) == "sector_type")) {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -561,7 +563,13 @@ TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
         ASSERT_NE(mapping, nullptr) << entry.field;
         EXPECT_STREQ(mapping->js_property, entry.property);
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter");
-        EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+        if (std::string(entry.field) == "sector_type") {
+            EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
+            EXPECT_NE(std::string(mapping->setter_docs).find("canonical live sector-name"),
+                std::string::npos);
+        } else {
+            EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+        }
     }
 
     const JsApiStructFieldMapping *room_flags =

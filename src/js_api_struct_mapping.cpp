@@ -310,10 +310,17 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "legacy same-level room filtering.",
      "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "sector_type", "sectorType", "getSectorType",
-     "setSectorType", "string", false, ImplementedReadOnly, Deferred, "Returns the readable sector type name.",
-     "Sector writes are deferred until movement costs and "
-     "visibility effects are mapped.",
-     "mutation", "Invalid loaded sector values are exposed as Unknown, not raw integers."},
+     "setSectorType", "string", false, ImplementedReadOnly, SetterImplemented,
+     "Returns the readable sector type name.",
+     "Updates the invocation snapshot room sector type after canonical live sector-name "
+     "validation, rejects Unknown, aliases, raw numeric values, and malformed names, and "
+     "applies to live owned memory only when dispatch provides target-scoped persistent "
+     "setter authority. This changes the persisted room-file sector scalar and can "
+     "immediately affect movement cost, swimming, weather/sunlight messaging, tracking, "
+     "and MOB_STAY_TYPE behavior.",
+     "mutation",
+     "Invalid loaded sector values are exposed as Unknown, not raw integers. Persistent "
+     "application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "name", "name", "getName", "setName", "string", false,
      ImplementedReadOnly, SetterImplemented, "Returns the room display name.",
      "Updates the invocation snapshot room display name after type, nonblank, length, and "

@@ -18,6 +18,8 @@
 #include <vector>
 
 extern char world_map[];
+extern char* sector_types[];
+extern char num_of_sector_types;
 void draw_map();
 
 namespace {
@@ -259,6 +261,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
         "  ctx.room.setName('Changed Gate');\n"
         "  ctx.room.setDescription('The gate was changed by script.');\n"
         "  ctx.room.setLevel(42);\n"
+        "  ctx.room.setSectorType('Water_noswim');\n"
         "  ctx.zone.setName('Changed Zone');\n"
         "  ctx.zone.setDescription(null);\n"
         "  ctx.zone.setMap('N-G-S-E');\n"
@@ -286,6 +289,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     world[0].name = str_dup("Gate");
     world[0].description = str_dup("The old gate.");
     world[0].level = 5;
+    world[0].sector_type = SECT_CITY;
     zone_data zones[1] = { make_zone("Zone", 30) };
     zones[0].name = str_dup("Zone");
     zones[0].description = str_dup("The old zone.");
@@ -316,6 +320,7 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     EXPECT_STREQ(world[0].name, "Changed Gate");
     EXPECT_STREQ(world[0].description, "The gate was changed by script.");
     EXPECT_EQ(world[0].level, 42);
+    EXPECT_EQ(world[0].sector_type, SECT_WATER_NOSWIM);
     EXPECT_STREQ(zones[0].name, "Changed Zone");
     EXPECT_EQ(zones[0].description, nullptr);
     EXPECT_STREQ(zones[0].map, "N-G-S-E");
@@ -1098,6 +1103,249 @@ TEST(JsTriggerDispatch, IgnoresInvalidRoomLevelSetterValues)
         EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
         EXPECT_EQ(world[0].level, 5) << script;
     }
+}
+
+TEST(JsTriggerDispatch, RejectsRoomSectorTypeSetterWithoutExplicitAuthority)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5873,
+        "function onEnter(ctx) {\n"
+        "  ctx.room.setSectorType('Underwater');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    world[0].sector_type = SECT_CITY;
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "builder authority"));
+    EXPECT_EQ(world[0].sector_type, SECT_CITY);
+}
+
+TEST(JsTriggerDispatch, IgnoresInvalidRoomSectorTypeSetterValues)
+{
+    const char* scripts[] = {
+        "function onEnter(ctx) { ctx.room.setSectorType('Unknown'); return true; }",
+        "function onEnter(ctx) { ctx.room.setSectorType('water_noswim'); return true; }",
+        "function onEnter(ctx) { ctx.room.setSectorType(' Water_noswim'); return true; }",
+        "function onEnter(ctx) { ctx.room.setSectorType('Water_noswim '); return true; }",
+        "function onEnter(ctx) { ctx.room.setSectorType(''); return true; }",
+        "function onEnter(ctx) { ctx.room.setSectorType(7); return true; }",
+        "function onEnter(ctx) { ctx.room.setSectorType(null); return true; }",
+    };
+
+    for (const char* script : scripts) {
+        JsScriptPackageRegistry registry;
+        JsScriptPackage package = make_character_enter_package(5874, script);
+        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+        char_data self = make_character("Self");
+        const char_data* live_characters[] = { &self };
+        room_data world[1] = { make_room("Gate", 100, 0) };
+        world[0].sector_type = SECT_CITY;
+        zone_data zones[1] = { make_zone("Zone", 30) };
+        JsGameAdapterOptions options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+        JsTriggerDispatchOptions dispatch_options;
+        dispatch_options.mutation_authority = test_mutation_authority();
+
+        JsTriggerDispatchResult result =
+            js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << script;
+        EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << script;
+        EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
+        EXPECT_EQ(world[0].sector_type, SECT_CITY) << script;
+    }
+}
+
+TEST(JsTriggerDispatch, PersistsEveryCanonicalRoomSectorTypeToMatchingLiveIndex)
+{
+    ASSERT_NE(sector_types, nullptr);
+    ASSERT_GT(num_of_sector_types, 0);
+
+    for (int sector = 0; sector < num_of_sector_types; ++sector) {
+        ASSERT_NE(sector_types[sector], nullptr) << sector;
+        const std::string sector_name = sector_types[sector];
+        ASSERT_NE(sector_name, "Unknown") << sector;
+
+        JsScriptPackageRegistry registry;
+        const std::string script = "function onEnter(ctx) {\n"
+                                   "  ctx.room.setSectorType('" + sector_name + "');\n"
+                                   "  return true;\n"
+                                   "}";
+        JsScriptPackage package = make_character_enter_package(5877, script);
+        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+        char_data self = make_character("Self");
+        const char_data* live_characters[] = { &self };
+        room_data world[1] = { make_room("Gate", 100, 0) };
+        world[0].sector_type = SECT_CITY;
+        zone_data zones[1] = { make_zone("Zone", 30) };
+        JsGameAdapterOptions options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+        JsTriggerDispatchOptions dispatch_options;
+        dispatch_options.mutation_authority = test_mutation_authority();
+
+        JsTriggerDispatchResult result =
+            js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << sector_name << ": "
+                                                                 << result.diagnostic;
+        EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << sector_name;
+        EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
+        EXPECT_EQ(world[0].sector_type, sector) << sector_name;
+    }
+}
+
+TEST(JsTriggerDispatch, RejectsMixedRoomSectorTypeTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5875,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.setName('authorized object edit');\n"
+        "  ctx.room.setSectorType('Underwater');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.in_room = 1;
+    object.name = str_dup("old lever");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[2] = {
+        make_room("Script Room", 100, 0),
+        make_room("Authorized Object Room", 200, 1),
+    };
+    world[0].sector_type = SECT_CITY;
+    zone_data zones[2] = {
+        make_zone("Script Zone", 30),
+        make_zone("Authorized Object Zone", 31),
+    };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_STREQ(object.name, "old lever");
+    EXPECT_EQ(world[0].sector_type, SECT_CITY);
+
+    free(object.name);
+    free(object.short_description);
+}
+
+TEST(JsTriggerDispatch, RejectsMixedLaterObjectFailureAfterRoomSectorTypeWithoutPartialWrites)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5878,
+        "function onEnter(ctx) {\n"
+        "  ctx.room.setSectorType('Underwater');\n"
+        "  ctx.object.setName('unauthorized object edit');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.in_room = 1;
+    object.name = str_dup("old lever");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[2] = {
+        make_room("Authorized Room", 100, 0),
+        make_room("Object Room", 200, 1),
+    };
+    world[0].sector_type = SECT_CITY;
+    zone_data zones[2] = {
+        make_zone("Authorized Zone", 30),
+        make_zone("Object Zone", 31),
+    };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
+    EXPECT_TRUE(contains(result.diagnostic, "mutation target"));
+    EXPECT_EQ(world[0].sector_type, SECT_CITY);
+    EXPECT_STREQ(object.name, "old lever");
+
+    free(object.name);
+    free(object.short_description);
+}
+
+TEST(JsTriggerDispatch, PersistsNestedObjectRoomSectorTypeSetterToLiveGameRecord)
+{
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(5876,
+        "function onEnter(ctx) {\n"
+        "  ctx.object.room.setSectorType('Underwater');\n"
+        "  return true;\n"
+        "}");
+    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+
+    char_data self = make_character("Self");
+    obj_data object = make_object("lever");
+    object.in_room = 1;
+    object.name = str_dup("lever");
+    object.short_description = str_dup("a lever");
+    const char_data* live_characters[] = { &self };
+    const obj_data* live_objects[] = { &object };
+    room_data world[2] = {
+        make_room("Script Room", 100, 0),
+        make_room("Object Room", 200, 1),
+    };
+    world[1].sector_type = SECT_CITY;
+    zone_data zones[2] = {
+        make_zone("Script Zone", 30),
+        make_zone("Object Zone", 31),
+    };
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.object = &object;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority(31);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(world[1].sector_type, SECT_UNDERWATER);
+
+    free(object.name);
+    free(object.short_description);
 }
 
 TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneSymbolSetter)
