@@ -722,6 +722,64 @@ TEST(JsApiStructMapping, PinsObjectRelationshipAndLifecycleSetterDeferrals) {
     }
 }
 
+TEST(JsApiStructMapping, PinsCharacterRelationshipAndStateSetterDeferrals) {
+    struct ExpectedCharacterDeferral {
+        const char *field;
+        const char *property;
+        const char *setter_name;
+        const char *type_name;
+        bool nullable;
+        const char *getter_status;
+        const char *setter_status;
+        const char *side_effect;
+        const char *required_text;
+    };
+
+    const ExpectedCharacterDeferral deferred[] = {
+        {"in_room", "room", "setRoom", "Room | null", true, "implemented-read-only-getter",
+            "deferred", "world-mutation", "movement triggers"},
+        {"affected", "affects", "setAffects", "readonly Affect[]", true, "deferred", "deferred",
+            "world-mutation", "duration accounting"},
+        {"equipment", "equipment", "setEquipmentSlot", "readonly (GameObject | null)[]", false,
+            "deferred", "deferred", "world-mutation", "ON_WEAR"},
+        {"carrying", "inventory", "setInventory", "readonly GameObject[]", true, "deferred",
+            "unsupported", "world-mutation", "carried weight"},
+        {"followers", "followers", "setFollowers", "readonly Character[]", true, "deferred",
+            "unsupported", "world-mutation", "follower caps"},
+        {"master", "master", "setMaster", "Character | null", true, "deferred", "deferred",
+            "world-mutation", "loop prevention"},
+        {"mount_data", "mount", "setMount", "MountData", false, "deferred", "deferred",
+            "world-mutation", "rider back-pointers"},
+        {"group", "group", "setGroup", "Group | null", true, "deferred", "unsupported",
+            "world-mutation", "leader/member list integrity"},
+        {"classpoints", "classPoints", "setClassPoints", "number", false, "deferred",
+            "unsupported", "mutation", "account/admin audit"},
+        {"interrupt_count", "interruptCount", "setInterruptCount", "number", false, "deferred",
+            "unsupported", "mutation", "wait-state interactions"},
+        {"interrupt_time", "interruptTime", "setInterruptTime", "number", false, "deferred",
+            "unsupported", "mutation", "wait-state interactions"},
+        {"spec_busy", "specialBusy", "setSpecialBusy", "boolean", false, "deferred",
+            "unsupported", "mutation", "special-procedure reentrancy"},
+    };
+
+    for (const ExpectedCharacterDeferral &entry : deferred) {
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(JsApiStructOwner::CharData, entry.field);
+        ASSERT_NE(mapping, nullptr) << entry.field;
+        EXPECT_STREQ(mapping->js_property, entry.property) << entry.field;
+        EXPECT_STREQ(mapping->setter_name, entry.setter_name) << entry.field;
+        EXPECT_STREQ(mapping->type_name, entry.type_name) << entry.field;
+        EXPECT_EQ(mapping->nullable, entry.nullable) << entry.field;
+        EXPECT_STREQ(mapping->getter_status, entry.getter_status) << entry.field;
+        EXPECT_STREQ(mapping->setter_status, entry.setter_status) << entry.field;
+        EXPECT_STREQ(mapping->side_effect, entry.side_effect) << entry.field;
+        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
+                      .find(entry.required_text),
+            std::string::npos)
+            << entry.field;
+    }
+}
+
 TEST(JsApiStructMapping, UnsafeImplementationFieldsStayUnavailable) {
     const char *internal_character_fields[] = {
         "abs_number",       "player_index",  "desc", "next_in_room", "next",     "next_fighting",

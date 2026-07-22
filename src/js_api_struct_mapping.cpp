@@ -32,7 +32,11 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::CharData, "char_data", "in_room", "room", "getRoom", "setRoom",
      "Room | null", true, ImplementedReadOnly, Deferred,
      "Returns the current room handle when the character is in a loaded room; otherwise null.",
-     "Moving a character requires a validated movement/teleport API and is deferred.", "mutation",
+     "Moving a character requires a validated movement/teleport API and is deferred. Direct room "
+     "writes would bypass movement triggers, room people lists, combat stop/start behavior, "
+     "mount/follower relocation, visibility messages, death rooms, private/security room checks, "
+     "and save/load room bookkeeping.",
+     "world-mutation",
      "Setter must preserve movement triggers, mounts, followers, and visibility rules."},
     {JsApiStructOwner::CharData, "char_data", "player", "profile", "getProfile", "setProfile",
      "CharacterProfile", false, Deferred, Deferred,
@@ -97,18 +101,26 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Raw byte pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "affected", "affects", "getAffects", "setAffects",
      "readonly Affect[]", true, Deferred, Deferred, "Planned read-only list of active affects.",
-     "Affect mutation needs explicit add/remove helpers and is deferred.", "world-mutation",
+     "Affect mutation needs explicit add/remove helpers and is deferred because raw list writes "
+     "would bypass duration accounting, affect bit recalculation, stat recomputation, combat "
+     "side effects, room/mount interactions, and persistence rules.",
+     "world-mutation",
      "Linked list pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "equipment", "equipment", "getEquipment",
      "setEquipmentSlot", "readonly (GameObject | null)[]", false, Deferred, Deferred,
      "Planned equipment-slot snapshot using safe object handles.",
-     "Equipment writes require validated wear/remove helpers and trigger parity.", "world-mutation",
+     "Equipment writes require validated wear/remove helpers and trigger parity. Direct equipment "
+     "slot assignment would bypass ON_WEAR JavaScript/legacy triggers, wear restrictions, carried "
+     "list transfer, light recounting, apply-affect recalculation, combat stat recalculation, and "
+     "player crash-save flags.",
+     "world-mutation",
      "Object pointer array must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "carrying", "inventory", "getInventory",
      "setInventory", "readonly GameObject[]", true, Deferred, Unsupported,
      "Planned inventory snapshot using safe object handles.",
      "Replacing the raw inventory list from JavaScript is unsupported; use explicit inventory "
-     "helpers when they exist.",
+     "helpers when they exist so carried weight, item ownership, equipment transitions, nested "
+     "containers, and player crash-save state stay centralized.",
      "world-mutation", "Linked list pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "desc", "descriptor", "getDescriptor",
      "setDescriptor", "never", true, Internal, Unsupported,
@@ -133,12 +145,16 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
     {JsApiStructOwner::CharData, "char_data", "followers", "followers", "getFollowers",
      "setFollowers", "readonly Character[]", true, Deferred, Unsupported,
      "Planned read-only follower snapshot using safe character handles.",
-     "Replacing the follower linked list from JavaScript is unsupported.", "world-mutation",
+     "Replacing the follower linked list from JavaScript is unsupported because follow state "
+     "requires master back-pointers, follower caps, charm/orc/tamed behavior, group interactions, "
+     "loop prevention, and room movement propagation.",
+     "world-mutation",
      "Use explicit follow helpers if added later."},
     {JsApiStructOwner::CharData, "char_data", "master", "master", "getMaster", "setMaster",
      "Character | null", true, Deferred, Deferred,
      "Planned safe handle for the character being followed.",
-     "Master changes are deferred until follow/unfollow semantics and loop prevention are mapped.",
+     "Master changes are deferred until follow/unfollow semantics, master back-pointers, follower "
+     "caps, charm/orc/tamed behavior, group interactions, and loop prevention are mapped.",
      "world-mutation", "Raw character pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "master_number", "masterNumber", "getMasterNumber",
      "setMasterNumber", "number", false, Internal, Unsupported,
@@ -146,11 +162,17 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Changing the persisted master id directly is unsupported.", "none", "Implementation field."},
     {JsApiStructOwner::CharData, "char_data", "mount_data", "mount", "getMount", "setMount",
      "MountData", false, Deferred, Deferred, "Planned mount-state snapshot.",
-     "Mount writes are deferred until ride/dismount rules are mapped.", "world-mutation",
+     "Mount writes are deferred until ride/dismount rules, rider back-pointers, room movement "
+     "propagation, carried-weight accounting, combat restrictions, and mount persistence are "
+     "mapped.",
+     "world-mutation",
      "Nested struct."},
     {JsApiStructOwner::CharData, "char_data", "group", "group", "getGroup", "setGroup",
      "Group | null", true, Deferred, Unsupported, "Planned read-only group snapshot.",
-     "Replacing a group pointer from JavaScript is unsupported.", "world-mutation",
+     "Replacing a group pointer from JavaScript is unsupported because group membership requires "
+     "leader/member list integrity, follow/master consistency, combat XP sharing, and movement "
+     "propagation rules.",
+     "world-mutation",
      "Raw group pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "temp", "temporaryData", "getTemporaryData",
      "setTemporaryData", "never", true, Internal, Unsupported,
@@ -165,24 +187,34 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Death-list traversal state is internal and no builder getter is emitted.",
      "Death-list mutation from JavaScript is unsupported.", "none", "Raw list pointer."},
     {JsApiStructOwner::CharData, "char_data", "classpoints", "classPoints", "getClassPoints",
-     "setClassPoints", "number", false, Deferred, Deferred,
+     "setClassPoints", "number", false, Deferred, Unsupported,
      "Planned read-only character-creation class point value.",
-     "Class-point writes are deferred and likely administrative only.", "mutation",
+     "Class-point writes are unsupported for builder scripts because this is character-creation "
+     "bookkeeping, not a builder-facing world script field; any future admin-only mutation needs "
+     "account/admin audit and persistence rules.",
+     "mutation",
      "Character creation bookkeeping."},
     {JsApiStructOwner::CharData, "char_data", "interrupt_count", "interruptCount",
-     "getInterruptCount", "setInterruptCount", "number", false, Deferred, Deferred,
+     "getInterruptCount", "setInterruptCount", "number", false, Deferred, Unsupported,
      "Planned read-only interrupt count for combat/casting diagnostics.",
-     "Interrupt count writes are deferred until caster AI semantics are mapped.", "mutation",
+     "Interrupt count writes are unsupported for builder scripts; any future admin-only helper "
+     "must map caster AI, mental/combat interruption, decay timing, and wait-state interactions.",
+     "mutation",
      "Combat AI bookkeeping."},
     {JsApiStructOwner::CharData, "char_data", "interrupt_time", "interruptTime", "getInterruptTime",
-     "setInterruptTime", "number", false, Deferred, Deferred,
+     "setInterruptTime", "number", false, Deferred, Unsupported,
      "Planned read-only countdown before interrupt count decays.",
-     "Interrupt timer writes are deferred until caster AI semantics are mapped.", "mutation",
+     "Interrupt timer writes are unsupported for builder scripts; any future admin-only helper "
+     "must map caster AI, mental/combat interruption, decay timing, and wait-state interactions.",
+     "mutation",
      "Combat AI bookkeeping."},
     {JsApiStructOwner::CharData, "char_data", "spec_busy", "specialBusy", "isSpecialBusy",
-     "setSpecialBusy", "boolean", false, Deferred, Deferred,
+     "setSpecialBusy", "boolean", false, Deferred, Unsupported,
      "Planned read-only flag showing whether a special procedure is busy.",
-     "Special busy writes are deferred until procedure reentrancy rules are mapped.", "mutation",
+     "Special busy writes are unsupported for builder scripts; any future admin-only helper must "
+     "map special-procedure reentrancy, trigger dispatch, legacy wait-state, and reset/heartbeat "
+     "interactions.",
+     "mutation",
      "Special-procedure state."},
 
     {JsApiStructOwner::ObjData, "obj_data", "item_number", "vnum", "getVnum", "setVnum",

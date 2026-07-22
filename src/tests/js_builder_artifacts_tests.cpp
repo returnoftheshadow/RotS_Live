@@ -454,6 +454,28 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         EXPECT_EQ(object_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
     }
+
+    const std::string character_block = declaration_block(declarations, "export interface Character");
+    ASSERT_FALSE(character_block.empty());
+    const char *character_relationship_setters[] = {
+        "setRoom",
+        "setAffects",
+        "setEquipmentSlot",
+        "setInventory",
+        "setFollowers",
+        "setMaster",
+        "setMount",
+        "setGroup",
+        "setClassPoints",
+        "setInterruptCount",
+        "setInterruptTime",
+        "setSpecialBusy",
+    };
+    for (const char *setter_name : character_relationship_setters) {
+        EXPECT_EQ(character_block.find(std::string(setter_name) + "("), std::string::npos)
+            << setter_name;
+    }
+
     const char *classification_only_members[] = {
         "affects",
         "extraDescriptions",
