@@ -675,9 +675,9 @@ TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) 
         EXPECT_NE(std::string(operation.diagnostic_policy).find("stable reason category"),
                   std::string::npos);
         for (const char *diagnostic_category : {"unsupported-envelope", "unknown-operation",
-                 "invalid-target", "invalid-arguments", "blocked-flag", "admin-only-flag",
-                 "stale-room", "wrong-zone", "invalid-token", "audit-rejected",
-                 "apply-rejected"}) {
+                 "invalid-target", "invalid-arguments", "authority-rejected", "blocked-flag",
+                 "admin-only-flag", "stale-room", "wrong-zone", "invalid-token",
+                 "audit-rejected", "apply-rejected"}) {
             EXPECT_NE(std::string(operation.diagnostic_policy).find(diagnostic_category),
                       std::string::npos)
                 << diagnostic_category;

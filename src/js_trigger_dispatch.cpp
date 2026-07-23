@@ -89,14 +89,20 @@ struct PendingTextMutation {
 struct RoomFlagHelperFlag {
     const char* name;
     long bit;
+    const char* authority_class;
+    bool requires_admin_override;
 };
 
 struct PendingRoomFlagMutation {
     room_data* room = nullptr;
     int room_vnum = -1;
-    int room_zone = -1;
+    int room_zone_index = -1;
+    int room_zone_vnum = -1;
+    const char* flag_name = nullptr;
+    const char* authority_class = nullptr;
     long flag_bit = 0;
     bool add = false;
+    bool requires_admin_override = false;
 };
 
 struct AppliedRoomFlagMutation {
@@ -355,6 +361,8 @@ std::size_t runtime_helper_mutation_count(const std::vector<JsRuntimeMutation>& 
 }
 
 bool has_persistent_setter_authority(const JsTriggerMutationAuthorityContext& authority);
+bool has_room_flag_admin_override_authority(
+    const JsTriggerMutationAuthorityContext& authority);
 bool room_matches_mutation_authority(
     const room_data& room, const JsGameAdapterOptions& options,
     const JsTriggerMutationAuthorityContext& authority);
@@ -376,22 +384,22 @@ bool registry_contains_operation(
 }
 
 constexpr RoomFlagHelperFlag RoomFlagHelperAllowedFlags[] = {
-    { "dark", DARK },
-    { "death", DEATH },
-    { "noMob", NO_MOB },
-    { "indoors", INDOORS },
-    { "noRide", NORIDE },
-    { "shadowy", SHADOWY },
-    { "noMagic", NO_MAGIC },
-    { "tunnel", TUNNEL },
-    { "private", PRIVATE },
-    { "godRoom", GODROOM },
-    { "drinkWater", DRINK_WATER },
-    { "drinkPoison", DRINK_POISON },
-    { "securityRoom", SECURITYROOM },
-    { "peaceRoom", PEACEROOM },
-    { "noTeleport", NO_TELEPORT },
-    { "hideVnum", HIDE_VNUM },
+    { "dark", DARK, "builder-zone", false },
+    { "death", DEATH, "admin-only", true },
+    { "noMob", NO_MOB, "builder-zone", false },
+    { "indoors", INDOORS, "builder-zone", false },
+    { "noRide", NORIDE, "builder-zone", false },
+    { "shadowy", SHADOWY, "builder-zone", false },
+    { "noMagic", NO_MAGIC, "builder-zone", false },
+    { "tunnel", TUNNEL, "builder-zone", false },
+    { "private", PRIVATE, "admin-only", true },
+    { "godRoom", GODROOM, "admin-only", true },
+    { "drinkWater", DRINK_WATER, "builder-zone", false },
+    { "drinkPoison", DRINK_POISON, "builder-zone", false },
+    { "securityRoom", SECURITYROOM, "admin-only", true },
+    { "peaceRoom", PEACEROOM, "builder-zone", false },
+    { "noTeleport", NO_TELEPORT, "admin-only", true },
+    { "hideVnum", HIDE_VNUM, "builder-zone", false },
 };
 
 std::size_t room_flag_helper_allowed_flag_count()
@@ -541,6 +549,14 @@ room_data* resolve_room_flag_helper_target(const JsRuntimeMutation& mutation,
     return room;
 }
 
+int room_zone_vnum_for_index(int zone_index, const JsGameAdapterOptions& options)
+{
+    if (zone_index < 0 || options.zones == nullptr ||
+        static_cast<std::size_t>(zone_index) >= options.zone_count)
+        return -1;
+    return options.zones[zone_index].number;
+}
+
 bool prepare_room_flag_helper_mutation(const JsRuntimeMutation& mutation,
     const JsTriggerHelperMutationValidationContext& context,
     std::vector<PendingRoomFlagMutation>* pending_room_flag_mutations,
@@ -563,14 +579,27 @@ bool prepare_room_flag_helper_mutation(const JsRuntimeMutation& mutation,
             *diagnostic = "JavaScript helper mutation arguments rejected";
         return false;
     }
+    if (flag->requires_admin_override &&
+        !has_room_flag_admin_override_authority(*context.authority)) {
+        if (status != nullptr)
+            *status = JsTriggerHelperMutationTransactionStatus::AuthorityRejected;
+        if (diagnostic != nullptr)
+            *diagnostic = "JavaScript helper mutation authority rejected";
+        return false;
+    }
 
     if (pending_room_flag_mutations != nullptr) {
         PendingRoomFlagMutation pending;
         pending.room = room;
         pending.room_vnum = room->number;
-        pending.room_zone = room->zone;
+        pending.room_zone_index = room->zone;
+        pending.room_zone_vnum =
+            room_zone_vnum_for_index(room->zone, *context.adapter_options);
+        pending.flag_name = flag->name;
+        pending.authority_class = flag->authority_class;
         pending.flag_bit = flag->bit;
         pending.add = mutation.operation == "room.flags.add";
+        pending.requires_admin_override = flag->requires_admin_override;
         pending_room_flag_mutations->push_back(pending);
     }
 
@@ -615,9 +644,100 @@ std::string helper_operations_summary(const std::vector<JsRuntimeMutation>& help
     return summary.str();
 }
 
+bool pending_room_flag_mutations_require_admin_override(
+    const std::vector<PendingRoomFlagMutation>* pending_room_flag_mutations)
+{
+    if (pending_room_flag_mutations == nullptr)
+        return false;
+    for (const PendingRoomFlagMutation& mutation : *pending_room_flag_mutations) {
+        if (mutation.requires_admin_override)
+            return true;
+    }
+    return false;
+}
+
+std::string room_flag_authority_summary(
+    const std::vector<PendingRoomFlagMutation>* pending_room_flag_mutations)
+{
+    if (pending_room_flag_mutations == nullptr || pending_room_flag_mutations->empty())
+        return "";
+    std::set<std::string> authority_classes;
+    for (const PendingRoomFlagMutation& mutation : *pending_room_flag_mutations) {
+        if (mutation.authority_class != nullptr)
+            authority_classes.insert(mutation.authority_class);
+    }
+
+    std::ostringstream summary;
+    bool first = true;
+    for (const std::string& authority_class : authority_classes) {
+        if (!first)
+            summary << ",";
+        first = false;
+        summary << authority_class;
+    }
+    return summary.str();
+}
+
+std::string room_flag_admin_override_evidence(
+    const JsTriggerMutationAuthorityContext* authority,
+    const std::vector<PendingRoomFlagMutation>* pending_room_flag_mutations)
+{
+    if (authority == nullptr ||
+        !pending_room_flag_mutations_require_admin_override(pending_room_flag_mutations))
+        return "";
+    return authority->room_flag_admin_override_evidence;
+}
+
+std::string room_flag_audit_summary(
+    const std::vector<PendingRoomFlagMutation>* pending_room_flag_mutations)
+{
+    if (pending_room_flag_mutations == nullptr || pending_room_flag_mutations->empty())
+        return "";
+
+    std::unordered_map<room_data*, long> staged_room_flags;
+    std::ostringstream summary;
+    for (std::size_t index = 0; index < pending_room_flag_mutations->size(); ++index) {
+        const PendingRoomFlagMutation& mutation = (*pending_room_flag_mutations)[index];
+        if (index != 0)
+            summary << ";";
+        long current_flags = 0;
+        if (mutation.room != nullptr) {
+            auto staged = staged_room_flags.find(mutation.room);
+            if (staged == staged_room_flags.end()) {
+                current_flags = mutation.room->room_flags;
+            } else {
+                current_flags = staged->second;
+            }
+        }
+        const bool previous = IS_SET(current_flags, mutation.flag_bit);
+        if (mutation.add) {
+            current_flags |= mutation.flag_bit;
+        } else {
+            current_flags &= ~mutation.flag_bit;
+        }
+        if (mutation.room != nullptr)
+            staged_room_flags[mutation.room] = current_flags;
+
+        summary << (mutation.add ? "add" : "remove") << ":"
+                << (mutation.flag_name != nullptr ? mutation.flag_name : "") << ":"
+                << (mutation.authority_class != nullptr ? mutation.authority_class : "")
+                << ":room=" << mutation.room_vnum << ":zoneVnum=" << mutation.room_zone_vnum
+                << ":zoneIndex=" << mutation.room_zone_index
+                << ":previous=" << (previous ? "true" : "false")
+                << ":new=" << (mutation.add ? "true" : "false");
+    }
+    return summary.str();
+}
+
 bool has_persistent_setter_authority(const JsTriggerMutationAuthorityContext& authority)
 {
     return authority.allow_persistent_setter_mutations && !authority.builder_account_id.empty() && authority.eligible_character_id > 0 && authority.target_zone >= 0 && !authority.decision_evidence.empty();
+}
+
+bool has_room_flag_admin_override_authority(const JsTriggerMutationAuthorityContext& authority)
+{
+    return authority.allow_room_flag_admin_override &&
+        !authority.room_flag_admin_override_evidence.empty();
 }
 
 bool parse_id_number(const std::string& id, const char* prefix, int* number)
@@ -1128,7 +1248,7 @@ bool apply_room_flag_mutations(const std::vector<PendingRoomFlagMutation>& mutat
     for (std::size_t index = 0; index < mutations.size(); ++index) {
         const PendingRoomFlagMutation& mutation = mutations[index];
         if (mutation.room == nullptr || mutation.room->number != mutation.room_vnum ||
-            mutation.room->zone != mutation.room_zone) {
+            mutation.room->zone != mutation.room_zone_index) {
             for (std::vector<AppliedRoomFlagMutation>::reverse_iterator applied =
                      applied_mutations.rbegin();
                  applied != applied_mutations.rend(); ++applied) {
@@ -1281,6 +1401,8 @@ const char* js_trigger_helper_mutation_transaction_status_name(
         return "invalid-target";
     case JsTriggerHelperMutationTransactionStatus::InvalidArguments:
         return "invalid-arguments";
+    case JsTriggerHelperMutationTransactionStatus::AuthorityRejected:
+        return "authority-rejected";
     case JsTriggerHelperMutationTransactionStatus::AuditRejected:
         return "audit-rejected";
     case JsTriggerHelperMutationTransactionStatus::ApplyRejected:
@@ -1307,6 +1429,10 @@ JsTriggerHelperMutationTransactionResult prepare_helper_mutation_transaction(
     JsTriggerHelperMutationTransactionResult result;
     std::vector<JsRuntimeMutation> helper_mutations;
     helper_mutations.reserve(mutations.size());
+    std::vector<PendingRoomFlagMutation> local_pending_room_flag_mutations;
+    std::vector<PendingRoomFlagMutation>* pending_for_validation =
+        pending_room_flag_mutations != nullptr ? pending_room_flag_mutations
+                                               : &local_pending_room_flag_mutations;
     if (pending_room_flag_mutations != nullptr)
         pending_room_flag_mutations->clear();
 
@@ -1334,7 +1460,7 @@ JsTriggerHelperMutationTransactionResult prepare_helper_mutation_transaction(
             return result;
         }
         if (!validate_helper_mutation_with_context(
-                mutation, options, pending_room_flag_mutations, &result.status, &result.diagnostic)) {
+                mutation, options, pending_for_validation, &result.status, &result.diagnostic)) {
             if (pending_room_flag_mutations != nullptr)
                 pending_room_flag_mutations->clear();
             return result;
@@ -1349,6 +1475,15 @@ JsTriggerHelperMutationTransactionResult prepare_helper_mutation_transaction(
     JsTriggerHelperMutationAuditRequest audit_request;
     audit_request.mutation_count = helper_mutations.size();
     audit_request.operations_summary = helper_operations_summary(helper_mutations);
+    audit_request.requires_room_flag_admin_override =
+        pending_room_flag_mutations_require_admin_override(pending_for_validation);
+    audit_request.room_flag_admin_override_evidence =
+        room_flag_admin_override_evidence(
+            options.validation_context != nullptr ? options.validation_context->authority : nullptr,
+            pending_for_validation);
+    audit_request.room_flag_authority_summary =
+        room_flag_authority_summary(pending_for_validation);
+    audit_request.room_flag_audit_summary = room_flag_audit_summary(pending_for_validation);
     if (options.audit_callback == nullptr ||
         !options.audit_callback(audit_request, &result.diagnostic, options.audit_user_data)) {
         result.status = JsTriggerHelperMutationTransactionStatus::AuditRejected;

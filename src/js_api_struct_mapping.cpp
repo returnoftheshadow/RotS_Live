@@ -934,8 +934,8 @@ constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
      "decision evidence, previous flag membership, and intended new flag membership.",
      "Builder diagnostics name only the rejected flag and stable reason category "
      "(unsupported-envelope, unknown-operation, invalid-target, invalid-arguments, "
-     "blocked-flag, admin-only-flag, stale-room, wrong-zone, invalid-token, audit-rejected, "
-     "apply-rejected) without exposing token secrets or owner evidence.",
+     "authority-rejected, blocked-flag, admin-only-flag, stale-room, wrong-zone, invalid-token, "
+     "audit-rejected, apply-rejected) without exposing token secrets or owner evidence.",
      "Apply records each previous room_data.room_flags value and restores it in reverse order "
      "if any later helper in the same mixed mutation batch fails before scalar setters commit.",
      "Offline fixtures use the same flag vocabulary, token/stale-handle model, sanitized "
@@ -964,8 +964,8 @@ constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
      "decision evidence, previous flag membership, and intended new flag membership.",
      "Builder diagnostics name only the rejected flag and stable reason category "
      "(unsupported-envelope, unknown-operation, invalid-target, invalid-arguments, "
-     "blocked-flag, admin-only-flag, stale-room, wrong-zone, invalid-token, audit-rejected, "
-     "apply-rejected) without exposing token secrets or owner evidence.",
+     "authority-rejected, blocked-flag, admin-only-flag, stale-room, wrong-zone, invalid-token, "
+     "audit-rejected, apply-rejected) without exposing token secrets or owner evidence.",
      "Apply records each previous room_data.room_flags value and restores it in reverse order "
      "if any later helper in the same mixed mutation batch fails before scalar setters commit.",
      "Offline fixtures use the same flag vocabulary, token/stale-handle model, sanitized "

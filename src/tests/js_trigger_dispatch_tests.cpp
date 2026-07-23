@@ -277,17 +277,19 @@ std::vector<std::string> parse_dispatch_room_flag_helper_names()
     EXPECT_NE(end, std::string::npos);
 
     std::vector<std::string> names;
-    std::size_t cursor = open_brace;
-    while (cursor < end) {
-        const std::size_t quote = source.find('"', cursor);
-        if (quote == std::string::npos || quote >= end)
-            break;
-        const std::size_t close = source.find('"', quote + 1);
+    std::stringstream table(source.substr(open_brace, end - open_brace));
+    std::string line;
+    while (std::getline(table, line)) {
+        if (line.find('{') == std::string::npos)
+            continue;
+        const std::size_t quote = line.find('"');
+        if (quote == std::string::npos)
+            continue;
+        const std::size_t close = line.find('"', quote + 1);
         EXPECT_NE(close, std::string::npos);
-        if (close == std::string::npos || close >= end)
-            break;
-        names.push_back(source.substr(quote + 1, close - quote - 1));
-        cursor = close + 1;
+        if (close == std::string::npos)
+            continue;
+        names.push_back(line.substr(quote + 1, close - quote - 1));
     }
     return names;
 }
@@ -1307,7 +1309,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresPersistentAuthorityBefor
     }
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsEveryCatalogAllowedFlag)
+TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsBuilderZonePolicyFlags)
 {
     char_data self = make_character("Self");
     const char_data* live_characters[] = { &self };
@@ -1334,13 +1336,13 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsEveryCatalogAllowedFlag)
         return true;
     };
 
-    const std::vector<std::string> allowed_flags =
-        split_pipe_list(js_api_room_flag_helper_operations()[0].allowed_flags);
-    ASSERT_EQ(allowed_flags.size(), 16U);
+    const std::vector<std::string> builder_zone_flags =
+        split_pipe_list(js_api_room_flag_helper_operations()[0].builder_zone_flags);
+    ASSERT_EQ(builder_zone_flags.size(), 11U);
 
     const char* operations[] = { "room.flags.add", "room.flags.remove" };
     for (const char* operation : operations) {
-        for (const std::string& flag : allowed_flags) {
+        for (const std::string& flag : builder_zone_flags) {
             JsRuntimeMutation helper = make_helper_mutation(operation);
             helper.arguments_json = std::string("{\"flag\":\"") + flag + "\"}";
 
@@ -1353,7 +1355,220 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsEveryCatalogAllowedFlag)
             EXPECT_TRUE(result.diagnostic.empty()) << operation << " " << flag;
         }
     }
-    EXPECT_EQ(audit_calls, 32);
+    EXPECT_EQ(audit_calls, 22);
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsAdminOnlyFlagsWithoutOverrideBeforeAudit)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+
+    JsTriggerHelperMutationValidationContext validation_context;
+    validation_context.request = &request;
+    validation_context.adapter_options = &adapter_options;
+    validation_context.authority = &authority;
+
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.validation_context = &validation_context;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    const std::vector<std::string> admin_only_flags =
+        split_pipe_list(js_api_room_flag_helper_operations()[0].admin_only_flags);
+    ASSERT_EQ(admin_only_flags.size(), 5U);
+
+    const char* operations[] = { "room.flags.add", "room.flags.remove" };
+    for (const char* operation : operations) {
+        for (const std::string& flag : admin_only_flags) {
+            JsRuntimeMutation helper = make_helper_mutation(operation);
+            helper.arguments_json = std::string("{\"flag\":\"") + flag + "\"}";
+
+            const JsTriggerHelperMutationTransactionResult result =
+                js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+
+            EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::AuthorityRejected)
+                << operation << " " << flag;
+            EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
+                "authority-rejected");
+            EXPECT_EQ(result.mutation_count, 0U) << operation << " " << flag;
+            EXPECT_EQ(result.diagnostic, "JavaScript helper mutation authority rejected")
+                << operation << " " << flag;
+        }
+    }
+    EXPECT_EQ(audit_calls, 0);
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresOverrideFlagAndEvidence)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    for (const bool allow_override : { false, true }) {
+        for (const char* evidence : { "", "immortal-admin-override:test" }) {
+            if (allow_override && evidence[0] != '\0')
+                continue;
+
+            JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+            authority.allow_room_flag_admin_override = allow_override;
+            authority.room_flag_admin_override_evidence = evidence;
+
+            JsTriggerHelperMutationValidationContext validation_context;
+            validation_context.request = &request;
+            validation_context.adapter_options = &adapter_options;
+            validation_context.authority = &authority;
+
+            int audit_calls = 0;
+            JsTriggerHelperMutationTransactionOptions options;
+            options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+            options.validation_context = &validation_context;
+            options.audit_user_data = &audit_calls;
+            options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                         void* user_data) {
+                ++*static_cast<int*>(user_data);
+                return true;
+            };
+
+            JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
+            helper.arguments_json = "{\"flag\":\"private\"}";
+
+            const JsTriggerHelperMutationTransactionResult result =
+                js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+
+            EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::AuthorityRejected)
+                << "allow_override=" << allow_override << " evidence=" << evidence;
+            EXPECT_EQ(result.mutation_count, 0U);
+            EXPECT_EQ(audit_calls, 0);
+        }
+    }
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsAdminOnlyFlagsWithOverrideEvidence)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    world[0].room_flags = DEATH;
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+    authority.allow_room_flag_admin_override = true;
+    authority.room_flag_admin_override_evidence = "immortal-admin-override:test";
+
+    JsTriggerHelperMutationValidationContext validation_context;
+    validation_context.request = &request;
+    validation_context.adapter_options = &adapter_options;
+    validation_context.authority = &authority;
+
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.validation_context = &validation_context;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
+                                 std::string*, void* user_data) {
+        ++*static_cast<int*>(user_data);
+        EXPECT_EQ(request.mutation_count, 2U);
+        EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
+        EXPECT_TRUE(request.requires_room_flag_admin_override);
+        EXPECT_EQ(request.room_flag_admin_override_evidence, "immortal-admin-override:test");
+        EXPECT_EQ(request.room_flag_authority_summary, "admin-only");
+        EXPECT_EQ(request.room_flag_audit_summary,
+            "add:private:admin-only:room=100:zoneVnum=30:zoneIndex=0:previous=false:new=true;"
+            "remove:death:admin-only:room=100:zoneVnum=30:zoneIndex=0:previous=true:new=false");
+        return true;
+    };
+
+    JsRuntimeMutation add_private = make_helper_mutation("room.flags.add");
+    add_private.arguments_json = "{\"flag\":\"private\"}";
+    JsRuntimeMutation remove_death = make_helper_mutation("room.flags.remove");
+    remove_death.arguments_json = "{\"flag\":\"death\"}";
+
+    const JsTriggerHelperMutationTransactionResult result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction(
+            { add_private, remove_death }, options);
+
+    EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_EQ(result.mutation_count, 2U);
+    EXPECT_TRUE(result.diagnostic.empty());
+    EXPECT_EQ(audit_calls, 1);
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsMixedAuthorityWithStagedPreviousState)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    world[0].room_flags = PEACEROOM;
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+    authority.allow_room_flag_admin_override = true;
+    authority.room_flag_admin_override_evidence = "immortal-admin-override:mixed";
+
+    JsTriggerHelperMutationValidationContext validation_context;
+    validation_context.request = &request;
+    validation_context.adapter_options = &adapter_options;
+    validation_context.authority = &authority;
+
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.validation_context = &validation_context;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
+                                 std::string*, void* user_data) {
+        ++*static_cast<int*>(user_data);
+        EXPECT_EQ(request.mutation_count, 4U);
+        EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
+        EXPECT_TRUE(request.requires_room_flag_admin_override);
+        EXPECT_EQ(request.room_flag_admin_override_evidence, "immortal-admin-override:mixed");
+        EXPECT_EQ(request.room_flag_authority_summary, "admin-only,builder-zone");
+        EXPECT_EQ(request.room_flag_audit_summary,
+            "add:dark:builder-zone:room=100:zoneVnum=30:zoneIndex=0:previous=false:new=true;"
+            "remove:dark:builder-zone:room=100:zoneVnum=30:zoneIndex=0:previous=true:new=false;"
+            "remove:peaceRoom:builder-zone:room=100:zoneVnum=30:zoneIndex=0:previous=true:new=false;"
+            "add:private:admin-only:room=100:zoneVnum=30:zoneIndex=0:previous=false:new=true");
+        return true;
+    };
+
+    JsRuntimeMutation add_dark = make_helper_mutation("room.flags.add");
+    add_dark.arguments_json = "{\"flag\":\"dark\"}";
+    JsRuntimeMutation remove_dark = make_helper_mutation("room.flags.remove");
+    remove_dark.arguments_json = "{\"flag\":\"dark\"}";
+    JsRuntimeMutation remove_peace = make_helper_mutation("room.flags.remove");
+    remove_peace.arguments_json = "{\"flag\":\"peaceRoom\"}";
+    JsRuntimeMutation add_private = make_helper_mutation("room.flags.add");
+    add_private.arguments_json = "{\"flag\":\"private\"}";
+
+    const JsTriggerHelperMutationTransactionResult result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction(
+            { add_dark, remove_dark, remove_peace, add_private }, options);
+
+    EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_EQ(result.mutation_count, 4U);
+    EXPECT_TRUE(result.diagnostic.empty());
+    EXPECT_EQ(audit_calls, 1);
 }
 
 TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadArgumentsBeforeAudit)

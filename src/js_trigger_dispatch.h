@@ -48,9 +48,11 @@ struct JsTriggerMutationAuthorityContext {
     std::string builder_account_id;
     int eligible_character_id = 0;
     int target_zone = -1;
+    bool allow_room_flag_admin_override = false;
     // Per-dispatch helper target token validation material. Keep server-owned and never expose it
     // through scripts, HTTP responses, BuilderClient artifacts, audit summaries, or diagnostics.
     std::string target_token_secret;
+    std::string room_flag_admin_override_evidence;
     std::string decision_evidence;
 };
 
@@ -73,6 +75,7 @@ enum class JsTriggerHelperMutationTransactionStatus {
     UnknownOperation,
     InvalidTarget,
     InvalidArguments,
+    AuthorityRejected,
     AuditRejected,
     ApplyRejected,
 };
@@ -85,6 +88,10 @@ struct JsTriggerHelperMutationOperationRegistry {
 struct JsTriggerHelperMutationAuditRequest {
     std::size_t mutation_count = 0;
     std::string operations_summary;
+    bool requires_room_flag_admin_override = false;
+    std::string room_flag_admin_override_evidence;
+    std::string room_flag_authority_summary;
+    std::string room_flag_audit_summary;
 };
 
 struct JsTriggerDispatchRequest;
