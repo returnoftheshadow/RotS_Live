@@ -467,6 +467,10 @@ constexpr JsApiMember GameObjectMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only object extra-description entries copied from the live linked list with bounded "
      "entry count and text length."},
+    {"container", JsApiMemberKind::Property, "EquipmentObjectSnapshot | null", "", true, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Shallow read-only object snapshot containing this object, or null when the object is not nested "
+     "in another live object with reciprocal contents membership."},
     {"room", JsApiMemberKind::Property, "Room | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Direct room containing the object, or null when carried, worn, nested, or invalid."},

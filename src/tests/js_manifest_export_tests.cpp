@@ -457,9 +457,13 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     ASSERT_NE(object_extra_descriptions, nullptr);
     EXPECT_STREQ(object_extra_descriptions->getter_status, "implemented-read-only-getter");
     expect_contains_json_object(json, expected_mapping_json_object(*object_extra_descriptions));
+    const JsApiStructFieldMapping *object_container =
+        find_js_api_struct_field_mapping(JsApiStructOwner::ObjData, "in_obj");
+    ASSERT_NE(object_container, nullptr);
+    EXPECT_STREQ(object_container->getter_status, "implemented-read-only-getter");
+    expect_contains_json_object(json, expected_mapping_json_object(*object_container));
 
     const char *deferred_object_fields[] = {
-        "in_obj",
         "contains",
         "touched",
     };

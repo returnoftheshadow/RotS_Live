@@ -1574,6 +1574,102 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     EXPECT_EQ(zone_fixture.reset_mode, 2);
 }
 
+TEST(JsGameAdapter, SnapshotsObjectContainerWhenReciprocalAndLive) {
+    index_data object_index[2]{};
+    object_index[0].virt = 300;
+    object_index[1].virt = 301;
+    obj_data object = make_object("silver lever", 0);
+    obj_data container = make_object("oak chest", 1);
+    object.in_room = NOWHERE;
+    object.in_obj = &container;
+    container.contains = &object;
+    const obj_data *live_objects[] = {&object, &container};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 2, nullptr, -1, nullptr,
+                                                0, object_index, 2, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+
+    EXPECT_FALSE(object_fixture.has_room);
+    ASSERT_TRUE(object_fixture.has_container);
+    EXPECT_EQ(object_fixture.container.id, "object:301");
+    EXPECT_EQ(object_fixture.container.name, "oak chest");
+    EXPECT_FALSE(object_fixture.container.has_room);
+}
+
+TEST(JsGameAdapter, OmitsObjectContainerWhenNotReciprocalOrNotLive) {
+    index_data object_index[2]{};
+    object_index[0].virt = 300;
+    object_index[1].virt = 301;
+    obj_data object = make_object("silver lever", 0);
+    obj_data container = make_object("oak chest", 1);
+    object.in_room = NOWHERE;
+    object.in_obj = &container;
+    const obj_data *live_objects[] = {&object, &container};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 2, nullptr, -1, nullptr,
+                                                0, object_index, 2, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+    EXPECT_FALSE(object_fixture.has_container);
+
+    container.contains = &container;
+    container.next_content = &container;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+    EXPECT_FALSE(object_fixture.has_container);
+
+    object.in_obj = &container;
+    container.contains = &object;
+    room_data world[1] = {make_room("Northern Gate", 1204, 0)};
+    object.in_room = 0;
+    JsGameAdapterOptions inconsistent_room_options = make_options(
+        nullptr, 0, live_objects, 2, world, 0, nullptr, 0, object_index, 2, nullptr, 0, nullptr,
+        0);
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, inconsistent_room_options, &object_fixture));
+    EXPECT_TRUE(object_fixture.has_room);
+    EXPECT_FALSE(object_fixture.has_container);
+
+    object.in_room = NOWHERE;
+    const obj_data *only_object_live[] = {&object};
+    JsGameAdapterOptions stale_container_options = make_options(
+        nullptr, 0, only_object_live, 1, nullptr, -1, nullptr, 0, object_index, 1, nullptr, 0,
+        nullptr, 0);
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, stale_container_options, &object_fixture));
+    EXPECT_FALSE(object_fixture.has_container);
+}
+
+TEST(JsGameAdapter, BoundsObjectContainerMembershipTraversal) {
+    index_data object_index[102]{};
+    for (int index = 0; index < 102; ++index)
+        object_index[index].virt = 300 + index;
+    obj_data container = make_object("oak chest", 1);
+    std::vector<std::string> names;
+    names.reserve(101);
+    for (int index = 0; index < 101; ++index)
+        names.push_back("contained-" + std::to_string(index));
+    std::vector<obj_data> contained;
+    contained.reserve(101);
+    for (int index = 0; index < 101; ++index) {
+        contained.push_back(make_object(names[index].c_str(), index + 1));
+        contained[index].in_room = NOWHERE;
+        contained[index].in_obj = &container;
+        if (index > 0)
+            contained[index - 1].next_content = &contained[index];
+    }
+    container.contains = &contained[0];
+    const obj_data *live_objects[] = {&container, &contained[99], &contained[100]};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 3, nullptr, -1, nullptr,
+                                                0, object_index, 102, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&contained[99], options, &object_fixture));
+    ASSERT_TRUE(object_fixture.has_container);
+    EXPECT_EQ(object_fixture.container.id, "object:301");
+
+    ASSERT_TRUE(js_game_adapter_object_fixture(&contained[100], options, &object_fixture));
+    EXPECT_FALSE(object_fixture.has_container);
+}
+
 TEST(JsGameAdapter, BoundsObjectExtraDescriptionSnapshotsAndStopsCycles) {
     index_data object_index[1]{};
     object_index[0].virt = 300;

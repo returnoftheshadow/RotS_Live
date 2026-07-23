@@ -828,8 +828,8 @@ TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
          "bounded frozen text snapshot"},
         {"owner", "ownerId", "never", "internal-only", "unsupported", "none",
          "sensitive authorization data", "identity policy"},
-        {"in_obj", "container", "GameObject | null", "deferred", "deferred", "world-mutation",
-         "liveness checks, cycle guards", "not exposed to builders"},
+        {"in_obj", "container", "EquipmentObjectSnapshot | null", "implemented-read-only-getter", "deferred",
+         "world-mutation", "reciprocally contains", "shallow frozen container snapshot"},
         {"contains", "contents", "readonly GameObject[]", "deferred", "unsupported",
          "world-mutation", "bounded traversal", "not exposed to builders"},
         {"next_content", "nextContent", "never", "internal-only", "unsupported", "none",
@@ -870,7 +870,7 @@ TEST(JsApiStructMapping, PinsObjectRelationshipAndLifecycleSetterDeferrals) {
     const ExpectedDeferredSetter deferred[] = {
         {"in_room", "implemented-read-only-getter", "deferred", "handler-maintained carrier"},
         {"carried_by", "implemented-read-only-getter", "deferred", "player crash-save"},
-        {"in_obj", "deferred", "deferred", "cycle prevention"},
+        {"in_obj", "implemented-read-only-getter", "deferred", "cycle prevention"},
         {"contains", "deferred", "unsupported", "cycle guards"},
         {"touched", "deferred", "unsupported", "runtime/player-interaction state"},
     };

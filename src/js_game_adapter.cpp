@@ -26,6 +26,7 @@ namespace {
 constexpr std::size_t MaxAdapterStringLength = 512;
 constexpr std::size_t MaxAdapterTextLength = 1024;
 constexpr int MaxExtraDescriptionSnapshotNodes = 32;
+constexpr int MaxObjectContainerMembershipNodes = 100;
 
 struct CharacterProfessionField {
     int index;
@@ -604,6 +605,45 @@ bool object_is_worn_by(const obj_data *object, const char_data *carrier) {
            carrier->equipment + MAX_WEAR;
 }
 
+bool object_is_directly_contained_by(const obj_data *object, const obj_data *container) {
+    if (object == nullptr || container == nullptr || object == container)
+        return false;
+    std::vector<const obj_data *> seen_nodes;
+    int nodes_visited = 0;
+    for (const obj_data *node = container->contains;
+         node != nullptr && nodes_visited < MaxObjectContainerMembershipNodes;
+         node = node->next_content) {
+        if (std::find(seen_nodes.begin(), seen_nodes.end(), node) != seen_nodes.end())
+            break;
+        seen_nodes.push_back(node);
+        ++nodes_visited;
+        if (node == object)
+            return true;
+    }
+    return false;
+}
+
+bool shallow_object_fixture(const obj_data *object, const JsGameAdapterOptions &options,
+                            JsGameEquipmentObjectFixture *fixture) {
+    if (fixture == nullptr || !js_game_adapter_is_live_object(object, options))
+        return false;
+
+    const char *display_name =
+        object->short_description != nullptr ? object->short_description : object->name;
+    fixture->id = object_id(*object, options);
+    fixture->name = copy_c_string(display_name);
+    fixture->description = copy_c_string(object->description);
+    fixture->short_description = copy_c_string(display_name);
+    fixture->has_action_description = object->action_description != nullptr;
+    fixture->action_description = copy_c_string(object->action_description);
+    fixture->vnum = object_vnum(*object, options);
+    fixture->flags = object_flags_fixture(object->obj_flags);
+    fixture->affects = object_affects_fixture(object->affected);
+    fixture->extra_descriptions = extra_descriptions_fixture(object->ex_description);
+    fixture->has_room = false;
+    return true;
+}
+
 bool object_is_carried_by(const obj_data *object, const char_data *carrier) {
     if (object == nullptr || carrier == nullptr)
         return false;
@@ -726,20 +766,7 @@ bool equipment_object_fixture(const obj_data *object, const char_data *wearer,
         object->in_obj != nullptr || !object_is_worn_by(object, wearer))
         return false;
 
-    const char *display_name =
-        object->short_description != nullptr ? object->short_description : object->name;
-    fixture->id = object_id(*object, options);
-    fixture->name = copy_c_string(display_name);
-    fixture->description = copy_c_string(object->description);
-    fixture->short_description = copy_c_string(display_name);
-    fixture->has_action_description = object->action_description != nullptr;
-    fixture->action_description = copy_c_string(object->action_description);
-    fixture->vnum = object_vnum(*object, options);
-    fixture->flags = object_flags_fixture(object->obj_flags);
-    fixture->affects = object_affects_fixture(object->affected);
-    fixture->extra_descriptions = extra_descriptions_fixture(object->ex_description);
-    fixture->has_room = false;
-    return true;
+    return shallow_object_fixture(object, options, fixture);
 }
 
 bool inventory_object_fixture(const obj_data *object, const char_data *carrier,
@@ -752,20 +779,7 @@ bool inventory_object_fixture(const obj_data *object, const char_data *carrier,
         object_is_worn_by(object, carrier))
         return false;
 
-    const char *display_name =
-        object->short_description != nullptr ? object->short_description : object->name;
-    fixture->id = object_id(*object, options);
-    fixture->name = copy_c_string(display_name);
-    fixture->description = copy_c_string(object->description);
-    fixture->short_description = copy_c_string(display_name);
-    fixture->has_action_description = object->action_description != nullptr;
-    fixture->action_description = copy_c_string(object->action_description);
-    fixture->vnum = object_vnum(*object, options);
-    fixture->flags = object_flags_fixture(object->obj_flags);
-    fixture->affects = object_affects_fixture(object->affected);
-    fixture->extra_descriptions = extra_descriptions_fixture(object->ex_description);
-    fixture->has_room = false;
-    return true;
+    return shallow_object_fixture(object, options, fixture);
 }
 
 int room_index_for_pointer(const room_data *room, const JsGameAdapterOptions &options) {
@@ -1298,6 +1312,11 @@ bool js_game_adapter_object_fixture(const obj_data *object, const JsGameAdapterO
     fixture->flags = object_flags_fixture(object->obj_flags);
     fixture->affects = object_affects_fixture(object->affected);
     fixture->extra_descriptions = extra_descriptions_fixture(object->ex_description);
+    fixture->has_container = false;
+    if (object->in_room == NOWHERE && js_game_adapter_is_live_object(object->in_obj, options) &&
+        object_is_directly_contained_by(object, object->in_obj)) {
+        fixture->has_container = shallow_object_fixture(object->in_obj, options, &fixture->container);
+    }
     fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
 
     fixture->has_carried_by = false;

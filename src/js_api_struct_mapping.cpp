@@ -364,13 +364,14 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Owner id mutation from JavaScript is unsupported; use server authorization flows instead.",
      "none", "May reveal account/player identity policy."},
     {JsApiStructOwner::ObjData, "obj_data", "in_obj", "container", "getContainer", "setContainer",
-     "GameObject | null", true, Deferred, Deferred,
-     "Deferred safe handle for the containing object. Getter needs liveness checks, cycle guards, "
-     "and depth limits before nested containers are exposed.",
+     "EquipmentObjectSnapshot | null", true, ImplementedReadOnly, Deferred,
+     "Returns a shallow read-only snapshot of the containing object when the container is live and its "
+     "contents list reciprocally contains this object within bounded cycle-safe traversal.",
      "Container changes require explicit object movement helpers and are deferred. Direct "
      "container writes would bypass nested weight propagation, capacity/counting rules, decay "
      "movement, cycle prevention, and linked-list ownership.",
-     "world-mutation", "Object storage links are not exposed to builders."},
+     "world-mutation",
+     "Nested storage is exposed only as a nullable shallow frozen container snapshot."},
     {JsApiStructOwner::ObjData, "obj_data", "contains", "contents", "getContents", "setContents",
      "readonly GameObject[]", true, Deferred, Unsupported,
      "Deferred read-only snapshot of nested object contents. Getter needs bounded traversal, "

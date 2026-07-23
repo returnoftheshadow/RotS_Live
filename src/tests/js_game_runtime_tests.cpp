@@ -476,6 +476,16 @@ JsGameTriggerContextFixture make_context() {
     context.object.affects.push_back(make_object_affect(1, 2, "DEX", -1));
     context.object.extra_descriptions.push_back({"runes", "Faint runes circle the lever."});
     context.object.extra_descriptions.push_back({"hinge", "The hinge is polished by use."});
+    context.object.has_container = true;
+    context.object.container.id = "object:301";
+    context.object.container.name = "oak chest";
+    context.object.container.description = "A stout oak chest rests here.";
+    context.object.container.short_description = "an oak chest";
+    context.object.container.vnum = 301;
+    context.object.container.flags.item_type = "container";
+    context.object.container.flags.wear_flags = {"take"};
+    context.object.container.flags.level = 8;
+    context.object.container.extra_descriptions.push_back({"lid", "The lid is reinforced."});
     context.object.has_room = true;
     context.object.room.id = "room:1204";
     context.object.room.name = "Northern Gate";
@@ -1246,6 +1256,12 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.object.extraDescriptions[0].keyword === 'runes'\n"
         "  && ctx.object.extraDescriptions[0].description === 'Faint runes circle the lever.'\n"
         "  && ctx.object.extraDescriptions[1].keyword === 'hinge'\n"
+        "  && ctx.object.container.name === 'oak chest'\n"
+        "  && ctx.object.container.flags.itemType === 'container'\n"
+        "  && ctx.object.container.extraDescriptions[0].keyword === 'lid'\n"
+        "  && ctx.object.container.room === null\n"
+        "  && typeof ctx.object.container.container === 'undefined'\n"
+        "  && typeof ctx.object.container.setName === 'undefined'\n"
         "  && ctx.self.equipment[6].object.affects.length === 1\n"
         "  && ctx.self.equipment[6].object.affects[0].locationName === 'DEX'\n"
         "  && ctx.self.equipment[6].object.affects[0].modifier === 1\n"
@@ -1584,6 +1600,10 @@ TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent) {
 	                                      "  && ctx.weapon.affects[1].modifier === -1\n"
 	                                      "  && ctx.weapon.extraDescriptions[0].keyword === 'runes'\n"
 	                                      "  && ctx.weapon.extraDescriptions[1].description === 'The hinge is polished by use.'\n"
+	                                      "  && ctx.weapon.container.name === 'oak chest'\n"
+	                                      "  && ctx.weapon.container.room === null\n"
+	                                      "  && typeof ctx.weapon.container.container === 'undefined'\n"
+	                                      "  && typeof ctx.weapon.container.setName === 'undefined'\n"
 	                                      "  && ctx.weapon.room.vnum === 1204\n"
                                       "  && ctx.weapon.isValid();",
                                       context);
@@ -2414,12 +2434,15 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.object.affects[0].constructor === 'undefined'\n"
         "  && typeof ctx.object.extraDescriptions.constructor === 'undefined'\n"
         "  && typeof ctx.object.extraDescriptions[0].constructor === 'undefined'\n"
+        "  && typeof ctx.object.container.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx.object.affects[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.object.extraDescriptions[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.object.container) === null\n"
         "  && Object.isFrozen(ctx.object.affects)\n"
         "  && Object.isFrozen(ctx.object.affects[0])\n"
         "  && Object.isFrozen(ctx.object.extraDescriptions)\n"
         "  && Object.isFrozen(ctx.object.extraDescriptions[0])\n"
+        "  && Object.isFrozen(ctx.object.container)\n"
         "  && Object.isFrozen(ctx.self.followers)\n"
         "  && Object.isFrozen(ctx.self.followers[0])\n"
         "  && Object.isFrozen(ctx.self.master)\n"
@@ -2567,6 +2590,12 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.object.extraDescriptions.push({ keyword: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.object.container.name = 'unsafe';\n"
                                          "return true;",
                                          make_context())
                   .status,
@@ -3234,6 +3263,21 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
 	                           "\"description\":\"Faint runes circle the lever.\"},"
 	                           "{\"keyword\":\"hinge\","
 	                           "\"description\":\"The hinge is polished by use.\"}],"
+	                           "\"container\":{\"id\":\"object:301\",\"name\":\"oak chest\","
+	                           "\"description\":\"A stout oak chest rests here.\","
+	                           "\"shortDescription\":\"an oak chest\",\"actionDescription\":null,"
+	                           "\"vnum\":301,"
+	                           "\"flags\":{\"itemType\":\"container\","
+	                           "\"wearFlags\":[\"take\"],"
+	                           "\"extraFlags\":[],\"level\":8,"
+	                           "\"weight\":0,\"cost\":0,\"costPerDay\":0,\"timer\":0,"
+	                           "\"rarity\":0,\"material\":\"\"},"
+	                           "\"affects\":[],"
+	                           "\"extraDescriptions\":[{\"keyword\":\"lid\","
+	                           "\"description\":\"The lid is reinforced.\"}],"
+	                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
+	                           "\"__rotsReadOnlySnapshot\":true,"
+	                           "\"isValid\":function() { return true; }},"
 	                           "\"room\":{\"id\":\"room:1204\""),
               std::string::npos);
     EXPECT_NE(literal.find("\"description\":\"The old city zone.\""), std::string::npos);
