@@ -47,6 +47,27 @@ JsGameSkillValueFixture make_skill_value(int id, const std::string& name,
     return skill;
 }
 
+JsGameKnowledgeValueFixture make_knowledge_value(int id, const std::string& name,
+    const std::string& profession, int level, int knowledge, int minimum_position, int mana_cost,
+    int beats, int targets, int learn_difficulty, int learn_type, bool is_fast, int specialization)
+{
+    JsGameKnowledgeValueFixture value;
+    value.id = id;
+    value.name = name;
+    value.profession = profession;
+    value.level = level;
+    value.knowledge = knowledge;
+    value.minimum_position = minimum_position;
+    value.mana_cost = mana_cost;
+    value.beats = beats;
+    value.targets = targets;
+    value.learn_difficulty = learn_difficulty;
+    value.learn_type = learn_type;
+    value.is_fast = is_fast;
+    value.specialization = specialization;
+    return value;
+}
+
 JsGameTriggerContextFixture make_context()
 {
     JsGameTriggerContextFixture context;
@@ -168,6 +189,10 @@ JsGameTriggerContextFixture make_context()
         POSITION_FIGHTING, 0, 0, 16, 30, 1, false, 0));
     context.self.skills.push_back(make_skill_value(8, "Swimming", "ranger", 2, 2,
         POSITION_FIGHTING, 0, 0, 16, 25, 1, false, 0));
+    context.self.knowledge.push_back(make_knowledge_value(1, "Slashing", "warrior", 0, 40,
+        POSITION_FIGHTING, 0, 0, 16, 30, 1, false, 0));
+    context.self.knowledge.push_back(make_knowledge_value(8, "Swimming", "ranger", 2, 55,
+        POSITION_FIGHTING, 0, 0, 16, 25, 1, false, 0));
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -275,6 +300,8 @@ JsGameTriggerContextFixture make_context()
     context.actor.damage_details.entries.push_back(
         make_damage_entry(7, "skill", "Rescue", 3, 12, 6, 4.0, 100.0));
     context.actor.skills.push_back(make_skill_value(14, "Rescue", "warrior", 3, 5,
+        POSITION_FIGHTING, 0, 0, 16, 10, 1, false, 0));
+    context.actor.knowledge.push_back(make_knowledge_value(14, "Rescue", "warrior", 3, 66,
         POSITION_FIGHTING, 0, 0, 16, 10, 1, false, 0));
 
     context.has_object = true;
@@ -743,6 +770,23 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.skills[1].name === 'Swimming'\n"
         "  && ctx.self.skills[1].profession === 'ranger'\n"
         "  && ctx.self.skills[1].practice === 2\n"
+        "  && ctx.self.knowledge.length === 2\n"
+        "  && ctx.self.knowledge[0].id === 1\n"
+        "  && ctx.self.knowledge[0].name === 'Slashing'\n"
+        "  && ctx.self.knowledge[0].profession === 'warrior'\n"
+        "  && ctx.self.knowledge[0].level === 0\n"
+        "  && ctx.self.knowledge[0].knowledge === 40\n"
+        "  && ctx.self.knowledge[0].minimumPosition === 7\n"
+        "  && ctx.self.knowledge[0].manaCost === 0\n"
+        "  && ctx.self.knowledge[0].beats === 0\n"
+        "  && ctx.self.knowledge[0].targets === 16\n"
+        "  && ctx.self.knowledge[0].learnDifficulty === 30\n"
+        "  && ctx.self.knowledge[0].learnType === 1\n"
+        "  && ctx.self.knowledge[0].isFast === false\n"
+        "  && ctx.self.knowledge[0].specialization === 0\n"
+        "  && ctx.self.knowledge[1].name === 'Swimming'\n"
+        "  && ctx.self.knowledge[1].profession === 'ranger'\n"
+        "  && ctx.self.knowledge[1].knowledge === 55\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -820,6 +864,9 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.skills.length === 1\n"
         "  && ctx.actor.skills[0].name === 'Rescue'\n"
         "  && ctx.actor.skills[0].practice === 5\n"
+        "  && ctx.actor.knowledge.length === 1\n"
+        "  && ctx.actor.knowledge[0].name === 'Rescue'\n"
+        "  && ctx.actor.knowledge[0].knowledge === 66\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1926,6 +1973,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.damageDetails.entries[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.skills.constructor === 'undefined'\n"
         "  && typeof ctx.self.skills[0].constructor === 'undefined'\n"
+        "  && typeof ctx.self.knowledge.constructor === 'undefined'\n"
+        "  && typeof ctx.self.knowledge[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -1941,6 +1990,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.damageDetails) === null\n"
         "  && Object.getPrototypeOf(ctx.self.damageDetails.entries[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.skills[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.knowledge[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -1962,6 +2012,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.damageDetails.entries[0])\n"
         "  && Object.isFrozen(ctx.self.skills)\n"
         "  && Object.isFrozen(ctx.self.skills[0])\n"
+        "  && Object.isFrozen(ctx.self.knowledge)\n"
+        "  && Object.isFrozen(ctx.self.knowledge[0])\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -2053,6 +2105,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
                   .status,
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.knowledge[0].knowledge = 99;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.knowledge.push({ id: 42, name: 'unsafe' });\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.points.bodypartHits[0] = 1;\n"
                          "return true;",
                          make_context())
@@ -2113,6 +2177,23 @@ TEST(JsGameRuntime, DefaultsMissingCharacterSkillsToEmptySnapshot)
         "return ctx.self.skills.length === 0\n"
         "  && Object.isFrozen(ctx.self.skills)\n"
         "  && typeof ctx.self.skills.constructor === 'undefined';",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, DefaultsMissingCharacterKnowledgeToEmptySnapshot)
+{
+    JsGameTriggerContextFixture context;
+    context.has_self = true;
+    context.self.id = "char:default-knowledge";
+    context.self.name = "Default Knowledge";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.self.knowledge.length === 0\n"
+        "  && Object.isFrozen(ctx.self.knowledge)\n"
+        "  && typeof ctx.self.knowledge.constructor === 'undefined';",
         context);
 
     expect_ok_allows(result);

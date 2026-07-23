@@ -348,6 +348,39 @@ std::string skill_values_literal(const std::vector<JsGameSkillValueFixture>& ski
     return out.str();
 }
 
+std::string knowledge_value_literal(const JsGameKnowledgeValueFixture& knowledge)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"id\":" << knowledge.id << ","
+        << "\"name\":" << js_quote(knowledge.name) << ","
+        << "\"profession\":" << js_quote(knowledge.profession) << ","
+        << "\"level\":" << knowledge.level << ","
+        << "\"knowledge\":" << knowledge.knowledge << ","
+        << "\"minimumPosition\":" << knowledge.minimum_position << ","
+        << "\"manaCost\":" << knowledge.mana_cost << ","
+        << "\"beats\":" << knowledge.beats << ","
+        << "\"targets\":" << knowledge.targets << ","
+        << "\"learnDifficulty\":" << knowledge.learn_difficulty << ","
+        << "\"learnType\":" << knowledge.learn_type << ","
+        << "\"isFast\":" << js_bool(knowledge.is_fast) << ","
+        << "\"specialization\":" << knowledge.specialization << "}";
+    return out.str();
+}
+
+std::string knowledge_values_literal(const std::vector<JsGameKnowledgeValueFixture>& knowledge)
+{
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < knowledge.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << knowledge_value_literal(knowledge[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string character_literal(const JsGameCharacterFixture& character)
 {
     std::ostringstream out;
@@ -386,6 +419,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"specializations\":" << specializations_literal(character.specializations) << ","
         << "\"damageDetails\":" << damage_details_literal(character.damage_details) << ","
         << "\"skills\":" << skill_values_literal(character.skills) << ","
+        << "\"knowledge\":" << knowledge_values_literal(character.knowledge) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

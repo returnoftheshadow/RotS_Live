@@ -82,6 +82,7 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
         "DamageDetails",
         "DamageEntry",
         "SkillValue",
+        "KnowledgeValue",
         "Player",
         "Mob",
         "GameObject",
@@ -259,7 +260,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     for (const char *member_name :
         {"classPoints", "interruptCount", "interruptTime", "specialBusy", "baseAbilities",
             "currentAbilities", "rolledAbilities", "points", "specials", "specials2",
-            "professions", "specializations", "damageDetails", "skills"}) {
+            "professions", "specializations", "damageDetails", "skills", "knowledge"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -287,6 +288,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         "DamageDetails");
     EXPECT_STREQ(find_js_api_contract_member(*character, "skills")->type_name,
         "readonly SkillValue[]");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "knowledge")->type_name,
+        "readonly KnowledgeValue[]");
 
     const JsApiType *ability_scores = find_js_api_contract_type("AbilityScores");
     ASSERT_NE(ability_scores, nullptr);
@@ -362,6 +365,18 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_STREQ(find_js_api_contract_member(*skill_value, "profession")->type_name,
         "'general' | 'mage' | 'mystic' | 'ranger' | 'warrior' | 'unknown'");
     EXPECT_STREQ(find_js_api_contract_member(*skill_value, "isFast")->type_name, "boolean");
+    const JsApiType *knowledge_value = find_js_api_contract_type("KnowledgeValue");
+    ASSERT_NE(knowledge_value, nullptr);
+    for (const char *member_name : {"id", "name", "profession", "level", "knowledge",
+             "minimumPosition", "manaCost", "beats", "targets", "learnDifficulty", "learnType",
+             "isFast", "specialization"}) {
+        const JsApiMember *member = find_js_api_contract_member(*knowledge_value, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
+    EXPECT_STREQ(find_js_api_contract_member(*knowledge_value, "profession")->type_name,
+        "'general' | 'mage' | 'mystic' | 'ranger' | 'warrior' | 'unknown'");
+    EXPECT_STREQ(find_js_api_contract_member(*knowledge_value, "knowledge")->type_name, "number");
 
     const JsApiType* mob = find_js_api_contract_type("Mob");
     ASSERT_NE(mob, nullptr);

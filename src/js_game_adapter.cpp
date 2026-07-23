@@ -979,6 +979,33 @@ bool js_game_adapter_character_fixture(const char_data *character,
             }
         }
     }
+    fixture->knowledge.clear();
+    if (character->knowledge != nullptr) {
+        const skill_data* skill_table = get_skill_array();
+        if (skill_table != nullptr) {
+            for (int skill_id = 0; skill_id < MAX_SKILLS; ++skill_id) {
+                const int knowledge = character->knowledge[skill_id];
+                const std::string name = copy_c_string(skill_table[skill_id].name);
+                if (knowledge <= 0 || name.empty())
+                    continue;
+                JsGameKnowledgeValueFixture knowledge_fixture;
+                knowledge_fixture.id = skill_id;
+                knowledge_fixture.name = name;
+                knowledge_fixture.profession = skill_profession_key(skill_table[skill_id].type);
+                knowledge_fixture.level = skill_table[skill_id].level;
+                knowledge_fixture.knowledge = knowledge;
+                knowledge_fixture.minimum_position = skill_table[skill_id].minimum_position;
+                knowledge_fixture.mana_cost = skill_table[skill_id].min_usesmana;
+                knowledge_fixture.beats = skill_table[skill_id].beats;
+                knowledge_fixture.targets = skill_table[skill_id].targets;
+                knowledge_fixture.learn_difficulty = skill_table[skill_id].learn_diff;
+                knowledge_fixture.learn_type = skill_table[skill_id].learn_type;
+                knowledge_fixture.is_fast = skill_table[skill_id].is_fast != 0;
+                knowledge_fixture.specialization = skill_table[skill_id].skill_spec;
+                fixture->knowledge.push_back(std::move(knowledge_fixture));
+            }
+        }
+    }
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;

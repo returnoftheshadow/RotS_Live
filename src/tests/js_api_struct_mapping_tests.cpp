@@ -1055,8 +1055,8 @@ TEST(JsApiStructMapping, PinsCharacterNestedProfileAndStatSetterDeferrals) {
         {"skills", "skills", "setSkill", "readonly SkillValue[]", true,
             "implemented-read-only-getter",
             "unsupported", "mutation", "practice sessions"},
-        {"knowledge", "knowledge", "setKnowledge", "readonly SkillValue[]", true, "deferred",
-            "unsupported", "mutation", "recalculation helpers"},
+        {"knowledge", "knowledge", "setKnowledge", "readonly KnowledgeValue[]", true,
+            "implemented-read-only-getter", "unsupported", "mutation", "recalculation helpers"},
     };
 
     for (const ExpectedCharacterDeferral &entry : deferred) {

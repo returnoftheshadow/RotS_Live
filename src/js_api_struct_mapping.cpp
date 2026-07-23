@@ -142,8 +142,11 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "mutation",
      "Raw byte pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "knowledge", "knowledge", "getKnowledge",
-     "setKnowledge", "readonly SkillValue[]", true, Deferred, Unsupported,
-     "Planned read-only computed knowledge snapshot.",
+     "setKnowledge", "readonly KnowledgeValue[]", true, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only computed-knowledge snapshot with one entry per nonzero knowledge "
+     "value, including skill id, builder-facing name, owning profession, required level, computed "
+     "knowledge value, live target/position/cost metadata, learning metadata, fast-update flag, "
+     "and specialization id. The raw MAX_SKILLS byte pointer is not exposed.",
      "Knowledge writes are unsupported for builder scripts because values are normally derived "
      "from skills, body type, confusion, teaching, guild limits, and recalculation helpers.",
      "mutation",
