@@ -310,6 +310,11 @@ bool validate_mutation_value(const JsRuntimeMutation& mutation)
     return validate_text_mutation_value(mutation);
 }
 
+bool runtime_mutation_kind_is_setter(const JsRuntimeMutation& mutation)
+{
+    return mutation.kind == "setter";
+}
+
 bool has_persistent_setter_authority(const JsTriggerMutationAuthorityContext& authority)
 {
     return authority.allow_persistent_setter_mutations && !authority.builder_account_id.empty() && authority.eligible_character_id > 0 && authority.target_zone >= 0 && !authority.decision_evidence.empty();
@@ -636,6 +641,8 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
         return false;
     pending->clear();
     for (const JsRuntimeMutation& mutation : mutations) {
+        if (!js_trigger_dispatch_supports_runtime_mutation(mutation))
+            return false;
         if (!validate_mutation_value(mutation))
             return false;
         if (mutation.target_type == "zone" && mutation.property == "symbol") {
@@ -855,6 +862,14 @@ const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status)
         return "depth-exceeded";
     }
     return "unknown";
+}
+
+bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation& mutation)
+{
+    if (runtime_mutation_kind_is_setter(mutation))
+        return mutation.operation.empty() && mutation.target_token.empty() &&
+            mutation.arguments_json.empty();
+    return false;
 }
 
 bool JsTriggerDispatchBudget::try_consume(

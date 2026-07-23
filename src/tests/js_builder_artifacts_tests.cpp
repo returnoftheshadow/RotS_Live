@@ -370,6 +370,9 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_EQ(declarations.find("export function MutationResult"), std::string::npos);
     EXPECT_EQ(declarations.find("class MutationResult"), std::string::npos);
     EXPECT_EQ(declarations.find("MutationResult:"), std::string::npos);
+    EXPECT_EQ(declarations.find("HelperMutationEnvelope"), std::string::npos);
+    EXPECT_EQ(declarations.find("__mutationEnvelope"), std::string::npos);
+    EXPECT_EQ(declarations.find("__enqueueMutation"), std::string::npos);
     EXPECT_EQ(declarations.find("ownerId"), std::string::npos);
     EXPECT_EQ(declarations.find("getOwners"), std::string::npos);
 

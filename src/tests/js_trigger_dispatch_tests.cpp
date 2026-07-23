@@ -229,6 +229,73 @@ std::size_t world_map_symbol_offset(int x, int y)
 
 } // namespace
 
+TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlyScalarSetterEnvelopes)
+{
+    JsRuntimeMutation missing_kind_setter;
+    missing_kind_setter.target_type = "room";
+    missing_kind_setter.target_id = "room";
+    missing_kind_setter.property = "level";
+    missing_kind_setter.value_kind = "number";
+    missing_kind_setter.has_value = true;
+    missing_kind_setter.value = "10";
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(missing_kind_setter));
+
+    JsRuntimeMutation tagged_setter = missing_kind_setter;
+    tagged_setter.kind = "setter";
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(tagged_setter));
+
+    JsRuntimeMutation helper = tagged_setter;
+    helper.kind = "helper";
+    helper.operation = "room.flags.add";
+    helper.target_token = "test-token";
+    helper.arguments_json = "{\"flag\":\"peace\"}";
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(helper));
+
+    JsRuntimeMutation unknown = tagged_setter;
+    unknown.kind = "world-helper";
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(unknown));
+}
+
+TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorDoesNotTreatHelperNamesAsSetterKinds)
+{
+    for (const char *property : {"moveTo", "setExit", "addAffect", "inventory", "contents",
+             "flags", "cmd", "resetCommands"}) {
+        JsRuntimeMutation mutation;
+        mutation.kind = property;
+        mutation.target_type = "room";
+        mutation.target_id = "room";
+        mutation.property = property;
+        mutation.value_kind = "string";
+        mutation.has_value = true;
+        mutation.value = "forged";
+        EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(mutation)) << property;
+    }
+}
+
+TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorRejectsHelperFieldsOnSetterEnvelopes)
+{
+    JsRuntimeMutation mutation;
+    mutation.kind = "setter";
+    mutation.target_type = "zone";
+    mutation.target_id = "zone";
+    mutation.property = "name";
+    mutation.value_kind = "string";
+    mutation.has_value = true;
+    mutation.value = "Builder Zone";
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(mutation));
+
+    mutation.operation = "zone.description.add";
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(mutation));
+    mutation.operation.clear();
+
+    mutation.target_token = "opaque-token";
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(mutation));
+    mutation.target_token.clear();
+
+    mutation.arguments_json = "{}";
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(mutation));
+}
+
 TEST(JsTriggerDispatch, StartsWithExplicitNoMatchStatusForEmptyRegistry)
 {
     JsScriptPackageRegistry registry;

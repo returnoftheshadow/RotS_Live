@@ -937,8 +937,11 @@ bool parse_mutation(JsonReader *reader, JsRuntimeMutation *mutation, std::string
         return false;
 
     std::string value_kind;
+    std::string kind;
     return reader->parse_object(
                [&](const std::string &name, JsonReader *nested_reader, std::string *nested_error) {
+                   if (name == "kind")
+                       return nested_reader->parse_string(&kind, nested_error);
                    if (name == "targetType")
                        return nested_reader->parse_string(&mutation->target_type, nested_error);
                    if (name == "targetId")
@@ -949,11 +952,20 @@ bool parse_mutation(JsonReader *reader, JsRuntimeMutation *mutation, std::string
                        return nested_reader->parse_string(&value_kind, nested_error);
                    if (name == "value")
                        return nested_reader->parse_string(&mutation->value, nested_error);
+                   if (name == "operation")
+                       return nested_reader->parse_string(&mutation->operation, nested_error);
+                   if (name == "targetToken")
+                       return nested_reader->parse_string(&mutation->target_token, nested_error);
+                   if (name == "argumentsJson")
+                       return nested_reader->parse_string(&mutation->arguments_json, nested_error);
                    return nested_reader->skip_value(nested_error);
                },
                error_message) &&
-           (value_kind == "string" || value_kind == "null" || value_kind == "number") &&
-           (mutation->value_kind = value_kind, mutation->has_value = value_kind != "null", true);
+           (kind == "setter" || kind == "helper") &&
+           (kind == "helper" ||
+               value_kind == "string" || value_kind == "null" || value_kind == "number") &&
+           (mutation->kind = kind, mutation->value_kind = value_kind,
+               mutation->has_value = kind == "setter" && value_kind != "null", true);
 }
 
 bool parse_game_envelope(const std::string &envelope, JsRuntimeEvalResult *result) {
@@ -1174,7 +1186,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateTextSetter(value, property, maxLength, nullable);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ targetType: targetType, targetId: "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: targetType, targetId: "
            "__rotsString(handle.id), property: property, valueKind: value === null ? 'null' : "
            "'string', value: value === null ? '' : value });\n"
         << "      }\n"
@@ -1198,7 +1210,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateSymbolSetter(value);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ targetType: targetType, targetId: "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: targetType, targetId: "
            "__rotsString(handle.id), property: 'symbol', valueKind: 'string', value: value });\n"
         << "      }\n"
         << "      return result;\n"
@@ -1221,7 +1233,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateCoordinateSetter(value, property);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ targetType: targetType, targetId: "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: targetType, targetId: "
            "__rotsString(handle.id), property: property, valueKind: 'number', value: "
            "__rotsString(value) });\n"
         << "      }\n"
@@ -1245,7 +1257,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateResetModeSetter(value);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ targetType: targetType, targetId: "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: targetType, targetId: "
            "__rotsString(handle.id), property: 'resetMode', valueKind: 'number', value: "
            "__rotsString(value) });\n"
         << "      }\n"
@@ -1269,7 +1281,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateLifespanSetter(value);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ targetType: targetType, targetId: "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: targetType, targetId: "
            "__rotsString(handle.id), property: 'lifespan', valueKind: 'number', value: "
            "__rotsString(value) });\n"
         << "      }\n"
@@ -1293,7 +1305,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateLevelSetter(value);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ targetType: targetType, targetId: "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: targetType, targetId: "
            "__rotsString(handle.id), property: 'level', valueKind: 'number', value: "
            "__rotsString(value) });\n"
         << "      }\n"
@@ -1318,7 +1330,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateLevelSetter(value);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ targetType: 'object', targetId: "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: 'object', targetId: "
            "__rotsString(handle.id), property: 'level', valueKind: 'number', value: "
            "__rotsString(value) });\n"
         << "      }\n"
@@ -1343,7 +1355,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateRaritySetter(value);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ targetType: 'object', targetId: "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: 'object', targetId: "
            "__rotsString(handle.id), property: 'rarity', valueKind: 'number', value: "
            "__rotsString(value) });\n"
         << "      }\n"
@@ -1367,7 +1379,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateSectorTypeSetter(value);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ targetType: 'room', targetId: __rotsString(handle.id), "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: 'room', targetId: __rotsString(handle.id), "
            "property: 'sectorType', valueKind: 'string', value: value });\n"
         << "      }\n"
         << "      return result;\n"

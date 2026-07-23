@@ -2510,6 +2510,13 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults) {
         context);
 
     expect_ok_allows(result);
+    ASSERT_FALSE(result.mutations.empty());
+    for (const JsRuntimeMutation &mutation : result.mutations) {
+        EXPECT_EQ(mutation.kind, "setter");
+        EXPECT_TRUE(mutation.operation.empty());
+        EXPECT_TRUE(mutation.target_token.empty());
+        EXPECT_TRUE(mutation.arguments_json.empty());
+    }
 
     expect_ok_allows(
         runtime.evaluate_trigger_body("return ctx.object.name === 'silver lever';", context));
@@ -2532,6 +2539,10 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts) {
                                       "  && typeof __rotsAttachObjectLevelSetter === 'undefined'\n"
                                       "  && typeof __rotsAttachObjectRaritySetter === 'undefined'\n"
                                       "  && typeof __rotsAttachSectorTypeSetter === 'undefined'\n"
+                                      "  && typeof __rotsHelperMutationEnvelope === 'undefined'\n"
+                                      "  && typeof __rotsAttachHelperApi === 'undefined'\n"
+                                      "  && typeof ctx.__enqueueMutation === 'undefined'\n"
+                                      "  && typeof RotS.__mutationEnvelope === 'undefined'\n"
                                       "  && typeof __rotsValidateRaritySetter === 'undefined'\n"
                                       "  && typeof __rotsValidateSectorTypeSetter === 'undefined'\n"
                                       "  && typeof __rotsValidateTextSetter === 'undefined'\n"
@@ -2557,6 +2568,10 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts) {
         "    && typeof __rotsAttachObjectLevelSetter === 'undefined'\n"
         "    && typeof __rotsAttachObjectRaritySetter === 'undefined'\n"
         "    && typeof __rotsAttachSectorTypeSetter === 'undefined'\n"
+        "    && typeof __rotsHelperMutationEnvelope === 'undefined'\n"
+        "    && typeof __rotsAttachHelperApi === 'undefined'\n"
+        "    && typeof ctx.__enqueueMutation === 'undefined'\n"
+        "    && typeof RotS.__mutationEnvelope === 'undefined'\n"
         "    && typeof __rotsValidateRaritySetter === 'undefined'\n"
         "    && typeof __rotsValidateSectorTypeSetter === 'undefined'\n"
         "    && typeof __rotsValidateTextSetter === 'undefined'\n"

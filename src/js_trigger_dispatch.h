@@ -91,6 +91,7 @@ struct JsTriggerDispatchResult {
 };
 
 const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status);
+bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation& mutation);
 
 JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,

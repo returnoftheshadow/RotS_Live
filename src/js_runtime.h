@@ -19,12 +19,16 @@ enum class JsRuntimeValue {
 };
 
 struct JsRuntimeMutation {
+    std::string kind;
     std::string target_type;
     std::string target_id;
     std::string property;
     std::string value_kind;
     bool has_value = false;
     std::string value;
+    std::string operation;
+    std::string target_token;
+    std::string arguments_json;
 };
 
 struct JsRuntimeLimits {
