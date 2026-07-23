@@ -327,10 +327,13 @@ and `audit-rejected` failures do not queue object creation, while `ok` creates
 the object later during transaction apply after a final recheck. The
 one-argument form also returns an inline result, but currently represents a
 validated no-placement intent and does not create an object until local object
-variables are designed. BuilderClient offline fixtures can emulate target handle
-failures, inventory-count failures, and approximate carried-weight failures now;
-exact prototype `not-found` and prototype-weight parity remain server-owned
-until fixture prototype catalogs are added.
+variables are designed. BuilderClient offline fixtures can include a
+non-script-visible `objectPrototypes` catalog. When that catalog is present,
+`load_obj`/`loadObj` returns `not-found` for absent vnums and uses the matched
+prototype's `flags.weight` for carried-weight capacity checks. When the catalog
+is omitted, offline fixtures keep the lightweight optimistic behavior so concise
+fixtures do not need to model every object prototype. An empty catalog is still
+an explicit catalog and means no object prototypes are available.
 `RotS.Script.doWait(pulses)` also follows the accepted-transaction model on the
 live server. Offline fixtures validate the pulse range and can model wait-list
 state with `ctx.hostAlreadyWaiting`. When `hostAlreadyWaiting` is `true`, the
