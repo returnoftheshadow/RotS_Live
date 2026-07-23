@@ -17,9 +17,8 @@ extern char num_of_sector_types;
 
 namespace {
 
-char_data make_character(const char *name, int race, int level, int hit, int max_hit, bool npc)
-{
-    char_data character {};
+char_data make_character(const char *name, int race, int level, int hit, int max_hit, bool npc) {
+    char_data character{};
     character.abs_number = 77;
     character.nr = npc ? 1 : -1;
     character.in_room = 0;
@@ -122,9 +121,8 @@ char_data make_character(const char *name, int race, int level, int hit, int max
     return character;
 }
 
-obj_data make_object(const char *name, int item_number)
-{
-    obj_data object {};
+obj_data make_object(const char *name, int item_number) {
+    obj_data object{};
     object.item_number = item_number;
     object.in_room = 0;
     object.name = const_cast<char *>(name);
@@ -146,9 +144,8 @@ obj_data make_object(const char *name, int item_number)
     return object;
 }
 
-room_data make_room(const char *name, int number, int zone)
-{
-    room_data room {};
+room_data make_room(const char *name, int number, int zone) {
+    room_data room{};
     room.name = const_cast<char *>(name);
     room.description = const_cast<char *>("A detailed room description.");
     room.number = number;
@@ -161,9 +158,8 @@ room_data make_room(const char *name, int number, int zone)
     return room;
 }
 
-zone_data make_zone(const char *name, int number)
-{
-    zone_data zone {};
+zone_data make_zone(const char *name, int number) {
+    zone_data zone{};
     zone.name = const_cast<char *>(name);
     zone.description = const_cast<char *>("A detailed zone description.");
     zone.map = const_cast<char *>("N-G-S");
@@ -183,8 +179,7 @@ zone_data make_zone(const char *name, int number)
     return zone;
 }
 
-JsGameTriggerFixture make_trigger()
-{
+JsGameTriggerFixture make_trigger() {
     JsGameTriggerFixture trigger;
     trigger.name = "onEnter";
     trigger.legacy_name = "ON_ENTER";
@@ -195,9 +190,7 @@ JsGameTriggerFixture make_trigger()
 
 class ScopedSunlight {
   public:
-    explicit ScopedSunlight(int sunlight)
-        : previous_sunlight_(weather_info.sunlight)
-    {
+    explicit ScopedSunlight(int sunlight) : previous_sunlight_(weather_info.sunlight) {
         weather_info.sunlight = sunlight;
     }
 
@@ -208,11 +201,12 @@ class ScopedSunlight {
 };
 
 JsGameAdapterOptions make_options(const char_data *const *characters, std::size_t character_count,
-    const obj_data *const *objects, std::size_t object_count, room_data *world, int top_of_world,
-    index_data *mob_index, std::size_t mob_index_count, index_data *obj_index,
-    std::size_t obj_index_count, zone_data *zones, std::size_t zone_count,
-    const char *const *race_names, std::size_t race_name_count)
-{
+                                  const obj_data *const *objects, std::size_t object_count,
+                                  room_data *world, int top_of_world, index_data *mob_index,
+                                  std::size_t mob_index_count, index_data *obj_index,
+                                  std::size_t obj_index_count, zone_data *zones,
+                                  std::size_t zone_count, const char *const *race_names,
+                                  std::size_t race_name_count) {
     JsGameAdapterOptions options;
     options.live_characters = characters;
     options.live_character_count = character_count;
@@ -234,17 +228,16 @@ JsGameAdapterOptions make_options(const char_data *const *characters, std::size_
 
 } // namespace
 
-TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
-{
-    const char *races[] = { "God", "Human", "Dwarf" };
-    index_data mobile_index[2] {};
+TEST(JsGameAdapter, SnapshotsApprovedCharacterFields) {
+    const char *races[] = {"God", "Human", "Dwarf"};
+    index_data mobile_index[2]{};
     mobile_index[1].virt = 5100;
     char_data npc = make_character("Gate Guard", 2, 15, 41, 55, true);
-    const char_data *live_characters[] = { &npc };
-    room_data world[1] = { make_room("Northern Gate", 1204, 0) };
-    zone_data zones[1] = { make_zone("Old City", 12) };
+    const char_data *live_characters[] = {&npc};
+    room_data world[1] = {make_room("Northern Gate", 1204, 0)};
+    zone_data zones[1] = {make_zone("Old City", 12)};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, world, 0,
-        mobile_index, 2, nullptr, 0, zones, 1, races, 3);
+                                                mobile_index, 2, nullptr, 0, zones, 1, races, 3);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&npc, options, &fixture));
@@ -325,9 +318,9 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.specials2.spells_to_learn, 3);
     EXPECT_EQ(fixture.specials2.alignment, 250);
     EXPECT_EQ(fixture.specials2.act_flags,
-        (std::vector<std::string> { "isNpc", "memory", "guardian" }));
+              (std::vector<std::string>{"isNpc", "memory", "guardian"}));
     EXPECT_EQ(fixture.specials2.preference_flags,
-        (std::vector<std::string> { "brief", "color", "advancedView" }));
+              (std::vector<std::string>{"brief", "color", "advancedView"}));
     EXPECT_EQ(fixture.specials2.wimp_level, 20);
     EXPECT_EQ(fixture.specials2.freeze_level, 5);
     EXPECT_EQ(fixture.specials2.saving_throw, 7);
@@ -342,8 +335,7 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.specials2.rerolls, 2);
     EXPECT_EQ(fixture.specials2.leg_encumbrance, 8);
     EXPECT_EQ(fixture.specials2.retired_on, 1705000000);
-    EXPECT_EQ(fixture.specials2.hide_flags,
-        (std::vector<std::string> { "hidingWell", "snuckIn" }));
+    EXPECT_EQ(fixture.specials2.hide_flags, (std::vector<std::string>{"hidingWell", "snuckIn"}));
     EXPECT_EQ(fixture.specials2.tactics, "aggressive");
     EXPECT_EQ(fixture.specials2.shooting, "fast");
     EXPECT_EQ(fixture.specials2.casting, "slow");
@@ -356,10 +348,9 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.room.zone.vnum, 12);
 }
 
-TEST(JsGameAdapter, SnapshotsCharacterProfessionsWhenPresent)
-{
+TEST(JsGameAdapter, SnapshotsCharacterProfessionsWhenPresent) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    char_prof_data professions {};
+    char_prof_data professions{};
     professions.prof_level[PROF_MAGE] = 8;
     professions.prof_coof[PROF_MAGE] = 121;
     professions.prof_exp[PROF_MAGE] = 8100;
@@ -376,9 +367,9 @@ TEST(JsGameAdapter, SnapshotsCharacterProfessionsWhenPresent)
     professions.specialization = 2;
     player.profs = &professions;
     player.extra_specialization_data.set(player);
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -418,17 +409,16 @@ TEST(JsGameAdapter, SnapshotsCharacterProfessionsWhenPresent)
     EXPECT_TRUE(fixture.specializations.has_runtime_state);
 }
 
-TEST(JsGameAdapter, SnapshotsCharacterSkillsWhenPresent)
-{
+TEST(JsGameAdapter, SnapshotsCharacterSkillsWhenPresent) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    byte skill_values[MAX_SKILLS] {};
+    byte skill_values[MAX_SKILLS]{};
     skill_values[1] = 3;
     skill_values[8] = 2;
     skill_values[255] = 9;
     player.skills = skill_values;
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -454,13 +444,12 @@ TEST(JsGameAdapter, SnapshotsCharacterSkillsWhenPresent)
     EXPECT_EQ(fixture.skills[1].practice, 2);
 }
 
-TEST(JsGameAdapter, DefaultsMissingCharacterSkillsToEmptySnapshot)
-{
+TEST(JsGameAdapter, DefaultsMissingCharacterSkillsToEmptySnapshot) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     player.skills = nullptr;
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -468,17 +457,16 @@ TEST(JsGameAdapter, DefaultsMissingCharacterSkillsToEmptySnapshot)
     EXPECT_TRUE(fixture.skills.empty());
 }
 
-TEST(JsGameAdapter, SnapshotsCharacterKnowledgeWhenPresent)
-{
+TEST(JsGameAdapter, SnapshotsCharacterKnowledgeWhenPresent) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    byte knowledge_values[MAX_SKILLS] {};
+    byte knowledge_values[MAX_SKILLS]{};
     knowledge_values[1] = 40;
     knowledge_values[8] = 55;
     knowledge_values[255] = 80;
     player.knowledge = knowledge_values;
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -504,13 +492,12 @@ TEST(JsGameAdapter, SnapshotsCharacterKnowledgeWhenPresent)
     EXPECT_EQ(fixture.knowledge[1].knowledge, 55);
 }
 
-TEST(JsGameAdapter, DefaultsMissingCharacterKnowledgeToEmptySnapshot)
-{
+TEST(JsGameAdapter, DefaultsMissingCharacterKnowledgeToEmptySnapshot) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     player.knowledge = nullptr;
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -518,10 +505,9 @@ TEST(JsGameAdapter, DefaultsMissingCharacterKnowledgeToEmptySnapshot)
     EXPECT_TRUE(fixture.knowledge.empty());
 }
 
-TEST(JsGameAdapter, SnapshotsCharacterAffectsWhenPresent)
-{
+TEST(JsGameAdapter, SnapshotsCharacterAffectsWhenPresent) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    affected_type unknown_affect {};
+    affected_type unknown_affect{};
     unknown_affect.type = MAX_SKILLS + 1;
     unknown_affect.duration = 2;
     unknown_affect.time_phase = 3;
@@ -530,7 +516,7 @@ TEST(JsGameAdapter, SnapshotsCharacterAffectsWhenPresent)
     unknown_affect.bitvector = 0;
     unknown_affect.counter = 4;
 
-    affected_type sanctuary_affect {};
+    affected_type sanctuary_affect{};
     sanctuary_affect.type = SPELL_SANCTUARY;
     sanctuary_affect.duration = 8;
     sanctuary_affect.time_phase = 1;
@@ -541,9 +527,9 @@ TEST(JsGameAdapter, SnapshotsCharacterAffectsWhenPresent)
     sanctuary_affect.next = &unknown_affect;
     player.affected = &sanctuary_affect;
 
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -567,13 +553,12 @@ TEST(JsGameAdapter, SnapshotsCharacterAffectsWhenPresent)
     EXPECT_TRUE(fixture.affects[1].bitvector_names.empty());
 }
 
-TEST(JsGameAdapter, DefaultsMissingCharacterAffectsToEmptySnapshot)
-{
+TEST(JsGameAdapter, DefaultsMissingCharacterAffectsToEmptySnapshot) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     player.affected = nullptr;
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -581,8 +566,7 @@ TEST(JsGameAdapter, DefaultsMissingCharacterAffectsToEmptySnapshot)
     EXPECT_TRUE(fixture.affects.empty());
 }
 
-TEST(JsGameAdapter, SnapshotsCharacterEquipmentSlotsWithShallowObjects)
-{
+TEST(JsGameAdapter, SnapshotsCharacterEquipmentSlotsWithShallowObjects) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     obj_data helm = make_object("silver helm", 0);
     helm.in_room = -1;
@@ -607,12 +591,13 @@ TEST(JsGameAdapter, SnapshotsCharacterEquipmentSlotsWithShallowObjects)
     contained.in_obj = &container;
     player.equipment[WEAR_HANDS] = &contained;
 
-    const char_data *live_characters[] = { &player };
-    const obj_data *live_objects[] = { &helm, &foreign, &room_object, &container, &contained };
-    index_data object_index[1] {};
+    const char_data *live_characters[] = {&player};
+    const obj_data *live_objects[] = {&helm, &foreign, &room_object, &container, &contained};
+    index_data object_index[1]{};
     object_index[0].virt = 4301;
-    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
-        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, nullptr, -1, nullptr, 0, object_index, 1,
+                     nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -646,12 +631,11 @@ TEST(JsGameAdapter, SnapshotsCharacterEquipmentSlotsWithShallowObjects)
     EXPECT_FALSE(fixture.equipment[WEAR_HANDS].has_object);
 }
 
-TEST(JsGameAdapter, DefaultsMissingCharacterEquipmentToEmptySlots)
-{
+TEST(JsGameAdapter, DefaultsMissingCharacterEquipmentToEmptySlots) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -661,8 +645,7 @@ TEST(JsGameAdapter, DefaultsMissingCharacterEquipmentToEmptySlots)
         EXPECT_FALSE(slot.has_object) << slot.slot_name;
 }
 
-TEST(JsGameAdapter, SnapshotsCharacterInventoryWithShallowObjects)
-{
+TEST(JsGameAdapter, SnapshotsCharacterInventoryWithShallowObjects) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     obj_data torch = make_object("oak torch", 0);
     torch.in_room = -1;
@@ -697,15 +680,15 @@ TEST(JsGameAdapter, SnapshotsCharacterInventoryWithShallowObjects)
     player.equipment[WEAR_HANDS] = &worn;
     contained.next_content = &worn;
 
-    const char_data *live_characters[] = { &player };
-    const obj_data *live_objects[] = {
-        &torch, &key, &foreign, &room_object, &container, &contained, &worn
-    };
-    index_data object_index[7] {};
+    const char_data *live_characters[] = {&player};
+    const obj_data *live_objects[] = {&torch,     &key,       &foreign, &room_object,
+                                      &container, &contained, &worn};
+    index_data object_index[7]{};
     for (int index = 0; index < 7; ++index)
         object_index[index].virt = 5001 + index;
-    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 7, nullptr, -1,
-        nullptr, 0, object_index, 7, nullptr, 0, nullptr, 0);
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 7, nullptr, -1, nullptr, 0, object_index, 7,
+                     nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -719,12 +702,11 @@ TEST(JsGameAdapter, SnapshotsCharacterInventoryWithShallowObjects)
     EXPECT_EQ(fixture.inventory[1].name, "small key");
 }
 
-TEST(JsGameAdapter, DefaultsMissingCharacterInventoryToEmptySnapshot)
-{
+TEST(JsGameAdapter, DefaultsMissingCharacterInventoryToEmptySnapshot) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -732,8 +714,7 @@ TEST(JsGameAdapter, DefaultsMissingCharacterInventoryToEmptySnapshot)
     EXPECT_TRUE(fixture.inventory.empty());
 }
 
-TEST(JsGameAdapter, BoundsCharacterInventoryTraversalByVisitedNodes)
-{
+TEST(JsGameAdapter, BoundsCharacterInventoryTraversalByVisitedNodes) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     char_data other_carrier = make_character("OtherOne", 1, 20, 50, 60, false);
     std::vector<obj_data> invalid_objects;
@@ -751,14 +732,15 @@ TEST(JsGameAdapter, BoundsCharacterInventoryTraversalByVisitedNodes)
     invalid_objects[100].next_content = &valid;
     player.carrying = &invalid_objects[0];
 
-    std::vector<const obj_data*> live_objects;
+    std::vector<const obj_data *> live_objects;
     live_objects.reserve(102);
-    for (const obj_data& object : invalid_objects)
+    for (const obj_data &object : invalid_objects)
         live_objects.push_back(&object);
     live_objects.push_back(&valid);
-    const char_data *live_characters[] = { &player };
-    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects.data(),
-        live_objects.size(), nullptr, -1, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+    const char_data *live_characters[] = {&player};
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects.data(), live_objects.size(), nullptr, -1,
+                     nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -766,8 +748,7 @@ TEST(JsGameAdapter, BoundsCharacterInventoryTraversalByVisitedNodes)
     EXPECT_TRUE(fixture.inventory.empty());
 }
 
-TEST(JsGameAdapter, IncludesExactlyOneHundredCharacterInventoryNodes)
-{
+TEST(JsGameAdapter, IncludesExactlyOneHundredCharacterInventoryNodes) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     std::vector<obj_data> objects;
     objects.reserve(100);
@@ -780,13 +761,14 @@ TEST(JsGameAdapter, IncludesExactlyOneHundredCharacterInventoryNodes)
         objects[index].next_content = &objects[index + 1];
     player.carrying = &objects[0];
 
-    std::vector<const obj_data*> live_objects;
+    std::vector<const obj_data *> live_objects;
     live_objects.reserve(objects.size());
-    for (const obj_data& object : objects)
+    for (const obj_data &object : objects)
         live_objects.push_back(&object);
-    const char_data *live_characters[] = { &player };
-    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects.data(),
-        live_objects.size(), nullptr, -1, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+    const char_data *live_characters[] = {&player};
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects.data(), live_objects.size(), nullptr, -1,
+                     nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -796,8 +778,7 @@ TEST(JsGameAdapter, IncludesExactlyOneHundredCharacterInventoryNodes)
     EXPECT_EQ(fixture.inventory.back().name, "carried item");
 }
 
-TEST(JsGameAdapter, StopsCharacterInventoryBeforeHundredFirstNode)
-{
+TEST(JsGameAdapter, StopsCharacterInventoryBeforeHundredFirstNode) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     std::vector<obj_data> objects;
     objects.reserve(101);
@@ -810,34 +791,34 @@ TEST(JsGameAdapter, StopsCharacterInventoryBeforeHundredFirstNode)
         objects[index].next_content = &objects[index + 1];
     player.carrying = &objects[0];
 
-    std::vector<const obj_data*> live_objects;
+    std::vector<const obj_data *> live_objects;
     live_objects.reserve(objects.size());
-    for (const obj_data& object : objects)
+    for (const obj_data &object : objects)
         live_objects.push_back(&object);
-    const char_data *live_characters[] = { &player };
-    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects.data(),
-        live_objects.size(), nullptr, -1, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+    const char_data *live_characters[] = {&player};
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects.data(), live_objects.size(), nullptr, -1,
+                     nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
 
     ASSERT_EQ(fixture.inventory.size(), 100U);
-    for (const JsGameEquipmentObjectFixture& object : fixture.inventory)
+    for (const JsGameEquipmentObjectFixture &object : fixture.inventory)
         EXPECT_NE(object.name, "hundred first item");
 }
 
-TEST(JsGameAdapter, BreaksCharacterInventoryTraversalCycles)
-{
+TEST(JsGameAdapter, BreaksCharacterInventoryTraversalCycles) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     obj_data loop = make_object("loop item", 0);
     loop.in_room = 0;
     loop.carried_by = &player;
     loop.next_content = &loop;
     player.carrying = &loop;
-    const char_data *live_characters[] = { &player };
-    const obj_data *live_objects[] = { &loop };
+    const char_data *live_characters[] = {&player};
+    const obj_data *live_objects[] = {&loop};
     JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -845,22 +826,22 @@ TEST(JsGameAdapter, BreaksCharacterInventoryTraversalCycles)
     EXPECT_TRUE(fixture.inventory.empty());
 }
 
-TEST(JsGameAdapter, SnapshotsCharacterFollowersAndMasterWithShallowCharacters)
-{
+TEST(JsGameAdapter, SnapshotsCharacterFollowersAndMasterWithShallowCharacters) {
     char_data leader = make_character("Leader", 1, 92, 90, 120, false);
     char_data follower = make_character("Follower", 2, 20, 50, 60, true);
     follower.abs_number = 1234;
     follower.master = &leader;
-    follow_type node {};
+    follow_type node{};
     node.follower = &follower;
     node.fol_number = follower.abs_number;
     leader.followers = &node;
 
-    const char_data *live_characters[] = { &leader, &follower };
-    index_data mobile_index[3] {};
+    const char_data *live_characters[] = {&leader, &follower};
+    index_data mobile_index[3]{};
     mobile_index[1].virt = 6202;
-    JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
-        mobile_index, 3, nullptr, 0, nullptr, 0, nullptr, 0);
+    JsGameAdapterOptions options =
+        make_options(live_characters, 2, nullptr, 0, nullptr, -1, mobile_index, 3, nullptr, 0,
+                     nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture leader_fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &leader_fixture));
@@ -877,21 +858,20 @@ TEST(JsGameAdapter, SnapshotsCharacterFollowersAndMasterWithShallowCharacters)
     EXPECT_FALSE(follower_fixture.master.is_npc);
 }
 
-TEST(JsGameAdapter, RejectsInvalidFollowerAndMasterRelationships)
-{
+TEST(JsGameAdapter, RejectsInvalidFollowerAndMasterRelationships) {
     char_data leader = make_character("Leader", 1, 92, 90, 120, false);
     char_data follower = make_character("Follower", 2, 20, 50, 60, true);
     char_data other_leader = make_character("OtherLeader", 1, 91, 90, 120, false);
     follower.abs_number = 1234;
-    follow_type wrong_number {};
+    follow_type wrong_number{};
     wrong_number.follower = &follower;
     wrong_number.fol_number = follower.abs_number + 1;
     leader.followers = &wrong_number;
     follower.master = &leader;
 
-    const char_data *live_characters[] = { &leader, &follower };
+    const char_data *live_characters[] = {&leader, &follower};
     JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture leader_fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &leader_fixture));
@@ -901,7 +881,7 @@ TEST(JsGameAdapter, RejectsInvalidFollowerAndMasterRelationships)
     ASSERT_TRUE(js_game_adapter_character_fixture(&follower, options, &follower_fixture));
     EXPECT_FALSE(follower_fixture.has_master);
 
-    follow_type missing_back_pointer {};
+    follow_type missing_back_pointer{};
     missing_back_pointer.follower = &follower;
     missing_back_pointer.fol_number = follower.abs_number;
     leader.followers = &missing_back_pointer;
@@ -914,8 +894,7 @@ TEST(JsGameAdapter, RejectsInvalidFollowerAndMasterRelationships)
     EXPECT_TRUE(leader_fixture.followers.empty());
 }
 
-TEST(JsGameAdapter, BoundsAndBreaksCharacterFollowerTraversal)
-{
+TEST(JsGameAdapter, BoundsAndBreaksCharacterFollowerTraversal) {
     char_data leader = make_character("Leader", 1, 92, 90, 120, false);
     char_data follower = make_character("Follower", 2, 20, 50, 60, true);
     follower.abs_number = 1234;
@@ -930,9 +909,9 @@ TEST(JsGameAdapter, BoundsAndBreaksCharacterFollowerTraversal)
     nodes[100].fol_number = follower.abs_number;
     leader.followers = &nodes[0];
 
-    const char_data *live_characters[] = { &leader, &follower };
+    const char_data *live_characters[] = {&leader, &follower};
     JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &fixture));
@@ -943,24 +922,23 @@ TEST(JsGameAdapter, BoundsAndBreaksCharacterFollowerTraversal)
     EXPECT_TRUE(fixture.followers.empty());
 }
 
-TEST(JsGameAdapter, DeduplicatesDuplicateCharacterFollowerNodes)
-{
+TEST(JsGameAdapter, DeduplicatesDuplicateCharacterFollowerNodes) {
     char_data leader = make_character("Leader", 1, 92, 90, 120, false);
     char_data follower = make_character("Follower", 2, 20, 50, 60, true);
     follower.abs_number = 1234;
     follower.master = &leader;
-    follow_type first {};
+    follow_type first{};
     first.follower = &follower;
     first.fol_number = follower.abs_number;
-    follow_type duplicate {};
+    follow_type duplicate{};
     duplicate.follower = &follower;
     duplicate.fol_number = follower.abs_number;
     first.next = &duplicate;
     leader.followers = &first;
 
-    const char_data *live_characters[] = { &leader, &follower };
+    const char_data *live_characters[] = {&leader, &follower};
     JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &fixture));
@@ -968,27 +946,26 @@ TEST(JsGameAdapter, DeduplicatesDuplicateCharacterFollowerNodes)
     EXPECT_EQ(fixture.followers[0].name, "Follower");
 }
 
-TEST(JsGameAdapter, RejectsStaleFollowerPointersBeforeDereferencing)
-{
+TEST(JsGameAdapter, RejectsStaleFollowerPointersBeforeDereferencing) {
     char_data leader = make_character("Leader", 1, 92, 90, 120, false);
     char_data follower = make_character("Follower", 2, 20, 50, 60, true);
     follower.abs_number = 1234;
     follower.master = &leader;
-    auto* stale_character = reinterpret_cast<char_data*>(static_cast<std::uintptr_t>(0x1));
-    follow_type stale_node {};
+    auto *stale_character = reinterpret_cast<char_data *>(static_cast<std::uintptr_t>(0x1));
+    follow_type stale_node{};
     stale_node.follower = stale_character;
     stale_node.fol_number = 1234;
     leader.followers = &stale_node;
 
-    const char_data *live_characters[] = { &leader, &follower };
+    const char_data *live_characters[] = {&leader, &follower};
     JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture leader_fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &leader_fixture));
     EXPECT_TRUE(leader_fixture.followers.empty());
 
-    follow_type stale_master_node {};
+    follow_type stale_master_node{};
     stale_master_node.follower = stale_character;
     stale_master_node.fol_number = 1234;
     leader.followers = &stale_master_node;
@@ -999,8 +976,7 @@ TEST(JsGameAdapter, RejectsStaleFollowerPointersBeforeDereferencing)
     EXPECT_FALSE(follower_fixture.has_master);
 }
 
-TEST(JsGameAdapter, BoundsAndBreaksCharacterMasterTraversal)
-{
+TEST(JsGameAdapter, BoundsAndBreaksCharacterMasterTraversal) {
     char_data leader = make_character("Leader", 1, 92, 90, 120, false);
     char_data follower = make_character("Follower", 2, 20, 50, 60, true);
     follower.abs_number = 1234;
@@ -1015,9 +991,9 @@ TEST(JsGameAdapter, BoundsAndBreaksCharacterMasterTraversal)
     nodes[100].fol_number = follower.abs_number;
     leader.followers = &nodes[0];
 
-    const char_data *live_characters[] = { &leader, &follower };
+    const char_data *live_characters[] = {&leader, &follower};
     JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture follower_fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&follower, options, &follower_fixture));
@@ -1028,16 +1004,177 @@ TEST(JsGameAdapter, BoundsAndBreaksCharacterMasterTraversal)
     EXPECT_FALSE(follower_fixture.has_master);
 }
 
-TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)
-{
+TEST(JsGameAdapter, SnapshotsCharacterMountRelationships) {
+    char_data mount = make_character("Warhorse", 1, 20, 90, 120, true);
+    char_data rider = make_character("Rider", 1, 92, 90, 120, false);
+    char_data next_rider = make_character("PackRider", 1, 25, 90, 120, true);
+    mount.abs_number = 2000;
+    rider.abs_number = 2001;
+    next_rider.abs_number = 2002;
+    rider.mount_data.mount = &mount;
+    rider.mount_data.mount_number = mount.abs_number;
+    rider.mount_data.next_rider = &next_rider;
+    rider.mount_data.next_rider_number = next_rider.abs_number;
+    next_rider.mount_data.mount = &mount;
+    next_rider.mount_data.mount_number = mount.abs_number;
+    mount.mount_data.rider = &rider;
+    mount.mount_data.rider_number = rider.abs_number;
+
+    const char_data *live_characters[] = {&mount, &rider, &next_rider};
+    index_data mobile_index[3]{};
+    mobile_index[1].virt = 6202;
+    JsGameAdapterOptions options =
+        make_options(live_characters, 3, nullptr, 0, nullptr, -1, mobile_index, 3, nullptr, 0,
+                     nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture rider_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&rider, options, &rider_fixture));
+    EXPECT_TRUE(rider_fixture.mount.is_riding);
+    ASSERT_TRUE(rider_fixture.mount.has_mount);
+    EXPECT_EQ(rider_fixture.mount.mount.name, "Warhorse");
+    ASSERT_TRUE(rider_fixture.mount.has_next_rider);
+    EXPECT_EQ(rider_fixture.mount.next_rider.name, "PackRider");
+
+    JsGameCharacterFixture mount_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&mount, options, &mount_fixture));
+    EXPECT_TRUE(mount_fixture.mount.is_mounted);
+    ASSERT_TRUE(mount_fixture.mount.has_rider);
+    EXPECT_EQ(mount_fixture.mount.rider.name, "Rider");
+}
+
+TEST(JsGameAdapter, RejectsInvalidCharacterMountRelationships) {
+    char_data mount = make_character("Warhorse", 1, 20, 90, 120, true);
+    char_data rider = make_character("Rider", 1, 92, 90, 120, false);
+    char_data next_rider = make_character("PackRider", 1, 25, 90, 120, true);
+    mount.abs_number = 2000;
+    rider.abs_number = 2001;
+    next_rider.abs_number = 2002;
+    rider.mount_data.mount = &mount;
+    rider.mount_data.mount_number = mount.abs_number + 1;
+    rider.mount_data.next_rider = &next_rider;
+    rider.mount_data.next_rider_number = next_rider.abs_number + 1;
+    next_rider.mount_data.mount = &mount;
+    next_rider.mount_data.mount_number = mount.abs_number;
+    mount.mount_data.rider = &rider;
+    mount.mount_data.rider_number = rider.abs_number + 1;
+
+    const char_data *live_characters[] = {&mount, &rider, &next_rider};
+    JsGameAdapterOptions options = make_options(live_characters, 3, nullptr, 0, nullptr, -1,
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture rider_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&rider, options, &rider_fixture));
+    EXPECT_FALSE(rider_fixture.mount.is_riding);
+    EXPECT_FALSE(rider_fixture.mount.has_mount);
+    EXPECT_FALSE(rider_fixture.mount.has_next_rider);
+
+    JsGameCharacterFixture mount_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&mount, options, &mount_fixture));
+    EXPECT_FALSE(mount_fixture.mount.is_mounted);
+    EXPECT_FALSE(mount_fixture.mount.has_rider);
+
+    mount.mount_data.rider_number = rider.abs_number;
+    rider.mount_data.mount = nullptr;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&mount, options, &mount_fixture));
+    EXPECT_FALSE(mount_fixture.mount.has_rider);
+}
+
+TEST(JsGameAdapter, RejectsStaleRootCharacterMountPointersBeforeDereferencing) {
+    char_data character = make_character("Rider", 1, 92, 90, 120, false);
+    char_data mount = make_character("Warhorse", 1, 20, 90, 120, true);
+    char_data rider = make_character("Passenger", 1, 25, 90, 120, true);
+    char_data next_rider = make_character("PackRider", 1, 25, 90, 120, true);
+    character.abs_number = 2001;
+    mount.abs_number = 2000;
+    rider.abs_number = 2002;
+    next_rider.abs_number = 2003;
+
+    const char_data *live_characters[] = {&character, &mount, &rider, &next_rider};
+    JsGameAdapterOptions options = make_options(live_characters, 4, nullptr, 0, nullptr, -1,
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+    auto *stale_character = reinterpret_cast<char_data *>(static_cast<std::uintptr_t>(0x1));
+
+    character.mount_data.mount = stale_character;
+    character.mount_data.mount_number = mount.abs_number;
+    character.mount_data.rider = stale_character;
+    character.mount_data.rider_number = rider.abs_number;
+    character.mount_data.next_rider = stale_character;
+    character.mount_data.next_rider_number = next_rider.abs_number;
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&character, options, &fixture));
+    EXPECT_FALSE(fixture.mount.is_riding);
+    EXPECT_FALSE(fixture.mount.has_mount);
+    EXPECT_FALSE(fixture.mount.is_mounted);
+    EXPECT_FALSE(fixture.mount.has_rider);
+    EXPECT_FALSE(fixture.mount.has_next_rider);
+
+    character.mount_data.mount = &mount;
+    character.mount_data.mount_number = mount.abs_number;
+    mount.mount_data.rider = &character;
+    mount.mount_data.rider_number = character.abs_number;
+    character.mount_data.next_rider = stale_character;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&character, options, &fixture));
+    EXPECT_TRUE(fixture.mount.is_riding);
+    EXPECT_TRUE(fixture.mount.has_mount);
+    EXPECT_FALSE(fixture.mount.has_next_rider);
+}
+
+TEST(JsGameAdapter, BoundsAndBreaksCharacterMountTraversal) {
+    char_data mount = make_character("Warhorse", 1, 20, 90, 120, true);
+    mount.abs_number = 2000;
+    std::vector<char_data> riders;
+    riders.reserve(101);
+    for (int index = 0; index < 101; ++index) {
+        riders.push_back(make_character("Rider", 1, 92, 90, 120, false));
+        riders[index].abs_number = 3000 + index;
+        riders[index].mount_data.mount = &mount;
+        riders[index].mount_data.mount_number = mount.abs_number;
+        if (index > 0) {
+            riders[index - 1].mount_data.next_rider = &riders[index];
+            riders[index - 1].mount_data.next_rider_number = riders[index].abs_number;
+        }
+    }
+    mount.mount_data.rider = &riders[0];
+    mount.mount_data.rider_number = riders[0].abs_number;
+
+    std::vector<const char_data *> live_characters;
+    live_characters.push_back(&mount);
+    for (const char_data &rider : riders)
+        live_characters.push_back(&rider);
+    JsGameAdapterOptions options =
+        make_options(live_characters.data(), live_characters.size(), nullptr, 0, nullptr, -1,
+                     nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture beyond_cap_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&riders[100], options, &beyond_cap_fixture));
+    EXPECT_FALSE(beyond_cap_fixture.mount.is_riding);
+    EXPECT_FALSE(beyond_cap_fixture.mount.has_mount);
+
+    riders[0].mount_data.next_rider = &riders[0];
+    riders[0].mount_data.next_rider_number = riders[0].abs_number;
+    JsGameCharacterFixture cycle_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&riders[1], options, &cycle_fixture));
+    EXPECT_FALSE(cycle_fixture.mount.is_riding);
+    EXPECT_FALSE(cycle_fixture.mount.has_mount);
+
+    auto *stale_next_rider = reinterpret_cast<char_data *>(static_cast<std::uintptr_t>(0x1));
+    riders[0].mount_data.next_rider = stale_next_rider;
+    riders[0].mount_data.next_rider_number = riders[1].abs_number;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&riders[1], options, &cycle_fixture));
+    EXPECT_FALSE(cycle_fixture.mount.is_riding);
+    EXPECT_FALSE(cycle_fixture.mount.has_mount);
+}
+
+TEST(JsGameAdapter, SnapshotsCharacterDamageDetails) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     player.damage_details.add_damage(1, 5);
     player.damage_details.add_damage(TYPE_HIT, 10);
     player.damage_details.add_damage(TYPE_HIT, 20);
     player.damage_details.tick(2.0f);
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -1047,7 +1184,7 @@ TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)
     EXPECT_DOUBLE_EQ(fixture.damage_details.damage_per_second, 17.5);
     ASSERT_EQ(fixture.damage_details.entries.size(), 2u);
 
-    const JsGameDamageEntryFixture& skill_entry = fixture.damage_details.entries[0];
+    const JsGameDamageEntryFixture &skill_entry = fixture.damage_details.entries[0];
     EXPECT_EQ(skill_entry.source_id, 1);
     EXPECT_EQ(skill_entry.source_kind, "skill");
     EXPECT_EQ(skill_entry.source_name, get_skill_array()[1].name);
@@ -1057,7 +1194,7 @@ TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)
     EXPECT_DOUBLE_EQ(skill_entry.average_damage, 5.0);
     EXPECT_NEAR(skill_entry.percent_of_total, 14.2857, 0.0001);
 
-    const JsGameDamageEntryFixture& attack_entry = fixture.damage_details.entries[1];
+    const JsGameDamageEntryFixture &attack_entry = fixture.damage_details.entries[1];
     EXPECT_EQ(attack_entry.source_id, TYPE_HIT);
     EXPECT_EQ(attack_entry.source_kind, "attack");
     EXPECT_EQ(attack_entry.source_name, get_hit_text(TYPE_HIT).singular);
@@ -1068,12 +1205,11 @@ TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)
     EXPECT_NEAR(attack_entry.percent_of_total, 85.7142, 0.0001);
 }
 
-TEST(JsGameAdapter, SnapshotsEmptyAndUnknownCharacterDamageDetails)
-{
+TEST(JsGameAdapter, SnapshotsEmptyAndUnknownCharacterDamageDetails) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -1095,12 +1231,11 @@ TEST(JsGameAdapter, SnapshotsEmptyAndUnknownCharacterDamageDetails)
     EXPECT_EQ(fixture.damage_details.entries[0].percent_of_total, 100.0);
 }
 
-TEST(JsGameAdapter, SnapshotsMissingAndInvalidSpecializationSafely)
-{
+TEST(JsGameAdapter, SnapshotsMissingAndInvalidSpecializationSafely) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -1113,7 +1248,7 @@ TEST(JsGameAdapter, SnapshotsMissingAndInvalidSpecializationSafely)
     EXPECT_FALSE(fixture.specializations.is_mage_specialization);
     EXPECT_FALSE(fixture.specializations.has_runtime_state);
 
-    char_prof_data professions {};
+    char_prof_data professions{};
     professions.specialization = game_types::PS_Count;
     player.profs = &professions;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -1127,8 +1262,7 @@ TEST(JsGameAdapter, SnapshotsMissingAndInvalidSpecializationSafely)
     EXPECT_FALSE(fixture.specializations.has_runtime_state);
 }
 
-TEST(JsGameAdapter, MapsEverySpecializationIdToStablePublicNames)
-{
+TEST(JsGameAdapter, MapsEverySpecializationIdToStablePublicNames) {
     struct ExpectedSpecialization {
         int id;
         const char *key;
@@ -1159,13 +1293,13 @@ TEST(JsGameAdapter, MapsEverySpecializationIdToStablePublicNames)
         {game_types::PS_BattleMage, "battleMagic", "battle magic", true, true},
     };
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    char_prof_data professions {};
+    char_prof_data professions{};
     player.profs = &professions;
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
-    for (const ExpectedSpecialization& entry : expected) {
+    for (const ExpectedSpecialization &entry : expected) {
         professions.specialization = entry.id;
         player.extra_specialization_data.set(player);
         JsGameCharacterFixture fixture;
@@ -1181,13 +1315,12 @@ TEST(JsGameAdapter, MapsEverySpecializationIdToStablePublicNames)
     }
 }
 
-TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum)
-{
-    const char *races[] = { "God", "Human" };
+TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum) {
+    const char *races[] = {"God", "Human"};
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, races, 2);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, races, 2);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -1200,13 +1333,11 @@ TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum)
     EXPECT_EQ(fixture.experience, 29000);
     EXPECT_EQ(fixture.rank, 32);
     EXPECT_EQ(fixture.specials.tactics, "aggressive");
-    EXPECT_EQ(fixture.specials2.act_flags,
-        (std::vector<std::string> { "writing", "incognito" }));
+    EXPECT_EQ(fixture.specials2.act_flags, (std::vector<std::string>{"writing", "incognito"}));
     EXPECT_FALSE(fixture.is_npc);
 }
 
-TEST(JsGameAdapter, MapsCharacterSpecialsFiniteVocabularies)
-{
+TEST(JsGameAdapter, MapsCharacterSpecialsFiniteVocabularies) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     player.specials.position = POSITION_SHAPING;
     player.specials.default_pos = 99;
@@ -1215,9 +1346,9 @@ TEST(JsGameAdapter, MapsCharacterSpecialsFiniteVocabularies)
     player.specials2.tactics = 99;
     player.specials2.shooting = 99;
     player.specials2.casting = 99;
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -1231,17 +1362,16 @@ TEST(JsGameAdapter, MapsCharacterSpecialsFiniteVocabularies)
     EXPECT_EQ(fixture.specials2.casting, "Unknown");
 }
 
-TEST(JsGameAdapter, MapsCharacterSpecialsPointerPresenceWithoutDereferencing)
-{
+TEST(JsGameAdapter, MapsCharacterSpecialsPointerPresenceWithoutDereferencing) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     char_data opponent = make_character("Opponent", 1, 12, 40, 60, false);
-    memory_rec remembered {};
+    memory_rec remembered{};
     player.specials.fighting = &opponent;
     player.specials.hunting = &opponent;
     player.specials.memory = &remembered;
-    const char_data *live_characters[] = { &player };
+    const char_data *live_characters[] = {&player};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
@@ -1251,13 +1381,12 @@ TEST(JsGameAdapter, MapsCharacterSpecialsPointerPresenceWithoutDereferencing)
     EXPECT_TRUE(fixture.specials.has_memory);
 }
 
-TEST(JsGameAdapter, RejectsNullAndStaleCharacters)
-{
+TEST(JsGameAdapter, RejectsNullAndStaleCharacters) {
     char_data live = make_character("Live", 1, 10, 10, 10, false);
     char_data stale = make_character("Stale", 1, 10, 10, 10, false);
-    const char_data *live_characters[] = { &live };
+    const char_data *live_characters[] = {&live};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     EXPECT_FALSE(js_game_adapter_character_fixture(nullptr, options, &fixture));
@@ -1271,16 +1400,15 @@ TEST(JsGameAdapter, RejectsNullAndStaleCharacters)
     EXPECT_FALSE(js_game_adapter_character_fixture(&live, missing_table_options, &fixture));
 }
 
-TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
-{
-    index_data object_index[1] {};
+TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
+    index_data object_index[1]{};
     object_index[0].virt = 300;
     obj_data object = make_object("silver lever", 0);
-    const obj_data *live_objects[] = { &object };
-    room_data world[1] = { make_room("Northern Gate", 1204, 0) };
-    zone_data zones[1] = { make_zone("Old City", 12) };
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Northern Gate", 1204, 0)};
+    zone_data zones[1] = {make_zone("Old City", 12)};
     JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, world, 0, nullptr, 0,
-        object_index, 1, zones, 1, nullptr, 0);
+                                                object_index, 1, zones, 1, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
@@ -1292,8 +1420,8 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(object_fixture.action_description, "A detailed action description.");
     EXPECT_EQ(object_fixture.vnum, 300);
     EXPECT_EQ(object_fixture.flags.item_type, "weapon");
-    EXPECT_EQ(object_fixture.flags.wear_flags, (std::vector<std::string> { "take", "wield" }));
-    EXPECT_EQ(object_fixture.flags.extra_flags, (std::vector<std::string> { "glow", "magic" }));
+    EXPECT_EQ(object_fixture.flags.wear_flags, (std::vector<std::string>{"take", "wield"}));
+    EXPECT_EQ(object_fixture.flags.extra_flags, (std::vector<std::string>{"glow", "magic"}));
     EXPECT_EQ(object_fixture.flags.level, 12);
     EXPECT_EQ(object_fixture.flags.weight, 700);
     EXPECT_EQ(object_fixture.flags.cost, 450);
@@ -1314,7 +1442,7 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(room_fixture.vnum, 1204);
     EXPECT_EQ(room_fixture.level, 4);
     EXPECT_EQ(room_fixture.sector_type, "City");
-    EXPECT_EQ(room_fixture.flags, (std::vector<std::string> { "dark", "indoors" }));
+    EXPECT_EQ(room_fixture.flags, (std::vector<std::string>{"dark", "indoors"}));
     EXPECT_EQ(room_fixture.alignment, -3);
     EXPECT_EQ(room_fixture.light, 2);
     EXPECT_FALSE(room_fixture.is_sunlit);
@@ -1342,25 +1470,24 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields)
     EXPECT_EQ(zone_fixture.reset_mode, 2);
 }
 
-TEST(JsGameAdapter, FiltersUnknownObjectFlagDomains)
-{
-    index_data object_index[1] {};
+TEST(JsGameAdapter, FiltersUnknownObjectFlagDomains) {
+    index_data object_index[1]{};
     object_index[0].virt = 301;
     obj_data object = make_object("strange shard", 0);
     object.obj_flags.type_flag = -1;
     object.obj_flags.material = 999;
     object.obj_flags.wear_flags = ITEM_TAKE | (1L << 29);
     object.obj_flags.extra_flags = ITEM_GLOW | (1L << 13) | (1L << 29);
-    const obj_data *live_objects[] = { &object };
-    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1,
-        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+    const obj_data *live_objects[] = {&object};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1, nullptr,
+                                                0, object_index, 1, nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
     EXPECT_EQ(object_fixture.flags.item_type, "Unknown");
     EXPECT_EQ(object_fixture.flags.material, "Unknown");
-    EXPECT_EQ(object_fixture.flags.wear_flags, (std::vector<std::string> { "take" }));
-    EXPECT_EQ(object_fixture.flags.extra_flags, (std::vector<std::string> { "glow" }));
+    EXPECT_EQ(object_fixture.flags.wear_flags, (std::vector<std::string>{"take"}));
+    EXPECT_EQ(object_fixture.flags.extra_flags, (std::vector<std::string>{"glow"}));
 
     object.obj_flags.type_flag = 999;
     object.obj_flags.material = -1;
@@ -1369,11 +1496,10 @@ TEST(JsGameAdapter, FiltersUnknownObjectFlagDomains)
     EXPECT_EQ(object_fixture.flags.material, "Unknown");
 }
 
-TEST(JsGameAdapter, ModelsUnknownRoomSectorTypes)
-{
-    room_data world[1] = { make_room("Strange Room", 1205, 0) };
+TEST(JsGameAdapter, ModelsUnknownRoomSectorTypes) {
+    room_data world[1] = {make_room("Strange Room", 1205, 0)};
     JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
-        nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameRoomFixture room_fixture;
 
@@ -1386,11 +1512,10 @@ TEST(JsGameAdapter, ModelsUnknownRoomSectorTypes)
     EXPECT_EQ(room_fixture.sector_type, "Unknown");
 }
 
-TEST(JsGameAdapter, SnapshotsEveryKnownRoomSectorTypeName)
-{
-    room_data world[1] = { make_room("Sector Room", 1206, 0) };
+TEST(JsGameAdapter, SnapshotsEveryKnownRoomSectorTypeName) {
+    room_data world[1] = {make_room("Sector Room", 1206, 0)};
     JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
-        nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0);
 
     ASSERT_GT(num_of_sector_types, 0);
     for (int sector = 0; sector < num_of_sector_types; ++sector) {
@@ -1404,19 +1529,18 @@ TEST(JsGameAdapter, SnapshotsEveryKnownRoomSectorTypeName)
     }
 }
 
-TEST(JsGameAdapter, PreservesNullableTextGetterNulls)
-{
-    index_data object_index[1] {};
+TEST(JsGameAdapter, PreservesNullableTextGetterNulls) {
+    index_data object_index[1]{};
     object_index[0].virt = 301;
     obj_data object = make_object("ancient key", 0);
     object.action_description = nullptr;
-    const obj_data *live_objects[] = { &object };
+    const obj_data *live_objects[] = {&object};
 
     zone_data zone = make_zone("Old City", 12);
     zone.description = nullptr;
     zone.map = nullptr;
-    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1,
-        nullptr, 0, object_index, 1, &zone, 1, nullptr, 0);
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1, nullptr,
+                                                0, object_index, 1, &zone, 1, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
@@ -1431,19 +1555,18 @@ TEST(JsGameAdapter, PreservesNullableTextGetterNulls)
     EXPECT_EQ(zone_fixture.map, "");
 }
 
-TEST(JsGameAdapter, PreservesPresentEmptyNullableTextGetters)
-{
-    index_data object_index[1] {};
+TEST(JsGameAdapter, PreservesPresentEmptyNullableTextGetters) {
+    index_data object_index[1]{};
     object_index[0].virt = 302;
     obj_data object = make_object("blank sign", 0);
     object.action_description = const_cast<char *>("");
-    const obj_data *live_objects[] = { &object };
+    const obj_data *live_objects[] = {&object};
 
     zone_data zone = make_zone("Old City", 12);
     zone.description = const_cast<char *>("");
     zone.map = const_cast<char *>("");
-    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1,
-        nullptr, 0, object_index, 1, &zone, 1, nullptr, 0);
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1, nullptr,
+                                                0, object_index, 1, &zone, 1, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
@@ -1458,15 +1581,14 @@ TEST(JsGameAdapter, PreservesPresentEmptyNullableTextGetters)
     EXPECT_EQ(zone_fixture.map, "");
 }
 
-TEST(JsGameAdapter, ObjectShortDescriptionFallsBackToObjectName)
-{
-    index_data object_index[1] {};
+TEST(JsGameAdapter, ObjectShortDescriptionFallsBackToObjectName) {
+    index_data object_index[1]{};
     object_index[0].virt = 301;
     obj_data object = make_object("ancient key", 0);
     object.short_description = nullptr;
-    const obj_data *live_objects[] = { &object };
-    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1,
-        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+    const obj_data *live_objects[] = {&object};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1, nullptr,
+                                                0, object_index, 1, nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
@@ -1474,8 +1596,7 @@ TEST(JsGameAdapter, ObjectShortDescriptionFallsBackToObjectName)
     EXPECT_EQ(object_fixture.short_description, "ancient key");
 }
 
-TEST(JsGameAdapter, SnapshotsRoomSunlitStateFromCurrentWeatherAndRoomFlags)
-{
+TEST(JsGameAdapter, SnapshotsRoomSunlitStateFromCurrentWeatherAndRoomFlags) {
     struct Case {
         const char *name;
         int sunlight;
@@ -1485,24 +1606,24 @@ TEST(JsGameAdapter, SnapshotsRoomSunlitStateFromCurrentWeatherAndRoomFlags)
         bool expected_is_sunlit;
     };
     const Case cases[] = {
-        { "daylight lit room", SUN_LIGHT, SECT_FIELD, 0, 1, true },
-        { "sunrise lit room", SUN_RISE, SECT_FIELD, 0, 1, true },
-        { "sunset lit room", SUN_SET, SECT_FIELD, 0, 1, false },
-        { "dark outdoor room", SUN_DARK, SECT_FIELD, 0, 0, false },
-        { "dark flagged unlit room", SUN_LIGHT, SECT_FIELD, DARK, 0, false },
-        { "dark flagged room with light source", SUN_LIGHT, SECT_FIELD, DARK, 1, true },
-        { "inside night room", SUN_DARK, SECT_INSIDE, 0, 0, false },
-        { "city night room", SUN_DARK, SECT_CITY, 0, 0, false },
+        {"daylight lit room", SUN_LIGHT, SECT_FIELD, 0, 1, true},
+        {"sunrise lit room", SUN_RISE, SECT_FIELD, 0, 1, true},
+        {"sunset lit room", SUN_SET, SECT_FIELD, 0, 1, false},
+        {"dark outdoor room", SUN_DARK, SECT_FIELD, 0, 0, false},
+        {"dark flagged unlit room", SUN_LIGHT, SECT_FIELD, DARK, 0, false},
+        {"dark flagged room with light source", SUN_LIGHT, SECT_FIELD, DARK, 1, true},
+        {"inside night room", SUN_DARK, SECT_INSIDE, 0, 0, false},
+        {"city night room", SUN_DARK, SECT_CITY, 0, 0, false},
     };
 
     for (const Case &test_case : cases) {
         ScopedSunlight sunlight(test_case.sunlight);
-        room_data world[1] = { make_room(test_case.name, 101, 0) };
+        room_data world[1] = {make_room(test_case.name, 101, 0)};
         world[0].sector_type = test_case.sector_type;
         world[0].room_flags = test_case.room_flags;
         world[0].light = test_case.light;
         JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
-            nullptr, 0, nullptr, 0, nullptr, 0);
+                                                    nullptr, 0, nullptr, 0, nullptr, 0);
 
         JsGameRoomFixture room;
         ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room)) << test_case.name;
@@ -1510,12 +1631,11 @@ TEST(JsGameAdapter, SnapshotsRoomSunlitStateFromCurrentWeatherAndRoomFlags)
     }
 }
 
-TEST(JsGameAdapter, FiltersRoomFlagsForBuilderSnapshots)
-{
-    room_data world[1] = { make_room("Northern Gate", 1204, 0) };
+TEST(JsGameAdapter, FiltersRoomFlagsForBuilderSnapshots) {
+    room_data world[1] = {make_room("Northern Gate", 1204, 0)};
     world[0].room_flags = BFS_MARK | (1L << 30);
     JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
-        nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameRoomFixture room;
     ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room));
@@ -1550,7 +1670,7 @@ TEST(JsGameAdapter, FiltersRoomFlagsForBuilderSnapshots)
     for (const ExpectedRoomFlag &expected : expected_flags) {
         world[0].room_flags = expected.bit;
         ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room)) << expected.name;
-        EXPECT_EQ(room.flags, (std::vector<std::string> { expected.name })) << expected.name;
+        EXPECT_EQ(room.flags, (std::vector<std::string>{expected.name})) << expected.name;
         all_safe_flags |= expected.bit;
         all_safe_names.emplace_back(expected.name);
     }
@@ -1561,14 +1681,13 @@ TEST(JsGameAdapter, FiltersRoomFlagsForBuilderSnapshots)
     EXPECT_EQ(std::find(room.flags.begin(), room.flags.end(), "BFS_MARK"), room.flags.end());
 }
 
-TEST(JsGameAdapter, RejectsStaleObjectsAndInvalidRoomBounds)
-{
+TEST(JsGameAdapter, RejectsStaleObjectsAndInvalidRoomBounds) {
     obj_data live = make_object("live object", 0);
     obj_data stale = make_object("stale object", 0);
-    const obj_data *live_objects[] = { &live };
-    room_data world[1] = { make_room("Only Room", 1, 0) };
+    const obj_data *live_objects[] = {&live};
+    room_data world[1] = {make_room("Only Room", 1, 0)};
     JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, world, 0, nullptr, 0,
-        nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
     EXPECT_FALSE(js_game_adapter_object_fixture(&stale, options, &object_fixture));
@@ -1585,16 +1704,15 @@ TEST(JsGameAdapter, RejectsStaleObjectsAndInvalidRoomBounds)
     EXPECT_FALSE(js_game_adapter_room_fixture(1, options, &room_fixture));
 }
 
-TEST(JsGameAdapter, ModelsObjectRoomAsMissingWhenObjectIsNotDirectlyInRoom)
-{
-    index_data object_index[1] {};
+TEST(JsGameAdapter, ModelsObjectRoomAsMissingWhenObjectIsNotDirectlyInRoom) {
+    index_data object_index[1]{};
     object_index[0].virt = 300;
     obj_data object = make_object("carried lever", 0);
     object.in_room = -1;
-    const obj_data *live_objects[] = { &object };
-    room_data world[1] = { make_room("Only Room", 1, 0) };
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Only Room", 1, 0)};
     JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, world, 0, nullptr, 0,
-        object_index, 1, nullptr, 0, nullptr, 0);
+                                                object_index, 1, nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
     object_fixture.has_room = true;
@@ -1604,21 +1722,20 @@ TEST(JsGameAdapter, ModelsObjectRoomAsMissingWhenObjectIsNotDirectlyInRoom)
     EXPECT_EQ(object_fixture.room.id, "sentinel-room");
 }
 
-TEST(JsGameAdapter, SnapshotsObjectCarriedByWhenCarrierIsLive)
-{
+TEST(JsGameAdapter, SnapshotsObjectCarriedByWhenCarrierIsLive) {
     char_data carrier = make_character("Carrier", 1, 20, 30, 40, false);
     obj_data object = make_object("carried lever", 0);
     object.in_room = -1;
     object.carried_by = &carrier;
     carrier.carrying = &object;
-    const char_data *live_characters[] = { &carrier };
-    const obj_data *live_objects[] = { &object };
-    index_data object_index[1] {};
+    const char_data *live_characters[] = {&carrier};
+    const obj_data *live_objects[] = {&object};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    room_data world[1] = { make_room("Carrier Room", 100, 0) };
-    zone_data zones[1] = { make_zone("Carrier Zone", 10) };
+    room_data world[1] = {make_room("Carrier Room", 100, 0)};
+    zone_data zones[1] = {make_zone("Carrier Zone", 10)};
     JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, world, 0,
-        nullptr, 0, object_index, 1, zones, 1, nullptr, 0);
+                                                nullptr, 0, object_index, 1, zones, 1, nullptr, 0);
 
     JsGameObjectFixture fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &fixture));
@@ -1634,20 +1751,20 @@ TEST(JsGameAdapter, SnapshotsObjectCarriedByWhenCarrierIsLive)
     EXPECT_EQ(fixture.carried_by.room.zone.vnum, 10);
 }
 
-TEST(JsGameAdapter, SnapshotsObjectWornByWhenCarrierHasObjectEquipped)
-{
+TEST(JsGameAdapter, SnapshotsObjectWornByWhenCarrierHasObjectEquipped) {
     char_data wearer = make_character("Wearer", 1, 21, 31, 41, false);
     obj_data object = make_object("worn amulet", 0);
     object.in_room = -1;
     object.carried_by = &wearer;
     wearer.equipment[WEAR_NECK_1] = &object;
-    const char_data *live_characters[] = { &wearer };
-    const obj_data *live_objects[] = { &object };
-    index_data object_index[1] {};
+    const char_data *live_characters[] = {&wearer};
+    const obj_data *live_objects[] = {&object};
+    index_data object_index[1]{};
     object_index[0].virt = 301;
-    room_data world[1] = { make_room("Wearer Room", 101, 0) };
-    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, world, 0,
-        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+    room_data world[1] = {make_room("Wearer Room", 101, 0)};
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, object_index, 1,
+                     nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &fixture));
@@ -1661,19 +1778,19 @@ TEST(JsGameAdapter, SnapshotsObjectWornByWhenCarrierHasObjectEquipped)
     EXPECT_EQ(fixture.worn_by.room.vnum, 101);
 }
 
-TEST(JsGameAdapter, DoesNotTrustUnlinkedObjectCarrierBackPointer)
-{
+TEST(JsGameAdapter, DoesNotTrustUnlinkedObjectCarrierBackPointer) {
     char_data carrier = make_character("Carrier", 1, 20, 30, 40, false);
     obj_data object = make_object("unlinked lever", 0);
     object.in_room = -1;
     object.carried_by = &carrier;
-    const char_data *live_characters[] = { &carrier };
-    const obj_data *live_objects[] = { &object };
-    index_data object_index[1] {};
+    const char_data *live_characters[] = {&carrier};
+    const obj_data *live_objects[] = {&object};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    room_data world[1] = { make_room("Only Room", 100, 0) };
-    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, world, 0,
-        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+    room_data world[1] = {make_room("Only Room", 100, 0)};
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, object_index, 1,
+                     nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &fixture));
@@ -1683,8 +1800,7 @@ TEST(JsGameAdapter, DoesNotTrustUnlinkedObjectCarrierBackPointer)
     EXPECT_FALSE(fixture.has_worn_by);
 }
 
-TEST(JsGameAdapter, DoesNotExposeOwnerForRoomOrNestedObjects)
-{
+TEST(JsGameAdapter, DoesNotExposeOwnerForRoomOrNestedObjects) {
     char_data carrier = make_character("Carrier", 1, 20, 30, 40, false);
     obj_data room_object = make_object("room lever", 0);
     room_object.in_room = 0;
@@ -1694,14 +1810,15 @@ TEST(JsGameAdapter, DoesNotExposeOwnerForRoomOrNestedObjects)
     nested_object.in_room = -1;
     nested_object.in_obj = &container;
     nested_object.carried_by = &carrier;
-    const char_data *live_characters[] = { &carrier };
-    const obj_data *live_objects[] = { &room_object, &nested_object };
-    index_data object_index[2] {};
+    const char_data *live_characters[] = {&carrier};
+    const obj_data *live_objects[] = {&room_object, &nested_object};
+    index_data object_index[2]{};
     object_index[0].virt = 300;
     object_index[1].virt = 301;
-    room_data world[1] = { make_room("Only Room", 100, 0) };
-    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 2, world, 0,
-        nullptr, 0, object_index, 2, nullptr, 0, nullptr, 0);
+    room_data world[1] = {make_room("Only Room", 100, 0)};
+    JsGameAdapterOptions options =
+        make_options(live_characters, 1, live_objects, 2, world, 0, nullptr, 0, object_index, 2,
+                     nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture room_fixture;
     room_fixture.has_carried_by = true;
@@ -1720,13 +1837,12 @@ TEST(JsGameAdapter, DoesNotExposeOwnerForRoomOrNestedObjects)
     EXPECT_FALSE(nested_fixture.has_worn_by);
 }
 
-TEST(JsGameAdapter, RejectionPathsDoNotModifyExistingFixtures)
-{
+TEST(JsGameAdapter, RejectionPathsDoNotModifyExistingFixtures) {
     char_data stale_character = make_character("Stale", 1, 1, 1, 1, false);
     obj_data stale_object = make_object("stale", 0);
-    room_data world[1] = { make_room("Only Room", 1, 0) };
+    room_data world[1] = {make_room("Only Room", 1, 0)};
     JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
-        nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture character_fixture;
     character_fixture.id = "sentinel-character";
@@ -1749,19 +1865,18 @@ TEST(JsGameAdapter, RejectionPathsDoNotModifyExistingFixtures)
     EXPECT_EQ(zone_fixture.id, "sentinel-zone");
 }
 
-TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
-{
-    const char *races[] = { "God", "Human" };
+TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs) {
+    const char *races[] = {"God", "Human"};
     char_data self = make_character("Self", 1, 11, 22, 33, false);
     char_data stale_actor = make_character("StaleActor", 1, 44, 55, 66, false);
     obj_data object = make_object("key", -1);
     obj_data stale_weapon = make_object("stale weapon", 0);
-    const char_data *live_characters[] = { &self };
-    const obj_data *live_objects[] = { &object };
-    room_data world[1] = { make_room("Room", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 10) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Room", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 10)};
     JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, world, 0,
-        nullptr, 0, nullptr, 0, zones, 1, races, 2);
+                                                nullptr, 0, nullptr, 0, zones, 1, races, 2);
 
     JsGameAdapterContextInput input;
     input.self = &self;
@@ -1812,8 +1927,7 @@ TEST(JsGameAdapter, BuildsContextFromOnlyLiveValidInputs)
     EXPECT_EQ(context.trigger.legacy_name, "ON_ENTER");
 }
 
-TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
-{
+TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds) {
     char_data self = make_character("Self", 1, 11, 22, 33, false);
     self.specials2.idnum = 98765;
     char_data actor = make_character("Actor", 1, 11, 22, 33, false);
@@ -1822,12 +1936,13 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     object.owner = 98765;
     object.touched = 55;
     obj_data weapon = make_object("weapon", 0);
-    index_data object_index[1] {};
+    index_data object_index[1]{};
     object_index[0].virt = 400;
-    const char_data *live_characters[] = { &self, &actor };
-    const obj_data *live_objects[] = { &object, &weapon };
-    JsGameAdapterOptions options = make_options(live_characters, 2, live_objects, 2, nullptr, -1,
-        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&object, &weapon};
+    JsGameAdapterOptions options =
+        make_options(live_characters, 2, live_objects, 2, nullptr, -1, nullptr, 0, object_index, 1,
+                     nullptr, 0, nullptr, 0);
 
     JsGameAdapterContextInput input;
     input.self = &self;
@@ -1862,19 +1977,18 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds)
     EXPECT_EQ(context.object.id.find("55"), std::string::npos);
 }
 
-TEST(JsGameAdapter, MapsTypedTargetsFromLiveInputs)
-{
+TEST(JsGameAdapter, MapsTypedTargetsFromLiveInputs) {
     char_data self = make_character("Self", 1, 11, 22, 33, false);
     char_data target_character = make_character("Target", 1, 44, 55, 66, false);
     obj_data target_object = make_object("target object", 0);
-    index_data object_index[1] {};
+    index_data object_index[1]{};
     object_index[0].virt = 700;
-    const char_data *live_characters[] = { &self, &target_character };
-    const obj_data *live_objects[] = { &target_object };
-    room_data world[2] = { make_room("Room", 100, 0), make_room("Other", 101, 0) };
-    zone_data zones[1] = { make_zone("Zone", 10) };
+    const char_data *live_characters[] = {&self, &target_character};
+    const obj_data *live_objects[] = {&target_object};
+    room_data world[2] = {make_room("Room", 100, 0), make_room("Other", 101, 0)};
+    zone_data zones[1] = {make_zone("Zone", 10)};
     JsGameAdapterOptions options = make_options(live_characters, 2, live_objects, 1, world, 1,
-        nullptr, 0, object_index, 1, zones, 1, nullptr, 0);
+                                                nullptr, 0, object_index, 1, zones, 1, nullptr, 0);
 
     target_data targ1;
     targ1.type = TARGET_CHAR;
@@ -1913,17 +2027,16 @@ TEST(JsGameAdapter, MapsTypedTargetsFromLiveInputs)
     EXPECT_EQ(context.target_types[1], "object");
 }
 
-TEST(JsGameAdapter, TargetMappingSkipsStaleAndUnsupportedSlots)
-{
+TEST(JsGameAdapter, TargetMappingSkipsStaleAndUnsupportedSlots) {
     char_data self = make_character("Self", 1, 11, 22, 33, false);
     char_data stale_character = make_character("Stale", 1, 44, 55, 66, false);
     obj_data live_object = make_object("live object", -1);
     obj_data stale_object = make_object("stale object", 0);
-    const char_data *live_characters[] = { &self };
-    const obj_data *live_objects[] = { &live_object };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&live_object};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, world, 0,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     target_data stale_targ1;
     stale_targ1.type = TARGET_CHAR;
@@ -1955,15 +2068,15 @@ TEST(JsGameAdapter, TargetMappingSkipsStaleAndUnsupportedSlots)
         const char *name;
     };
     const UnsupportedTargetType unsupported_types[] = {
-        { TARGET_TEXT, "text" },
-        { TARGET_DIR, "direction" },
-        { TARGET_GOLD, "gold" },
-        { TARGET_IN, "in" },
-        { TARGET_ALL, "all" },
-        { TARGET_VALUE, "value" },
-        { TARGET_OTHER, "other" },
-        { TARGET_IGNORE, "ignore" },
-        { static_cast<signed char>(99), "unknown" },
+        {TARGET_TEXT, "text"},
+        {TARGET_DIR, "direction"},
+        {TARGET_GOLD, "gold"},
+        {TARGET_IN, "in"},
+        {TARGET_ALL, "all"},
+        {TARGET_VALUE, "value"},
+        {TARGET_OTHER, "other"},
+        {TARGET_IGNORE, "ignore"},
+        {static_cast<signed char>(99), "unknown"},
     };
     for (const UnsupportedTargetType &unsupported_type : unsupported_types) {
         target_data unsupported;
@@ -1983,15 +2096,14 @@ TEST(JsGameAdapter, TargetMappingSkipsStaleAndUnsupportedSlots)
     }
 }
 
-TEST(JsGameAdapter, RejectsStaleObjectTargetDataAndFallsBackToLiveSecondSlot)
-{
+TEST(JsGameAdapter, RejectsStaleObjectTargetDataAndFallsBackToLiveSecondSlot) {
     char_data self = make_character("Self", 1, 11, 22, 33, false);
     obj_data live_object = make_object("live object", -1);
     obj_data stale_object = make_object("stale object", 0);
-    const char_data *live_characters[] = { &self };
-    const obj_data *live_objects[] = { &live_object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&live_object};
     JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     target_data stale_targ1;
     stale_targ1.type = TARGET_OBJ;
@@ -2021,15 +2133,14 @@ TEST(JsGameAdapter, RejectsStaleObjectTargetDataAndFallsBackToLiveSecondSlot)
     EXPECT_EQ(context.target_types[1], "object");
 }
 
-TEST(JsGameAdapter, ExplicitStaleTargetDoesNotFallbackToTargetSlots)
-{
+TEST(JsGameAdapter, ExplicitStaleTargetDoesNotFallbackToTargetSlots) {
     char_data self = make_character("Self", 1, 11, 22, 33, false);
     obj_data live_object = make_object("live object", -1);
     obj_data stale_object = make_object("stale object", 0);
-    const char_data *live_characters[] = { &self };
-    const obj_data *live_objects[] = { &live_object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&live_object};
     JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
     target_data live_targ2;
     live_targ2.type = TARGET_OBJ;
     live_targ2.ptr.obj = &live_object;
@@ -2045,13 +2156,12 @@ TEST(JsGameAdapter, ExplicitStaleTargetDoesNotFallbackToTargetSlots)
     EXPECT_EQ(context.target_types[0], "object");
 }
 
-TEST(JsGameAdapter, RejectsCharacterTargetDataWhenAbsNumberDoesNotMatch)
-{
+TEST(JsGameAdapter, RejectsCharacterTargetDataWhenAbsNumberDoesNotMatch) {
     char_data self = make_character("Self", 1, 11, 22, 33, false);
     char_data target_character = make_character("Target", 1, 44, 55, 66, false);
-    const char_data *live_characters[] = { &self, &target_character };
+    const char_data *live_characters[] = {&self, &target_character};
     JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
     target_data target;
     target.type = TARGET_CHAR;
     target.ptr.ch = &target_character;
@@ -2067,12 +2177,11 @@ TEST(JsGameAdapter, RejectsCharacterTargetDataWhenAbsNumberDoesNotMatch)
     EXPECT_EQ(context.target_types[0], "character");
 }
 
-TEST(JsGameAdapter, MapsTargetDataRoomPointerToTypedRoom)
-{
-    room_data world[2] = { make_room("Room", 100, 0), make_room("Target Room", 101, 0) };
-    zone_data zones[1] = { make_zone("Zone", 10) };
+TEST(JsGameAdapter, MapsTargetDataRoomPointerToTypedRoom) {
+    room_data world[2] = {make_room("Room", 100, 0), make_room("Target Room", 101, 0)};
+    zone_data zones[1] = {make_zone("Zone", 10)};
     JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 1, nullptr, 0,
-        nullptr, 0, zones, 1, nullptr, 0);
+                                                nullptr, 0, zones, 1, nullptr, 0);
     target_data room_target;
     room_target.type = TARGET_ROOM;
     room_target.ptr.room = &world[1];
@@ -2095,43 +2204,41 @@ TEST(JsGameAdapter, MapsTargetDataRoomPointerToTypedRoom)
 
     room_data detached_room = make_room("Detached", 999, 0);
     room_target.ptr.room = &detached_room;
-    JsGameTriggerContextFixture detached_context =
-        js_game_adapter_context_fixture(input, options);
+    JsGameTriggerContextFixture detached_context = js_game_adapter_context_fixture(input, options);
     EXPECT_FALSE(detached_context.has_targ1);
     EXPECT_FALSE(detached_context.has_target);
     ASSERT_EQ(detached_context.target_types.size(), 1u);
     EXPECT_EQ(detached_context.target_types[0], "room");
 }
 
-TEST(JsGameAdapter, MapsEveryWearSlotName)
-{
+TEST(JsGameAdapter, MapsEveryWearSlotName) {
     struct ExpectedSlot {
         int slot;
         const char *name;
     };
     const ExpectedSlot expected_slots[] = {
-        { WEAR_LIGHT, "light" },
-        { WEAR_FINGER_R, "fingerRight" },
-        { WEAR_FINGER_L, "fingerLeft" },
-        { WEAR_NECK_1, "neck1" },
-        { WEAR_NECK_2, "neck2" },
-        { WEAR_BODY, "body" },
-        { WEAR_HEAD, "head" },
-        { WEAR_LEGS, "legs" },
-        { WEAR_FEET, "feet" },
-        { WEAR_HANDS, "hands" },
-        { WEAR_ARMS, "arms" },
-        { WEAR_SHIELD, "shield" },
-        { WEAR_ABOUT, "aboutBody" },
-        { WEAR_WAISTE, "waist" },
-        { WEAR_WRIST_R, "wristRight" },
-        { WEAR_WRIST_L, "wristLeft" },
-        { WIELD, "wield" },
-        { HOLD, "hold" },
-        { WEAR_BACK, "back" },
-        { WEAR_BELT_1, "belt1" },
-        { WEAR_BELT_2, "belt2" },
-        { WEAR_BELT_3, "belt3" },
+        {WEAR_LIGHT, "light"},
+        {WEAR_FINGER_R, "fingerRight"},
+        {WEAR_FINGER_L, "fingerLeft"},
+        {WEAR_NECK_1, "neck1"},
+        {WEAR_NECK_2, "neck2"},
+        {WEAR_BODY, "body"},
+        {WEAR_HEAD, "head"},
+        {WEAR_LEGS, "legs"},
+        {WEAR_FEET, "feet"},
+        {WEAR_HANDS, "hands"},
+        {WEAR_ARMS, "arms"},
+        {WEAR_SHIELD, "shield"},
+        {WEAR_ABOUT, "aboutBody"},
+        {WEAR_WAISTE, "waist"},
+        {WEAR_WRIST_R, "wristRight"},
+        {WEAR_WRIST_L, "wristLeft"},
+        {WIELD, "wield"},
+        {HOLD, "hold"},
+        {WEAR_BACK, "back"},
+        {WEAR_BELT_1, "belt1"},
+        {WEAR_BELT_2, "belt2"},
+        {WEAR_BELT_3, "belt3"},
     };
     JsGameAdapterOptions options;
 
@@ -2154,40 +2261,41 @@ TEST(JsGameAdapter, MapsEveryWearSlotName)
     EXPECT_FALSE(js_game_adapter_context_fixture(too_large_input, options).has_wear_slot);
 }
 
-TEST(JsGameAdapter, HandlesInvalidRoomZoneMetadata)
-{
+TEST(JsGameAdapter, HandlesInvalidRoomZoneMetadata) {
     char_data self = make_character("Self", 1, 11, 22, 33, false);
-    const char_data *live_characters[] = { &self };
-    zone_data zones[1] = { make_zone("Zone", 10) };
-    room_data negative_zone_world[1] = { make_room("Bad Zone", 100, -1) };
-    room_data out_of_range_zone_world[1] = { make_room("Bad Zone", 100, 1) };
+    const char_data *live_characters[] = {&self};
+    zone_data zones[1] = {make_zone("Zone", 10)};
+    room_data negative_zone_world[1] = {make_room("Bad Zone", 100, -1)};
+    room_data out_of_range_zone_world[1] = {make_room("Bad Zone", 100, 1)};
 
     JsGameAdapterContextInput input;
     input.self = &self;
     input.room = 0;
 
-    JsGameAdapterOptions negative_options = make_options(live_characters, 1, nullptr, 0,
-        negative_zone_world, 0, nullptr, 0, nullptr, 0, zones, 1, nullptr, 0);
+    JsGameAdapterOptions negative_options =
+        make_options(live_characters, 1, nullptr, 0, negative_zone_world, 0, nullptr, 0, nullptr, 0,
+                     zones, 1, nullptr, 0);
     EXPECT_FALSE(js_game_adapter_context_fixture(input, negative_options).has_zone);
 
-    JsGameAdapterOptions out_of_range_options = make_options(live_characters, 1, nullptr, 0,
-        out_of_range_zone_world, 0, nullptr, 0, nullptr, 0, zones, 1, nullptr, 0);
+    JsGameAdapterOptions out_of_range_options =
+        make_options(live_characters, 1, nullptr, 0, out_of_range_zone_world, 0, nullptr, 0,
+                     nullptr, 0, zones, 1, nullptr, 0);
     EXPECT_FALSE(js_game_adapter_context_fixture(input, out_of_range_options).has_zone);
 
-    JsGameAdapterOptions missing_zone_options = make_options(live_characters, 1, nullptr, 0,
-        out_of_range_zone_world, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+    JsGameAdapterOptions missing_zone_options =
+        make_options(live_characters, 1, nullptr, 0, out_of_range_zone_world, 0, nullptr, 0,
+                     nullptr, 0, nullptr, 0, nullptr, 0);
     EXPECT_FALSE(js_game_adapter_context_fixture(input, missing_zone_options).has_zone);
 }
 
-TEST(JsGameAdapter, HandlesUnresolvedVnumIndexesWithoutLeakingIndexes)
-{
+TEST(JsGameAdapter, HandlesUnresolvedVnumIndexesWithoutLeakingIndexes) {
     char_data npc = make_character("Unindexed Mob", 1, 1, 1, 1, true);
     npc.nr = 99;
     obj_data object = make_object("Unindexed Object", 99);
-    const char_data *live_characters[] = { &npc };
-    const obj_data *live_objects[] = { &object };
+    const char_data *live_characters[] = {&npc};
+    const obj_data *live_objects[] = {&object};
     JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture character_fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&npc, options, &character_fixture));
@@ -2202,8 +2310,7 @@ TEST(JsGameAdapter, HandlesUnresolvedVnumIndexesWithoutLeakingIndexes)
     EXPECT_EQ(object_fixture.id.find("99"), std::string::npos);
 }
 
-TEST(JsGameAdapter, DoesNotDereferenceObjectRelationshipPointers)
-{
+TEST(JsGameAdapter, DoesNotDereferenceObjectRelationshipPointers) {
     char_data stale_carrier = make_character("Carrier", 1, 1, 1, 1, false);
     obj_data stale_container = make_object("Container", 0);
     obj_data object = make_object("Nested", 0);
@@ -2211,11 +2318,11 @@ TEST(JsGameAdapter, DoesNotDereferenceObjectRelationshipPointers)
     object.in_obj = &stale_container;
     object.contains = &stale_container;
     object.in_room = -1;
-    index_data object_index[1] {};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    const obj_data *live_objects[] = { &object };
+    const obj_data *live_objects[] = {&object};
     JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1, nullptr,
-        0, object_index, 1, nullptr, 0, nullptr, 0);
+                                                0, object_index, 1, nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &fixture));
@@ -2230,15 +2337,14 @@ TEST(JsGameAdapter, DoesNotDereferenceObjectRelationshipPointers)
     EXPECT_FALSE(fixture.has_worn_by);
 }
 
-TEST(JsGameAdapter, BoundsCopiedStrings)
-{
+TEST(JsGameAdapter, BoundsCopiedStrings) {
     char long_name[700];
     std::fill(std::begin(long_name), std::end(long_name), 'x');
     long_name[699] = '\0';
     char_data character = make_character(long_name, 1, 1, 1, 1, false);
-    const char_data *live_characters[] = { &character };
+    const char_data *live_characters[] = {&character};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&character, options, &fixture));
@@ -2255,13 +2361,12 @@ TEST(JsGameAdapter, BoundsCopiedStrings)
     EXPECT_EQ(context.text.size(), 1024u);
 }
 
-TEST(JsGameAdapter, SnapshotsStringsWithoutRetainingAliases)
-{
+TEST(JsGameAdapter, SnapshotsStringsWithoutRetainingAliases) {
     char original_name[] = "Original";
     char_data character = make_character(original_name, 99, 1, 2, 3, false);
-    const char_data *live_characters[] = { &character };
+    const char_data *live_characters[] = {&character};
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture fixture;
     ASSERT_TRUE(js_game_adapter_character_fixture(&character, options, &fixture));
@@ -2273,14 +2378,13 @@ TEST(JsGameAdapter, SnapshotsStringsWithoutRetainingAliases)
     EXPECT_EQ(fixture.race, "race:99");
 }
 
-TEST(JsGameAdapter, OpaqueIdsDoNotContainPointerLookingText)
-{
+TEST(JsGameAdapter, OpaqueIdsDoNotContainPointerLookingText) {
     char_data character = make_character("NoPointer", 1, 1, 1, 1, false);
     obj_data object = make_object("NoPointerObject", -1);
-    const char_data *live_characters[] = { &character };
-    const obj_data *live_objects[] = { &object };
+    const char_data *live_characters[] = {&character};
+    const obj_data *live_objects[] = {&object};
     JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
-        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+                                                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
 
     JsGameCharacterFixture character_fixture;
     JsGameObjectFixture object_fixture;

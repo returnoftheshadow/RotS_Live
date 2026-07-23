@@ -27,8 +27,8 @@ constexpr std::size_t MaxAdapterTextLength = 1024;
 
 struct CharacterProfessionField {
     int index;
-    const char* key;
-    const char* name;
+    const char *key;
+    const char *name;
 };
 
 constexpr CharacterProfessionField CharacterProfessionFields[] = {
@@ -40,8 +40,8 @@ constexpr CharacterProfessionField CharacterProfessionFields[] = {
 
 struct CharacterSpecializationField {
     int id;
-    const char* key;
-    const char* name;
+    const char *key;
+    const char *name;
 };
 
 constexpr CharacterSpecializationField CharacterSpecializationFields[] = {
@@ -67,15 +67,13 @@ constexpr CharacterSpecializationField CharacterSpecializationFields[] = {
     {game_types::PS_BattleMage, "battleMagic", "battle magic"},
 };
 
-constexpr const char* EquipmentSlotNames[] = {
-    "light", "fingerRight", "fingerLeft", "neck1", "neck2", "body", "head", "legs",
-    "feet", "hands", "arms", "shield", "aboutBody", "waist", "wristRight", "wristLeft",
-    "wield", "hold", "back", "belt1", "belt2", "belt3"
-};
+constexpr const char *EquipmentSlotNames[] = {
+    "light", "fingerRight", "fingerLeft", "neck1",  "neck2",     "body",  "head",       "legs",
+    "feet",  "hands",       "arms",       "shield", "aboutBody", "waist", "wristRight", "wristLeft",
+    "wield", "hold",        "back",       "belt1",  "belt2",     "belt3"};
 
 template <typename T>
-bool pointer_in_table(const T *candidate, const T *const *table, std::size_t count)
-{
+bool pointer_in_table(const T *candidate, const T *const *table, std::size_t count) {
     if (candidate == nullptr)
         return false;
     if (table == nullptr)
@@ -83,15 +81,13 @@ bool pointer_in_table(const T *candidate, const T *const *table, std::size_t cou
     return std::find(table, table + count, candidate) != table + count;
 }
 
-std::string copy_c_string(const char *value, std::size_t max_length = MaxAdapterStringLength)
-{
+std::string copy_c_string(const char *value, std::size_t max_length = MaxAdapterStringLength) {
     if (value == nullptr)
         return "";
     return std::string(value, strnlen(value, max_length));
 }
 
-std::string table_name_at(char *const *table, int index, int max_entries)
-{
+std::string table_name_at(char *const *table, int index, int max_entries) {
     if (table == nullptr || index < 0 || index >= max_entries)
         return "Unknown";
     const std::string name = copy_c_string(table[index]);
@@ -100,13 +96,11 @@ std::string table_name_at(char *const *table, int index, int max_entries)
     return name;
 }
 
-bool character_is_npc(const char_data &character)
-{
+bool character_is_npc(const char_data &character) {
     return (character.specials2.act & MOB_ISNPC) != 0;
 }
 
-std::string skill_profession_key(int profession)
-{
+std::string skill_profession_key(int profession) {
     switch (profession) {
     case PROF_MAGE:
         return "mage";
@@ -123,35 +117,32 @@ std::string skill_profession_key(int profession)
     }
 }
 
-const CharacterSpecializationField& character_specialization_field(int id)
-{
-    for (const CharacterSpecializationField& field : CharacterSpecializationFields) {
+const CharacterSpecializationField &character_specialization_field(int id) {
+    for (const CharacterSpecializationField &field : CharacterSpecializationFields) {
         if (field.id == id)
             return field;
     }
-    static constexpr CharacterSpecializationField UnknownSpecialization = { -1, "Unknown",
-        "Unknown" };
+    static constexpr CharacterSpecializationField UnknownSpecialization = {-1, "Unknown",
+                                                                           "Unknown"};
     return UnknownSpecialization;
 }
 
-std::pair<std::string, std::string> damage_source_metadata(int source_id)
-{
+std::pair<std::string, std::string> damage_source_metadata(int source_id) {
     if (source_id >= TYPE_HIT && source_id <= TYPE_CRUSH) {
-        const attack_hit_type& hit_text = get_hit_text(source_id);
-        return { "attack", copy_c_string(hit_text.singular) };
+        const attack_hit_type &hit_text = get_hit_text(source_id);
+        return {"attack", copy_c_string(hit_text.singular)};
     }
 
     if (source_id >= 0 && source_id < MAX_SKILLS) {
-        const skill_data* skills = get_skill_array();
+        const skill_data *skills = get_skill_array();
         if (skills != nullptr)
-            return { "skill", copy_c_string(skills[source_id].name) };
+            return {"skill", copy_c_string(skills[source_id].name)};
     }
 
-    return { "unknown", "Unknown" };
+    return {"unknown", "Unknown"};
 }
 
-std::vector<std::string> affect_bitvector_names(long bitvector)
-{
+std::vector<std::string> affect_bitvector_names(long bitvector) {
     std::vector<std::string> names;
     for (int bit_index = 0; bit_index < 32; ++bit_index) {
         if ((bitvector & (1L << bit_index)) == 0)
@@ -163,8 +154,7 @@ std::vector<std::string> affect_bitvector_names(long bitvector)
     return names;
 }
 
-std::string table_name_or_unknown(char **table, int value)
-{
+std::string table_name_or_unknown(char **table, int value) {
     if (table == nullptr || value < 0)
         return "Unknown";
     for (int index = 0; table[index] != nullptr && table[index][0] != '\n'; ++index) {
@@ -174,8 +164,7 @@ std::string table_name_or_unknown(char **table, int value)
     return "Unknown";
 }
 
-std::string table_name_or_empty(char **table, int value)
-{
+std::string table_name_or_empty(char **table, int value) {
     if (table == nullptr || value < 0)
         return "";
     for (int index = 0; table[index] != nullptr && table[index][0] != '\n'; ++index) {
@@ -185,17 +174,16 @@ std::string table_name_or_empty(char **table, int value)
     return "";
 }
 
-std::string character_tactics_name(const char_data &character)
-{
+std::string character_tactics_name(const char_data &character) {
     if (character_is_npc(character))
         return "";
     const int value = character.specials.tactics;
-    return value >= TACTICS_DEFENSIVE && value <= TACTICS_BERSERK ? table_name_or_empty(tactics, value - 1)
-                                                                  : "";
+    return value >= TACTICS_DEFENSIVE && value <= TACTICS_BERSERK
+               ? table_name_or_empty(tactics, value - 1)
+               : "";
 }
 
-std::string character_position_name(int position)
-{
+std::string character_position_name(int position) {
     switch (position) {
     case POSITION_DEAD:
         return "Dead";
@@ -220,15 +208,13 @@ std::string character_position_name(int position)
     }
 }
 
-std::string character_name(const char_data &character)
-{
+std::string character_name(const char_data &character) {
     if (character_is_npc(character))
         return copy_c_string(character.player.short_descr);
     return copy_c_string(character.player.name);
 }
 
-std::string race_name(const char_data &character, const JsGameAdapterOptions &options)
-{
+std::string race_name(const char_data &character, const JsGameAdapterOptions &options) {
     int race = character.player.race;
     if (options.race_names != nullptr && race >= 0 &&
         static_cast<std::size_t>(race) < options.race_name_count &&
@@ -241,8 +227,7 @@ std::string race_name(const char_data &character, const JsGameAdapterOptions &op
     return out.str();
 }
 
-int character_vnum(const char_data &character, const JsGameAdapterOptions &options)
-{
+int character_vnum(const char_data &character, const JsGameAdapterOptions &options) {
     if (!character_is_npc(character) || character.nr < 0 || options.mobile_index == nullptr ||
         static_cast<std::size_t>(character.nr) >= options.mobile_index_count) {
         return -1;
@@ -250,8 +235,7 @@ int character_vnum(const char_data &character, const JsGameAdapterOptions &optio
     return options.mobile_index[character.nr].virt;
 }
 
-int object_vnum(const obj_data &object, const JsGameAdapterOptions &options)
-{
+int object_vnum(const obj_data &object, const JsGameAdapterOptions &options) {
     if (object.item_number < 0 || options.object_index == nullptr ||
         static_cast<std::size_t>(object.item_number) >= options.object_index_count) {
         return -1;
@@ -259,8 +243,7 @@ int object_vnum(const obj_data &object, const JsGameAdapterOptions &options)
     return options.object_index[object.item_number].virt;
 }
 
-std::string character_id(const char_data &character, const JsGameAdapterOptions &options)
-{
+std::string character_id(const char_data &character, const JsGameAdapterOptions &options) {
     std::ostringstream out;
     if (character_is_npc(character)) {
         out << "mob";
@@ -275,8 +258,7 @@ std::string character_id(const char_data &character, const JsGameAdapterOptions 
     return out.str();
 }
 
-std::string object_id(const obj_data &object, const JsGameAdapterOptions &options)
-{
+std::string object_id(const obj_data &object, const JsGameAdapterOptions &options) {
     std::ostringstream out;
     out << "object";
     int vnum = object_vnum(object, options);
@@ -287,22 +269,18 @@ std::string object_id(const obj_data &object, const JsGameAdapterOptions &option
     return out.str();
 }
 
-bool room_is_dark(const room_data &room)
-{
-    return !room.light &&
-        (IS_SET(room.room_flags, DARK) ||
-            ((room.sector_type != SECT_INSIDE && room.sector_type != SECT_CITY) &&
-                weather_info.sunlight == SUN_DARK));
+bool room_is_dark(const room_data &room) {
+    return !room.light && (IS_SET(room.room_flags, DARK) ||
+                           ((room.sector_type != SECT_INSIDE && room.sector_type != SECT_CITY) &&
+                            weather_info.sunlight == SUN_DARK));
 }
 
-bool room_is_sunlit(const room_data &room)
-{
+bool room_is_sunlit(const room_data &room) {
     return (weather_info.sunlight == SUN_LIGHT || weather_info.sunlight == SUN_RISE) &&
-        !room_is_dark(room);
+           !room_is_dark(room);
 }
 
-std::string room_sector_type_name(int sector_type)
-{
+std::string room_sector_type_name(int sector_type) {
     if (sector_type >= 0 && sector_type < num_of_sector_types && sector_types != nullptr &&
         sector_types[sector_type] != nullptr) {
         return copy_c_string(sector_types[sector_type]);
@@ -336,8 +314,7 @@ constexpr RoomFlagName RoomFlagNames[] = {
     {HIDE_VNUM, "hideVnum"},
 };
 
-std::vector<std::string> room_flag_names(long room_flags)
-{
+std::vector<std::string> room_flag_names(long room_flags) {
     std::vector<std::string> flags;
     for (const RoomFlagName &entry : RoomFlagNames) {
         if (IS_SET(room_flags, entry.bit))
@@ -385,24 +362,12 @@ constexpr IntName ObjectTypeNames[] = {
 };
 
 constexpr LongFlagName ObjectWearFlagNames[] = {
-    {ITEM_TAKE, "take"},
-    {ITEM_WEAR_FINGER, "finger"},
-    {ITEM_WEAR_NECK, "neck"},
-    {ITEM_WEAR_BODY, "body"},
-    {ITEM_WEAR_HEAD, "head"},
-    {ITEM_WEAR_LEGS, "legs"},
-    {ITEM_WEAR_FEET, "feet"},
-    {ITEM_WEAR_HANDS, "hands"},
-    {ITEM_WEAR_ARMS, "arms"},
-    {ITEM_WEAR_SHIELD, "shield"},
-    {ITEM_WEAR_ABOUT, "aboutBody"},
-    {ITEM_WEAR_WAISTE, "waist"},
-    {ITEM_WEAR_WRIST, "wrist"},
-    {ITEM_WIELD, "wield"},
-    {ITEM_HOLD, "hold"},
-    {ITEM_THROW, "throw"},
-    {ITEM_WEAR_BACK, "back"},
-    {ITEM_WEAR_BELT, "belt"},
+    {ITEM_TAKE, "take"},          {ITEM_WEAR_FINGER, "finger"},   {ITEM_WEAR_NECK, "neck"},
+    {ITEM_WEAR_BODY, "body"},     {ITEM_WEAR_HEAD, "head"},       {ITEM_WEAR_LEGS, "legs"},
+    {ITEM_WEAR_FEET, "feet"},     {ITEM_WEAR_HANDS, "hands"},     {ITEM_WEAR_ARMS, "arms"},
+    {ITEM_WEAR_SHIELD, "shield"}, {ITEM_WEAR_ABOUT, "aboutBody"}, {ITEM_WEAR_WAISTE, "waist"},
+    {ITEM_WEAR_WRIST, "wrist"},   {ITEM_WIELD, "wield"},          {ITEM_HOLD, "hold"},
+    {ITEM_THROW, "throw"},        {ITEM_WEAR_BACK, "back"},       {ITEM_WEAR_BELT, "belt"},
 };
 
 constexpr LongFlagName ObjectExtraFlagNames[] = {
@@ -528,28 +493,14 @@ constexpr LongFlagName HideFlagNames[] = {
 };
 
 constexpr IntName ObjectMaterialNames[] = {
-    {0, "usual"},
-    {1, "cloth"},
-    {2, "leather"},
-    {3, "chain"},
-    {4, "metal"},
-    {5, "wood"},
-    {6, "stone"},
-    {7, "crystal"},
-    {8, "gold"},
-    {9, "silver"},
-    {10, "mithril"},
-    {11, "fur"},
-    {12, "glass"},
-    {13, "plant"},
+    {0, "usual"},    {1, "cloth"}, {2, "leather"}, {3, "chain"},  {4, "metal"},
+    {5, "wood"},     {6, "stone"}, {7, "crystal"}, {8, "gold"},   {9, "silver"},
+    {10, "mithril"}, {11, "fur"},  {12, "glass"},  {13, "plant"},
 };
 
 constexpr IntName CharacterTacticNames[] = {
-    {TACTICS_DEFENSIVE, "defensive"},
-    {TACTICS_CAREFUL, "careful"},
-    {TACTICS_NORMAL, "normal"},
-    {TACTICS_AGGRESSIVE, "aggressive"},
-    {TACTICS_BERSERK, "berserk"},
+    {TACTICS_DEFENSIVE, "defensive"},   {TACTICS_CAREFUL, "careful"}, {TACTICS_NORMAL, "normal"},
+    {TACTICS_AGGRESSIVE, "aggressive"}, {TACTICS_BERSERK, "berserk"},
 };
 
 constexpr IntName CharacterShootingNames[] = {
@@ -564,8 +515,7 @@ constexpr IntName CharacterCastingNames[] = {
     {CASTING_FAST, "fast"},
 };
 
-std::string named_value(int value, const IntName *names, std::size_t count)
-{
+std::string named_value(int value, const IntName *names, std::size_t count) {
     for (std::size_t index = 0; index < count; ++index) {
         if (names[index].value == value)
             return names[index].name;
@@ -573,8 +523,7 @@ std::string named_value(int value, const IntName *names, std::size_t count)
     return "Unknown";
 }
 
-std::vector<std::string> named_flags(long bitvector, const LongFlagName *names, std::size_t count)
-{
+std::vector<std::string> named_flags(long bitvector, const LongFlagName *names, std::size_t count) {
     std::vector<std::string> flags;
     for (std::size_t index = 0; index < count; ++index) {
         if (IS_SET(bitvector, names[index].bit))
@@ -583,15 +532,13 @@ std::vector<std::string> named_flags(long bitvector, const LongFlagName *names, 
     return flags;
 }
 
-std::vector<std::string> character_act_flags(const char_data &character)
-{
+std::vector<std::string> character_act_flags(const char_data &character) {
     return character_is_npc(character)
-        ? named_flags(character.specials2.act, MobFlagNames, std::size(MobFlagNames))
-        : named_flags(character.specials2.act, PlayerFlagNames, std::size(PlayerFlagNames));
+               ? named_flags(character.specials2.act, MobFlagNames, std::size(MobFlagNames))
+               : named_flags(character.specials2.act, PlayerFlagNames, std::size(PlayerFlagNames));
 }
 
-JsGameObjectFlagsFixture object_flags_fixture(const obj_flag_data &flags)
-{
+JsGameObjectFlagsFixture object_flags_fixture(const obj_flag_data &flags) {
     JsGameObjectFlagsFixture fixture;
     fixture.item_type = named_value(flags.type_flag, ObjectTypeNames, std::size(ObjectTypeNames));
     fixture.wear_flags =
@@ -604,21 +551,20 @@ JsGameObjectFlagsFixture object_flags_fixture(const obj_flag_data &flags)
     fixture.cost_per_day = flags.cost_per_day;
     fixture.timer = flags.timer;
     fixture.rarity = flags.rarity;
-    fixture.material = named_value(flags.material, ObjectMaterialNames, std::size(ObjectMaterialNames));
+    fixture.material =
+        named_value(flags.material, ObjectMaterialNames, std::size(ObjectMaterialNames));
     return fixture;
 }
 
-bool object_is_worn_by(const obj_data *object, const char_data *carrier)
-{
+bool object_is_worn_by(const obj_data *object, const char_data *carrier) {
     if (object == nullptr || carrier == nullptr)
         return false;
 
     return std::find(carrier->equipment, carrier->equipment + MAX_WEAR, object) !=
-        carrier->equipment + MAX_WEAR;
+           carrier->equipment + MAX_WEAR;
 }
 
-bool object_is_carried_by(const obj_data *object, const char_data *carrier)
-{
+bool object_is_carried_by(const obj_data *object, const char_data *carrier) {
     if (object == nullptr || carrier == nullptr)
         return false;
 
@@ -630,16 +576,15 @@ bool object_is_carried_by(const obj_data *object, const char_data *carrier)
     return false;
 }
 
-bool character_has_follower(
-    const char_data* leader, const char_data* follower, const JsGameAdapterOptions& options)
-{
+bool character_has_follower(const char_data *leader, const char_data *follower,
+                            const JsGameAdapterOptions &options) {
     if (leader == nullptr || follower == nullptr)
         return false;
 
     constexpr int MaxFollowerSnapshotNodes = 100;
     int nodes_visited = 0;
-    std::vector<const follow_type*> seen_nodes;
-    for (const follow_type* node = leader->followers;
+    std::vector<const follow_type *> seen_nodes;
+    for (const follow_type *node = leader->followers;
          node != nullptr && nodes_visited < MaxFollowerSnapshotNodes; node = node->next) {
         if (std::find(seen_nodes.begin(), seen_nodes.end(), node) != seen_nodes.end())
             break;
@@ -653,9 +598,38 @@ bool character_has_follower(
     return false;
 }
 
-bool character_reference_fixture(const char_data* character, const JsGameAdapterOptions& options,
-    JsGameCharacterReferenceFixture* fixture)
-{
+bool character_mount_has_rider(const char_data *mount, const char_data *rider,
+                               const JsGameAdapterOptions &options) {
+    if (mount == nullptr || rider == nullptr)
+        return false;
+
+    constexpr int MaxRiderSnapshotNodes = 100;
+    int nodes_visited = 0;
+    std::vector<const char_data *> seen_riders;
+    for (const char_data *node = mount->mount_data.rider;
+         node != nullptr && nodes_visited < MaxRiderSnapshotNodes;
+         node = node->mount_data.next_rider) {
+        if (!js_game_adapter_is_live_character(node, options))
+            return false;
+        if (std::find(seen_riders.begin(), seen_riders.end(), node) != seen_riders.end())
+            break;
+        seen_riders.push_back(node);
+        ++nodes_visited;
+        if (node == rider && node->mount_data.mount == mount &&
+            node->mount_data.mount_number == mount->abs_number)
+            return true;
+        if (node->mount_data.next_rider != nullptr) {
+            if (!js_game_adapter_is_live_character(node->mount_data.next_rider, options))
+                break;
+            if (node->mount_data.next_rider_number != node->mount_data.next_rider->abs_number)
+                break;
+        }
+    }
+    return false;
+}
+
+bool character_reference_fixture(const char_data *character, const JsGameAdapterOptions &options,
+                                 JsGameCharacterReferenceFixture *fixture) {
     if (fixture == nullptr || !js_game_adapter_is_live_character(character, options))
         return false;
 
@@ -663,23 +637,56 @@ bool character_reference_fixture(const char_data* character, const JsGameAdapter
     fixture->name = copy_c_string(GET_NAME(character));
     fixture->race = race_name(*character, options);
     fixture->vnum = character_vnum(*character, options);
-    fixture->prototype_vnum = character_is_npc(*character) ? character_vnum(*character, options) : -1;
+    fixture->prototype_vnum =
+        character_is_npc(*character) ? character_vnum(*character, options) : -1;
     fixture->level = GET_LEVEL(character);
     fixture->is_npc = character_is_npc(*character);
     return true;
 }
 
-bool equipment_object_fixture(
-    const obj_data* object, const char_data* wearer, const JsGameAdapterOptions& options,
-    JsGameEquipmentObjectFixture* fixture)
-{
+bool mount_fixture(const char_data *character, const JsGameAdapterOptions &options,
+                   JsGameMountFixture *fixture) {
+    if (fixture == nullptr || character == nullptr)
+        return false;
+
+    *fixture = JsGameMountFixture{};
+    if (js_game_adapter_is_live_character(character->mount_data.mount, options) &&
+        character->mount_data.mount_number == character->mount_data.mount->abs_number &&
+        character_mount_has_rider(character->mount_data.mount, character, options)) {
+        fixture->has_mount =
+            character_reference_fixture(character->mount_data.mount, options, &fixture->mount);
+        fixture->is_riding = fixture->has_mount;
+    }
+    if (js_game_adapter_is_live_character(character->mount_data.rider, options) &&
+        character->mount_data.rider_number == character->mount_data.rider->abs_number &&
+        character->mount_data.rider->mount_data.mount == character &&
+        character->mount_data.rider->mount_data.mount_number == character->abs_number) {
+        fixture->has_rider =
+            character_reference_fixture(character->mount_data.rider, options, &fixture->rider);
+        fixture->is_mounted = fixture->has_rider;
+    }
+    if (fixture->is_riding &&
+        js_game_adapter_is_live_character(character->mount_data.next_rider, options) &&
+        character->mount_data.next_rider_number == character->mount_data.next_rider->abs_number &&
+        character->mount_data.next_rider->mount_data.mount == character->mount_data.mount &&
+        character->mount_data.next_rider->mount_data.mount_number ==
+            character->mount_data.mount->abs_number) {
+        fixture->has_next_rider = character_reference_fixture(character->mount_data.next_rider,
+                                                              options, &fixture->next_rider);
+    }
+    return true;
+}
+
+bool equipment_object_fixture(const obj_data *object, const char_data *wearer,
+                              const JsGameAdapterOptions &options,
+                              JsGameEquipmentObjectFixture *fixture) {
     if (fixture == nullptr || !js_game_adapter_is_live_object(object, options))
         return false;
     if (wearer == nullptr || object->carried_by != wearer || object->in_room != NOWHERE ||
         object->in_obj != nullptr || !object_is_worn_by(object, wearer))
         return false;
 
-    const char* display_name =
+    const char *display_name =
         object->short_description != nullptr ? object->short_description : object->name;
     fixture->id = object_id(*object, options);
     fixture->name = copy_c_string(display_name);
@@ -693,10 +700,9 @@ bool equipment_object_fixture(
     return true;
 }
 
-bool inventory_object_fixture(
-    const obj_data* object, const char_data* carrier, const JsGameAdapterOptions& options,
-    JsGameEquipmentObjectFixture* fixture)
-{
+bool inventory_object_fixture(const obj_data *object, const char_data *carrier,
+                              const JsGameAdapterOptions &options,
+                              JsGameEquipmentObjectFixture *fixture) {
     if (fixture == nullptr || !js_game_adapter_is_live_object(object, options))
         return false;
     if (carrier == nullptr || object->carried_by != carrier || object->in_room != NOWHERE ||
@@ -704,7 +710,7 @@ bool inventory_object_fixture(
         object_is_worn_by(object, carrier))
         return false;
 
-    const char* display_name =
+    const char *display_name =
         object->short_description != nullptr ? object->short_description : object->name;
     fixture->id = object_id(*object, options);
     fixture->name = copy_c_string(display_name);
@@ -718,8 +724,7 @@ bool inventory_object_fixture(
     return true;
 }
 
-int room_index_for_pointer(const room_data *room, const JsGameAdapterOptions &options)
-{
+int room_index_for_pointer(const room_data *room, const JsGameAdapterOptions &options) {
     if (room == nullptr || options.world == nullptr)
         return -1;
     for (std::size_t index = 0; index < options.world_count; ++index) {
@@ -729,8 +734,7 @@ int room_index_for_pointer(const room_data *room, const JsGameAdapterOptions &op
     return -1;
 }
 
-const char *target_type_name(int target_type)
-{
+const char *target_type_name(int target_type) {
     switch (target_type) {
     case TARGET_CHAR:
         return "character";
@@ -762,8 +766,7 @@ const char *target_type_name(int target_type)
 }
 
 bool target_fixture_from_character(const char_data *character, const JsGameAdapterOptions &options,
-    JsGameTargetFixture *fixture)
-{
+                                   JsGameTargetFixture *fixture) {
     if (fixture == nullptr ||
         !js_game_adapter_character_fixture(character, options, &fixture->character))
         return false;
@@ -773,9 +776,8 @@ bool target_fixture_from_character(const char_data *character, const JsGameAdapt
     return true;
 }
 
-bool target_fixture_from_object(
-    const obj_data *object, const JsGameAdapterOptions &options, JsGameTargetFixture *fixture)
-{
+bool target_fixture_from_object(const obj_data *object, const JsGameAdapterOptions &options,
+                                JsGameTargetFixture *fixture) {
     if (fixture == nullptr || !js_game_adapter_object_fixture(object, options, &fixture->object))
         return false;
     fixture->type = "object";
@@ -784,9 +786,8 @@ bool target_fixture_from_object(
     return true;
 }
 
-bool target_fixture_from_room(
-    int room, const JsGameAdapterOptions &options, JsGameTargetFixture *fixture)
-{
+bool target_fixture_from_room(int room, const JsGameAdapterOptions &options,
+                              JsGameTargetFixture *fixture) {
     if (fixture == nullptr || !js_game_adapter_room_fixture(room, options, &fixture->room))
         return false;
     fixture->type = "room";
@@ -795,9 +796,8 @@ bool target_fixture_from_room(
     return true;
 }
 
-bool target_fixture_from_target_data(const target_data *target,
-    const JsGameAdapterOptions &options, JsGameTargetFixture *fixture)
-{
+bool target_fixture_from_target_data(const target_data *target, const JsGameAdapterOptions &options,
+                                     JsGameTargetFixture *fixture) {
     if (target == nullptr || fixture == nullptr)
         return false;
     switch (target->type) {
@@ -810,15 +810,14 @@ bool target_fixture_from_target_data(const target_data *target,
         return target_fixture_from_object(target->ptr.obj, options, fixture);
     case TARGET_ROOM:
         return target_fixture_from_room(room_index_for_pointer(target->ptr.room, options), options,
-            fixture);
+                                        fixture);
     default:
         fixture->type = target_type_name(target->type);
         return false;
     }
 }
 
-void set_target_fixture_id(JsGameTargetFixture &fixture, const char *id)
-{
+void set_target_fixture_id(JsGameTargetFixture &fixture, const char *id) {
     if (fixture.has_character)
         fixture.character.id = id;
     if (fixture.has_object)
@@ -827,8 +826,7 @@ void set_target_fixture_id(JsGameTargetFixture &fixture, const char *id)
         fixture.room.id = id;
 }
 
-const char *wear_slot_name(int wear_slot)
-{
+const char *wear_slot_name(int wear_slot) {
     switch (wear_slot) {
     case WEAR_LIGHT:
         return "light";
@@ -881,19 +879,16 @@ const char *wear_slot_name(int wear_slot)
 
 } // namespace
 
-bool js_game_adapter_is_live_character(
-    const char_data *character, const JsGameAdapterOptions &options)
-{
+bool js_game_adapter_is_live_character(const char_data *character,
+                                       const JsGameAdapterOptions &options) {
     return pointer_in_table(character, options.live_characters, options.live_character_count);
 }
 
-bool js_game_adapter_is_live_object(const obj_data *object, const JsGameAdapterOptions &options)
-{
+bool js_game_adapter_is_live_object(const obj_data *object, const JsGameAdapterOptions &options) {
     return pointer_in_table(object, options.live_objects, options.live_object_count);
 }
 
-bool js_game_adapter_room_is_valid(int room, const JsGameAdapterOptions &options)
-{
+bool js_game_adapter_room_is_valid(int room, const JsGameAdapterOptions &options) {
     if (options.world == nullptr || room < 0)
         return false;
     if (options.world_count > 0)
@@ -902,8 +897,8 @@ bool js_game_adapter_room_is_valid(int room, const JsGameAdapterOptions &options
 }
 
 bool js_game_adapter_character_fixture(const char_data *character,
-    const JsGameAdapterOptions &options, JsGameCharacterFixture *fixture)
-{
+                                       const JsGameAdapterOptions &options,
+                                       JsGameCharacterFixture *fixture) {
     if (fixture == nullptr || !js_game_adapter_is_live_character(character, options))
         return false;
 
@@ -971,7 +966,8 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->specials.was_in_room = character->specials.was_in_room;
     fixture->specials.energy = character->specials.ENERGY;
     fixture->specials.current_parry = character->specials.current_parry;
-    fixture->specials.last_direction = table_name_or_empty(dirs, character->specials.last_direction);
+    fixture->specials.last_direction =
+        table_name_or_empty(dirs, character->specials.last_direction);
     fixture->specials.attack_type = character->specials.attack_type;
     fixture->specials.script_number = character->specials.script_number;
     fixture->specials.current_bodypart = character->specials.current_bodypart;
@@ -1002,17 +998,17 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->specials2.retired_on = character->specials2.retiredon;
     fixture->specials2.hide_flags =
         named_flags(character->specials2.hide_flags, HideFlagNames, std::size(HideFlagNames));
-    fixture->specials2.tactics = named_value(
-        character->specials2.tactics, CharacterTacticNames, std::size(CharacterTacticNames));
-    fixture->specials2.shooting = named_value(
-        character->specials2.shooting, CharacterShootingNames, std::size(CharacterShootingNames));
-    fixture->specials2.casting = named_value(
-        character->specials2.casting, CharacterCastingNames, std::size(CharacterCastingNames));
+    fixture->specials2.tactics = named_value(character->specials2.tactics, CharacterTacticNames,
+                                             std::size(CharacterTacticNames));
+    fixture->specials2.shooting = named_value(character->specials2.shooting, CharacterShootingNames,
+                                              std::size(CharacterShootingNames));
+    fixture->specials2.casting = named_value(character->specials2.casting, CharacterCastingNames,
+                                             std::size(CharacterCastingNames));
     fixture->specials2.two_handed = character->specials2.two_handed != 0;
     fixture->professions.clear();
     if (character->profs != nullptr) {
         fixture->professions.reserve(std::size(CharacterProfessionFields));
-        for (const CharacterProfessionField& profession : CharacterProfessionFields) {
+        for (const CharacterProfessionField &profession : CharacterProfessionFields) {
             JsGameProfessionFixture profession_fixture;
             profession_fixture.key = profession.key;
             profession_fixture.name = profession.name;
@@ -1023,10 +1019,9 @@ bool js_game_adapter_character_fixture(const char_data *character,
             fixture->professions.push_back(std::move(profession_fixture));
         }
     }
-    const CharacterSpecializationField& selected_specialization =
-        character_specialization_field(character->profs != nullptr ? character->profs->specialization
-                                                                   : game_types::PS_None);
-    const CharacterSpecializationField& current_specialization =
+    const CharacterSpecializationField &selected_specialization = character_specialization_field(
+        character->profs != nullptr ? character->profs->specialization : game_types::PS_None);
+    const CharacterSpecializationField &current_specialization =
         character_specialization_field(character->extra_specialization_data.get_current_spec());
     fixture->specializations.selected_id = selected_specialization.id;
     fixture->specializations.selected_key = selected_specialization.key;
@@ -1042,15 +1037,14 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->damage_details.elapsed_combat_seconds =
         character->damage_details.get_elapsed_combat_seconds();
     fixture->damage_details.total_damage = 0;
-    for (const auto& damage_entry : character->damage_details.get_damage_map()) {
+    for (const auto &damage_entry : character->damage_details.get_damage_map()) {
         fixture->damage_details.total_damage += damage_entry.second.get_total_damage();
     }
-    const double combat_seconds =
-        std::max(fixture->damage_details.elapsed_combat_seconds, 0.5);
+    const double combat_seconds = std::max(fixture->damage_details.elapsed_combat_seconds, 0.5);
     fixture->damage_details.damage_per_second =
         static_cast<double>(fixture->damage_details.total_damage) / combat_seconds;
     fixture->damage_details.entries.reserve(character->damage_details.get_damage_map().size());
-    for (const auto& damage_entry : character->damage_details.get_damage_map()) {
+    for (const auto &damage_entry : character->damage_details.get_damage_map()) {
         JsGameDamageEntryFixture entry_fixture;
         const auto [source_kind, source_name] = damage_source_metadata(damage_entry.first);
         entry_fixture.source_id = damage_entry.first;
@@ -1063,17 +1057,16 @@ bool js_game_adapter_character_fixture(const char_data *character,
             entry_fixture.instance_count > 0
                 ? static_cast<double>(entry_fixture.total_damage) / entry_fixture.instance_count
                 : 0;
-        entry_fixture.percent_of_total =
-            fixture->damage_details.total_damage > 0
-                ? (static_cast<double>(entry_fixture.total_damage)
-                      / fixture->damage_details.total_damage)
-                    * 100
-                : 0;
+        entry_fixture.percent_of_total = fixture->damage_details.total_damage > 0
+                                             ? (static_cast<double>(entry_fixture.total_damage) /
+                                                fixture->damage_details.total_damage) *
+                                                   100
+                                             : 0;
         fixture->damage_details.entries.push_back(std::move(entry_fixture));
     }
     fixture->skills.clear();
     if (character->skills != nullptr) {
-        const skill_data* skill_table = get_skill_array();
+        const skill_data *skill_table = get_skill_array();
         if (skill_table != nullptr) {
             for (int skill_id = 0; skill_id < MAX_SKILLS; ++skill_id) {
                 const int practice = character->skills[skill_id];
@@ -1100,7 +1093,7 @@ bool js_game_adapter_character_fixture(const char_data *character,
     }
     fixture->knowledge.clear();
     if (character->knowledge != nullptr) {
-        const skill_data* skill_table = get_skill_array();
+        const skill_data *skill_table = get_skill_array();
         if (skill_table != nullptr) {
             for (int skill_id = 0; skill_id < MAX_SKILLS; ++skill_id) {
                 const int knowledge = character->knowledge[skill_id];
@@ -1126,11 +1119,10 @@ bool js_game_adapter_character_fixture(const char_data *character,
         }
     }
     fixture->affects.clear();
-    const skill_data* skill_table = get_skill_array();
+    const skill_data *skill_table = get_skill_array();
     int affect_count = 0;
-    for (const affected_type* affect = character->affected;
-         affect != nullptr && affect_count < MAX_AFFECT;
-         affect = affect->next, ++affect_count) {
+    for (const affected_type *affect = character->affected;
+         affect != nullptr && affect_count < MAX_AFFECT; affect = affect->next, ++affect_count) {
         JsGameAffectFixture affect_fixture;
         affect_fixture.type = affect->type;
         if (skill_table != nullptr && affect->type >= 0 && affect->type < MAX_SKILLS) {
@@ -1154,17 +1146,17 @@ bool js_game_adapter_character_fixture(const char_data *character,
         JsGameEquipmentSlotFixture slot_fixture;
         slot_fixture.slot_index = slot;
         slot_fixture.slot_name = slot < static_cast<int>(std::size(EquipmentSlotNames))
-            ? EquipmentSlotNames[slot]
-            : "unknown";
-        slot_fixture.has_object =
-            equipment_object_fixture(character->equipment[slot], character, options, &slot_fixture.object);
+                                     ? EquipmentSlotNames[slot]
+                                     : "unknown";
+        slot_fixture.has_object = equipment_object_fixture(character->equipment[slot], character,
+                                                           options, &slot_fixture.object);
         fixture->equipment.push_back(std::move(slot_fixture));
     }
     fixture->inventory.clear();
     constexpr int MaxInventorySnapshotItems = 100;
     int inventory_nodes_visited = 0;
-    std::vector<const obj_data*> seen_inventory_nodes;
-    for (const obj_data* carried = character->carrying;
+    std::vector<const obj_data *> seen_inventory_nodes;
+    for (const obj_data *carried = character->carrying;
          carried != nullptr && inventory_nodes_visited < MaxInventorySnapshotItems;
          carried = carried->next_content) {
         if (std::find(seen_inventory_nodes.begin(), seen_inventory_nodes.end(), carried) !=
@@ -1180,9 +1172,9 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->followers.clear();
     constexpr int MaxFollowerSnapshotNodes = 100;
     int follower_nodes_visited = 0;
-    std::vector<const follow_type*> seen_follower_nodes;
-    std::vector<const char_data*> seen_followers;
-    for (const follow_type* follower = character->followers;
+    std::vector<const follow_type *> seen_follower_nodes;
+    std::vector<const char_data *> seen_followers;
+    for (const follow_type *follower = character->followers;
          follower != nullptr && follower_nodes_visited < MaxFollowerSnapshotNodes;
          follower = follower->next) {
         if (std::find(seen_follower_nodes.begin(), seen_follower_nodes.end(), follower) !=
@@ -1207,14 +1199,14 @@ bool js_game_adapter_character_fixture(const char_data *character,
         character_has_follower(character->master, character, options))
         fixture->has_master =
             character_reference_fixture(character->master, options, &fixture->master);
+    mount_fixture(character, options, &fixture->mount);
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;
 }
 
-bool js_game_adapter_object_fixture(
-    const obj_data *object, const JsGameAdapterOptions &options, JsGameObjectFixture *fixture)
-{
+bool js_game_adapter_object_fixture(const obj_data *object, const JsGameAdapterOptions &options,
+                                    JsGameObjectFixture *fixture) {
     if (fixture == nullptr || !js_game_adapter_is_live_object(object, options))
         return false;
 
@@ -1238,16 +1230,15 @@ bool js_game_adapter_object_fixture(
             fixture->has_worn_by =
                 js_game_adapter_character_fixture(object->carried_by, options, &fixture->worn_by);
         } else if (object_is_carried_by(object, object->carried_by)) {
-            fixture->has_carried_by =
-                js_game_adapter_character_fixture(object->carried_by, options, &fixture->carried_by);
+            fixture->has_carried_by = js_game_adapter_character_fixture(object->carried_by, options,
+                                                                        &fixture->carried_by);
         }
     }
     return true;
 }
 
-bool js_game_adapter_room_fixture(
-    int room, const JsGameAdapterOptions &options, JsGameRoomFixture *fixture)
-{
+bool js_game_adapter_room_fixture(int room, const JsGameAdapterOptions &options,
+                                  JsGameRoomFixture *fixture) {
     if (fixture == nullptr || !js_game_adapter_room_is_valid(room, options))
         return false;
 
@@ -1266,9 +1257,8 @@ bool js_game_adapter_room_fixture(
     return true;
 }
 
-bool js_game_adapter_zone_fixture(
-    int zone, const JsGameAdapterOptions &options, JsGameZoneFixture *fixture)
-{
+bool js_game_adapter_zone_fixture(int zone, const JsGameAdapterOptions &options,
+                                  JsGameZoneFixture *fixture) {
     if (fixture == nullptr || options.zones == nullptr || zone < 0 ||
         static_cast<std::size_t>(zone) >= options.zone_count) {
         return false;
@@ -1297,9 +1287,8 @@ bool js_game_adapter_zone_fixture(
     return true;
 }
 
-JsGameTriggerContextFixture js_game_adapter_context_fixture(
-    const JsGameAdapterContextInput &input, const JsGameAdapterOptions &options)
-{
+JsGameTriggerContextFixture js_game_adapter_context_fixture(const JsGameAdapterContextInput &input,
+                                                            const JsGameAdapterOptions &options) {
     JsGameTriggerContextFixture context;
     context.has_self = js_game_adapter_character_fixture(input.self, options, &context.self);
     context.has_actor = js_game_adapter_character_fixture(input.actor, options, &context.actor);
@@ -1355,13 +1344,14 @@ JsGameTriggerContextFixture js_game_adapter_context_fixture(
     context.has_reverse_direction = input.reverse_direction != nullptr;
     if (input.reverse_direction != nullptr)
         context.reverse_direction = copy_c_string(input.reverse_direction, MaxAdapterTextLength);
-    const bool has_explicit_target = input.target_character != nullptr || input.target_object != nullptr ||
-        input.target_room >= 0;
+    const bool has_explicit_target = input.target_character != nullptr ||
+                                     input.target_object != nullptr || input.target_room >= 0;
     if (input.target_character != nullptr)
         context.has_target =
             target_fixture_from_character(input.target_character, options, &context.target);
     else if (input.target_object != nullptr)
-        context.has_target = target_fixture_from_object(input.target_object, options, &context.target);
+        context.has_target =
+            target_fixture_from_object(input.target_object, options, &context.target);
     else if (input.target_room >= 0)
         context.has_target = target_fixture_from_room(input.target_room, options, &context.target);
     context.has_targ1 = target_fixture_from_target_data(input.targ1, options, &context.targ1);

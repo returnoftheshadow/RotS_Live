@@ -1,19 +1,19 @@
-#include "../js_game_runtime.h"
 #include "../js_api_struct_mapping.h"
+#include "../js_game_runtime.h"
 #include "../spells.h"
 #include "../structs.h"
 
 #include <gtest/gtest.h>
 
-extern char* sector_types[];
+extern char *sector_types[];
 extern char num_of_sector_types;
 
 namespace {
 
-JsGameDamageEntryFixture make_damage_entry(int source_id, const std::string& source_kind,
-    const std::string& source_name, int instance_count, int total_damage, int largest_damage,
-    double average_damage, double percent_of_total)
-{
+JsGameDamageEntryFixture make_damage_entry(int source_id, const std::string &source_kind,
+                                           const std::string &source_name, int instance_count,
+                                           int total_damage, int largest_damage,
+                                           double average_damage, double percent_of_total) {
     JsGameDamageEntryFixture entry;
     entry.source_id = source_id;
     entry.source_kind = source_kind;
@@ -26,10 +26,11 @@ JsGameDamageEntryFixture make_damage_entry(int source_id, const std::string& sou
     return entry;
 }
 
-JsGameSkillValueFixture make_skill_value(int id, const std::string& name,
-    const std::string& profession, int level, int practice, int minimum_position, int mana_cost,
-    int beats, int targets, int learn_difficulty, int learn_type, bool is_fast, int specialization)
-{
+JsGameSkillValueFixture make_skill_value(int id, const std::string &name,
+                                         const std::string &profession, int level, int practice,
+                                         int minimum_position, int mana_cost, int beats,
+                                         int targets, int learn_difficulty, int learn_type,
+                                         bool is_fast, int specialization) {
     JsGameSkillValueFixture skill;
     skill.id = id;
     skill.name = name;
@@ -47,10 +48,11 @@ JsGameSkillValueFixture make_skill_value(int id, const std::string& name,
     return skill;
 }
 
-JsGameKnowledgeValueFixture make_knowledge_value(int id, const std::string& name,
-    const std::string& profession, int level, int knowledge, int minimum_position, int mana_cost,
-    int beats, int targets, int learn_difficulty, int learn_type, bool is_fast, int specialization)
-{
+JsGameKnowledgeValueFixture make_knowledge_value(int id, const std::string &name,
+                                                 const std::string &profession, int level,
+                                                 int knowledge, int minimum_position, int mana_cost,
+                                                 int beats, int targets, int learn_difficulty,
+                                                 int learn_type, bool is_fast, int specialization) {
     JsGameKnowledgeValueFixture value;
     value.id = id;
     value.name = name;
@@ -68,10 +70,10 @@ JsGameKnowledgeValueFixture make_knowledge_value(int id, const std::string& name
     return value;
 }
 
-JsGameAffectFixture make_affect(int type, const std::string& name, int duration, int time_phase,
-    int modifier, int location, const std::string& location_name, long bitvector,
-    const std::vector<std::string>& bitvector_names, int counter)
-{
+JsGameAffectFixture make_affect(int type, const std::string &name, int duration, int time_phase,
+                                int modifier, int location, const std::string &location_name,
+                                long bitvector, const std::vector<std::string> &bitvector_names,
+                                int counter) {
     JsGameAffectFixture affect;
     affect.type = type;
     affect.name = name;
@@ -86,9 +88,8 @@ JsGameAffectFixture make_affect(int type, const std::string& name, int duration,
     return affect;
 }
 
-JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string& slot_name,
-    bool has_object)
-{
+JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string &slot_name,
+                                               bool has_object) {
     JsGameEquipmentSlotFixture slot;
     slot.slot_index = slot_index;
     slot.slot_name = slot_name;
@@ -102,8 +103,8 @@ JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string
         slot.object.action_description = "The helm glints in the light.";
         slot.object.vnum = 2001;
         slot.object.flags.item_type = "armor";
-        slot.object.flags.wear_flags = { "take", "head" };
-        slot.object.flags.extra_flags = { "glow" };
+        slot.object.flags.wear_flags = {"take", "head"};
+        slot.object.flags.extra_flags = {"glow"};
         slot.object.flags.level = 12;
         slot.object.flags.weight = 7;
         slot.object.flags.cost = 450;
@@ -115,9 +116,8 @@ JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string
     return slot;
 }
 
-JsGameEquipmentObjectFixture make_inventory_object(
-    const std::string& id, const std::string& name, int vnum)
-{
+JsGameEquipmentObjectFixture make_inventory_object(const std::string &id, const std::string &name,
+                                                   int vnum) {
     JsGameEquipmentObjectFixture object;
     object.id = id;
     object.name = name;
@@ -127,8 +127,8 @@ JsGameEquipmentObjectFixture make_inventory_object(
     object.action_description = "The item is ready to use.";
     object.vnum = vnum;
     object.flags.item_type = "light";
-    object.flags.wear_flags = { "take" };
-    object.flags.extra_flags = { "glow" };
+    object.flags.wear_flags = {"take"};
+    object.flags.extra_flags = {"glow"};
     object.flags.level = 4;
     object.flags.weight = 2;
     object.flags.cost = 25;
@@ -139,9 +139,8 @@ JsGameEquipmentObjectFixture make_inventory_object(
     return object;
 }
 
-JsGameCharacterReferenceFixture make_character_reference(
-    const std::string& id, const std::string& name, bool is_npc)
-{
+JsGameCharacterReferenceFixture make_character_reference(const std::string &id,
+                                                         const std::string &name, bool is_npc) {
     JsGameCharacterReferenceFixture character;
     character.id = id;
     character.name = name;
@@ -153,8 +152,7 @@ JsGameCharacterReferenceFixture make_character_reference(
     return character;
 }
 
-JsGameTriggerContextFixture make_context()
-{
+JsGameTriggerContextFixture make_context() {
     JsGameTriggerContextFixture context;
     context.has_self = true;
     context.self.id = "char:1001";
@@ -187,7 +185,7 @@ JsGameTriggerContextFixture make_context()
     context.self.rolled_abilities.dexterity = 14;
     context.self.rolled_abilities.constitution = 12;
     context.self.rolled_abilities.leadership = 7;
-    context.self.points.bodypart_hits = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+    context.self.points.bodypart_hits = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
     context.self.points.gold = 123;
     context.self.points.experience = 42000;
     context.self.points.spirit = 33;
@@ -228,8 +226,8 @@ JsGameTriggerContextFixture make_context()
     context.self.specials2.load_room = 3001;
     context.self.specials2.spells_to_learn = 3;
     context.self.specials2.alignment = 250;
-    context.self.specials2.act_flags = { "writing", "incognito" };
-    context.self.specials2.preference_flags = { "brief", "color", "advancedView" };
+    context.self.specials2.act_flags = {"writing", "incognito"};
+    context.self.specials2.preference_flags = {"brief", "color", "advancedView"};
     context.self.specials2.wimp_level = 20;
     context.self.specials2.freeze_level = 5;
     context.self.specials2.saving_throw = 7;
@@ -244,16 +242,16 @@ JsGameTriggerContextFixture make_context()
     context.self.specials2.rerolls = 2;
     context.self.specials2.leg_encumbrance = 8;
     context.self.specials2.retired_on = 1705000000;
-    context.self.specials2.hide_flags = { "hidingWell", "snuckIn" };
+    context.self.specials2.hide_flags = {"hidingWell", "snuckIn"};
     context.self.specials2.tactics = "aggressive";
     context.self.specials2.shooting = "fast";
     context.self.specials2.casting = "slow";
     context.self.specials2.two_handed = true;
     context.self.professions = {
-        { "mage", "Mage", 8, 121, 121, 8100 },
-        { "mystic", "Mystic", 5, 64, 64, 5200 },
-        { "ranger", "Ranger", 3, 25, 25, 3300 },
-        { "warrior", "Warrior", 2, 16, 16, 2400 },
+        {"mage", "Mage", 8, 121, 121, 8100},
+        {"mystic", "Mystic", 5, 64, 64, 5200},
+        {"ranger", "Ranger", 3, 25, 25, 3300},
+        {"warrior", "Warrior", 2, 16, 16, 2400},
     };
     context.self.specializations.selected_id = game_types::PS_Cold;
     context.self.specializations.selected_key = "cold";
@@ -271,21 +269,21 @@ JsGameTriggerContextFixture make_context()
     context.self.damage_details.entries.push_back(
         make_damage_entry(TYPE_HIT, "attack", "hit", 2, 30, 20, 15.0, 85.71428571428571));
     context.self.skills.push_back(make_skill_value(1, "Slashing", "warrior", 0, 3,
-        POSITION_FIGHTING, 0, 0, 16, 30, 1, false, 0));
-    context.self.skills.push_back(make_skill_value(8, "Swimming", "ranger", 2, 2,
-        POSITION_FIGHTING, 0, 0, 16, 25, 1, false, 0));
-    context.self.knowledge.push_back(make_knowledge_value(1, "Slashing", "warrior", 0, 40,
-        POSITION_FIGHTING, 0, 0, 16, 30, 1, false, 0));
-    context.self.knowledge.push_back(make_knowledge_value(8, "Swimming", "ranger", 2, 55,
-        POSITION_FIGHTING, 0, 0, 16, 25, 1, false, 0));
-    context.self.affects.push_back(make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128,
-        { "SANCT" }, 6));
+                                                   POSITION_FIGHTING, 0, 0, 16, 30, 1, false, 0));
+    context.self.skills.push_back(make_skill_value(8, "Swimming", "ranger", 2, 2, POSITION_FIGHTING,
+                                                   0, 0, 16, 25, 1, false, 0));
+    context.self.knowledge.push_back(make_knowledge_value(
+        1, "Slashing", "warrior", 0, 40, POSITION_FIGHTING, 0, 0, 16, 30, 1, false, 0));
+    context.self.knowledge.push_back(make_knowledge_value(
+        8, "Swimming", "ranger", 2, 55, POSITION_FIGHTING, 0, 0, 16, 25, 1, false, 0));
+    context.self.affects.push_back(
+        make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128, {"SANCT"}, 6));
     context.self.affects.push_back(make_affect(999, "Unknown", 2, 3, -1, -1, "Unknown", 0, {}, 4));
-    const char* equipment_slot_names[] = {
-        "light", "fingerRight", "fingerLeft", "neck1", "neck2", "body", "head", "legs",
-        "feet", "hands", "arms", "shield", "aboutBody", "waist", "wristRight", "wristLeft",
-        "wield", "hold", "back", "belt1", "belt2", "belt3"
-    };
+    const char *equipment_slot_names[] = {
+        "light",     "fingerRight", "fingerLeft", "neck1",     "neck2", "body",
+        "head",      "legs",        "feet",       "hands",     "arms",  "shield",
+        "aboutBody", "waist",       "wristRight", "wristLeft", "wield", "hold",
+        "back",      "belt1",       "belt2",      "belt3"};
     for (int slot_index = 0; slot_index < 22; ++slot_index) {
         context.self.equipment.push_back(
             make_equipment_slot(slot_index, equipment_slot_names[slot_index], slot_index == 6));
@@ -295,6 +293,14 @@ JsGameTriggerContextFixture make_context()
     context.self.followers.push_back(make_character_reference("mob:4101", "orc guard", true));
     context.self.has_master = true;
     context.self.master = make_character_reference("player:leader", "Leader", false);
+    context.self.mount.has_mount = true;
+    context.self.mount.mount = make_character_reference("mob:4200", "warhorse", true);
+    context.self.mount.has_rider = true;
+    context.self.mount.rider = make_character_reference("player:rider", "Rider", false);
+    context.self.mount.has_next_rider = true;
+    context.self.mount.next_rider = make_character_reference("mob:4201", "pack rider", true);
+    context.self.mount.is_riding = true;
+    context.self.mount.is_mounted = true;
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -302,7 +308,7 @@ JsGameTriggerContextFixture make_context()
     context.self.room.vnum = 1204;
     context.self.room.level = 7;
     context.self.room.sector_type = "City";
-    context.self.room.flags = { "dark", "indoors" };
+    context.self.room.flags = {"dark", "indoors"};
     context.self.room.alignment = -2;
     context.self.room.light = 1;
     context.self.room.is_sunlit = true;
@@ -358,7 +364,7 @@ JsGameTriggerContextFixture make_context()
     context.actor.rolled_abilities.dexterity = 14;
     context.actor.rolled_abilities.constitution = 10;
     context.actor.rolled_abilities.leadership = 8;
-    context.actor.points.bodypart_hits = { 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 };
+    context.actor.points.bodypart_hits = {11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
     context.actor.points.gold = 77;
     context.actor.points.experience = 31000;
     context.actor.points.spirit = 12;
@@ -379,15 +385,15 @@ JsGameTriggerContextFixture make_context()
     context.actor.specials.last_direction = "east";
     context.actor.specials.tactics = "normal";
     context.actor.specials.energy = 44;
-    context.actor.specials2.act_flags = { "isNpc", "memory" };
-    context.actor.specials2.preference_flags = { "brief" };
+    context.actor.specials2.act_flags = {"isNpc", "memory"};
+    context.actor.specials2.preference_flags = {"brief"};
     context.actor.specials2.conditions.full = 7;
     context.actor.specials2.tactics = "normal";
     context.actor.specials2.shooting = "slow";
     context.actor.specials2.casting = "fast";
     context.actor.professions = {
-        { "mage", "Mage", 1, 25, 25, 1100 },
-        { "warrior", "Warrior", 4, 100, 100, 4400 },
+        {"mage", "Mage", 1, 25, 25, 1100},
+        {"warrior", "Warrior", 4, 100, 100, 4400},
     };
     context.actor.specializations.selected_id = game_types::PS_WeaponMaster;
     context.actor.specializations.selected_key = "weaponMastery";
@@ -402,9 +408,9 @@ JsGameTriggerContextFixture make_context()
     context.actor.damage_details.entries.push_back(
         make_damage_entry(7, "skill", "Rescue", 3, 12, 6, 4.0, 100.0));
     context.actor.skills.push_back(make_skill_value(14, "Rescue", "warrior", 3, 5,
-        POSITION_FIGHTING, 0, 0, 16, 10, 1, false, 0));
-    context.actor.knowledge.push_back(make_knowledge_value(14, "Rescue", "warrior", 3, 66,
-        POSITION_FIGHTING, 0, 0, 16, 10, 1, false, 0));
+                                                    POSITION_FIGHTING, 0, 0, 16, 10, 1, false, 0));
+    context.actor.knowledge.push_back(make_knowledge_value(
+        14, "Rescue", "warrior", 3, 66, POSITION_FIGHTING, 0, 0, 16, 10, 1, false, 0));
     context.actor.affects.push_back(make_affect(14, "Rescue", 3, 2, 1, 0, "NONE", 0, {}, 9));
 
     context.has_object = true;
@@ -416,8 +422,8 @@ JsGameTriggerContextFixture make_context()
     context.object.action_description = "The lever clicks under your hand.";
     context.object.vnum = 300;
     context.object.flags.item_type = "weapon";
-    context.object.flags.wear_flags = { "take", "wield" };
-    context.object.flags.extra_flags = { "glow", "magic" };
+    context.object.flags.wear_flags = {"take", "wield"};
+    context.object.flags.extra_flags = {"glow", "magic"};
     context.object.flags.level = 12;
     context.object.flags.weight = 7;
     context.object.flags.cost = 450;
@@ -432,7 +438,7 @@ JsGameTriggerContextFixture make_context()
     context.object.room.vnum = 1204;
     context.object.room.level = 7;
     context.object.room.sector_type = "City";
-    context.object.room.flags = { "dark", "indoors" };
+    context.object.room.flags = {"dark", "indoors"};
     context.object.room.alignment = -2;
     context.object.room.light = 1;
     context.object.room.is_sunlit = true;
@@ -464,7 +470,7 @@ JsGameTriggerContextFixture make_context()
     context.room.vnum = 1204;
     context.room.level = 7;
     context.room.sector_type = "City";
-    context.room.flags = { "dark", "indoors" };
+    context.room.flags = {"dark", "indoors"};
     context.room.alignment = -2;
     context.room.light = 1;
     context.room.is_sunlit = true;
@@ -521,14 +527,12 @@ JsGameTriggerContextFixture make_context()
     return context;
 }
 
-void expect_ok_allows(const JsRuntimeEvalResult &result)
-{
+void expect_ok_allows(const JsRuntimeEvalResult &result) {
     EXPECT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
     EXPECT_EQ(result.value, JsRuntimeValue::Allow) << result.diagnostic;
 }
 
-std::size_t count_occurrences(const std::string &haystack, const std::string &needle)
-{
+std::size_t count_occurrences(const std::string &haystack, const std::string &needle) {
     std::size_t count = 0;
     std::size_t offset = 0;
     while ((offset = haystack.find(needle, offset)) != std::string::npos) {
@@ -538,8 +542,7 @@ std::size_t count_occurrences(const std::string &haystack, const std::string &ne
     return count;
 }
 
-const char *runtime_owner_name(JsApiStructOwner owner)
-{
+const char *runtime_owner_name(JsApiStructOwner owner) {
     switch (owner) {
     case JsApiStructOwner::CharData:
         return "Character";
@@ -553,8 +556,7 @@ const char *runtime_owner_name(JsApiStructOwner owner)
     return "Unknown";
 }
 
-std::string quoted_js_string(const char *value)
-{
+std::string quoted_js_string(const char *value) {
     std::string quoted = "'";
     for (const char *cursor = value; *cursor; ++cursor) {
         if (*cursor == '\\' || *cursor == '\'')
@@ -565,8 +567,7 @@ std::string quoted_js_string(const char *value)
     return quoted;
 }
 
-std::string setter_surface_list(JsApiStructOwner owner, bool callable)
-{
+std::string setter_surface_list(JsApiStructOwner owner, bool callable) {
     std::set<std::string> names;
     for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
         const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
@@ -595,17 +596,16 @@ std::string setter_surface_list(JsApiStructOwner owner, bool callable)
     return out.str();
 }
 
-std::string generated_setter_surface_script()
-{
+std::string generated_setter_surface_script() {
     std::ostringstream out;
     out << "const expected = {\n";
-    const JsApiStructOwner owners[] = { JsApiStructOwner::CharData, JsApiStructOwner::ObjData,
-        JsApiStructOwner::RoomData, JsApiStructOwner::ZoneData };
+    const JsApiStructOwner owners[] = {JsApiStructOwner::CharData, JsApiStructOwner::ObjData,
+                                       JsApiStructOwner::RoomData, JsApiStructOwner::ZoneData};
     for (std::size_t index = 0; index < sizeof(owners) / sizeof(owners[0]); ++index) {
         if (index > 0)
             out << ",\n";
-        out << "  " << runtime_owner_name(owners[index]) << ": { callable: "
-            << setter_surface_list(owners[index], true)
+        out << "  " << runtime_owner_name(owners[index])
+            << ": { callable: " << setter_surface_list(owners[index], true)
             << ", absent: " << setter_surface_list(owners[index], false) << " }";
     }
     out << "\n};\n"
@@ -626,7 +626,8 @@ std::string generated_setter_surface_script()
         << "  if ('isPlayer' in handle) matches.push('Character');\n"
         << "  if ('isSunlit' in handle || 'sectorType' in handle) matches.push('Room');\n"
         << "  if ('topRoomVnum' in handle || 'resetMode' in handle) matches.push('Zone');\n"
-        << "  if ('shortDescription' in handle || 'actionDescription' in handle || 'carriedBy' in handle) matches.push('GameObject');\n"
+        << "  if ('shortDescription' in handle || 'actionDescription' in handle || 'carriedBy' in "
+           "handle) matches.push('GameObject');\n"
         << "  return matches.length === 1 ? matches[0] : null;\n"
         << "}\n"
         << "function checkInferred(handle) {\n"
@@ -636,9 +637,12 @@ std::string generated_setter_surface_script()
         << "function checkNested(handle) {\n"
         << "  const owner = inferredOwner(handle);\n"
         << "  if (owner === null || !check(handle, owner)) return false;\n"
-        << "  if ((owner === 'Character' || owner === 'GameObject') && handle.room && !checkNested(handle.room)) return false;\n"
-        << "  if (owner === 'GameObject' && handle.carriedBy && !checkNested(handle.carriedBy)) return false;\n"
-        << "  if (owner === 'GameObject' && handle.wornBy && !checkNested(handle.wornBy)) return false;\n"
+        << "  if ((owner === 'Character' || owner === 'GameObject') && handle.room && "
+           "!checkNested(handle.room)) return false;\n"
+        << "  if (owner === 'GameObject' && handle.carriedBy && !checkNested(handle.carriedBy)) "
+           "return false;\n"
+        << "  if (owner === 'GameObject' && handle.wornBy && !checkNested(handle.wornBy)) return "
+           "false;\n"
         << "  if (owner === 'Room' && handle.zone && !checkNested(handle.zone)) return false;\n"
         << "  return true;\n"
         << "}\n"
@@ -649,7 +653,8 @@ std::string generated_setter_surface_script()
         << "  if (owner === 'Room') return !!handle.zone;\n"
         << "  return owner === 'Zone';\n"
         << "}\n"
-        << "return [ctx.self, ctx.actor, ctx.speaker, ctx.attacker, ctx.victim, ctx.killer, ctx.dying]\n"
+        << "return [ctx.self, ctx.actor, ctx.speaker, ctx.attacker, ctx.victim, ctx.killer, "
+           "ctx.dying]\n"
         << "    .every(requireFixtureNestedPath)\n"
         << "  && [ctx.object, ctx.target, ctx.targ1, ctx.targ2].every(requireFixtureNestedPath)\n"
         << "  && requireFixtureNestedPath(ctx.room)\n"
@@ -677,27 +682,25 @@ std::string generated_setter_surface_script()
 }
 
 void set_character_target(JsGameTargetFixture &target, const JsGameCharacterFixture &character,
-    const char *id)
-{
-    target = JsGameTargetFixture {};
+                          const char *id) {
+    target = JsGameTargetFixture{};
     target.type = "character";
     target.has_character = true;
     target.character = character;
     target.character.id = id;
 }
 
-void set_object_target(JsGameTargetFixture &target, const JsGameObjectFixture &object, const char *id)
-{
-    target = JsGameTargetFixture {};
+void set_object_target(JsGameTargetFixture &target, const JsGameObjectFixture &object,
+                       const char *id) {
+    target = JsGameTargetFixture{};
     target.type = "object";
     target.has_object = true;
     target.object = object;
     target.object.id = id;
 }
 
-void set_room_target(JsGameTargetFixture &target, const JsGameRoomFixture &room, const char *id)
-{
-    target = JsGameTargetFixture {};
+void set_room_target(JsGameTargetFixture &target, const JsGameRoomFixture &room, const char *id) {
+    target = JsGameTargetFixture{};
     target.type = "room";
     target.has_room = true;
     target.room = room;
@@ -706,8 +709,7 @@ void set_room_target(JsGameTargetFixture &target, const JsGameRoomFixture &room,
 
 } // namespace
 
-TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
-{
+TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "return ctx.self.id === 'char:1001'\n"
@@ -848,14 +850,16 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.damageDetails.entries[0].totalDamage === 5\n"
         "  && ctx.self.damageDetails.entries[0].largestDamage === 5\n"
         "  && ctx.self.damageDetails.entries[0].averageDamage === 5\n"
-        "  && Math.abs(ctx.self.damageDetails.entries[0].percentOfTotal - 14.285714285714286) < 0.0001\n"
+        "  && Math.abs(ctx.self.damageDetails.entries[0].percentOfTotal - 14.285714285714286) < "
+        "0.0001\n"
         "  && ctx.self.damageDetails.entries[1].sourceKind === 'attack'\n"
         "  && ctx.self.damageDetails.entries[1].sourceName === 'hit'\n"
         "  && ctx.self.damageDetails.entries[1].instanceCount === 2\n"
         "  && ctx.self.damageDetails.entries[1].totalDamage === 30\n"
         "  && ctx.self.damageDetails.entries[1].largestDamage === 20\n"
         "  && ctx.self.damageDetails.entries[1].averageDamage === 15\n"
-        "  && Math.abs(ctx.self.damageDetails.entries[1].percentOfTotal - 85.71428571428571) < 0.0001\n"
+        "  && Math.abs(ctx.self.damageDetails.entries[1].percentOfTotal - 85.71428571428571) < "
+        "0.0001\n"
         "  && ctx.self.skills.length === 2\n"
         "  && ctx.self.skills[0].id === 1\n"
         "  && ctx.self.skills[0].name === 'Slashing'\n"
@@ -945,6 +949,12 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.master.vnum === null\n"
         "  && ctx.self.master.prototypeVnum === null\n"
         "  && ctx.self.master.isPlayer === true\n"
+        "  && ctx.self.mount.mount.id === 'mob:4200'\n"
+        "  && ctx.self.mount.mount.name === 'warhorse'\n"
+        "  && ctx.self.mount.rider.id === 'player:rider'\n"
+        "  && ctx.self.mount.nextRider.id === 'mob:4201'\n"
+        "  && ctx.self.mount.isRiding === true\n"
+        "  && ctx.self.mount.isMounted === true\n"
         "  && ctx.self.affects[0].bitvectorNames.join(',') === 'SANCT'\n"
         "  && ctx.self.affects[0].counter === 6\n"
         "  && ctx.self.affects[1].name === 'Unknown'\n"
@@ -1052,8 +1062,7 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, SetterSurfaceMatchesStructMappingCatalog)
-{
+TEST(JsGameRuntime, SetterSurfaceMatchesStructMappingCatalog) {
     JsGameTriggerContextFixture context = make_context();
     context.actor.has_room = true;
     context.actor.room = context.room;
@@ -1114,59 +1123,54 @@ TEST(JsGameRuntime, SetterSurfaceMatchesStructMappingCatalog)
     expect_ok_allows(room_result);
 }
 
-TEST(JsGameRuntime, ExposesMobPrototypeVnumWhenPresent)
-{
+TEST(JsGameRuntime, ExposesMobPrototypeVnumWhenPresent) {
     JsGameTriggerContextFixture context = make_context();
     context.self.is_npc = true;
     context.self.vnum = 5100;
     context.self.prototype_vnum = 5100;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.self.isNpc === true\n"
-        "  && ctx.self.isPlayer === false\n"
-        "  && ctx.self.vnum === 5100\n"
-        "  && ctx.self.prototypeVnum === 5100;",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.self.isNpc === true\n"
+                                      "  && ctx.self.isPlayer === false\n"
+                                      "  && ctx.self.vnum === 5100\n"
+                                      "  && ctx.self.prototypeVnum === 5100;",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ModelsUnresolvedMobPrototypeVnumAsNull)
-{
+TEST(JsGameRuntime, ModelsUnresolvedMobPrototypeVnumAsNull) {
     JsGameTriggerContextFixture context = make_context();
     context.self.is_npc = true;
     context.self.vnum = -1;
     context.self.prototype_vnum = -1;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.self.isNpc === true\n"
-        "  && ctx.self.vnum === null\n"
-        "  && ctx.self.prototypeVnum === null;",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.self.isNpc === true\n"
+                                      "  && ctx.self.vnum === null\n"
+                                      "  && ctx.self.prototypeVnum === null;",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ModelsObjectRoomAsNullWhenMissing)
-{
+TEST(JsGameRuntime, ModelsObjectRoomAsNullWhenMissing) {
     JsGameTriggerContextFixture context = make_context();
     context.object.has_room = false;
 
     JsGameRuntime runtime;
     JsRuntimeEvalResult result =
-        runtime.evaluate_trigger_body(
-            "return ctx.object.room === null\n"
-            "  && ctx.object.carriedBy === null\n"
-            "  && ctx.object.wornBy === null;",
-            context);
+        runtime.evaluate_trigger_body("return ctx.object.room === null\n"
+                                      "  && ctx.object.carriedBy === null\n"
+                                      "  && ctx.object.wornBy === null;",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
-{
+TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
     JsGameTriggerContextFixture context = make_context();
 
     JsGameRuntime runtime;
@@ -1221,8 +1225,7 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, KeepsObjectFlagArraysFrozenAndConstructorSafe)
-{
+TEST(JsGameRuntime, KeepsObjectFlagArraysFrozenAndConstructorSafe) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "let pushBlocked = false;\n"
@@ -1230,7 +1233,8 @@ TEST(JsGameRuntime, KeepsObjectFlagArraysFrozenAndConstructorSafe)
         "let indexBlocked = false;\n"
         "let lengthBlocked = false;\n"
         "try { ctx.object.flags.wearFlags.push('hold'); } catch (error) { pushBlocked = true; }\n"
-        "try { ctx.object.flags.extraFlags.push('dark'); } catch (error) { extraPushBlocked = true; }\n"
+        "try { ctx.object.flags.extraFlags.push('dark'); } catch (error) { extraPushBlocked = "
+        "true; }\n"
         "try { ctx.object.flags.wearFlags[0] = 'hold'; } catch (error) { indexBlocked = true; }\n"
         "try { ctx.object.flags.extraFlags.length = 0; } catch (error) { lengthBlocked = true; }\n"
         "return ctx.object.flags.wearFlags.join(',') === 'take,wield'\n"
@@ -1246,8 +1250,7 @@ TEST(JsGameRuntime, KeepsObjectFlagArraysFrozenAndConstructorSafe)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, KeepsRoomFlagArraysFrozenAndConstructorSafe)
-{
+TEST(JsGameRuntime, KeepsRoomFlagArraysFrozenAndConstructorSafe) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "let pushBlocked = false;\n"
@@ -1270,8 +1273,7 @@ TEST(JsGameRuntime, KeepsRoomFlagArraysFrozenAndConstructorSafe)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ModelsNullablePromotedStructGetterSnapshotsAsNull)
-{
+TEST(JsGameRuntime, ModelsNullablePromotedStructGetterSnapshotsAsNull) {
     JsGameTriggerContextFixture context = make_context();
     context.object.has_action_description = false;
     context.zone.has_description = false;
@@ -1282,19 +1284,18 @@ TEST(JsGameRuntime, ModelsNullablePromotedStructGetterSnapshotsAsNull)
     context.object.room.zone.has_map = false;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.object.actionDescription === null\n"
-        "  && ctx.zone.description === null\n"
-        "  && ctx.zone.map === null\n"
-        "  && ctx.room.zone.description === null\n"
-        "  && ctx.object.room.zone.map === null;",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.object.actionDescription === null\n"
+                                      "  && ctx.zone.description === null\n"
+                                      "  && ctx.zone.map === null\n"
+                                      "  && ctx.room.zone.description === null\n"
+                                      "  && ctx.object.room.zone.map === null;",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, PreservesEmptyNullablePromotedStructGetterStrings)
-{
+TEST(JsGameRuntime, PreservesEmptyNullablePromotedStructGetterStrings) {
     JsGameTriggerContextFixture context = make_context();
     context.object.has_action_description = true;
     context.object.action_description = "";
@@ -1304,57 +1305,54 @@ TEST(JsGameRuntime, PreservesEmptyNullablePromotedStructGetterStrings)
     context.zone.map = "";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.object.actionDescription === ''\n"
-        "  && ctx.zone.description === ''\n"
-        "  && ctx.zone.map === '';",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.object.actionDescription === ''\n"
+                                      "  && ctx.zone.description === ''\n"
+                                      "  && ctx.zone.map === '';",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ExposesObjectCarriedByWhenPresent)
-{
+TEST(JsGameRuntime, ExposesObjectCarriedByWhenPresent) {
     JsGameTriggerContextFixture context = make_context();
     context.object.has_room = false;
     context.object.has_carried_by = true;
     context.object.carried_by = context.actor;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.object.room === null\n"
-        "  && ctx.object.carriedBy !== null\n"
-        "  && ctx.object.carriedBy.name === 'Builder'\n"
-        "  && ctx.object.carriedBy.rank === 4\n"
-        "  && ctx.object.carriedBy.isValid() === true\n"
-        "  && ctx.object.wornBy === null;",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.object.room === null\n"
+                                      "  && ctx.object.carriedBy !== null\n"
+                                      "  && ctx.object.carriedBy.name === 'Builder'\n"
+                                      "  && ctx.object.carriedBy.rank === 4\n"
+                                      "  && ctx.object.carriedBy.isValid() === true\n"
+                                      "  && ctx.object.wornBy === null;",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ExposesObjectWornByWhenPresent)
-{
+TEST(JsGameRuntime, ExposesObjectWornByWhenPresent) {
     JsGameTriggerContextFixture context = make_context();
     context.object.has_room = false;
     context.object.has_worn_by = true;
     context.object.worn_by = context.self;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.object.room === null\n"
-        "  && ctx.object.carriedBy === null\n"
-        "  && ctx.object.wornBy !== null\n"
-        "  && ctx.object.wornBy.name === 'Aldren'\n"
-        "  && ctx.object.wornBy.room.zone.vnum === 12\n"
-        "  && ctx.object.wornBy.isValid() === true;",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.object.room === null\n"
+                                      "  && ctx.object.carriedBy === null\n"
+                                      "  && ctx.object.wornBy !== null\n"
+                                      "  && ctx.object.wornBy.name === 'Aldren'\n"
+                                      "  && ctx.object.wornBy.room.zone.vnum === 12\n"
+                                      "  && ctx.object.wornBy.isValid() === true;",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, RejectsMutationOfObjectOwnerSnapshots)
-{
+TEST(JsGameRuntime, RejectsMutationOfObjectOwnerSnapshots) {
     JsGameTriggerContextFixture context = make_context();
     context.object.has_carried_by = true;
     context.object.carried_by = context.actor;
@@ -1362,10 +1360,10 @@ TEST(JsGameRuntime, RejectsMutationOfObjectOwnerSnapshots)
     context.object.worn_by = context.self;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult assign_result = runtime.evaluate_trigger_body(
-        "ctx.object.carriedBy.name = 'changed';\n"
-        "return true;",
-        context);
+    JsRuntimeEvalResult assign_result =
+        runtime.evaluate_trigger_body("ctx.object.carriedBy.name = 'changed';\n"
+                                      "return true;",
+                                      context);
     EXPECT_EQ(assign_result.status, JsRuntimeStatus::Error);
     EXPECT_TRUE(assign_result.diagnostic.find("read-only") != std::string::npos ||
                 assign_result.diagnostic.find("no setter") != std::string::npos)
@@ -1378,8 +1376,7 @@ TEST(JsGameRuntime, RejectsMutationOfObjectOwnerSnapshots)
     EXPECT_EQ(proto_result.status, JsRuntimeStatus::Error);
 }
 
-TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots)
-{
+TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots) {
     JsGameTriggerContextFixture context = make_context();
     context.has_speaker = true;
     context.speaker = context.actor;
@@ -1398,7 +1395,8 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots)
         "  && ctx.attacker.name === 'Builder'\n"
         "  && ctx.victim.name === 'Aldren'\n"
         "  && ctx.killer.name === 'Builder'\n"
-        "  && [ctx.self, ctx.speaker, ctx.attacker, ctx.victim, ctx.killer].every(function(character) {\n"
+        "  && [ctx.self, ctx.speaker, ctx.attacker, ctx.victim, "
+        "ctx.killer].every(function(character) {\n"
         "    return typeof character.setProfile === 'undefined'\n"
         "      && typeof character.setBaseAbilities === 'undefined'\n"
         "      && typeof character.setCurrentAbilities === 'undefined'\n"
@@ -1418,6 +1416,7 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots)
         "      && typeof character.setFollowers === 'undefined'\n"
         "      && typeof character.setMaster === 'undefined'\n"
         "      && typeof character.setMount === 'undefined'\n"
+        "      && typeof character.group === 'undefined'\n"
         "      && typeof character.setGroup === 'undefined'\n"
         "      && typeof character.setClassPoints === 'undefined'\n"
         "      && typeof character.setInterruptCount === 'undefined'\n"
@@ -1430,8 +1429,7 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent)
-{
+TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent) {
     JsGameTriggerContextFixture context = make_context();
     context.has_weapon = true;
     context.weapon = context.object;
@@ -1440,50 +1438,48 @@ TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent)
     context.trigger.legacy_value = 18;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.weapon !== null\n"
-        "  && ctx.weapon.name === 'silver lever'\n"
-        "  && ctx.weapon.room.vnum === 1204\n"
-        "  && ctx.weapon.isValid();",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.weapon !== null\n"
+                                      "  && ctx.weapon.name === 'silver lever'\n"
+                                      "  && ctx.weapon.room.vnum === 1204\n"
+                                      "  && ctx.weapon.isValid();",
+                                      context);
 
     expect_ok_allows(result);
 
-    JsRuntimeEvalResult assign_result = runtime.evaluate_trigger_body(
-        "ctx.weapon.name = 'changed';\n"
-        "return true;",
-        context);
+    JsRuntimeEvalResult assign_result =
+        runtime.evaluate_trigger_body("ctx.weapon.name = 'changed';\n"
+                                      "return true;",
+                                      context);
     EXPECT_EQ(assign_result.status, JsRuntimeStatus::Error);
     EXPECT_TRUE(assign_result.diagnostic.find("read-only") != std::string::npos ||
                 assign_result.diagnostic.find("no setter") != std::string::npos)
         << assign_result.diagnostic;
 
-    JsRuntimeEvalResult proto_result = runtime.evaluate_trigger_body(
-        "Object.setPrototypeOf(ctx.weapon, { injected: true });\n"
-        "return true;",
-        context);
+    JsRuntimeEvalResult proto_result =
+        runtime.evaluate_trigger_body("Object.setPrototypeOf(ctx.weapon, { injected: true });\n"
+                                      "return true;",
+                                      context);
     EXPECT_EQ(proto_result.status, JsRuntimeStatus::Error);
 }
 
-TEST(JsGameRuntime, SerializesFalseRoomSunlitState)
-{
+TEST(JsGameRuntime, SerializesFalseRoomSunlitState) {
     JsGameTriggerContextFixture context = make_context();
     context.room.is_sunlit = false;
     context.self.room.is_sunlit = false;
     context.object.room.is_sunlit = false;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.room.isSunlit === false\n"
-        "  && ctx.self.room.isSunlit === false\n"
-        "  && ctx.object.room.isSunlit === false;",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.room.isSunlit === false\n"
+                                      "  && ctx.self.room.isSunlit === false\n"
+                                      "  && ctx.object.room.isSunlit === false;",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, PreservesBlockingReturnSemantics)
-{
+TEST(JsGameRuntime, PreservesBlockingReturnSemantics) {
     JsGameRuntime runtime;
 
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body("return false;", make_context());
@@ -1492,8 +1488,7 @@ TEST(JsGameRuntime, PreservesBlockingReturnSemantics)
     EXPECT_EQ(result.value, JsRuntimeValue::Block);
 }
 
-TEST(JsGameRuntime, ExposesScriptResultHelpers)
-{
+TEST(JsGameRuntime, ExposesScriptResultHelpers) {
     JsGameRuntime runtime;
 
     JsRuntimeEvalResult allow_result =
@@ -1506,20 +1501,19 @@ TEST(JsGameRuntime, ExposesScriptResultHelpers)
     EXPECT_EQ(block_result.value, JsRuntimeValue::Block);
 }
 
-TEST(JsGameRuntime, KeepsScriptResultHelpersImmutable)
-{
+TEST(JsGameRuntime, KeepsScriptResultHelpersImmutable) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "try { RotS.ScriptResult.allow = function() { return false; }; } catch (error) {}\n"
         "try { RotS.ScriptResult.extra = true; } catch (error) {}\n"
-        "return RotS.ScriptResult.allow() === true && typeof RotS.ScriptResult.extra === 'undefined';",
+        "return RotS.ScriptResult.allow() === true && typeof RotS.ScriptResult.extra === "
+        "'undefined';",
         make_context());
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
-{
+TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults) {
     JsGameTriggerContextFixture context = make_context();
     context.actor.has_room = true;
     context.actor.room = context.room;
@@ -1697,6 +1691,7 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && typeof ctx.actor.setFollowers === 'undefined'\n"
         "  && typeof ctx.actor.setMaster === 'undefined'\n"
         "  && typeof ctx.actor.setMount === 'undefined'\n"
+        "  && typeof ctx.actor.group === 'undefined'\n"
         "  && typeof ctx.actor.setGroup === 'undefined'\n"
         "  && typeof ctx.actor.setClassPoints === 'undefined'\n"
         "  && typeof ctx.actor.setInterruptCount === 'undefined'\n"
@@ -1756,7 +1751,8 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && typeof ctx.zone.setResetCommandCount === 'undefined'\n"
         "  && typeof ctx.zone.setResetCommands === 'undefined'\n"
         "  && objectName.ok === true && objectName.code === 'ok'\n"
-        "  && objectDescription.ok === true && objectShort.ok === true && objectAction.ok === true\n"
+        "  && objectDescription.ok === true && objectShort.ok === true && objectAction.ok === "
+        "true\n"
         "  && objectLevelLower.ok === true && objectLevelLower.code === 'ok'\n"
         "  && objectLevelLower.field === 'level'\n"
         "  && objectLevel.ok === true && objectLevel.code === 'ok'\n"
@@ -1793,7 +1789,8 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "  && zoneLevelLower.field === 'level'\n"
         "  && zoneLevel.ok === true && zoneLevel.code === 'ok'\n"
         "  && zoneLevel.field === 'level' && zoneLevel.message === null\n"
-        "  && badType.ok === false && badType.code === 'invalid-value' && badType.field === 'name'\n"
+        "  && badType.ok === false && badType.code === 'invalid-value' && badType.field === "
+        "'name'\n"
         "  && badRange.ok === false && badRange.code === 'out-of-range'\n"
         "  && blankName.ok === false && blankName.code === 'invalid-value'\n"
         "  && badNul.ok === false && badNul.code === 'invalid-value'\n"
@@ -1817,7 +1814,10 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "      && result.field === 'level' && typeof result.message === 'string'\n"
         "      && result.message.length > 0 && result.message.length <= 120\n"
         "      && result.message.indexOf('\\n') === -1 && result.message.indexOf('\\r') === -1)\n"
-        "  && [badRoomSectorType, badRoomSectorNull, badRoomSectorUnknown, badRoomSectorLower, badRoomSectorWhitespace, badRoomSectorTrailing, badRoomSectorDisplay, badRoomSectorHyphen, badRoomSectorDenseDisplay, badRoomSectorDenseCaps, badRoomSectorNumericText, badRoomSectorEmpty]\n"
+        "  && [badRoomSectorType, badRoomSectorNull, badRoomSectorUnknown, badRoomSectorLower, "
+        "badRoomSectorWhitespace, badRoomSectorTrailing, badRoomSectorDisplay, "
+        "badRoomSectorHyphen, badRoomSectorDenseDisplay, badRoomSectorDenseCaps, "
+        "badRoomSectorNumericText, badRoomSectorEmpty]\n"
         "    .every((result) => result.ok === false && result.code === 'invalid-value'\n"
         "      && result.field === 'sectorType' && typeof result.message === 'string'\n"
         "      && result.message.length > 0 && result.message.length <= 120\n"
@@ -1832,7 +1832,8 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
         "      && result.field === 'level' && typeof result.message === 'string'\n"
         "      && result.message.length > 0 && result.message.length <= 120\n"
         "      && result.message.indexOf('\\n') === -1 && result.message.indexOf('\\r') === -1)\n"
-        "  && [badObjectRarityType, badObjectRarityFraction, badObjectRarityNaN, badObjectRarityNull]\n"
+        "  && [badObjectRarityType, badObjectRarityFraction, badObjectRarityNaN, "
+        "badObjectRarityNull]\n"
         "    .every((result) => result.ok === false && result.code === 'invalid-value'\n"
         "      && result.field === 'rarity' && typeof result.message === 'string'\n"
         "      && result.message.length > 0 && result.message.length <= 120\n"
@@ -1953,39 +1954,41 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults)
 
     expect_ok_allows(result);
 
-    expect_ok_allows(runtime.evaluate_trigger_body("return ctx.object.name === 'silver lever';", context));
+    expect_ok_allows(
+        runtime.evaluate_trigger_body("return ctx.object.name === 'silver lever';", context));
 }
 
-TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts)
-{
+TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts) {
     JsGameRuntime runtime;
-    JsRuntimeEvalResult body_result = runtime.evaluate_trigger_body(
-        "let bodyBlocked = false;\n"
-        "try { __rotsMutations.push({ targetType: 'object' }); } catch (error) { bodyBlocked = true; }\n"
-        "return bodyBlocked\n"
-        "  && typeof __rotsJsonStringify === 'undefined'\n"
-        "  && typeof __rotsAttachTextSetter === 'undefined'\n"
-        "  && typeof __rotsAttachSymbolSetter === 'undefined'\n"
-        "  && typeof __rotsAttachCoordinateSetter === 'undefined'\n"
-        "  && typeof __rotsAttachResetModeSetter === 'undefined'\n"
-        "  && typeof __rotsAttachLifespanSetter === 'undefined'\n"
-        "  && typeof __rotsAttachLevelSetter === 'undefined'\n"
-        "  && typeof __rotsAttachObjectLevelSetter === 'undefined'\n"
-        "  && typeof __rotsAttachObjectRaritySetter === 'undefined'\n"
-        "  && typeof __rotsAttachSectorTypeSetter === 'undefined'\n"
-        "  && typeof __rotsValidateRaritySetter === 'undefined'\n"
-        "  && typeof __rotsValidateSectorTypeSetter === 'undefined'\n"
-        "  && typeof __rotsValidateTextSetter === 'undefined'\n"
-        "  && typeof __rotsValidateSymbolSetter === 'undefined'\n"
-        "  && typeof __rotsValidateCoordinateSetter === 'undefined'\n"
-        "  && typeof __rotsValidateResetModeSetter === 'undefined'\n"
-        "  && typeof __rotsValidateLifespanSetter === 'undefined'\n"
-        "  && typeof __rotsValidateLevelSetter === 'undefined';",
-        make_context());
+    JsRuntimeEvalResult body_result =
+        runtime.evaluate_trigger_body("let bodyBlocked = false;\n"
+                                      "try { __rotsMutations.push({ targetType: 'object' }); } "
+                                      "catch (error) { bodyBlocked = true; }\n"
+                                      "return bodyBlocked\n"
+                                      "  && typeof __rotsJsonStringify === 'undefined'\n"
+                                      "  && typeof __rotsAttachTextSetter === 'undefined'\n"
+                                      "  && typeof __rotsAttachSymbolSetter === 'undefined'\n"
+                                      "  && typeof __rotsAttachCoordinateSetter === 'undefined'\n"
+                                      "  && typeof __rotsAttachResetModeSetter === 'undefined'\n"
+                                      "  && typeof __rotsAttachLifespanSetter === 'undefined'\n"
+                                      "  && typeof __rotsAttachLevelSetter === 'undefined'\n"
+                                      "  && typeof __rotsAttachObjectLevelSetter === 'undefined'\n"
+                                      "  && typeof __rotsAttachObjectRaritySetter === 'undefined'\n"
+                                      "  && typeof __rotsAttachSectorTypeSetter === 'undefined'\n"
+                                      "  && typeof __rotsValidateRaritySetter === 'undefined'\n"
+                                      "  && typeof __rotsValidateSectorTypeSetter === 'undefined'\n"
+                                      "  && typeof __rotsValidateTextSetter === 'undefined'\n"
+                                      "  && typeof __rotsValidateSymbolSetter === 'undefined'\n"
+                                      "  && typeof __rotsValidateCoordinateSetter === 'undefined'\n"
+                                      "  && typeof __rotsValidateResetModeSetter === 'undefined'\n"
+                                      "  && typeof __rotsValidateLifespanSetter === 'undefined'\n"
+                                      "  && typeof __rotsValidateLevelSetter === 'undefined';",
+                                      make_context());
     JsRuntimeEvalResult package_result = runtime.evaluate_trigger_package_handler(
         "exports.onEnter = function(ctx) {\n"
         "  let packageBlocked = false;\n"
-        "  try { __rotsMutations.push({ targetType: 'object' }); } catch (error) { packageBlocked = true; }\n"
+        "  try { __rotsMutations.push({ targetType: 'object' }); } catch (error) { packageBlocked "
+        "= true; }\n"
         "  return packageBlocked\n"
         "    && typeof __rotsJsonStringify === 'undefined'\n"
         "    && typeof __rotsAttachTextSetter === 'undefined'\n"
@@ -2012,8 +2015,7 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts)
     expect_ok_allows(package_result);
 }
 
-TEST(JsGameRuntime, RoomSectorTypeSetterAcceptsEveryCanonicalLiveSectorName)
-{
+TEST(JsGameRuntime, RoomSectorTypeSetterAcceptsEveryCanonicalLiveSectorName) {
     ASSERT_NE(sector_types, nullptr);
     ASSERT_GT(num_of_sector_types, 0);
 
@@ -2023,9 +2025,11 @@ TEST(JsGameRuntime, RoomSectorTypeSetterAcceptsEveryCanonicalLiveSectorName)
         const std::string sector_name = sector_types[sector];
         ASSERT_NE(sector_name, "Unknown") << sector;
         JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-            "const result = ctx.room.setSectorType('" + sector_name + "');\n"
-            "return result.ok === true && result.code === 'ok' && result.field === 'sectorType'\n"
-            "  && result.message === null && ctx.room.sectorType === '" +
+            "const result = ctx.room.setSectorType('" + sector_name +
+                "');\n"
+                "return result.ok === true && result.code === 'ok' && result.field === "
+                "'sectorType'\n"
+                "  && result.message === null && ctx.room.sectorType === '" +
                 sector_name + "';",
             make_context());
         EXPECT_EQ(result.status, JsRuntimeStatus::Ok) << sector_name << ": " << result.diagnostic;
@@ -2040,8 +2044,7 @@ TEST(JsGameRuntime, RoomSectorTypeSetterAcceptsEveryCanonicalLiveSectorName)
     expect_ok_allows(unknown_result);
 }
 
-TEST(JsGameRuntime, RejectsExcessiveSetterMutationCounts)
-{
+TEST(JsGameRuntime, RejectsExcessiveSetterMutationCounts) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "for (let index = 0; index < 65; index += 1) ctx.object.setDescription('edit ' + index);\n"
@@ -2052,29 +2055,28 @@ TEST(JsGameRuntime, RejectsExcessiveSetterMutationCounts)
     EXPECT_TRUE(result.mutations.empty());
 }
 
-TEST(JsGameRuntime, ExposesNoOpConsoleLogForOfflineParity)
-{
+TEST(JsGameRuntime, ExposesNoOpConsoleLogForOfflineParity) {
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result =
-        runtime.evaluate_trigger_body("console.log('builder fixture note'); return true;", make_context());
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "console.log('builder fixture note'); return true;", make_context());
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, NormalizesWrapperReturnValues)
-{
+TEST(JsGameRuntime, NormalizesWrapperReturnValues) {
     JsGameRuntime runtime;
 
     expect_ok_allows(runtime.evaluate_trigger_body("return true;", make_context()));
     expect_ok_allows(runtime.evaluate_trigger_body("return undefined;", make_context()));
     expect_ok_allows(runtime.evaluate_trigger_body("return {};", make_context()));
 
-    EXPECT_EQ(runtime.evaluate_trigger_body("return 0;", make_context()).value, JsRuntimeValue::Block);
-    EXPECT_EQ(runtime.evaluate_trigger_body("return '';", make_context()).value, JsRuntimeValue::Block);
+    EXPECT_EQ(runtime.evaluate_trigger_body("return 0;", make_context()).value,
+              JsRuntimeValue::Block);
+    EXPECT_EQ(runtime.evaluate_trigger_body("return '';", make_context()).value,
+              JsRuntimeValue::Block);
 }
 
-TEST(JsGameRuntime, RejectsWrapperBreakoutAttempts)
-{
+TEST(JsGameRuntime, RejectsWrapperBreakoutAttempts) {
     JsGameRuntime runtime;
 
     JsRuntimeEvalResult result =
@@ -2084,38 +2086,38 @@ TEST(JsGameRuntime, RejectsWrapperBreakoutAttempts)
     EXPECT_NE(result.diagnostic.find("structurally valid"), std::string::npos);
 }
 
-TEST(JsGameRuntime, RejectsMutationOfInjectedContext)
-{
+TEST(JsGameRuntime, RejectsMutationOfInjectedContext) {
     JsGameRuntime runtime;
 
-    JsRuntimeEvalResult assign_result = runtime.evaluate_trigger_body(
-        "ctx.self.name = 'changed';\n"
-        "return true;",
-        make_context());
+    JsRuntimeEvalResult assign_result = runtime.evaluate_trigger_body("ctx.self.name = 'changed';\n"
+                                                                      "return true;",
+                                                                      make_context());
 
     EXPECT_EQ(assign_result.status, JsRuntimeStatus::Error);
     EXPECT_NE(assign_result.diagnostic.find("read-only"), std::string::npos)
         << assign_result.diagnostic;
 
-    EXPECT_EQ(runtime.evaluate_trigger_body("ctx.added = true; return true;", make_context()).status,
+    EXPECT_EQ(
+        runtime.evaluate_trigger_body("ctx.added = true; return true;", make_context()).status,
         JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body("delete ctx.trigger.name; return true;", make_context()).status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime
-                  .evaluate_trigger_body(
-                      "Object.defineProperty(ctx.trigger, 'name', { value: 'changed' }); return true;",
-                      make_context())
+    EXPECT_EQ(runtime.evaluate_trigger_body("delete ctx.trigger.name; return true;", make_context())
                   .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(
+        runtime
+            .evaluate_trigger_body(
+                "Object.defineProperty(ctx.trigger, 'name', { value: 'changed' }); return true;",
+                make_context())
+            .status,
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("Object.setPrototypeOf(ctx.self, {}); return true;",
-                      make_context())
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
+              JsRuntimeStatus::Error);
 }
 
-TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
-{
+TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "try { Object.prototype.pointer = 'polluted'; } catch (error) {}\n"
@@ -2176,6 +2178,12 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.master.__rotsReadOnlySnapshot === 'undefined'\n"
         "  && typeof ctx.self.master.setName === 'undefined'\n"
         "  && typeof ctx.self.master.setLevel === 'undefined'\n"
+        "  && typeof ctx.self.mount.constructor === 'undefined'\n"
+        "  && typeof ctx.self.mount.__rotsReadOnlySnapshot === 'undefined'\n"
+        "  && typeof ctx.self.mount.mount.constructor === 'undefined'\n"
+        "  && typeof ctx.self.mount.mount.setName === 'undefined'\n"
+        "  && typeof ctx.self.mount.rider.constructor === 'undefined'\n"
+        "  && typeof ctx.self.mount.nextRider.constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -2240,6 +2248,10 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.followers)\n"
         "  && Object.isFrozen(ctx.self.followers[0])\n"
         "  && Object.isFrozen(ctx.self.master)\n"
+        "  && Object.isFrozen(ctx.self.mount)\n"
+        "  && Object.isFrozen(ctx.self.mount.mount)\n"
+        "  && Object.isFrozen(ctx.self.mount.rider)\n"
+        "  && Object.isFrozen(ctx.self.mount.nextRider)\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -2247,207 +2259,208 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
-{
+TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
     JsGameRuntime runtime;
     for (const char *property : {"baseAbilities", "currentAbilities", "rolledAbilities"}) {
-        JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-            std::string("ctx.self.") + property + ".strength = 1;\n"
-            "return true;",
-            make_context());
+        JsRuntimeEvalResult result =
+            runtime.evaluate_trigger_body(std::string("ctx.self.") + property +
+                                              ".strength = 1;\n"
+                                              "return true;",
+                                          make_context());
 
         EXPECT_EQ(result.status, JsRuntimeStatus::Error) << property;
     }
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.points.gold = 1;\n"
-                         "return true;",
-                         make_context())
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.points.gold = 1;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.specials.energy = 1;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.specials.energy = 1;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.specials2.alignment = 1;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.specials2.alignment = 1;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.specials2.conditions.full = 1;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.specials2.conditions.full = 1;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.specials2.actFlags[0] = 'deleted';\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.specials2.actFlags[0] = 'deleted';\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.professions[0].level = 99;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.professions[0].level = 99;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.professions.push({ key: 'test' });\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.professions.push({ key: 'test' });\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.specializations.selectedKey = 'fire';\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.specializations.selectedKey = 'fire';\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.damageDetails.totalDamage = 1;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.damageDetails.totalDamage = 1;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.damageDetails.entries[0].totalDamage = 1;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.damageDetails.entries[0].totalDamage = 1;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.skills[0].practice = 99;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.skills[0].practice = 99;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.skills.push({ id: 42, name: 'unsafe' });\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.skills.push({ id: 42, name: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.knowledge[0].knowledge = 99;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.knowledge[0].knowledge = 99;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.knowledge.push({ id: 42, name: 'unsafe' });\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.knowledge.push({ id: 42, name: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.affects[0].duration = 99;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.affects[0].duration = 99;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.affects.push({ type: 42, name: 'unsafe' });\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.affects.push({ type: 42, name: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.affects[0].bitvectorNames[0] = 'unsafe';\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.affects[0].bitvectorNames[0] = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.equipment[6].slotName = 'wield';\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.equipment[6].slotName = 'wield';\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.equipment[6].object.name = 'unsafe';\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.equipment[6].object.name = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.equipment[6].object.flags.level = 99;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.equipment[6].object.flags.level = 99;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(
+        runtime
+            .evaluate_trigger_body("ctx.self.equipment[6].object.flags.wearFlags.push('unsafe');\n"
+                                   "return true;",
+                                   make_context())
+            .status,
         JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.equipment[6].object.flags.wearFlags.push('unsafe');\n"
-                         "return true;",
-                         make_context())
+    EXPECT_EQ(
+        runtime
+            .evaluate_trigger_body("ctx.self.equipment[6].object.flags.extraFlags[0] = 'unsafe';\n"
+                                   "return true;",
+                                   make_context())
+            .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.equipment.push({ slotName: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.equipment[6].object.flags.extraFlags[0] = 'unsafe';\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.inventory[0].name = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.equipment.push({ slotName: 'unsafe' });\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.inventory[0].flags.level = 99;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.inventory[0].name = 'unsafe';\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.inventory[0].flags.wearFlags.push('unsafe');\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.inventory[0].flags.level = 99;\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.inventory.push({ name: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.inventory[0].flags.wearFlags.push('unsafe');\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.followers[0].name = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.inventory.push({ name: 'unsafe' });\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.followers.push({ name: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.followers[0].name = 'unsafe';\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.master.name = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.followers.push({ name: 'unsafe' });\n"
-                         "return true;",
-                         make_context())
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.points.bodypartHits[0] = 1;\n"
+                                         "return true;",
+                                         make_context())
                   .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.master.name = 'unsafe';\n"
-                         "return true;",
-                         make_context())
-                  .status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body(
-                         "ctx.self.points.bodypartHits[0] = 1;\n"
-                         "return true;",
-                         make_context())
-                  .status,
-        JsRuntimeStatus::Error);
+              JsRuntimeStatus::Error);
 }
 
-TEST(JsGameRuntime, DefaultsMissingCharacterPointBodypartsToLiveShape)
-{
+TEST(JsGameRuntime, DefaultsMissingCharacterPointBodypartsToLiveShape) {
     JsGameTriggerContextFixture context;
     context.has_self = true;
     context.self.id = "char:default-points";
@@ -2465,8 +2478,7 @@ TEST(JsGameRuntime, DefaultsMissingCharacterPointBodypartsToLiveShape)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, DefaultsMissingCharacterDamageDetailsToEmptySnapshot)
-{
+TEST(JsGameRuntime, DefaultsMissingCharacterDamageDetailsToEmptySnapshot) {
     JsGameTriggerContextFixture context;
     context.has_self = true;
     context.self.id = "char:default-damage";
@@ -2487,118 +2499,117 @@ TEST(JsGameRuntime, DefaultsMissingCharacterDamageDetailsToEmptySnapshot)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, DefaultsMissingCharacterSkillsToEmptySnapshot)
-{
+TEST(JsGameRuntime, DefaultsMissingCharacterSkillsToEmptySnapshot) {
     JsGameTriggerContextFixture context;
     context.has_self = true;
     context.self.id = "char:default-skills";
     context.self.name = "Default Skills";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.self.skills.length === 0\n"
-        "  && Object.isFrozen(ctx.self.skills)\n"
-        "  && typeof ctx.self.skills.constructor === 'undefined';",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.self.skills.length === 0\n"
+                                      "  && Object.isFrozen(ctx.self.skills)\n"
+                                      "  && typeof ctx.self.skills.constructor === 'undefined';",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, DefaultsMissingCharacterKnowledgeToEmptySnapshot)
-{
+TEST(JsGameRuntime, DefaultsMissingCharacterKnowledgeToEmptySnapshot) {
     JsGameTriggerContextFixture context;
     context.has_self = true;
     context.self.id = "char:default-knowledge";
     context.self.name = "Default Knowledge";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.self.knowledge.length === 0\n"
-        "  && Object.isFrozen(ctx.self.knowledge)\n"
-        "  && typeof ctx.self.knowledge.constructor === 'undefined';",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.self.knowledge.length === 0\n"
+                                      "  && Object.isFrozen(ctx.self.knowledge)\n"
+                                      "  && typeof ctx.self.knowledge.constructor === 'undefined';",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, DefaultsMissingCharacterAffectsToEmptySnapshot)
-{
+TEST(JsGameRuntime, DefaultsMissingCharacterAffectsToEmptySnapshot) {
     JsGameTriggerContextFixture context;
     context.has_self = true;
     context.self.id = "char:default-affects";
     context.self.name = "Default Affects";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.self.affects.length === 0\n"
-        "  && Object.isFrozen(ctx.self.affects)\n"
-        "  && typeof ctx.self.affects.constructor === 'undefined';",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.self.affects.length === 0\n"
+                                      "  && Object.isFrozen(ctx.self.affects)\n"
+                                      "  && typeof ctx.self.affects.constructor === 'undefined';",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, DefaultsMissingCharacterEquipmentToEmptySnapshot)
-{
+TEST(JsGameRuntime, DefaultsMissingCharacterEquipmentToEmptySnapshot) {
     JsGameTriggerContextFixture context;
     context.has_self = true;
     context.self.id = "char:default-equipment";
     context.self.name = "Default Equipment";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.self.equipment.length === 22\n"
-        "  && ctx.self.equipment[0].slotName === 'light'\n"
-        "  && ctx.self.equipment[0].object === null\n"
-        "  && ctx.self.equipment[6].slotName === 'head'\n"
-        "  && ctx.self.equipment[6].object === null\n"
-        "  && ctx.self.equipment[16].slotName === 'wield'\n"
-        "  && ctx.self.equipment[16].object === null\n"
-        "  && Object.isFrozen(ctx.self.equipment)\n"
-        "  && Object.isFrozen(ctx.self.equipment[6])\n"
-        "  && typeof ctx.self.equipment.constructor === 'undefined';",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.self.equipment.length === 22\n"
+                                      "  && ctx.self.equipment[0].slotName === 'light'\n"
+                                      "  && ctx.self.equipment[0].object === null\n"
+                                      "  && ctx.self.equipment[6].slotName === 'head'\n"
+                                      "  && ctx.self.equipment[6].object === null\n"
+                                      "  && ctx.self.equipment[16].slotName === 'wield'\n"
+                                      "  && ctx.self.equipment[16].object === null\n"
+                                      "  && Object.isFrozen(ctx.self.equipment)\n"
+                                      "  && Object.isFrozen(ctx.self.equipment[6])\n"
+                                      "  && typeof ctx.self.equipment.constructor === 'undefined';",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, DefaultsMissingCharacterInventoryToEmptySnapshot)
-{
+TEST(JsGameRuntime, DefaultsMissingCharacterInventoryToEmptySnapshot) {
     JsGameTriggerContextFixture context;
     context.has_self = true;
     context.self.id = "char:default-inventory";
     context.self.name = "Default Inventory";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.self.inventory.length === 0\n"
-        "  && Object.isFrozen(ctx.self.inventory)\n"
-        "  && typeof ctx.self.inventory.constructor === 'undefined';",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.self.inventory.length === 0\n"
+                                      "  && Object.isFrozen(ctx.self.inventory)\n"
+                                      "  && typeof ctx.self.inventory.constructor === 'undefined';",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, DefaultsMissingCharacterFollowersAndMasterToEmptySnapshots)
-{
+TEST(JsGameRuntime, DefaultsMissingCharacterRelationshipsToEmptySnapshots) {
     JsGameTriggerContextFixture context;
     context.has_self = true;
     context.self.id = "char:default-follow";
     context.self.name = "Default Follow";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.self.followers.length === 0\n"
-        "  && ctx.self.master === null\n"
-        "  && Object.isFrozen(ctx.self.followers)\n"
-        "  && typeof ctx.self.followers.constructor === 'undefined';",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.self.followers.length === 0\n"
+                                      "  && ctx.self.master === null\n"
+                                      "  && ctx.self.mount.mount === null\n"
+                                      "  && ctx.self.mount.rider === null\n"
+                                      "  && ctx.self.mount.nextRider === null\n"
+                                      "  && ctx.self.mount.isRiding === false\n"
+                                      "  && ctx.self.mount.isMounted === false\n"
+                                      "  && Object.isFrozen(ctx.self.followers)\n"
+                                      "  && Object.isFrozen(ctx.self.mount)\n"
+                                      "  && typeof ctx.self.followers.constructor === 'undefined';",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
-{
+TEST(JsGameRuntime, ModelsMissingHandlesAsNull) {
     JsGameTriggerContextFixture context = make_context();
     context.has_self = false;
     context.has_actor = false;
@@ -2659,8 +2670,7 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull)
     EXPECT_EQ(dereference_result.status, JsRuntimeStatus::Error);
 }
 
-TEST(JsGameRuntime, ExposesWearSlotWhenPresent)
-{
+TEST(JsGameRuntime, ExposesWearSlotWhenPresent) {
     JsGameTriggerContextFixture context = make_context();
     context.has_wear_slot = true;
     context.wear_slot = "head";
@@ -2675,8 +2685,7 @@ TEST(JsGameRuntime, ExposesWearSlotWhenPresent)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ExposesScalarCommandAndMovementPayloadsWhenPresent)
-{
+TEST(JsGameRuntime, ExposesScalarCommandAndMovementPayloadsWhenPresent) {
     JsGameTriggerContextFixture context = make_context();
     context.has_command = true;
     context.command = "open";
@@ -2690,21 +2699,20 @@ TEST(JsGameRuntime, ExposesScalarCommandAndMovementPayloadsWhenPresent)
     context.reverse_direction = "south";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.command === 'open'\n"
-        "  && ctx.args === 'north gate'\n"
-        "  && ctx.tick === 42\n"
-        "  && ctx.direction === 'north'\n"
-        "  && ctx.reverseDirection === 'south'\n"
-        "  && ctx.target === null\n"
-        "  && ctx.dying === null;",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.command === 'open'\n"
+                                      "  && ctx.args === 'north gate'\n"
+                                      "  && ctx.tick === 42\n"
+                                      "  && ctx.direction === 'north'\n"
+                                      "  && ctx.reverseDirection === 'south'\n"
+                                      "  && ctx.target === null\n"
+                                      "  && ctx.dying === null;",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent)
-{
+TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent) {
     JsGameTriggerContextFixture context = make_context();
     context.has_targ1 = true;
     context.targ1.type = "character";
@@ -2719,7 +2727,7 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent)
     context.has_target = true;
     context.target = context.targ1;
     context.target.character.id = "target";
-    context.target_types = { "character", "object" };
+    context.target_types = {"character", "object"};
     context.has_dying = true;
     context.dying = context.self;
     context.dying.id = "dying";
@@ -2802,30 +2810,30 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent)
 
     expect_ok_allows(room_result);
 
-    EXPECT_EQ(runtime.evaluate_trigger_body("ctx.targ1.name = 'mutated'; return true;", context).status,
-        JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime.evaluate_trigger_body("ctx.targetTypes[0] = 'room'; return true;", context).status,
+    EXPECT_EQ(
+        runtime.evaluate_trigger_body("ctx.targ1.name = 'mutated'; return true;", context).status,
         JsRuntimeStatus::Error);
     EXPECT_EQ(
-        runtime.evaluate_trigger_body("ctx.targ1.room.name = 'mutated'; return true;", context).status,
+        runtime.evaluate_trigger_body("ctx.targetTypes[0] = 'room'; return true;", context).status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(
+        runtime.evaluate_trigger_body("ctx.targ1.room.name = 'mutated'; return true;", context)
+            .status,
         JsRuntimeStatus::Error);
 }
 
-TEST(JsGameRuntime, TreatsZeroTickAsPresent)
-{
+TEST(JsGameRuntime, TreatsZeroTickAsPresent) {
     JsGameTriggerContextFixture context = make_context();
     context.has_tick = true;
     context.tick = 0;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result =
-        runtime.evaluate_trigger_body("return ctx.tick === 0;", context);
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body("return ctx.tick === 0;", context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, EscapesFixtureStringsBeforeEvaluation)
-{
+TEST(JsGameRuntime, EscapesFixtureStringsBeforeEvaluation) {
     JsGameTriggerContextFixture context = make_context();
     context.self.name = "self \"quoted\" \\ name";
     context.actor.race = "race\x01value";
@@ -2845,30 +2853,29 @@ TEST(JsGameRuntime, EscapesFixtureStringsBeforeEvaluation)
     context.reverse_direction = "south\t";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.self.name === 'self \"quoted\" \\\\ name'\n"
-        "  && ctx.actor.race.charCodeAt(4) === 1\n"
-        "  && ctx.object.name === 'object\\nname'\n"
-        "  && ctx.room.name === 'room\\rname'\n"
-        "  && ctx.zone.name === 'zone\\tname'\n"
-        "  && ctx.trigger.name === 'trigger `name`'\n"
-        "  && ctx.trigger.handlerName === 'trigger `name`'\n"
-        "  && ctx.trigger.kind === 'legacy'\n"
-        "  && ctx.trigger.legacyName === 'ON_\"PULL\"'\n"
-        "  && ctx.text.indexOf('line one\\r\\n') === 0\n"
-        "  && ctx.text.includes('line \"two\"')\n"
-        "  && ctx.text.includes('\\\\\\\\ end')\n"
-        "  && ctx.command === 'cmd\\nname'\n"
-        "  && ctx.args === 'arg \"quoted\"'\n"
-        "  && ctx.direction === 'north\\r'\n"
-        "  && ctx.reverseDirection === 'south\\t';",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.self.name === 'self \"quoted\" \\\\ name'\n"
+                                      "  && ctx.actor.race.charCodeAt(4) === 1\n"
+                                      "  && ctx.object.name === 'object\\nname'\n"
+                                      "  && ctx.room.name === 'room\\rname'\n"
+                                      "  && ctx.zone.name === 'zone\\tname'\n"
+                                      "  && ctx.trigger.name === 'trigger `name`'\n"
+                                      "  && ctx.trigger.handlerName === 'trigger `name`'\n"
+                                      "  && ctx.trigger.kind === 'legacy'\n"
+                                      "  && ctx.trigger.legacyName === 'ON_\"PULL\"'\n"
+                                      "  && ctx.text.indexOf('line one\\r\\n') === 0\n"
+                                      "  && ctx.text.includes('line \"two\"')\n"
+                                      "  && ctx.text.includes('\\\\\\\\ end')\n"
+                                      "  && ctx.command === 'cmd\\nname'\n"
+                                      "  && ctx.args === 'arg \"quoted\"'\n"
+                                      "  && ctx.direction === 'north\\r'\n"
+                                      "  && ctx.reverseDirection === 'south\\t';",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, InheritsRuntimeInstructionLimits)
-{
+TEST(JsGameRuntime, InheritsRuntimeInstructionLimits) {
     JsRuntimeLimits limits;
     limits.instruction_budget = 64;
     JsGameRuntime runtime(limits);
@@ -2878,8 +2885,7 @@ TEST(JsGameRuntime, InheritsRuntimeInstructionLimits)
     EXPECT_EQ(result.status, JsRuntimeStatus::Interrupted);
 }
 
-TEST(JsGameRuntime, DoesNotPersistScriptStateAcrossEvaluations)
-{
+TEST(JsGameRuntime, DoesNotPersistScriptStateAcrossEvaluations) {
     JsGameRuntime runtime;
 
     JsRuntimeEvalResult first = runtime.evaluate_trigger_body(
@@ -2894,8 +2900,7 @@ TEST(JsGameRuntime, DoesNotPersistScriptStateAcrossEvaluations)
     expect_ok_allows(second);
 }
 
-TEST(JsGameRuntime, DoesNotExposeRawPointersOrProcessGlobals)
-{
+TEST(JsGameRuntime, DoesNotExposeRawPointersOrProcessGlobals) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
         "return typeof ctx.self.pointer === 'undefined'\n"
@@ -2914,8 +2919,7 @@ TEST(JsGameRuntime, DoesNotExposeRawPointersOrProcessGlobals)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, RedactsThrownActorTextFromDiagnostics)
-{
+TEST(JsGameRuntime, RedactsThrownActorTextFromDiagnostics) {
     JsGameTriggerContextFixture context = make_context();
     context.text = "private player text\r\nwith newline";
 
@@ -2928,8 +2932,7 @@ TEST(JsGameRuntime, RedactsThrownActorTextFromDiagnostics)
     EXPECT_LE(result.diagnostic.size(), 120);
 }
 
-TEST(JsGameRuntime, BuildsStableContextLiteral)
-{
+TEST(JsGameRuntime, BuildsStableContextLiteral) {
     std::string literal = js_game_trigger_context_literal(make_context());
 
     EXPECT_NE(literal.find("\"self\":{\"id\":\"char:1001\""), std::string::npos);
@@ -2953,7 +2956,7 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
                            "\"cost\":450,\"costPerDay\":15,\"timer\":30,\"rarity\":2,"
                            "\"material\":\"metal\"},"
                            "\"room\":{\"id\":\"room:1204\""),
-        std::string::npos);
+              std::string::npos);
     EXPECT_NE(literal.find("\"description\":\"The old city zone.\""), std::string::npos);
     EXPECT_NE(literal.find("\"map\":\"N-G-S\""), std::string::npos);
     EXPECT_NE(literal.find("\"topRoomVnum\":1299"), std::string::npos);
@@ -2994,25 +2997,23 @@ TEST(JsGameRuntime, BuildsStableContextLiteral)
     EXPECT_EQ(literal.find("obj_data"), std::string::npos);
 }
 
-TEST(JsGameRuntime, EmitsMudlleTriggerKindForSpecialCallFlags)
-{
+TEST(JsGameRuntime, EmitsMudlleTriggerKindForSpecialCallFlags) {
     JsGameTriggerContextFixture context = make_context();
     context.trigger.name = "onMudlleCommand";
     context.trigger.legacy_name = "SPECIAL_COMMAND";
     context.trigger.host_type = "mudlleMobile";
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
-        "return ctx.trigger.kind === 'mudlle'\n"
-        "  && ctx.trigger.handlerName === 'onMudlleCommand'\n"
-        "  && ctx.trigger.legacyName === 'SPECIAL_COMMAND';",
-        context);
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.trigger.kind === 'mudlle'\n"
+                                      "  && ctx.trigger.handlerName === 'onMudlleCommand'\n"
+                                      "  && ctx.trigger.legacyName === 'SPECIAL_COMMAND';",
+                                      context);
 
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, DispatchesCompiledCommonJsExports)
-{
+TEST(JsGameRuntime, DispatchesCompiledCommonJsExports) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_package_handler(
         "\"use strict\";\n"
@@ -3025,8 +3026,7 @@ TEST(JsGameRuntime, DispatchesCompiledCommonJsExports)
     EXPECT_EQ(result.value, JsRuntimeValue::Block);
 }
 
-TEST(JsGameRuntime, PrefersCompiledExportOverGlobalHandlerFallback)
-{
+TEST(JsGameRuntime, PrefersCompiledExportOverGlobalHandlerFallback) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_package_handler(
         "exports.onEnter = function(ctx) { return RotS.ScriptResult.allow(); };\n"
@@ -3036,12 +3036,10 @@ TEST(JsGameRuntime, PrefersCompiledExportOverGlobalHandlerFallback)
     expect_ok_allows(result);
 }
 
-TEST(JsGameRuntime, RejectsUnsafePackageHandlerNamesBeforeEvaluation)
-{
+TEST(JsGameRuntime, RejectsUnsafePackageHandlerNamesBeforeEvaluation) {
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result =
-        runtime.evaluate_trigger_package_handler("throw new Error('should not run');", "onEnter(); evil",
-            make_context());
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_package_handler(
+        "throw new Error('should not run');", "onEnter(); evil", make_context());
 
     EXPECT_EQ(result.status, JsRuntimeStatus::Error);
     EXPECT_EQ(result.diagnostic, "JavaScript game handler name is not a safe identifier");

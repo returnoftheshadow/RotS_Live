@@ -275,8 +275,7 @@ TEST(JsApiStructMapping, CoversEveryPublicTopLevelStructField) {
         expect_field(JsApiStructOwner::ZoneData, field);
 }
 
-TEST(JsApiStructMapping, PublicMappingsHaveFinalExplicitAccessorPolicy)
-{
+TEST(JsApiStructMapping, PublicMappingsHaveFinalExplicitAccessorPolicy) {
     std::size_t public_count = 0;
     std::size_t implemented_getter_count = 0;
     std::size_t callable_setter_count = 0;
@@ -327,12 +326,11 @@ TEST(JsApiStructMapping, PublicMappingsHaveFinalExplicitAccessorPolicy)
             EXPECT_EQ(getter_status, "implemented-read-only-getter") << field_id;
             EXPECT_NE(std::string(mapping.side_effect), "none") << field_id;
             EXPECT_NE(setter_docs.find("target-scoped persistent setter authority"),
-                std::string::npos)
+                      std::string::npos)
                 << field_id;
         } else {
             ++documented_non_callable_setter_count;
-            EXPECT_TRUE(setter_status == "deferred" || setter_status == "unsupported")
-                << field_id;
+            EXPECT_TRUE(setter_status == "deferred" || setter_status == "unsupported") << field_id;
             const std::string setter_policy = setter_docs + " " + notes;
             EXPECT_TRUE(setter_policy.find("helper") != std::string::npos ||
                         setter_policy.find("authority") != std::string::npos ||
@@ -459,8 +457,8 @@ TEST(JsApiStructMapping, PinsPromotedGetterGroupStatus) {
         if (std::string(entry.field) == "description" ||
             std::string(entry.field) == "short_description" ||
             ((entry.owner == JsApiStructOwner::ZoneData ||
-                 entry.owner == JsApiStructOwner::RoomData) &&
-                std::string(entry.field) == "level")) {
+              entry.owner == JsApiStructOwner::RoomData) &&
+             std::string(entry.field) == "level")) {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -505,7 +503,7 @@ TEST(JsApiStructMapping, PinsSecondPromotedGetterGroupStatus) {
             std::string(entry.field) == "lifespan" ||
             (entry.owner == JsApiStructOwner::ZoneData && std::string(entry.field) == "level") ||
             (entry.owner == JsApiStructOwner::RoomData &&
-                std::string(entry.field) == "sector_type")) {
+             std::string(entry.field) == "sector_type")) {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
@@ -520,13 +518,11 @@ TEST(JsApiStructMapping, ImplementedSetterDocsReferencePersistentAuthority) {
             continue;
 
         EXPECT_NE(std::string(mapping.setter_docs).find("persistent setter authority"),
-            std::string::npos)
+                  std::string::npos)
             << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
-        EXPECT_NE(std::string(mapping.setter_docs).find("target-scoped"),
-            std::string::npos)
+        EXPECT_NE(std::string(mapping.setter_docs).find("target-scoped"), std::string::npos)
             << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
-        EXPECT_NE(std::string(mapping.notes).find("dispatch mutation authority"),
-            std::string::npos)
+        EXPECT_NE(std::string(mapping.notes).find("dispatch mutation authority"), std::string::npos)
             << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
         EXPECT_EQ(std::string(mapping.setter_docs).find("deferred"), std::string::npos)
             << js_api_struct_owner_name(mapping.owner) << "." << mapping.source_field;
@@ -544,8 +540,7 @@ TEST(JsApiStructMapping, ImplementedSetterDocsReferencePersistentAuthority) {
     EXPECT_STREQ(room_level->setter_status, "implemented-validated-setter");
 }
 
-TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
-{
+TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates) {
     struct ExpectedZoneScalar {
         const char *field;
         const char *status;
@@ -555,27 +550,27 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
 
     const ExpectedZoneScalar expected[] = {
         {"x", "implemented-validated-setter", "0 through 25",
-            "target-scoped dispatch mutation authority"},
+         "target-scoped dispatch mutation authority"},
         {"y", "implemented-validated-setter", "0 through 25",
-            "target-scoped dispatch mutation authority"},
+         "target-scoped dispatch mutation authority"},
         {"symbol", "implemented-validated-setter", "target-scoped persistent setter authority",
-            "target-scoped dispatch mutation authority"},
+         "target-scoped dispatch mutation authority"},
         {"min_level_look", "deferred", "do not currently persist or edit this value",
-            "persisted builder edit path"},
+         "persisted builder edit path"},
         {"lifespan", "implemented-validated-setter", "1 through 10080",
-            "target-scoped dispatch mutation authority"},
+         "target-scoped dispatch mutation authority"},
         {"reset_mode", "implemented-validated-setter", "0 through 3",
-            "target-scoped dispatch mutation authority"},
+         "target-scoped dispatch mutation authority"},
         {"age", "unsupported", "reset scheduling should own this value", ""},
         {"top", "unsupported", "Changing zone room bounds", "World topology field"},
         {"white_power", "unsupported", "Direct White-side power writes are unsupported",
-            "Derived gameplay state"},
+         "Derived gameplay state"},
         {"dark_power", "unsupported", "Direct Dark-side power writes are unsupported",
-            "Derived gameplay state"},
+         "Derived gameplay state"},
         {"magi_power", "unsupported", "Direct Magi-side power writes are unsupported",
-            "Derived gameplay state"},
+         "Derived gameplay state"},
         {"level", "implemented-validated-setter", "0 through 100",
-            "target-scoped dispatch mutation authority"},
+         "target-scoped dispatch mutation authority"},
     };
 
     for (const ExpectedZoneScalar &entry : expected) {
@@ -584,8 +579,7 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
         ASSERT_NE(mapping, nullptr) << entry.field;
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter") << entry.field;
         EXPECT_STREQ(mapping->setter_status, entry.status) << entry.field;
-        EXPECT_NE(std::string(mapping->setter_docs).find(entry.setter_doc_text),
-            std::string::npos)
+        EXPECT_NE(std::string(mapping->setter_docs).find(entry.setter_doc_text), std::string::npos)
             << entry.field;
         if (entry.note_text[0] != '\0') {
             EXPECT_NE(std::string(mapping->notes).find(entry.note_text), std::string::npos)
@@ -601,14 +595,14 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
     EXPECT_NE(std::string(zone_x->setter_docs).find("integer"), std::string::npos);
     EXPECT_NE(std::string(zone_x->setter_docs).find("rejects negative values"), std::string::npos);
     EXPECT_NE(std::string(zone_x->setter_docs).find("values above 25 such as 26"),
-        std::string::npos);
+              std::string::npos);
     EXPECT_NE(std::string(zone_x->setter_docs).find("fractional or other non-integer values"),
-        std::string::npos);
+              std::string::npos);
     EXPECT_NE(std::string(zone_x->setter_docs).find("legacy map clamping"), std::string::npos);
     EXPECT_NE(std::string(zone_x->setter_docs).find("redraw the cached world map"),
-        std::string::npos);
+              std::string::npos);
     EXPECT_NE(std::string(zone_x->setter_docs).find("target-scoped persistent setter authority"),
-        std::string::npos);
+              std::string::npos);
 
     const JsApiStructFieldMapping *zone_y =
         find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "y");
@@ -616,23 +610,23 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
     EXPECT_EQ(WORLD_SIZE_Y - 1, 25);
     EXPECT_NE(std::string(zone_y->setter_docs).find("0 through 25"), std::string::npos);
     EXPECT_NE(std::string(zone_y->setter_docs).find("accept boundary values 0 and 25"),
-        std::string::npos);
+              std::string::npos);
     EXPECT_NE(std::string(zone_y->setter_docs).find("reject negative values"), std::string::npos);
     EXPECT_NE(std::string(zone_y->setter_docs).find("reject values above 25 such as 26"),
-        std::string::npos);
-    EXPECT_NE(std::string(zone_y->setter_docs).find("reject fractional or other non-integer values"),
+              std::string::npos);
+    EXPECT_NE(
+        std::string(zone_y->setter_docs).find("reject fractional or other non-integer values"),
         std::string::npos);
     EXPECT_NE(std::string(zone_y->setter_docs).find("outside the map buffer"), std::string::npos);
     EXPECT_NE(std::string(zone_y->setter_docs).find("redraw the map"), std::string::npos);
     EXPECT_NE(std::string(zone_y->setter_docs).find("target-scoped persistent setter authority"),
-        std::string::npos);
+              std::string::npos);
 
     const JsApiStructFieldMapping *zone_symbol =
         find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, "symbol");
     ASSERT_NE(zone_symbol, nullptr);
-    for (const char *fragment :
-        {"single-character", "empty", "multi-character", "control", "whitespace-only",
-            "target-scoped persistent setter authority"}) {
+    for (const char *fragment : {"single-character", "empty", "multi-character", "control",
+                                 "whitespace-only", "target-scoped persistent setter authority"}) {
         EXPECT_NE(std::string(zone_symbol->setter_docs).find(fragment), std::string::npos)
             << fragment;
     }
@@ -660,8 +654,8 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
             find_js_api_struct_field_mapping(JsApiStructOwner::ZoneData, entry.field);
         ASSERT_NE(mapping, nullptr) << entry.field;
         EXPECT_STREQ(mapping->setter_status, entry.status) << entry.field;
-        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
-                      .find(entry.required_text),
+        EXPECT_NE(
+            (std::string(mapping->setter_docs) + " " + mapping->notes).find(entry.required_text),
             std::string::npos)
             << entry.field;
     }
@@ -679,33 +673,30 @@ TEST(JsApiStructMapping, ClassifiesZoneScalarSetterCandidates)
 
     const ExpectedZoneRemainder remaining[] = {
         {"white_power", "whitePower", "setWhitePower", "number", false,
-            "implemented-read-only-getter",
-            "unsupported", "mutation"},
-        {"dark_power", "darkPower", "setDarkPower", "number", false,
-            "implemented-read-only-getter",
-            "unsupported", "mutation"},
-        {"magi_power", "magiPower", "setMagiPower", "number", false,
-            "implemented-read-only-getter",
-            "unsupported", "mutation"},
+         "implemented-read-only-getter", "unsupported", "mutation"},
+        {"dark_power", "darkPower", "setDarkPower", "number", false, "implemented-read-only-getter",
+         "unsupported", "mutation"},
+        {"magi_power", "magiPower", "setMagiPower", "number", false, "implemented-read-only-getter",
+         "unsupported", "mutation"},
         {"min_level_look", "minimumLookLevel", "setMinimumLookLevel", "number", false,
-            "implemented-read-only-getter", "deferred", "mutation"},
-        {"age", "age", "setAge", "number", false, "implemented-read-only-getter",
-            "unsupported", "mutation"},
-        {"top", "topRoomVnum", "setTopRoomVnum", "number", false,
-            "implemented-read-only-getter", "unsupported", "none"},
+         "implemented-read-only-getter", "deferred", "mutation"},
+        {"age", "age", "setAge", "number", false, "implemented-read-only-getter", "unsupported",
+         "mutation"},
+        {"top", "topRoomVnum", "setTopRoomVnum", "number", false, "implemented-read-only-getter",
+         "unsupported", "none"},
         {"number", "vnum", "setVnum", "number", false, "implemented-read-only-getter",
-            "unsupported", "none"},
+         "unsupported", "none"},
         {"zone_short_description", "shortDescriptions", "setShortDescriptions",
-            "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation"},
+         "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation"},
         {"zone_description", "extraDescriptions", "setExtraDescriptions",
-            "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation"},
-        {"zone_map", "mapDescriptions", "setMapDescriptions",
-            "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation"},
+         "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation"},
+        {"zone_map", "mapDescriptions", "setMapDescriptions", "readonly ExtraDescription[]", true,
+         "deferred", "unsupported", "mutation"},
         {"owners", "owners", "setOwners", "never", true, "internal-only", "unsupported", "none"},
-        {"cmdno", "resetCommandCount", "setResetCommandCount", "number", false,
-            "internal-only", "unsupported", "none"},
-        {"cmd", "resetCommands", "setResetCommands", "never", true, "internal-only",
-            "unsupported", "none"},
+        {"cmdno", "resetCommandCount", "setResetCommandCount", "number", false, "internal-only",
+         "unsupported", "none"},
+        {"cmd", "resetCommands", "setResetCommands", "never", true, "internal-only", "unsupported",
+         "none"},
     };
     for (const ExpectedZoneRemainder &entry : remaining) {
         const JsApiStructFieldMapping *mapping =
@@ -742,7 +733,7 @@ TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
         if (std::string(entry.field) == "sector_type") {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
             EXPECT_NE(std::string(mapping->setter_docs).find("canonical live sector-name"),
-                std::string::npos);
+                      std::string::npos);
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
         }
@@ -754,13 +745,12 @@ TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
     EXPECT_NE(std::string(room_flags->getter_docs).find("BFS_MARK"), std::string::npos);
     EXPECT_STREQ(room_flags->setter_status, "deferred");
     EXPECT_NE(std::string(room_flags->setter_docs).find("builder-facing flag vocabulary"),
-        std::string::npos);
+              std::string::npos);
     EXPECT_NE(std::string(room_flags->setter_docs).find("room-affect synchronization"),
-        std::string::npos);
+              std::string::npos);
     EXPECT_NE(std::string(room_flags->setter_docs).find("teleport"), std::string::npos);
     EXPECT_NE(std::string(room_flags->notes).find("Raw bitvector"), std::string::npos);
-    EXPECT_NE(std::string(room_flags->notes).find("read-only permanentAffect"),
-        std::string::npos);
+    EXPECT_NE(std::string(room_flags->notes).find("read-only permanentAffect"), std::string::npos);
     EXPECT_NE(std::string(room_flags->notes).find("PERMAFFECT"), std::string::npos);
 
     const JsApiStructFieldMapping *alignment =
@@ -768,12 +758,11 @@ TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
     ASSERT_NE(alignment, nullptr);
     EXPECT_STREQ(alignment->getter_status, "implemented-read-only-getter");
     EXPECT_STREQ(alignment->setter_status, "deferred");
-    EXPECT_NE(std::string(alignment->setter_docs).find("room file writer"),
-        std::string::npos);
+    EXPECT_NE(std::string(alignment->setter_docs).find("room file writer"), std::string::npos);
     EXPECT_NE(std::string(alignment->setter_docs).find("does not copy alignment"),
-        std::string::npos);
+              std::string::npos);
     EXPECT_NE(std::string(alignment->notes).find("persistence/editing semantics"),
-        std::string::npos);
+              std::string::npos);
 }
 
 TEST(JsApiStructMapping, PinsCriticalBuilderFacingMappings) {
@@ -832,8 +821,7 @@ TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
     };
     const ExpectedMapping expected[] = {
         {"affected", "affects", "readonly ObjectAffect[]", "deferred", "unsupported", "mutation",
-         "Future entries must use named apply locations",
-         "no builder getter is emitted yet"},
+         "Future entries must use named apply locations", "no builder getter is emitted yet"},
         {"ex_description", "extraDescriptions", "readonly ExtraDescription[]", "deferred",
          "unsupported", "mutation", "bounded list size", "not exposed to builders"},
         {"owner", "ownerId", "never", "internal-only", "unsupported", "none",
@@ -862,7 +850,7 @@ TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
         EXPECT_STREQ(mapping->setter_status, item.setter_status) << item.field;
         EXPECT_STREQ(mapping->side_effect, item.side_effect) << item.field;
         EXPECT_NE(std::string(mapping->getter_docs).find(item.getter_docs_fragment),
-            std::string::npos)
+                  std::string::npos)
             << item.field;
         EXPECT_NE(std::string(mapping->notes).find(item.notes_fragment), std::string::npos)
             << item.field;
@@ -891,8 +879,8 @@ TEST(JsApiStructMapping, PinsObjectRelationshipAndLifecycleSetterDeferrals) {
         ASSERT_NE(mapping, nullptr) << entry.field;
         EXPECT_STREQ(mapping->getter_status, entry.getter_status) << entry.field;
         EXPECT_STREQ(mapping->setter_status, entry.setter_status) << entry.field;
-        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
-                      .find(entry.required_text),
+        EXPECT_NE(
+            (std::string(mapping->setter_docs) + " " + mapping->notes).find(entry.required_text),
             std::string::npos)
             << entry.field;
     }
@@ -913,35 +901,29 @@ TEST(JsApiStructMapping, PinsCharacterRelationshipAndStateSetterDeferrals) {
 
     const ExpectedCharacterDeferral deferred[] = {
         {"in_room", "room", "setRoom", "Room | null", true, "implemented-read-only-getter",
-            "deferred", "world-mutation", "movement triggers"},
+         "deferred", "world-mutation", "movement triggers"},
         {"affected", "affects", "setAffects", "readonly Affect[]", true,
-            "implemented-read-only-getter", "deferred",
-            "world-mutation", "duration accounting"},
+         "implemented-read-only-getter", "deferred", "world-mutation", "duration accounting"},
         {"equipment", "equipment", "setEquipmentSlot", "readonly EquipmentSlot[]", false,
-            "implemented-read-only-getter", "deferred", "world-mutation", "ON_WEAR"},
+         "implemented-read-only-getter", "deferred", "world-mutation", "ON_WEAR"},
         {"carrying", "inventory", "setInventory", "readonly InventoryObjectSnapshot[]", true,
-            "implemented-read-only-getter", "unsupported", "world-mutation", "carried weight"},
-        {"followers", "followers", "setFollowers", "readonly CharacterRelationshipSnapshot[]",
-            true, "implemented-read-only-getter", "unsupported", "world-mutation",
-            "follower caps"},
+         "implemented-read-only-getter", "unsupported", "world-mutation", "carried weight"},
+        {"followers", "followers", "setFollowers", "readonly CharacterRelationshipSnapshot[]", true,
+         "implemented-read-only-getter", "unsupported", "world-mutation", "follower caps"},
         {"master", "master", "setMaster", "CharacterRelationshipSnapshot | null", true,
-            "implemented-read-only-getter", "deferred", "world-mutation", "loop prevention"},
-        {"mount_data", "mount", "setMount", "MountData", false, "deferred", "deferred",
-            "world-mutation", "rider back-pointers"},
+         "implemented-read-only-getter", "deferred", "world-mutation", "loop prevention"},
+        {"mount_data", "mount", "setMount", "MountData", false, "implemented-read-only-getter",
+         "deferred", "world-mutation", "rider back-pointers"},
         {"group", "group", "setGroup", "Group | null", true, "deferred", "unsupported",
-            "world-mutation", "leader/member list integrity"},
+         "world-mutation", "leader/member list integrity"},
         {"classpoints", "classPoints", "setClassPoints", "number", false,
-            "implemented-read-only-getter",
-            "unsupported", "mutation", "account/admin audit"},
+         "implemented-read-only-getter", "unsupported", "mutation", "account/admin audit"},
         {"interrupt_count", "interruptCount", "setInterruptCount", "number", false,
-            "implemented-read-only-getter",
-            "unsupported", "mutation", "wait-state interactions"},
+         "implemented-read-only-getter", "unsupported", "mutation", "wait-state interactions"},
         {"interrupt_time", "interruptTime", "setInterruptTime", "number", false,
-            "implemented-read-only-getter",
-            "unsupported", "mutation", "wait-state interactions"},
+         "implemented-read-only-getter", "unsupported", "mutation", "wait-state interactions"},
         {"spec_busy", "specialBusy", "setSpecialBusy", "boolean", false,
-            "implemented-read-only-getter",
-            "unsupported", "mutation", "special-procedure reentrancy"},
+         "implemented-read-only-getter", "unsupported", "mutation", "special-procedure reentrancy"},
     };
 
     for (const ExpectedCharacterDeferral &entry : deferred) {
@@ -955,8 +937,8 @@ TEST(JsApiStructMapping, PinsCharacterRelationshipAndStateSetterDeferrals) {
         EXPECT_STREQ(mapping->getter_status, entry.getter_status) << entry.field;
         EXPECT_STREQ(mapping->setter_status, entry.setter_status) << entry.field;
         EXPECT_STREQ(mapping->side_effect, entry.side_effect) << entry.field;
-        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
-                      .find(entry.required_text),
+        EXPECT_NE(
+            (std::string(mapping->setter_docs) + " " + mapping->notes).find(entry.required_text),
             std::string::npos)
             << entry.field;
     }
@@ -978,26 +960,24 @@ TEST(JsApiStructMapping, PinsObjectAndRoomNestedListSetterDeferrals) {
 
     const ExpectedNestedListDeferral deferred[] = {
         {JsApiStructOwner::ObjData, "obj_flags", "flags", "setFlags", "ObjectFlags", false,
-            "implemented-read-only-getter", "unsupported", "mutation", "separate named helper APIs"},
-        {JsApiStructOwner::ObjData, "affected", "affects", "setAffects",
-            "readonly ObjectAffect[]", false, "deferred", "unsupported", "mutation",
-            "slot-specific helper"},
-        {JsApiStructOwner::ObjData, "ex_description", "extraDescriptions",
-            "setExtraDescriptions", "readonly ExtraDescription[]", true, "deferred", "unsupported",
-            "mutation", "add/update/remove helper APIs"},
-        {JsApiStructOwner::RoomData, "ex_description", "extraDescriptions",
-            "setExtraDescriptions", "readonly ExtraDescription[]", true, "deferred", "unsupported",
-            "mutation", "add/update/remove helper APIs"},
-        {JsApiStructOwner::RoomData, "dir_option", "exits", "setExit", "readonly RoomExit[]",
-            false, "deferred", "deferred", "world-mutation", "destination-room"},
-        {JsApiStructOwner::RoomData, "contents", "contents", "setContents",
-            "readonly GameObject[]", true, "deferred", "unsupported", "world-mutation",
-            "object movement/load/extract helpers"},
+         "implemented-read-only-getter", "unsupported", "mutation", "separate named helper APIs"},
+        {JsApiStructOwner::ObjData, "affected", "affects", "setAffects", "readonly ObjectAffect[]",
+         false, "deferred", "unsupported", "mutation", "slot-specific helper"},
+        {JsApiStructOwner::ObjData, "ex_description", "extraDescriptions", "setExtraDescriptions",
+         "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation",
+         "add/update/remove helper APIs"},
+        {JsApiStructOwner::RoomData, "ex_description", "extraDescriptions", "setExtraDescriptions",
+         "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation",
+         "add/update/remove helper APIs"},
+        {JsApiStructOwner::RoomData, "dir_option", "exits", "setExit", "readonly RoomExit[]", false,
+         "deferred", "deferred", "world-mutation", "destination-room"},
+        {JsApiStructOwner::RoomData, "contents", "contents", "setContents", "readonly GameObject[]",
+         true, "deferred", "unsupported", "world-mutation", "object movement/load/extract helpers"},
         {JsApiStructOwner::RoomData, "people", "characters", "setCharacters",
-            "readonly Character[]", true, "deferred", "unsupported", "world-mutation",
-            "movement/teleport helpers"},
-        {JsApiStructOwner::RoomData, "affected", "affects", "setAffects", "readonly Affect[]",
-            true, "deferred", "unsupported", "world-mutation", "room flag synchronization"},
+         "readonly Character[]", true, "deferred", "unsupported", "world-mutation",
+         "movement/teleport helpers"},
+        {JsApiStructOwner::RoomData, "affected", "affects", "setAffects", "readonly Affect[]", true,
+         "deferred", "unsupported", "world-mutation", "room flag synchronization"},
     };
 
     for (const ExpectedNestedListDeferral &entry : deferred) {
@@ -1011,8 +991,8 @@ TEST(JsApiStructMapping, PinsObjectAndRoomNestedListSetterDeferrals) {
         EXPECT_STREQ(mapping->getter_status, entry.getter_status) << entry.field;
         EXPECT_STREQ(mapping->setter_status, entry.setter_status) << entry.field;
         EXPECT_STREQ(mapping->side_effect, entry.side_effect) << entry.field;
-        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
-                      .find(entry.required_text),
+        EXPECT_NE(
+            (std::string(mapping->setter_docs) + " " + mapping->notes).find(entry.required_text),
             std::string::npos)
             << entry.field;
     }
@@ -1032,33 +1012,31 @@ TEST(JsApiStructMapping, PinsCharacterNestedProfileAndStatSetterDeferrals) {
     };
 
     const ExpectedCharacterDeferral deferred[] = {
-        {"player", "profile", "setProfile", "CharacterProfile", false, "deferred",
-            "unsupported", "mutation", "account-backed fields"},
+        {"player", "profile", "setProfile", "CharacterProfile", false, "deferred", "unsupported",
+         "mutation", "account-backed fields"},
         {"abilities", "baseAbilities", "setBaseAbilities", "AbilityScores", false,
-            "implemented-read-only-getter", "unsupported", "mutation", "derived stat recalculation"},
+         "implemented-read-only-getter", "unsupported", "mutation", "derived stat recalculation"},
         {"tmpabilities", "currentAbilities", "setCurrentAbilities", "AbilityScores", false,
-            "implemented-read-only-getter", "unsupported", "mutation", "active affects"},
+         "implemented-read-only-getter", "unsupported", "mutation", "active affects"},
         {"constabilities", "rolledAbilities", "setRolledAbilities", "AbilityScores", false,
-            "implemented-read-only-getter", "unsupported", "mutation",
-            "character-creation history"},
-        {"points", "points", "setPoints", "CharacterPoints", false,
-            "implemented-read-only-getter", "unsupported", "mutation", "death handling"},
+         "implemented-read-only-getter", "unsupported", "mutation", "character-creation history"},
+        {"points", "points", "setPoints", "CharacterPoints", false, "implemented-read-only-getter",
+         "unsupported", "mutation", "death handling"},
         {"specials", "specials", "setSpecials", "CharacterSpecials", false,
-            "implemented-read-only-getter", "unsupported", "mutation", "combat targets"},
+         "implemented-read-only-getter", "unsupported", "mutation", "combat targets"},
         {"specials2", "specials2", "setSpecials2", "CharacterSpecials2", false,
-            "implemented-read-only-getter", "unsupported", "mutation", "player/NPC flags"},
+         "implemented-read-only-getter", "unsupported", "mutation", "player/NPC flags"},
         {"profs", "professions", "setProfessions", "readonly Profession[]", true,
-            "implemented-read-only-getter", "unsupported", "mutation", "skill recalculation"},
-        {"extra_specialization_data", "specializations", "setSpecializations",
-            "SpecializationData", false, "implemented-read-only-getter", "unsupported", "mutation",
-            "class-specific invariants"},
+         "implemented-read-only-getter", "unsupported", "mutation", "skill recalculation"},
+        {"extra_specialization_data", "specializations", "setSpecializations", "SpecializationData",
+         false, "implemented-read-only-getter", "unsupported", "mutation",
+         "class-specific invariants"},
         {"damage_details", "damageDetails", "setDamageDetails", "DamageDetails", false,
-            "implemented-read-only-getter", "unsupported", "mutation", "combat participation"},
+         "implemented-read-only-getter", "unsupported", "mutation", "combat participation"},
         {"skills", "skills", "setSkill", "readonly SkillValue[]", true,
-            "implemented-read-only-getter",
-            "unsupported", "mutation", "practice sessions"},
+         "implemented-read-only-getter", "unsupported", "mutation", "practice sessions"},
         {"knowledge", "knowledge", "setKnowledge", "readonly KnowledgeValue[]", true,
-            "implemented-read-only-getter", "unsupported", "mutation", "recalculation helpers"},
+         "implemented-read-only-getter", "unsupported", "mutation", "recalculation helpers"},
     };
 
     for (const ExpectedCharacterDeferral &entry : deferred) {
@@ -1072,8 +1050,8 @@ TEST(JsApiStructMapping, PinsCharacterNestedProfileAndStatSetterDeferrals) {
         EXPECT_STREQ(mapping->getter_status, entry.getter_status) << entry.field;
         EXPECT_STREQ(mapping->setter_status, entry.setter_status) << entry.field;
         EXPECT_STREQ(mapping->side_effect, entry.side_effect) << entry.field;
-        EXPECT_NE((std::string(mapping->setter_docs) + " " + mapping->notes)
-                      .find(entry.required_text),
+        EXPECT_NE(
+            (std::string(mapping->setter_docs) + " " + mapping->notes).find(entry.required_text),
             std::string::npos)
             << entry.field;
     }

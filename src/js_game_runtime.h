@@ -255,6 +255,17 @@ struct JsGameCharacterReferenceFixture {
     bool is_npc = false;
 };
 
+struct JsGameMountFixture {
+    bool has_mount = false;
+    JsGameCharacterReferenceFixture mount;
+    bool has_rider = false;
+    JsGameCharacterReferenceFixture rider;
+    bool has_next_rider = false;
+    JsGameCharacterReferenceFixture next_rider;
+    bool is_riding = false;
+    bool is_mounted = false;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -287,6 +298,7 @@ struct JsGameCharacterFixture {
     std::vector<JsGameCharacterReferenceFixture> followers;
     bool has_master = false;
     JsGameCharacterReferenceFixture master;
+    JsGameMountFixture mount;
     bool is_npc = false;
 
     bool has_room = false;
@@ -404,19 +416,21 @@ struct JsGameTriggerContextFixture {
 };
 
 class JsGameRuntime {
-public:
-    explicit JsGameRuntime(const JsRuntimeLimits& limits = {});
+  public:
+    explicit JsGameRuntime(const JsRuntimeLimits &limits = {});
 
-    JsRuntimeEvalResult evaluate_trigger_body(const std::string& source,
-        const JsGameTriggerContextFixture& context, const char* filename = "game-script.js");
-    JsRuntimeEvalResult evaluate_trigger_package_handler(const std::string& package_source,
-        const std::string& handler_name, const JsGameTriggerContextFixture& context,
-        const char* filename = "game-script.js");
+    JsRuntimeEvalResult evaluate_trigger_body(const std::string &source,
+                                              const JsGameTriggerContextFixture &context,
+                                              const char *filename = "game-script.js");
+    JsRuntimeEvalResult evaluate_trigger_package_handler(const std::string &package_source,
+                                                         const std::string &handler_name,
+                                                         const JsGameTriggerContextFixture &context,
+                                                         const char *filename = "game-script.js");
 
-private:
+  private:
     JsRuntimeLimits m_limits;
 };
 
-std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& context);
+std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture &context);
 
 #endif

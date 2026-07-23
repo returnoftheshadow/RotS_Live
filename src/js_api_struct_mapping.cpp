@@ -99,8 +99,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Whole-specials2 mutation is unsupported for builder scripts because the fields include "
      "player/NPC flags, preferences, ids, load rooms, conditions, perception, alignment, "
      "teaching, tactics, and other persistence-sensitive state.",
-     "mutation",
-     "Nested struct."},
+     "mutation", "Nested struct."},
     {JsApiStructOwner::CharData, "char_data", "profs", "professions", "getProfessions",
      "setProfessions", "readonly Profession[]", true, ImplementedReadOnly, Unsupported,
      "Returns a frozen read-only snapshot of public profession progression data for mage, "
@@ -139,8 +138,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Skill writes are unsupported for builder scripts; any future training/admin helper must "
      "validate skill ids, percent ranges, practice sessions, guild restrictions, derived "
      "knowledge, and player-file persistence.",
-     "mutation",
-     "Raw byte pointer must never be exposed."},
+     "mutation", "Raw byte pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "knowledge", "knowledge", "getKnowledge",
      "setKnowledge", "readonly KnowledgeValue[]", true, ImplementedReadOnly, Unsupported,
      "Returns a frozen read-only computed-knowledge snapshot with one entry per nonzero knowledge "
@@ -149,8 +147,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "and specialization id. The raw MAX_SKILLS byte pointer is not exposed.",
      "Knowledge writes are unsupported for builder scripts because values are normally derived "
      "from skills, body type, confusion, teaching, guild limits, and recalculation helpers.",
-     "mutation",
-     "Raw byte pointer must never be exposed."},
+     "mutation", "Raw byte pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "affected", "affects", "getAffects", "setAffects",
      "readonly Affect[]", true, ImplementedReadOnly, Deferred,
      "Returns a frozen read-only active-affect snapshot capped at MAX_AFFECT entries, including "
@@ -159,8 +156,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Affect mutation needs explicit add/remove helpers and is deferred because raw list writes "
      "would bypass duration accounting, affect bit recalculation, stat recomputation, combat "
      "side effects, room/mount interactions, and persistence rules.",
-     "world-mutation",
-     "Linked list pointer must never be exposed."},
+     "world-mutation", "Linked list pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "equipment", "equipment", "getEquipment",
      "setEquipmentSlot", "readonly EquipmentSlot[]", false, ImplementedReadOnly, Deferred,
      "Returns a frozen read-only equipment snapshot with one entry per MAX_WEAR slot, including "
@@ -170,8 +166,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "slot assignment would bypass ON_WEAR JavaScript/legacy triggers, wear restrictions, carried "
      "list transfer, light recounting, apply-affect recalculation, combat stat recalculation, and "
      "player crash-save flags.",
-     "world-mutation",
-     "Object pointer array must never be exposed."},
+     "world-mutation", "Object pointer array must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "carrying", "inventory", "getInventory",
      "setInventory", "readonly InventoryObjectSnapshot[]", true, ImplementedReadOnly, Unsupported,
      "Returns a frozen read-only snapshot of up to 100 top-level carried inventory objects using "
@@ -209,8 +204,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Replacing the follower linked list from JavaScript is unsupported because follow state "
      "requires master back-pointers, follower caps, charm/orc/tamed behavior, group interactions, "
      "loop prevention, and room movement propagation.",
-     "world-mutation",
-     "Exposes no raw follow_type nodes or recursive character handles."},
+     "world-mutation", "Exposes no raw follow_type nodes or recursive character handles."},
     {JsApiStructOwner::CharData, "char_data", "master", "master", "getMaster", "setMaster",
      "CharacterRelationshipSnapshot | null", true, ImplementedReadOnly, Deferred,
      "Returns a frozen read-only shallow snapshot of the followed master when the master pointer "
@@ -223,19 +217,21 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Internal persisted master id; no builder getter is emitted.",
      "Changing the persisted master id directly is unsupported.", "none", "Implementation field."},
     {JsApiStructOwner::CharData, "char_data", "mount_data", "mount", "getMount", "setMount",
-     "MountData", false, Deferred, Deferred, "Planned mount-state snapshot.",
+     "MountData", false, ImplementedReadOnly, Deferred,
+     "Returns a frozen read-only mount-state snapshot with live reciprocal mount, rider, and "
+     "next-rider relationship snapshots when those pointers pass stored-number validation.",
      "Mount writes are deferred until ride/dismount rules, rider back-pointers, room movement "
      "propagation, carried-weight accounting, combat restrictions, and mount persistence are "
      "mapped.",
-     "world-mutation",
-     "Nested struct."},
+     "world-mutation", "Exposes no raw mount_data pointers or recursive character handles."},
     {JsApiStructOwner::CharData, "char_data", "group", "group", "getGroup", "setGroup",
-     "Group | null", true, Deferred, Unsupported, "Planned read-only group snapshot.",
+     "Group | null", true, Deferred, Unsupported,
+     "Deferred group snapshot until the adapter has a live group registry or equivalent "
+     "lifetime token so raw group_data pointers can fail closed before dereference.",
      "Replacing a group pointer from JavaScript is unsupported because group membership requires "
      "leader/member list integrity, follow/master consistency, combat XP sharing, and movement "
      "propagation rules.",
-     "world-mutation",
-     "Raw group pointer must never be exposed."},
+     "world-mutation", "Raw group pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "temp", "temporaryData", "getTemporaryData",
      "setTemporaryData", "never", true, Internal, Unsupported,
      "Opaque temporary implementation data is internal and no builder getter is emitted.",
@@ -254,30 +250,27 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Class-point writes are unsupported for builder scripts because this is character-creation "
      "bookkeeping, not a builder-facing world script field; any future admin-only mutation needs "
      "account/admin audit and persistence rules.",
-     "mutation",
-     "Character creation bookkeeping."},
+     "mutation", "Character creation bookkeeping."},
     {JsApiStructOwner::CharData, "char_data", "interrupt_count", "interruptCount",
      "getInterruptCount", "setInterruptCount", "number", false, ImplementedReadOnly, Unsupported,
-     "Returns the current interrupt count copied into the invocation snapshot for combat/casting diagnostics.",
+     "Returns the current interrupt count copied into the invocation snapshot for combat/casting "
+     "diagnostics.",
      "Interrupt count writes are unsupported for builder scripts; any future admin-only helper "
      "must map caster AI, mental/combat interruption, decay timing, and wait-state interactions.",
-     "mutation",
-     "Combat AI bookkeeping."},
+     "mutation", "Combat AI bookkeeping."},
     {JsApiStructOwner::CharData, "char_data", "interrupt_time", "interruptTime", "getInterruptTime",
      "setInterruptTime", "number", false, ImplementedReadOnly, Unsupported,
      "Returns the countdown before interrupt count decays copied into the invocation snapshot.",
      "Interrupt timer writes are unsupported for builder scripts; any future admin-only helper "
      "must map caster AI, mental/combat interruption, decay timing, and wait-state interactions.",
-     "mutation",
-     "Combat AI bookkeeping."},
+     "mutation", "Combat AI bookkeeping."},
     {JsApiStructOwner::CharData, "char_data", "spec_busy", "specialBusy", "isSpecialBusy",
      "setSpecialBusy", "boolean", false, ImplementedReadOnly, Unsupported,
      "Returns whether a special procedure is busy in the invocation snapshot.",
      "Special busy writes are unsupported for builder scripts; any future admin-only helper must "
      "map special-procedure reentrancy, trigger dispatch, legacy wait-state, and reset/heartbeat "
      "interactions.",
-     "mutation",
-     "Special-procedure state."},
+     "mutation", "Special-procedure state."},
 
     {JsApiStructOwner::ObjData, "obj_data", "item_number", "vnum", "getVnum", "setVnum",
      "number | null", true, ImplementedReadOnly, Unsupported,
@@ -318,28 +311,34 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Updates the invocation snapshot object keyword/name after type, nonblank, length, and "
      "unsupported-character checks, and applies to live owned memory only when dispatch provides "
      "target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "description", "description", "getDescription",
      "setDescription", "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the room-visible object description copied into the invocation snapshot.",
      "Updates the invocation snapshot object description after type, length, and "
      "unsupported-character checks, and applies to live owned memory only when dispatch provides "
      "target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "short_description", "shortDescription",
-     "getShortDescription", "setShortDescription", "string", false, ImplementedReadOnly, SetterImplemented,
+     "getShortDescription", "setShortDescription", "string", false, ImplementedReadOnly,
+     SetterImplemented,
      "Returns the carried/worn short description copied into the invocation snapshot.",
      "Updates the invocation snapshot short description after type, length, and "
      "unsupported-character checks, and applies to live owned memory only when dispatch provides "
      "target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "action_description", "actionDescription",
-     "getActionDescription", "setActionDescription", "string | null", true, ImplementedReadOnly, SetterImplemented,
+     "getActionDescription", "setActionDescription", "string | null", true, ImplementedReadOnly,
+     SetterImplemented,
      "Returns the optional use/action text copied into the invocation snapshot when present.",
      "Updates or clears the invocation snapshot action description after nullability, type, "
      "length, and unsupported-character checks, and applies to live owned memory only when "
      "dispatch provides target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "ex_description", "extraDescriptions",
      "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
      Unsupported,
@@ -418,7 +417,8 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "values, and applies to live owned memory only when dispatch provides target-scoped "
      "persistent setter authority. This changes the persisted room-file scalar value used by "
      "legacy same-level room filtering.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "sector_type", "sectorType", "getSectorType",
      "setSectorType", "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the readable sector type name.",
@@ -436,14 +436,16 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Updates the invocation snapshot room display name after type, nonblank, length, and "
      "unsupported-character checks, and applies to live owned memory only when dispatch provides "
      "target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "description", "description", "getDescription",
      "setDescription", "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the room long description copied into the invocation snapshot.",
      "Updates the invocation snapshot room long description after type, length, and "
      "unsupported-character checks, and applies to live owned memory only when dispatch provides "
      "target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "ex_description", "extraDescriptions",
      "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
      Unsupported, "Planned read-only extra-description snapshot.",
@@ -457,8 +459,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Exit writes require explicit setExit/removeExit helpers and are deferred until direction, "
      "door, destination-room, reset-command, bidirectional-link, permission, and persistence "
      "semantics are mapped.",
-     "world-mutation",
-     "Pointer array must never be exposed."},
+     "world-mutation", "Pointer array must never be exposed."},
     {JsApiStructOwner::RoomData, "room_data", "room_track", "tracks", "getTracks", "setTracks",
      "readonly RoomTrack[]", false, Internal, Unsupported,
      "Room tracking data is internal unless a future tracking API is designed.",
@@ -529,31 +530,36 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Updates the invocation snapshot zone display name after type, nonblank, length, and "
      "unsupported-character checks, and applies to live owned memory only when dispatch provides "
      "target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "description", "description", "getDescription",
      "setDescription", "string | null", true, ImplementedReadOnly, SetterImplemented,
      "Returns the optional zone description copied into the invocation snapshot when present.",
      "Updates or clears the invocation snapshot zone description after nullability, type, length, "
      "and unsupported-character checks, and applies to live owned memory only when dispatch "
      "provides target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "map", "map", "getMap", "setMap", "string | null",
      true, ImplementedReadOnly, SetterImplemented,
      "Returns the optional zone map text copied into the invocation snapshot when present.",
      "Updates or clears the invocation snapshot zone map text after nullability, type, length, "
      "and unsupported-character checks, and applies to live owned memory only when dispatch "
      "provides target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "lifespan", "lifespan", "getLifespan", "setLifespan",
      "number", false, ImplementedReadOnly, SetterImplemented,
      "Returns the minutes between zone reset checks.",
      "Updates the invocation snapshot zone reset lifespan after integer and 1 through 10080 "
-     "inclusive bounds checks, rejects zero, negative values, values above 10080, and fractional or "
+     "inclusive bounds checks, rejects zero, negative values, values above 10080, and fractional "
+     "or "
      "other non-integer values, and applies to live owned memory only when dispatch provides "
      "target-scoped persistent setter authority. This changes the minute threshold used by "
      "legacy zone reset scheduling for reset modes 1, 2, and 3; reset mode 0 still disables "
      "automatic reset aging.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "age", "age", "getAge", "setAge", "number", false,
      ImplementedReadOnly, Unsupported, "Returns the current zone age in minutes.",
      "Direct age writes are unsupported; reset scheduling should own this value.", "mutation", ""},
@@ -563,30 +569,34 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Changing zone room bounds from "
      "JavaScript is unsupported.",
      "none", "World topology field."},
-    {JsApiStructOwner::ZoneData, "zone_data", "x", "x", "getX", "setX", "number", false, ImplementedReadOnly,
-     SetterImplemented, "Returns the zone map x coordinate.",
+    {JsApiStructOwner::ZoneData, "zone_data", "x", "x", "getX", "setX", "number", false,
+     ImplementedReadOnly, SetterImplemented, "Returns the zone map x coordinate.",
      "Updates the invocation snapshot zone map x coordinate after integer and 0 through 25 "
      "inclusive bounds checks, rejects negative values, values above 25 such as 26, and "
      "fractional or other non-integer values instead of relying on legacy map clamping, and "
      "applies to live owned memory only when dispatch provides target-scoped persistent setter "
      "authority. Committed global zone writes redraw the cached world map.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
-    {JsApiStructOwner::ZoneData, "zone_data", "y", "y", "getY", "setY", "number", false, ImplementedReadOnly,
-     SetterImplemented, "Returns the zone map y coordinate.",
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
+    {JsApiStructOwner::ZoneData, "zone_data", "y", "y", "getY", "setY", "number", false,
+     ImplementedReadOnly, SetterImplemented, "Returns the zone map y coordinate.",
      "Updates the invocation snapshot zone map y coordinate after integer and 0 through 25 "
      "inclusive bounds checks, accept boundary values 0 and 25, reject negative values, "
      "reject values above 25 such as 26, and reject fractional or other non-integer values "
      "instead of addressing outside the map buffer, and applies to live owned memory only when "
      "dispatch provides target-scoped persistent setter authority. Committed global zone writes "
      "redraw the map through the cached world map path.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "symbol", "symbol", "getSymbol", "setSymbol",
      "string", false, ImplementedReadOnly, SetterImplemented,
      "Returns the single-character zone map symbol.",
-     "Updates the invocation snapshot single-character printable ASCII zone map symbol after empty, "
+     "Updates the invocation snapshot single-character printable ASCII zone map symbol after "
+     "empty, "
      "multi-character, control, whitespace-only, and non-ASCII checks, and applies to live owned "
      "memory only when dispatch provides target-scoped persistent setter authority.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "level", "level", "getLevel", "setLevel", "number",
      false, ImplementedReadOnly, SetterImplemented, "Returns the zone level value.",
      "Updates the invocation snapshot zone level after integer and 0 through 100 inclusive bounds "
@@ -594,7 +604,8 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "values, and applies to live owned memory only when dispatch provides target-scoped "
      "persistent setter authority. This changes the persisted builder-facing zone metadata value "
      "shown by legacy zone inspection and shaping paths.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "white_power", "whitePower", "getWhitePower",
      "setWhitePower", "number", false, ImplementedReadOnly, Unsupported,
      "Returns the White-side zone power copied from the loaded zone table.",
@@ -636,8 +647,7 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Whole zone map-description list writes are unsupported for builder scripts; future "
      "add/update/remove helper APIs must own linked-list allocation, stale-handle protection, "
      "bounded list size, text length, sanitization, persistence, rollback, and audit semantics.",
-     "mutation",
-     "Linked list pointer must never be exposed."},
+     "mutation", "Linked list pointer must never be exposed."},
     {JsApiStructOwner::ZoneData, "zone_data", "min_level_look", "minimumLookLevel",
      "getMinimumLookLevel", "setMinimumLookLevel", "number", false, ImplementedReadOnly, Deferred,
      "Returns the minimum level required to inspect zone map/details.",
@@ -660,7 +670,8 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "target-scoped persistent setter authority. Reset mode 0 disables automatic reset aging, "
      "1 resets only when the zone is empty, 2 resets whenever the lifespan expires, and 3 uses "
      "the legacy mixed empty-or-extended-lifespan reset rule.",
-     "mutation", "Persistent application requires target-scoped dispatch mutation authority context."},
+     "mutation",
+     "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ZoneData, "zone_data", "number", "vnum", "getVnum", "setVnum", "number",
      false, ImplementedReadOnly, Unsupported, "Returns the public zone vnum.",
      "Changing a loaded zone vnum from JavaScript is unsupported.", "none",
