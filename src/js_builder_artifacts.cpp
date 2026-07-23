@@ -166,7 +166,7 @@ void append_ts_doc_comment(std::ostringstream &out, const std::string &indent, c
 void append_mutation_result_type(std::ostringstream &out) {
     out << "export type MutationResult =\n";
     out << "    | {\n";
-    out << "        /** True when a future validated setter applies the requested change. */\n";
+    out << "        /** True when a validated setter applies the requested change. */\n";
     out << "        readonly ok: true;\n";
     out << "        /** Stable machine-readable result code for successful mutations. */\n";
     out << "        readonly code: 'ok';\n";
@@ -176,7 +176,7 @@ void append_mutation_result_type(std::ostringstream &out) {
     out << "        readonly field: string | null;\n";
     out << "      }\n";
     out << "    | {\n";
-    out << "        /** False when a future validated setter rejects or defers the requested change. */\n";
+    out << "        /** False when a validated setter rejects or defers the requested change. */\n";
     out << "        readonly ok: false;\n";
     out << "        /** Stable machine-readable result code for rejected or deferred mutations. */\n";
     out << "        readonly code:\n";
@@ -439,9 +439,9 @@ std::string js_generate_api_markdown_reference() {
     out << "## Public Field Accessor Mapping\n\n";
     out << "This catalog maps legacy server fields onto the documented JavaScript handle API. "
            "Implemented read-only getters may appear in TypeScript declarations when the live "
-           "runtime and offline fixture runner both support them. Planned, deferred, and "
-           "unsupported setters are documented for review but are not callable from builder "
-           "scripts until the generated API contract exposes them. Internal server fields are "
+           "runtime and offline fixture runner both support them. Deferred and unsupported setter "
+           "policies are documented for review but are not callable from builder scripts until "
+           "the generated API contract exposes a validated setter. Internal server fields are "
            "omitted from this public artifact.\n\n";
     out << "| Owner | Field id | Property | Getter | Setter | Type | Nullable | Getter status | "
            "Setter status | Getter callable | Setter callable | Documentation only | Side effect | "

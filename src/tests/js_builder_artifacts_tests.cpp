@@ -287,6 +287,8 @@ TEST(JsBuilderArtifacts, GeneratesTypescriptDeclarationsWithCompatibilityHeader)
     expect_contains(declarations, "export interface RuntimeSafetyPolicy");
     expect_contains(declarations, "export type MutationResult =");
     expect_contains(declarations, "does not make any setter callable");
+    expect_contains(declarations, "True when a validated setter applies the requested change.");
+    EXPECT_EQ(declarations.find("future validated setter"), std::string::npos);
     expect_contains(declarations, "readonly ok: true;");
     expect_contains(declarations, "readonly ok: false;");
     expect_contains(declarations, "readonly code: 'ok';");
@@ -736,6 +738,10 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     expect_contains(markdown, "Messages are bounded, single-line");
     expect_contains(markdown, "## Public Field Accessor Mapping");
     expect_contains(markdown, "Implemented read-only getters may appear in TypeScript");
+    expect_contains(markdown, "Deferred and unsupported setter policies are documented for review");
+    expect_contains(markdown, "live runtime and offline fixture runner both support them");
+    EXPECT_EQ(markdown.find("future validated setter"), std::string::npos);
+    EXPECT_EQ(markdown.find("Planned, deferred"), std::string::npos);
     expect_contains(markdown, "| `setLevel` | `function` | `(value: number)` | `MutationResult` |");
     expect_contains(markdown, "persisted object-file scalar level value visible as flags.level");
     expect_contains(markdown,
@@ -811,6 +817,14 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     EXPECT_EQ(markdown.find("loadedBy"), std::string::npos);
     EXPECT_EQ(markdown.find("getOwners"), std::string::npos);
     EXPECT_EQ(markdown.find("internal-only"), std::string::npos);
+    expect_contains(markdown,
+                    "| `Room` | `Room.flags` | `flags` | `getFlags` | `setFlags` | "
+                    "`readonly string[]` | `no` | `implemented-read-only-getter` | "
+                    "`deferred` | `yes` | `no` | `yes` | `mutation` |");
+    expect_contains(markdown,
+                    "| `Zone` | `Zone.age` | `age` | `getAge` | `setAge` | `number` | "
+                    "`no` | `implemented-read-only-getter` | `unsupported` | `yes` | `no` | "
+                    "`yes` | `mutation` |");
 }
 
 TEST(JsBuilderArtifacts, GeneratesValidVscodeStyleLspConfig) {

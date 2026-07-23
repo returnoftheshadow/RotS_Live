@@ -815,6 +815,10 @@ TEST(JsApiContract, DefinesSetterMutationResultContract) {
     EXPECT_EQ(mutation_result->kind, JsApiTypeKind::Interface);
     EXPECT_NE(std::string(mutation_result->docs).find("does not make any setter callable"),
               std::string::npos);
+    EXPECT_NE(std::string(mutation_result->docs).find("validated setter methods"),
+              std::string::npos);
+    EXPECT_EQ(std::string(mutation_result->docs).find("future validated setter"),
+              std::string::npos);
 
     struct ExpectedMember {
         const char *name;
@@ -838,6 +842,12 @@ TEST(JsApiContract, DefinesSetterMutationResultContract) {
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << item.name;
         EXPECT_EQ(member->side_effect, JsApiSideEffect::None) << item.name;
     }
+
+    const JsApiMember *ok = find_js_api_contract_member(*mutation_result, "ok");
+    ASSERT_NE(ok, nullptr);
+    EXPECT_NE(std::string(ok->docs).find("validated setter applies the requested change"),
+              std::string::npos);
+    EXPECT_EQ(std::string(ok->docs).find("future validated setter"), std::string::npos);
 }
 
 TEST(JsApiContract, ExposesStableEnumNames) {

@@ -744,7 +744,7 @@ constexpr JsApiMember ScriptContextMembers[] = {
 constexpr JsApiMember MutationResultMembers[] = {
     {"ok", JsApiMemberKind::Property, "boolean", "", false, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "True when a future validated setter applies the requested change."},
+     "True when a validated setter applies the requested change."},
     {"code", JsApiMemberKind::Property,
      "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
      "'unsupported' | 'deferred'",
@@ -1221,8 +1221,8 @@ constexpr JsApiType ApiTypes[] = {
      "Per-invocation trigger context. Handles are not valid across invocations.",
      ScriptContextMembers, sizeof(ScriptContextMembers) / sizeof(ScriptContextMembers[0])},
     {"MutationResult", JsApiTypeKind::Interface, "",
-     "Type-only result returned by future validated setter methods. It does not make any setter "
-     "callable by itself.",
+     "Type-only result returned by validated setter methods. It does not make any setter callable "
+     "by itself.",
      MutationResultMembers, sizeof(MutationResultMembers) / sizeof(MutationResultMembers[0])},
     {"ScriptResult", JsApiTypeKind::Namespace, "", "Pure return-value helpers.",
      ScriptResultMembers, sizeof(ScriptResultMembers) / sizeof(ScriptResultMembers[0])},
