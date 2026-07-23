@@ -458,6 +458,15 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_NE(object_block.find("readonly extraDescriptions:"), std::string::npos);
     EXPECT_NE(object_block.find("readonly container:"), std::string::npos);
     EXPECT_NE(object_block.find("readonly contents:"), std::string::npos);
+    EXPECT_NE(object_block.find("readonly touched:"), std::string::npos);
+    const std::string equipment_object_block =
+        declaration_block(declarations, "export interface EquipmentObjectSnapshot");
+    ASSERT_FALSE(equipment_object_block.empty());
+    EXPECT_NE(equipment_object_block.find("readonly touched:"), std::string::npos);
+    const std::string inventory_object_block =
+        declaration_block(declarations, "export interface InventoryObjectSnapshot");
+    ASSERT_FALSE(inventory_object_block.empty());
+    EXPECT_NE(inventory_object_block.find("readonly touched:"), std::string::npos);
     const char *object_lifecycle_setters[] = {
         "setFlags",
         "setAffects",
@@ -523,7 +532,6 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     const char *classification_only_members[] = {
         "nextContent",
         "next",
-        "touched",
         "loadedBy",
         "values",
         "value0",

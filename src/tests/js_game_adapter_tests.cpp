@@ -1519,6 +1519,7 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     EXPECT_EQ(object_fixture.flags.timer, 30);
     EXPECT_EQ(object_fixture.flags.rarity, 2);
     EXPECT_EQ(object_fixture.flags.material, "metal");
+    EXPECT_TRUE(object_fixture.touched);
     ASSERT_EQ(object_fixture.affects.size(), 2U);
     EXPECT_EQ(object_fixture.affects[0].slot_index, 0);
     EXPECT_EQ(object_fixture.affects[0].location, APPLY_STR);
@@ -1580,6 +1581,7 @@ TEST(JsGameAdapter, SnapshotsObjectContainerWhenReciprocalAndLive) {
     object_index[1].virt = 301;
     obj_data object = make_object("silver lever", 0);
     obj_data container = make_object("oak chest", 1);
+    container.touched = 0;
     object.in_room = NOWHERE;
     object.in_obj = &container;
     container.contains = &object;
@@ -1594,7 +1596,23 @@ TEST(JsGameAdapter, SnapshotsObjectContainerWhenReciprocalAndLive) {
     ASSERT_TRUE(object_fixture.has_container);
     EXPECT_EQ(object_fixture.container.id, "object:301");
     EXPECT_EQ(object_fixture.container.name, "oak chest");
+    EXPECT_FALSE(object_fixture.container.touched);
     EXPECT_FALSE(object_fixture.container.has_room);
+}
+
+TEST(JsGameAdapter, NormalizesUntouchedObjectsToFalse) {
+    index_data object_index[1]{};
+    object_index[0].virt = 300;
+    obj_data object = make_object("silver lever", 0);
+    object.touched = 0;
+    const obj_data *live_objects[] = {&object};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1, nullptr,
+                                                0, object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+
+    EXPECT_FALSE(object_fixture.touched);
 }
 
 TEST(JsGameAdapter, OmitsObjectContainerWhenNotReciprocalOrNotLive) {
@@ -1678,6 +1696,8 @@ TEST(JsGameAdapter, SnapshotsObjectContentsWhenReciprocalAndLive) {
     obj_data container = make_object("oak chest", 0);
     obj_data first = make_object("small gear", 1);
     obj_data second = make_object("silver key", 2);
+    first.touched = 0;
+    second.touched = 42;
     first.in_room = NOWHERE;
     first.in_obj = &container;
     first.next_content = &second;
@@ -1694,9 +1714,11 @@ TEST(JsGameAdapter, SnapshotsObjectContentsWhenReciprocalAndLive) {
     ASSERT_EQ(object_fixture.contents.size(), 2U);
     EXPECT_EQ(object_fixture.contents[0].id, "object:301");
     EXPECT_EQ(object_fixture.contents[0].name, "small gear");
+    EXPECT_FALSE(object_fixture.contents[0].touched);
     EXPECT_FALSE(object_fixture.contents[0].has_room);
     EXPECT_EQ(object_fixture.contents[1].id, "object:302");
     EXPECT_EQ(object_fixture.contents[1].name, "silver key");
+    EXPECT_TRUE(object_fixture.contents[1].touched);
 }
 
 TEST(JsGameAdapter, FiltersInvalidAndStaleObjectContentsAndStopsCycles) {
@@ -2502,7 +2524,9 @@ TEST(JsGameAdapter, ContextUsesInvocationLocalRoleIds) {
     ASSERT_TRUE(context.has_killer);
     EXPECT_EQ(context.killer.id, "killer");
     EXPECT_EQ(context.object.id, "object");
+    EXPECT_TRUE(context.object.touched);
     EXPECT_EQ(context.weapon.id, "weapon");
+    EXPECT_TRUE(context.weapon.touched);
     ASSERT_TRUE(context.has_wear_slot);
     EXPECT_EQ(context.wear_slot, "wield");
     EXPECT_EQ(context.self.id.find("98765"), std::string::npos);

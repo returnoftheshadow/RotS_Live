@@ -647,9 +647,28 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     EXPECT_STREQ(object_contents->type_name, "readonly EquipmentObjectSnapshot[]");
     EXPECT_FALSE(object_contents->nullable);
     EXPECT_EQ(object_contents->status, JsApiMemberStatus::PlannedReadOnly);
+    const JsApiMember *object_touched = find_js_api_contract_member(*object, "touched");
+    ASSERT_NE(object_touched, nullptr);
+    EXPECT_STREQ(object_touched->type_name, "boolean");
+    EXPECT_FALSE(object_touched->nullable);
+    EXPECT_EQ(object_touched->status, JsApiMemberStatus::PlannedReadOnly);
+    const JsApiType *equipment_snapshot = find_js_api_contract_type("EquipmentObjectSnapshot");
+    ASSERT_NE(equipment_snapshot, nullptr);
+    const JsApiMember *equipment_object_touched =
+        find_js_api_contract_member(*equipment_snapshot, "touched");
+    ASSERT_NE(equipment_object_touched, nullptr);
+    EXPECT_STREQ(equipment_object_touched->type_name, "boolean");
+    EXPECT_EQ(equipment_object_touched->status, JsApiMemberStatus::PlannedReadOnly);
+    const JsApiType *inventory_snapshot = find_js_api_contract_type("InventoryObjectSnapshot");
+    ASSERT_NE(inventory_snapshot, nullptr);
+    const JsApiMember *inventory_object_touched =
+        find_js_api_contract_member(*inventory_snapshot, "touched");
+    ASSERT_NE(inventory_object_touched, nullptr);
+    EXPECT_STREQ(inventory_object_touched->type_name, "boolean");
+    EXPECT_EQ(inventory_object_touched->status, JsApiMemberStatus::PlannedReadOnly);
 
     const char *classification_only_object_members[] = {
-        "nextContent", "next",   "touched", "ownerId", "loadedBy",
+        "nextContent", "next", "ownerId", "loadedBy",
         "values",      "value0", "rawValues",
     };
     for (const char *member_name : classification_only_object_members) {

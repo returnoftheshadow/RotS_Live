@@ -641,6 +641,7 @@ bool shallow_object_fixture(const obj_data *object, const JsGameAdapterOptions &
     fixture->flags = object_flags_fixture(object->obj_flags);
     fixture->affects = object_affects_fixture(object->affected);
     fixture->extra_descriptions = extra_descriptions_fixture(object->ex_description);
+    fixture->touched = object->touched != 0;
     fixture->has_room = false;
     return true;
 }
@@ -1342,6 +1343,7 @@ bool js_game_adapter_object_fixture(const obj_data *object, const JsGameAdapterO
         fixture->has_container = shallow_object_fixture(object->in_obj, options, &fixture->container);
     }
     fixture->contents = object_contents_fixture(object, options);
+    fixture->touched = object->touched != 0;
     fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
 
     fixture->has_carried_by = false;

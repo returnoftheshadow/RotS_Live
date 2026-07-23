@@ -278,6 +278,7 @@ struct JsGameEquipmentObjectFixture {
     JsGameObjectFlagsFixture flags;
     std::vector<JsGameObjectAffectFixture> affects;
     std::vector<JsGameExtraDescriptionFixture> extra_descriptions;
+    bool touched = false;
 
     bool has_room = false;
     JsGameRoomFixture room;
@@ -365,6 +366,7 @@ struct JsGameObjectFixture {
     bool has_container = false;
     JsGameEquipmentObjectFixture container;
     std::vector<JsGameEquipmentObjectFixture> contents;
+    bool touched = false;
 
     bool has_room = false;
     JsGameRoomFixture room;

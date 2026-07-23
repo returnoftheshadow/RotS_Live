@@ -124,6 +124,7 @@ JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string
         slot.object.flags.material = "metal";
         slot.object.affects.push_back(make_object_affect(0, 2, "DEX", 1));
         slot.object.extra_descriptions.push_back({"crest", "A tiny crest is etched inside."});
+        slot.object.touched = true;
     }
     return slot;
 }
@@ -150,6 +151,7 @@ JsGameEquipmentObjectFixture make_inventory_object(const std::string &id, const 
     object.flags.material = "wood";
     object.affects.push_back(make_object_affect(1, 24, "SPEED", 3));
     object.extra_descriptions.push_back({"grain", "The wood grain is dark and even."});
+    object.touched = true;
     return object;
 }
 
@@ -476,6 +478,7 @@ JsGameTriggerContextFixture make_context() {
     context.object.affects.push_back(make_object_affect(1, 2, "DEX", -1));
     context.object.extra_descriptions.push_back({"runes", "Faint runes circle the lever."});
     context.object.extra_descriptions.push_back({"hinge", "The hinge is polished by use."});
+    context.object.touched = true;
     context.object.has_container = true;
     context.object.container.id = "object:301";
     context.object.container.name = "oak chest";
@@ -495,6 +498,7 @@ JsGameTriggerContextFixture make_context() {
     contained_object.flags.item_type = "other";
     contained_object.flags.wear_flags = {"take"};
     contained_object.extra_descriptions.push_back({"teeth", "The gear teeth are sharp."});
+    contained_object.touched = true;
     context.object.contents.push_back(std::move(contained_object));
     context.object.has_room = true;
     context.object.room.id = "room:1204";
@@ -984,6 +988,7 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext) {
         "  && ctx.self.equipment[6].object.flags.itemType === 'armor'\n"
         "  && ctx.self.equipment[6].object.flags.wearFlags[1] === 'head'\n"
         "  && ctx.self.equipment[6].object.flags.level === 12\n"
+        "  && ctx.self.equipment[6].object.touched === true\n"
         "  && ctx.self.equipment[6].object.room === null\n"
         "  && ctx.self.equipment[6].object.carriedBy === null\n"
         "  && ctx.self.equipment[6].object.wornBy === null\n"
@@ -997,6 +1002,7 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext) {
         "  && ctx.self.inventory[0].vnum === 3001\n"
         "  && ctx.self.inventory[0].flags.itemType === 'light'\n"
         "  && ctx.self.inventory[0].flags.wearFlags[0] === 'take'\n"
+        "  && ctx.self.inventory[0].touched === true\n"
         "  && ctx.self.inventory[0].room === null\n"
         "  && ctx.self.inventory[0].carriedBy === null\n"
         "  && ctx.self.inventory[0].wornBy === null\n"
@@ -1275,6 +1281,9 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.object.contents.length === 1\n"
         "  && ctx.object.contents[0].name === 'small gear'\n"
         "  && ctx.object.contents[0].extraDescriptions[0].keyword === 'teeth'\n"
+        "  && ctx.object.touched === true\n"
+        "  && ctx.object.container.touched === false\n"
+        "  && ctx.object.contents[0].touched === true\n"
         "  && ctx.object.contents[0].room === null\n"
         "  && typeof ctx.object.contents[0].contents === 'undefined'\n"
         "  && typeof ctx.object.contents[0].setName === 'undefined'\n"
@@ -1621,6 +1630,8 @@ TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent) {
                                               "  && typeof ctx.weapon.container.container === 'undefined'\n"
                                               "  && typeof ctx.weapon.container.setName === 'undefined'\n"
                                               "  && ctx.weapon.contents[0].name === 'small gear'\n"
+                                              "  && ctx.weapon.touched === true\n"
+                                              "  && ctx.weapon.contents[0].touched === true\n"
                                               "  && typeof ctx.weapon.contents[0].contents === 'undefined'\n"
                                               "  && typeof ctx.weapon.contents[0].setName === 'undefined'\n"
                                               "  && ctx.weapon.room.vnum === 1204\n"
@@ -2637,6 +2648,12 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
                   .status,
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.object.touched = false;\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.self.equipment[6].slotName = 'wield';\n"
                                          "return true;",
                                          make_context())
@@ -3092,6 +3109,8 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent) {
         "  && ctx.targ2.name === 'silver lever'\n"
         "  && ctx.targ2.id === 'targ2'\n"
         "  && ctx.targ2.contents[0].name === 'small gear'\n"
+        "  && ctx.targ2.touched === true\n"
+        "  && ctx.targ2.contents[0].touched === true\n"
         "  && typeof ctx.targ2.contents[0].contents === 'undefined'\n"
         "  && typeof ctx.targ2.contents[0].setName === 'undefined'\n"
         "  && ctx.dying.name === 'Aldren'\n"
@@ -3311,13 +3330,14 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
 	                           "\"extraFlags\":[],\"level\":8,"
 	                           "\"weight\":0,\"cost\":0,\"costPerDay\":0,\"timer\":0,"
 	                           "\"rarity\":0,\"material\":\"\"},"
-	                           "\"affects\":[],"
-	                           "\"extraDescriptions\":[{\"keyword\":\"lid\","
-	                           "\"description\":\"The lid is reinforced.\"}],"
-	                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
-	                           "\"__rotsReadOnlySnapshot\":true,"
-	                           "\"isValid\":function() { return true; }},"
-	                           "\"contents\":[{\"id\":\"object:302\",\"name\":\"small gear\","
+		                           "\"affects\":[],"
+		                           "\"extraDescriptions\":[{\"keyword\":\"lid\","
+		                           "\"description\":\"The lid is reinforced.\"}],"
+		                           "\"touched\":false,"
+		                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
+		                           "\"__rotsReadOnlySnapshot\":true,"
+		                           "\"isValid\":function() { return true; }},"
+		                           "\"contents\":[{\"id\":\"object:302\",\"name\":\"small gear\","
 	                           "\"description\":\"A small gear rests inside.\","
 	                           "\"shortDescription\":\"a small gear\",\"actionDescription\":null,"
 	                           "\"vnum\":302,"
@@ -3326,13 +3346,15 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
 	                           "\"extraFlags\":[],\"level\":0,"
 	                           "\"weight\":0,\"cost\":0,\"costPerDay\":0,\"timer\":0,"
 	                           "\"rarity\":0,\"material\":\"\"},"
-	                           "\"affects\":[],"
-	                           "\"extraDescriptions\":[{\"keyword\":\"teeth\","
-	                           "\"description\":\"The gear teeth are sharp.\"}],"
-	                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
-	                           "\"__rotsReadOnlySnapshot\":true,"
-	                           "\"isValid\":function() { return true; }}],"
-	                           "\"room\":{\"id\":\"room:1204\""),
+		                           "\"affects\":[],"
+		                           "\"extraDescriptions\":[{\"keyword\":\"teeth\","
+		                           "\"description\":\"The gear teeth are sharp.\"}],"
+		                           "\"touched\":true,"
+		                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
+		                           "\"__rotsReadOnlySnapshot\":true,"
+		                           "\"isValid\":function() { return true; }}],"
+		                           "\"touched\":true,"
+		                           "\"room\":{\"id\":\"room:1204\""),
               std::string::npos);
     EXPECT_NE(literal.find("\"description\":\"The old city zone.\""), std::string::npos);
     EXPECT_NE(literal.find("\"map\":\"N-G-S\""), std::string::npos);

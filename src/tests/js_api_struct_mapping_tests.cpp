@@ -837,8 +837,8 @@ TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
          "traversal state is internal", "Internal traversal link"},
         {"next", "next", "never", "internal-only", "unsupported", "none",
          "traversal state is internal", "Internal traversal link"},
-        {"touched", "touched", "boolean", "deferred", "unsupported", "mutation",
-         "gameplay meaning are confirmed", "normalized to boolean"},
+        {"touched", "touched", "boolean", "implemented-read-only-getter", "unsupported",
+         "mutation", "Any nonzero stored value is exposed as true", "normalized read-only boolean"},
         {"loaded_by", "loadedBy", "number", "internal-only", "unsupported", "none",
          "administrative audit data", "Administrative audit data"},
     };
@@ -873,7 +873,8 @@ TEST(JsApiStructMapping, PinsObjectRelationshipAndLifecycleSetterDeferrals) {
         {"carried_by", "implemented-read-only-getter", "deferred", "player crash-save"},
         {"in_obj", "implemented-read-only-getter", "deferred", "cycle prevention"},
         {"contains", "implemented-read-only-getter", "unsupported", "cycle guards"},
-        {"touched", "deferred", "unsupported", "runtime/player-interaction state"},
+        {"touched", "implemented-read-only-getter", "unsupported",
+         "runtime/player-interaction state"},
     };
 
     for (const ExpectedDeferredSetter &entry : deferred) {

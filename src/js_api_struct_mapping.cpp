@@ -390,16 +390,16 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Global object traversal state is internal and no builder getter is emitted.",
      "Global-list mutation from JavaScript is unsupported.", "none", "Internal traversal link."},
     {JsApiStructOwner::ObjData, "obj_data", "touched", "touched", "wasTouched", "setTouched",
-     "boolean", false, Deferred, Unsupported,
-     "Deferred read-only boolean showing whether a player has touched the object. Getter remains "
-     "deferred until persistence behavior and builder-visible gameplay meaning are confirmed.",
+     "boolean", false, ImplementedReadOnly, Unsupported,
+     "Returns a read-only boolean showing whether legacy runtime state has marked this object as "
+     "touched by a player or administrative object action. Any nonzero stored value is exposed as "
+     "true.",
      "Touched-state writes are unsupported for builder scripts because the flag is "
      "runtime/player-interaction state that is initialized on prototype instantiation, changed by "
      "player/admin object actions, and not part of the object shaper's persisted prototype "
      "metadata.",
      "mutation",
-     "Integer flag will be normalized to boolean before exposure if a future read-only getter is "
-     "approved."},
+     "Runtime/player-interaction state is exposed only as a normalized read-only boolean."},
     {JsApiStructOwner::ObjData, "obj_data", "loaded_by", "loadedBy", "getLoadedBy", "setLoadedBy",
      "number", false, Internal, Unsupported,
      "Immortal loader id is administrative audit data and no builder getter is emitted by default.",
