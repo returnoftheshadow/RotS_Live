@@ -80,6 +80,15 @@ enum class JsTriggerHelperMutationTransactionStatus {
     ApplyRejected,
 };
 
+enum class JsTriggerCommandResultCode {
+    Ok,
+    InvalidTarget,
+    NotCarried,
+    NoDrop,
+    InventoryFull,
+    TooHeavy,
+};
+
 struct JsTriggerHelperMutationOperationRegistry {
     const char *const *operation_names = nullptr;
     std::size_t operation_count = 0;
@@ -188,6 +197,10 @@ struct JsTriggerDispatchResult {
 };
 
 const char *js_trigger_dispatch_status_name(JsTriggerDispatchStatus status);
+const char *js_trigger_command_result_code_name(JsTriggerCommandResultCode code);
+JsTriggerCommandResultCode js_trigger_classify_do_give_result(const obj_data *object,
+                                                              const char_data *giver,
+                                                              const char_data *recipient);
 const char *
 js_trigger_helper_mutation_transaction_status_name(JsTriggerHelperMutationTransactionStatus status);
 bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation &mutation);

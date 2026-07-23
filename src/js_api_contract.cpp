@@ -747,7 +747,8 @@ constexpr JsApiMember MutationResultMembers[] = {
      "True when a validated setter applies the requested change."},
     {"code", JsApiMemberKind::Property,
      "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
-     "'unsupported' | 'deferred'",
+     "'unsupported' | 'deferred' | 'invalid-target' | 'not-carried' | 'no-drop' | "
+     "'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found'",
      "", false, false, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Stable machine-readable result code. Detailed authorization and audit diagnostics stay in "
      "server logs, not script-visible result values."},
@@ -1171,10 +1172,10 @@ constexpr JsApiMember ScriptMembers[] = {
      "MutationResult", false, true, JsApiSideEffect::WorldMutation,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
      "CamelCase alias for `do_give`."},
-    {"loadObj", JsApiMemberKind::Method, "(vnum: number, target?: Character | Room) => MutationResult",
-     "MutationResult",
-     false, false, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
-     "builder-zone", "CamelCase alias for `load_obj`."},
+    {"loadObj", JsApiMemberKind::Method,
+     "(vnum: number, target?: Character | Room) => MutationResult", "MutationResult", false, false,
+     JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
+     "CamelCase alias for `load_obj`."},
     {"sendToChar", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",

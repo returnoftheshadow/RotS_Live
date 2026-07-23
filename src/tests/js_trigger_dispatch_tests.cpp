@@ -788,6 +788,56 @@ TEST(JsTriggerDispatch, DoGiveCommandHelperTransfersCurrentLiveCarriedObject) {
     EXPECT_EQ(self.specials.carry_items, 1);
 }
 
+TEST(JsTriggerDispatch, DoGiveResultClassifierReportsStableReasonCodes) {
+    char_data giver = make_character("Giver");
+    char_data recipient = make_character("Recipient");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &giver;
+    token.obj_flags.weight = 1;
+    giver.carrying = &token;
+    giver.specials.carry_items = 1;
+    giver.specials.carry_weight = 1;
+
+    EXPECT_EQ(js_trigger_classify_do_give_result(nullptr, &giver, &recipient),
+              JsTriggerCommandResultCode::InvalidTarget);
+    EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::InvalidTarget),
+                 "invalid-target");
+
+    obj_data unlinked = make_object("unlinked token", 0);
+    unlinked.in_room = NOWHERE;
+    unlinked.carried_by = &giver;
+    EXPECT_EQ(js_trigger_classify_do_give_result(&unlinked, &giver, &recipient),
+              JsTriggerCommandResultCode::NotCarried);
+    EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::NotCarried),
+                 "not-carried");
+
+    token.obj_flags.extra_flags = ITEM_NODROP;
+    EXPECT_EQ(js_trigger_classify_do_give_result(&token, &giver, &recipient),
+              JsTriggerCommandResultCode::NoDrop);
+    EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::NoDrop),
+                 "no-drop");
+    token.obj_flags.extra_flags = 0;
+
+    recipient.specials.carry_items = CAN_CARRY_N(&recipient);
+    EXPECT_EQ(js_trigger_classify_do_give_result(&token, &giver, &recipient),
+              JsTriggerCommandResultCode::InventoryFull);
+    EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::InventoryFull),
+                 "inventory-full");
+    recipient.specials.carry_items = 0;
+
+    recipient.specials.carry_weight = CAN_CARRY_W(&recipient);
+    EXPECT_EQ(js_trigger_classify_do_give_result(&token, &giver, &recipient),
+              JsTriggerCommandResultCode::TooHeavy);
+    EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::TooHeavy),
+                 "too-heavy");
+    recipient.specials.carry_weight = 0;
+
+    EXPECT_EQ(js_trigger_classify_do_give_result(&token, &giver, &recipient),
+              JsTriggerCommandResultCode::Ok);
+    EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::Ok), "ok");
+}
+
 TEST(JsTriggerDispatch, DoGiveCommandHelperRejectsNoDropWithoutOutputOrTransfer) {
     DescriptorListGuard descriptor_guard;
     descriptor_list = nullptr;

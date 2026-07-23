@@ -587,7 +587,10 @@ bool room_matches_mutation_authority(const room_data &room, const JsGameAdapterO
                                      const JsTriggerMutationAuthorityContext &authority);
 bool object_matches_mutation_authority(const obj_data &object, const JsGameAdapterOptions &options,
                                        const JsTriggerMutationAuthorityContext &authority);
-bool can_transfer_object_for_script(obj_data *object, char_data *giver, char_data *recipient);
+JsTriggerCommandResultCode classify_do_give_result(const obj_data *object, const char_data *giver,
+                                                   const char_data *recipient);
+bool can_transfer_object_for_script(const obj_data *object, const char_data *giver,
+                                    const char_data *recipient);
 bool can_load_object_to_character_for_script(int real_object_index,
                                              const JsGameAdapterOptions &options,
                                              char_data *recipient);
@@ -1966,18 +1969,24 @@ void rollback_applied_object_commands(const std::vector<AppliedObjectCommand> &a
     }
 }
 
-bool can_transfer_object_for_script(obj_data *object, char_data *giver, char_data *recipient) {
+JsTriggerCommandResultCode classify_do_give_result(const obj_data *object, const char_data *giver,
+                                                   const char_data *recipient) {
     if (object == nullptr || giver == nullptr || recipient == nullptr)
-        return false;
+        return JsTriggerCommandResultCode::InvalidTarget;
     if (!object_is_directly_carried_by(object, giver))
-        return false;
+        return JsTriggerCommandResultCode::NotCarried;
     if (IS_SET(object->obj_flags.extra_flags, ITEM_NODROP))
-        return false;
+        return JsTriggerCommandResultCode::NoDrop;
     if (IS_CARRYING_N(recipient) >= CAN_CARRY_N(recipient))
-        return false;
+        return JsTriggerCommandResultCode::InventoryFull;
     if (GET_OBJ_WEIGHT(object) + IS_CARRYING_W(recipient) > CAN_CARRY_W(recipient))
-        return false;
-    return true;
+        return JsTriggerCommandResultCode::TooHeavy;
+    return JsTriggerCommandResultCode::Ok;
+}
+
+bool can_transfer_object_for_script(const obj_data *object, const char_data *giver,
+                                    const char_data *recipient) {
+    return classify_do_give_result(object, giver, recipient) == JsTriggerCommandResultCode::Ok;
 }
 
 bool can_load_object_to_character_for_script(int real_object_index,
@@ -2284,6 +2293,30 @@ const char *js_trigger_dispatch_status_name(JsTriggerDispatchStatus status) {
         return "depth-exceeded";
     }
     return "unknown";
+}
+
+const char *js_trigger_command_result_code_name(JsTriggerCommandResultCode code) {
+    switch (code) {
+    case JsTriggerCommandResultCode::Ok:
+        return "ok";
+    case JsTriggerCommandResultCode::InvalidTarget:
+        return "invalid-target";
+    case JsTriggerCommandResultCode::NotCarried:
+        return "not-carried";
+    case JsTriggerCommandResultCode::NoDrop:
+        return "no-drop";
+    case JsTriggerCommandResultCode::InventoryFull:
+        return "inventory-full";
+    case JsTriggerCommandResultCode::TooHeavy:
+        return "too-heavy";
+    }
+    return "unknown";
+}
+
+JsTriggerCommandResultCode js_trigger_classify_do_give_result(const obj_data *object,
+                                                              const char_data *giver,
+                                                              const char_data *recipient) {
+    return classify_do_give_result(object, giver, recipient);
 }
 
 const char *js_trigger_helper_mutation_transaction_status_name(
