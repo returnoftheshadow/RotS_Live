@@ -4067,10 +4067,9 @@ TEST(JsLegacyTriggerDispatch, CharacterGameplayPathsUseFacade) {
     EXPECT_TRUE(contains(mobact, "static int dispatch_javascript_mobile_self(char_data* ch)"));
     EXPECT_EQ(count_occurrences(mobact, "dispatch_javascript_mobile_self(ch)"), 1u);
     EXPECT_TRUE(contains(mobact,
-        "if (intelligent(ch, ch, 0, \"\", SPECIAL_SELF, 0)) {\n"
-        "                    return;\n"
-        "                }\n"
-        "                if (dispatch_javascript_mobile_self(ch))"));
+        "if (IS_MOB(ch) && !IS_AFFECTED(ch, AFF_WAITING) && ch->delay.wait_value <= 1"));
+    EXPECT_TRUE(appears_before_after(mobact, "void one_mobile_activity",
+        "intelligent(ch, ch, 0, \"\", SPECIAL_SELF, 0)", "dispatch_javascript_mobile_self(ch)"));
     EXPECT_TRUE(contains(act_obj2, "trigger_object_wear_event(item, character, item_slot)"));
     EXPECT_FALSE(contains(script, "static_cast<int*>(subject3)"));
     EXPECT_TRUE(contains(script, "if (js_game_adapter_room_is_valid(ch->in_room, adapter_options))"));

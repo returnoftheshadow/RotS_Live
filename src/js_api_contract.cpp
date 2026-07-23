@@ -1126,9 +1126,9 @@ constexpr JsApiMember ScriptMembers[] = {
     {"do_wait", JsApiMemberKind::Method, "(pulses: number) => MutationResult", "MutationResult",
      false, false, JsApiSideEffect::Mutation, JsApiMemberStatus::ImplementedSideEffectHelper,
      "builder-zone",
-     "Queue a bounded legacy-style wait request for the current script invocation. Live "
-     "continuation scheduling remains a follow-up; v1 records and validates the request so "
-     "BuilderClient examples and server dispatch agree on helper shape."},
+     "Apply a bounded legacy-style wait state to the current live character host. V1 does not "
+     "resume JavaScript continuations after the wait expires; the script invocation is complete "
+     "and future triggers skip while the host has the legacy waiting affect."},
     {"do_say", JsApiMemberKind::Method, "(speaker: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",

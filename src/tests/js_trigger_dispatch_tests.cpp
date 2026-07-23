@@ -29,6 +29,7 @@ extern index_data *obj_index;
 extern obj_data *obj_proto;
 extern obj_data *object_list;
 extern int top_of_objt;
+extern char_data *waiting_list;
 void draw_map();
 
 namespace {
@@ -118,6 +119,12 @@ struct ObjectPrototypeGuard {
         obj_proto = saved_obj_proto;
         top_of_objt = saved_top_of_objt;
     }
+};
+
+struct WaitingListGuard {
+    char_data *saved_waiting_list = waiting_list;
+
+    ~WaitingListGuard() { waiting_list = saved_waiting_list; }
 };
 
 JsScriptRegistryReplaceOptions internal_options() {
@@ -622,6 +629,176 @@ TEST(JsTriggerDispatch, ObjectCommandHelpersRejectForgedLoadTargetsWithoutCreati
     EXPECT_EQ(result.diagnostic, "JavaScript trigger object command target rejected");
     EXPECT_EQ(object_list, nullptr);
     EXPECT_EQ(obj_index[0].number, 0);
+}
+
+TEST(JsTriggerDispatch, DoWaitCommandHelperAppliesBoundedWaitStateToLiveHost) {
+    WaitingListGuard wait_guard;
+    waiting_list = nullptr;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package =
+        make_character_enter_package(5856, "function onEnter(ctx) {\n"
+                                           "  return RotS.Script.do_wait(4).ok;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_TRUE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 4);
+    EXPECT_EQ(self.delay.cmd, 0);
+    EXPECT_NE(self.delay.cmd, CMD_SCRIPT);
+    EXPECT_EQ(self.delay.subcmd, 0);
+    EXPECT_EQ(self.delay.priority, 50);
+    EXPECT_EQ(self.delay.targ1.type, TARGET_IGNORE);
+    EXPECT_EQ(self.delay.targ2.type, TARGET_IGNORE);
+    EXPECT_EQ(self.delay.next, nullptr);
+    EXPECT_EQ(waiting_list, &self);
+}
+
+TEST(JsTriggerDispatch, DoWaitCommandHelperRequiresAuthorityWithoutChangingHost) {
+    WaitingListGuard wait_guard;
+    waiting_list = nullptr;
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    const JsRuntimeMutation wait = make_script_command_mutation("script.do_wait", "{\"pulses\":4}");
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction({wait}, request, adapter_options,
+                                                               {});
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger wait command target rejected");
+    EXPECT_FALSE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 0);
+    EXPECT_EQ(waiting_list, nullptr);
+}
+
+TEST(JsTriggerDispatch, DoWaitCommandHelperRejectsStaleInvalidAndWrongZoneHosts) {
+    const JsRuntimeMutation wait = make_script_command_mutation("script.do_wait", "{\"pulses\":4}");
+
+    {
+        WaitingListGuard wait_guard;
+        waiting_list = nullptr;
+        char_data stale_self = make_character("Stale");
+        char_data live_other = make_character("Live");
+        const char_data *live_characters[] = {&live_other};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
+        JsGameAdapterOptions adapter_options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&stale_self);
+
+        JsTriggerRuntimeMutationTransactionApplyResult result =
+            js_trigger_dispatch_apply_runtime_mutation_transaction({wait}, request, adapter_options,
+                                                                   test_mutation_authority());
+
+        EXPECT_FALSE(result.ok);
+        EXPECT_EQ(result.diagnostic, "JavaScript trigger wait command target rejected");
+        EXPECT_FALSE(IS_SET(stale_self.specials.affected_by, AFF_WAITING));
+        EXPECT_EQ(stale_self.delay.wait_value, 0);
+        EXPECT_EQ(waiting_list, nullptr);
+    }
+
+    {
+        WaitingListGuard wait_guard;
+        waiting_list = nullptr;
+        char_data self = make_character("Self");
+        self.in_room = NOWHERE;
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
+        JsGameAdapterOptions adapter_options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+
+        JsTriggerRuntimeMutationTransactionApplyResult result =
+            js_trigger_dispatch_apply_runtime_mutation_transaction({wait}, request, adapter_options,
+                                                                   test_mutation_authority());
+
+        EXPECT_FALSE(result.ok);
+        EXPECT_EQ(result.diagnostic, "JavaScript trigger wait command target rejected");
+        EXPECT_FALSE(IS_SET(self.specials.affected_by, AFF_WAITING));
+        EXPECT_EQ(self.delay.wait_value, 0);
+        EXPECT_EQ(waiting_list, nullptr);
+    }
+
+    {
+        WaitingListGuard wait_guard;
+        waiting_list = nullptr;
+        char_data self = make_character("Self");
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
+        JsGameAdapterOptions adapter_options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+
+        JsTriggerRuntimeMutationTransactionApplyResult result =
+            js_trigger_dispatch_apply_runtime_mutation_transaction({wait}, request, adapter_options,
+                                                                   test_mutation_authority(31));
+
+        EXPECT_FALSE(result.ok);
+        EXPECT_EQ(result.diagnostic, "JavaScript trigger wait command target rejected");
+        EXPECT_FALSE(IS_SET(self.specials.affected_by, AFF_WAITING));
+        EXPECT_EQ(self.delay.wait_value, 0);
+        EXPECT_EQ(waiting_list, nullptr);
+    }
+}
+
+TEST(JsTriggerDispatch, DoWaitCommandHelperLeavesAlreadyWaitingHostUnchanged) {
+    WaitingListGuard wait_guard;
+    char_data self = make_character("Self");
+    char_data next = make_character("Next");
+    SET_BIT(self.specials.affected_by, AFF_WAITING);
+    self.delay.wait_value = 7;
+    self.delay.cmd = CMD_HIDE;
+    self.delay.subcmd = 1;
+    self.delay.priority = 30;
+    self.delay.targ1.type = TARGET_CHAR;
+    self.delay.targ1.ch_num = 99;
+    self.delay.targ2.type = TARGET_TEXT;
+    self.delay.next = &next;
+    waiting_list = &self;
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    const JsRuntimeMutation wait = make_script_command_mutation("script.do_wait", "{\"pulses\":4}");
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction({wait}, request, adapter_options,
+                                                               test_mutation_authority());
+
+    EXPECT_TRUE(result.ok) << result.diagnostic;
+    EXPECT_TRUE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 7);
+    EXPECT_EQ(self.delay.cmd, CMD_HIDE);
+    EXPECT_EQ(self.delay.subcmd, 1);
+    EXPECT_EQ(self.delay.priority, 30);
+    EXPECT_EQ(self.delay.targ1.type, TARGET_CHAR);
+    EXPECT_EQ(self.delay.targ1.ch_num, 99);
+    EXPECT_EQ(self.delay.targ2.type, TARGET_TEXT);
+    EXPECT_EQ(self.delay.next, &next);
+    EXPECT_EQ(waiting_list, &self);
 }
 
 TEST(JsTriggerDispatch, HelperTransactionRejectsUnsupportedEnvelopesBeforeAudit) {

@@ -113,7 +113,7 @@ void one_mobile_activity(char_data* ch)
         }
     }
 
-    if (IS_MOB(ch) && ch->delay.wait_value <= 1 && !is_passive) {
+    if (IS_MOB(ch) && !IS_AFFECTED(ch, AFF_WAITING) && ch->delay.wait_value <= 1 && !is_passive) {
         /* Tamed mobs can stay in non-default positions... */
         if (!IS_AFFECTED(ch, AFF_CHARM)) {
             enforce_position(ch, ch->specials.default_pos);
