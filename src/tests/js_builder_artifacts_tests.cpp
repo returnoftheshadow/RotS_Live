@@ -520,6 +520,7 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
               std::string::npos);
     EXPECT_NE(room_block.find("readonly characters: readonly CharacterRelationshipSnapshot[]"),
               std::string::npos);
+    EXPECT_NE(room_block.find("readonly affects: readonly Affect[]"), std::string::npos);
     const std::string room_exit_block =
         declaration_block(declarations, "export interface RoomExit");
     ASSERT_FALSE(room_exit_block.empty());

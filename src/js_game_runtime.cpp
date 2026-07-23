@@ -83,6 +83,7 @@ std::string object_flags_literal(const JsGameObjectFlagsFixture &flags);
 std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture> &affects);
 std::string
 character_references_literal(const std::vector<JsGameCharacterReferenceFixture> &characters);
+std::string affects_literal(const std::vector<JsGameAffectFixture> &affects);
 
 std::string int_array_literal(const std::vector<int> &values) {
     std::ostringstream out;
@@ -331,6 +332,7 @@ std::string room_literal(const JsGameRoomFixture &room) {
         << "\"exits\":" << room_exits_literal(room.exits) << ","
         << "\"contents\":" << room_content_objects_literal(room.contents) << ","
         << "\"characters\":" << character_references_literal(room.characters) << ","
+        << "\"affects\":" << affects_literal(room.affects) << ","
         << "\"alignment\":" << room.alignment << ","
         << "\"light\":" << room.light << ","
         << "\"isSunlit\":" << js_bool(room.is_sunlit) << ","

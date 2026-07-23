@@ -395,6 +395,8 @@ JsGameTriggerContextFixture make_context() {
     add_gatehouse_exits(context.self.room);
     context.self.room.contents.push_back(make_room_content_fixture());
     context.self.room.characters.push_back(make_character_reference("mob:4101", "orc guard", true));
+    context.self.room.affects.push_back(make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128,
+                                                    {"SANCT"}, 6));
     context.self.room.alignment = -2;
     context.self.room.light = 1;
     context.self.room.is_sunlit = true;
@@ -556,6 +558,8 @@ JsGameTriggerContextFixture make_context() {
     add_gatehouse_exits(context.object.room);
     context.object.room.contents.push_back(make_room_content_fixture());
     context.object.room.characters.push_back(make_character_reference("mob:4101", "orc guard", true));
+    context.object.room.affects.push_back(make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128,
+                                                      {"SANCT"}, 6));
     context.object.room.alignment = -2;
     context.object.room.light = 1;
     context.object.room.is_sunlit = true;
@@ -592,6 +596,10 @@ JsGameTriggerContextFixture make_context() {
     add_gatehouse_exits(context.room);
     context.room.contents.push_back(make_room_content_fixture());
     context.room.characters.push_back(make_character_reference("mob:4101", "orc guard", true));
+    context.room.affects.push_back(make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128,
+                                               {"SANCT"}, 6));
+    context.room.affects.push_back(make_affect(2, "Blindness", 3, 0, -4, 5, "DEX", 1,
+                                               {"BLIND"}, 1));
     context.room.alignment = -2;
     context.room.light = 1;
     context.room.is_sunlit = true;
@@ -646,6 +654,71 @@ JsGameTriggerContextFixture make_context() {
     context.trigger.legacy_value = 22;
     context.trigger.blocks_gameplay = true;
     return context;
+}
+
+void compact_room_for_surface_check(JsGameRoomFixture &room) {
+    room.extra_descriptions.clear();
+    room.exits.clear();
+    room.contents.clear();
+    room.characters.clear();
+    room.affects.clear();
+}
+
+void compact_character_for_surface_check(JsGameCharacterFixture &character) {
+    character.professions.clear();
+    character.skills.clear();
+    character.knowledge.clear();
+    character.affects.clear();
+    character.equipment.clear();
+    character.inventory.clear();
+    character.followers.clear();
+    if (character.has_room)
+        compact_room_for_surface_check(character.room);
+}
+
+void compact_equipment_object_for_surface_check(JsGameEquipmentObjectFixture &object) {
+    object.affects.clear();
+    object.extra_descriptions.clear();
+    if (object.has_room)
+        compact_room_for_surface_check(object.room);
+}
+
+void compact_object_for_surface_check(JsGameObjectFixture &object) {
+    object.affects.clear();
+    object.extra_descriptions.clear();
+    if (object.has_container)
+        compact_equipment_object_for_surface_check(object.container);
+    if (object.has_room)
+        compact_room_for_surface_check(object.room);
+    if (object.has_carried_by)
+        compact_character_for_surface_check(object.carried_by);
+    if (object.has_worn_by)
+        compact_character_for_surface_check(object.worn_by);
+}
+
+void compact_target_for_surface_check(JsGameTargetFixture &target) {
+    if (target.has_character)
+        compact_character_for_surface_check(target.character);
+    if (target.has_object)
+        compact_object_for_surface_check(target.object);
+    if (target.has_room)
+        compact_room_for_surface_check(target.room);
+}
+
+void compact_context_for_surface_check(JsGameTriggerContextFixture &context) {
+    compact_character_for_surface_check(context.self);
+    compact_character_for_surface_check(context.actor);
+    compact_character_for_surface_check(context.speaker);
+    compact_character_for_surface_check(context.attacker);
+    compact_character_for_surface_check(context.victim);
+    compact_character_for_surface_check(context.killer);
+    compact_character_for_surface_check(context.dying);
+    compact_object_for_surface_check(context.object);
+    compact_object_for_surface_check(context.weapon);
+    compact_room_for_surface_check(context.room);
+    compact_target_for_surface_check(context.target);
+    compact_target_for_surface_check(context.targ1);
+    compact_target_for_surface_check(context.targ2);
 }
 
 void expect_ok_allows(const JsRuntimeEvalResult &result) {
@@ -1218,6 +1291,7 @@ TEST(JsGameRuntime, SetterSurfaceMatchesStructMappingCatalog) {
     context.has_dying = true;
     context.dying = context.self;
     context.dying.id = "dying";
+    compact_context_for_surface_check(context);
 
     JsGameRuntime runtime;
     JsRuntimeEvalResult result =
@@ -1420,16 +1494,24 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.room.characters[0].isValid() === true\n"
         "  && typeof ctx.room.characters[0].followers === 'undefined'\n"
         "  && typeof ctx.room.characters[0].setName === 'undefined'\n"
+        "  && ctx.room.affects.length === 2\n"
+        "  && ctx.room.affects[0].name === 'Sanctuary'\n"
+        "  && ctx.room.affects[0].duration === 8\n"
+        "  && ctx.room.affects[0].locationName === 'DEX'\n"
+        "  && ctx.room.affects[0].bitvectorNames.join(',') === 'SANCT'\n"
+        "  && ctx.room.affects[1].name === 'Blindness'\n"
         "  && ctx.object.room.contents[0].name === 'polished orb'\n"
         "  && ctx.object.room.contents[0].room === null\n"
         "  && typeof ctx.object.room.contents[0].container === 'undefined'\n"
         "  && typeof ctx.object.room.contents[0].contents === 'undefined'\n"
         "  && ctx.object.room.characters[0].id === 'mob:4101'\n"
+        "  && ctx.object.room.affects[0].name === 'Sanctuary'\n"
         "  && ctx.self.room.contents[0].name === 'polished orb'\n"
         "  && ctx.self.room.contents[0].room === null\n"
         "  && typeof ctx.self.room.contents[0].container === 'undefined'\n"
         "  && typeof ctx.self.room.contents[0].contents === 'undefined'\n"
         "  && ctx.self.room.characters[0].id === 'mob:4101'\n"
+        "  && ctx.self.room.affects[0].name === 'Sanctuary'\n"
         "  && ctx.room.alignment === -2\n"
         "  && ctx.room.light === 1\n"
         "  && ctx.zone.level === 6\n"
@@ -2664,12 +2746,16 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.room.contents[0].constructor === 'undefined'\n"
         "  && typeof ctx.room.characters.constructor === 'undefined'\n"
         "  && typeof ctx.room.characters[0].constructor === 'undefined'\n"
+        "  && typeof ctx.room.affects.constructor === 'undefined'\n"
+        "  && typeof ctx.room.affects[0].constructor === 'undefined'\n"
+        "  && typeof ctx.room.affects[0].bitvectorNames.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx.object.affects[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.object.extraDescriptions[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.object.container) === null\n"
         "  && Object.getPrototypeOf(ctx.object.contents[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.room.contents[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.room.characters[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.room.affects[0]) === null\n"
         "  && Object.isFrozen(ctx.object.affects)\n"
         "  && Object.isFrozen(ctx.object.affects[0])\n"
         "  && Object.isFrozen(ctx.object.extraDescriptions)\n"
@@ -2681,6 +2767,9 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && Object.isFrozen(ctx.room.contents[0])\n"
         "  && Object.isFrozen(ctx.room.characters)\n"
         "  && Object.isFrozen(ctx.room.characters[0])\n"
+        "  && Object.isFrozen(ctx.room.affects)\n"
+        "  && Object.isFrozen(ctx.room.affects[0])\n"
+        "  && Object.isFrozen(ctx.room.affects[0].bitvectorNames)\n"
         "  && Object.isFrozen(ctx.self.followers)\n"
         "  && Object.isFrozen(ctx.self.followers[0])\n"
         "  && Object.isFrozen(ctx.self.master)\n"
@@ -2871,6 +2960,24 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.room.characters.push({ name: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.room.affects[0].duration = 99;\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.room.affects.push({ type: 42, name: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.room.affects[0].bitvectorNames[0] = 'unsafe';\n"
                                          "return true;",
                                          make_context())
                   .status,

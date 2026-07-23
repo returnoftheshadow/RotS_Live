@@ -981,8 +981,10 @@ TEST(JsApiStructMapping, PinsObjectAndRoomNestedListSetterDeferrals) {
         {JsApiStructOwner::RoomData, "people", "characters", "setCharacters",
          "readonly CharacterRelationshipSnapshot[]", false, "implemented-read-only-getter",
          "unsupported", "world-mutation", "shallow frozen occupant snapshots"},
-        {JsApiStructOwner::RoomData, "affected", "affects", "setAffects", "readonly Affect[]", true,
-         "deferred", "unsupported", "world-mutation", "room flag synchronization"},
+        {JsApiStructOwner::RoomData, "affected", "affects", "setAffects", "readonly Affect[]",
+         false,
+         "implemented-read-only-getter", "unsupported", "world-mutation",
+         "shallow frozen affect snapshots"},
     };
 
     for (const ExpectedNestedListDeferral &entry : deferred) {

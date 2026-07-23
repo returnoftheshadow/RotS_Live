@@ -80,6 +80,19 @@ struct JsGameRoomContentObjectFixture {
     bool touched = false;
 };
 
+struct JsGameAffectFixture {
+    int type = 0;
+    std::string name = "Unknown";
+    int duration = 0;
+    int time_phase = 0;
+    int modifier = 0;
+    int location = 0;
+    std::string location_name = "Unknown";
+    long bitvector = 0;
+    std::vector<std::string> bitvector_names;
+    int counter = 0;
+};
+
 struct JsGameCharacterReferenceFixture {
     std::string id;
     std::string name;
@@ -102,6 +115,7 @@ struct JsGameRoomFixture {
     std::vector<JsGameRoomExitFixture> exits;
     std::vector<JsGameRoomContentObjectFixture> contents;
     std::vector<JsGameCharacterReferenceFixture> characters;
+    std::vector<JsGameAffectFixture> affects;
     int alignment = 0;
     int light = 0;
     bool is_sunlit = false;
@@ -262,19 +276,6 @@ struct JsGameKnowledgeValueFixture {
     int learn_type = 0;
     bool is_fast = false;
     int specialization = 0;
-};
-
-struct JsGameAffectFixture {
-    int type = 0;
-    std::string name = "Unknown";
-    int duration = 0;
-    int time_phase = 0;
-    int modifier = 0;
-    int location = 0;
-    std::string location_name = "Unknown";
-    long bitvector = 0;
-    std::vector<std::string> bitvector_names;
-    int counter = 0;
 };
 
 struct JsGameCharacterProfileFixture {

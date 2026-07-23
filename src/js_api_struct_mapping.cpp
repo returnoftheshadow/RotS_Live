@@ -528,11 +528,12 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "visibility, and room security checks stay centralized.",
      "world-mutation", "Linked-list storage is exposed only as shallow frozen occupant snapshots."},
     {JsApiStructOwner::RoomData, "room_data", "affected", "affects", "getAffects", "setAffects",
-     "readonly Affect[]", true, Deferred, Unsupported, "Planned read-only room affect snapshot.",
+     "readonly Affect[]", false, ImplementedReadOnly, Unsupported,
+     "Returns a bounded shallow read-only snapshot of room affect linked-list entries.",
      "Room affect writes are unsupported for builder scripts until explicit add/remove helpers "
      "own duration accounting, room flag synchronization, movement/combat/light side effects, "
      "and persistence.",
-     "world-mutation", "Linked list pointer must never be exposed."},
+     "world-mutation", "Linked-list storage is exposed only as shallow frozen affect snapshots."},
     {JsApiStructOwner::RoomData, "room_data", "bleed_track", "bleedTracks", "getBleedTracks",
      "setBleedTracks", "readonly BleedTrack[]", false, Internal, Unsupported,
      "Bleed tracking data is internal unless a future tracking API is designed.",

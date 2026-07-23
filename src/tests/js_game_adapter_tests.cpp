@@ -1663,6 +1663,112 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     EXPECT_EQ(zone_fixture.reset_mode, 2);
 }
 
+TEST(JsGameAdapter, SnapshotsRoomAffectsWhenPresent) {
+    room_data world[1] = {make_room("Room", 100, 0)};
+    affected_type unknown_affect{};
+    unknown_affect.type = MAX_SKILLS + 1;
+    unknown_affect.duration = 2;
+    unknown_affect.time_phase = 3;
+    unknown_affect.modifier = -1;
+    unknown_affect.location = -1;
+    unknown_affect.bitvector = 0;
+    unknown_affect.counter = 4;
+
+    affected_type sanctuary_affect{};
+    sanctuary_affect.type = SPELL_SANCTUARY;
+    sanctuary_affect.duration = 8;
+    sanctuary_affect.time_phase = 1;
+    sanctuary_affect.modifier = 5;
+    sanctuary_affect.location = APPLY_DEX;
+    sanctuary_affect.bitvector = AFF_SANCTUARY;
+    sanctuary_affect.counter = 6;
+    sanctuary_affect.next = &unknown_affect;
+    world[0].affected = &sanctuary_affect;
+
+    JsGameAdapterOptions options =
+        make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameRoomFixture fixture;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &fixture));
+
+    ASSERT_EQ(fixture.affects.size(), 2U);
+    EXPECT_EQ(fixture.affects[0].type, SPELL_SANCTUARY);
+    EXPECT_EQ(fixture.affects[0].name, get_skill_array()[SPELL_SANCTUARY].name);
+    EXPECT_EQ(fixture.affects[0].duration, 8);
+    EXPECT_EQ(fixture.affects[0].time_phase, 1);
+    EXPECT_EQ(fixture.affects[0].modifier, 5);
+    EXPECT_EQ(fixture.affects[0].location, APPLY_DEX);
+    EXPECT_EQ(fixture.affects[0].location_name, "DEX");
+    EXPECT_EQ(fixture.affects[0].bitvector, AFF_SANCTUARY);
+    ASSERT_EQ(fixture.affects[0].bitvector_names.size(), 1U);
+    EXPECT_EQ(fixture.affects[0].bitvector_names[0], "SANCT");
+    EXPECT_EQ(fixture.affects[0].counter, 6);
+
+    EXPECT_EQ(fixture.affects[1].type, MAX_SKILLS + 1);
+    EXPECT_EQ(fixture.affects[1].name, "Unknown");
+    EXPECT_EQ(fixture.affects[1].duration, 2);
+    EXPECT_EQ(fixture.affects[1].time_phase, 3);
+    EXPECT_EQ(fixture.affects[1].modifier, -1);
+    EXPECT_EQ(fixture.affects[1].location, -1);
+    EXPECT_EQ(fixture.affects[1].location_name, "Unknown");
+    EXPECT_TRUE(fixture.affects[1].bitvector_names.empty());
+    EXPECT_EQ(fixture.affects[1].counter, 4);
+}
+
+TEST(JsGameAdapter, DefaultsMissingRoomAffectsToEmptySnapshot) {
+    room_data world[1] = {make_room("Room", 100, 0)};
+    world[0].affected = nullptr;
+    JsGameAdapterOptions options =
+        make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameRoomFixture fixture;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &fixture));
+
+    EXPECT_TRUE(fixture.affects.empty());
+}
+
+TEST(JsGameAdapter, StopsRoomAffectsTraversalOnCycles) {
+    room_data world[1] = {make_room("Room", 100, 0)};
+    affected_type first{};
+    first.type = SPELL_SANCTUARY;
+    affected_type second{};
+    second.type = 2;
+    first.next = &second;
+    second.next = &first;
+    world[0].affected = &first;
+    JsGameAdapterOptions options =
+        make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameRoomFixture fixture;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &fixture));
+
+    ASSERT_EQ(fixture.affects.size(), 2U);
+    EXPECT_EQ(fixture.affects[0].type, SPELL_SANCTUARY);
+    EXPECT_EQ(fixture.affects[1].type, 2);
+}
+
+TEST(JsGameAdapter, BoundsRoomAffectsTraversalAtMaxAffect) {
+    room_data world[1] = {make_room("Room", 100, 0)};
+    std::vector<affected_type> affects(MAX_AFFECT + 1);
+    for (int index = 0; index <= MAX_AFFECT; ++index) {
+        affects[index].type = index;
+        affects[index].duration = index + 1;
+        if (index < MAX_AFFECT)
+            affects[index].next = &affects[index + 1];
+    }
+    world[0].affected = &affects[0];
+    JsGameAdapterOptions options =
+        make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameRoomFixture fixture;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &fixture));
+
+    ASSERT_EQ(fixture.affects.size(), static_cast<std::size_t>(MAX_AFFECT));
+    EXPECT_EQ(fixture.affects.front().type, 0);
+    EXPECT_EQ(fixture.affects.back().type, MAX_AFFECT - 1);
+    EXPECT_EQ(fixture.affects.back().duration, MAX_AFFECT);
+}
+
 TEST(JsGameAdapter, SnapshotsObjectContainerWhenReciprocalAndLive) {
     index_data object_index[2]{};
     object_index[0].virt = 300;

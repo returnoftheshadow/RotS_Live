@@ -564,6 +564,9 @@ constexpr JsApiMember RoomMembers[] = {
      false, true, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only shallow occupant snapshots copied from the room people linked list. "
      "Entries omit recursive followers, master, mount, group, inventory, equipment, and setters."},
+    {"affects", JsApiMemberKind::Property, "readonly Affect[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only room affect snapshots copied from the room affect linked list."},
     {"alignment", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only", "Room alignment value."},
     {"light", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,

@@ -430,7 +430,8 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     }
 
     const char *room_implemented_fields[] = {"sector_type", "room_flags", "ex_description",
-                                             "dir_option", "contents", "people", "light"};
+                                             "dir_option",  "contents",   "people",
+                                             "affected",    "light"};
     for (const char *source_field : room_implemented_fields) {
         const JsApiStructFieldMapping *mapping =
             find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, source_field);

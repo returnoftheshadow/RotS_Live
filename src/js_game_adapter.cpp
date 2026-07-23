@@ -590,6 +590,36 @@ object_affects_fixture(const obj_affected_type (&affected)[MAX_OBJ_AFFECT]) {
     return fixtures;
 }
 
+std::vector<JsGameAffectFixture> affects_fixture(const affected_type *head) {
+    std::vector<JsGameAffectFixture> fixtures;
+    const skill_data *skill_table = get_skill_array();
+    std::vector<const affected_type *> seen_nodes;
+    int affect_count = 0;
+    for (const affected_type *affect = head; affect != nullptr && affect_count < MAX_AFFECT;
+         affect = affect->next, ++affect_count) {
+        if (std::find(seen_nodes.begin(), seen_nodes.end(), affect) != seen_nodes.end())
+            break;
+        seen_nodes.push_back(affect);
+        JsGameAffectFixture fixture;
+        fixture.type = affect->type;
+        if (skill_table != nullptr && affect->type >= 0 && affect->type < MAX_SKILLS) {
+            const std::string name = copy_c_string(skill_table[affect->type].name);
+            if (!name.empty())
+                fixture.name = name;
+        }
+        fixture.duration = affect->duration;
+        fixture.time_phase = affect->time_phase;
+        fixture.modifier = affect->modifier;
+        fixture.location = affect->location;
+        fixture.location_name = table_name_at(apply_types, affect->location, 40);
+        fixture.bitvector = affect->bitvector;
+        fixture.bitvector_names = affect_bitvector_names(affect->bitvector);
+        fixture.counter = affect->counter;
+        fixtures.push_back(std::move(fixture));
+    }
+    return fixtures;
+}
+
 std::vector<JsGameExtraDescriptionFixture>
 extra_descriptions_fixture(const extra_descr_data *extra_descriptions) {
     std::vector<JsGameExtraDescriptionFixture> fixtures;
@@ -1350,28 +1380,7 @@ bool js_game_adapter_character_fixture(const char_data *character,
             }
         }
     }
-    fixture->affects.clear();
-    const skill_data *skill_table = get_skill_array();
-    int affect_count = 0;
-    for (const affected_type *affect = character->affected;
-         affect != nullptr && affect_count < MAX_AFFECT; affect = affect->next, ++affect_count) {
-        JsGameAffectFixture affect_fixture;
-        affect_fixture.type = affect->type;
-        if (skill_table != nullptr && affect->type >= 0 && affect->type < MAX_SKILLS) {
-            const std::string name = copy_c_string(skill_table[affect->type].name);
-            if (!name.empty())
-                affect_fixture.name = name;
-        }
-        affect_fixture.duration = affect->duration;
-        affect_fixture.time_phase = affect->time_phase;
-        affect_fixture.modifier = affect->modifier;
-        affect_fixture.location = affect->location;
-        affect_fixture.location_name = table_name_at(apply_types, affect->location, 40);
-        affect_fixture.bitvector = affect->bitvector;
-        affect_fixture.bitvector_names = affect_bitvector_names(affect->bitvector);
-        affect_fixture.counter = affect->counter;
-        fixture->affects.push_back(std::move(affect_fixture));
-    }
+    fixture->affects = affects_fixture(character->affected);
     fixture->equipment.clear();
     fixture->equipment.reserve(MAX_WEAR);
     for (int slot = 0; slot < MAX_WEAR; ++slot) {
@@ -1496,6 +1505,7 @@ bool js_game_adapter_room_fixture(int room, const JsGameAdapterOptions &options,
     fixture->exits = room_exits_fixture(room_data, options);
     fixture->contents = room_contents_fixture(room, options);
     fixture->characters = room_characters_fixture(room, options);
+    fixture->affects = affects_fixture(room_data.affected);
     fixture->alignment = room_data.alignment;
     fixture->light = room_data.light;
     fixture->is_sunlit = room_is_sunlit(room_data);
