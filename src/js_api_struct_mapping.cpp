@@ -202,16 +202,19 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Fast-update traversal state is internal and no builder getter is emitted.",
      "Fast-update list mutation from JavaScript is unsupported.", "none", "Raw list pointer."},
     {JsApiStructOwner::CharData, "char_data", "followers", "followers", "getFollowers",
-     "setFollowers", "readonly Character[]", true, Deferred, Unsupported,
-     "Planned read-only follower snapshot using safe character handles.",
+     "setFollowers", "readonly CharacterRelationshipSnapshot[]", true, ImplementedReadOnly,
+     Unsupported,
+     "Returns frozen read-only shallow snapshots of live reciprocal followers, capped to 100 "
+     "visited follower-list nodes.",
      "Replacing the follower linked list from JavaScript is unsupported because follow state "
      "requires master back-pointers, follower caps, charm/orc/tamed behavior, group interactions, "
      "loop prevention, and room movement propagation.",
      "world-mutation",
-     "Use explicit follow helpers if added later."},
+     "Exposes no raw follow_type nodes or recursive character handles."},
     {JsApiStructOwner::CharData, "char_data", "master", "master", "getMaster", "setMaster",
-     "Character | null", true, Deferred, Deferred,
-     "Planned safe handle for the character being followed.",
+     "CharacterRelationshipSnapshot | null", true, ImplementedReadOnly, Deferred,
+     "Returns a frozen read-only shallow snapshot of the followed master when the master pointer "
+     "is live and the master's follower list reciprocally contains this character.",
      "Master changes are deferred until follow/unfollow semantics, master back-pointers, follower "
      "caps, charm/orc/tamed behavior, group interactions, and loop prevention are mapped.",
      "world-mutation", "Raw character pointer must never be exposed."},

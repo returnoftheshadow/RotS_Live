@@ -413,6 +413,9 @@ std::string affects_literal(const std::vector<JsGameAffectFixture>& affects)
 
 std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture>& equipment);
 std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFixture>& inventory);
+std::string character_reference_literal(const JsGameCharacterReferenceFixture& character);
+std::string character_references_literal(
+    const std::vector<JsGameCharacterReferenceFixture>& characters);
 
 std::string character_literal(const JsGameCharacterFixture& character)
 {
@@ -456,6 +459,9 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"affects\":" << affects_literal(character.affects) << ","
         << "\"equipment\":" << equipment_slots_literal(character.equipment) << ","
         << "\"inventory\":" << inventory_objects_literal(character.inventory) << ","
+        << "\"followers\":" << character_references_literal(character.followers) << ","
+        << "\"master\":"
+        << nullable_literal(character.has_master, character_reference_literal(character.master)) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","
@@ -553,6 +559,48 @@ std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFix
         if (index > 0)
             out << ",";
         out << equipment_object_literal(inventory[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
+std::string character_reference_literal(const JsGameCharacterReferenceFixture& character)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"id\":" << js_quote(character.id) << ","
+        << "\"name\":" << js_quote(character.name) << ","
+        << "\"race\":" << js_quote(character.race) << ","
+        << "\"vnum\":";
+    if (character.vnum >= 0)
+        out << character.vnum;
+    else
+        out << "null";
+    out << ","
+        << "\"prototypeVnum\":";
+    if (character.prototype_vnum >= 0)
+        out << character.prototype_vnum;
+    else
+        out << "null";
+    out << ","
+        << "\"level\":" << character.level << ","
+        << "\"isNpc\":" << js_bool(character.is_npc) << ","
+        << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
+        << "\"__rotsReadOnlySnapshot\":true,"
+        << "\"isValid\":function() { return true; }"
+        << "}";
+    return out.str();
+}
+
+std::string character_references_literal(
+    const std::vector<JsGameCharacterReferenceFixture>& characters)
+{
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < characters.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << character_reference_literal(characters[index]);
     }
     out << "]";
     return out.str();

@@ -139,6 +139,20 @@ JsGameEquipmentObjectFixture make_inventory_object(
     return object;
 }
 
+JsGameCharacterReferenceFixture make_character_reference(
+    const std::string& id, const std::string& name, bool is_npc)
+{
+    JsGameCharacterReferenceFixture character;
+    character.id = id;
+    character.name = name;
+    character.race = is_npc ? "Orc" : "Human";
+    character.vnum = is_npc ? 4101 : -1;
+    character.prototype_vnum = is_npc ? 4101 : -1;
+    character.level = is_npc ? 12 : 92;
+    character.is_npc = is_npc;
+    return character;
+}
+
 JsGameTriggerContextFixture make_context()
 {
     JsGameTriggerContextFixture context;
@@ -278,6 +292,9 @@ JsGameTriggerContextFixture make_context()
     }
     context.self.inventory.push_back(make_inventory_object("object:3001", "oak torch", 3001));
     context.self.inventory.push_back(make_inventory_object("object:3002", "small key", 3002));
+    context.self.followers.push_back(make_character_reference("mob:4101", "orc guard", true));
+    context.self.has_master = true;
+    context.self.master = make_character_reference("player:leader", "Leader", false);
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -916,6 +933,18 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.inventory[0].wornBy === null\n"
         "  && ctx.self.inventory[0].isValid() === true\n"
         "  && ctx.self.inventory[1].name === 'small key'\n"
+        "  && ctx.self.followers.length === 1\n"
+        "  && ctx.self.followers[0].id === 'mob:4101'\n"
+        "  && ctx.self.followers[0].name === 'orc guard'\n"
+        "  && ctx.self.followers[0].vnum === 4101\n"
+        "  && ctx.self.followers[0].prototypeVnum === 4101\n"
+        "  && ctx.self.followers[0].isNpc === true\n"
+        "  && ctx.self.followers[0].isPlayer === false\n"
+        "  && ctx.self.followers[0].isValid() === true\n"
+        "  && ctx.self.master.id === 'player:leader'\n"
+        "  && ctx.self.master.vnum === null\n"
+        "  && ctx.self.master.prototypeVnum === null\n"
+        "  && ctx.self.master.isPlayer === true\n"
         "  && ctx.self.affects[0].bitvectorNames.join(',') === 'SANCT'\n"
         "  && ctx.self.affects[0].counter === 6\n"
         "  && ctx.self.affects[1].name === 'Unknown'\n"
@@ -2138,6 +2167,15 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.inventory[0].setRarity === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].flags.constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].flags.wearFlags.constructor === 'undefined'\n"
+        "  && typeof ctx.self.followers.constructor === 'undefined'\n"
+        "  && typeof ctx.self.followers[0].constructor === 'undefined'\n"
+        "  && typeof ctx.self.followers[0].__rotsReadOnlySnapshot === 'undefined'\n"
+        "  && typeof ctx.self.followers[0].setName === 'undefined'\n"
+        "  && typeof ctx.self.followers[0].setLevel === 'undefined'\n"
+        "  && typeof ctx.self.master.constructor === 'undefined'\n"
+        "  && typeof ctx.self.master.__rotsReadOnlySnapshot === 'undefined'\n"
+        "  && typeof ctx.self.master.setName === 'undefined'\n"
+        "  && typeof ctx.self.master.setLevel === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -2160,6 +2198,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.equipment[6].object.flags) === null\n"
         "  && Object.getPrototypeOf(ctx.self.inventory[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.inventory[0].flags) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.followers[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.master) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -2197,6 +2237,9 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.inventory[0].flags)\n"
         "  && Object.isFrozen(ctx.self.inventory[0].flags.wearFlags)\n"
         "  && Object.isFrozen(ctx.self.inventory[0].flags.extraFlags)\n"
+        "  && Object.isFrozen(ctx.self.followers)\n"
+        "  && Object.isFrozen(ctx.self.followers[0])\n"
+        "  && Object.isFrozen(ctx.self.master)\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -2378,6 +2421,24 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
                   .status,
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.followers[0].name = 'unsafe';\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.followers.push({ name: 'unsafe' });\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.master.name = 'unsafe';\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.points.bodypartHits[0] = 1;\n"
                          "return true;",
                          make_context())
@@ -2513,6 +2574,24 @@ TEST(JsGameRuntime, DefaultsMissingCharacterInventoryToEmptySnapshot)
         "return ctx.self.inventory.length === 0\n"
         "  && Object.isFrozen(ctx.self.inventory)\n"
         "  && typeof ctx.self.inventory.constructor === 'undefined';",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, DefaultsMissingCharacterFollowersAndMasterToEmptySnapshots)
+{
+    JsGameTriggerContextFixture context;
+    context.has_self = true;
+    context.self.id = "char:default-follow";
+    context.self.name = "Default Follow";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.self.followers.length === 0\n"
+        "  && ctx.self.master === null\n"
+        "  && Object.isFrozen(ctx.self.followers)\n"
+        "  && typeof ctx.self.followers.constructor === 'undefined';",
         context);
 
     expect_ok_allows(result);

@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 
 extern char *sector_types[];
@@ -842,6 +843,189 @@ TEST(JsGameAdapter, BreaksCharacterInventoryTraversalCycles)
     ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
 
     EXPECT_TRUE(fixture.inventory.empty());
+}
+
+TEST(JsGameAdapter, SnapshotsCharacterFollowersAndMasterWithShallowCharacters)
+{
+    char_data leader = make_character("Leader", 1, 92, 90, 120, false);
+    char_data follower = make_character("Follower", 2, 20, 50, 60, true);
+    follower.abs_number = 1234;
+    follower.master = &leader;
+    follow_type node {};
+    node.follower = &follower;
+    node.fol_number = follower.abs_number;
+    leader.followers = &node;
+
+    const char_data *live_characters[] = { &leader, &follower };
+    index_data mobile_index[3] {};
+    mobile_index[1].virt = 6202;
+    JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
+        mobile_index, 3, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture leader_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &leader_fixture));
+    ASSERT_EQ(leader_fixture.followers.size(), 1U);
+    EXPECT_EQ(leader_fixture.followers[0].name, "Follower");
+    EXPECT_EQ(leader_fixture.followers[0].vnum, 6202);
+    EXPECT_TRUE(leader_fixture.followers[0].is_npc);
+    EXPECT_FALSE(leader_fixture.has_master);
+
+    JsGameCharacterFixture follower_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&follower, options, &follower_fixture));
+    ASSERT_TRUE(follower_fixture.has_master);
+    EXPECT_EQ(follower_fixture.master.name, "Leader");
+    EXPECT_FALSE(follower_fixture.master.is_npc);
+}
+
+TEST(JsGameAdapter, RejectsInvalidFollowerAndMasterRelationships)
+{
+    char_data leader = make_character("Leader", 1, 92, 90, 120, false);
+    char_data follower = make_character("Follower", 2, 20, 50, 60, true);
+    char_data other_leader = make_character("OtherLeader", 1, 91, 90, 120, false);
+    follower.abs_number = 1234;
+    follow_type wrong_number {};
+    wrong_number.follower = &follower;
+    wrong_number.fol_number = follower.abs_number + 1;
+    leader.followers = &wrong_number;
+    follower.master = &leader;
+
+    const char_data *live_characters[] = { &leader, &follower };
+    JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture leader_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &leader_fixture));
+    EXPECT_TRUE(leader_fixture.followers.empty());
+
+    JsGameCharacterFixture follower_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&follower, options, &follower_fixture));
+    EXPECT_FALSE(follower_fixture.has_master);
+
+    follow_type missing_back_pointer {};
+    missing_back_pointer.follower = &follower;
+    missing_back_pointer.fol_number = follower.abs_number;
+    leader.followers = &missing_back_pointer;
+    follower.master = nullptr;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &leader_fixture));
+    EXPECT_TRUE(leader_fixture.followers.empty());
+
+    follower.master = &other_leader;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &leader_fixture));
+    EXPECT_TRUE(leader_fixture.followers.empty());
+}
+
+TEST(JsGameAdapter, BoundsAndBreaksCharacterFollowerTraversal)
+{
+    char_data leader = make_character("Leader", 1, 92, 90, 120, false);
+    char_data follower = make_character("Follower", 2, 20, 50, 60, true);
+    follower.abs_number = 1234;
+    follower.master = &leader;
+    std::vector<follow_type> nodes(101);
+    for (int index = 0; index < 101; ++index) {
+        nodes[index].follower = &follower;
+        nodes[index].fol_number = follower.abs_number + 1;
+        if (index < 100)
+            nodes[index].next = &nodes[index + 1];
+    }
+    nodes[100].fol_number = follower.abs_number;
+    leader.followers = &nodes[0];
+
+    const char_data *live_characters[] = { &leader, &follower };
+    JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &fixture));
+    EXPECT_TRUE(fixture.followers.empty());
+
+    nodes[0].next = &nodes[0];
+    ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &fixture));
+    EXPECT_TRUE(fixture.followers.empty());
+}
+
+TEST(JsGameAdapter, DeduplicatesDuplicateCharacterFollowerNodes)
+{
+    char_data leader = make_character("Leader", 1, 92, 90, 120, false);
+    char_data follower = make_character("Follower", 2, 20, 50, 60, true);
+    follower.abs_number = 1234;
+    follower.master = &leader;
+    follow_type first {};
+    first.follower = &follower;
+    first.fol_number = follower.abs_number;
+    follow_type duplicate {};
+    duplicate.follower = &follower;
+    duplicate.fol_number = follower.abs_number;
+    first.next = &duplicate;
+    leader.followers = &first;
+
+    const char_data *live_characters[] = { &leader, &follower };
+    JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &fixture));
+    ASSERT_EQ(fixture.followers.size(), 1U);
+    EXPECT_EQ(fixture.followers[0].name, "Follower");
+}
+
+TEST(JsGameAdapter, RejectsStaleFollowerPointersBeforeDereferencing)
+{
+    char_data leader = make_character("Leader", 1, 92, 90, 120, false);
+    char_data follower = make_character("Follower", 2, 20, 50, 60, true);
+    follower.abs_number = 1234;
+    follower.master = &leader;
+    auto* stale_character = reinterpret_cast<char_data*>(static_cast<std::uintptr_t>(0x1));
+    follow_type stale_node {};
+    stale_node.follower = stale_character;
+    stale_node.fol_number = 1234;
+    leader.followers = &stale_node;
+
+    const char_data *live_characters[] = { &leader, &follower };
+    JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture leader_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&leader, options, &leader_fixture));
+    EXPECT_TRUE(leader_fixture.followers.empty());
+
+    follow_type stale_master_node {};
+    stale_master_node.follower = stale_character;
+    stale_master_node.fol_number = 1234;
+    leader.followers = &stale_master_node;
+    follower.master = &leader;
+
+    JsGameCharacterFixture follower_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&follower, options, &follower_fixture));
+    EXPECT_FALSE(follower_fixture.has_master);
+}
+
+TEST(JsGameAdapter, BoundsAndBreaksCharacterMasterTraversal)
+{
+    char_data leader = make_character("Leader", 1, 92, 90, 120, false);
+    char_data follower = make_character("Follower", 2, 20, 50, 60, true);
+    follower.abs_number = 1234;
+    follower.master = &leader;
+    std::vector<follow_type> nodes(101);
+    for (int index = 0; index < 101; ++index) {
+        nodes[index].follower = &follower;
+        nodes[index].fol_number = follower.abs_number + 1;
+        if (index < 100)
+            nodes[index].next = &nodes[index + 1];
+    }
+    nodes[100].fol_number = follower.abs_number;
+    leader.followers = &nodes[0];
+
+    const char_data *live_characters[] = { &leader, &follower };
+    JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture follower_fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&follower, options, &follower_fixture));
+    EXPECT_FALSE(follower_fixture.has_master);
+
+    nodes[0].next = &nodes[0];
+    ASSERT_TRUE(js_game_adapter_character_fixture(&follower, options, &follower_fixture));
+    EXPECT_FALSE(follower_fixture.has_master);
 }
 
 TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)

@@ -630,6 +630,45 @@ bool object_is_carried_by(const obj_data *object, const char_data *carrier)
     return false;
 }
 
+bool character_has_follower(
+    const char_data* leader, const char_data* follower, const JsGameAdapterOptions& options)
+{
+    if (leader == nullptr || follower == nullptr)
+        return false;
+
+    constexpr int MaxFollowerSnapshotNodes = 100;
+    int nodes_visited = 0;
+    std::vector<const follow_type*> seen_nodes;
+    for (const follow_type* node = leader->followers;
+         node != nullptr && nodes_visited < MaxFollowerSnapshotNodes; node = node->next) {
+        if (std::find(seen_nodes.begin(), seen_nodes.end(), node) != seen_nodes.end())
+            break;
+        seen_nodes.push_back(node);
+        ++nodes_visited;
+        if (!js_game_adapter_is_live_character(node->follower, options))
+            continue;
+        if (node->follower == follower && node->fol_number == follower->abs_number)
+            return true;
+    }
+    return false;
+}
+
+bool character_reference_fixture(const char_data* character, const JsGameAdapterOptions& options,
+    JsGameCharacterReferenceFixture* fixture)
+{
+    if (fixture == nullptr || !js_game_adapter_is_live_character(character, options))
+        return false;
+
+    fixture->id = character_id(*character, options);
+    fixture->name = copy_c_string(GET_NAME(character));
+    fixture->race = race_name(*character, options);
+    fixture->vnum = character_vnum(*character, options);
+    fixture->prototype_vnum = character_is_npc(*character) ? character_vnum(*character, options) : -1;
+    fixture->level = GET_LEVEL(character);
+    fixture->is_npc = character_is_npc(*character);
+    return true;
+}
+
 bool equipment_object_fixture(
     const obj_data* object, const char_data* wearer, const JsGameAdapterOptions& options,
     JsGameEquipmentObjectFixture* fixture)
@@ -1138,6 +1177,36 @@ bool js_game_adapter_character_fixture(const char_data *character,
             fixture->inventory.push_back(std::move(inventory_fixture));
         }
     }
+    fixture->followers.clear();
+    constexpr int MaxFollowerSnapshotNodes = 100;
+    int follower_nodes_visited = 0;
+    std::vector<const follow_type*> seen_follower_nodes;
+    std::vector<const char_data*> seen_followers;
+    for (const follow_type* follower = character->followers;
+         follower != nullptr && follower_nodes_visited < MaxFollowerSnapshotNodes;
+         follower = follower->next) {
+        if (std::find(seen_follower_nodes.begin(), seen_follower_nodes.end(), follower) !=
+            seen_follower_nodes.end())
+            break;
+        seen_follower_nodes.push_back(follower);
+        ++follower_nodes_visited;
+        if (!js_game_adapter_is_live_character(follower->follower, options) ||
+            follower->fol_number != follower->follower->abs_number ||
+            follower->follower->master != character)
+            continue;
+        if (std::find(seen_followers.begin(), seen_followers.end(), follower->follower) !=
+            seen_followers.end())
+            continue;
+        seen_followers.push_back(follower->follower);
+        JsGameCharacterReferenceFixture follower_fixture;
+        if (character_reference_fixture(follower->follower, options, &follower_fixture))
+            fixture->followers.push_back(std::move(follower_fixture));
+    }
+    fixture->has_master = false;
+    if (js_game_adapter_is_live_character(character->master, options) &&
+        character_has_follower(character->master, character, options))
+        fixture->has_master =
+            character_reference_fixture(character->master, options, &fixture->master);
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;

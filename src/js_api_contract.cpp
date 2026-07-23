@@ -122,9 +122,43 @@ constexpr JsApiMember CharacterMembers[] = {
      "Frozen read-only carried inventory snapshot capped to the first 100 top-level carried "
      "objects. Raw linked-list pointers, nested contents, owner handles, and direct inventory "
      "mutation are not exposed."},
+    {"followers", JsApiMemberKind::Property, "readonly CharacterRelationshipSnapshot[]", "",
+     false, true, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only follower snapshot capped to the first 100 follower-list nodes. Raw "
+     "follow_type nodes, recursive character handles, and direct follow mutation are not exposed."},
+    {"master", JsApiMemberKind::Property, "CharacterRelationshipSnapshot | null", "", true, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only snapshot of the character being followed when the master pointer is live "
+     "and reciprocally owns this follower, or null."},
     {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
      "Checks whether this invocation-local handle still points at a live entity."},
+};
+
+constexpr JsApiMember CharacterRelationshipSnapshotMembers[] = {
+    {"id", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Opaque invocation-local character snapshot id."},
+    {"name", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Visible character display name."},
+    {"race", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Builder-facing race name when known."},
+    {"vnum", JsApiMemberKind::Property, "number | null", "", true, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Mobile vnum for NPC relationship snapshots, or null for players/unresolved prototypes."},
+    {"prototypeVnum", JsApiMemberKind::Property, "number | null", "", true, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Mobile prototype vnum when available, or null."},
+    {"level", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current character level."},
+    {"isNpc", JsApiMemberKind::Property, "boolean", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "True when this snapshot represents an NPC."},
+    {"isPlayer", JsApiMemberKind::Property, "boolean", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "True when this snapshot represents a player character."},
+    {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
+     "Returns true for the invocation-local relationship snapshot."},
 };
 
 constexpr JsApiMember CharacterPointsMembers[] = {
@@ -916,6 +950,10 @@ constexpr JsApiMember ScriptMembers[] = {
 constexpr JsApiType ApiTypes[] = {
     {"Character", JsApiTypeKind::Interface, "", "Read-only character handle.", CharacterMembers,
      sizeof(CharacterMembers) / sizeof(CharacterMembers[0])},
+    {"CharacterRelationshipSnapshot", JsApiTypeKind::Interface, "",
+     "Frozen read-only shallow character relationship snapshot without mutation helpers.",
+     CharacterRelationshipSnapshotMembers,
+     sizeof(CharacterRelationshipSnapshotMembers) / sizeof(CharacterRelationshipSnapshotMembers[0])},
     {"AbilityScores", JsApiTypeKind::Interface, "",
      "Frozen read-only character ability score snapshot.", AbilityScoresMembers,
      sizeof(AbilityScoresMembers) / sizeof(AbilityScoresMembers[0])},

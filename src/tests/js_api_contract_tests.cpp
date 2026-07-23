@@ -87,6 +87,7 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
         "EquipmentSlot",
         "EquipmentObjectSnapshot",
         "InventoryObjectSnapshot",
+        "CharacterRelationshipSnapshot",
         "Player",
         "Mob",
         "GameObject",
@@ -265,7 +266,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         {"classPoints", "interruptCount", "interruptTime", "specialBusy", "baseAbilities",
             "currentAbilities", "rolledAbilities", "points", "specials", "specials2",
             "professions", "specializations", "damageDetails", "skills", "knowledge",
-            "affects", "equipment", "inventory"}) {
+            "affects", "equipment", "inventory", "followers", "master"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -440,6 +441,56 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "room")->type_name, "null");
     EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "carriedBy")->type_name, "null");
     EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "wornBy")->type_name, "null");
+    const JsApiMember *character_followers =
+        find_js_api_contract_member(*character, "followers");
+    ASSERT_NE(character_followers, nullptr);
+    EXPECT_STREQ(
+        character_followers->type_name, "readonly CharacterRelationshipSnapshot[]");
+    EXPECT_FALSE(character_followers->nullable);
+    EXPECT_EQ(character_followers->status, JsApiMemberStatus::PlannedReadOnly);
+    const JsApiMember *character_master = find_js_api_contract_member(*character, "master");
+    ASSERT_NE(character_master, nullptr);
+    EXPECT_STREQ(character_master->type_name, "CharacterRelationshipSnapshot | null");
+    EXPECT_TRUE(character_master->nullable);
+    EXPECT_EQ(character_master->status, JsApiMemberStatus::PlannedReadOnly);
+    const JsApiType *relationship = find_js_api_contract_type("CharacterRelationshipSnapshot");
+    ASSERT_NE(relationship, nullptr);
+    const JsApiMember* relationship_id = find_js_api_contract_member(*relationship, "id");
+    ASSERT_NE(relationship_id, nullptr);
+    EXPECT_STREQ(relationship_id->type_name, "string");
+    EXPECT_EQ(relationship_id->status, JsApiMemberStatus::PlannedReadOnly);
+    EXPECT_EQ(relationship_id->kind, JsApiMemberKind::Property);
+    const JsApiMember* relationship_name = find_js_api_contract_member(*relationship, "name");
+    ASSERT_NE(relationship_name, nullptr);
+    EXPECT_STREQ(relationship_name->type_name, "string");
+    const JsApiMember* relationship_race = find_js_api_contract_member(*relationship, "race");
+    ASSERT_NE(relationship_race, nullptr);
+    EXPECT_STREQ(relationship_race->type_name, "string");
+    const JsApiMember* relationship_vnum = find_js_api_contract_member(*relationship, "vnum");
+    ASSERT_NE(relationship_vnum, nullptr);
+    EXPECT_STREQ(relationship_vnum->type_name, "number | null");
+    EXPECT_TRUE(relationship_vnum->nullable);
+    const JsApiMember* relationship_prototype_vnum =
+        find_js_api_contract_member(*relationship, "prototypeVnum");
+    ASSERT_NE(relationship_prototype_vnum, nullptr);
+    EXPECT_STREQ(relationship_prototype_vnum->type_name, "number | null");
+    EXPECT_TRUE(relationship_prototype_vnum->nullable);
+    const JsApiMember* relationship_level = find_js_api_contract_member(*relationship, "level");
+    ASSERT_NE(relationship_level, nullptr);
+    EXPECT_STREQ(relationship_level->type_name, "number");
+    const JsApiMember* relationship_is_npc = find_js_api_contract_member(*relationship, "isNpc");
+    ASSERT_NE(relationship_is_npc, nullptr);
+    EXPECT_STREQ(relationship_is_npc->type_name, "boolean");
+    const JsApiMember* relationship_is_player =
+        find_js_api_contract_member(*relationship, "isPlayer");
+    ASSERT_NE(relationship_is_player, nullptr);
+    EXPECT_STREQ(relationship_is_player->type_name, "boolean");
+    const JsApiMember* relationship_is_valid =
+        find_js_api_contract_member(*relationship, "isValid");
+    ASSERT_NE(relationship_is_valid, nullptr);
+    EXPECT_STREQ(relationship_is_valid->type_name, "() => boolean");
+    EXPECT_EQ(relationship_is_valid->kind, JsApiMemberKind::Method);
+    EXPECT_EQ(relationship_is_valid->status, JsApiMemberStatus::PlannedPureHelper);
 
     const JsApiType* mob = find_js_api_contract_type("Mob");
     ASSERT_NE(mob, nullptr);

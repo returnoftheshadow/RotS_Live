@@ -245,6 +245,16 @@ struct JsGameEquipmentSlotFixture {
     JsGameEquipmentObjectFixture object;
 };
 
+struct JsGameCharacterReferenceFixture {
+    std::string id;
+    std::string name;
+    std::string race;
+    int vnum = -1;
+    int prototype_vnum = -1;
+    int level = 0;
+    bool is_npc = false;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -274,6 +284,9 @@ struct JsGameCharacterFixture {
     std::vector<JsGameAffectFixture> affects;
     std::vector<JsGameEquipmentSlotFixture> equipment;
     std::vector<JsGameEquipmentObjectFixture> inventory;
+    std::vector<JsGameCharacterReferenceFixture> followers;
+    bool has_master = false;
+    JsGameCharacterReferenceFixture master;
     bool is_npc = false;
 
     bool has_room = false;
