@@ -2,6 +2,7 @@
 
 #include "db.h"
 #include "js_api_struct_mapping.h"
+#include "json_utils.h"
 #include "structs.h"
 #include "utils.h"
 #include "zone.h"
@@ -10,8 +11,10 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <set>
 #include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -81,6 +84,11 @@ struct PendingTextMutation {
     bool redraw_world_map = false;
     std::string value;
     int int_value = 0;
+};
+
+struct RoomFlagHelperFlag {
+    const char* name;
+    long bit;
 };
 
 bool is_blank_text(const std::string& value)
@@ -323,6 +331,11 @@ bool runtime_mutation_kind_is_helper(const JsRuntimeMutation& mutation)
     return mutation.kind == "helper";
 }
 
+bool has_persistent_setter_authority(const JsTriggerMutationAuthorityContext& authority);
+bool room_matches_mutation_authority(
+    const room_data& room, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority);
+
 bool registry_contains_operation(
     const JsTriggerHelperMutationOperationRegistry& registry, const std::string& operation)
 {
@@ -333,6 +346,202 @@ bool registry_contains_operation(
             return true;
     }
     return false;
+}
+
+constexpr RoomFlagHelperFlag RoomFlagHelperAllowedFlags[] = {
+    { "dark", DARK },
+    { "death", DEATH },
+    { "noMob", NO_MOB },
+    { "indoors", INDOORS },
+    { "noRide", NORIDE },
+    { "shadowy", SHADOWY },
+    { "noMagic", NO_MAGIC },
+    { "tunnel", TUNNEL },
+    { "private", PRIVATE },
+    { "godRoom", GODROOM },
+    { "drinkWater", DRINK_WATER },
+    { "drinkPoison", DRINK_POISON },
+    { "securityRoom", SECURITYROOM },
+    { "peaceRoom", PEACEROOM },
+    { "noTeleport", NO_TELEPORT },
+    { "hideVnum", HIDE_VNUM },
+};
+
+std::size_t room_flag_helper_allowed_flag_count()
+{
+    return sizeof(RoomFlagHelperAllowedFlags) / sizeof(RoomFlagHelperAllowedFlags[0]);
+}
+
+bool room_flag_helper_flag_is_allowed(const std::string& flag_name)
+{
+    for (std::size_t index = 0; index < room_flag_helper_allowed_flag_count(); ++index) {
+        if (flag_name == RoomFlagHelperAllowedFlags[index].name)
+            return true;
+    }
+    return false;
+}
+
+bool parse_room_flag_helper_arguments(const std::string& arguments_json, std::string* flag_name)
+{
+    if (flag_name == nullptr || arguments_json.empty() || arguments_json.size() > 512)
+        return false;
+
+    bool saw_flag = false;
+    std::string parsed_flag;
+    std::string error;
+    json_utils::JsonReader reader(arguments_json);
+    if (!reader.parse_root_object(
+            [&](const std::string& key, json_utils::JsonReader* nested_reader,
+                std::string* nested_error) {
+                if (key != "flag" || saw_flag)
+                    return false;
+                saw_flag = true;
+                return nested_reader->parse_string(&parsed_flag, nested_error);
+            },
+            &error))
+        return false;
+
+    if (!saw_flag || !room_flag_helper_flag_is_allowed(parsed_flag))
+        return false;
+
+    *flag_name = parsed_flag;
+    return true;
+}
+
+bool parse_room_flag_helper_target_token(
+    const std::string& token, int* zone_vnum, int* room_vnum, std::string* secret)
+{
+    if (zone_vnum == nullptr || room_vnum == nullptr || secret == nullptr)
+        return false;
+
+    constexpr const char* Prefix = "room-token:v1:";
+    const std::string prefix(Prefix);
+    if (token.find(prefix) != 0)
+        return false;
+
+    const std::string suffix = token.substr(prefix.size());
+    const std::size_t first_separator = suffix.find(':');
+    if (first_separator == std::string::npos || first_separator == 0 ||
+        first_separator == suffix.size() - 1)
+        return false;
+    const std::size_t second_separator = suffix.find(':', first_separator + 1);
+    if (second_separator == std::string::npos || second_separator == first_separator + 1 ||
+        second_separator == suffix.size() - 1)
+        return false;
+    if (suffix.find(':', second_separator + 1) != std::string::npos)
+        return false;
+
+    auto parse_nonnegative_int = [](const std::string& value, int* parsed_value) {
+        if (parsed_value == nullptr || value.empty() || value.size() > 10)
+            return false;
+        int parsed = 0;
+        for (char ch : value) {
+            if (!std::isdigit(static_cast<unsigned char>(ch)))
+                return false;
+            const int digit = ch - '0';
+            if (parsed > (std::numeric_limits<int>::max() - digit) / 10)
+                return false;
+            parsed = parsed * 10 + digit;
+        }
+        *parsed_value = parsed;
+        return true;
+    };
+
+    const std::string zone_part = suffix.substr(0, first_separator);
+    const std::string room_part =
+        suffix.substr(first_separator + 1, second_separator - first_separator - 1);
+    const std::string secret_part = suffix.substr(second_separator + 1);
+    if (!parse_nonnegative_int(zone_part, zone_vnum) ||
+        !parse_nonnegative_int(room_part, room_vnum))
+        return false;
+    if (secret_part.empty() || secret_part.size() > 128)
+        return false;
+
+    *secret = secret_part;
+    return true;
+}
+
+room_data* mutable_live_room_for_vnum(int room_vnum, const JsGameAdapterOptions& options)
+{
+    if (options.world == nullptr || room_vnum < 0)
+        return nullptr;
+
+    const std::size_t room_count = options.world_count > 0
+        ? options.world_count
+        : static_cast<std::size_t>(options.top_of_world + 1);
+    for (std::size_t index = 0; index < room_count; ++index) {
+        if (options.world[index].number == room_vnum)
+            return const_cast<room_data*>(&options.world[index]);
+    }
+    return nullptr;
+}
+
+bool validate_room_flag_helper_target(const JsRuntimeMutation& mutation,
+    const JsTriggerHelperMutationValidationContext& context)
+{
+    if (context.request == nullptr || context.adapter_options == nullptr ||
+        context.authority == nullptr)
+        return false;
+    if (!has_persistent_setter_authority(*context.authority))
+        return false;
+
+    int token_zone_vnum = -1;
+    int room_vnum = -1;
+    std::string token_secret;
+    if (!parse_room_flag_helper_target_token(
+            mutation.target_token, &token_zone_vnum, &room_vnum, &token_secret))
+        return false;
+    if (token_zone_vnum != context.authority->target_zone)
+        return false;
+    if (context.authority->target_token_secret.empty() ||
+        token_secret != context.authority->target_token_secret)
+        return false;
+
+    room_data* room = mutable_live_room_for_vnum(room_vnum, *context.adapter_options);
+    return room != nullptr &&
+        room_matches_mutation_authority(*room, *context.adapter_options, *context.authority);
+}
+
+bool validate_room_flag_helper_mutation(const JsRuntimeMutation& mutation,
+    const JsTriggerHelperMutationValidationContext& context,
+    JsTriggerHelperMutationTransactionStatus* status, std::string* diagnostic)
+{
+    if (!validate_room_flag_helper_target(mutation, context)) {
+        if (status != nullptr)
+            *status = JsTriggerHelperMutationTransactionStatus::InvalidTarget;
+        if (diagnostic != nullptr)
+            *diagnostic = "JavaScript helper mutation target rejected";
+        return false;
+    }
+
+    std::string flag_name;
+    if (!parse_room_flag_helper_arguments(mutation.arguments_json, &flag_name)) {
+        if (status != nullptr)
+            *status = JsTriggerHelperMutationTransactionStatus::InvalidArguments;
+        if (diagnostic != nullptr)
+            *diagnostic = "JavaScript helper mutation arguments rejected";
+        return false;
+    }
+
+    return true;
+}
+
+bool validate_helper_mutation_with_context(const JsRuntimeMutation& mutation,
+    const JsTriggerHelperMutationTransactionOptions& options,
+    JsTriggerHelperMutationTransactionStatus* status, std::string* diagnostic)
+{
+    if (mutation.operation == "room.flags.add" || mutation.operation == "room.flags.remove") {
+        if (options.validation_context == nullptr) {
+            if (status != nullptr)
+                *status = JsTriggerHelperMutationTransactionStatus::InvalidTarget;
+            if (diagnostic != nullptr)
+                *diagnostic = "JavaScript helper mutation target rejected";
+            return false;
+        }
+        return validate_room_flag_helper_mutation(
+            mutation, *options.validation_context, status, diagnostic);
+    }
+    return true;
 }
 
 std::string helper_operations_summary(const std::vector<JsRuntimeMutation>& helper_mutations)
@@ -800,8 +1009,16 @@ bool prepare_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& 
         return false;
     }
 
+    JsTriggerHelperMutationValidationContext helper_validation_context;
+    helper_validation_context.request = &request;
+    helper_validation_context.adapter_options = &options;
+    helper_validation_context.authority = &authority;
+    JsTriggerHelperMutationTransactionOptions runtime_helper_options = helper_options;
+    runtime_helper_options.validation_context = &helper_validation_context;
+
     const JsTriggerHelperMutationTransactionResult helper_result =
-        js_trigger_dispatch_prepare_helper_mutation_transaction(helper_mutations, helper_options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction(
+            helper_mutations, runtime_helper_options);
     if (helper_status != nullptr)
         *helper_status = helper_result.status;
     if (helper_result.status != JsTriggerHelperMutationTransactionStatus::Ok) {
@@ -958,6 +1175,10 @@ const char* js_trigger_helper_mutation_transaction_status_name(
         return "unsupported-envelope";
     case JsTriggerHelperMutationTransactionStatus::UnknownOperation:
         return "unknown-operation";
+    case JsTriggerHelperMutationTransactionStatus::InvalidTarget:
+        return "invalid-target";
+    case JsTriggerHelperMutationTransactionStatus::InvalidArguments:
+        return "invalid-arguments";
     case JsTriggerHelperMutationTransactionStatus::AuditRejected:
         return "audit-rejected";
     }
@@ -995,6 +1216,10 @@ JsTriggerHelperMutationTransactionResult js_trigger_dispatch_prepare_helper_muta
         if (!registry_contains_operation(options.registry, mutation.operation)) {
             result.status = JsTriggerHelperMutationTransactionStatus::UnknownOperation;
             result.diagnostic = "JavaScript helper mutation operation is not supported";
+            return result;
+        }
+        if (!validate_helper_mutation_with_context(
+                mutation, options, &result.status, &result.diagnostic)) {
             return result;
         }
         helper_mutations.push_back(mutation);

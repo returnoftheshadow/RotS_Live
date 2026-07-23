@@ -48,6 +48,9 @@ struct JsTriggerMutationAuthorityContext {
     std::string builder_account_id;
     int eligible_character_id = 0;
     int target_zone = -1;
+    // Per-dispatch helper target token validation material. Keep server-owned and never expose it
+    // through scripts, HTTP responses, BuilderClient artifacts, audit summaries, or diagnostics.
+    std::string target_token_secret;
     std::string decision_evidence;
 };
 
@@ -68,6 +71,8 @@ enum class JsTriggerHelperMutationTransactionStatus {
     Ok,
     UnsupportedEnvelope,
     UnknownOperation,
+    InvalidTarget,
+    InvalidArguments,
     AuditRejected,
 };
 
@@ -81,11 +86,20 @@ struct JsTriggerHelperMutationAuditRequest {
     std::string operations_summary;
 };
 
+struct JsTriggerDispatchRequest;
+
+struct JsTriggerHelperMutationValidationContext {
+    const JsTriggerDispatchRequest* request = nullptr;
+    const JsGameAdapterOptions* adapter_options = nullptr;
+    const JsTriggerMutationAuthorityContext* authority = nullptr;
+};
+
 using JsTriggerHelperMutationAuditCallback = bool (*)(
     const JsTriggerHelperMutationAuditRequest& request, std::string* diagnostic, void* user_data);
 
 struct JsTriggerHelperMutationTransactionOptions {
     JsTriggerHelperMutationOperationRegistry registry;
+    const JsTriggerHelperMutationValidationContext* validation_context = nullptr;
     JsTriggerHelperMutationAuditCallback audit_callback = nullptr;
     void* audit_user_data = nullptr;
 };

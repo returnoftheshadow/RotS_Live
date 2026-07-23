@@ -201,6 +201,7 @@ JsTriggerMutationAuthorityContext test_mutation_authority(int target_zone = 30)
     authority.builder_account_id = "account:builder";
     authority.eligible_character_id = 1001;
     authority.target_zone = target_zone;
+    authority.target_token_secret = "test-room-target-secret";
     authority.decision_evidence = "zone-authority:test";
     return authority;
 }
@@ -223,14 +224,29 @@ JsRuntimeMutation make_helper_mutation(const char* operation)
     JsRuntimeMutation mutation;
     mutation.kind = "helper";
     mutation.operation = operation;
-    mutation.target_token = "fixture-zone-token";
-    mutation.arguments_json = "{\"flag\":\"peace\"}";
+    mutation.target_token = "room-token:v1:30:100:test-room-target-secret";
+    mutation.arguments_json = "{\"flag\":\"peaceRoom\"}";
     return mutation;
 }
 
 bool contains(const std::string& value, const std::string& needle)
 {
     return value.find(needle) != std::string::npos;
+}
+
+std::vector<std::string> split_pipe_list(const char* value)
+{
+    std::vector<std::string> entries;
+    if (value == nullptr)
+        return entries;
+
+    std::stringstream stream(value);
+    std::string entry;
+    while (std::getline(stream, entry, '|')) {
+        if (!entry.empty())
+            entries.push_back(entry);
+    }
+    return entries;
 }
 
 std::string read_first_available_file(const std::vector<std::string>& paths)
@@ -411,8 +427,23 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryMatchesServerCatalog)
 
 TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTransaction)
 {
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+
+    JsTriggerHelperMutationValidationContext validation_context;
+    validation_context.request = &request;
+    validation_context.adapter_options = &adapter_options;
+    validation_context.authority = &authority;
+
     JsTriggerHelperMutationTransactionOptions options;
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.validation_context = &validation_context;
 
     int audit_calls = 0;
     options.audit_user_data = &audit_calls;
@@ -427,7 +458,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTra
     JsRuntimeMutation add_flag;
     add_flag.kind = "helper";
     add_flag.operation = js_api_room_flag_helper_operations()[0].operation_name;
-    add_flag.target_token = "opaque-room-token:30:3001";
+    add_flag.target_token = "room-token:v1:30:100:test-room-target-secret";
     add_flag.arguments_json = "{\"flag\":\"peaceRoom\"}";
 
     JsRuntimeMutation remove_flag = add_flag;
@@ -445,8 +476,23 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTra
 
 TEST(JsTriggerDispatch, RoomFlagHelperRegistryUsesSortedUniqueAuditSummary)
 {
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+
+    JsTriggerHelperMutationValidationContext validation_context;
+    validation_context.request = &request;
+    validation_context.adapter_options = &adapter_options;
+    validation_context.authority = &authority;
+
     JsTriggerHelperMutationTransactionOptions options;
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.validation_context = &validation_context;
 
     int audit_calls = 0;
     options.audit_user_data = &audit_calls;
@@ -461,7 +507,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryUsesSortedUniqueAuditSummary)
     JsRuntimeMutation add_flag;
     add_flag.kind = "helper";
     add_flag.operation = "room.flags.add";
-    add_flag.target_token = "opaque-room-token:30:3001";
+    add_flag.target_token = "room-token:v1:30:100:test-room-target-secret";
     add_flag.arguments_json = "{\"flag\":\"peaceRoom\"}";
 
     JsRuntimeMutation remove_flag = add_flag;
@@ -525,6 +571,86 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryRejectsRawOrUnknownOperationsBefor
     EXPECT_EQ(audit_calls, 0);
 }
 
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsMissingContextBeforeAudit)
+{
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    const JsTriggerHelperMutationTransactionResult result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction(
+            { make_helper_mutation("room.flags.add") }, options);
+
+    EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget);
+    EXPECT_EQ(result.mutation_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript helper mutation target rejected");
+    EXPECT_EQ(audit_calls, 0);
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsNullContextMembersBeforeAudit)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+
+    enum class NullContextMember {
+        Request,
+        AdapterOptions,
+        Authority,
+    };
+    const NullContextMember null_members[] = { NullContextMember::Request,
+        NullContextMember::AdapterOptions, NullContextMember::Authority };
+
+    for (NullContextMember null_member : null_members) {
+        JsTriggerHelperMutationValidationContext validation_context;
+        validation_context.request = &request;
+        validation_context.adapter_options = &adapter_options;
+        validation_context.authority = &authority;
+        switch (null_member) {
+        case NullContextMember::Request:
+            validation_context.request = nullptr;
+            break;
+        case NullContextMember::AdapterOptions:
+            validation_context.adapter_options = nullptr;
+            break;
+        case NullContextMember::Authority:
+            validation_context.authority = nullptr;
+            break;
+        }
+
+        int audit_calls = 0;
+        JsTriggerHelperMutationTransactionOptions options;
+        options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+        options.validation_context = &validation_context;
+        options.audit_user_data = &audit_calls;
+        options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                     void* user_data) {
+            ++*static_cast<int*>(user_data);
+            return true;
+        };
+
+        const JsTriggerHelperMutationTransactionResult result =
+            js_trigger_dispatch_prepare_helper_mutation_transaction(
+                { make_helper_mutation("room.flags.add") }, options);
+
+        EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget);
+        EXPECT_EQ(result.mutation_count, 0U);
+        EXPECT_EQ(result.diagnostic, "JavaScript helper mutation target rejected");
+        EXPECT_EQ(audit_calls, 0);
+    }
+}
+
 TEST(JsTriggerDispatch, RoomFlagHelperRegistryWorksThroughMixedTransactionProbe)
 {
     char_data self = make_character("Self");
@@ -549,7 +675,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryWorksThroughMixedTransactionProbe)
 
     JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
     JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
-    helper.target_token = "opaque-room-token:30:3001";
+    helper.target_token = "room-token:v1:30:100:test-room-target-secret";
     helper.arguments_json = "{\"flag\":\"peaceRoom\"}";
 
     JsTriggerRuntimeMutationTransactionProbeResult result =
@@ -563,20 +689,282 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryWorksThroughMixedTransactionProbe)
     EXPECT_EQ(audit_calls, 1);
 }
 
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadTargetTokensBeforeAudit)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+
+    JsTriggerHelperMutationValidationContext validation_context;
+    validation_context.request = &request;
+    validation_context.adapter_options = &adapter_options;
+    validation_context.authority = &authority;
+
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.validation_context = &validation_context;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    for (const char* token : { "room:100", "100", "room-token:v1:31:100:test-room-target-secret",
+             "room-token:v1:30:999:test-room-target-secret", "room-token:v1:30",
+             "room-token:v1:30:100", "room-token:v1:30:100:wrong-secret",
+             "room-token:v1:30:100:test-room-target-secret:extra", "room-token:v1:-1:100:secret",
+             "room-token:v1:9999999999:100:test-room-target-secret",
+             "room-token:v1:30:9999999999:test-room-target-secret" }) {
+        JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
+        helper.target_token = token;
+
+        const JsTriggerHelperMutationTransactionResult result =
+            js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+
+        EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget)
+            << token;
+        EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
+            "invalid-target");
+        EXPECT_EQ(result.mutation_count, 0U) << token;
+        EXPECT_EQ(result.diagnostic, "JavaScript helper mutation target rejected") << token;
+    }
+    EXPECT_EQ(audit_calls, 0);
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsForgedTokenForWrongZoneRoom)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 1) };
+    zone_data zones[2] = { make_zone("Builder Zone", 30), make_zone("Other Zone", 31) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 2);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority(30);
+
+    JsTriggerHelperMutationValidationContext validation_context;
+    validation_context.request = &request;
+    validation_context.adapter_options = &adapter_options;
+    validation_context.authority = &authority;
+
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.validation_context = &validation_context;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
+    helper.target_token = "room-token:v1:30:100:test-room-target-secret";
+
+    const JsTriggerHelperMutationTransactionResult result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+
+    EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget);
+    EXPECT_EQ(result.mutation_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript helper mutation target rejected");
+    EXPECT_EQ(audit_calls, 0);
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresPersistentAuthorityBeforeAudit)
+{
+    enum class MissingAuthorityField {
+        Allow,
+        BuilderAccount,
+        EligibleCharacter,
+        TargetZone,
+        TargetTokenSecret,
+        DecisionEvidence,
+    };
+
+    const MissingAuthorityField missing_fields[] = { MissingAuthorityField::Allow,
+        MissingAuthorityField::BuilderAccount, MissingAuthorityField::EligibleCharacter,
+        MissingAuthorityField::TargetZone, MissingAuthorityField::TargetTokenSecret,
+        MissingAuthorityField::DecisionEvidence };
+
+    for (MissingAuthorityField missing_field : missing_fields) {
+        char_data self = make_character("Self");
+        const char_data* live_characters[] = { &self };
+        room_data world[1] = { make_room("Gate", 100, 0) };
+        zone_data zones[1] = { make_zone("Zone", 30) };
+        JsGameAdapterOptions adapter_options =
+            make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        JsTriggerDispatchRequest request = character_request(&self);
+        JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+
+        switch (missing_field) {
+        case MissingAuthorityField::Allow:
+            authority.allow_persistent_setter_mutations = false;
+            break;
+        case MissingAuthorityField::BuilderAccount:
+            authority.builder_account_id.clear();
+            break;
+        case MissingAuthorityField::EligibleCharacter:
+            authority.eligible_character_id = 0;
+            break;
+        case MissingAuthorityField::TargetZone:
+            authority.target_zone = -1;
+            break;
+        case MissingAuthorityField::TargetTokenSecret:
+            authority.target_token_secret.clear();
+            break;
+        case MissingAuthorityField::DecisionEvidence:
+            authority.decision_evidence.clear();
+            break;
+        }
+
+        JsTriggerHelperMutationValidationContext validation_context;
+        validation_context.request = &request;
+        validation_context.adapter_options = &adapter_options;
+        validation_context.authority = &authority;
+
+        int audit_calls = 0;
+        JsTriggerHelperMutationTransactionOptions options;
+        options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+        options.validation_context = &validation_context;
+        options.audit_user_data = &audit_calls;
+        options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                     void* user_data) {
+            ++*static_cast<int*>(user_data);
+            return true;
+        };
+
+        const JsTriggerHelperMutationTransactionResult result =
+            js_trigger_dispatch_prepare_helper_mutation_transaction(
+                { make_helper_mutation("room.flags.add") }, options);
+
+        EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget);
+        EXPECT_EQ(result.mutation_count, 0U);
+        EXPECT_EQ(result.diagnostic, "JavaScript helper mutation target rejected");
+        EXPECT_EQ(audit_calls, 0);
+    }
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsEveryCatalogAllowedFlag)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+
+    JsTriggerHelperMutationValidationContext validation_context;
+    validation_context.request = &request;
+    validation_context.adapter_options = &adapter_options;
+    validation_context.authority = &authority;
+
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.validation_context = &validation_context;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    const std::vector<std::string> allowed_flags =
+        split_pipe_list(js_api_room_flag_helper_operations()[0].allowed_flags);
+    ASSERT_EQ(allowed_flags.size(), 16U);
+
+    const char* operations[] = { "room.flags.add", "room.flags.remove" };
+    for (const char* operation : operations) {
+        for (const std::string& flag : allowed_flags) {
+            JsRuntimeMutation helper = make_helper_mutation(operation);
+            helper.arguments_json = std::string("{\"flag\":\"") + flag + "\"}";
+
+            const JsTriggerHelperMutationTransactionResult result =
+                js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+
+            EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok)
+                << operation << " " << flag;
+            EXPECT_EQ(result.mutation_count, 1U) << operation << " " << flag;
+            EXPECT_TRUE(result.diagnostic.empty()) << operation << " " << flag;
+        }
+    }
+    EXPECT_EQ(audit_calls, 32);
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadArgumentsBeforeAudit)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerMutationAuthorityContext authority = test_mutation_authority();
+
+    JsTriggerHelperMutationValidationContext validation_context;
+    validation_context.request = &request;
+    validation_context.adapter_options = &adapter_options;
+    validation_context.authority = &authority;
+
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    options.validation_context = &validation_context;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    for (const char* arguments_json : { "{}", "{\"flag\":\"permanentAffect\"}",
+             "{\"flag\":\"BFS_MARK\"}", "{\"flag\":\"PERMAFFECT\"}", "{\"flag\":\"peace\"}",
+             "{\"flag\":\"Dark\"}", "{\"flag\":\"dark \"}", "{\"flag\":\" dark\"}",
+             "{\"flag\":\"\"}", "{\"flag\":1}", "{\"flag\":null}", "{\"flag\":true}",
+             "{\"flag\":\"dark\",\"flag\":\"death\"}", "{\"flag\":\"dark\",\"extra\":true}",
+             "[]", "{not-json}",
+             "{\"flag\":\"dark\",\"padding\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}" }) {
+        JsRuntimeMutation helper = make_helper_mutation("room.flags.remove");
+        helper.arguments_json = arguments_json;
+
+        const JsTriggerHelperMutationTransactionResult result =
+            js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+
+        EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidArguments)
+            << arguments_json;
+        EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
+            "invalid-arguments");
+        EXPECT_EQ(result.mutation_count, 0U) << arguments_json;
+        EXPECT_EQ(result.diagnostic, "JavaScript helper mutation arguments rejected")
+            << arguments_json;
+    }
+    EXPECT_EQ(audit_calls, 0);
+}
+
 TEST(JsTriggerDispatch, HelperTransactionRequiresAuditBeforeSuccessfulPrepare)
 {
-    const char* const allowed_operations[] = { "room.flags.add", "room.flags.remove" };
+    const char* const allowed_operations[] = { "fixture.helper.add", "fixture.helper.remove" };
     JsTriggerHelperMutationTransactionOptions options;
     options.registry.operation_names = allowed_operations;
     options.registry.operation_count = 2;
 
     JsRuntimeMutation add_flag;
     add_flag.kind = "helper";
-    add_flag.operation = "room.flags.add";
+    add_flag.operation = "fixture.helper.add";
     add_flag.target_token = "fixture-room-token";
     add_flag.arguments_json = "{\"flag\":\"peace\"}";
     JsRuntimeMutation remove_flag = add_flag;
-    remove_flag.operation = "room.flags.remove";
+    remove_flag.operation = "fixture.helper.remove";
     remove_flag.arguments_json = "{\"flag\":\"dark\"}";
 
     JsTriggerHelperMutationTransactionResult missing_audit =
@@ -591,7 +979,7 @@ TEST(JsTriggerDispatch, HelperTransactionRequiresAuditBeforeSuccessfulPrepare)
                                  std::string* diagnostic, void* user_data) {
         ++*static_cast<int*>(user_data);
         EXPECT_EQ(request.mutation_count, 2U);
-        EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
+        EXPECT_EQ(request.operations_summary, "fixture.helper.add,fixture.helper.remove");
         if (diagnostic != nullptr)
             *diagnostic = "backend path /tmp/secret should stay hidden";
         return false;
