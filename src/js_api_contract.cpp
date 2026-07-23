@@ -1128,20 +1128,21 @@ constexpr JsApiMember ScriptMembers[] = {
      "builder-zone",
      "Apply a bounded legacy-style wait state to the current live character host. V1 does not "
      "resume JavaScript continuations after the wait expires; the script invocation is complete "
-     "and future triggers skip while the host has the legacy waiting affect."},
+     "and future mobile self triggers skip while the host has the legacy waiting affect."},
     {"do_say", JsApiMemberKind::Method, "(speaker: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
      "Queue a bounded say action for a live character handle. Text is single-line, length "
-     "bounded, and emitted through the helper mutation/audit path rather than command text "
-     "passthrough."},
+     "bounded, and emitted through the command-helper transaction path rather than command text "
+     "passthrough. Command-helper audit is still a follow-up hardening item."},
     {"do_give", JsApiMemberKind::Method,
      "(giver: Character, recipient: Character, object: GameObject) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::WorldMutation,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "Queue a bounded object-give request between live character and object handles. Live "
-     "ownership transfer is promoted in a later audited helper slice; v1 validates the helper "
-     "envelope and offline fixtures report the intended action."},
+     "Queue a bounded object-give request between live character and object handles. Live dispatch "
+     "requires invocation-local live handles, direct carried-object ownership, target-zone "
+     "authority, and transfers through the existing give path. Command-helper audit is still a "
+     "follow-up hardening item."},
     {"load_obj", JsApiMemberKind::Method,
      "(vnum: number, target?: Character | Room) => MutationResult", "MutationResult", false, false,
      JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",

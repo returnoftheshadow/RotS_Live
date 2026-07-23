@@ -250,10 +250,15 @@ runtime:
 - [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
   covers `load_obj`, `do_give`, and `send_to_char`.
 
-These helpers currently queue validated JavaScript command intents. Live
-gameplay side-effect application for speech/output delivery, wait continuations,
-object creation/placement, and inventory transfer is being promoted in separate
-audited slices.
+These helpers queue validated JavaScript command intents. Live dispatch now
+applies speech/output delivery, explicit-target object creation/placement,
+current-context object giving, and bounded no-continuation wait-state changes
+after the handler returns successfully. The live transaction groups side effects
+by category rather than replaying every JavaScript call in source order, and
+descriptor output is applied last so earlier validation failures do not emit
+messages. BuilderClient offline fixtures currently record command-helper events
+in source call order for diagnostics; full offline emulation of inventory, room,
+and wait-list state remains a separate parity slice.
 
 ### Greeter with gift
 

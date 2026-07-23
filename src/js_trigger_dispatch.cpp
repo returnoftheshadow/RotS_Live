@@ -942,7 +942,10 @@ bool parse_id_number(const std::string &id, const char *prefix, int *number) {
     for (char ch : suffix) {
         if (!std::isdigit(static_cast<unsigned char>(ch)))
             return false;
-        parsed = parsed * 10 + (ch - '0');
+        const int digit = ch - '0';
+        if (parsed > (std::numeric_limits<int>::max() - digit) / 10)
+            return false;
+        parsed = parsed * 10 + digit;
     }
     *number = parsed;
     return true;
@@ -1793,6 +1796,44 @@ bool apply_object_commands(const std::vector<PendingObjectCommand> &commands) {
     return true;
 }
 
+bool object_commands_still_applicable(const std::vector<PendingObjectCommand> &commands,
+                                      const JsGameAdapterOptions &options,
+                                      const JsTriggerMutationAuthorityContext &authority) {
+    for (const PendingObjectCommand &command : commands) {
+        if (command.operation == "script.load_obj") {
+            if (command.real_object_index < 0 || options.object_index == nullptr ||
+                static_cast<std::size_t>(command.real_object_index) >= options.object_index_count)
+                return false;
+            if (command.target == PendingObjectCommandTarget::None)
+                continue;
+            if (command.target == PendingObjectCommandTarget::Character) {
+                if (!command_target_matches_authority(command.target_character, options, authority))
+                    return false;
+                continue;
+            }
+            if (command.target == PendingObjectCommandTarget::Room) {
+                if (!command_target_matches_authority(command.target_room, options, authority))
+                    return false;
+                continue;
+            }
+            return false;
+        }
+        if (command.operation == "script.do_give") {
+            if (command.giver == nullptr || command.recipient == nullptr ||
+                command.object == nullptr ||
+                !object_is_directly_carried_by(command.object, command.giver))
+                return false;
+            if (!command_target_matches_authority(command.giver, options, authority) ||
+                !command_target_matches_authority(command.recipient, options, authority) ||
+                !object_matches_mutation_authority(*command.object, options, authority))
+                return false;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 bool apply_wait_commands(const std::vector<PendingWaitCommand> &commands,
                          const JsTriggerDispatchRequest &request,
                          const JsGameAdapterOptions &options,
@@ -1805,6 +1846,32 @@ bool apply_wait_commands(const std::vector<PendingWaitCommand> &commands,
         if (IS_SET(character->specials.affected_by, AFF_WAITING))
             continue;
         WAIT_STATE_BRIEF(character, command.pulses, 0, 0, 50, AFF_WAITING);
+    }
+    return true;
+}
+
+bool wait_commands_still_target_authorized_live_hosts(
+    const std::vector<PendingWaitCommand> &commands, const JsTriggerDispatchRequest &request,
+    const JsGameAdapterOptions &options, const JsTriggerMutationAuthorityContext &authority) {
+    for (const PendingWaitCommand &command : commands) {
+        char_data *character =
+            live_character_role_for_command_id(command.character_id, request, options);
+        if (!command_target_matches_authority(character, options, authority))
+            return false;
+    }
+    return true;
+}
+
+bool room_flag_apply_preconditions_hold(const std::vector<PendingRoomFlagMutation> &mutations,
+                                        const JsTriggerHelperMutationTransactionOptions &options) {
+    for (std::size_t index = 0; index < mutations.size(); ++index) {
+        const PendingRoomFlagMutation &mutation = mutations[index];
+        if (mutation.room == nullptr || mutation.room->number != mutation.room_vnum ||
+            mutation.room->zone != mutation.room_zone_index)
+            return false;
+        if (options.apply_precondition_callback != nullptr &&
+            !options.apply_precondition_callback(index, options.apply_precondition_user_data))
+            return false;
     }
     return true;
 }
@@ -1840,15 +1907,6 @@ bool apply_room_flag_mutations(const std::vector<PendingRoomFlagMutation> &mutat
         const PendingRoomFlagMutation &mutation = mutations[index];
         if (mutation.room == nullptr || mutation.room->number != mutation.room_vnum ||
             mutation.room->zone != mutation.room_zone_index) {
-            for (std::vector<AppliedRoomFlagMutation>::reverse_iterator applied =
-                     applied_mutations.rbegin();
-                 applied != applied_mutations.rend(); ++applied) {
-                applied->room->room_flags = applied->previous_flags;
-            }
-            return false;
-        }
-        if (options.apply_precondition_callback != nullptr &&
-            !options.apply_precondition_callback(index, options.apply_precondition_user_data)) {
             for (std::vector<AppliedRoomFlagMutation>::reverse_iterator applied =
                      applied_mutations.rbegin();
                  applied != applied_mutations.rend(); ++applied) {
@@ -2159,11 +2217,11 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
         return result;
     }
 
-    if (!apply_room_flag_mutations(pending_room_flag_mutations, helper_options,
-                                   &result.applied_helper_count)) {
+    if (!room_flag_apply_preconditions_hold(pending_room_flag_mutations, helper_options)) {
         result.ok = false;
         result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
         result.applied_setter_count = 0;
+        result.applied_helper_count = 0;
         result.diagnostic = "JavaScript trigger helper mutation apply rejected";
         return result;
     }
@@ -2177,7 +2235,7 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
         return result;
     }
 
-    if (!apply_object_commands(pending_object_commands)) {
+    if (!object_commands_still_applicable(pending_object_commands, adapter_options, authority)) {
         result.ok = false;
         result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
         result.applied_setter_count = 0;
@@ -2192,6 +2250,35 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
         result.applied_setter_count = 0;
         result.applied_helper_count = 0;
         result.diagnostic = "JavaScript trigger wait command apply rejected";
+        return result;
+    }
+
+    if (!wait_commands_still_target_authorized_live_hosts(pending_wait_commands, request,
+                                                          adapter_options, authority)) {
+        result.ok = false;
+        result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
+        result.applied_setter_count = 0;
+        result.applied_helper_count = 0;
+        result.diagnostic = "JavaScript trigger wait command apply rejected";
+        return result;
+    }
+
+    if (!apply_room_flag_mutations(pending_room_flag_mutations, helper_options,
+                                   &result.applied_helper_count)) {
+        result.ok = false;
+        result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
+        result.applied_setter_count = 0;
+        result.applied_helper_count = 0;
+        result.diagnostic = "JavaScript trigger helper mutation apply rejected";
+        return result;
+    }
+
+    if (!apply_object_commands(pending_object_commands)) {
+        result.ok = false;
+        result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
+        result.applied_setter_count = 0;
+        result.applied_helper_count = 0;
+        result.diagnostic = "JavaScript trigger object command apply rejected";
         return result;
     }
 
