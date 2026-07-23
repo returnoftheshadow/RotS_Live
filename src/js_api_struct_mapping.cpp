@@ -519,12 +519,14 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "light counters, crash-save flags, and stale-list checks stay centralized.",
      "world-mutation", "Linked-list storage is exposed only as shallow frozen contents snapshots."},
     {JsApiStructOwner::RoomData, "room_data", "people", "characters", "getCharacters",
-     "setCharacters", "readonly Character[]", true, Deferred, Unsupported,
-     "Planned read-only snapshot of characters currently in the room.",
+     "setCharacters", "readonly CharacterRelationshipSnapshot[]", false, ImplementedReadOnly,
+     Unsupported,
+     "Returns a bounded shallow read-only snapshot of direct live room occupants whose room index "
+     "reciprocally references this room.",
      "Replacing the room people linked list from JavaScript is unsupported; use explicit "
      "movement/teleport helpers so character room pointers, combat state, followers, mounts, "
      "visibility, and room security checks stay centralized.",
-     "world-mutation", "Use explicit movement helpers if added later."},
+     "world-mutation", "Linked-list storage is exposed only as shallow frozen occupant snapshots."},
     {JsApiStructOwner::RoomData, "room_data", "affected", "affects", "getAffects", "setAffects",
      "readonly Affect[]", true, Deferred, Unsupported, "Planned read-only room affect snapshot.",
      "Room affect writes are unsupported for builder scripts until explicit add/remove helpers "

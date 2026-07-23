@@ -80,6 +80,16 @@ struct JsGameRoomContentObjectFixture {
     bool touched = false;
 };
 
+struct JsGameCharacterReferenceFixture {
+    std::string id;
+    std::string name;
+    std::string race;
+    int vnum = -1;
+    int prototype_vnum = -1;
+    int level = 0;
+    bool is_npc = false;
+};
+
 struct JsGameRoomFixture {
     std::string id;
     std::string name;
@@ -91,6 +101,7 @@ struct JsGameRoomFixture {
     std::vector<JsGameExtraDescriptionFixture> extra_descriptions;
     std::vector<JsGameRoomExitFixture> exits;
     std::vector<JsGameRoomContentObjectFixture> contents;
+    std::vector<JsGameCharacterReferenceFixture> characters;
     int alignment = 0;
     int light = 0;
     bool is_sunlit = false;
@@ -318,16 +329,6 @@ struct JsGameEquipmentSlotFixture {
     std::string slot_name;
     bool has_object = false;
     JsGameEquipmentObjectFixture object;
-};
-
-struct JsGameCharacterReferenceFixture {
-    std::string id;
-    std::string name;
-    std::string race;
-    int vnum = -1;
-    int prototype_vnum = -1;
-    int level = 0;
-    bool is_npc = false;
 };
 
 struct JsGameMountFixture {

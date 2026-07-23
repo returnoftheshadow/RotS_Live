@@ -394,6 +394,7 @@ JsGameTriggerContextFixture make_context() {
     context.self.room.extra_descriptions.push_back({"arch", "Ancient stonework frames the gate."});
     add_gatehouse_exits(context.self.room);
     context.self.room.contents.push_back(make_room_content_fixture());
+    context.self.room.characters.push_back(make_character_reference("mob:4101", "orc guard", true));
     context.self.room.alignment = -2;
     context.self.room.light = 1;
     context.self.room.is_sunlit = true;
@@ -554,6 +555,7 @@ JsGameTriggerContextFixture make_context() {
         {"arch", "Ancient stonework frames the gate."});
     add_gatehouse_exits(context.object.room);
     context.object.room.contents.push_back(make_room_content_fixture());
+    context.object.room.characters.push_back(make_character_reference("mob:4101", "orc guard", true));
     context.object.room.alignment = -2;
     context.object.room.light = 1;
     context.object.room.is_sunlit = true;
@@ -589,6 +591,7 @@ JsGameTriggerContextFixture make_context() {
     context.room.extra_descriptions.push_back({"arch", "Ancient stonework frames the gate."});
     add_gatehouse_exits(context.room);
     context.room.contents.push_back(make_room_content_fixture());
+    context.room.characters.push_back(make_character_reference("mob:4101", "orc guard", true));
     context.room.alignment = -2;
     context.room.light = 1;
     context.room.is_sunlit = true;
@@ -1405,14 +1408,28 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && typeof ctx.room.contents[0].container === 'undefined'\n"
         "  && typeof ctx.room.contents[0].contents === 'undefined'\n"
         "  && typeof ctx.room.contents[0].setName === 'undefined'\n"
+        "  && ctx.room.characters.length === 1\n"
+        "  && ctx.room.characters[0].id === 'mob:4101'\n"
+        "  && ctx.room.characters[0].name === 'orc guard'\n"
+        "  && ctx.room.characters[0].race === 'Orc'\n"
+        "  && ctx.room.characters[0].vnum === 4101\n"
+        "  && ctx.room.characters[0].prototypeVnum === 4101\n"
+        "  && ctx.room.characters[0].level === 12\n"
+        "  && ctx.room.characters[0].isNpc === true\n"
+        "  && ctx.room.characters[0].isPlayer === false\n"
+        "  && ctx.room.characters[0].isValid() === true\n"
+        "  && typeof ctx.room.characters[0].followers === 'undefined'\n"
+        "  && typeof ctx.room.characters[0].setName === 'undefined'\n"
         "  && ctx.object.room.contents[0].name === 'polished orb'\n"
         "  && ctx.object.room.contents[0].room === null\n"
         "  && typeof ctx.object.room.contents[0].container === 'undefined'\n"
         "  && typeof ctx.object.room.contents[0].contents === 'undefined'\n"
+        "  && ctx.object.room.characters[0].id === 'mob:4101'\n"
         "  && ctx.self.room.contents[0].name === 'polished orb'\n"
         "  && ctx.self.room.contents[0].room === null\n"
         "  && typeof ctx.self.room.contents[0].container === 'undefined'\n"
         "  && typeof ctx.self.room.contents[0].contents === 'undefined'\n"
+        "  && ctx.self.room.characters[0].id === 'mob:4101'\n"
         "  && ctx.room.alignment === -2\n"
         "  && ctx.room.light === 1\n"
         "  && ctx.zone.level === 6\n"
@@ -2645,11 +2662,14 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.object.contents[0].constructor === 'undefined'\n"
         "  && typeof ctx.room.contents.constructor === 'undefined'\n"
         "  && typeof ctx.room.contents[0].constructor === 'undefined'\n"
+        "  && typeof ctx.room.characters.constructor === 'undefined'\n"
+        "  && typeof ctx.room.characters[0].constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx.object.affects[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.object.extraDescriptions[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.object.container) === null\n"
         "  && Object.getPrototypeOf(ctx.object.contents[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.room.contents[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.room.characters[0]) === null\n"
         "  && Object.isFrozen(ctx.object.affects)\n"
         "  && Object.isFrozen(ctx.object.affects[0])\n"
         "  && Object.isFrozen(ctx.object.extraDescriptions)\n"
@@ -2659,6 +2679,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && Object.isFrozen(ctx.object.contents[0])\n"
         "  && Object.isFrozen(ctx.room.contents)\n"
         "  && Object.isFrozen(ctx.room.contents[0])\n"
+        "  && Object.isFrozen(ctx.room.characters)\n"
+        "  && Object.isFrozen(ctx.room.characters[0])\n"
         "  && Object.isFrozen(ctx.self.followers)\n"
         "  && Object.isFrozen(ctx.self.followers[0])\n"
         "  && Object.isFrozen(ctx.self.master)\n"
@@ -2837,6 +2859,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.room.contents.push({ id: 'object:unsafe' });\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.room.characters[0].name = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.room.characters.push({ name: 'unsafe' });\n"
                                          "return true;",
                                          make_context())
                   .status,

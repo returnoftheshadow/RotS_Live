@@ -560,6 +560,10 @@ constexpr JsApiMember RoomMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only direct room object snapshots copied from the room contents linked list. "
      "Entries are shallow object snapshots without ownership handles or recursive contents."},
+    {"characters", JsApiMemberKind::Property, "readonly CharacterRelationshipSnapshot[]", "",
+     false, true, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only shallow occupant snapshots copied from the room people linked list. "
+     "Entries omit recursive followers, master, mount, group, inventory, equipment, and setters."},
     {"alignment", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only", "Room alignment value."},
     {"light", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,

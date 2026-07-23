@@ -576,6 +576,12 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     EXPECT_FALSE(room_contents->nullable);
     EXPECT_EQ(room_contents->status, JsApiMemberStatus::PlannedReadOnly);
 
+    const JsApiMember *room_characters = find_js_api_contract_member(*room, "characters");
+    ASSERT_NE(room_characters, nullptr);
+    EXPECT_STREQ(room_characters->type_name, "readonly CharacterRelationshipSnapshot[]");
+    EXPECT_FALSE(room_characters->nullable);
+    EXPECT_EQ(room_characters->status, JsApiMemberStatus::PlannedReadOnly);
+
     const JsApiMember *room_sector_type = find_js_api_contract_member(*room, "sectorType");
     ASSERT_NE(room_sector_type, nullptr);
     EXPECT_STREQ(room_sector_type->type_name, "string");

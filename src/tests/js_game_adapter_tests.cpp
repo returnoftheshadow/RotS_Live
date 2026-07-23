@@ -1509,6 +1509,12 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     const obj_data *live_objects[] = {&object, &room_object, &invalid_room_object};
     room_data world[2] = {make_room("Northern Gate", 1204, 0), make_room("Old Road", 1205, 0)};
     world[0].contents = &room_object;
+    char_data wrong_room_character = make_character("Wrong Room", 0, 18, 40, 40, false);
+    char_data room_character = make_character("Gate Guard", 0, 22, 50, 50, true);
+    wrong_room_character.in_room = 1;
+    wrong_room_character.next_in_room = &room_character;
+    room_character.in_room = 0;
+    world[0].people = &wrong_room_character;
     extra_descr_data arch_extra{};
     arch_extra.keyword = const_cast<char *>("arch");
     arch_extra.description = const_cast<char *>("Ancient stonework frames the gate.");
@@ -1539,8 +1545,13 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     world[0].dir_option[EAST] = &east_exit;
     world[0].dir_option[DOWN] = &down_exit;
     zone_data zones[1] = {make_zone("Old City", 12)};
-    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 3, world, 1, nullptr, 0,
-                                                object_index, 2, zones, 1, nullptr, 0);
+    index_data mobile_index[2]{};
+    mobile_index[1].virt = 6202;
+    const char *race_names[] = {"Human"};
+    const char_data *live_characters[] = {&wrong_room_character, &room_character};
+    JsGameAdapterOptions options = make_options(live_characters, 2, live_objects, 3, world, 1,
+                                                mobile_index, 2, object_index, 2, zones, 1,
+                                                race_names, 1);
 
     JsGameObjectFixture object_fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
@@ -1619,6 +1630,12 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     EXPECT_EQ(room_fixture.contents[0].name, "a polished orb");
     EXPECT_EQ(room_fixture.contents[0].description, "A polished orb rests on the floor.");
     EXPECT_FALSE(room_fixture.contents[0].touched);
+    ASSERT_EQ(room_fixture.characters.size(), 1U);
+    EXPECT_EQ(room_fixture.characters[0].id, "mob:6202");
+    EXPECT_EQ(room_fixture.characters[0].name, "Gate Guard");
+    EXPECT_EQ(room_fixture.characters[0].race, "Human");
+    EXPECT_EQ(room_fixture.characters[0].vnum, 6202);
+    EXPECT_TRUE(room_fixture.characters[0].is_npc);
     EXPECT_EQ(room_fixture.alignment, -3);
     EXPECT_EQ(room_fixture.light, 2);
     EXPECT_FALSE(room_fixture.is_sunlit);
@@ -2113,6 +2130,105 @@ TEST(JsGameAdapter, BoundsRoomContentsTraversalByVisitedNodes) {
     ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture));
 
     EXPECT_TRUE(room_fixture.contents.empty());
+}
+
+TEST(JsGameAdapter, StopsRoomCharactersBeforeDereferencingStaleNodes) {
+    room_data world[1] = {make_room("Room", 100, 0)};
+    char_data stale = make_character("Stale", 0, 10, 10, 10, false);
+    char_data valid = make_character("Valid", 0, 12, 20, 20, false);
+    stale.in_room = 0;
+    stale.next_in_room = &valid;
+    valid.in_room = 0;
+    world[0].people = &stale;
+    const char_data *live_characters[] = {&valid};
+    const char *race_names[] = {"Human"};
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, world, 0, nullptr,
+                                                0, nullptr, 0, nullptr, 0, race_names, 1);
+
+    JsGameRoomFixture room_fixture;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture));
+
+    EXPECT_TRUE(room_fixture.characters.empty());
+}
+
+TEST(JsGameAdapter, StopsRoomCharactersTraversalOnCycles) {
+    room_data world[1] = {make_room("Room", 100, 0)};
+    char_data first = make_character("First", 0, 10, 10, 10, false);
+    char_data second = make_character("Second", 0, 11, 20, 20, false);
+    first.in_room = 0;
+    first.next_in_room = &second;
+    second.in_room = 0;
+    second.next_in_room = &first;
+    world[0].people = &first;
+    const char_data *live_characters[] = {&first, &second};
+    const char *race_names[] = {"Human"};
+    JsGameAdapterOptions options = make_options(live_characters, 2, nullptr, 0, world, 0, nullptr,
+                                                0, nullptr, 0, nullptr, 0, race_names, 1);
+
+    JsGameRoomFixture room_fixture;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture));
+
+    ASSERT_EQ(room_fixture.characters.size(), 2U);
+    EXPECT_EQ(room_fixture.characters[0].name, "First");
+    EXPECT_EQ(room_fixture.characters[1].name, "Second");
+}
+
+TEST(JsGameAdapter, BoundsRoomCharactersTraversal) {
+    room_data world[1] = {make_room("Room", 100, 0)};
+    std::vector<std::string> names;
+    names.reserve(101);
+    for (int index = 0; index < 101; ++index)
+        names.push_back("occupant-" + std::to_string(index));
+    std::vector<char_data> characters;
+    characters.reserve(101);
+    std::vector<const char_data *> live_characters;
+    for (int index = 0; index < 101; ++index) {
+        characters.push_back(make_character(names[index].c_str(), 0, index + 1, 10, 10, false));
+        characters[index].in_room = 0;
+        if (index > 0)
+            characters[index - 1].next_in_room = &characters[index];
+        live_characters.push_back(&characters[index]);
+    }
+    world[0].people = &characters[0];
+    const char *race_names[] = {"Human"};
+    JsGameAdapterOptions options =
+        make_options(live_characters.data(), live_characters.size(), nullptr, 0, world, 0, nullptr,
+                     0, nullptr, 0, nullptr, 0, race_names, 1);
+
+    JsGameRoomFixture room_fixture;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture));
+
+    ASSERT_EQ(room_fixture.characters.size(), 100U);
+    EXPECT_EQ(room_fixture.characters.front().name, "occupant-0");
+    EXPECT_EQ(room_fixture.characters.back().name, "occupant-99");
+}
+
+TEST(JsGameAdapter, BoundsRoomCharactersTraversalByVisitedNodes) {
+    room_data world[1] = {make_room("Room", 100, 0)};
+    std::vector<std::string> names;
+    names.reserve(101);
+    for (int index = 0; index < 101; ++index)
+        names.push_back("skipped-occupant-" + std::to_string(index));
+    std::vector<char_data> characters;
+    characters.reserve(101);
+    std::vector<const char_data *> live_characters;
+    for (int index = 0; index < 101; ++index) {
+        characters.push_back(make_character(names[index].c_str(), 0, index + 1, 10, 10, false));
+        characters[index].in_room = index == 100 ? 0 : 1;
+        if (index > 0)
+            characters[index - 1].next_in_room = &characters[index];
+        live_characters.push_back(&characters[index]);
+    }
+    world[0].people = &characters[0];
+    const char *race_names[] = {"Human"};
+    JsGameAdapterOptions options =
+        make_options(live_characters.data(), live_characters.size(), nullptr, 0, world, 0, nullptr,
+                     0, nullptr, 0, nullptr, 0, race_names, 1);
+
+    JsGameRoomFixture room_fixture;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture));
+
+    EXPECT_TRUE(room_fixture.characters.empty());
 }
 
 TEST(JsGameAdapter, BoundsObjectContentsTraversalByVisitedNodes) {

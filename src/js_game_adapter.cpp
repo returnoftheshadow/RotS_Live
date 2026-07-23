@@ -767,6 +767,37 @@ room_contents_fixture(int room, const JsGameAdapterOptions &options) {
     return contents;
 }
 
+bool character_reference_fixture(const char_data *character, const JsGameAdapterOptions &options,
+                                 JsGameCharacterReferenceFixture *fixture);
+
+std::vector<JsGameCharacterReferenceFixture>
+room_characters_fixture(int room, const JsGameAdapterOptions &options) {
+    std::vector<JsGameCharacterReferenceFixture> characters;
+    if (!js_game_adapter_room_is_valid(room, options))
+        return characters;
+
+    constexpr int MaxRoomCharacterSnapshotNodes = 100;
+    const room_data &room_data = options.world[room];
+    std::vector<const char_data *> seen_nodes;
+    int nodes_visited = 0;
+    for (const char_data *node = room_data.people;
+         node != nullptr && nodes_visited < MaxRoomCharacterSnapshotNodes;
+         node = node->next_in_room) {
+        if (std::find(seen_nodes.begin(), seen_nodes.end(), node) != seen_nodes.end())
+            break;
+        seen_nodes.push_back(node);
+        ++nodes_visited;
+        if (!js_game_adapter_is_live_character(node, options))
+            break;
+        if (node->in_room != room)
+            continue;
+        JsGameCharacterReferenceFixture fixture;
+        if (character_reference_fixture(node, options, &fixture))
+            characters.push_back(std::move(fixture));
+    }
+    return characters;
+}
+
 bool character_has_follower(const char_data *leader, const char_data *follower,
                             const JsGameAdapterOptions &options) {
     if (leader == nullptr || follower == nullptr)
@@ -1464,6 +1495,7 @@ bool js_game_adapter_room_fixture(int room, const JsGameAdapterOptions &options,
     fixture->extra_descriptions = extra_descriptions_fixture(room_data.ex_description);
     fixture->exits = room_exits_fixture(room_data, options);
     fixture->contents = room_contents_fixture(room, options);
+    fixture->characters = room_characters_fixture(room, options);
     fixture->alignment = room_data.alignment;
     fixture->light = room_data.light;
     fixture->is_sunlit = room_is_sunlit(room_data);
