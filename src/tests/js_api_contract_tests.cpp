@@ -726,10 +726,35 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     EXPECT_EQ(inventory_object_touched->status, JsApiMemberStatus::PlannedReadOnly);
 
     const char *classification_only_object_members[] = {
-        "nextContent", "next", "ownerId", "loadedBy", "values", "value0", "rawValues",
+        "setVnum",       "ownerId",       "nextContent",    "next",
+        "loadedBy",      "setOwnerId",    "setNextContent", "setNext",
+        "setLoadedBy",   "item_number",   "in_room",        "obj_flags",
+        "affected",      "short_description", "action_description",
+        "ex_description", "carried_by",   "owner",          "in_obj",
+        "contains",      "next_content",  "loaded_by",      "values",
+        "value0",        "rawValues",
     };
     for (const char *member_name : classification_only_object_members) {
         EXPECT_EQ(find_js_api_contract_member(*object, member_name), nullptr) << member_name;
+    }
+
+    const char *classification_only_character_members[] = {
+        "internalIndex", "playerIndex",       "descriptor",      "nextInRoom",
+        "next",          "nextFighting",      "nextFastUpdate",  "masterNumber",
+        "temporaryData", "delay",             "nextDying",       "group",
+        "setInternalIndex", "setPlayerIndex", "setDescriptor",   "setNextInRoom",
+        "setNext",      "setNextFighting",   "setNextFastUpdate", "setMasterNumber",
+        "setTemporaryData", "setDelay",       "setNextDying",    "abs_number",
+        "player_index", "nr",                 "in_room",         "player",
+        "abilities",    "tmpabilities",       "constabilities",  "profs",
+        "extra_specialization_data",           "damage_details",  "affected",
+        "carrying",     "desc",               "next_in_room",    "next_fighting",
+        "next_fast_update",                    "master_number",   "mount_data",
+        "temp",         "next_die",           "classpoints",     "interrupt_count",
+        "interrupt_time",                      "spec_busy",
+    };
+    for (const char *member_name : classification_only_character_members) {
+        EXPECT_EQ(find_js_api_contract_member(*character, member_name), nullptr) << member_name;
     }
 
     const JsApiType *zone = find_js_api_contract_type("Zone");

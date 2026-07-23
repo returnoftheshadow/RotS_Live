@@ -504,12 +504,31 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     ASSERT_FALSE(inventory_object_block.empty());
     EXPECT_NE(inventory_object_block.find("readonly touched:"), std::string::npos);
     const char *object_lifecycle_setters[] = {
-        "setFlags",     "setAffects",   "setExtraDescriptions", "setRoom",
-        "setCarriedBy", "setContainer", "setContents",          "setTouched",
+        "setVnum",        "setFlags",       "setAffects",   "setExtraDescriptions",
+        "setRoom",        "setCarriedBy",   "setContainer", "setContents",
+        "setTouched",     "setOwnerId",     "setNextContent", "setNext",
+        "setLoadedBy",
     };
     for (const char *setter_name : object_lifecycle_setters) {
         EXPECT_EQ(object_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
+    }
+    const char *raw_object_members[] = {
+        "ownerId",       "nextContent",      "next",          "loadedBy",
+        "item_number",   "in_room",          "obj_flags",     "affected",
+        "short_description", "action_description", "ex_description", "carried_by",
+        "owner",         "in_obj",           "contains",      "next_content",
+        "loaded_by",
+    };
+    for (const char *member_name : raw_object_members) {
+        EXPECT_EQ(object_block.find(std::string(member_name) + ":"), std::string::npos)
+            << member_name;
+        EXPECT_EQ(object_block.find(std::string(member_name) + "?:"), std::string::npos)
+            << member_name;
+        EXPECT_EQ(object_block.find(std::string("readonly ") + member_name), std::string::npos)
+            << member_name;
+        EXPECT_EQ(object_block.find(std::string(member_name) + "("), std::string::npos)
+            << member_name;
     }
 
     const std::string character_block =
@@ -540,10 +559,43 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         "setInterruptCount",
         "setInterruptTime",
         "setSpecialBusy",
+        "setInternalIndex",
+        "setPlayerIndex",
+        "setDescriptor",
+        "setNextInRoom",
+        "setNext",
+        "setNextFighting",
+        "setNextFastUpdate",
+        "setMasterNumber",
+        "setTemporaryData",
+        "setDelay",
+        "setNextDying",
     };
     for (const char *setter_name : character_relationship_setters) {
         EXPECT_EQ(character_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
+    }
+    const char *raw_character_members[] = {
+        "internalIndex", "playerIndex",      "descriptor",     "nextInRoom",
+        "next",          "nextFighting",     "nextFastUpdate", "masterNumber",
+        "temporaryData", "delay",            "nextDying",      "group",
+        "abs_number",    "player_index",     "nr",             "in_room",
+        "player",        "abilities",        "tmpabilities",   "constabilities",
+        "profs",         "extra_specialization_data", "damage_details", "affected",
+        "carrying",      "desc",             "next_in_room",   "next_fighting",
+        "next_fast_update",                  "master_number",  "mount_data",
+        "temp",          "next_die",         "classpoints",    "interrupt_count",
+        "interrupt_time",                    "spec_busy",
+    };
+    for (const char *member_name : raw_character_members) {
+        EXPECT_EQ(character_block.find(std::string(member_name) + ":"), std::string::npos)
+            << member_name;
+        EXPECT_EQ(character_block.find(std::string(member_name) + "?:"), std::string::npos)
+            << member_name;
+        EXPECT_EQ(character_block.find(std::string("readonly ") + member_name), std::string::npos)
+            << member_name;
+        EXPECT_EQ(character_block.find(std::string(member_name) + "("), std::string::npos)
+            << member_name;
     }
 
     const std::string room_block = declaration_block(declarations, "export interface Room");

@@ -492,11 +492,117 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     const char *internal_object_properties[] = {
         "ownerId",
         "nextContent",
+        "next",
         "loadedBy",
     };
     for (const char *property : internal_object_properties) {
         EXPECT_EQ(json.find(std::string("\"property\":\"") + property + "\""), std::string::npos)
             << property;
+    }
+    const char *raw_object_aliases[] = {
+        "item_number",
+        "in_room",
+        "obj_flags",
+        "affected",
+        "short_description",
+        "action_description",
+        "ex_description",
+        "carried_by",
+        "owner",
+        "in_obj",
+        "contains",
+        "next_content",
+        "loaded_by",
+    };
+    for (const char *property : raw_object_aliases) {
+        expect_does_not_contain_field(json, "fieldId",
+                                      (std::string("GameObject.") + property).c_str());
+        expect_does_not_contain_field(json, "property", property);
+    }
+    const char *internal_object_accessors[] = {
+        "getOwnerId",
+        "setOwnerId",
+        "getNextContent",
+        "setNextContent",
+        "getNext",
+        "setNext",
+        "getLoadedBy",
+        "setLoadedBy",
+    };
+    for (const char *accessor : internal_object_accessors) {
+        expect_does_not_contain_field(json, "getterName", accessor);
+        expect_does_not_contain_field(json, "setterName", accessor);
+    }
+
+    const char *internal_character_properties[] = {
+        "internalIndex", "playerIndex",      "descriptor",     "nextInRoom",
+        "next",          "nextFighting",     "nextFastUpdate", "masterNumber",
+        "temporaryData", "delay",            "nextDying",
+    };
+    for (const char *property : internal_character_properties) {
+        expect_does_not_contain_field(json, "fieldId",
+                                      (std::string("Character.") + property).c_str());
+        expect_does_not_contain_field(json, "property", property);
+    }
+    const char *raw_character_aliases[] = {
+        "abs_number",
+        "player_index",
+        "nr",
+        "in_room",
+        "player",
+        "abilities",
+        "tmpabilities",
+        "constabilities",
+        "profs",
+        "extra_specialization_data",
+        "damage_details",
+        "affected",
+        "carrying",
+        "desc",
+        "next_in_room",
+        "next_fighting",
+        "next_fast_update",
+        "master_number",
+        "mount_data",
+        "temp",
+        "next_die",
+        "classpoints",
+        "interrupt_count",
+        "interrupt_time",
+        "spec_busy",
+    };
+    for (const char *property : raw_character_aliases) {
+        expect_does_not_contain_field(json, "fieldId",
+                                      (std::string("Character.") + property).c_str());
+        expect_does_not_contain_field(json, "property", property);
+    }
+    const char *internal_character_accessors[] = {
+        "getInternalIndex",
+        "setInternalIndex",
+        "getPlayerIndex",
+        "setPlayerIndex",
+        "getDescriptor",
+        "setDescriptor",
+        "getNextInRoom",
+        "setNextInRoom",
+        "getNext",
+        "setNext",
+        "getNextFighting",
+        "setNextFighting",
+        "getNextFastUpdate",
+        "setNextFastUpdate",
+        "getMasterNumber",
+        "setMasterNumber",
+        "getTemporaryData",
+        "setTemporaryData",
+        "getDelay",
+        "setDelay",
+        "getNextDying",
+        "setNextDying",
+    };
+    for (const char *accessor : internal_character_accessors) {
+        expect_does_not_contain_field(json, "getterName", accessor);
+        expect_does_not_contain_field(json, "setterName", accessor);
     }
 
     const char *internal_zone_properties[] = {
