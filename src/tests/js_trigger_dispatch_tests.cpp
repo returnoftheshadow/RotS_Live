@@ -937,6 +937,7 @@ TEST(JsTriggerDispatch, LoadObjInlineAuditRejectedResultDoesNotQueueObjectCreate
     JsTriggerDispatchOptions dispatch_options;
     dispatch_options.mutation_authority = test_mutation_authority();
     int audit_calls = 0;
+    std::vector<std::string> audit_operations;
     dispatch_options.helper_mutation_options.command_audit_user_data = &audit_calls;
     dispatch_options.helper_mutation_options.command_audit_callback =
         [](const JsTriggerCommandMutationAuditRequest &request, std::string *diagnostic,
@@ -1659,12 +1660,14 @@ TEST(JsTriggerDispatch, DoWaitCommandHelperAppliesBoundedWaitStateToLiveHost) {
     JsTriggerDispatchRequest request = character_request(&self);
     JsTriggerDispatchOptions dispatch_options;
     dispatch_options.mutation_authority = test_mutation_authority();
-    add_accepting_command_audit(dispatch_options);
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
 
     JsTriggerDispatchResult result =
         js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
     EXPECT_TRUE(IS_SET(self.specials.affected_by, AFF_WAITING));
     EXPECT_EQ(self.delay.wait_value, 4);
     EXPECT_EQ(self.delay.cmd, 0);
@@ -1674,6 +1677,192 @@ TEST(JsTriggerDispatch, DoWaitCommandHelperAppliesBoundedWaitStateToLiveHost) {
     EXPECT_EQ(self.delay.targ1.type, TARGET_IGNORE);
     EXPECT_EQ(self.delay.targ2.type, TARGET_IGNORE);
     EXPECT_EQ(self.delay.next, nullptr);
+    EXPECT_EQ(waiting_list, &self);
+}
+
+TEST(JsTriggerDispatch, DoWaitInlineAuditRejectedResultDoesNotQueueWait) {
+    DescriptorListGuard descriptor_guard;
+    WaitingListGuard wait_guard;
+    waiting_list = nullptr;
+    descriptor_list = nullptr;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5891, "function onEnter(ctx) {\n"
+              "  const wait = RotS.Script.doWait(4);\n"
+              "  if (!wait.ok && wait.code === 'audit-rejected') {\n"
+              "    RotS.Script.sendToChar(ctx.self, 'The wait is not approved.');\n"
+              "  }\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    descriptor_data self_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    descriptor_list = &self_descriptor;
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    std::vector<std::string> audit_operations;
+    dispatch_options.helper_mutation_options.command_audit_user_data = &audit_operations;
+    dispatch_options.helper_mutation_options.command_audit_callback =
+        [](const JsTriggerCommandMutationAuditRequest &request, std::string *diagnostic,
+           void *user_data) {
+            static_cast<std::vector<std::string> *>(user_data)->push_back(
+                request.operations_summary);
+            if (request.operations_summary == "script.do_wait") {
+                if (diagnostic != nullptr)
+                    *diagnostic = "private audit detail";
+                return false;
+            }
+            return true;
+        };
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_operations,
+              (std::vector<std::string>{"script.do_wait", "script.send_to_char"}));
+    EXPECT_FALSE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 0);
+    EXPECT_EQ(waiting_list, nullptr);
+    EXPECT_TRUE(contains(self_descriptor.output, "The wait is not approved.\n\r"));
+    EXPECT_FALSE(contains(self_descriptor.output, "private audit detail"));
+}
+
+TEST(JsTriggerDispatch, DoWaitInlineNotAuthorizedResultDoesNotQueueWait) {
+    DescriptorListGuard descriptor_guard;
+    WaitingListGuard wait_guard;
+    waiting_list = nullptr;
+    descriptor_list = nullptr;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5893, "function onEnter(ctx) {\n"
+              "  const wait = RotS.Script.doWait(4);\n"
+              "  if (!wait.ok && wait.code === 'not-authorized') {\n"
+              "    RotS.Script.sendToChar(ctx.self, 'The wait is not authorized.');\n"
+              "  }\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    descriptor_data self_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    descriptor_list = &self_descriptor;
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_FALSE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 0);
+    EXPECT_EQ(waiting_list, nullptr);
+    EXPECT_TRUE(contains(self_descriptor.output, "The wait is not authorized.\n\r"));
+}
+
+TEST(JsTriggerDispatch, DoWaitInlineAlreadyWaitingResultDoesNotQueueWait) {
+    DescriptorListGuard descriptor_guard;
+    WaitingListGuard wait_guard;
+    descriptor_list = nullptr;
+    char_data self = make_character("Self");
+    char_data next = make_character("Next");
+    SET_BIT(self.specials.affected_by, AFF_WAITING);
+    self.delay.wait_value = 7;
+    self.delay.cmd = CMD_HIDE;
+    self.delay.subcmd = 1;
+    self.delay.priority = 30;
+    self.delay.targ1.type = TARGET_CHAR;
+    self.delay.targ1.ch_num = 99;
+    self.delay.targ2.type = TARGET_TEXT;
+    self.delay.next = &next;
+    waiting_list = &self;
+    descriptor_data self_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    descriptor_list = &self_descriptor;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package =
+        make_character_enter_package(5892, "function onEnter(ctx) {\n"
+                                           "  const wait = RotS.Script.doWait(4);\n"
+                                           "  return !wait.ok && wait.code === 'already-waiting';\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 0);
+    EXPECT_TRUE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 7);
+    EXPECT_EQ(self.delay.cmd, CMD_HIDE);
+    EXPECT_EQ(self.delay.subcmd, 1);
+    EXPECT_EQ(self.delay.priority, 30);
+    EXPECT_EQ(self.delay.targ1.type, TARGET_CHAR);
+    EXPECT_EQ(self.delay.targ1.ch_num, 99);
+    EXPECT_EQ(self.delay.targ2.type, TARGET_TEXT);
+    EXPECT_EQ(self.delay.next, &next);
+    EXPECT_EQ(waiting_list, &self);
+}
+
+TEST(JsTriggerDispatch, DoWaitInlineSecondWaitReturnsAlreadyWaitingWithoutQueuing) {
+    WaitingListGuard wait_guard;
+    waiting_list = nullptr;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5894, "function onEnter() {\n"
+              "  const first = RotS.Script.doWait(3);\n"
+              "  const second = RotS.Script.doWait(4);\n"
+              "  return first.ok && !second.ok && second.code === 'already-waiting';\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_TRUE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 3);
     EXPECT_EQ(waiting_list, &self);
 }
 
@@ -1692,6 +1881,35 @@ TEST(JsTriggerDispatch, DoWaitCommandHelperRequiresAuthorityWithoutChangingHost)
     JsTriggerRuntimeMutationTransactionApplyResult result =
         js_trigger_dispatch_apply_runtime_mutation_transaction({wait}, request, adapter_options,
                                                                {});
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger wait command target rejected");
+    EXPECT_FALSE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 0);
+    EXPECT_EQ(waiting_list, nullptr);
+}
+
+TEST(JsTriggerDispatch, DoWaitCommandHelperRejectsDuplicateWaitsWithoutPartialState) {
+    WaitingListGuard wait_guard;
+    waiting_list = nullptr;
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    const JsRuntimeMutation first_wait =
+        make_script_command_mutation("script.do_wait", "{\"pulses\":4}");
+    const JsRuntimeMutation second_wait =
+        make_script_command_mutation("script.do_wait", "{\"pulses\":5}");
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    add_accepting_command_audit(helper_options);
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {first_wait, second_wait}, request, adapter_options, test_mutation_authority(),
+            helper_options);
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.diagnostic, "JavaScript trigger wait command target rejected");
@@ -1800,7 +2018,8 @@ TEST(JsTriggerDispatch, DoWaitCommandHelperLeavesAlreadyWaitingHostUnchanged) {
         js_trigger_dispatch_apply_runtime_mutation_transaction(
             {wait}, request, adapter_options, test_mutation_authority(), helper_options);
 
-    EXPECT_TRUE(result.ok) << result.diagnostic;
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger wait command target rejected");
     EXPECT_TRUE(IS_SET(self.specials.affected_by, AFF_WAITING));
     EXPECT_EQ(self.delay.wait_value, 7);
     EXPECT_EQ(self.delay.cmd, CMD_HIDE);
@@ -1811,6 +2030,68 @@ TEST(JsTriggerDispatch, DoWaitCommandHelperLeavesAlreadyWaitingHostUnchanged) {
     EXPECT_EQ(self.delay.targ2.type, TARGET_TEXT);
     EXPECT_EQ(self.delay.next, &next);
     EXPECT_EQ(waiting_list, &self);
+}
+
+TEST(JsTriggerDispatch, BridgeAcceptedDoWaitFailsClosedWhenHostStartsWaitingBeforeApply) {
+    WaitingListGuard wait_guard;
+    waiting_list = nullptr;
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    world[0].room_flags = 0;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    zones[0].name = str_dup("Original Zone");
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation room_flag = make_helper_mutation("room.flags.add");
+    room_flag.arguments_json = "{\"flag\":\"dark\"}";
+    JsRuntimeMutation wait = make_script_command_mutation("script.do_wait", "{\"pulses\":4}");
+    wait.command_result_bridge_accepted = true;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *) { return true; };
+    helper_options.apply_precondition_user_data = &self;
+    helper_options.apply_precondition_callback = [](std::size_t, void *user_data) {
+        char_data *self = static_cast<char_data *>(user_data);
+        SET_BIT(self->specials.affected_by, AFF_WAITING);
+        self->delay.wait_value = 7;
+        self->delay.cmd = CMD_HIDE;
+        self->delay.subcmd = 1;
+        self->delay.priority = 30;
+        self->delay.targ1.type = TARGET_CHAR;
+        self->delay.targ1.ch_num = 99;
+        self->delay.targ2.type = TARGET_TEXT;
+        self->delay.next = nullptr;
+        waiting_list = self;
+        return true;
+    };
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, room_flag, wait}, request, adapter_options, test_mutation_authority(),
+            helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::ApplyRejected);
+    EXPECT_EQ(result.applied_setter_count, 0U);
+    EXPECT_EQ(result.applied_helper_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger wait command apply rejected");
+    EXPECT_STREQ(zones[0].name, "Original Zone");
+    EXPECT_EQ(world[0].room_flags, 0);
+    EXPECT_TRUE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 7);
+    EXPECT_EQ(self.delay.cmd, CMD_HIDE);
+    EXPECT_EQ(self.delay.subcmd, 1);
+    EXPECT_EQ(self.delay.priority, 30);
+    EXPECT_EQ(self.delay.targ1.type, TARGET_CHAR);
+    EXPECT_EQ(self.delay.targ1.ch_num, 99);
+    EXPECT_EQ(self.delay.targ2.type, TARGET_TEXT);
+    EXPECT_EQ(self.delay.next, nullptr);
+    EXPECT_EQ(waiting_list, &self);
+    free(zones[0].name);
 }
 
 TEST(JsTriggerDispatch, MixedCommandHelperBatchAppliesAllValidatedSideEffects) {

@@ -2663,6 +2663,57 @@ TEST(JsGameRuntime, DoGiveBridgeAcceptedResultQueuesSingleMarkedMutation) {
     EXPECT_EQ(probe.calls, 1);
 }
 
+TEST(JsGameRuntime, DoWaitUsesNativeResultBridgeWithoutExposingCallbackSurface) {
+    JsGameTriggerContextFixture context = make_context();
+
+    CommandBridgeProbe probe;
+    probe.response = "{\"handled\":true,\"ok\":false,\"code\":\"already-waiting\","
+                     "\"message\":null,\"field\":\"target\"}";
+    JsGameRuntimeEvaluationOptions options;
+    options.command_result_callback = command_bridge_probe_callback;
+    options.command_result_user_data = &probe;
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const wait = RotS.Script.doWait(4);\n"
+        "return !wait.ok\n"
+        "  && wait.code === 'already-waiting'\n"
+        "  && typeof __rotsNativeCommandResult === 'undefined'\n"
+        "  && typeof __rotsNativeCommandResultHost === 'undefined'\n"
+        "  && typeof __rotsCommandBridgeMutationResult === 'undefined';\n",
+        context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    EXPECT_TRUE(result.mutations.empty());
+    EXPECT_EQ(probe.calls, 1);
+    EXPECT_EQ(probe.operation, "script.do_wait");
+    EXPECT_EQ(probe.arguments_json, "{\"pulses\":4}");
+}
+
+TEST(JsGameRuntime, DoWaitBridgeAcceptedResultQueuesSingleMarkedMutation) {
+    JsGameTriggerContextFixture context = make_context();
+
+    CommandBridgeProbe probe;
+    probe.response = "{\"handled\":true,\"ok\":true,\"code\":\"ok\",\"message\":null,\"field\":"
+                     "\"script.do_wait\"}";
+    JsGameRuntimeEvaluationOptions options;
+    options.command_result_callback = command_bridge_probe_callback;
+    options.command_result_user_data = &probe;
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("const wait = RotS.Script.do_wait(4);\n"
+                                      "return wait.ok && wait.code === 'ok';\n",
+                                      context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    ASSERT_EQ(result.mutations.size(), 1U);
+    EXPECT_EQ(result.mutations[0].operation, "script.do_wait");
+    EXPECT_EQ(result.mutations[0].arguments_json, "{\"pulses\":4}");
+    EXPECT_TRUE(result.mutations[0].command_result_bridge_accepted);
+    EXPECT_EQ(probe.calls, 1);
+}
+
 TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughPolymorphicTargetsByKind) {
     JsGameTriggerContextFixture context = make_context();
     context.has_actor = true;

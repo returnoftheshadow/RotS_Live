@@ -748,7 +748,7 @@ constexpr JsApiMember MutationResultMembers[] = {
     {"code", JsApiMemberKind::Property,
      "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
      "'unsupported' | 'deferred' | 'invalid-target' | 'not-carried' | 'no-drop' | "
-     "'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found'",
+     "'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found' | 'already-waiting'",
      "", false, false, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Stable machine-readable result code. Detailed authorization and audit diagnostics stay in "
      "server logs, not script-visible result values."},
@@ -1127,9 +1127,9 @@ constexpr JsApiMember ScriptMembers[] = {
     {"do_wait", JsApiMemberKind::Method, "(pulses: number) => MutationResult", "MutationResult",
      false, false, JsApiSideEffect::Mutation, JsApiMemberStatus::ImplementedSideEffectHelper,
      "builder-zone",
-     "Apply a bounded legacy-style wait state to the current live character host. V1 does not "
-     "resume JavaScript continuations after the wait expires; the script invocation is complete "
-     "and future mobile self triggers skip while the host has the legacy waiting affect."},
+     "Request a bounded legacy-style wait state on the current live character host. Live dispatch "
+     "returns inline authority, audit, invalid target, and already-waiting failures before queuing "
+     "when possible. V1 does not resume JavaScript continuations after the wait expires."},
     {"do_say", JsApiMemberKind::Method, "(speaker: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",

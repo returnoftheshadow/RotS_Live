@@ -1254,6 +1254,7 @@ struct CommandBridgeContext {
     const JsGameAdapterOptions *adapter_options = nullptr;
     const JsTriggerMutationAuthorityContext *authority = nullptr;
     const JsTriggerHelperMutationTransactionOptions *helper_options = nullptr;
+    bool wait_command_accepted = false;
 };
 
 std::string command_bridge_result(const JsGameCommandResultRequest &bridge_request,
@@ -1318,6 +1319,34 @@ std::string command_bridge_result(const JsGameCommandResultRequest &bridge_reque
         }
 
         return js_command_result_json(true, true, "ok", "script.load_obj");
+    }
+
+    if (bridge_request.operation == "script.do_wait") {
+        if (!has_persistent_setter_authority(*context->authority))
+            return js_command_result_json(true, false, "not-authorized", "target");
+
+        char_data *host = live_character_role_for_command_id("self", *context->request,
+                                                             *context->adapter_options);
+        if (host == nullptr)
+            return js_command_result_json(true, false, "invalid-target", "target");
+        if (!command_target_matches_authority(host, *context->adapter_options, *context->authority))
+            return js_command_result_json(true, false, "not-authorized", "target");
+        if (context->wait_command_accepted || IS_SET(host->specials.affected_by, AFF_WAITING))
+            return js_command_result_json(
+                true, false,
+                js_trigger_command_result_code_name(JsTriggerCommandResultCode::AlreadyWaiting),
+                "target");
+
+        std::vector<JsRuntimeMutation> command_mutations;
+        command_mutations.push_back(mutation);
+        std::string diagnostic;
+        if (!audit_command_mutations(command_mutations, *context->request, *context->authority,
+                                     *context->helper_options, &diagnostic)) {
+            return js_command_result_json(true, false, "audit-rejected", nullptr);
+        }
+
+        context->wait_command_accepted = true;
+        return js_command_result_json(true, true, "ok", "script.do_wait");
     }
 
     if (bridge_request.operation != "script.do_give")
@@ -1470,16 +1499,22 @@ bool prepare_wait_command_mutations(const std::vector<JsRuntimeMutation> &mutati
     if (pending_wait_commands == nullptr)
         return false;
     pending_wait_commands->clear();
+    bool wait_command_seen = false;
     for (const JsRuntimeMutation &mutation : mutations) {
         if (!runtime_mutation_kind_is_command(mutation) || mutation.operation != "script.do_wait")
             continue;
+        if (wait_command_seen)
+            return false;
         ScriptCommandArguments arguments;
         if (!parse_script_command_arguments(mutation, &arguments))
             return false;
         char_data *host = live_character_role_for_command_id("self", request, options);
         if (!command_target_matches_authority(host, options, authority))
             return false;
+        if (IS_SET(host->specials.affected_by, AFF_WAITING))
+            return false;
         pending_wait_commands->push_back({"self", arguments.pulses});
+        wait_command_seen = true;
     }
     return true;
 }
@@ -2263,7 +2298,7 @@ bool apply_wait_commands(const std::vector<PendingWaitCommand> &commands,
         if (!command_target_matches_authority(character, options, authority))
             return false;
         if (IS_SET(character->specials.affected_by, AFF_WAITING))
-            continue;
+            return false;
         WAIT_STATE_BRIEF(character, command.pulses, 0, 0, 50, AFF_WAITING);
     }
     return true;
@@ -2276,6 +2311,8 @@ bool wait_commands_still_target_authorized_live_hosts(
         char_data *character =
             live_character_role_for_command_id(command.character_id, request, options);
         if (!command_target_matches_authority(character, options, authority))
+            return false;
+        if (IS_SET(character->specials.affected_by, AFF_WAITING))
             return false;
     }
     return true;
@@ -2462,6 +2499,8 @@ const char *js_trigger_command_result_code_name(JsTriggerCommandResultCode code)
         return "too-heavy";
     case JsTriggerCommandResultCode::NotFound:
         return "not-found";
+    case JsTriggerCommandResultCode::AlreadyWaiting:
+        return "already-waiting";
     }
     return "unknown";
 }
