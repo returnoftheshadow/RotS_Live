@@ -124,6 +124,40 @@ std::string character_points_literal(const JsGameCharacterPointsFixture& points)
     return out.str();
 }
 
+std::string nullable_string_literal(const std::string& value)
+{
+    return value.empty() ? "null" : js_quote(value);
+}
+
+std::string character_specials_literal(const JsGameCharacterSpecialsFixture& specials)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"isFighting\":" << js_bool(specials.is_fighting) << ","
+        << "\"isHunting\":" << js_bool(specials.is_hunting) << ","
+        << "\"hasMemory\":" << js_bool(specials.has_memory) << ","
+        << "\"position\":" << js_quote(specials.position) << ","
+        << "\"defaultPosition\":" << js_quote(specials.default_position) << ","
+        << "\"carryWeight\":" << specials.carry_weight << ","
+        << "\"wornWeight\":" << specials.worn_weight << ","
+        << "\"encumbranceWeight\":" << specials.encumbrance_weight << ","
+        << "\"carryItems\":" << specials.carry_items << ","
+        << "\"timer\":" << specials.timer << ","
+        << "\"wasInRoom\":" << specials.was_in_room << ","
+        << "\"energy\":" << specials.energy << ","
+        << "\"currentParry\":" << specials.current_parry << ","
+        << "\"lastDirection\":" << nullable_string_literal(specials.last_direction) << ","
+        << "\"attackType\":" << specials.attack_type << ","
+        << "\"scriptNumber\":" << specials.script_number << ","
+        << "\"currentBodypart\":" << specials.current_bodypart << ","
+        << "\"tactics\":" << nullable_string_literal(specials.tactics) << ","
+        << "\"promptNumber\":" << specials.prompt_number << ","
+        << "\"promptValue\":" << specials.prompt_value << ","
+        << "\"homeZone\":" << specials.home_zone << ","
+        << "\"loadLine\":" << specials.load_line << "}";
+    return out.str();
+}
+
 std::string zone_literal(const JsGameZoneFixture& zone)
 {
     std::ostringstream out;
@@ -201,6 +235,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"currentAbilities\":" << ability_scores_literal(character.current_abilities) << ","
         << "\"rolledAbilities\":" << ability_scores_literal(character.rolled_abilities) << ","
         << "\"points\":" << character_points_literal(character.points) << ","
+        << "\"specials\":" << character_specials_literal(character.specials) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

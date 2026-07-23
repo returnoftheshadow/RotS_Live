@@ -14,6 +14,8 @@
 
 extern char *sector_types[];
 extern char num_of_sector_types;
+extern char *dirs[];
+extern char *tactics[];
 
 namespace {
 
@@ -40,6 +42,63 @@ std::string copy_c_string(const char *value, std::size_t max_length = MaxAdapter
 bool character_is_npc(const char_data &character)
 {
     return (character.specials2.act & MOB_ISNPC) != 0;
+}
+
+std::string table_name_or_unknown(char **table, int value)
+{
+    if (table == nullptr || value < 0)
+        return "Unknown";
+    for (int index = 0; table[index] != nullptr && table[index][0] != '\n'; ++index) {
+        if (index == value)
+            return table[index];
+    }
+    return "Unknown";
+}
+
+std::string table_name_or_empty(char **table, int value)
+{
+    if (table == nullptr || value < 0)
+        return "";
+    for (int index = 0; table[index] != nullptr && table[index][0] != '\n'; ++index) {
+        if (index == value)
+            return table[index];
+    }
+    return "";
+}
+
+std::string character_tactics_name(const char_data &character)
+{
+    if (character_is_npc(character))
+        return "";
+    const int value = character.specials.tactics;
+    return value >= TACTICS_DEFENSIVE && value <= TACTICS_BERSERK ? table_name_or_empty(tactics, value - 1)
+                                                                  : "";
+}
+
+std::string character_position_name(int position)
+{
+    switch (position) {
+    case POSITION_DEAD:
+        return "Dead";
+    case POSITION_SHAPING:
+        return "Shaping";
+    case POSITION_INCAP:
+        return "Incapacitated";
+    case POSITION_STUNNED:
+        return "Stunned";
+    case POSITION_SLEEPING:
+        return "Sleeping";
+    case POSITION_RESTING:
+        return "Resting";
+    case POSITION_SITTING:
+        return "Sitting";
+    case POSITION_FIGHTING:
+        return "Fighting";
+    case POSITION_STANDING:
+        return "Standing";
+    default:
+        return "Unknown";
+    }
 }
 
 std::string character_name(const char_data &character)
@@ -574,6 +633,28 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->points.willpower = character->points.willpower;
     fixture->points.spell_penetration = character->points.spell_pen;
     fixture->points.spell_power = character->points.spell_power;
+    fixture->specials.is_fighting = character->specials.fighting != nullptr;
+    fixture->specials.is_hunting = character->specials.hunting != nullptr;
+    fixture->specials.has_memory = character->specials.memory != nullptr;
+    fixture->specials.position = character_position_name(character->specials.position);
+    fixture->specials.default_position = character_position_name(character->specials.default_pos);
+    fixture->specials.carry_weight = character->specials.carry_weight;
+    fixture->specials.worn_weight = character->specials.worn_weight;
+    fixture->specials.encumbrance_weight = character->specials.encumb_weight;
+    fixture->specials.carry_items = character->specials.carry_items;
+    fixture->specials.timer = character->specials.timer;
+    fixture->specials.was_in_room = character->specials.was_in_room;
+    fixture->specials.energy = character->specials.ENERGY;
+    fixture->specials.current_parry = character->specials.current_parry;
+    fixture->specials.last_direction = table_name_or_empty(dirs, character->specials.last_direction);
+    fixture->specials.attack_type = character->specials.attack_type;
+    fixture->specials.script_number = character->specials.script_number;
+    fixture->specials.current_bodypart = character->specials.current_bodypart;
+    fixture->specials.tactics = character_tactics_name(*character);
+    fixture->specials.prompt_number = character->specials.prompt_number;
+    fixture->specials.prompt_value = character->specials.prompt_value;
+    fixture->specials.home_zone = character->specials.homezone;
+    fixture->specials.load_line = character->specials.load_line;
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;

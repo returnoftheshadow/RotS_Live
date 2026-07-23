@@ -72,6 +72,31 @@ struct JsGameCharacterPointsFixture {
     int spell_power = 0;
 };
 
+struct JsGameCharacterSpecialsFixture {
+    bool is_fighting = false;
+    bool is_hunting = false;
+    bool has_memory = false;
+    std::string position = "Unknown";
+    std::string default_position = "Unknown";
+    int carry_weight = 0;
+    int worn_weight = 0;
+    int encumbrance_weight = 0;
+    int carry_items = 0;
+    int timer = 0;
+    int was_in_room = -1;
+    int energy = 0;
+    int current_parry = 0;
+    std::string last_direction;
+    int attack_type = 0;
+    int script_number = 0;
+    int current_bodypart = 0;
+    std::string tactics;
+    int prompt_number = 0;
+    int prompt_value = 0;
+    int home_zone = 0;
+    int load_line = 0;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -91,6 +116,7 @@ struct JsGameCharacterFixture {
     JsGameAbilityScoresFixture current_abilities;
     JsGameAbilityScoresFixture rolled_abilities;
     JsGameCharacterPointsFixture points;
+    JsGameCharacterSpecialsFixture specials;
     bool is_npc = false;
 
     bool has_room = false;

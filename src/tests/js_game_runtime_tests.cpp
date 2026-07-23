@@ -58,6 +58,28 @@ JsGameTriggerContextFixture make_context()
     context.self.points.willpower = 14;
     context.self.points.spell_penetration = 7;
     context.self.points.spell_power = 9;
+    context.self.specials.is_fighting = true;
+    context.self.specials.is_hunting = false;
+    context.self.specials.has_memory = true;
+    context.self.specials.position = "Fighting";
+    context.self.specials.default_position = "Standing";
+    context.self.specials.carry_weight = 120;
+    context.self.specials.worn_weight = 40;
+    context.self.specials.encumbrance_weight = 15;
+    context.self.specials.carry_items = 6;
+    context.self.specials.timer = 2;
+    context.self.specials.was_in_room = 1203;
+    context.self.specials.energy = 77;
+    context.self.specials.current_parry = 12;
+    context.self.specials.last_direction = "north";
+    context.self.specials.attack_type = 5;
+    context.self.specials.script_number = 901;
+    context.self.specials.current_bodypart = 3;
+    context.self.specials.tactics = "aggressive";
+    context.self.specials.prompt_number = 1;
+    context.self.specials.prompt_value = 42;
+    context.self.specials.home_zone = 12;
+    context.self.specials.load_line = 8;
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -137,6 +159,11 @@ JsGameTriggerContextFixture make_context()
     context.actor.points.willpower = 12;
     context.actor.points.spell_penetration = 6;
     context.actor.points.spell_power = 7;
+    context.actor.specials.position = "Standing";
+    context.actor.specials.default_position = "Standing";
+    context.actor.specials.last_direction = "east";
+    context.actor.specials.tactics = "normal";
+    context.actor.specials.energy = 44;
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -484,6 +511,28 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.points.willpower === 14\n"
         "  && ctx.self.points.spellPenetration === 7\n"
         "  && ctx.self.points.spellPower === 9\n"
+        "  && ctx.self.specials.isFighting === true\n"
+        "  && ctx.self.specials.isHunting === false\n"
+        "  && ctx.self.specials.hasMemory === true\n"
+        "  && ctx.self.specials.position === 'Fighting'\n"
+        "  && ctx.self.specials.defaultPosition === 'Standing'\n"
+        "  && ctx.self.specials.carryWeight === 120\n"
+        "  && ctx.self.specials.wornWeight === 40\n"
+        "  && ctx.self.specials.encumbranceWeight === 15\n"
+        "  && ctx.self.specials.carryItems === 6\n"
+        "  && ctx.self.specials.timer === 2\n"
+        "  && ctx.self.specials.wasInRoom === 1203\n"
+        "  && ctx.self.specials.energy === 77\n"
+        "  && ctx.self.specials.currentParry === 12\n"
+        "  && ctx.self.specials.lastDirection === 'north'\n"
+        "  && ctx.self.specials.attackType === 5\n"
+        "  && ctx.self.specials.scriptNumber === 901\n"
+        "  && ctx.self.specials.currentBodypart === 3\n"
+        "  && ctx.self.specials.tactics === 'aggressive'\n"
+        "  && ctx.self.specials.promptNumber === 1\n"
+        "  && ctx.self.specials.promptValue === 42\n"
+        "  && ctx.self.specials.homeZone === 12\n"
+        "  && ctx.self.specials.loadLine === 8\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -529,6 +578,10 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.points.willpower === 12\n"
         "  && ctx.actor.points.spellPenetration === 6\n"
         "  && ctx.actor.points.spellPower === 7\n"
+        "  && ctx.actor.specials.position === 'Standing'\n"
+        "  && ctx.actor.specials.lastDirection === 'east'\n"
+        "  && ctx.actor.specials.tactics === 'normal'\n"
+        "  && ctx.actor.specials.energy === 44\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1623,6 +1676,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.currentAbilities.constructor === 'undefined'\n"
         "  && typeof ctx.self.rolledAbilities.constructor === 'undefined'\n"
         "  && typeof ctx.self.points.constructor === 'undefined'\n"
+        "  && typeof ctx.self.specials.constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -1630,6 +1684,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.currentAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.self.rolledAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.self.points) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.specials) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -1637,6 +1692,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.currentAbilities)\n"
         "  && Object.isFrozen(ctx.self.rolledAbilities)\n"
         "  && Object.isFrozen(ctx.self.points)\n"
+        "  && Object.isFrozen(ctx.self.specials)\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -1657,6 +1713,12 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
     }
     EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.points.gold = 1;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.specials.energy = 1;\n"
                          "return true;",
                          make_context())
                   .status,

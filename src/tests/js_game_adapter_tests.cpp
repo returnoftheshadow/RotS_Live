@@ -67,6 +67,25 @@ char_data make_character(const char *name, int race, int level, int hit, int max
     character.interrupt_count = 2;
     character.interrupt_time = 9;
     character.spec_busy = true;
+    character.specials.position = POSITION_FIGHTING;
+    character.specials.default_pos = POSITION_STANDING;
+    character.specials.carry_weight = 120;
+    character.specials.worn_weight = 40;
+    character.specials.encumb_weight = 15;
+    character.specials.carry_items = 6;
+    character.specials.timer = 2;
+    character.specials.was_in_room = 1203;
+    character.specials.ENERGY = 77;
+    character.specials.current_parry = 12;
+    character.specials.last_direction = 0;
+    character.specials.attack_type = 5;
+    character.specials.script_number = 901;
+    character.specials.current_bodypart = 3;
+    character.specials.tactics = TACTICS_AGGRESSIVE;
+    character.specials.prompt_number = 1;
+    character.specials.prompt_value = 42;
+    character.specials.homezone = 12;
+    character.specials.load_line = 8;
     character.specials2.idnum = npc ? -1 : 1234;
     if (npc)
         character.specials2.act |= MOB_ISNPC;
@@ -250,6 +269,28 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.points.willpower, 14);
     EXPECT_EQ(fixture.points.spell_penetration, 8);
     EXPECT_EQ(fixture.points.spell_power, 11);
+    EXPECT_FALSE(fixture.specials.is_fighting);
+    EXPECT_FALSE(fixture.specials.is_hunting);
+    EXPECT_FALSE(fixture.specials.has_memory);
+    EXPECT_EQ(fixture.specials.position, "Fighting");
+    EXPECT_EQ(fixture.specials.default_position, "Standing");
+    EXPECT_EQ(fixture.specials.carry_weight, 120);
+    EXPECT_EQ(fixture.specials.worn_weight, 40);
+    EXPECT_EQ(fixture.specials.encumbrance_weight, 15);
+    EXPECT_EQ(fixture.specials.carry_items, 6);
+    EXPECT_EQ(fixture.specials.timer, 2);
+    EXPECT_EQ(fixture.specials.was_in_room, 1203);
+    EXPECT_EQ(fixture.specials.energy, 77);
+    EXPECT_EQ(fixture.specials.current_parry, 12);
+    EXPECT_EQ(fixture.specials.last_direction, "north");
+    EXPECT_EQ(fixture.specials.attack_type, 5);
+    EXPECT_EQ(fixture.specials.script_number, 901);
+    EXPECT_EQ(fixture.specials.current_bodypart, 3);
+    EXPECT_EQ(fixture.specials.tactics, "");
+    EXPECT_EQ(fixture.specials.prompt_number, 1);
+    EXPECT_EQ(fixture.specials.prompt_value, 42);
+    EXPECT_EQ(fixture.specials.home_zone, 12);
+    EXPECT_EQ(fixture.specials.load_line, 8);
     EXPECT_TRUE(fixture.is_npc);
     ASSERT_TRUE(fixture.has_room);
     EXPECT_EQ(fixture.room.vnum, 1204);
@@ -275,7 +316,48 @@ TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum)
     EXPECT_EQ(fixture.prototype_vnum, -1);
     EXPECT_EQ(fixture.experience, 29000);
     EXPECT_EQ(fixture.rank, 32);
+    EXPECT_EQ(fixture.specials.tactics, "aggressive");
     EXPECT_FALSE(fixture.is_npc);
+}
+
+TEST(JsGameAdapter, MapsCharacterSpecialsFiniteVocabularies)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    player.specials.position = POSITION_SHAPING;
+    player.specials.default_pos = 99;
+    player.specials.last_direction = 99;
+    player.specials.tactics = TACTICS_BERSERK;
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    EXPECT_EQ(fixture.specials.position, "Shaping");
+    EXPECT_EQ(fixture.specials.default_position, "Unknown");
+    EXPECT_EQ(fixture.specials.last_direction, "");
+    EXPECT_EQ(fixture.specials.tactics, "berserk");
+}
+
+TEST(JsGameAdapter, MapsCharacterSpecialsPointerPresenceWithoutDereferencing)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    char_data opponent = make_character("Opponent", 1, 12, 40, 60, false);
+    memory_rec remembered {};
+    player.specials.fighting = &opponent;
+    player.specials.hunting = &opponent;
+    player.specials.memory = &remembered;
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    EXPECT_TRUE(fixture.specials.is_fighting);
+    EXPECT_TRUE(fixture.specials.is_hunting);
+    EXPECT_TRUE(fixture.specials.has_memory);
 }
 
 TEST(JsGameAdapter, RejectsNullAndStaleCharacters)

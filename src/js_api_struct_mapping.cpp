@@ -80,8 +80,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "encumbrance, and persistence semantics.",
      "mutation", "Nested struct."},
     {JsApiStructOwner::CharData, "char_data", "specials", "specials", "getSpecials", "setSpecials",
-     "CharacterSpecials", false, Deferred, Unsupported,
-     "Planned structured getter for safe public character state flags.",
+     "CharacterSpecials", false, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only snapshot of safe character runtime state: combat/hunt/memory "
+     "presence, position names, carry counters, timers, energy, parry, direction/tactics names, "
+     "prompt/load diagnostics, and script number.",
      "Whole-special-state mutation is unsupported for builder scripts because the fields drive "
      "combat targets, position, timers, aliases, prompts, script numbers, hiding, carrying "
      "counters, and procedure state.",
