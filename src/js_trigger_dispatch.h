@@ -89,6 +89,7 @@ enum class JsTriggerCommandResultCode {
     TooHeavy,
     NotFound,
     AlreadyWaiting,
+    NoRecipient,
 };
 
 struct JsTriggerHelperMutationOperationRegistry {

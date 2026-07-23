@@ -748,7 +748,8 @@ constexpr JsApiMember MutationResultMembers[] = {
     {"code", JsApiMemberKind::Property,
      "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
      "'unsupported' | 'deferred' | 'invalid-target' | 'not-carried' | 'no-drop' | "
-     "'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found' | 'already-waiting'",
+     "'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found' | 'already-waiting' | "
+     "'no-recipient'",
      "", false, false, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Stable machine-readable result code. Detailed authorization and audit diagnostics stay in "
      "server logs, not script-visible result values."},
@@ -1133,9 +1134,10 @@ constexpr JsApiMember ScriptMembers[] = {
     {"do_say", JsApiMemberKind::Method, "(speaker: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "Queue a bounded say action for a live character handle. Text is single-line, length "
+     "Queue a bounded say action for a live character handle. Live dispatch returns inline target, "
+     "recipient, and audit failures before queuing when possible. Text is single-line, length "
      "bounded, and emitted through the command-helper transaction path rather than command text "
-     "passthrough. Command-helper audit is still a follow-up hardening item."},
+     "passthrough."},
     {"do_give", JsApiMemberKind::Method,
      "(giver: Character, recipient: Character, object: GameObject) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::WorldMutation,
@@ -1154,12 +1156,14 @@ constexpr JsApiMember ScriptMembers[] = {
     {"send_to_char", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "Queue bounded text output to a character handle without exposing descriptors or account "
-     "state to builder scripts."},
+     "Queue bounded text output to a character handle without exposing descriptor or account "
+     "objects to builder scripts. Audited live dispatch can expose the coarse `no-recipient` "
+     "reachability result, plus target and audit failures, before queuing when possible."},
     {"send_to_room", JsApiMemberKind::Method, "(room: Room, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "Queue bounded room output for the current invocation room handle."},
+     "Queue bounded room output for a live room handle. Live dispatch returns inline target, "
+     "recipient, and audit failures before queuing when possible."},
     {"doWait", JsApiMemberKind::Method, "(pulses: number) => MutationResult", "MutationResult",
      false, false, JsApiSideEffect::Mutation, JsApiMemberStatus::ImplementedSideEffectHelper,
      "builder-zone", "CamelCase alias for `do_wait`."},

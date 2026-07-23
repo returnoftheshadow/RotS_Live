@@ -170,6 +170,22 @@ struct PendingOutputCommand {
     std::string text;
 };
 
+bool character_can_receive_script_output(const char_data *character) {
+    return character != nullptr && character->desc != nullptr &&
+           character->desc->connected == CON_PLYNG;
+}
+
+bool room_has_script_output_recipient(int room, const JsGameAdapterOptions &options) {
+    if (!js_game_adapter_room_is_valid(room, options) || options.world == nullptr)
+        return false;
+    for (const char_data *character = options.world[room].people; character != nullptr;
+         character = character->next_in_room) {
+        if (character_can_receive_script_output(character))
+            return true;
+    }
+    return false;
+}
+
 bool is_blank_text(const std::string &value) {
     for (char ch : value) {
         if (!std::isspace(static_cast<unsigned char>(ch)))
@@ -1349,6 +1365,55 @@ std::string command_bridge_result(const JsGameCommandResultRequest &bridge_reque
         return js_command_result_json(true, true, "ok", "script.do_wait");
     }
 
+    if (script_command_mutation_is_output(mutation)) {
+        std::vector<JsRuntimeMutation> command_mutations;
+        command_mutations.push_back(mutation);
+        std::string diagnostic;
+        if (!audit_command_mutations(command_mutations, *context->request, *context->authority,
+                                     *context->helper_options, &diagnostic)) {
+            return js_command_result_json(true, false, "audit-rejected", nullptr);
+        }
+
+        if (bridge_request.operation == "script.do_say") {
+            char_data *speaker = live_character_role_for_command_id(
+                arguments.speaker_id, *context->request, *context->adapter_options);
+            if (speaker == nullptr ||
+                !js_game_adapter_room_is_valid(speaker->in_room, *context->adapter_options)) {
+                return js_command_result_json(true, false, "invalid-target", "target");
+            }
+            if (!room_has_script_output_recipient(speaker->in_room, *context->adapter_options)) {
+                return js_command_result_json(
+                    true, false,
+                    js_trigger_command_result_code_name(JsTriggerCommandResultCode::NoRecipient),
+                    "target");
+            }
+        } else if (bridge_request.operation == "script.send_to_char") {
+            char_data *target = live_character_role_for_command_id(
+                arguments.target_id, *context->request, *context->adapter_options);
+            if (target == nullptr)
+                return js_command_result_json(true, false, "invalid-target", "target");
+            if (!character_can_receive_script_output(target)) {
+                return js_command_result_json(
+                    true, false,
+                    js_trigger_command_result_code_name(JsTriggerCommandResultCode::NoRecipient),
+                    "target");
+            }
+        } else if (bridge_request.operation == "script.send_to_room") {
+            const int room = live_room_role_for_command_id(arguments.room_id, *context->request,
+                                                           *context->adapter_options);
+            if (!js_game_adapter_room_is_valid(room, *context->adapter_options))
+                return js_command_result_json(true, false, "invalid-target", "target");
+            if (!room_has_script_output_recipient(room, *context->adapter_options)) {
+                return js_command_result_json(
+                    true, false,
+                    js_trigger_command_result_code_name(JsTriggerCommandResultCode::NoRecipient),
+                    "target");
+            }
+        }
+
+        return js_command_result_json(true, true, "ok", bridge_request.operation.c_str());
+    }
+
     if (bridge_request.operation != "script.do_give")
         return js_command_result_json(false, false, "unsupported", nullptr);
 
@@ -2111,11 +2176,24 @@ void apply_text_mutations(const std::vector<PendingTextMutation> &mutations) {
         draw_map();
 }
 
-void apply_output_commands(const std::vector<PendingOutputCommand> &commands) {
+void send_script_output_to_room(const std::string &message, int room,
+                                const JsGameAdapterOptions &options) {
+    if (!js_game_adapter_room_is_valid(room, options) || options.world == nullptr)
+        return;
+    for (char_data *character = options.world[room].people; character != nullptr;
+         character = character->next_in_room) {
+        if (character_can_receive_script_output(character))
+            send_to_char(message.c_str(), character);
+    }
+}
+
+void apply_output_commands(const std::vector<PendingOutputCommand> &commands,
+                           const JsGameAdapterOptions &options) {
     for (const PendingOutputCommand &command : commands) {
         if (command.operation == "script.do_say" && command.character != nullptr &&
             command.room != NOWHERE) {
-            send_to_room(say_command_line(command.character, command.text).c_str(), command.room);
+            send_script_output_to_room(say_command_line(command.character, command.text),
+                                       command.room, options);
             continue;
         }
         if (command.operation == "script.send_to_char" && command.character != nullptr) {
@@ -2123,7 +2201,7 @@ void apply_output_commands(const std::vector<PendingOutputCommand> &commands) {
             continue;
         }
         if (command.operation == "script.send_to_room" && command.room != NOWHERE) {
-            send_to_room(output_command_line(command.text).c_str(), command.room);
+            send_script_output_to_room(output_command_line(command.text), command.room, options);
             continue;
         }
     }
@@ -2501,6 +2579,8 @@ const char *js_trigger_command_result_code_name(JsTriggerCommandResultCode code)
         return "not-found";
     case JsTriggerCommandResultCode::AlreadyWaiting:
         return "already-waiting";
+    case JsTriggerCommandResultCode::NoRecipient:
+        return "no-recipient";
     }
     return "unknown";
 }
@@ -2779,7 +2859,7 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
         result.diagnostic = "JavaScript trigger wait command apply rejected";
         return result;
     }
-    apply_output_commands(pending_output_commands);
+    apply_output_commands(pending_output_commands, adapter_options);
     result.applied_setter_count = pending_mutations.size();
     result.ok = true;
     return result;

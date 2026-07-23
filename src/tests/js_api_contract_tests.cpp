@@ -933,7 +933,7 @@ TEST(JsApiContract, DefinesSetterMutationResultContract) {
          "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
          "'unsupported' | 'deferred' | 'invalid-target' | 'not-carried' | 'no-drop' | "
          "'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found' | "
-         "'already-waiting'",
+         "'already-waiting' | 'no-recipient'",
          false},
         {"message", "string | null", true},
         {"field", "string | null", true},

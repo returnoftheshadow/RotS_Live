@@ -199,7 +199,8 @@ void append_mutation_result_type(std::ostringstream &out) {
     out << "          | 'too-heavy'\n";
     out << "          | 'audit-rejected'\n";
     out << "          | 'not-found'\n";
-    out << "          | 'already-waiting';\n";
+    out << "          | 'already-waiting'\n";
+    out << "          | 'no-recipient';\n";
     out << "        /** Sanitized builder-facing detail text, or null when no safe detail is "
            "available. */\n";
     out << "        readonly message: string | null;\n";

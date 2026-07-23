@@ -251,15 +251,14 @@ runtime:
   covers `load_obj`, `do_give`, and `send_to_char`.
 
 These helpers currently queue or reserve validated JavaScript command intents.
-For `do_give`, `load_obj`, and `do_wait`, live dispatch now returns inline
-`MutationResult` codes for the failures it can classify before queuing the
-command, so builders do not need a separate preflight helper for normal capacity,
-ownership, or already-waiting branches. A successful `ok` result means the
-command was accepted into the current mutation transaction; it does not mean the
-live game mutation has already completed inside the running script. Helpers that
-have not yet been retrofitted to the final result bridge can still reject the
-whole server transaction instead of returning inline to the script. After the
-handler returns successfully, live dispatch prepares all
+For `do_give`, `load_obj`, `do_wait`, `do_say`, `send_to_char`, and
+`send_to_room`, live dispatch now returns inline `MutationResult` codes for the
+failures it can classify before queuing the command, so builders do not need a
+separate preflight helper for normal capacity, ownership, wait-state, audit, or
+output-recipient branches. A successful `ok` result means the command was
+accepted into the current mutation transaction; it does not mean the live game
+mutation or descriptor write has already completed inside the running script.
+After the handler returns successfully, live dispatch prepares all
 setter, room-flag helper, object-helper, wait, and output intents, including
 setter target validation; rejects malformed targets, failed command-helper
 audit, and failed room-flag-helper audit before writing; rechecks room-flag,
@@ -336,12 +335,23 @@ until fixture prototype catalogs are added.
 live server. Offline fixtures currently validate the pulse range and log the
 wait command event on success, but they do not yet emulate persistent wait-list
 state or the `already-waiting` branch.
+`RotS.Script.doSay(speaker, text)`, `RotS.Script.sendToChar(target, text)`, and
+`RotS.Script.sendToRoom(room, text)` return inline `invalid-target`,
+`audit-rejected`, or `no-recipient` failures before queuing when the live server
+can classify them. The live server audits output helpers before exposing
+recipient reachability, so an audit denial returns `audit-rejected` before the
+script can observe `no-recipient`. `no-recipient` means the character or room
+target exists but no connected playing descriptor would receive the text.
+Successful `ok` output still writes only after the transaction reaches the
+descriptor-output category, where script output again filters recipients to
+connected playing descriptors.
 BuilderClient offline fixtures currently record command-helper events in source
 call order for diagnostics. They compile and validate the same helper API, but
 they do not yet fully emulate server category ordering, descriptor buffering,
 wait-list mutation, object placement, or inventory transfer as persistent
-offline game state. Full offline state emulation remains a separate parity
-slice.
+offline game state. For output helpers, offline fixtures currently assume valid
+fixture handles are reachable and do not emulate live `no-recipient` descriptor
+state. Full offline state emulation remains a separate parity slice.
 
 ### Greeter with gift
 

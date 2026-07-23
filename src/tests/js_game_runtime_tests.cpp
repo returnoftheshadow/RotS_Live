@@ -2714,6 +2714,103 @@ TEST(JsGameRuntime, DoWaitBridgeAcceptedResultQueuesSingleMarkedMutation) {
     EXPECT_EQ(probe.calls, 1);
 }
 
+TEST(JsGameRuntime, OutputHelpersUseNativeResultBridgeForNoRecipient) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_room = true;
+    context.room.id = "room:100";
+    context.room.vnum = 100;
+    context.room.name = "Gate";
+
+    CommandBridgeProbe probe;
+    probe.response = "{\"handled\":true,\"ok\":false,\"code\":\"no-recipient\","
+                     "\"message\":\"private detail\",\"field\":\"target\"}";
+    JsGameRuntimeEvaluationOptions options;
+    options.command_result_callback = command_bridge_probe_callback;
+    options.command_result_user_data = &probe;
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const room = RotS.Script.sendToRoom(ctx.room, 'Room notice.');\n"
+        "return !room.ok\n"
+        "  && room.code === 'no-recipient'\n"
+        "  && room.message === null\n"
+        "  && typeof __rotsNativeCommandResult === 'undefined'\n"
+        "  && typeof __rotsNativeCommandResultHost === 'undefined'\n"
+        "  && typeof __rotsCommandBridgeMutationResult === 'undefined';\n",
+        context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    EXPECT_TRUE(result.mutations.empty());
+    EXPECT_EQ(probe.calls, 1);
+    EXPECT_EQ(probe.operation, "script.send_to_room");
+    EXPECT_EQ(probe.arguments_json, "{\"roomId\":\"room:100\",\"text\":\"Room notice.\"}");
+}
+
+TEST(JsGameRuntime, OutputBridgeAcceptedResultQueuesSingleMarkedMutation) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_actor = true;
+    context.actor.id = "player:7";
+    context.actor.name = "Builder";
+
+    CommandBridgeProbe probe;
+    probe.response = "{\"handled\":true,\"ok\":true,\"code\":\"ok\",\"message\":null,\"field\":"
+                     "\"script.send_to_char\"}";
+    JsGameRuntimeEvaluationOptions options;
+    options.command_result_callback = command_bridge_probe_callback;
+    options.command_result_user_data = &probe;
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("const tell = RotS.Script.sendToChar(ctx.actor, 'Private "
+                                      "notice.');\n"
+                                      "return tell.ok && tell.code === 'ok';\n",
+                                      context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    ASSERT_EQ(result.mutations.size(), 1U);
+    EXPECT_EQ(result.mutations[0].operation, "script.send_to_char");
+    EXPECT_EQ(result.mutations[0].arguments_json,
+              "{\"targetId\":\"player:7\",\"text\":\"Private notice.\"}");
+    EXPECT_TRUE(result.mutations[0].command_result_bridge_accepted);
+    EXPECT_EQ(probe.calls, 1);
+}
+
+TEST(JsGameRuntime, OutputBridgeAcceptedDoSayAndSendToRoomQueueMarkedMutations) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_room = true;
+    context.room.id = "room:100";
+    context.room.vnum = 100;
+    context.room.name = "Gate";
+
+    CommandBridgeProbe probe;
+    probe.response = "{\"handled\":true,\"ok\":true,\"code\":\"ok\",\"message\":null,\"field\":"
+                     "\"script.output\"}";
+    JsGameRuntimeEvaluationOptions options;
+    options.command_result_callback = command_bridge_probe_callback;
+    options.command_result_user_data = &probe;
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("const say = RotS.Script.doSay(ctx.self, 'Gate opens.');\n"
+                                      "const room = RotS.Script.sendToRoom(ctx.room, 'Room "
+                                      "notice.');\n"
+                                      "return say.ok && room.ok;\n",
+                                      context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    ASSERT_EQ(result.mutations.size(), 2U);
+    EXPECT_EQ(result.mutations[0].operation, "script.do_say");
+    EXPECT_EQ(result.mutations[0].arguments_json,
+              "{\"speakerId\":\"char:1001\",\"text\":\"Gate opens.\"}");
+    EXPECT_TRUE(result.mutations[0].command_result_bridge_accepted);
+    EXPECT_EQ(result.mutations[1].operation, "script.send_to_room");
+    EXPECT_EQ(result.mutations[1].arguments_json,
+              "{\"roomId\":\"room:100\",\"text\":\"Room notice.\"}");
+    EXPECT_TRUE(result.mutations[1].command_result_bridge_accepted);
+    EXPECT_EQ(probe.calls, 2);
+    EXPECT_EQ(probe.operation, "script.send_to_room");
+}
+
 TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughPolymorphicTargetsByKind) {
     JsGameTriggerContextFixture context = make_context();
     context.has_actor = true;

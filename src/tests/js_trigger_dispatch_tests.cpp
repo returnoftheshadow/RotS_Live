@@ -630,15 +630,14 @@ TEST(JsTriggerDispatch, OutputCommandHelpersApplyToLiveDescriptorsWithoutPersist
     JsTriggerDispatchRequest request = character_request(&self);
     request.context_input.actor = &actor;
 
-    int command_audit_calls = 0;
+    std::vector<std::string> audit_operations;
     JsTriggerDispatchOptions dispatch_options;
-    dispatch_options.helper_mutation_options.command_audit_user_data = &command_audit_calls;
+    dispatch_options.helper_mutation_options.command_audit_user_data = &audit_operations;
     dispatch_options.helper_mutation_options.command_audit_callback =
         [](const JsTriggerCommandMutationAuditRequest &request, std::string *, void *user_data) {
-            ++*static_cast<int *>(user_data);
-            EXPECT_EQ(request.mutation_count, 3U);
-            EXPECT_EQ(request.operations_summary,
-                      "script.do_say,script.send_to_char,script.send_to_room");
+            auto *operations = static_cast<std::vector<std::string> *>(user_data);
+            operations->push_back(request.operations_summary);
+            EXPECT_EQ(request.mutation_count, 1U);
             EXPECT_EQ(request.package_vnum, 5851);
             EXPECT_EQ(request.package_id, "pkg-5851");
             EXPECT_EQ(request.handler_name, "onEnter");
@@ -652,7 +651,8 @@ TEST(JsTriggerDispatch, OutputCommandHelpersApplyToLiveDescriptorsWithoutPersist
         js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
-    EXPECT_EQ(command_audit_calls, 1);
+    EXPECT_EQ(audit_operations, (std::vector<std::string>{"script.send_to_char",
+                                                          "script.send_to_room", "script.do_say"}));
     EXPECT_TRUE(contains(self_descriptor.output, "Room notice.\n\r"));
     EXPECT_TRUE(contains(self_descriptor.output, "Self says 'Gate opens.'\n\r"));
     EXPECT_FALSE(contains(self_descriptor.output, "Private notice."));
@@ -661,6 +661,193 @@ TEST(JsTriggerDispatch, OutputCommandHelpersApplyToLiveDescriptorsWithoutPersist
     EXPECT_TRUE(contains(actor_descriptor.output, "Self says 'Gate opens.'\n\r"));
     EXPECT_TRUE(contains(observer_descriptor.output, "Room notice.\n\r"));
     EXPECT_TRUE(contains(observer_descriptor.output, "Self says 'Gate opens.'\n\r"));
+}
+
+TEST(JsTriggerDispatch, OutputInlineNoRecipientResultDoesNotQueueDescriptorOutput) {
+    DescriptorListGuard descriptor_guard;
+    descriptor_list = nullptr;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5856, "function onEnter(ctx) {\n"
+              "  const tell = RotS.Script.send_to_char(ctx.actor, 'Private notice.');\n"
+              "  return !tell.ok && tell.code === 'no-recipient';\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsTriggerDispatchOptions dispatch_options;
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+}
+
+TEST(JsTriggerDispatch, OutputInlineNoRecipientCoversRoomAndSayRecipients) {
+    DescriptorListGuard descriptor_guard;
+    descriptor_list = nullptr;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5858, "function onEnter(ctx) {\n"
+              "  const room = RotS.Script.send_to_room(ctx.room, 'Room notice.');\n"
+              "  const say = RotS.Script.do_say(ctx.self, 'Gate opens.');\n"
+              "  return !room.ok && room.code === 'no-recipient'\n"
+              "    && !say.ok && say.code === 'no-recipient';\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    self.next_in_room = nullptr;
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    world[0].people = &self;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 2);
+}
+
+TEST(JsTriggerDispatch, OutputApplyFiltersNonPlayingRoomDescriptorsAfterBridgeAcceptance) {
+    DescriptorListGuard descriptor_guard;
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    self.next_in_room = &actor;
+    actor.next_in_room = nullptr;
+    descriptor_data self_descriptor{};
+    descriptor_data actor_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    attach_descriptor(actor_descriptor, actor);
+    actor_descriptor.connected = CON_NME;
+    self_descriptor.next = &actor_descriptor;
+    actor_descriptor.next = nullptr;
+    descriptor_list = &self_descriptor;
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    world[0].people = &self;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsRuntimeMutation room = make_script_command_mutation(
+        "script.send_to_room", "{\"roomId\":\"room\",\"text\":\"Room notice.\"}");
+    room.command_result_bridge_accepted = true;
+    JsRuntimeMutation say = make_script_command_mutation(
+        "script.do_say", "{\"speakerId\":\"self\",\"text\":\"Gate opens.\"}");
+    say.command_result_bridge_accepted = true;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction({room, say}, request,
+                                                               adapter_options, {}, helper_options);
+
+    EXPECT_TRUE(result.ok) << result.diagnostic;
+    EXPECT_TRUE(contains(self_descriptor.output, "Room notice.\n\r"));
+    EXPECT_TRUE(contains(self_descriptor.output, "Self says 'Gate opens.'\n\r"));
+    EXPECT_STREQ(actor_descriptor.output, "");
+}
+
+TEST(JsTriggerDispatch, OutputApplyFiltersNonPlayingSendToCharAfterBridgeAcceptance) {
+    DescriptorListGuard descriptor_guard;
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data actor_descriptor{};
+    attach_descriptor(actor_descriptor, actor);
+    actor_descriptor.connected = CON_NME;
+    descriptor_list = &actor_descriptor;
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsRuntimeMutation tell = make_script_command_mutation(
+        "script.send_to_char", "{\"targetId\":\"actor\",\"text\":\"Private notice.\"}");
+    tell.command_result_bridge_accepted = true;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction({tell}, request, adapter_options, {},
+                                                               helper_options);
+
+    EXPECT_TRUE(result.ok) << result.diagnostic;
+    EXPECT_STREQ(actor_descriptor.output, "");
+}
+
+TEST(JsTriggerDispatch, OutputInlineAuditRejectedResultDoesNotQueueDescriptorOutput) {
+    DescriptorListGuard descriptor_guard;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5857, "function onEnter(ctx) {\n"
+              "  const tell = RotS.Script.send_to_char(ctx.actor, 'Private notice.');\n"
+              "  if (!tell.ok && tell.code === 'audit-rejected') {\n"
+              "    RotS.Script.send_to_char(ctx.self, 'The notice is not approved.');\n"
+              "  }\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data self_descriptor{};
+    descriptor_data actor_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    attach_descriptor(actor_descriptor, actor);
+    self_descriptor.next = &actor_descriptor;
+    actor_descriptor.next = nullptr;
+    descriptor_list = &self_descriptor;
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    std::vector<std::string> audit_operations;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.helper_mutation_options.command_audit_user_data = &audit_operations;
+    dispatch_options.helper_mutation_options.command_audit_callback =
+        [](const JsTriggerCommandMutationAuditRequest &request, std::string *diagnostic,
+           void *user_data) {
+            auto *operations = static_cast<std::vector<std::string> *>(user_data);
+            operations->push_back(request.operations_summary);
+            if (request.operations_summary == "script.send_to_char" && operations->size() == 1U) {
+                if (diagnostic != nullptr)
+                    *diagnostic = "private audit detail";
+                return false;
+            }
+            return true;
+        };
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_operations,
+              (std::vector<std::string>{"script.send_to_char", "script.send_to_char"}));
+    EXPECT_STREQ(actor_descriptor.output, "");
+    EXPECT_TRUE(contains(self_descriptor.output, "The notice is not approved.\n\r"));
+    EXPECT_FALSE(contains(self_descriptor.output, "private audit detail"));
 }
 
 TEST(JsTriggerDispatch, OutputCommandHelpersRejectForgedTargetsWithoutWriting) {
@@ -1444,6 +1631,12 @@ TEST(JsTriggerDispatch, DoGiveResultClassifierReportsStableReasonCodes) {
     EXPECT_EQ(js_trigger_classify_do_give_result(&token, &giver, &recipient),
               JsTriggerCommandResultCode::Ok);
     EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::Ok), "ok");
+    EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::NotFound),
+                 "not-found");
+    EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::AlreadyWaiting),
+                 "already-waiting");
+    EXPECT_STREQ(js_trigger_command_result_code_name(JsTriggerCommandResultCode::NoRecipient),
+                 "no-recipient");
 }
 
 TEST(JsTriggerDispatch, DoGiveCommandHelperRejectsNoDropWithoutOutputOrTransfer) {
