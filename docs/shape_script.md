@@ -239,6 +239,22 @@ If code adds or renames constants, update this table to match.
 
 ## Examples
 
+BuilderClient TypeScript examples are kept as executable offline fixtures so
+documentation cannot drift ahead of the editor/runtime API. The current examples
+compile in the BuilderClient TypeScript pipeline and run through the offline
+fixture runner while using command helpers accepted by the live JavaScript
+runtime:
+
+- [`gate-greeter.ts`](../BuilderClient/examples/shape-script/gate-greeter.ts)
+  covers `do_say`, `send_to_char`, `send_to_room`, and `do_wait`.
+- [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
+  covers `load_obj`, `do_give`, and `send_to_char`.
+
+These helpers currently queue validated JavaScript command intents. Live
+gameplay side-effect application for speech/output delivery, wait continuations,
+object creation/placement, and inventory transfer is being promoted in separate
+audited slices.
+
 ### Greeter with gift
 
 ```
