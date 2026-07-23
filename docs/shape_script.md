@@ -260,10 +260,13 @@ messages. Command helpers only accept real handles from the current `ctx`; fake
 objects, spread copies, prototype copies, copied ids, or borrowed `isValid`
 functions are rejected before any command event is queued. Server-side command
 audit can also reject a whole output/object/wait helper batch before room flags,
-setters, object movement, wait state, or descriptor output changes. BuilderClient
-offline fixtures currently record command-helper events in source call order for
-diagnostics; full offline emulation of inventory, room, and wait-list state
-remains a separate parity slice.
+setters, object movement, wait state, or descriptor output changes. Audit records
+the operation summary plus trigger/package/handler context. Numeric target ids
+must use bounded, unsigned live id forms such as `player:7`, `room:1204`, or
+`object:301`; malformed ids reject before audit. BuilderClient offline fixtures
+currently record command-helper events in source call order for diagnostics; full
+offline emulation of inventory, room, and wait-list state remains a separate
+parity slice.
 
 ### Greeter with gift
 

@@ -97,6 +97,13 @@ struct JsTriggerHelperMutationAuditRequest {
 struct JsTriggerCommandMutationAuditRequest {
     std::size_t mutation_count = 0;
     std::string operations_summary;
+    JsScriptPackageHost host = JsScriptPackageHost::Character;
+    JsScriptingManifestKind kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    int legacy_value = 0;
+    int package_vnum = 0;
+    std::string package_id;
+    std::string handler_name;
+    int authority_target_zone = -1;
 };
 
 struct JsTriggerDispatchRequest;
@@ -165,6 +172,8 @@ struct JsTriggerDispatchRequest {
     JsScriptingManifestKind kind = JsScriptingManifestKind::LegacyScriptTrigger;
     int legacy_value = 0;
     int package_vnum = 0;
+    std::string package_id;
+    std::string handler_name;
     JsGameAdapterContextInput context_input;
 };
 

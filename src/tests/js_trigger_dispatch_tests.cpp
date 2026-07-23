@@ -458,6 +458,89 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlySupportedCommandH
     EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(polluted));
 }
 
+TEST(JsTriggerDispatch, CommandHelpersRejectMalformedTargetIdsBeforeAudit) {
+    DescriptorListGuard descriptor_guard;
+    WaitingListGuard wait_guard;
+    ObjectPrototypeGuard object_guard(6206);
+    waiting_list = nullptr;
+    descriptor_list = nullptr;
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data actor_descriptor{};
+    attach_descriptor(actor_descriptor, actor);
+    descriptor_list = &actor_descriptor;
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    zones[0].name = str_dup("Zone");
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+
+    struct Case {
+        const char *name;
+        const char *operation;
+        const char *arguments_json;
+    };
+    const Case cases[] = {
+        {"speaker overflow", "script.do_say",
+         "{\"speakerId\":\"char:2147483648\",\"text\":\"No.\"}"},
+        {"speaker sign", "script.do_say", "{\"speakerId\":\"char:-1\",\"text\":\"No.\"}"},
+        {"target decimal", "script.send_to_char", "{\"targetId\":\"player:7.5\",\"text\":\"No.\"}"},
+        {"target whitespace", "script.send_to_char",
+         "{\"targetId\":\" player:7\",\"text\":\"No.\"}"},
+        {"room empty suffix", "script.send_to_room", "{\"roomId\":\"room:\",\"text\":\"No.\"}"},
+        {"room huge digits", "script.send_to_room",
+         "{\"roomId\":\"room:999999999999999999999999999999\",\"text\":\"No.\"}"},
+        {"load target sign", "script.load_obj", "{\"vnum\":6206,\"loadTargetId\":\"room:-1\"}"},
+        {"load target overflow", "script.load_obj",
+         "{\"vnum\":6206,\"loadTargetId\":\"mob:2147483648\"}"},
+        {"giver whitespace", "script.do_give",
+         "{\"giverId\":\"char:1001 \",\"recipientId\":\"actor\",\"objectId\":\"object\"}"},
+        {"recipient empty suffix", "script.do_give",
+         "{\"giverId\":\"self\",\"recipientId\":\"player:\",\"objectId\":\"object\"}"},
+        {"object overflow", "script.do_give",
+         "{\"giverId\":\"self\",\"recipientId\":\"actor\",\"objectId\":\"object:2147483648\"}"},
+        {"duplicate target key", "script.send_to_char",
+         "{\"targetId\":\"actor\",\"targetId\":\"player:7\",\"text\":\"No.\"}"},
+    };
+
+    int command_audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    helper_options.command_audit_user_data = &command_audit_calls;
+    helper_options.command_audit_callback = [](const JsTriggerCommandMutationAuditRequest &,
+                                               std::string *, void *user_data) {
+        ++*static_cast<int *>(user_data);
+        return true;
+    };
+
+    for (const Case &entry : cases) {
+        const JsRuntimeMutation mutation =
+            make_script_command_mutation(entry.operation, entry.arguments_json);
+        EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(mutation)) << entry.name;
+
+        const JsTriggerRuntimeMutationTransactionApplyResult result =
+            js_trigger_dispatch_apply_runtime_mutation_transaction(
+                {mutation}, request, adapter_options, test_mutation_authority(), helper_options);
+
+        EXPECT_FALSE(result.ok) << entry.name;
+        EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::NotEvaluated)
+            << entry.name;
+        EXPECT_EQ(result.diagnostic, "JavaScript trigger command helper mutation rejected")
+            << entry.name;
+        EXPECT_EQ(command_audit_calls, 0) << entry.name;
+        EXPECT_STREQ(zones[0].name, "Zone") << entry.name;
+        EXPECT_EQ(world[0].room_flags, 0) << entry.name;
+        EXPECT_EQ(actor.carrying, nullptr) << entry.name;
+        EXPECT_FALSE(IS_SET(self.specials.affected_by, AFF_WAITING)) << entry.name;
+        EXPECT_STREQ(actor_descriptor.output, "") << entry.name;
+        EXPECT_EQ(object_list, nullptr) << entry.name;
+        EXPECT_EQ(obj_index[0].number, 0) << entry.name;
+    }
+    free(zones[0].name);
+}
+
 TEST(JsTriggerDispatch, OutputCommandHelpersApplyToLiveDescriptorsWithoutPersistentAuthority) {
     DescriptorListGuard descriptor_guard;
     JsScriptPackageRegistry registry;
@@ -496,11 +579,29 @@ TEST(JsTriggerDispatch, OutputCommandHelpersApplyToLiveDescriptorsWithoutPersist
     JsTriggerDispatchRequest request = character_request(&self);
     request.context_input.actor = &actor;
 
+    int command_audit_calls = 0;
     JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.helper_mutation_options.command_audit_user_data = &command_audit_calls;
+    dispatch_options.helper_mutation_options.command_audit_callback =
+        [](const JsTriggerCommandMutationAuditRequest &request, std::string *, void *user_data) {
+            ++*static_cast<int *>(user_data);
+            EXPECT_EQ(request.mutation_count, 3U);
+            EXPECT_EQ(request.operations_summary,
+                      "script.do_say,script.send_to_char,script.send_to_room");
+            EXPECT_EQ(request.package_vnum, 5851);
+            EXPECT_EQ(request.package_id, "pkg-5851");
+            EXPECT_EQ(request.handler_name, "onEnter");
+            EXPECT_EQ(request.host, JsScriptPackageHost::Character);
+            EXPECT_EQ(request.kind, JsScriptingManifestKind::LegacyScriptTrigger);
+            EXPECT_EQ(request.legacy_value, ON_ENTER);
+            EXPECT_EQ(request.authority_target_zone, -1);
+            return true;
+        };
     JsTriggerDispatchResult result =
         js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(command_audit_calls, 1);
     EXPECT_TRUE(contains(self_descriptor.output, "Room notice.\n\r"));
     EXPECT_TRUE(contains(self_descriptor.output, "Self says 'Gate opens.'\n\r"));
     EXPECT_FALSE(contains(self_descriptor.output, "Private notice."));
@@ -557,7 +658,7 @@ TEST(JsTriggerDispatch, OutputCommandHelpersRejectOverflowRoomIdsWithoutWriting)
                                                                adapter_options, {});
 
     EXPECT_FALSE(result.ok);
-    EXPECT_EQ(result.diagnostic, "JavaScript trigger output command target rejected");
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger command helper mutation rejected");
     EXPECT_STREQ(descriptor.output, "");
 }
 

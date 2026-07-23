@@ -407,6 +407,7 @@ std::size_t runtime_helper_mutation_count(const std::vector<JsRuntimeMutation> &
 
 bool has_persistent_setter_authority(const JsTriggerMutationAuthorityContext &authority);
 bool has_room_flag_admin_override_authority(const JsTriggerMutationAuthorityContext &authority);
+bool parse_id_number(const std::string &id, const char *prefix, int *number);
 
 bool command_text_is_valid(const std::string &value) {
     if (value.empty() || value.size() > 512)
@@ -418,26 +419,32 @@ bool command_text_is_valid(const std::string &value) {
     return true;
 }
 
+bool command_numeric_id_with_prefix_is_valid(const std::string &value, const char *prefix) {
+    int ignored = 0;
+    return parse_id_number(value, prefix, &ignored);
+}
+
 bool command_id_is_valid(const std::string &value, const char *prefix) {
     if (value.empty() || value.size() > 128 || prefix == nullptr)
         return false;
     if (std::strcmp(prefix, "character:") == 0) {
-        return value.find("character:") == 0 || value.find("char:") == 0 ||
-               value.find("player:") == 0 || value.find("mob:") == 0 || value == "self" ||
+        return command_numeric_id_with_prefix_is_valid(value, "character:") ||
+               command_numeric_id_with_prefix_is_valid(value, "char:") ||
+               command_numeric_id_with_prefix_is_valid(value, "player:") ||
+               command_numeric_id_with_prefix_is_valid(value, "mob:") || value == "self" ||
                value == "actor" || value == "speaker" || value == "attacker" || value == "victim" ||
                value == "killer" || value == "dying" || value == "target" || value == "targ1" ||
                value == "targ2";
     }
     if (std::strcmp(prefix, "room:") == 0) {
-        return (value.find("room:") == 0 && value.size() > std::strlen(prefix)) ||
-               value == "room" || value == "target" || value == "targ1" || value == "targ2";
+        return command_numeric_id_with_prefix_is_valid(value, "room:") || value == "room" ||
+               value == "target" || value == "targ1" || value == "targ2";
     }
     if (std::strcmp(prefix, "object:") == 0) {
-        return (value.find("object:") == 0 && value.size() > std::strlen(prefix)) ||
-               value == "object" || value == "weapon" || value == "target" || value == "targ1" ||
-               value == "targ2";
+        return command_numeric_id_with_prefix_is_valid(value, "object:") || value == "object" ||
+               value == "weapon" || value == "target" || value == "targ1" || value == "targ2";
     }
-    return value.find(prefix) == 0 && value.size() > std::strlen(prefix);
+    return command_numeric_id_with_prefix_is_valid(value, prefix);
 }
 
 bool command_vnum_is_valid(int vnum) { return vnum >= 0 && vnum <= 999999; }
@@ -1236,6 +1243,8 @@ bool prepare_wait_command_mutations(const std::vector<JsRuntimeMutation> &mutati
 }
 
 bool audit_command_mutations(const std::vector<JsRuntimeMutation> &command_mutations,
+                             const JsTriggerDispatchRequest &request,
+                             const JsTriggerMutationAuthorityContext &authority,
                              const JsTriggerHelperMutationTransactionOptions &helper_options,
                              std::string *diagnostic) {
     if (command_mutations.empty() || helper_options.command_audit_callback == nullptr)
@@ -1244,6 +1253,13 @@ bool audit_command_mutations(const std::vector<JsRuntimeMutation> &command_mutat
     JsTriggerCommandMutationAuditRequest audit_request;
     audit_request.mutation_count = command_mutations.size();
     audit_request.operations_summary = command_operations_summary(command_mutations);
+    audit_request.host = request.host;
+    audit_request.kind = request.kind;
+    audit_request.legacy_value = request.legacy_value;
+    audit_request.package_vnum = request.package_vnum;
+    audit_request.package_id = request.package_id;
+    audit_request.handler_name = request.handler_name;
+    audit_request.authority_target_zone = authority.target_zone;
     std::string audit_diagnostic;
     if (!helper_options.command_audit_callback(audit_request, &audit_diagnostic,
                                                helper_options.command_audit_user_data)) {
@@ -1731,7 +1747,8 @@ bool prepare_runtime_mutation_transaction(
         return false;
     }
 
-    if (!audit_command_mutations(command_mutations, helper_options, diagnostic)) {
+    if (!audit_command_mutations(command_mutations, request, authority, helper_options,
+                                 diagnostic)) {
         if (helper_status != nullptr)
             *helper_status = JsTriggerHelperMutationTransactionStatus::AuditRejected;
         if (pending != nullptr)
@@ -2319,6 +2336,15 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
         return result;
     }
 
+    if (!apply_object_commands(pending_object_commands)) {
+        result.ok = false;
+        result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
+        result.applied_setter_count = 0;
+        result.applied_helper_count = 0;
+        result.diagnostic = "JavaScript trigger object command apply rejected";
+        return result;
+    }
+
     if (!apply_room_flag_mutations(pending_room_flag_mutations, helper_options,
                                    &result.applied_helper_count)) {
         result.ok = false;
@@ -2326,15 +2352,6 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
         result.applied_setter_count = 0;
         result.applied_helper_count = 0;
         result.diagnostic = "JavaScript trigger helper mutation apply rejected";
-        return result;
-    }
-
-    if (!apply_object_commands(pending_object_commands)) {
-        result.ok = false;
-        result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
-        result.applied_setter_count = 0;
-        result.applied_helper_count = 0;
-        result.diagnostic = "JavaScript trigger object command apply rejected";
         return result;
     }
 
@@ -2492,9 +2509,13 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
                 "JavaScript trigger persistent mutations require explicit builder authority";
             return result;
         }
+        JsTriggerDispatchRequest mutation_request = request;
+        mutation_request.package_vnum = package.vnum;
+        mutation_request.package_id = package.package_id;
+        mutation_request.handler_name = binding->handler_name;
         const JsTriggerRuntimeMutationTransactionApplyResult mutation_result =
             js_trigger_dispatch_apply_runtime_mutation_transaction(
-                evaluation.mutations, request, adapter_options, options.mutation_authority,
+                evaluation.mutations, mutation_request, adapter_options, options.mutation_authority,
                 options.helper_mutation_options);
         if (!mutation_result.ok) {
             result.status = JsTriggerDispatchStatus::Error;
