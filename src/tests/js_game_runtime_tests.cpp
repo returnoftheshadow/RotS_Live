@@ -1839,6 +1839,8 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots) {
     context.victim = context.self;
     context.has_killer = true;
     context.killer = context.actor;
+    context.has_dying = true;
+    context.dying = context.self;
     context.trigger.host_type = "character";
 
     JsGameRuntime runtime;
@@ -1849,7 +1851,7 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots) {
         "  && ctx.victim.name === 'Aldren'\n"
         "  && ctx.killer.name === 'Builder'\n"
         "  && [ctx.self, ctx.speaker, ctx.attacker, ctx.victim, "
-        "ctx.killer].every(function(character) {\n"
+        "ctx.killer, ctx.dying].every(function(character) {\n"
         "    return typeof character.setProfile === 'undefined'\n"
         "      && typeof character.setBaseAbilities === 'undefined'\n"
         "      && typeof character.setCurrentAbilities === 'undefined'\n"
@@ -1874,7 +1876,10 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots) {
         "      && typeof character.setClassPoints === 'undefined'\n"
         "      && typeof character.setInterruptCount === 'undefined'\n"
         "      && typeof character.setInterruptTime === 'undefined'\n"
-        "      && typeof character.setSpecialBusy === 'undefined';\n"
+        "      && typeof character.setSpecialBusy === 'undefined'\n"
+        "      && (character.room === null || (\n"
+        "        typeof character.room.addFlag === 'undefined'\n"
+        "        && typeof character.room.removeFlag === 'undefined'));\n"
         "  })\n"
         "  && ctx.trigger.hostType === ctx.hostType;",
         context);
@@ -2114,7 +2119,7 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults) {
         "try { badType.code = 'ok'; } catch (error) {}\n"
         "try { Object.defineProperty(badType, 'extra', { value: true }); } catch (error) {}\n"
         "const forbiddenRoomMembers = [\n"
-        "  'setExit', 'setFlags', 'setAlignment', 'setLight', 'setTracks',\n"
+        "  'setExit', 'setFlags', 'addFlag', 'removeFlag', 'setAlignment', 'setLight', 'setTracks',\n"
         "  'setBleedTracks', 'setBfsDirection', 'setBfsNext', 'setSpecialProcedure',\n"
         "  'tracks', 'bleedTracks', 'bfsDirection', 'bfsNext', 'specialProcedure',\n"
         "  'room_track', 'bleed_track', 'bfs_dir', 'bfs_next', 'funct',\n"
@@ -3542,7 +3547,7 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent) {
         "];\n"
         "const roomSetterNames = [\n"
         "  'setExtraDescriptions', 'setExit', 'setContents', 'setCharacters', 'setAffects',\n"
-        "  'setAlignment', 'setFlags', 'setLight'\n"
+        "  'setAlignment', 'setFlags', 'addFlag', 'removeFlag', 'setLight'\n"
         "];\n"
         "const roomInternalNames = [\n"
         "  'setTracks', 'setBleedTracks', 'setBfsDirection', 'setBfsNext',\n"
@@ -3607,7 +3612,7 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent) {
     JsRuntimeEvalResult room_result = runtime.evaluate_trigger_body(
         "const roomSetterNames = [\n"
         "  'setExtraDescriptions', 'setExit', 'setContents', 'setCharacters', 'setAffects',\n"
-        "  'setAlignment', 'setFlags', 'setLight'\n"
+        "  'setAlignment', 'setFlags', 'addFlag', 'removeFlag', 'setLight'\n"
         "];\n"
         "const roomInternalNames = [\n"
         "  'setTracks', 'setBleedTracks', 'setBfsDirection', 'setBfsNext',\n"

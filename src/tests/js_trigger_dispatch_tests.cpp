@@ -891,6 +891,80 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleRoomsWhenApplyFails)
     free(zones[0].name);
 }
 
+TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleStepsOnSameRoomWhenApplyFails)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    world[0].room_flags = DARK;
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].name = str_dup("Zone");
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    int audit_calls = 0;
+    int apply_precondition_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    helper_options.audit_user_data = &audit_calls;
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
+                                        std::string*, void* user_data) {
+        ++*static_cast<int*>(user_data);
+        EXPECT_EQ(request.mutation_count, 3U);
+        return true;
+    };
+    helper_options.apply_precondition_user_data = &apply_precondition_calls;
+    helper_options.apply_precondition_callback = [](std::size_t mutation_index, void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return mutation_index < 2;
+    };
+
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation add_peace = make_helper_mutation("room.flags.add");
+    add_peace.arguments_json = "{\"flag\":\"peaceRoom\"}";
+    JsRuntimeMutation remove_dark = make_helper_mutation("room.flags.remove");
+    remove_dark.arguments_json = "{\"flag\":\"dark\"}";
+    JsRuntimeMutation add_magic = make_helper_mutation("room.flags.add");
+    add_magic.arguments_json = "{\"flag\":\"noMagic\"}";
+
+    int probe_audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions probe_options;
+    probe_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    probe_options.audit_user_data = &probe_audit_calls;
+    probe_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
+                                       std::string*, void* user_data) {
+        ++*static_cast<int*>(user_data);
+        EXPECT_EQ(request.mutation_count, 3U);
+        return true;
+    };
+
+    const JsTriggerRuntimeMutationTransactionProbeResult probe_result =
+        js_trigger_dispatch_probe_runtime_mutation_transaction(
+            { setter, add_peace, remove_dark, add_magic }, request, adapter_options,
+            test_mutation_authority(), probe_options);
+    EXPECT_TRUE(probe_result.ok);
+    EXPECT_EQ(probe_result.prepared_setter_count, 1U);
+    EXPECT_EQ(probe_result.prepared_helper_count, 3U);
+    EXPECT_EQ(probe_result.helper_status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_EQ(probe_audit_calls, 1);
+
+    const JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            { setter, add_peace, remove_dark, add_magic }, request, adapter_options,
+            test_mutation_authority(), helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::ApplyRejected);
+    EXPECT_EQ(result.applied_setter_count, 0U);
+    EXPECT_EQ(result.applied_helper_count, 2U);
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_EQ(apply_precondition_calls, 3);
+    EXPECT_STREQ(zones[0].name, "Zone");
+    EXPECT_EQ(world[0].room_flags, DARK);
+    free(zones[0].name);
+}
+
 TEST(JsTriggerDispatch, RoomFlagHelperApplyRejectsInvalidHelpersBeforeAnyWrite)
 {
     for (const char* bad_arguments : { "{\"flag\":\"BFS_MARK\"}", "{\"flag\":\"permanentAffect\"}" }) {
