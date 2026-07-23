@@ -451,12 +451,14 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "mutation",
      "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::RoomData, "room_data", "ex_description", "extraDescriptions",
-     "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
-     Unsupported, "Planned read-only extra-description snapshot.",
+     "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", false,
+     ImplementedReadOnly, Unsupported,
+     "Returns bounded read-only room extra-description entries with keyword and description text "
+     "copied from the live linked list.",
      "Whole extra-description list writes are unsupported for builder scripts; future "
      "add/update/remove helper APIs must own linked-list allocation, stale-handle protection, "
      "bounded list size, text length, sanitization, persistence, rollback, and audit semantics.",
-     "mutation", "Linked list pointer must never be exposed."},
+     "mutation", "Linked-list storage is exposed only as a bounded frozen text snapshot."},
     {JsApiStructOwner::RoomData, "room_data", "dir_option", "exits", "getExits", "setExit",
      "readonly RoomExit[]", false, Deferred, Deferred,
      "Planned read-only room exit snapshot by direction.",

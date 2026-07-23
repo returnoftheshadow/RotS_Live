@@ -560,8 +560,8 @@ JsGameObjectFlagsFixture object_flags_fixture(const obj_flag_data &flags) {
     return fixture;
 }
 
-std::vector<JsGameObjectAffectFixture> object_affects_fixture(
-    const obj_affected_type (&affected)[MAX_OBJ_AFFECT]) {
+std::vector<JsGameObjectAffectFixture>
+object_affects_fixture(const obj_affected_type (&affected)[MAX_OBJ_AFFECT]) {
     std::vector<JsGameObjectAffectFixture> fixtures;
     for (int slot_index = 0; slot_index < MAX_OBJ_AFFECT; ++slot_index) {
         const obj_affected_type &affect = affected[slot_index];
@@ -578,8 +578,8 @@ std::vector<JsGameObjectAffectFixture> object_affects_fixture(
     return fixtures;
 }
 
-std::vector<JsGameExtraDescriptionFixture> extra_descriptions_fixture(
-    const extra_descr_data *extra_descriptions) {
+std::vector<JsGameExtraDescriptionFixture>
+extra_descriptions_fixture(const extra_descr_data *extra_descriptions) {
     std::vector<JsGameExtraDescriptionFixture> fixtures;
     std::vector<const extra_descr_data *> seen_nodes;
     int nodes_visited = 0;
@@ -658,8 +658,8 @@ bool object_is_carried_by(const obj_data *object, const char_data *carrier) {
     return false;
 }
 
-std::vector<JsGameEquipmentObjectFixture> object_contents_fixture(
-    const obj_data *container, const JsGameAdapterOptions &options) {
+std::vector<JsGameEquipmentObjectFixture>
+object_contents_fixture(const obj_data *container, const JsGameAdapterOptions &options) {
     std::vector<JsGameEquipmentObjectFixture> contents;
     std::vector<const obj_data *> seen_nodes;
     int nodes_visited = 0;
@@ -1340,7 +1340,8 @@ bool js_game_adapter_object_fixture(const obj_data *object, const JsGameAdapterO
     fixture->has_container = false;
     if (object->in_room == NOWHERE && js_game_adapter_is_live_object(object->in_obj, options) &&
         object_is_directly_contained_by(object, object->in_obj)) {
-        fixture->has_container = shallow_object_fixture(object->in_obj, options, &fixture->container);
+        fixture->has_container =
+            shallow_object_fixture(object->in_obj, options, &fixture->container);
     }
     fixture->contents = object_contents_fixture(object, options);
     fixture->touched = object->touched != 0;
@@ -1374,6 +1375,7 @@ bool js_game_adapter_room_fixture(int room, const JsGameAdapterOptions &options,
     fixture->level = room_data.level;
     fixture->sector_type = room_sector_type_name(room_data.sector_type);
     fixture->flags = room_flag_names(room_data.room_flags);
+    fixture->extra_descriptions = extra_descriptions_fixture(room_data.ex_description);
     fixture->alignment = room_data.alignment;
     fixture->light = room_data.light;
     fixture->is_sunlit = room_is_sunlit(room_data);

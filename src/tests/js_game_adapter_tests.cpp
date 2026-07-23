@@ -155,6 +155,7 @@ room_data make_room(const char *name, int number, int zone) {
     room.level = 4;
     room.sector_type = SECT_CITY;
     room.room_flags = DARK | INDOORS;
+    room.ex_description = nullptr;
     room.alignment = -3;
     room.light = 2;
     return room;
@@ -1496,6 +1497,10 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     object.ex_description = &rune_extra;
     const obj_data *live_objects[] = {&object};
     room_data world[1] = {make_room("Northern Gate", 1204, 0)};
+    extra_descr_data arch_extra{};
+    arch_extra.keyword = const_cast<char *>("arch");
+    arch_extra.description = const_cast<char *>("Ancient stonework frames the gate.");
+    world[0].ex_description = &arch_extra;
     zone_data zones[1] = {make_zone("Old City", 12)};
     JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, world, 0, nullptr, 0,
                                                 object_index, 1, zones, 1, nullptr, 0);
@@ -1548,6 +1553,9 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     EXPECT_EQ(room_fixture.level, 4);
     EXPECT_EQ(room_fixture.sector_type, "City");
     EXPECT_EQ(room_fixture.flags, (std::vector<std::string>{"dark", "indoors"}));
+    ASSERT_EQ(room_fixture.extra_descriptions.size(), 1U);
+    EXPECT_EQ(room_fixture.extra_descriptions[0].keyword, "arch");
+    EXPECT_EQ(room_fixture.extra_descriptions[0].description, "Ancient stonework frames the gate.");
     EXPECT_EQ(room_fixture.alignment, -3);
     EXPECT_EQ(room_fixture.light, 2);
     EXPECT_FALSE(room_fixture.is_sunlit);
@@ -1641,17 +1649,17 @@ TEST(JsGameAdapter, OmitsObjectContainerWhenNotReciprocalOrNotLive) {
     room_data world[1] = {make_room("Northern Gate", 1204, 0)};
     object.in_room = 0;
     JsGameAdapterOptions inconsistent_room_options = make_options(
-        nullptr, 0, live_objects, 2, world, 0, nullptr, 0, object_index, 2, nullptr, 0, nullptr,
-        0);
-    ASSERT_TRUE(js_game_adapter_object_fixture(&object, inconsistent_room_options, &object_fixture));
+        nullptr, 0, live_objects, 2, world, 0, nullptr, 0, object_index, 2, nullptr, 0, nullptr, 0);
+    ASSERT_TRUE(
+        js_game_adapter_object_fixture(&object, inconsistent_room_options, &object_fixture));
     EXPECT_TRUE(object_fixture.has_room);
     EXPECT_FALSE(object_fixture.has_container);
 
     object.in_room = NOWHERE;
     const obj_data *only_object_live[] = {&object};
-    JsGameAdapterOptions stale_container_options = make_options(
-        nullptr, 0, only_object_live, 1, nullptr, -1, nullptr, 0, object_index, 1, nullptr, 0,
-        nullptr, 0);
+    JsGameAdapterOptions stale_container_options =
+        make_options(nullptr, 0, only_object_live, 1, nullptr, -1, nullptr, 0, object_index, 1,
+                     nullptr, 0, nullptr, 0);
     ASSERT_TRUE(js_game_adapter_object_fixture(&object, stale_container_options, &object_fixture));
     EXPECT_FALSE(object_fixture.has_container);
 }
@@ -1893,9 +1901,9 @@ TEST(JsGameAdapter, BoundsObjectContentsTraversal) {
         live_objects.push_back(&contained[index]);
     }
     container.contains = &contained[0];
-    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects.data(),
-                                                live_objects.size(), nullptr, -1, nullptr, 0,
-                                                object_index, 102, nullptr, 0, nullptr, 0);
+    JsGameAdapterOptions options =
+        make_options(nullptr, 0, live_objects.data(), live_objects.size(), nullptr, -1, nullptr, 0,
+                     object_index, 102, nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
@@ -1928,9 +1936,9 @@ TEST(JsGameAdapter, BoundsObjectContentsTraversalByVisitedNodes) {
         live_objects.push_back(&contained[index]);
     }
     container.contains = &contained[0];
-    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects.data(),
-                                                live_objects.size(), nullptr, -1, nullptr, 0,
-                                                object_index, 102, nullptr, 0, nullptr, 0);
+    JsGameAdapterOptions options =
+        make_options(nullptr, 0, live_objects.data(), live_objects.size(), nullptr, -1, nullptr, 0,
+                     object_index, 102, nullptr, 0, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
     ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
@@ -2027,6 +2035,37 @@ TEST(JsGameAdapter, BoundsObjectExtraDescriptionTextCopies) {
     EXPECT_EQ(object_fixture.extra_descriptions[0].description.size(), 1024U);
     EXPECT_EQ(object_fixture.extra_descriptions[0].keyword, std::string(512, 'k'));
     EXPECT_EQ(object_fixture.extra_descriptions[0].description, std::string(1024, 'd'));
+}
+
+TEST(JsGameAdapter, BoundsRoomExtraDescriptionSnapshotsAndStopsCycles) {
+    room_data world[1] = {make_room("Northern Gate", 1204, 0)};
+
+    std::vector<extra_descr_data> descriptions(33);
+    std::vector<std::string> keywords;
+    std::vector<std::string> bodies;
+    keywords.reserve(descriptions.size());
+    bodies.reserve(descriptions.size());
+    for (std::size_t index = 0; index < descriptions.size(); ++index) {
+        keywords.push_back("keyword-" + std::to_string(index));
+        bodies.push_back(index == 31 ? std::string(1025, 'd')
+                                     : "description-" + std::to_string(index));
+        descriptions[index].keyword = keywords[index].data();
+        descriptions[index].description = bodies[index].data();
+        descriptions[index].next =
+            index + 1 < descriptions.size() ? &descriptions[index + 1] : &descriptions[5];
+    }
+    world[0].ex_description = descriptions.data();
+    JsGameAdapterOptions options = make_options(nullptr, 0, nullptr, 0, world, 0, nullptr, 0,
+                                                nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameRoomFixture room_fixture;
+    ASSERT_TRUE(js_game_adapter_room_fixture(0, options, &room_fixture));
+
+    ASSERT_EQ(room_fixture.extra_descriptions.size(), 32U);
+    EXPECT_EQ(room_fixture.extra_descriptions.front().keyword, "keyword-0");
+    EXPECT_EQ(room_fixture.extra_descriptions.front().description, "description-0");
+    EXPECT_EQ(room_fixture.extra_descriptions.back().keyword, "keyword-31");
+    EXPECT_EQ(room_fixture.extra_descriptions.back().description.size(), 1024U);
 }
 
 TEST(JsGameAdapter, FiltersUnknownObjectFlagDomains) {

@@ -3924,6 +3924,7 @@ room_data::room_data()
     level = 0;
     name = 0;
     description = 0;
+    ex_description = 0;
     affected = NULL;
 }
 

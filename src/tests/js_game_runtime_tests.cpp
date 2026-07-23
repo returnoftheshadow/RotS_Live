@@ -352,6 +352,7 @@ JsGameTriggerContextFixture make_context() {
     context.self.room.level = 7;
     context.self.room.sector_type = "City";
     context.self.room.flags = {"dark", "indoors"};
+    context.self.room.extra_descriptions.push_back({"arch", "Ancient stonework frames the gate."});
     context.self.room.alignment = -2;
     context.self.room.light = 1;
     context.self.room.is_sunlit = true;
@@ -508,6 +509,8 @@ JsGameTriggerContextFixture make_context() {
     context.object.room.level = 7;
     context.object.room.sector_type = "City";
     context.object.room.flags = {"dark", "indoors"};
+    context.object.room.extra_descriptions.push_back(
+        {"arch", "Ancient stonework frames the gate."});
     context.object.room.alignment = -2;
     context.object.room.light = 1;
     context.object.room.is_sunlit = true;
@@ -540,6 +543,7 @@ JsGameTriggerContextFixture make_context() {
     context.room.level = 7;
     context.room.sector_type = "City";
     context.room.flags = {"dark", "indoors"};
+    context.room.extra_descriptions.push_back({"arch", "Ancient stonework frames the gate."});
     context.room.alignment = -2;
     context.room.light = 1;
     context.room.is_sunlit = true;
@@ -1334,6 +1338,9 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.room.sectorType === 'City'\n"
         "  && Array.isArray(ctx.room.flags)\n"
         "  && ctx.room.flags.join(',') === 'dark,indoors'\n"
+        "  && ctx.room.extraDescriptions.length === 1\n"
+        "  && ctx.room.extraDescriptions[0].keyword === 'arch'\n"
+        "  && ctx.room.extraDescriptions[0].description === 'Ancient stonework frames the gate.'\n"
         "  && ctx.room.alignment === -2\n"
         "  && ctx.room.light === 1\n"
         "  && ctx.zone.level === 6\n"
@@ -1353,6 +1360,8 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.object.room.description === ctx.room.description\n"
         "  && ctx.object.room.sectorType === ctx.room.sectorType\n"
         "  && ctx.object.room.flags.join(',') === ctx.room.flags.join(',')\n"
+        "  && ctx.object.room.extraDescriptions[0].keyword === "
+        "ctx.room.extraDescriptions[0].keyword\n"
         "  && ctx.object.room.light === ctx.room.light\n"
         "  && ctx.object.room.zone.description === ctx.zone.description\n"
         "  && ctx.object.room.zone.map === ctx.zone.map\n"
@@ -1376,7 +1385,8 @@ TEST(JsGameRuntime, OmitsRawObjectFlagDomainsFromNestedObjectSnapshots) {
         "  'progNumber', 'prog_number', 'scriptNumber', 'script_number', 'scriptInfo',\n"
         "  'script_info', 'poisoned', 'poisonData', 'poisondata', 'poison_data',\n"
         "  'rawMaterial'];\n"
-        "const noRaw = (flags) => forbidden.every((field) => typeof flags[field] === 'undefined');\n"
+        "const noRaw = (flags) => forbidden.every((field) => typeof flags[field] === "
+        "'undefined');\n"
         "return noRaw(ctx.object.flags)\n"
         "  && noRaw(ctx.object.container.flags)\n"
         "  && noRaw(ctx.object.contents[0].flags)\n"
@@ -1437,6 +1447,30 @@ TEST(JsGameRuntime, KeepsRoomFlagArraysFrozenAndConstructorSafe) {
         "  && typeof ctx.room.flags.join.constructor === 'undefined'\n"
         "  && typeof ctx.room.flags.filter.constructor === 'undefined'\n"
         "  && typeof ctx.room.flags.__proto__.constructor === 'undefined';",
+        make_context());
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, KeepsRoomExtraDescriptionsFrozenAndConstructorSafe) {
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "let pushBlocked = false;\n"
+        "let indexBlocked = false;\n"
+        "try { ctx.room.extraDescriptions.push({ keyword: 'unsafe' }); } catch (error) { "
+        "pushBlocked = true; }\n"
+        "try { ctx.room.extraDescriptions[0].keyword = 'unsafe'; } catch (error) { indexBlocked = "
+        "true; }\n"
+        "return Array.isArray(ctx.room.extraDescriptions)\n"
+        "  && ctx.room.extraDescriptions.length === 1\n"
+        "  && ctx.room.extraDescriptions[0].keyword === 'arch'\n"
+        "  && ctx.room.extraDescriptions[0].description === 'Ancient stonework frames the gate.'\n"
+        "  && Object.isFrozen(ctx.room.extraDescriptions)\n"
+        "  && Object.isFrozen(ctx.room.extraDescriptions[0])\n"
+        "  && pushBlocked && indexBlocked\n"
+        "  && typeof ctx.room.extraDescriptions.constructor === 'undefined'\n"
+        "  && typeof ctx.room.extraDescriptions[0].constructor === 'undefined'\n"
+        "  && Object.getPrototypeOf(ctx.room.extraDescriptions[0]) === null;",
         make_context());
 
     expect_ok_allows(result);
@@ -1651,26 +1685,26 @@ TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent) {
     context.trigger.legacy_value = 18;
 
     JsGameRuntime runtime;
-    JsRuntimeEvalResult result =
-        runtime.evaluate_trigger_body("return ctx.weapon !== null\n"
-                                      "  && ctx.weapon.name === 'silver lever'\n"
-	                                      "  && ctx.weapon.affects.length === 2\n"
-	                                      "  && ctx.weapon.affects[0].locationName === 'STR'\n"
-	                                      "  && ctx.weapon.affects[1].modifier === -1\n"
-	                                      "  && ctx.weapon.extraDescriptions[0].keyword === 'runes'\n"
-	                                      "  && ctx.weapon.extraDescriptions[1].description === 'The hinge is polished by use.'\n"
-                                              "  && ctx.weapon.container.name === 'oak chest'\n"
-                                              "  && ctx.weapon.container.room === null\n"
-                                              "  && typeof ctx.weapon.container.container === 'undefined'\n"
-                                              "  && typeof ctx.weapon.container.setName === 'undefined'\n"
-                                              "  && ctx.weapon.contents[0].name === 'small gear'\n"
-                                              "  && ctx.weapon.touched === true\n"
-                                              "  && ctx.weapon.contents[0].touched === true\n"
-                                              "  && typeof ctx.weapon.contents[0].contents === 'undefined'\n"
-                                              "  && typeof ctx.weapon.contents[0].setName === 'undefined'\n"
-                                              "  && ctx.weapon.room.vnum === 1204\n"
-                                          "  && ctx.weapon.isValid();",
-                                          context);
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.weapon !== null\n"
+        "  && ctx.weapon.name === 'silver lever'\n"
+        "  && ctx.weapon.affects.length === 2\n"
+        "  && ctx.weapon.affects[0].locationName === 'STR'\n"
+        "  && ctx.weapon.affects[1].modifier === -1\n"
+        "  && ctx.weapon.extraDescriptions[0].keyword === 'runes'\n"
+        "  && ctx.weapon.extraDescriptions[1].description === 'The hinge is polished by use.'\n"
+        "  && ctx.weapon.container.name === 'oak chest'\n"
+        "  && ctx.weapon.container.room === null\n"
+        "  && typeof ctx.weapon.container.container === 'undefined'\n"
+        "  && typeof ctx.weapon.container.setName === 'undefined'\n"
+        "  && ctx.weapon.contents[0].name === 'small gear'\n"
+        "  && ctx.weapon.touched === true\n"
+        "  && ctx.weapon.contents[0].touched === true\n"
+        "  && typeof ctx.weapon.contents[0].contents === 'undefined'\n"
+        "  && typeof ctx.weapon.contents[0].setName === 'undefined'\n"
+        "  && ctx.weapon.room.vnum === 1204\n"
+        "  && ctx.weapon.isValid();",
+        context);
 
     expect_ok_allows(result);
 
@@ -2388,7 +2422,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.self.equipment[6].object.affects.constructor === 'undefined'\n"
         "  && typeof ctx.self.equipment[6].object.affects[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.equipment[6].object.extraDescriptions.constructor === 'undefined'\n"
-        "  && typeof ctx.self.equipment[6].object.extraDescriptions[0].constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.extraDescriptions[0].constructor === "
+        "'undefined'\n"
         "  && typeof ctx.self.inventory.constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].__rotsReadOnlySnapshot === 'undefined'\n"
@@ -2657,12 +2692,13 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
                                          make_context())
                   .status,
               JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime
-                  .evaluate_trigger_body("ctx.object.extraDescriptions.push({ keyword: 'unsafe' });\n"
-                                         "return true;",
-                                         make_context())
-                  .status,
-              JsRuntimeStatus::Error);
+    EXPECT_EQ(
+        runtime
+            .evaluate_trigger_body("ctx.object.extraDescriptions.push({ keyword: 'unsafe' });\n"
+                                   "return true;",
+                                   make_context())
+            .status,
+        JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.object.container.name = 'unsafe';\n"
                                          "return true;",
@@ -2725,12 +2761,13 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
                                          make_context())
                   .status,
               JsRuntimeStatus::Error);
-    EXPECT_EQ(runtime
-                  .evaluate_trigger_body("ctx.self.equipment[6].object.affects.push({ slotIndex: 1 });\n"
-                                         "return true;",
-                                         make_context())
-                  .status,
-              JsRuntimeStatus::Error);
+    EXPECT_EQ(
+        runtime
+            .evaluate_trigger_body("ctx.self.equipment[6].object.affects.push({ slotIndex: 1 });\n"
+                                   "return true;",
+                                   make_context())
+            .status,
+        JsRuntimeStatus::Error);
     EXPECT_EQ(
         runtime
             .evaluate_trigger_body("ctx.self.equipment[6].object.extraDescriptions[0].keyword = "
@@ -3335,6 +3372,9 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
     EXPECT_NE(literal.find("\"isSunlit\":true"), std::string::npos);
     EXPECT_NE(literal.find("\"sectorType\":\"City\""), std::string::npos);
     EXPECT_NE(literal.find("\"flags\":[\"dark\",\"indoors\"]"), std::string::npos);
+    EXPECT_NE(literal.find("\"extraDescriptions\":[{\"keyword\":\"arch\","
+                           "\"description\":\"Ancient stonework frames the gate.\"}]"),
+              std::string::npos);
     EXPECT_NE(literal.find("\"light\":1"), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"isValid\":function() { return true; }"), std::string::npos);
@@ -3348,47 +3388,47 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
                            "\"extraFlags\":[\"glow\",\"magic\"],\"level\":12,\"weight\":7,"
                            "\"cost\":450,\"costPerDay\":15,\"timer\":30,\"rarity\":2,"
                            "\"material\":\"metal\"},"
-	                           "\"affects\":[{\"slotIndex\":0,\"location\":1,\"locationName\":\"STR\","
-	                           "\"modifier\":2},{\"slotIndex\":1,\"location\":2,"
-	                           "\"locationName\":\"DEX\",\"modifier\":-1}],"
-	                           "\"extraDescriptions\":[{\"keyword\":\"runes\","
-	                           "\"description\":\"Faint runes circle the lever.\"},"
-	                           "{\"keyword\":\"hinge\","
-	                           "\"description\":\"The hinge is polished by use.\"}],"
-	                           "\"container\":{\"id\":\"object:301\",\"name\":\"oak chest\","
-	                           "\"description\":\"A stout oak chest rests here.\","
-	                           "\"shortDescription\":\"an oak chest\",\"actionDescription\":null,"
-	                           "\"vnum\":301,"
-	                           "\"flags\":{\"itemType\":\"container\","
-	                           "\"wearFlags\":[\"take\"],"
-	                           "\"extraFlags\":[],\"level\":8,"
-	                           "\"weight\":0,\"cost\":0,\"costPerDay\":0,\"timer\":0,"
-	                           "\"rarity\":0,\"material\":\"\"},"
-		                           "\"affects\":[],"
-		                           "\"extraDescriptions\":[{\"keyword\":\"lid\","
-		                           "\"description\":\"The lid is reinforced.\"}],"
-		                           "\"touched\":false,"
-		                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
-		                           "\"__rotsReadOnlySnapshot\":true,"
-		                           "\"isValid\":function() { return true; }},"
-		                           "\"contents\":[{\"id\":\"object:302\",\"name\":\"small gear\","
-	                           "\"description\":\"A small gear rests inside.\","
-	                           "\"shortDescription\":\"a small gear\",\"actionDescription\":null,"
-	                           "\"vnum\":302,"
-	                           "\"flags\":{\"itemType\":\"other\","
-	                           "\"wearFlags\":[\"take\"],"
-	                           "\"extraFlags\":[],\"level\":0,"
-	                           "\"weight\":0,\"cost\":0,\"costPerDay\":0,\"timer\":0,"
-	                           "\"rarity\":0,\"material\":\"\"},"
-		                           "\"affects\":[],"
-		                           "\"extraDescriptions\":[{\"keyword\":\"teeth\","
-		                           "\"description\":\"The gear teeth are sharp.\"}],"
-		                           "\"touched\":true,"
-		                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
-		                           "\"__rotsReadOnlySnapshot\":true,"
-		                           "\"isValid\":function() { return true; }}],"
-		                           "\"touched\":true,"
-		                           "\"room\":{\"id\":\"room:1204\""),
+                           "\"affects\":[{\"slotIndex\":0,\"location\":1,\"locationName\":\"STR\","
+                           "\"modifier\":2},{\"slotIndex\":1,\"location\":2,"
+                           "\"locationName\":\"DEX\",\"modifier\":-1}],"
+                           "\"extraDescriptions\":[{\"keyword\":\"runes\","
+                           "\"description\":\"Faint runes circle the lever.\"},"
+                           "{\"keyword\":\"hinge\","
+                           "\"description\":\"The hinge is polished by use.\"}],"
+                           "\"container\":{\"id\":\"object:301\",\"name\":\"oak chest\","
+                           "\"description\":\"A stout oak chest rests here.\","
+                           "\"shortDescription\":\"an oak chest\",\"actionDescription\":null,"
+                           "\"vnum\":301,"
+                           "\"flags\":{\"itemType\":\"container\","
+                           "\"wearFlags\":[\"take\"],"
+                           "\"extraFlags\":[],\"level\":8,"
+                           "\"weight\":0,\"cost\":0,\"costPerDay\":0,\"timer\":0,"
+                           "\"rarity\":0,\"material\":\"\"},"
+                           "\"affects\":[],"
+                           "\"extraDescriptions\":[{\"keyword\":\"lid\","
+                           "\"description\":\"The lid is reinforced.\"}],"
+                           "\"touched\":false,"
+                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
+                           "\"__rotsReadOnlySnapshot\":true,"
+                           "\"isValid\":function() { return true; }},"
+                           "\"contents\":[{\"id\":\"object:302\",\"name\":\"small gear\","
+                           "\"description\":\"A small gear rests inside.\","
+                           "\"shortDescription\":\"a small gear\",\"actionDescription\":null,"
+                           "\"vnum\":302,"
+                           "\"flags\":{\"itemType\":\"other\","
+                           "\"wearFlags\":[\"take\"],"
+                           "\"extraFlags\":[],\"level\":0,"
+                           "\"weight\":0,\"cost\":0,\"costPerDay\":0,\"timer\":0,"
+                           "\"rarity\":0,\"material\":\"\"},"
+                           "\"affects\":[],"
+                           "\"extraDescriptions\":[{\"keyword\":\"teeth\","
+                           "\"description\":\"The gear teeth are sharp.\"}],"
+                           "\"touched\":true,"
+                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
+                           "\"__rotsReadOnlySnapshot\":true,"
+                           "\"isValid\":function() { return true; }}],"
+                           "\"touched\":true,"
+                           "\"room\":{\"id\":\"room:1204\""),
               std::string::npos);
     EXPECT_NE(literal.find("\"description\":\"The old city zone.\""), std::string::npos);
     EXPECT_NE(literal.find("\"map\":\"N-G-S\""), std::string::npos);

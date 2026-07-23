@@ -221,6 +221,27 @@ std::string zone_literal(const JsGameZoneFixture &zone) {
     return out.str();
 }
 
+std::string extra_description_literal(const JsGameExtraDescriptionFixture &extra_description) {
+    std::ostringstream out;
+    out << "{"
+        << "\"keyword\":" << js_quote(extra_description.keyword) << ","
+        << "\"description\":" << js_quote(extra_description.description) << "}";
+    return out.str();
+}
+
+std::string
+extra_descriptions_literal(const std::vector<JsGameExtraDescriptionFixture> &extra_descriptions) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < extra_descriptions.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << extra_description_literal(extra_descriptions[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string room_literal(const JsGameRoomFixture &room) {
     std::ostringstream out;
     out << "{"
@@ -231,6 +252,7 @@ std::string room_literal(const JsGameRoomFixture &room) {
         << "\"level\":" << room.level << ","
         << "\"sectorType\":" << js_quote(room.sector_type) << ","
         << "\"flags\":" << string_array_literal(room.flags) << ","
+        << "\"extraDescriptions\":" << extra_descriptions_literal(room.extra_descriptions) << ","
         << "\"alignment\":" << room.alignment << ","
         << "\"light\":" << room.light << ","
         << "\"isSunlit\":" << js_bool(room.is_sunlit) << ","
@@ -415,27 +437,6 @@ std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture> 
         if (index > 0)
             out << ",";
         out << object_affect_literal(affects[index]);
-    }
-    out << "]";
-    return out.str();
-}
-
-std::string extra_description_literal(const JsGameExtraDescriptionFixture &extra_description) {
-    std::ostringstream out;
-    out << "{"
-        << "\"keyword\":" << js_quote(extra_description.keyword) << ","
-        << "\"description\":" << js_quote(extra_description.description) << "}";
-    return out.str();
-}
-
-std::string extra_descriptions_literal(
-    const std::vector<JsGameExtraDescriptionFixture> &extra_descriptions) {
-    std::ostringstream out;
-    out << "[";
-    for (std::size_t index = 0; index < extra_descriptions.size(); ++index) {
-        if (index > 0)
-            out << ",";
-        out << extra_description_literal(extra_descriptions[index]);
     }
     out << "]";
     return out.str();

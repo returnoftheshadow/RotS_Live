@@ -99,23 +99,22 @@ const char *public_owner_name(JsApiStructOwner owner) {
 std::string expected_mapping_json_object(const JsApiStructFieldMapping &mapping) {
     const std::string owner = public_owner_name(mapping.owner);
     return "{\"owner\":\"" + json_utils::escape_json_string(owner) + "\",\"fieldId\":\"" +
-        json_utils::escape_json_string(owner + "." + mapping.js_property) +
-        "\",\"property\":\"" + json_utils::escape_json_string(mapping.js_property) +
-        "\",\"getterName\":\"" + json_utils::escape_json_string(mapping.getter_name) +
-        "\",\"setterName\":\"" + json_utils::escape_json_string(mapping.setter_name) +
-        "\",\"typeName\":\"" + json_utils::escape_json_string(mapping.type_name) +
-        "\",\"nullable\":" + (mapping.nullable ? "true" : "false") +
-        ",\"getterStatus\":\"" + json_utils::escape_json_string(mapping.getter_status) +
-        "\",\"setterStatus\":\"" + json_utils::escape_json_string(mapping.setter_status) +
-        "\",\"sideEffect\":\"" + json_utils::escape_json_string(mapping.side_effect) +
-        "\",\"getterCallable\":" +
-        (std::string(mapping.getter_status) == "implemented-read-only-getter" ? "true" : "false") +
-        ",\"setterCallable\":" + (mapping_setter_is_callable(mapping) ? "true" : "false") +
-        ",\"documentationOnly\":" + (mapping_setter_is_callable(mapping) ? "false" : "true") +
-        ",\"getterDocs\":\"" +
-        json_utils::escape_json_string(mapping.getter_docs) +
-        "\",\"setterDocs\":\"" + json_utils::escape_json_string(mapping.setter_docs) +
-        "\",\"notes\":\"" + json_utils::escape_json_string(mapping.notes) + "\"}";
+           json_utils::escape_json_string(owner + "." + mapping.js_property) +
+           "\",\"property\":\"" + json_utils::escape_json_string(mapping.js_property) +
+           "\",\"getterName\":\"" + json_utils::escape_json_string(mapping.getter_name) +
+           "\",\"setterName\":\"" + json_utils::escape_json_string(mapping.setter_name) +
+           "\",\"typeName\":\"" + json_utils::escape_json_string(mapping.type_name) +
+           "\",\"nullable\":" + (mapping.nullable ? "true" : "false") + ",\"getterStatus\":\"" +
+           json_utils::escape_json_string(mapping.getter_status) + "\",\"setterStatus\":\"" +
+           json_utils::escape_json_string(mapping.setter_status) + "\",\"sideEffect\":\"" +
+           json_utils::escape_json_string(mapping.side_effect) + "\",\"getterCallable\":" +
+           (std::string(mapping.getter_status) == "implemented-read-only-getter" ? "true"
+                                                                                 : "false") +
+           ",\"setterCallable\":" + (mapping_setter_is_callable(mapping) ? "true" : "false") +
+           ",\"documentationOnly\":" + (mapping_setter_is_callable(mapping) ? "false" : "true") +
+           ",\"getterDocs\":\"" + json_utils::escape_json_string(mapping.getter_docs) +
+           "\",\"setterDocs\":\"" + json_utils::escape_json_string(mapping.setter_docs) +
+           "\",\"notes\":\"" + json_utils::escape_json_string(mapping.notes) + "\"}";
 }
 
 std::string trim_ascii_space(const std::string &value) {
@@ -309,8 +308,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         const JsApiStructFieldMapping *mapping =
             find_js_api_struct_field_mapping(entry.owner, entry.source_field);
         ASSERT_NE(mapping, nullptr) << entry.source_field;
-        EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter")
-            << entry.source_field;
+        EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter") << entry.source_field;
         expect_contains_json_object(json, expected_mapping_json_object(*mapping));
     }
     const JsApiStructFieldMapping *zone_y =
@@ -320,7 +318,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     EXPECT_NE(zone_y_object.find("\"setterCallable\":true"), std::string::npos);
     EXPECT_NE(zone_y_object.find("\"documentationOnly\":false"), std::string::npos);
     for (const char *fragment :
-        {"0 through 25", "target-scoped persistent setter authority", "redraw the map"}) {
+         {"0 through 25", "target-scoped persistent setter authority", "redraw the map"}) {
         EXPECT_NE(zone_y_object.find(fragment), std::string::npos) << fragment;
     }
     const JsApiStructFieldMapping *zone_reset_mode =
@@ -330,7 +328,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     EXPECT_NE(zone_reset_mode_object.find("\"setterCallable\":true"), std::string::npos);
     EXPECT_NE(zone_reset_mode_object.find("\"documentationOnly\":false"), std::string::npos);
     for (const char *fragment :
-        {"0 through 3", "target-scoped persistent setter authority", "legacy mixed"}) {
+         {"0 through 3", "target-scoped persistent setter authority", "legacy mixed"}) {
         EXPECT_NE(zone_reset_mode_object.find(fragment), std::string::npos) << fragment;
     }
     const JsApiStructFieldMapping *zone_lifespan =
@@ -340,7 +338,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     EXPECT_NE(zone_lifespan_object.find("\"setterCallable\":true"), std::string::npos);
     EXPECT_NE(zone_lifespan_object.find("\"documentationOnly\":false"), std::string::npos);
     for (const char *fragment :
-        {"1 through 10080", "target-scoped persistent setter authority", "reset scheduling"}) {
+         {"1 through 10080", "target-scoped persistent setter authority", "reset scheduling"}) {
         EXPECT_NE(zone_lifespan_object.find(fragment), std::string::npos) << fragment;
     }
     const JsApiStructFieldMapping *zone_level =
@@ -349,9 +347,8 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     const std::string zone_level_object = expected_mapping_json_object(*zone_level);
     EXPECT_NE(zone_level_object.find("\"setterCallable\":true"), std::string::npos);
     EXPECT_NE(zone_level_object.find("\"documentationOnly\":false"), std::string::npos);
-    for (const char *fragment :
-        {"0 through 100", "target-scoped persistent setter authority",
-            "builder-facing zone metadata"}) {
+    for (const char *fragment : {"0 through 100", "target-scoped persistent setter authority",
+                                 "builder-facing zone metadata"}) {
         EXPECT_NE(zone_level_object.find(fragment), std::string::npos) << fragment;
     }
     const JsApiStructFieldMapping *room_level =
@@ -360,9 +357,8 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     const std::string room_level_object = expected_mapping_json_object(*room_level);
     EXPECT_NE(room_level_object.find("\"setterCallable\":true"), std::string::npos);
     EXPECT_NE(room_level_object.find("\"documentationOnly\":false"), std::string::npos);
-    for (const char *fragment :
-        {"0 through 100", "target-scoped persistent setter authority",
-            "same-level room filtering"}) {
+    for (const char *fragment : {"0 through 100", "target-scoped persistent setter authority",
+                                 "same-level room filtering"}) {
         EXPECT_NE(room_level_object.find(fragment), std::string::npos) << fragment;
     }
     expect_contains_json_object(
@@ -386,7 +382,7 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     EXPECT_NE(room_alignment_object.find("\"setterCallable\":false"), std::string::npos);
     EXPECT_NE(room_alignment_object.find("\"documentationOnly\":true"), std::string::npos);
     for (const char *fragment :
-        {"room file writer", "does not copy alignment", "persistence/editing semantics"}) {
+         {"room file writer", "does not copy alignment", "persistence/editing semantics"}) {
         EXPECT_NE(room_alignment_object.find(fragment), std::string::npos) << fragment;
     }
     expect_contains_json_object(json, room_alignment_object);
@@ -433,8 +429,9 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         expect_contains_json_object(json, expected_mapping_json_object(*mapping));
     }
 
-    const char *room_value_domain_fields[] = { "sector_type", "room_flags", "light" };
-    for (const char *source_field : room_value_domain_fields) {
+    const char *room_implemented_fields[] = {"sector_type", "room_flags", "ex_description",
+                                             "light"};
+    for (const char *source_field : room_implemented_fields) {
         const JsApiStructFieldMapping *mapping =
             find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, source_field);
         ASSERT_NE(mapping, nullptr) << source_field;

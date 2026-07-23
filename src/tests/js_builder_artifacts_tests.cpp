@@ -316,19 +316,17 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
 
     for (std::size_t type_index = 0; type_index < js_api_contract_type_count(); ++type_index) {
         const JsApiType &type = js_api_contract_types()[type_index];
-        const std::string start = std::string(type.name) == "MutationResult"
-                                      ? "export type MutationResult ="
-                                      : type.kind == JsApiTypeKind::Namespace
-                                      ? "export namespace " + std::string(type.name)
-                                      : "export interface " + std::string(type.name);
+        const std::string start =
+            std::string(type.name) == "MutationResult" ? "export type MutationResult ="
+            : type.kind == JsApiTypeKind::Namespace ? "export namespace " + std::string(type.name)
+                                                    : "export interface " + std::string(type.name);
         expect_contains(declarations, start);
         expect_contains(declarations, "/** " + std::string(type.docs) + " */");
         const std::size_t start_index = declarations.find(start);
         const std::size_t next_doc = declarations.find("\n\n/**", start_index + start.size());
-        const std::string block =
-            std::string(type.name) == "MutationResult"
-                ? declarations.substr(start_index, next_doc - start_index)
-                : declaration_block(declarations, start);
+        const std::string block = std::string(type.name) == "MutationResult"
+                                      ? declarations.substr(start_index, next_doc - start_index)
+                                      : declaration_block(declarations, start);
         ASSERT_FALSE(block.empty()) << type.name;
 
         for (std::size_t member_index = 0; member_index < type.member_count; ++member_index) {
@@ -378,8 +376,8 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
             declarations, "export interface " + std::string(public_owner_name(mapping.owner)));
         ASSERT_FALSE(block.empty()) << public_field_id(mapping);
         if (mapping_setter_is_callable(mapping)) {
-            expect_contains(block, std::string(mapping.setter_name) + "(value: " +
-                    mapping.type_name + "): MutationResult;");
+            expect_contains(block, std::string(mapping.setter_name) +
+                                       "(value: " + mapping.type_name + "): MutationResult;");
             expect_contains(block, "/** " + std::string(mapping.setter_docs) + " */");
         } else {
             EXPECT_EQ(block.find(std::string(mapping.setter_name) + "("), std::string::npos)
@@ -402,7 +400,8 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
                 << interface_name;
         }
         if (std::string(interface_name) == "export interface Room") {
-            EXPECT_NE(block.find("setSectorType(value: string): MutationResult;"), std::string::npos)
+            EXPECT_NE(block.find("setSectorType(value: string): MutationResult;"),
+                      std::string::npos)
                 << interface_name;
             EXPECT_NE(block.find("canonical live sector-name validation"), std::string::npos)
                 << interface_name;
@@ -468,21 +467,16 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     ASSERT_FALSE(inventory_object_block.empty());
     EXPECT_NE(inventory_object_block.find("readonly touched:"), std::string::npos);
     const char *object_lifecycle_setters[] = {
-        "setFlags",
-        "setAffects",
-        "setExtraDescriptions",
-        "setRoom",
-        "setCarriedBy",
-        "setContainer",
-        "setContents",
-        "setTouched",
+        "setFlags",     "setAffects",   "setExtraDescriptions", "setRoom",
+        "setCarriedBy", "setContainer", "setContents",          "setTouched",
     };
     for (const char *setter_name : object_lifecycle_setters) {
         EXPECT_EQ(object_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
     }
 
-    const std::string character_block = declaration_block(declarations, "export interface Character");
+    const std::string character_block =
+        declaration_block(declarations, "export interface Character");
     ASSERT_FALSE(character_block.empty());
     const char *character_relationship_setters[] = {
         "setProfile",
@@ -517,12 +511,9 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
 
     const std::string room_block = declaration_block(declarations, "export interface Room");
     ASSERT_FALSE(room_block.empty());
+    EXPECT_NE(room_block.find("readonly extraDescriptions:"), std::string::npos);
     const char *room_nested_list_setters[] = {
-        "setExtraDescriptions",
-        "setExit",
-        "setContents",
-        "setCharacters",
-        "setAffects",
+        "setExtraDescriptions", "setExit", "setContents", "setCharacters", "setAffects",
     };
     for (const char *setter_name : room_nested_list_setters) {
         EXPECT_EQ(room_block.find(std::string(setter_name) + "("), std::string::npos)
@@ -530,15 +521,11 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     }
 
     const char *classification_only_members[] = {
-        "nextContent",
-        "next",
-        "loadedBy",
-        "values",
-        "value0",
-        "rawValues",
+        "nextContent", "next", "loadedBy", "values", "value0", "rawValues",
     };
     for (const char *member_name : classification_only_members) {
-        EXPECT_EQ(object_block.find("readonly " + std::string(member_name) + ":"), std::string::npos)
+        EXPECT_EQ(object_block.find("readonly " + std::string(member_name) + ":"),
+                  std::string::npos)
             << member_name;
         EXPECT_EQ(object_block.find(std::string(member_name) + "("), std::string::npos)
             << member_name;
@@ -547,22 +534,18 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         declaration_block(declarations, "export interface ObjectFlags");
     ASSERT_FALSE(object_flags_block.empty());
     const char *raw_object_flag_members[] = {
-        "values",     "rawValues",    "value",      "value0",      "value1",   "value2",
-        "value3",     "value4",       "typeFlag",   "type_flag",   "wearBits", "wear_flags",
-        "extraBits",  "extra_flags",  "bitvector",  "butcherItem", "butcher_item",
-        "progNumber", "prog_number",  "scriptNumber", "script_number", "scriptInfo",
-        "script_info", "poisoned",    "poisonData", "poisondata",  "poison_data",
-        "rawMaterial",
+        "values",      "rawValues",    "value",         "value0",      "value1",       "value2",
+        "value3",      "value4",       "typeFlag",      "type_flag",   "wearBits",     "wear_flags",
+        "extraBits",   "extra_flags",  "bitvector",     "butcherItem", "butcher_item", "progNumber",
+        "prog_number", "scriptNumber", "script_number", "scriptInfo",  "script_info",  "poisoned",
+        "poisonData",  "poisondata",   "poison_data",   "rawMaterial",
     };
     for (const char *member_name : raw_object_flag_members) {
-        EXPECT_EQ(object_flags_block.find(std::string(member_name) + ":"),
-                  std::string::npos)
+        EXPECT_EQ(object_flags_block.find(std::string(member_name) + ":"), std::string::npos)
             << member_name;
-        EXPECT_EQ(object_flags_block.find(std::string(member_name) + "?:"),
-                  std::string::npos)
+        EXPECT_EQ(object_flags_block.find(std::string(member_name) + "?:"), std::string::npos)
             << member_name;
-        EXPECT_EQ(object_flags_block.find(std::string(member_name) + "("),
-                  std::string::npos)
+        EXPECT_EQ(object_flags_block.find(std::string(member_name) + "("), std::string::npos)
             << member_name;
     }
 }
@@ -572,8 +555,8 @@ TEST(JsBuilderArtifacts, EmitsDiscriminatedMutationResultType) {
     const std::string start = "export type MutationResult =";
     const std::size_t start_index = declarations.find(start);
     ASSERT_NE(start_index, std::string::npos);
-    const std::size_t end_index = declarations.find("\n\n/** Pure return-value helpers. */",
-        start_index);
+    const std::size_t end_index =
+        declarations.find("\n\n/** Pure return-value helpers. */", start_index);
     ASSERT_NE(end_index, std::string::npos);
     const std::string block = declarations.substr(start_index, end_index - start_index);
 
@@ -652,7 +635,8 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     expect_contains(markdown, "Implemented read-only getters may appear in TypeScript");
     expect_contains(markdown, "| `setLevel` | `function` | `(value: number)` | `MutationResult` |");
     expect_contains(markdown, "persisted object-file scalar level value visible as flags.level");
-    expect_contains(markdown, "| `setRarity` | `function` | `(value: number)` | `MutationResult` |");
+    expect_contains(markdown,
+                    "| `setRarity` | `function` | `(value: number)` | `MutationResult` |");
     expect_contains(markdown, "persisted object-file scalar rarity value visible as flags.rarity");
     expect_contains(markdown, "`setSectorType`");
     expect_contains(markdown, "`MutationResult`");
@@ -712,10 +696,9 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
                                                                                      : "no") +
             " | " + markdown_inline_code(mapping_setter_is_callable(mapping) ? "yes" : "no") +
             " | " + markdown_inline_code(mapping_setter_is_callable(mapping) ? "no" : "yes") +
-            " | " +
-            markdown_inline_code(mapping.side_effect) + " | " + markdown_cell(mapping.getter_docs) +
-            " | " + markdown_cell(mapping.setter_docs) + " | " + markdown_cell(mapping.notes) +
-            " |";
+            " | " + markdown_inline_code(mapping.side_effect) + " | " +
+            markdown_cell(mapping.getter_docs) + " | " + markdown_cell(mapping.setter_docs) +
+            " | " + markdown_cell(mapping.notes) + " |";
         expect_contains(markdown, row);
     }
     expect_contains(markdown,

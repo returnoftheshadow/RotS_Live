@@ -29,6 +29,11 @@ struct JsGameZoneFixture {
     int reset_mode = 0;
 };
 
+struct JsGameExtraDescriptionFixture {
+    std::string keyword;
+    std::string description;
+};
+
 struct JsGameRoomFixture {
     std::string id;
     std::string name;
@@ -37,6 +42,7 @@ struct JsGameRoomFixture {
     int level = 0;
     std::string sector_type;
     std::vector<std::string> flags;
+    std::vector<JsGameExtraDescriptionFixture> extra_descriptions;
     int alignment = 0;
     int light = 0;
     bool is_sunlit = false;
@@ -260,11 +266,6 @@ struct JsGameObjectAffectFixture {
     int location = 0;
     std::string location_name;
     int modifier = 0;
-};
-
-struct JsGameExtraDescriptionFixture {
-    std::string keyword;
-    std::string description;
 };
 
 struct JsGameEquipmentObjectFixture {

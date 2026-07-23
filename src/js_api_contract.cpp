@@ -547,6 +547,9 @@ constexpr JsApiMember RoomMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Builder-safe room flag names copied from the loaded room snapshot. The list excludes "
      "pathfinding scratch bits such as BFS_MARK and unnamed/internal bit positions."},
+    {"extraDescriptions", JsApiMemberKind::Property, "readonly ExtraDescription[]", "", false,
+     true, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Bounded read-only room extra-description entries copied from the loaded linked list."},
     {"alignment", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only", "Room alignment value."},
     {"light", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
