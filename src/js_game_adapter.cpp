@@ -650,7 +650,32 @@ bool equipment_object_fixture(
     fixture->action_description = copy_c_string(object->action_description);
     fixture->vnum = object_vnum(*object, options);
     fixture->flags = object_flags_fixture(object->obj_flags);
-    fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
+    fixture->has_room = false;
+    return true;
+}
+
+bool inventory_object_fixture(
+    const obj_data* object, const char_data* carrier, const JsGameAdapterOptions& options,
+    JsGameEquipmentObjectFixture* fixture)
+{
+    if (fixture == nullptr || !js_game_adapter_is_live_object(object, options))
+        return false;
+    if (carrier == nullptr || object->carried_by != carrier || object->in_room != NOWHERE ||
+        object->in_obj != nullptr || !object_is_carried_by(object, carrier) ||
+        object_is_worn_by(object, carrier))
+        return false;
+
+    const char* display_name =
+        object->short_description != nullptr ? object->short_description : object->name;
+    fixture->id = object_id(*object, options);
+    fixture->name = copy_c_string(display_name);
+    fixture->description = copy_c_string(object->description);
+    fixture->short_description = copy_c_string(display_name);
+    fixture->has_action_description = object->action_description != nullptr;
+    fixture->action_description = copy_c_string(object->action_description);
+    fixture->vnum = object_vnum(*object, options);
+    fixture->flags = object_flags_fixture(object->obj_flags);
+    fixture->has_room = false;
     return true;
 }
 
@@ -1095,6 +1120,23 @@ bool js_game_adapter_character_fixture(const char_data *character,
         slot_fixture.has_object =
             equipment_object_fixture(character->equipment[slot], character, options, &slot_fixture.object);
         fixture->equipment.push_back(std::move(slot_fixture));
+    }
+    fixture->inventory.clear();
+    constexpr int MaxInventorySnapshotItems = 100;
+    int inventory_nodes_visited = 0;
+    std::vector<const obj_data*> seen_inventory_nodes;
+    for (const obj_data* carried = character->carrying;
+         carried != nullptr && inventory_nodes_visited < MaxInventorySnapshotItems;
+         carried = carried->next_content) {
+        if (std::find(seen_inventory_nodes.begin(), seen_inventory_nodes.end(), carried) !=
+            seen_inventory_nodes.end())
+            break;
+        seen_inventory_nodes.push_back(carried);
+        ++inventory_nodes_visited;
+        JsGameEquipmentObjectFixture inventory_fixture;
+        if (inventory_object_fixture(carried, character, options, &inventory_fixture)) {
+            fixture->inventory.push_back(std::move(inventory_fixture));
+        }
     }
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);

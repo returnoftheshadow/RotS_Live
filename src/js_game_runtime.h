@@ -273,6 +273,7 @@ struct JsGameCharacterFixture {
     std::vector<JsGameKnowledgeValueFixture> knowledge;
     std::vector<JsGameAffectFixture> affects;
     std::vector<JsGameEquipmentSlotFixture> equipment;
+    std::vector<JsGameEquipmentObjectFixture> inventory;
     bool is_npc = false;
 
     bool has_room = false;

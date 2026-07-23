@@ -660,6 +660,190 @@ TEST(JsGameAdapter, DefaultsMissingCharacterEquipmentToEmptySlots)
         EXPECT_FALSE(slot.has_object) << slot.slot_name;
 }
 
+TEST(JsGameAdapter, SnapshotsCharacterInventoryWithShallowObjects)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    obj_data torch = make_object("oak torch", 0);
+    torch.in_room = -1;
+    torch.carried_by = &player;
+    obj_data key = make_object("small key", 1);
+    key.in_room = -1;
+    key.carried_by = &player;
+    torch.next_content = &key;
+    player.carrying = &torch;
+
+    char_data other_carrier = make_character("OtherOne", 1, 20, 50, 60, false);
+    obj_data foreign = make_object("foreign bag", 2);
+    foreign.in_room = -1;
+    foreign.carried_by = &other_carrier;
+    key.next_content = &foreign;
+
+    obj_data room_object = make_object("room coin", 3);
+    room_object.carried_by = &player;
+    room_object.in_room = 0;
+    foreign.next_content = &room_object;
+
+    obj_data container = make_object("container", 4);
+    obj_data contained = make_object("contained gem", 5);
+    contained.carried_by = &player;
+    contained.in_room = -1;
+    contained.in_obj = &container;
+    room_object.next_content = &contained;
+
+    obj_data worn = make_object("worn glove", 6);
+    worn.in_room = -1;
+    worn.carried_by = &player;
+    player.equipment[WEAR_HANDS] = &worn;
+    contained.next_content = &worn;
+
+    const char_data *live_characters[] = { &player };
+    const obj_data *live_objects[] = {
+        &torch, &key, &foreign, &room_object, &container, &contained, &worn
+    };
+    index_data object_index[7] {};
+    for (int index = 0; index < 7; ++index)
+        object_index[index].virt = 5001 + index;
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 7, nullptr, -1,
+        nullptr, 0, object_index, 7, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    ASSERT_EQ(fixture.inventory.size(), 2U);
+    EXPECT_EQ(fixture.inventory[0].id, "object:5001");
+    EXPECT_EQ(fixture.inventory[0].name, "oak torch");
+    EXPECT_EQ(fixture.inventory[0].vnum, 5001);
+    EXPECT_FALSE(fixture.inventory[0].has_room);
+    EXPECT_EQ(fixture.inventory[1].id, "object:5002");
+    EXPECT_EQ(fixture.inventory[1].name, "small key");
+}
+
+TEST(JsGameAdapter, DefaultsMissingCharacterInventoryToEmptySnapshot)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    EXPECT_TRUE(fixture.inventory.empty());
+}
+
+TEST(JsGameAdapter, BoundsCharacterInventoryTraversalByVisitedNodes)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    char_data other_carrier = make_character("OtherOne", 1, 20, 50, 60, false);
+    std::vector<obj_data> invalid_objects;
+    invalid_objects.reserve(101);
+    for (int index = 0; index < 101; ++index) {
+        invalid_objects.push_back(make_object("foreign item", index));
+        invalid_objects[index].in_room = -1;
+        invalid_objects[index].carried_by = &other_carrier;
+    }
+    obj_data valid = make_object("valid torch", 101);
+    valid.in_room = -1;
+    valid.carried_by = &player;
+    for (int index = 0; index < 100; ++index)
+        invalid_objects[index].next_content = &invalid_objects[index + 1];
+    invalid_objects[100].next_content = &valid;
+    player.carrying = &invalid_objects[0];
+
+    std::vector<const obj_data*> live_objects;
+    live_objects.reserve(102);
+    for (const obj_data& object : invalid_objects)
+        live_objects.push_back(&object);
+    live_objects.push_back(&valid);
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects.data(),
+        live_objects.size(), nullptr, -1, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    EXPECT_TRUE(fixture.inventory.empty());
+}
+
+TEST(JsGameAdapter, IncludesExactlyOneHundredCharacterInventoryNodes)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    std::vector<obj_data> objects;
+    objects.reserve(100);
+    for (int index = 0; index < 100; ++index) {
+        objects.push_back(make_object("carried item", index));
+        objects[index].in_room = -1;
+        objects[index].carried_by = &player;
+    }
+    for (int index = 0; index < 99; ++index)
+        objects[index].next_content = &objects[index + 1];
+    player.carrying = &objects[0];
+
+    std::vector<const obj_data*> live_objects;
+    live_objects.reserve(objects.size());
+    for (const obj_data& object : objects)
+        live_objects.push_back(&object);
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects.data(),
+        live_objects.size(), nullptr, -1, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    ASSERT_EQ(fixture.inventory.size(), 100U);
+    EXPECT_EQ(fixture.inventory.front().name, "carried item");
+    EXPECT_EQ(fixture.inventory.back().name, "carried item");
+}
+
+TEST(JsGameAdapter, StopsCharacterInventoryBeforeHundredFirstNode)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    std::vector<obj_data> objects;
+    objects.reserve(101);
+    for (int index = 0; index < 101; ++index) {
+        objects.push_back(make_object(index == 100 ? "hundred first item" : "carried item", index));
+        objects[index].in_room = -1;
+        objects[index].carried_by = &player;
+    }
+    for (int index = 0; index < 100; ++index)
+        objects[index].next_content = &objects[index + 1];
+    player.carrying = &objects[0];
+
+    std::vector<const obj_data*> live_objects;
+    live_objects.reserve(objects.size());
+    for (const obj_data& object : objects)
+        live_objects.push_back(&object);
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects.data(),
+        live_objects.size(), nullptr, -1, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    ASSERT_EQ(fixture.inventory.size(), 100U);
+    for (const JsGameEquipmentObjectFixture& object : fixture.inventory)
+        EXPECT_NE(object.name, "hundred first item");
+}
+
+TEST(JsGameAdapter, BreaksCharacterInventoryTraversalCycles)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    obj_data loop = make_object("loop item", 0);
+    loop.in_room = 0;
+    loop.carried_by = &player;
+    loop.next_content = &loop;
+    player.carrying = &loop;
+    const char_data *live_characters[] = { &player };
+    const obj_data *live_objects[] = { &loop };
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    EXPECT_TRUE(fixture.inventory.empty());
+}
+
 TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)
 {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);

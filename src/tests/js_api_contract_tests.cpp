@@ -86,6 +86,7 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
         "Affect",
         "EquipmentSlot",
         "EquipmentObjectSnapshot",
+        "InventoryObjectSnapshot",
         "Player",
         "Mob",
         "GameObject",
@@ -264,7 +265,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         {"classPoints", "interruptCount", "interruptTime", "specialBusy", "baseAbilities",
             "currentAbilities", "rolledAbilities", "points", "specials", "specials2",
             "professions", "specializations", "damageDetails", "skills", "knowledge",
-            "affects", "equipment"}) {
+            "affects", "equipment", "inventory"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -428,6 +429,17 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "room")->type_name, "null");
     EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "carriedBy")->type_name, "null");
     EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "wornBy")->type_name, "null");
+    const JsApiMember *character_inventory =
+        find_js_api_contract_member(*character, "inventory");
+    ASSERT_NE(character_inventory, nullptr);
+    EXPECT_STREQ(character_inventory->type_name, "readonly InventoryObjectSnapshot[]");
+    EXPECT_EQ(character_inventory->status, JsApiMemberStatus::PlannedReadOnly);
+    const JsApiType *inventory_object = find_js_api_contract_type("InventoryObjectSnapshot");
+    ASSERT_NE(inventory_object, nullptr);
+    EXPECT_NE(find_js_api_contract_member(*inventory_object, "flags"), nullptr);
+    EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "room")->type_name, "null");
+    EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "carriedBy")->type_name, "null");
+    EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "wornBy")->type_name, "null");
 
     const JsApiType* mob = find_js_api_contract_type("Mob");
     ASSERT_NE(mob, nullptr);

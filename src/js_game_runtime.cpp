@@ -412,6 +412,7 @@ std::string affects_literal(const std::vector<JsGameAffectFixture>& affects)
 }
 
 std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture>& equipment);
+std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFixture>& inventory);
 
 std::string character_literal(const JsGameCharacterFixture& character)
 {
@@ -454,6 +455,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"knowledge\":" << knowledge_values_literal(character.knowledge) << ","
         << "\"affects\":" << affects_literal(character.affects) << ","
         << "\"equipment\":" << equipment_slots_literal(character.equipment) << ","
+        << "\"inventory\":" << inventory_objects_literal(character.inventory) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","
@@ -538,6 +540,19 @@ std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture
         } else {
             out << equipment_slot_literal(equipment[index]);
         }
+    }
+    out << "]";
+    return out.str();
+}
+
+std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFixture>& inventory)
+{
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < inventory.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << equipment_object_literal(inventory[index]);
     }
     out << "]";
     return out.str();

@@ -173,8 +173,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "world-mutation",
      "Object pointer array must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "carrying", "inventory", "getInventory",
-     "setInventory", "readonly GameObject[]", true, Deferred, Unsupported,
-     "Planned inventory snapshot using safe object handles.",
+     "setInventory", "readonly InventoryObjectSnapshot[]", true, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only snapshot of up to 100 top-level carried inventory objects using "
+     "shallow object snapshots without setter methods, recursive owner handles, nested contents, "
+     "or raw linked-list pointers.",
      "Replacing the raw inventory list from JavaScript is unsupported; use explicit inventory "
      "helpers when they exist so carried weight, item ownership, equipment transitions, nested "
      "containers, and player crash-save state stay centralized.",
