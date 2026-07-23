@@ -368,6 +368,218 @@ TEST(JsApiStructMapping, PublicMappingsHaveFinalExplicitAccessorPolicy) {
     EXPECT_GT(documented_non_callable_setter_count, 0U);
 }
 
+TEST(JsApiStructMapping, FinalAccessorPolicyMatrixStaysIntentional) {
+    struct ExpectedFieldPolicy {
+        JsApiStructOwner owner;
+        const char *source_field;
+        const char *getter_status;
+        const char *setter_status;
+    };
+
+    const ExpectedFieldPolicy expected[] = {
+        {JsApiStructOwner::CharData, "abs_number", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "player_index", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "nr", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "in_room", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::CharData, "player", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "abilities", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "tmpabilities", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "constabilities", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "points", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "specials", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "specials2", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "profs", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "extra_specialization_data", "implemented-read-only-getter",
+         "unsupported"},
+        {JsApiStructOwner::CharData, "damage_details", "implemented-read-only-getter",
+         "unsupported"},
+        {JsApiStructOwner::CharData, "skills", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "knowledge", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "affected", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::CharData, "equipment", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::CharData, "carrying", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "desc", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "next_in_room", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "next", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "next_fighting", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "next_fast_update", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "followers", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "master", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::CharData, "master_number", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "mount_data", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::CharData, "group", "deferred", "unsupported"},
+        {JsApiStructOwner::CharData, "temp", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "delay", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "next_die", "internal-only", "unsupported"},
+        {JsApiStructOwner::CharData, "classpoints", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::CharData, "interrupt_count", "implemented-read-only-getter",
+         "unsupported"},
+        {JsApiStructOwner::CharData, "interrupt_time", "implemented-read-only-getter",
+         "unsupported"},
+        {JsApiStructOwner::CharData, "spec_busy", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::ObjData, "item_number", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::ObjData, "in_room", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::ObjData, "obj_flags", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::ObjData, "affected", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::ObjData, "name", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ObjData, "description", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ObjData, "short_description", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ObjData, "action_description", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ObjData, "ex_description", "implemented-read-only-getter",
+         "unsupported"},
+        {JsApiStructOwner::ObjData, "carried_by", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::ObjData, "owner", "internal-only", "unsupported"},
+        {JsApiStructOwner::ObjData, "in_obj", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::ObjData, "contains", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::ObjData, "next_content", "internal-only", "unsupported"},
+        {JsApiStructOwner::ObjData, "next", "internal-only", "unsupported"},
+        {JsApiStructOwner::ObjData, "touched", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::ObjData, "loaded_by", "internal-only", "unsupported"},
+        {JsApiStructOwner::RoomData, "number", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::RoomData, "zone", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::RoomData, "level", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::RoomData, "sector_type", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::RoomData, "name", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::RoomData, "description", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::RoomData, "ex_description", "implemented-read-only-getter",
+         "unsupported"},
+        {JsApiStructOwner::RoomData, "dir_option", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::RoomData, "room_track", "internal-only", "unsupported"},
+        {JsApiStructOwner::RoomData, "room_flags", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::RoomData, "alignment", "implemented-read-only-getter", "deferred"},
+        {JsApiStructOwner::RoomData, "light", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::RoomData, "bfs_dir", "internal-only", "unsupported"},
+        {JsApiStructOwner::RoomData, "bfs_next", "internal-only", "unsupported"},
+        {JsApiStructOwner::RoomData, "funct", "internal-only", "unsupported"},
+        {JsApiStructOwner::RoomData, "contents", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::RoomData, "people", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::RoomData, "affected", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::RoomData, "bleed_track", "internal-only", "unsupported"},
+        {JsApiStructOwner::ZoneData, "name", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ZoneData, "description", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ZoneData, "map", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ZoneData, "lifespan", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ZoneData, "age", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::ZoneData, "top", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::ZoneData, "x", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ZoneData, "y", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ZoneData, "symbol", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ZoneData, "level", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ZoneData, "white_power", "implemented-read-only-getter",
+         "unsupported"},
+        {JsApiStructOwner::ZoneData, "dark_power", "implemented-read-only-getter",
+         "unsupported"},
+        {JsApiStructOwner::ZoneData, "magi_power", "implemented-read-only-getter",
+         "unsupported"},
+        {JsApiStructOwner::ZoneData, "zone_short_description", "deferred", "unsupported"},
+        {JsApiStructOwner::ZoneData, "zone_description", "deferred", "unsupported"},
+        {JsApiStructOwner::ZoneData, "zone_map", "deferred", "unsupported"},
+        {JsApiStructOwner::ZoneData, "min_level_look", "implemented-read-only-getter",
+         "deferred"},
+        {JsApiStructOwner::ZoneData, "owners", "internal-only", "unsupported"},
+        {JsApiStructOwner::ZoneData, "reset_mode", "implemented-read-only-getter",
+         "implemented-validated-setter"},
+        {JsApiStructOwner::ZoneData, "number", "implemented-read-only-getter", "unsupported"},
+        {JsApiStructOwner::ZoneData, "cmdno", "internal-only", "unsupported"},
+        {JsApiStructOwner::ZoneData, "cmd", "internal-only", "unsupported"},
+    };
+
+    ASSERT_EQ(js_api_struct_field_mapping_count(), sizeof(expected) / sizeof(expected[0]));
+    for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+        const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+        const ExpectedFieldPolicy &expected_policy = expected[index];
+        const std::string field_id =
+            std::string(js_api_struct_owner_name(expected_policy.owner)) + "." +
+            expected_policy.source_field;
+
+        EXPECT_EQ(mapping.owner, expected_policy.owner) << field_id;
+        EXPECT_STREQ(mapping.source_field, expected_policy.source_field) << field_id;
+        EXPECT_STREQ(mapping.getter_status, expected_policy.getter_status) << field_id;
+        EXPECT_STREQ(mapping.setter_status, expected_policy.setter_status) << field_id;
+    }
+}
+
+TEST(JsApiStructMapping, FinalAccessorPolicySummaryStaysIntentional) {
+    struct ExpectedOwnerPolicy {
+        JsApiStructOwner owner;
+        std::size_t total;
+        std::size_t implemented_getters;
+        std::size_t deferred_getters;
+        std::size_t internal_getters;
+        std::size_t implemented_setters;
+        std::size_t deferred_setters;
+        std::size_t unsupported_setters;
+    };
+
+    const ExpectedOwnerPolicy expected[] = {
+        {JsApiStructOwner::CharData, 36, 24, 1, 11, 0, 5, 31},
+        {JsApiStructOwner::ObjData, 17, 13, 0, 4, 4, 3, 10},
+        {JsApiStructOwner::RoomData, 19, 14, 0, 5, 4, 3, 12},
+        {JsApiStructOwner::ZoneData, 22, 16, 3, 3, 9, 1, 12},
+    };
+
+    for (const ExpectedOwnerPolicy &owner_policy : expected) {
+        std::size_t total = 0;
+        std::size_t implemented_getters = 0;
+        std::size_t deferred_getters = 0;
+        std::size_t internal_getters = 0;
+        std::size_t implemented_setters = 0;
+        std::size_t deferred_setters = 0;
+        std::size_t unsupported_setters = 0;
+
+        for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
+            const JsApiStructFieldMapping &mapping = js_api_struct_field_mappings()[index];
+            if (mapping.owner != owner_policy.owner)
+                continue;
+
+            ++total;
+            const std::string getter_status = mapping.getter_status;
+            const std::string setter_status = mapping.setter_status;
+            if (getter_status == "implemented-read-only-getter")
+                ++implemented_getters;
+            else if (getter_status == "deferred")
+                ++deferred_getters;
+            else if (getter_status == "internal-only")
+                ++internal_getters;
+
+            if (setter_status == "implemented-validated-setter")
+                ++implemented_setters;
+            else if (setter_status == "deferred")
+                ++deferred_setters;
+            else if (setter_status == "unsupported")
+                ++unsupported_setters;
+        }
+
+        const char *owner_name = js_api_struct_owner_name(owner_policy.owner);
+        EXPECT_EQ(total, owner_policy.total) << owner_name;
+        EXPECT_EQ(implemented_getters + deferred_getters + internal_getters, total) << owner_name;
+        EXPECT_EQ(implemented_setters + deferred_setters + unsupported_setters, total)
+            << owner_name;
+        EXPECT_EQ(implemented_getters, owner_policy.implemented_getters) << owner_name;
+        EXPECT_EQ(deferred_getters, owner_policy.deferred_getters) << owner_name;
+        EXPECT_EQ(internal_getters, owner_policy.internal_getters) << owner_name;
+        EXPECT_EQ(implemented_setters, owner_policy.implemented_setters) << owner_name;
+        EXPECT_EQ(deferred_setters, owner_policy.deferred_setters) << owner_name;
+        EXPECT_EQ(unsupported_setters, owner_policy.unsupported_setters) << owner_name;
+    }
+}
+
 TEST(JsApiStructMapping, MatchesCurrentStructFieldDeclarations) {
     EXPECT_EQ(catalog_fields(JsApiStructOwner::CharData),
               source_public_fields("src/structs.h", "char_data"));
