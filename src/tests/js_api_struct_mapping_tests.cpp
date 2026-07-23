@@ -830,8 +830,9 @@ TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
          "sensitive authorization data", "identity policy"},
         {"in_obj", "container", "EquipmentObjectSnapshot | null", "implemented-read-only-getter", "deferred",
          "world-mutation", "reciprocally contains", "shallow frozen container snapshot"},
-        {"contains", "contents", "readonly GameObject[]", "deferred", "unsupported",
-         "world-mutation", "bounded traversal", "not exposed to builders"},
+        {"contains", "contents", "readonly EquipmentObjectSnapshot[]",
+         "implemented-read-only-getter", "unsupported", "world-mutation",
+         "directly contained live objects", "shallow frozen contents snapshots"},
         {"next_content", "nextContent", "never", "internal-only", "unsupported", "none",
          "traversal state is internal", "Internal traversal link"},
         {"next", "next", "never", "internal-only", "unsupported", "none",
@@ -871,7 +872,7 @@ TEST(JsApiStructMapping, PinsObjectRelationshipAndLifecycleSetterDeferrals) {
         {"in_room", "implemented-read-only-getter", "deferred", "handler-maintained carrier"},
         {"carried_by", "implemented-read-only-getter", "deferred", "player crash-save"},
         {"in_obj", "implemented-read-only-getter", "deferred", "cycle prevention"},
-        {"contains", "deferred", "unsupported", "cycle guards"},
+        {"contains", "implemented-read-only-getter", "unsupported", "cycle guards"},
         {"touched", "deferred", "unsupported", "runtime/player-interaction state"},
     };
 

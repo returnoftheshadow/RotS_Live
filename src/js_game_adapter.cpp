@@ -27,6 +27,7 @@ constexpr std::size_t MaxAdapterStringLength = 512;
 constexpr std::size_t MaxAdapterTextLength = 1024;
 constexpr int MaxExtraDescriptionSnapshotNodes = 32;
 constexpr int MaxObjectContainerMembershipNodes = 100;
+constexpr int MaxObjectContentsSnapshotNodes = 100;
 
 struct CharacterProfessionField {
     int index;
@@ -654,6 +655,29 @@ bool object_is_carried_by(const obj_data *object, const char_data *carrier) {
             return true;
     }
     return false;
+}
+
+std::vector<JsGameEquipmentObjectFixture> object_contents_fixture(
+    const obj_data *container, const JsGameAdapterOptions &options) {
+    std::vector<JsGameEquipmentObjectFixture> contents;
+    std::vector<const obj_data *> seen_nodes;
+    int nodes_visited = 0;
+    for (const obj_data *node = container != nullptr ? container->contains : nullptr;
+         node != nullptr && nodes_visited < MaxObjectContentsSnapshotNodes;
+         node = node->next_content) {
+        if (std::find(seen_nodes.begin(), seen_nodes.end(), node) != seen_nodes.end())
+            break;
+        seen_nodes.push_back(node);
+        ++nodes_visited;
+        if (node == container || !js_game_adapter_is_live_object(node, options))
+            break;
+        if (node->in_obj != container || node->in_room != NOWHERE || node->carried_by != nullptr)
+            continue;
+        JsGameEquipmentObjectFixture fixture;
+        if (shallow_object_fixture(node, options, &fixture))
+            contents.push_back(std::move(fixture));
+    }
+    return contents;
 }
 
 bool character_has_follower(const char_data *leader, const char_data *follower,
@@ -1317,6 +1341,7 @@ bool js_game_adapter_object_fixture(const obj_data *object, const JsGameAdapterO
         object_is_directly_contained_by(object, object->in_obj)) {
         fixture->has_container = shallow_object_fixture(object->in_obj, options, &fixture->container);
     }
+    fixture->contents = object_contents_fixture(object, options);
     fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
 
     fixture->has_carried_by = false;

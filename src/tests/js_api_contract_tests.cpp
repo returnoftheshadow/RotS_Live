@@ -642,10 +642,15 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     EXPECT_STREQ(object_container->type_name, "EquipmentObjectSnapshot | null");
     EXPECT_TRUE(object_container->nullable);
     EXPECT_EQ(object_container->status, JsApiMemberStatus::PlannedReadOnly);
+    const JsApiMember *object_contents = find_js_api_contract_member(*object, "contents");
+    ASSERT_NE(object_contents, nullptr);
+    EXPECT_STREQ(object_contents->type_name, "readonly EquipmentObjectSnapshot[]");
+    EXPECT_FALSE(object_contents->nullable);
+    EXPECT_EQ(object_contents->status, JsApiMemberStatus::PlannedReadOnly);
 
     const char *classification_only_object_members[] = {
-        "contents", "nextContent", "next",   "touched", "ownerId",
-        "loadedBy", "values",      "value0", "rawValues",
+        "nextContent", "next",   "touched", "ownerId", "loadedBy",
+        "values",      "value0", "rawValues",
     };
     for (const char *member_name : classification_only_object_members) {
         EXPECT_EQ(find_js_api_contract_member(*object, member_name), nullptr) << member_name;

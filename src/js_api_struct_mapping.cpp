@@ -373,13 +373,13 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "world-mutation",
      "Nested storage is exposed only as a nullable shallow frozen container snapshot."},
     {JsApiStructOwner::ObjData, "obj_data", "contains", "contents", "getContents", "setContents",
-     "readonly GameObject[]", true, Deferred, Unsupported,
-     "Deferred read-only snapshot of nested object contents. Getter needs bounded traversal, "
-     "canonical ordering, stale-object filtering, and cycle protection.",
+     "readonly EquipmentObjectSnapshot[]", true, ImplementedReadOnly, Unsupported,
+     "Returns a bounded shallow read-only snapshot of directly contained live objects whose "
+     "container back-pointer reciprocally references this object.",
      "Replacing the contents list from JavaScript is unsupported; use explicit movement helpers "
      "when they exist so nested ownership, capacity, weight propagation, decay extraction, and "
      "cycle guards stay centralized.",
-     "world-mutation", "Linked-list storage is not exposed to builders."},
+     "world-mutation", "Linked-list storage is exposed only as shallow frozen contents snapshots."},
     {JsApiStructOwner::ObjData, "obj_data", "next_content", "nextContent", "getNextContent",
      "setNextContent", "never", true, Internal, Unsupported,
      "Container, room, and inventory traversal state is internal; builders should use future "

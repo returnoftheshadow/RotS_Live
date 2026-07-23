@@ -704,6 +704,7 @@ std::string object_literal(const JsGameObjectFixture &object) {
         << "\"extraDescriptions\":" << extra_descriptions_literal(object.extra_descriptions) << ","
         << "\"container\":"
         << nullable_literal(object.has_container, equipment_object_literal(object.container)) << ","
+        << "\"contents\":" << inventory_objects_literal(object.contents) << ","
         << "\"room\":" << nullable_literal(object.has_room, room_literal(object.room)) << ","
         << "\"carriedBy\":"
         << nullable_literal(object.has_carried_by, character_literal(object.carried_by)) << ","

@@ -457,6 +457,7 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     ASSERT_FALSE(object_block.empty());
     EXPECT_NE(object_block.find("readonly extraDescriptions:"), std::string::npos);
     EXPECT_NE(object_block.find("readonly container:"), std::string::npos);
+    EXPECT_NE(object_block.find("readonly contents:"), std::string::npos);
     const char *object_lifecycle_setters[] = {
         "setFlags",
         "setAffects",
@@ -520,7 +521,6 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     }
 
     const char *classification_only_members[] = {
-        "contents",
         "nextContent",
         "next",
         "touched",

@@ -1670,6 +1670,252 @@ TEST(JsGameAdapter, BoundsObjectContainerMembershipTraversal) {
     EXPECT_FALSE(object_fixture.has_container);
 }
 
+TEST(JsGameAdapter, SnapshotsObjectContentsWhenReciprocalAndLive) {
+    index_data object_index[3]{};
+    object_index[0].virt = 300;
+    object_index[1].virt = 301;
+    object_index[2].virt = 302;
+    obj_data container = make_object("oak chest", 0);
+    obj_data first = make_object("small gear", 1);
+    obj_data second = make_object("silver key", 2);
+    first.in_room = NOWHERE;
+    first.in_obj = &container;
+    first.next_content = &second;
+    second.in_room = NOWHERE;
+    second.in_obj = &container;
+    container.contains = &first;
+    const obj_data *live_objects[] = {&container, &first, &second};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 3, nullptr, -1, nullptr,
+                                                0, object_index, 3, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
+
+    ASSERT_EQ(object_fixture.contents.size(), 2U);
+    EXPECT_EQ(object_fixture.contents[0].id, "object:301");
+    EXPECT_EQ(object_fixture.contents[0].name, "small gear");
+    EXPECT_FALSE(object_fixture.contents[0].has_room);
+    EXPECT_EQ(object_fixture.contents[1].id, "object:302");
+    EXPECT_EQ(object_fixture.contents[1].name, "silver key");
+}
+
+TEST(JsGameAdapter, FiltersInvalidAndStaleObjectContentsAndStopsCycles) {
+    index_data object_index[5]{};
+    for (int index = 0; index < 5; ++index)
+        object_index[index].virt = 300 + index;
+    obj_data container = make_object("oak chest", 0);
+    obj_data valid = make_object("small gear", 1);
+    obj_data stale = make_object("stale coin", 2);
+    obj_data wrong_parent = make_object("wrong parent", 3);
+    obj_data room_object = make_object("room object", 4);
+    valid.in_room = NOWHERE;
+    valid.in_obj = &container;
+    valid.next_content = &stale;
+    stale.in_room = NOWHERE;
+    stale.in_obj = &container;
+    stale.next_content = &wrong_parent;
+    wrong_parent.in_room = NOWHERE;
+    wrong_parent.next_content = &room_object;
+    room_object.in_room = 0;
+    room_object.in_obj = &container;
+    room_object.next_content = &valid;
+    container.contains = &valid;
+    const obj_data *live_objects[] = {&container, &valid, &wrong_parent, &room_object};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 4, nullptr, -1, nullptr,
+                                                0, object_index, 5, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
+
+    ASSERT_EQ(object_fixture.contents.size(), 1U);
+    EXPECT_EQ(object_fixture.contents[0].id, "object:301");
+}
+
+TEST(JsGameAdapter, SkipsWrongParentObjectContentsAndContinuesTraversal) {
+    index_data object_index[3]{};
+    object_index[0].virt = 300;
+    object_index[1].virt = 301;
+    object_index[2].virt = 302;
+    obj_data container = make_object("oak chest", 0);
+    obj_data wrong_parent = make_object("wrong parent", 1);
+    obj_data valid = make_object("small gear", 2);
+    wrong_parent.in_room = NOWHERE;
+    wrong_parent.next_content = &valid;
+    valid.in_room = NOWHERE;
+    valid.in_obj = &container;
+    container.contains = &wrong_parent;
+    const obj_data *live_objects[] = {&container, &wrong_parent, &valid};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 3, nullptr, -1, nullptr,
+                                                0, object_index, 3, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
+
+    ASSERT_EQ(object_fixture.contents.size(), 1U);
+    EXPECT_EQ(object_fixture.contents[0].id, "object:302");
+}
+
+TEST(JsGameAdapter, SkipsDirectRoomObjectContentsAndContinuesTraversal) {
+    index_data object_index[3]{};
+    object_index[0].virt = 300;
+    object_index[1].virt = 301;
+    object_index[2].virt = 302;
+    obj_data container = make_object("oak chest", 0);
+    obj_data room_object = make_object("room object", 1);
+    obj_data valid = make_object("small gear", 2);
+    room_object.in_room = 0;
+    room_object.in_obj = &container;
+    room_object.next_content = &valid;
+    valid.in_room = NOWHERE;
+    valid.in_obj = &container;
+    container.contains = &room_object;
+    const obj_data *live_objects[] = {&container, &room_object, &valid};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 3, nullptr, -1, nullptr,
+                                                0, object_index, 3, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
+
+    ASSERT_EQ(object_fixture.contents.size(), 1U);
+    EXPECT_EQ(object_fixture.contents[0].id, "object:302");
+}
+
+TEST(JsGameAdapter, StopsObjectContentsCyclesWithoutDuplicates) {
+    index_data object_index[3]{};
+    object_index[0].virt = 300;
+    object_index[1].virt = 301;
+    object_index[2].virt = 302;
+    obj_data container = make_object("oak chest", 0);
+    obj_data first = make_object("small gear", 1);
+    obj_data second = make_object("silver key", 2);
+    first.in_room = NOWHERE;
+    first.in_obj = &container;
+    first.next_content = &second;
+    second.in_room = NOWHERE;
+    second.in_obj = &container;
+    second.next_content = &first;
+    container.contains = &first;
+    const obj_data *live_objects[] = {&container, &first, &second};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 3, nullptr, -1, nullptr,
+                                                0, object_index, 3, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
+
+    ASSERT_EQ(object_fixture.contents.size(), 2U);
+    EXPECT_EQ(object_fixture.contents[0].id, "object:301");
+    EXPECT_EQ(object_fixture.contents[1].id, "object:302");
+}
+
+TEST(JsGameAdapter, DoesNotExposeObjectAsItsOwnContent) {
+    index_data object_index[1]{};
+    object_index[0].virt = 300;
+    obj_data container = make_object("oak chest", 0);
+    container.in_room = NOWHERE;
+    container.in_obj = &container;
+    container.contains = &container;
+    container.next_content = &container;
+    const obj_data *live_objects[] = {&container};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, -1, nullptr,
+                                                0, object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
+
+    EXPECT_TRUE(object_fixture.contents.empty());
+}
+
+TEST(JsGameAdapter, StopsObjectContentsBeforeDereferencingStaleNodes) {
+    index_data object_index[3]{};
+    object_index[0].virt = 300;
+    object_index[1].virt = 301;
+    object_index[2].virt = 302;
+    obj_data container = make_object("oak chest", 0);
+    obj_data stale = make_object("stale coin", 1);
+    obj_data valid = make_object("small gear", 2);
+    stale.in_room = NOWHERE;
+    stale.in_obj = &container;
+    stale.next_content = &valid;
+    valid.in_room = NOWHERE;
+    valid.in_obj = &container;
+    container.contains = &stale;
+    const obj_data *live_objects[] = {&container, &valid};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 2, nullptr, -1, nullptr,
+                                                0, object_index, 3, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
+
+    EXPECT_TRUE(object_fixture.contents.empty());
+}
+
+TEST(JsGameAdapter, BoundsObjectContentsTraversal) {
+    index_data object_index[102]{};
+    for (int index = 0; index < 102; ++index)
+        object_index[index].virt = 300 + index;
+    obj_data container = make_object("oak chest", 0);
+    std::vector<std::string> names;
+    names.reserve(101);
+    for (int index = 0; index < 101; ++index)
+        names.push_back("contained-" + std::to_string(index));
+    std::vector<obj_data> contained;
+    contained.reserve(101);
+    std::vector<const obj_data *> live_objects;
+    live_objects.push_back(&container);
+    for (int index = 0; index < 101; ++index) {
+        contained.push_back(make_object(names[index].c_str(), index + 1));
+        contained[index].in_room = NOWHERE;
+        contained[index].in_obj = &container;
+        if (index > 0)
+            contained[index - 1].next_content = &contained[index];
+        live_objects.push_back(&contained[index]);
+    }
+    container.contains = &contained[0];
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects.data(),
+                                                live_objects.size(), nullptr, -1, nullptr, 0,
+                                                object_index, 102, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
+
+    ASSERT_EQ(object_fixture.contents.size(), 100U);
+    EXPECT_EQ(object_fixture.contents.front().id, "object:301");
+    EXPECT_EQ(object_fixture.contents.back().id, "object:400");
+}
+
+TEST(JsGameAdapter, BoundsObjectContentsTraversalByVisitedNodes) {
+    index_data object_index[102]{};
+    for (int index = 0; index < 102; ++index)
+        object_index[index].virt = 300 + index;
+    obj_data container = make_object("oak chest", 0);
+    std::vector<std::string> names;
+    names.reserve(101);
+    for (int index = 0; index < 101; ++index)
+        names.push_back("contained-" + std::to_string(index));
+    std::vector<obj_data> contained;
+    contained.reserve(101);
+    std::vector<const obj_data *> live_objects;
+    live_objects.push_back(&container);
+    for (int index = 0; index < 101; ++index) {
+        contained.push_back(make_object(names[index].c_str(), index + 1));
+        contained[index].in_room = NOWHERE;
+        if (index == 100)
+            contained[index].in_obj = &container;
+        if (index > 0)
+            contained[index - 1].next_content = &contained[index];
+        live_objects.push_back(&contained[index]);
+    }
+    container.contains = &contained[0];
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects.data(),
+                                                live_objects.size(), nullptr, -1, nullptr, 0,
+                                                object_index, 102, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&container, options, &object_fixture));
+
+    EXPECT_TRUE(object_fixture.contents.empty());
+}
+
 TEST(JsGameAdapter, BoundsObjectExtraDescriptionSnapshotsAndStopsCycles) {
     index_data object_index[1]{};
     object_index[0].virt = 300;

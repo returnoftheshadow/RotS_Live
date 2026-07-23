@@ -364,6 +364,7 @@ struct JsGameObjectFixture {
     std::vector<JsGameExtraDescriptionFixture> extra_descriptions;
     bool has_container = false;
     JsGameEquipmentObjectFixture container;
+    std::vector<JsGameEquipmentObjectFixture> contents;
 
     bool has_room = false;
     JsGameRoomFixture room;

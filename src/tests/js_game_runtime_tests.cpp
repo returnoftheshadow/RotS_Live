@@ -486,6 +486,16 @@ JsGameTriggerContextFixture make_context() {
     context.object.container.flags.wear_flags = {"take"};
     context.object.container.flags.level = 8;
     context.object.container.extra_descriptions.push_back({"lid", "The lid is reinforced."});
+    JsGameEquipmentObjectFixture contained_object;
+    contained_object.id = "object:302";
+    contained_object.name = "small gear";
+    contained_object.description = "A small gear rests inside.";
+    contained_object.short_description = "a small gear";
+    contained_object.vnum = 302;
+    contained_object.flags.item_type = "other";
+    contained_object.flags.wear_flags = {"take"};
+    contained_object.extra_descriptions.push_back({"teeth", "The gear teeth are sharp."});
+    context.object.contents.push_back(std::move(contained_object));
     context.object.has_room = true;
     context.object.room.id = "room:1204";
     context.object.room.name = "Northern Gate";
@@ -1262,6 +1272,12 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.object.container.room === null\n"
         "  && typeof ctx.object.container.container === 'undefined'\n"
         "  && typeof ctx.object.container.setName === 'undefined'\n"
+        "  && ctx.object.contents.length === 1\n"
+        "  && ctx.object.contents[0].name === 'small gear'\n"
+        "  && ctx.object.contents[0].extraDescriptions[0].keyword === 'teeth'\n"
+        "  && ctx.object.contents[0].room === null\n"
+        "  && typeof ctx.object.contents[0].contents === 'undefined'\n"
+        "  && typeof ctx.object.contents[0].setName === 'undefined'\n"
         "  && ctx.self.equipment[6].object.affects.length === 1\n"
         "  && ctx.self.equipment[6].object.affects[0].locationName === 'DEX'\n"
         "  && ctx.self.equipment[6].object.affects[0].modifier === 1\n"
@@ -1600,13 +1616,16 @@ TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent) {
 	                                      "  && ctx.weapon.affects[1].modifier === -1\n"
 	                                      "  && ctx.weapon.extraDescriptions[0].keyword === 'runes'\n"
 	                                      "  && ctx.weapon.extraDescriptions[1].description === 'The hinge is polished by use.'\n"
-	                                      "  && ctx.weapon.container.name === 'oak chest'\n"
-	                                      "  && ctx.weapon.container.room === null\n"
-	                                      "  && typeof ctx.weapon.container.container === 'undefined'\n"
-	                                      "  && typeof ctx.weapon.container.setName === 'undefined'\n"
-	                                      "  && ctx.weapon.room.vnum === 1204\n"
-                                      "  && ctx.weapon.isValid();",
-                                      context);
+                                              "  && ctx.weapon.container.name === 'oak chest'\n"
+                                              "  && ctx.weapon.container.room === null\n"
+                                              "  && typeof ctx.weapon.container.container === 'undefined'\n"
+                                              "  && typeof ctx.weapon.container.setName === 'undefined'\n"
+                                              "  && ctx.weapon.contents[0].name === 'small gear'\n"
+                                              "  && typeof ctx.weapon.contents[0].contents === 'undefined'\n"
+                                              "  && typeof ctx.weapon.contents[0].setName === 'undefined'\n"
+                                              "  && ctx.weapon.room.vnum === 1204\n"
+                                          "  && ctx.weapon.isValid();",
+                                          context);
 
     expect_ok_allows(result);
 
@@ -2435,14 +2454,19 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.object.extraDescriptions.constructor === 'undefined'\n"
         "  && typeof ctx.object.extraDescriptions[0].constructor === 'undefined'\n"
         "  && typeof ctx.object.container.constructor === 'undefined'\n"
+        "  && typeof ctx.object.contents.constructor === 'undefined'\n"
+        "  && typeof ctx.object.contents[0].constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx.object.affects[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.object.extraDescriptions[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.object.container) === null\n"
+        "  && Object.getPrototypeOf(ctx.object.contents[0]) === null\n"
         "  && Object.isFrozen(ctx.object.affects)\n"
         "  && Object.isFrozen(ctx.object.affects[0])\n"
         "  && Object.isFrozen(ctx.object.extraDescriptions)\n"
         "  && Object.isFrozen(ctx.object.extraDescriptions[0])\n"
         "  && Object.isFrozen(ctx.object.container)\n"
+        "  && Object.isFrozen(ctx.object.contents)\n"
+        "  && Object.isFrozen(ctx.object.contents[0])\n"
         "  && Object.isFrozen(ctx.self.followers)\n"
         "  && Object.isFrozen(ctx.self.followers[0])\n"
         "  && Object.isFrozen(ctx.self.master)\n"
@@ -2596,6 +2620,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.object.container.name = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.object.contents[0].name = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.object.contents.push({ id: 'object:unsafe' });\n"
                                          "return true;",
                                          make_context())
                   .status,
@@ -3055,6 +3091,9 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent) {
         "  && ctx.targ1.id === 'targ1'\n"
         "  && ctx.targ2.name === 'silver lever'\n"
         "  && ctx.targ2.id === 'targ2'\n"
+        "  && ctx.targ2.contents[0].name === 'small gear'\n"
+        "  && typeof ctx.targ2.contents[0].contents === 'undefined'\n"
+        "  && typeof ctx.targ2.contents[0].setName === 'undefined'\n"
         "  && ctx.dying.name === 'Aldren'\n"
         "  && ctx.dying.id === 'dying'\n"
         "  && ctx.targetTypes[0] === 'character'\n"
@@ -3278,6 +3317,21 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
 	                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
 	                           "\"__rotsReadOnlySnapshot\":true,"
 	                           "\"isValid\":function() { return true; }},"
+	                           "\"contents\":[{\"id\":\"object:302\",\"name\":\"small gear\","
+	                           "\"description\":\"A small gear rests inside.\","
+	                           "\"shortDescription\":\"a small gear\",\"actionDescription\":null,"
+	                           "\"vnum\":302,"
+	                           "\"flags\":{\"itemType\":\"other\","
+	                           "\"wearFlags\":[\"take\"],"
+	                           "\"extraFlags\":[],\"level\":0,"
+	                           "\"weight\":0,\"cost\":0,\"costPerDay\":0,\"timer\":0,"
+	                           "\"rarity\":0,\"material\":\"\"},"
+	                           "\"affects\":[],"
+	                           "\"extraDescriptions\":[{\"keyword\":\"teeth\","
+	                           "\"description\":\"The gear teeth are sharp.\"}],"
+	                           "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
+	                           "\"__rotsReadOnlySnapshot\":true,"
+	                           "\"isValid\":function() { return true; }}],"
 	                           "\"room\":{\"id\":\"room:1204\""),
               std::string::npos);
     EXPECT_NE(literal.find("\"description\":\"The old city zone.\""), std::string::npos);
