@@ -952,6 +952,96 @@ TEST(JsTriggerDispatch, DoGiveInlineSuccessAuditsOnceAndTransfersAtCommit) {
     EXPECT_EQ(self.specials.carry_weight, 1);
 }
 
+TEST(JsTriggerDispatch, BridgeAcceptedDoGiveFailsClosedWhenLiveStateNoLongerApplicable) {
+    ObjectPrototypeGuard object_guard(5104);
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    char_data interloper = make_character("Interloper");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &interloper;
+    interloper.carrying = &token;
+    interloper.specials.carry_items = 1;
+    interloper.specials.carry_weight = 1;
+    const char_data *live_characters[] = {&self, &actor, &interloper};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    zones[0].name = str_dup("Original Zone");
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 3, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation give = make_script_command_mutation(
+        "script.do_give",
+        "{\"giverId\":\"actor\",\"recipientId\":\"self\",\"objectId\":\"object\"}");
+    give.command_result_bridge_accepted = true;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, give}, request, adapter_options, test_mutation_authority(), helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::NotEvaluated);
+    EXPECT_EQ(result.applied_setter_count, 0U);
+    EXPECT_EQ(result.applied_helper_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger object command target rejected");
+    EXPECT_STREQ(zones[0].name, "Original Zone");
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(self.carrying, nullptr);
+    EXPECT_EQ(interloper.carrying, &token);
+    EXPECT_EQ(interloper.specials.carry_items, 1);
+    EXPECT_EQ(interloper.specials.carry_weight, 1);
+    EXPECT_EQ(token.carried_by, &interloper);
+    free(zones[0].name);
+}
+
+TEST(JsTriggerDispatch, BridgeAcceptedDoGiveStillTransfersExactlyOnceAtApply) {
+    ObjectPrototypeGuard object_guard(5104);
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    token.obj_flags.weight = 2;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 2;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+    JsRuntimeMutation give = make_script_command_mutation(
+        "script.do_give",
+        "{\"giverId\":\"actor\",\"recipientId\":\"self\",\"objectId\":\"object\"}");
+    give.command_result_bridge_accepted = true;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {give}, request, adapter_options, test_mutation_authority(), helper_options);
+
+    EXPECT_TRUE(result.ok) << result.diagnostic;
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_EQ(result.applied_setter_count, 0U);
+    EXPECT_EQ(result.applied_helper_count, 0U);
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(self.carrying, &token);
+    EXPECT_EQ(token.carried_by, &self);
+    EXPECT_EQ(actor.specials.carry_items, 0);
+    EXPECT_EQ(actor.specials.carry_weight, 0);
+    EXPECT_EQ(self.specials.carry_items, 1);
+    EXPECT_EQ(self.specials.carry_weight, 2);
+}
+
 TEST(JsTriggerDispatch, DoGiveResultClassifierReportsStableReasonCodes) {
     char_data giver = make_character("Giver");
     char_data recipient = make_character("Recipient");
