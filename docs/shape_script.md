@@ -359,8 +359,12 @@ hidden count, weight, and ownership facts so later helper calls in the same run
 can branch on realistic `inventory-full`, `too-heavy`, or `not-carried`
 results. Failed object helpers do not update that hidden state, repeated fixture
 runs start from the original fixture, and script-visible frozen snapshots such
-as `ctx.actor.inventory` and `ctx.object.carriedBy` do not change. Remaining
-fixture parity gaps include room object placement and descriptor buffering. For
+as `ctx.actor.inventory` and `ctx.object.carriedBy` do not change. Room object
+placement is also covered by a non-script-visible BuilderClient probe that
+clones fixture room contents and applies accepted `loadObj(vnum, room)` commands
+with deterministic offline ids while leaving `ctx.room.contents` frozen and
+unchanged for the running script. Remaining fixture parity gaps include wiring
+that room-placement state into script execution and descriptor buffering. For
 output helpers, offline fixtures can emulate
 `no-recipient` by setting a character fixture handle's `canReceiveOutput` to
 `false`, or by giving a room fixture a `characters` array with no reachable
