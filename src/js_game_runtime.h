@@ -166,6 +166,22 @@ struct JsGameDamageDetailsFixture {
     std::vector<JsGameDamageEntryFixture> entries;
 };
 
+struct JsGameSkillValueFixture {
+    int id = 0;
+    std::string name;
+    std::string profession = "general";
+    int level = 0;
+    int practice = 0;
+    int minimum_position = 0;
+    int mana_cost = 0;
+    int beats = 0;
+    int targets = 0;
+    int learn_difficulty = 0;
+    int learn_type = 0;
+    bool is_fast = false;
+    int specialization = 0;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -190,6 +206,7 @@ struct JsGameCharacterFixture {
     std::vector<JsGameProfessionFixture> professions;
     JsGameSpecializationFixture specializations;
     JsGameDamageDetailsFixture damage_details;
+    std::vector<JsGameSkillValueFixture> skills;
     bool is_npc = false;
 
     bool has_room = false;

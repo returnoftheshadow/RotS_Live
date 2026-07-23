@@ -131,8 +131,11 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "sharing, threat, timers, and cleanup must stay owned by combat engine helpers.",
      "mutation", "Combat-internal data."},
     {JsApiStructOwner::CharData, "char_data", "skills", "skills", "getSkills", "setSkill",
-     "readonly SkillValue[]", true, Deferred, Unsupported,
-     "Planned read-only skill-practice snapshot.",
+     "readonly SkillValue[]", true, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only trained-skill snapshot with one entry per nonzero practice "
+     "value, including skill id, builder-facing name, owning profession, required level, "
+     "practice count, live target/position/cost metadata, learning metadata, fast-update flag, "
+     "and specialization id. The raw MAX_SKILLS byte pointer is not exposed.",
      "Skill writes are unsupported for builder scripts; any future training/admin helper must "
      "validate skill ids, percent ranges, practice sessions, guild restrictions, derived "
      "knowledge, and player-file persistence.",

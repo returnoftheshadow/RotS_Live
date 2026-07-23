@@ -26,6 +26,27 @@ JsGameDamageEntryFixture make_damage_entry(int source_id, const std::string& sou
     return entry;
 }
 
+JsGameSkillValueFixture make_skill_value(int id, const std::string& name,
+    const std::string& profession, int level, int practice, int minimum_position, int mana_cost,
+    int beats, int targets, int learn_difficulty, int learn_type, bool is_fast, int specialization)
+{
+    JsGameSkillValueFixture skill;
+    skill.id = id;
+    skill.name = name;
+    skill.profession = profession;
+    skill.level = level;
+    skill.practice = practice;
+    skill.minimum_position = minimum_position;
+    skill.mana_cost = mana_cost;
+    skill.beats = beats;
+    skill.targets = targets;
+    skill.learn_difficulty = learn_difficulty;
+    skill.learn_type = learn_type;
+    skill.is_fast = is_fast;
+    skill.specialization = specialization;
+    return skill;
+}
+
 JsGameTriggerContextFixture make_context()
 {
     JsGameTriggerContextFixture context;
@@ -143,6 +164,10 @@ JsGameTriggerContextFixture make_context()
         make_damage_entry(1, "skill", "Kick", 1, 5, 5, 5.0, 14.285714285714286));
     context.self.damage_details.entries.push_back(
         make_damage_entry(TYPE_HIT, "attack", "hit", 2, 30, 20, 15.0, 85.71428571428571));
+    context.self.skills.push_back(make_skill_value(1, "Slashing", "warrior", 0, 3,
+        POSITION_FIGHTING, 0, 0, 16, 30, 1, false, 0));
+    context.self.skills.push_back(make_skill_value(8, "Swimming", "ranger", 2, 2,
+        POSITION_FIGHTING, 0, 0, 16, 25, 1, false, 0));
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -249,6 +274,8 @@ JsGameTriggerContextFixture make_context()
     context.actor.damage_details.damage_per_second = 3.0;
     context.actor.damage_details.entries.push_back(
         make_damage_entry(7, "skill", "Rescue", 3, 12, 6, 4.0, 100.0));
+    context.actor.skills.push_back(make_skill_value(14, "Rescue", "warrior", 3, 5,
+        POSITION_FIGHTING, 0, 0, 16, 10, 1, false, 0));
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -699,6 +726,23 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.damageDetails.entries[1].largestDamage === 20\n"
         "  && ctx.self.damageDetails.entries[1].averageDamage === 15\n"
         "  && Math.abs(ctx.self.damageDetails.entries[1].percentOfTotal - 85.71428571428571) < 0.0001\n"
+        "  && ctx.self.skills.length === 2\n"
+        "  && ctx.self.skills[0].id === 1\n"
+        "  && ctx.self.skills[0].name === 'Slashing'\n"
+        "  && ctx.self.skills[0].profession === 'warrior'\n"
+        "  && ctx.self.skills[0].level === 0\n"
+        "  && ctx.self.skills[0].practice === 3\n"
+        "  && ctx.self.skills[0].minimumPosition === 7\n"
+        "  && ctx.self.skills[0].manaCost === 0\n"
+        "  && ctx.self.skills[0].beats === 0\n"
+        "  && ctx.self.skills[0].targets === 16\n"
+        "  && ctx.self.skills[0].learnDifficulty === 30\n"
+        "  && ctx.self.skills[0].learnType === 1\n"
+        "  && ctx.self.skills[0].isFast === false\n"
+        "  && ctx.self.skills[0].specialization === 0\n"
+        "  && ctx.self.skills[1].name === 'Swimming'\n"
+        "  && ctx.self.skills[1].profession === 'ranger'\n"
+        "  && ctx.self.skills[1].practice === 2\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -773,6 +817,9 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.damageDetails.damagePerSecond === 3\n"
         "  && ctx.actor.damageDetails.entries[0].sourceName === 'Rescue'\n"
         "  && ctx.actor.damageDetails.entries[0].percentOfTotal === 100\n"
+        "  && ctx.actor.skills.length === 1\n"
+        "  && ctx.actor.skills[0].name === 'Rescue'\n"
+        "  && ctx.actor.skills[0].practice === 5\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1877,6 +1924,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.damageDetails.constructor === 'undefined'\n"
         "  && typeof ctx.self.damageDetails.entries.constructor === 'undefined'\n"
         "  && typeof ctx.self.damageDetails.entries[0].constructor === 'undefined'\n"
+        "  && typeof ctx.self.skills.constructor === 'undefined'\n"
+        "  && typeof ctx.self.skills[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -1891,6 +1940,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.specializations) === null\n"
         "  && Object.getPrototypeOf(ctx.self.damageDetails) === null\n"
         "  && Object.getPrototypeOf(ctx.self.damageDetails.entries[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.skills[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -1910,6 +1960,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.damageDetails)\n"
         "  && Object.isFrozen(ctx.self.damageDetails.entries)\n"
         "  && Object.isFrozen(ctx.self.damageDetails.entries[0])\n"
+        "  && Object.isFrozen(ctx.self.skills)\n"
+        "  && Object.isFrozen(ctx.self.skills[0])\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -1989,6 +2041,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
                   .status,
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.skills[0].practice = 99;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.skills.push({ id: 42, name: 'unsafe' });\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.points.bodypartHits[0] = 1;\n"
                          "return true;",
                          make_context())
@@ -2032,6 +2096,23 @@ TEST(JsGameRuntime, DefaultsMissingCharacterDamageDetailsToEmptySnapshot)
         "  && Object.isFrozen(ctx.self.damageDetails.entries)\n"
         "  && Object.getPrototypeOf(ctx.self.damageDetails) === null\n"
         "  && typeof ctx.self.damageDetails.constructor === 'undefined';",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, DefaultsMissingCharacterSkillsToEmptySnapshot)
+{
+    JsGameTriggerContextFixture context;
+    context.has_self = true;
+    context.self.id = "char:default-skills";
+    context.self.name = "Default Skills";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.self.skills.length === 0\n"
+        "  && Object.isFrozen(ctx.self.skills)\n"
+        "  && typeof ctx.self.skills.constructor === 'undefined';",
         context);
 
     expect_ok_allows(result);

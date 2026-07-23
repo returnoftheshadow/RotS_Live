@@ -87,6 +87,24 @@ bool character_is_npc(const char_data &character)
     return (character.specials2.act & MOB_ISNPC) != 0;
 }
 
+std::string skill_profession_key(int profession)
+{
+    switch (profession) {
+    case PROF_MAGE:
+        return "mage";
+    case PROF_CLERIC:
+        return "mystic";
+    case PROF_RANGER:
+        return "ranger";
+    case PROF_WARRIOR:
+        return "warrior";
+    case PROF_GENERAL:
+        return "general";
+    default:
+        return "unknown";
+    }
+}
+
 const CharacterSpecializationField& character_specialization_field(int id)
 {
     for (const CharacterSpecializationField& field : CharacterSpecializationFields) {
@@ -933,6 +951,33 @@ bool js_game_adapter_character_fixture(const char_data *character,
                     * 100
                 : 0;
         fixture->damage_details.entries.push_back(std::move(entry_fixture));
+    }
+    fixture->skills.clear();
+    if (character->skills != nullptr) {
+        const skill_data* skill_table = get_skill_array();
+        if (skill_table != nullptr) {
+            for (int skill_id = 0; skill_id < MAX_SKILLS; ++skill_id) {
+                const int practice = character->skills[skill_id];
+                const std::string name = copy_c_string(skill_table[skill_id].name);
+                if (practice <= 0 || name.empty())
+                    continue;
+                JsGameSkillValueFixture skill_fixture;
+                skill_fixture.id = skill_id;
+                skill_fixture.name = name;
+                skill_fixture.profession = skill_profession_key(skill_table[skill_id].type);
+                skill_fixture.level = skill_table[skill_id].level;
+                skill_fixture.practice = practice;
+                skill_fixture.minimum_position = skill_table[skill_id].minimum_position;
+                skill_fixture.mana_cost = skill_table[skill_id].min_usesmana;
+                skill_fixture.beats = skill_table[skill_id].beats;
+                skill_fixture.targets = skill_table[skill_id].targets;
+                skill_fixture.learn_difficulty = skill_table[skill_id].learn_diff;
+                skill_fixture.learn_type = skill_table[skill_id].learn_type;
+                skill_fixture.is_fast = skill_table[skill_id].is_fast != 0;
+                skill_fixture.specialization = skill_table[skill_id].skill_spec;
+                fixture->skills.push_back(std::move(skill_fixture));
+            }
+        }
     }
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);

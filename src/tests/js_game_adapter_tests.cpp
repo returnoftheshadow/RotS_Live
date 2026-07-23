@@ -417,6 +417,56 @@ TEST(JsGameAdapter, SnapshotsCharacterProfessionsWhenPresent)
     EXPECT_TRUE(fixture.specializations.has_runtime_state);
 }
 
+TEST(JsGameAdapter, SnapshotsCharacterSkillsWhenPresent)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    byte skill_values[MAX_SKILLS] {};
+    skill_values[1] = 3;
+    skill_values[8] = 2;
+    skill_values[255] = 9;
+    player.skills = skill_values;
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    ASSERT_EQ(fixture.skills.size(), 2u);
+    EXPECT_EQ(fixture.skills[0].id, 1);
+    EXPECT_EQ(fixture.skills[0].name, get_skill_array()[1].name);
+    EXPECT_EQ(fixture.skills[0].profession, "warrior");
+    EXPECT_EQ(fixture.skills[0].level, get_skill_array()[1].level);
+    EXPECT_EQ(fixture.skills[0].practice, 3);
+    EXPECT_EQ(fixture.skills[0].minimum_position, get_skill_array()[1].minimum_position);
+    EXPECT_EQ(fixture.skills[0].mana_cost, get_skill_array()[1].min_usesmana);
+    EXPECT_EQ(fixture.skills[0].beats, get_skill_array()[1].beats);
+    EXPECT_EQ(fixture.skills[0].targets, get_skill_array()[1].targets);
+    EXPECT_EQ(fixture.skills[0].learn_difficulty, get_skill_array()[1].learn_diff);
+    EXPECT_EQ(fixture.skills[0].learn_type, get_skill_array()[1].learn_type);
+    EXPECT_EQ(fixture.skills[0].is_fast, get_skill_array()[1].is_fast != 0);
+    EXPECT_EQ(fixture.skills[0].specialization, get_skill_array()[1].skill_spec);
+
+    EXPECT_EQ(fixture.skills[1].id, 8);
+    EXPECT_EQ(fixture.skills[1].name, get_skill_array()[8].name);
+    EXPECT_EQ(fixture.skills[1].profession, "ranger");
+    EXPECT_EQ(fixture.skills[1].practice, 2);
+}
+
+TEST(JsGameAdapter, DefaultsMissingCharacterSkillsToEmptySnapshot)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    player.skills = nullptr;
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    EXPECT_TRUE(fixture.skills.empty());
+}
+
 TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)
 {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);

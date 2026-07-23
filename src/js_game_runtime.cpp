@@ -315,6 +315,39 @@ std::string damage_details_literal(const JsGameDamageDetailsFixture& damage_deta
     return out.str();
 }
 
+std::string skill_value_literal(const JsGameSkillValueFixture& skill)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"id\":" << skill.id << ","
+        << "\"name\":" << js_quote(skill.name) << ","
+        << "\"profession\":" << js_quote(skill.profession) << ","
+        << "\"level\":" << skill.level << ","
+        << "\"practice\":" << skill.practice << ","
+        << "\"minimumPosition\":" << skill.minimum_position << ","
+        << "\"manaCost\":" << skill.mana_cost << ","
+        << "\"beats\":" << skill.beats << ","
+        << "\"targets\":" << skill.targets << ","
+        << "\"learnDifficulty\":" << skill.learn_difficulty << ","
+        << "\"learnType\":" << skill.learn_type << ","
+        << "\"isFast\":" << js_bool(skill.is_fast) << ","
+        << "\"specialization\":" << skill.specialization << "}";
+    return out.str();
+}
+
+std::string skill_values_literal(const std::vector<JsGameSkillValueFixture>& skills)
+{
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < skills.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << skill_value_literal(skills[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string character_literal(const JsGameCharacterFixture& character)
 {
     std::ostringstream out;
@@ -352,6 +385,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"professions\":" << professions_literal(character.professions) << ","
         << "\"specializations\":" << specializations_literal(character.specializations) << ","
         << "\"damageDetails\":" << damage_details_literal(character.damage_details) << ","
+        << "\"skills\":" << skill_values_literal(character.skills) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","
