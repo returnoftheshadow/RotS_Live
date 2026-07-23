@@ -63,35 +63,8 @@ class JsTriggerDispatchDepthGuard {
     std::size_t m_current_depth = 0;
 };
 
-struct JsTriggerDispatchOptions {
-    JsRuntimeLimits runtime_limits;
-    JsTriggerDispatchBudget* budget = nullptr;
-    JsTriggerDispatchBudgetLimits budget_limits;
-    JsTriggerDispatchDepthGuard* depth_guard = nullptr;
-    JsTriggerDispatchDepthLimits depth_limits;
-    int current_pulse = 0;
-    JsTriggerMutationAuthorityContext mutation_authority;
-};
-
-struct JsTriggerDispatchRequest {
-    JsScriptPackageHost host = JsScriptPackageHost::Character;
-    JsScriptingManifestKind kind = JsScriptingManifestKind::LegacyScriptTrigger;
-    int legacy_value = 0;
-    int package_vnum = 0;
-    JsGameAdapterContextInput context_input;
-};
-
-struct JsTriggerDispatchResult {
-    JsTriggerDispatchStatus status = JsTriggerDispatchStatus::NoMatch;
-    JsRuntimeStatus runtime_status = JsRuntimeStatus::Ok;
-    int package_vnum = 0;
-    std::string package_id;
-    std::string handler_name;
-    std::string diagnostic;
-    std::size_t matched_package_count = 0;
-};
-
 enum class JsTriggerHelperMutationTransactionStatus {
+    NotEvaluated,
     Ok,
     UnsupportedEnvelope,
     UnknownOperation,
@@ -124,6 +97,43 @@ struct JsTriggerHelperMutationTransactionResult {
     std::size_t mutation_count = 0;
 };
 
+struct JsTriggerRuntimeMutationTransactionProbeResult {
+    bool ok = false;
+    std::string diagnostic;
+    std::size_t prepared_setter_count = 0;
+    JsTriggerHelperMutationTransactionStatus helper_status =
+        JsTriggerHelperMutationTransactionStatus::NotEvaluated;
+};
+
+struct JsTriggerDispatchOptions {
+    JsRuntimeLimits runtime_limits;
+    JsTriggerDispatchBudget* budget = nullptr;
+    JsTriggerDispatchBudgetLimits budget_limits;
+    JsTriggerDispatchDepthGuard* depth_guard = nullptr;
+    JsTriggerDispatchDepthLimits depth_limits;
+    int current_pulse = 0;
+    JsTriggerMutationAuthorityContext mutation_authority;
+    JsTriggerHelperMutationTransactionOptions helper_mutation_options;
+};
+
+struct JsTriggerDispatchRequest {
+    JsScriptPackageHost host = JsScriptPackageHost::Character;
+    JsScriptingManifestKind kind = JsScriptingManifestKind::LegacyScriptTrigger;
+    int legacy_value = 0;
+    int package_vnum = 0;
+    JsGameAdapterContextInput context_input;
+};
+
+struct JsTriggerDispatchResult {
+    JsTriggerDispatchStatus status = JsTriggerDispatchStatus::NoMatch;
+    JsRuntimeStatus runtime_status = JsRuntimeStatus::Ok;
+    int package_vnum = 0;
+    std::string package_id;
+    std::string handler_name;
+    std::string diagnostic;
+    std::size_t matched_package_count = 0;
+};
+
 const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status);
 const char* js_trigger_helper_mutation_transaction_status_name(
     JsTriggerHelperMutationTransactionStatus status);
@@ -131,6 +141,14 @@ bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation& muta
 JsTriggerHelperMutationTransactionResult js_trigger_dispatch_prepare_helper_mutation_transaction(
     const std::vector<JsRuntimeMutation>& mutations,
     const JsTriggerHelperMutationTransactionOptions& options = {});
+
+// Non-mutating transaction verifier for C++ tooling/tests. Do not expose this result through
+// builder scripts, HTTP publish responses, or script-visible diagnostics.
+JsTriggerRuntimeMutationTransactionProbeResult
+js_trigger_dispatch_probe_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& mutations,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
+    const JsTriggerMutationAuthorityContext& authority,
+    const JsTriggerHelperMutationTransactionOptions& helper_options = {});
 
 JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,

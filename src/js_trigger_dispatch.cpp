@@ -771,6 +771,49 @@ bool prepare_text_mutations(const std::vector<JsRuntimeMutation>& mutations,
     return true;
 }
 
+bool prepare_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& mutations,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& options,
+    const JsTriggerMutationAuthorityContext& authority,
+    const JsTriggerHelperMutationTransactionOptions& helper_options,
+    std::vector<PendingTextMutation>* pending, std::string* diagnostic,
+    JsTriggerHelperMutationTransactionStatus* helper_status = nullptr)
+{
+    std::vector<JsRuntimeMutation> setter_mutations;
+    std::vector<JsRuntimeMutation> helper_mutations;
+    setter_mutations.reserve(mutations.size());
+    helper_mutations.reserve(mutations.size());
+
+    for (const JsRuntimeMutation& mutation : mutations) {
+        if (runtime_mutation_kind_is_helper(mutation)) {
+            helper_mutations.push_back(mutation);
+            continue;
+        }
+        setter_mutations.push_back(mutation);
+    }
+
+    if (!prepare_text_mutations(setter_mutations, request, options, authority, pending)) {
+        if (diagnostic != nullptr)
+            *diagnostic = "JavaScript trigger mutation target rejected";
+        if (helper_status != nullptr)
+            *helper_status = JsTriggerHelperMutationTransactionStatus::NotEvaluated;
+        return false;
+    }
+
+    const JsTriggerHelperMutationTransactionResult helper_result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction(helper_mutations, helper_options);
+    if (helper_status != nullptr)
+        *helper_status = helper_result.status;
+    if (helper_result.status != JsTriggerHelperMutationTransactionStatus::Ok) {
+        if (pending != nullptr)
+            pending->clear();
+        if (diagnostic != nullptr)
+            *diagnostic = "JavaScript trigger helper mutation rejected";
+        return false;
+    }
+
+    return true;
+}
+
 void apply_text_mutations(const std::vector<PendingTextMutation>& mutations)
 {
     bool redraw_world_map = false;
@@ -906,6 +949,8 @@ const char* js_trigger_helper_mutation_transaction_status_name(
     JsTriggerHelperMutationTransactionStatus status)
 {
     switch (status) {
+    case JsTriggerHelperMutationTransactionStatus::NotEvaluated:
+        return "not-evaluated";
     case JsTriggerHelperMutationTransactionStatus::Ok:
         return "ok";
     case JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope:
@@ -968,6 +1013,20 @@ JsTriggerHelperMutationTransactionResult js_trigger_dispatch_prepare_helper_muta
         return result;
     }
 
+    return result;
+}
+
+JsTriggerRuntimeMutationTransactionProbeResult
+js_trigger_dispatch_probe_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& mutations,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
+    const JsTriggerMutationAuthorityContext& authority,
+    const JsTriggerHelperMutationTransactionOptions& helper_options)
+{
+    std::vector<PendingTextMutation> pending_mutations;
+    JsTriggerRuntimeMutationTransactionProbeResult result;
+    result.ok = prepare_runtime_mutation_transaction(mutations, request, adapter_options, authority,
+        helper_options, &pending_mutations, &result.diagnostic, &result.helper_status);
+    result.prepared_setter_count = pending_mutations.size();
     return result;
 }
 
@@ -1114,12 +1173,15 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
             result.diagnostic = "JavaScript trigger persistent mutations require explicit builder authority";
             return result;
         }
-        if (!prepare_text_mutations(
+        std::string mutation_diagnostic;
+        if (!prepare_runtime_mutation_transaction(
                 evaluation.mutations, request, adapter_options, options.mutation_authority,
-                &pending_mutations)) {
+                options.helper_mutation_options, &pending_mutations, &mutation_diagnostic)) {
             result.status = JsTriggerDispatchStatus::Error;
             result.runtime_status = JsRuntimeStatus::Error;
-            result.diagnostic = "JavaScript trigger mutation target rejected";
+            result.diagnostic = mutation_diagnostic.empty()
+                ? "JavaScript trigger mutation target rejected"
+                : mutation_diagnostic;
             return result;
         }
         apply_text_mutations(pending_mutations);

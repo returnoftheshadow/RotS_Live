@@ -204,6 +204,29 @@ JsTriggerMutationAuthorityContext test_mutation_authority(int target_zone = 30)
     return authority;
 }
 
+JsRuntimeMutation make_zone_name_setter(const char* value)
+{
+    JsRuntimeMutation mutation;
+    mutation.kind = "setter";
+    mutation.target_type = "zone";
+    mutation.target_id = "zone";
+    mutation.property = "name";
+    mutation.value_kind = "string";
+    mutation.has_value = true;
+    mutation.value = value;
+    return mutation;
+}
+
+JsRuntimeMutation make_helper_mutation(const char* operation)
+{
+    JsRuntimeMutation mutation;
+    mutation.kind = "helper";
+    mutation.operation = operation;
+    mutation.target_token = "fixture-zone-token";
+    mutation.arguments_json = "{\"flag\":\"peace\"}";
+    return mutation;
+}
+
 bool contains(const std::string& value, const std::string& needle)
 {
     return value.find(needle) != std::string::npos;
@@ -439,6 +462,144 @@ TEST(JsTriggerDispatch, HelperTransactionAllowsEmptyBatchWithoutAudit)
     EXPECT_EQ(result.mutation_count, 0U);
     EXPECT_TRUE(result.diagnostic.empty());
     EXPECT_EQ(audit_calls, 0);
+}
+
+TEST(JsTriggerDispatch, MixedTransactionRejectsHelperWithoutKeepingPreparedSetters)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    zones[0].name = str_dup("Original Zone");
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
+
+    JsTriggerRuntimeMutationTransactionProbeResult result =
+        js_trigger_dispatch_probe_runtime_mutation_transaction(
+            { setter, helper }, request, adapter_options, test_mutation_authority());
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::UnknownOperation);
+    EXPECT_EQ(result.prepared_setter_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger helper mutation rejected");
+    EXPECT_STREQ(zones[0].name, "Original Zone");
+
+    free(zones[0].name);
+}
+
+TEST(JsTriggerDispatch, MixedTransactionSkipsHelperAuditWhenSetterValidationFails)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    const char* const allowed_operations[] = { "room.flags.add" };
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    helper_options.registry.operation_names = allowed_operations;
+    helper_options.registry.operation_count = 1;
+    helper_options.audit_user_data = &audit_calls;
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                        void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    JsRuntimeMutation invalid_setter = make_zone_name_setter("Changed Zone");
+    invalid_setter.target_id = "zone:999";
+    JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
+
+    JsTriggerRuntimeMutationTransactionProbeResult result =
+        js_trigger_dispatch_probe_runtime_mutation_transaction({ invalid_setter, helper },
+            request, adapter_options, test_mutation_authority(), helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::NotEvaluated);
+    EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.helper_status),
+        "not-evaluated");
+    EXPECT_EQ(result.prepared_setter_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger mutation target rejected");
+    EXPECT_EQ(audit_calls, 0);
+}
+
+TEST(JsTriggerDispatch, MixedTransactionRejectsHelperAuditFailureWithoutKeepingPreparedSetters)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    const char* const allowed_operations[] = { "room.flags.add" };
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    helper_options.registry.operation_names = allowed_operations;
+    helper_options.registry.operation_count = 1;
+    helper_options.audit_user_data = &audit_calls;
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                        void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return false;
+    };
+
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
+
+    JsTriggerRuntimeMutationTransactionProbeResult result =
+        js_trigger_dispatch_probe_runtime_mutation_transaction(
+            { setter, helper }, request, adapter_options, test_mutation_authority(), helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::AuditRejected);
+    EXPECT_EQ(result.prepared_setter_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger helper mutation rejected");
+    EXPECT_EQ(audit_calls, 1);
+}
+
+TEST(JsTriggerDispatch, MixedTransactionKeepsPreparedSettersWhenHelperAuditPasses)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    const char* const allowed_operations[] = { "room.flags.add" };
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    helper_options.registry.operation_names = allowed_operations;
+    helper_options.registry.operation_count = 1;
+    helper_options.audit_user_data = &audit_calls;
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                        void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
+
+    JsTriggerRuntimeMutationTransactionProbeResult result =
+        js_trigger_dispatch_probe_runtime_mutation_transaction(
+            { setter, helper }, request, adapter_options, test_mutation_authority(), helper_options);
+
+    EXPECT_TRUE(result.ok) << result.diagnostic;
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_EQ(result.prepared_setter_count, 1U);
+    EXPECT_TRUE(result.diagnostic.empty());
+    EXPECT_EQ(audit_calls, 1);
 }
 
 TEST(JsTriggerDispatch, StartsWithExplicitNoMatchStatusForEmptyRegistry)
