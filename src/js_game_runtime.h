@@ -3,6 +3,7 @@
 
 #include "js_runtime.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -211,6 +212,36 @@ struct JsGameAffectFixture {
     int counter = 0;
 };
 
+struct JsGameCharacterProfileFixture {
+    std::string name;
+    std::string short_description;
+    bool has_long_description = false;
+    std::string long_description;
+    bool has_description = false;
+    std::string description;
+    bool has_title = false;
+    std::string title;
+    bool has_death_cry = false;
+    std::string death_cry;
+    bool has_death_cry2 = false;
+    std::string death_cry2;
+    int corpse_number = 0;
+    int race_id = 0;
+    int sex = 0;
+    int body_type = 0;
+    int profession = 0;
+    int level = 0;
+    int language = 0;
+    int hometown = 0;
+    std::int64_t birth_epoch_seconds = 0;
+    std::int64_t logon_epoch_seconds = 0;
+    int played_seconds = 0;
+    int weight = 0;
+    int height = 0;
+    int ranking = 0;
+    std::vector<int> talks;
+};
+
 struct JsGameObjectFlagsFixture {
     std::string item_type;
     std::vector<std::string> wear_flags;
@@ -281,6 +312,7 @@ struct JsGameCharacterFixture {
     int interrupt_count = 0;
     int interrupt_time = 0;
     bool special_busy = false;
+    JsGameCharacterProfileFixture profile;
     JsGameAbilityScoresFixture base_abilities;
     JsGameAbilityScoresFixture current_abilities;
     JsGameAbilityScoresFixture rolled_abilities;

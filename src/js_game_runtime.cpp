@@ -75,6 +75,18 @@ std::string string_array_literal(const std::vector<std::string> &values) {
     return out.str();
 }
 
+std::string int_array_literal(const std::vector<int> &values) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << values[index];
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string ability_scores_literal(const JsGameAbilityScoresFixture &abilities) {
     std::ostringstream out;
     out << "{"
@@ -409,6 +421,38 @@ std::string mount_literal(const JsGameMountFixture &mount) {
     return out.str();
 }
 
+std::string character_profile_literal(const JsGameCharacterProfileFixture &profile) {
+    std::ostringstream out;
+    out << "{"
+        << "\"name\":" << js_quote(profile.name) << ","
+        << "\"shortDescription\":" << js_quote(profile.short_description) << ","
+        << "\"longDescription\":"
+        << nullable_literal(profile.has_long_description, js_quote(profile.long_description)) << ","
+        << "\"description\":"
+        << nullable_literal(profile.has_description, js_quote(profile.description)) << ","
+        << "\"title\":" << nullable_literal(profile.has_title, js_quote(profile.title)) << ","
+        << "\"deathCry\":" << nullable_literal(profile.has_death_cry, js_quote(profile.death_cry))
+        << ","
+        << "\"deathCry2\":"
+        << nullable_literal(profile.has_death_cry2, js_quote(profile.death_cry2)) << ","
+        << "\"corpseNumber\":" << profile.corpse_number << ","
+        << "\"raceId\":" << profile.race_id << ","
+        << "\"sex\":" << profile.sex << ","
+        << "\"bodyType\":" << profile.body_type << ","
+        << "\"profession\":" << profile.profession << ","
+        << "\"level\":" << profile.level << ","
+        << "\"language\":" << profile.language << ","
+        << "\"hometown\":" << profile.hometown << ","
+        << "\"birthEpochSeconds\":" << profile.birth_epoch_seconds << ","
+        << "\"logonEpochSeconds\":" << profile.logon_epoch_seconds << ","
+        << "\"playedSeconds\":" << profile.played_seconds << ","
+        << "\"weight\":" << profile.weight << ","
+        << "\"height\":" << profile.height << ","
+        << "\"ranking\":" << profile.ranking << ","
+        << "\"talks\":" << int_array_literal(profile.talks) << "}";
+    return out.str();
+}
+
 std::string character_literal(const JsGameCharacterFixture &character) {
     std::ostringstream out;
     out << "{"
@@ -436,6 +480,7 @@ std::string character_literal(const JsGameCharacterFixture &character) {
         << "\"interruptCount\":" << character.interrupt_count << ","
         << "\"interruptTime\":" << character.interrupt_time << ","
         << "\"specialBusy\":" << js_bool(character.special_busy) << ","
+        << "\"profile\":" << character_profile_literal(character.profile) << ","
         << "\"baseAbilities\":" << ability_scores_literal(character.base_abilities) << ","
         << "\"currentAbilities\":" << ability_scores_literal(character.current_abilities) << ","
         << "\"rolledAbilities\":" << ability_scores_literal(character.rolled_abilities) << ","

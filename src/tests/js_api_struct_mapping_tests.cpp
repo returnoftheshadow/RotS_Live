@@ -1012,8 +1012,8 @@ TEST(JsApiStructMapping, PinsCharacterNestedProfileAndStatSetterDeferrals) {
     };
 
     const ExpectedCharacterDeferral deferred[] = {
-        {"player", "profile", "setProfile", "CharacterProfile", false, "deferred", "unsupported",
-         "mutation", "account-backed fields"},
+        {"player", "profile", "setProfile", "CharacterProfile", false,
+         "implemented-read-only-getter", "unsupported", "mutation", "account-backed fields"},
         {"abilities", "baseAbilities", "setBaseAbilities", "AbilityScores", false,
          "implemented-read-only-getter", "unsupported", "mutation", "derived stat recalculation"},
         {"tmpabilities", "currentAbilities", "setCurrentAbilities", "AbilityScores", false,

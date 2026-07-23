@@ -167,6 +167,33 @@ JsGameTriggerContextFixture make_context() {
     context.self.interrupt_count = 2;
     context.self.interrupt_time = 11;
     context.self.special_busy = true;
+    context.self.profile.name = "Aldren";
+    context.self.profile.short_description = "Aldren the builder";
+    context.self.profile.has_long_description = true;
+    context.self.profile.long_description = "Aldren is reviewing the old gate.";
+    context.self.profile.has_description = true;
+    context.self.profile.description = "A builder with a weathered notebook.";
+    context.self.profile.has_title = true;
+    context.self.profile.title = "the careful mapper";
+    context.self.profile.has_death_cry = true;
+    context.self.profile.death_cry = "Aldren drops the notebook!";
+    context.self.profile.has_death_cry2 = true;
+    context.self.profile.death_cry2 = "A startled shout echoes nearby.";
+    context.self.profile.corpse_number = 6100;
+    context.self.profile.race_id = 1;
+    context.self.profile.sex = 1;
+    context.self.profile.body_type = 2;
+    context.self.profile.profession = 4;
+    context.self.profile.level = 42;
+    context.self.profile.language = 17;
+    context.self.profile.hometown = 12;
+    context.self.profile.birth_epoch_seconds = 1700000000;
+    context.self.profile.logon_epoch_seconds = 1700003600;
+    context.self.profile.played_seconds = 7200;
+    context.self.profile.weight = 180;
+    context.self.profile.height = 72;
+    context.self.profile.ranking = 9;
+    context.self.profile.talks = {10, 20, 30};
     context.self.base_abilities.strength = 16;
     context.self.base_abilities.intelligence = 12;
     context.self.base_abilities.willpower = 14;
@@ -1189,6 +1216,32 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.object.flags.timer === 30\n"
         "  && ctx.object.flags.rarity === 2\n"
         "  && ctx.object.flags.material === 'metal'\n"
+        "  && ctx.self.profile.name === 'Aldren'\n"
+        "  && ctx.self.profile.shortDescription === 'Aldren the builder'\n"
+        "  && ctx.self.profile.longDescription === 'Aldren is reviewing the old gate.'\n"
+        "  && ctx.self.profile.description === 'A builder with a weathered notebook.'\n"
+        "  && ctx.self.profile.title === 'the careful mapper'\n"
+        "  && ctx.self.profile.deathCry === 'Aldren drops the notebook!'\n"
+        "  && ctx.self.profile.deathCry2 === 'A startled shout echoes nearby.'\n"
+        "  && ctx.self.profile.corpseNumber === 6100\n"
+        "  && ctx.self.profile.raceId === 1\n"
+        "  && ctx.self.profile.sex === 1\n"
+        "  && ctx.self.profile.bodyType === 2\n"
+        "  && ctx.self.profile.profession === 4\n"
+        "  && ctx.self.profile.level === 42\n"
+        "  && ctx.self.profile.language === 17\n"
+        "  && ctx.self.profile.hometown === 12\n"
+        "  && ctx.self.profile.birthEpochSeconds === 1700000000\n"
+        "  && ctx.self.profile.logonEpochSeconds === 1700003600\n"
+        "  && ctx.self.profile.playedSeconds === 7200\n"
+        "  && ctx.self.profile.weight === 180\n"
+        "  && ctx.self.profile.height === 72\n"
+        "  && ctx.self.profile.ranking === 9\n"
+        "  && ctx.self.profile.talks.join(',') === '10,20,30'\n"
+        "  && typeof ctx.self.profile.host === 'undefined'\n"
+        "  && typeof ctx.self.profile.password === 'undefined'\n"
+        "  && typeof ctx.self.profile.email === 'undefined'\n"
+        "  && typeof ctx.self.profile.account === 'undefined'\n"
         "  && ctx.room.description === 'A gatehouse opens toward the old road.'\n"
         "  && ctx.room.level === 7\n"
         "  && ctx.room.sectorType === 'City'\n"
@@ -1276,6 +1329,11 @@ TEST(JsGameRuntime, KeepsRoomFlagArraysFrozenAndConstructorSafe) {
 TEST(JsGameRuntime, ModelsNullablePromotedStructGetterSnapshotsAsNull) {
     JsGameTriggerContextFixture context = make_context();
     context.object.has_action_description = false;
+    context.self.profile.has_long_description = false;
+    context.self.profile.has_description = false;
+    context.self.profile.has_title = false;
+    context.self.profile.has_death_cry = false;
+    context.self.profile.has_death_cry2 = false;
     context.zone.has_description = false;
     context.zone.has_map = false;
     context.room.zone.has_description = false;
@@ -1286,6 +1344,11 @@ TEST(JsGameRuntime, ModelsNullablePromotedStructGetterSnapshotsAsNull) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result =
         runtime.evaluate_trigger_body("return ctx.object.actionDescription === null\n"
+                                      "  && ctx.self.profile.longDescription === null\n"
+                                      "  && ctx.self.profile.description === null\n"
+                                      "  && ctx.self.profile.title === null\n"
+                                      "  && ctx.self.profile.deathCry === null\n"
+                                      "  && ctx.self.profile.deathCry2 === null\n"
                                       "  && ctx.zone.description === null\n"
                                       "  && ctx.zone.map === null\n"
                                       "  && ctx.room.zone.description === null\n"
@@ -1299,6 +1362,16 @@ TEST(JsGameRuntime, PreservesEmptyNullablePromotedStructGetterStrings) {
     JsGameTriggerContextFixture context = make_context();
     context.object.has_action_description = true;
     context.object.action_description = "";
+    context.self.profile.has_long_description = true;
+    context.self.profile.long_description = "";
+    context.self.profile.has_description = true;
+    context.self.profile.description = "";
+    context.self.profile.has_title = true;
+    context.self.profile.title = "";
+    context.self.profile.has_death_cry = true;
+    context.self.profile.death_cry = "";
+    context.self.profile.has_death_cry2 = true;
+    context.self.profile.death_cry2 = "";
     context.zone.has_description = true;
     context.zone.description = "";
     context.zone.has_map = true;
@@ -1307,9 +1380,33 @@ TEST(JsGameRuntime, PreservesEmptyNullablePromotedStructGetterStrings) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result =
         runtime.evaluate_trigger_body("return ctx.object.actionDescription === ''\n"
+                                      "  && ctx.self.profile.longDescription === ''\n"
+                                      "  && ctx.self.profile.description === ''\n"
+                                      "  && ctx.self.profile.title === ''\n"
+                                      "  && ctx.self.profile.deathCry === ''\n"
+                                      "  && ctx.self.profile.deathCry2 === ''\n"
                                       "  && ctx.zone.description === ''\n"
                                       "  && ctx.zone.map === '';",
                                       context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, RejectsMutationOfCharacterProfileSnapshot) {
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "let nameBlocked = false;\n"
+        "let talkBlocked = false;\n"
+        "let pushBlocked = false;\n"
+        "try { ctx.self.profile.name = 'Changed'; } catch (error) { nameBlocked = true; }\n"
+        "try { ctx.self.profile.talks[0] = 99; } catch (error) { talkBlocked = true; }\n"
+        "try { ctx.self.profile.talks.push(99); } catch (error) { pushBlocked = true; }\n"
+        "return ctx.self.profile.name === 'Aldren'\n"
+        "  && ctx.self.profile.talks.join(',') === '10,20,30'\n"
+        "  && Object.isFrozen(ctx.self.profile)\n"
+        "  && Object.isFrozen(ctx.self.profile.talks)\n"
+        "  && nameBlocked && talkBlocked && pushBlocked;",
+        make_context());
 
     expect_ok_allows(result);
 }
@@ -2211,6 +2308,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
+        "  && Object.isFrozen(ctx.self.profile)\n"
+        "  && Object.isFrozen(ctx.self.profile.talks)\n"
         "  && Object.isFrozen(ctx.self.baseAbilities)\n"
         "  && Object.isFrozen(ctx.self.currentAbilities)\n"
         "  && Object.isFrozen(ctx.self.rolledAbilities)\n"

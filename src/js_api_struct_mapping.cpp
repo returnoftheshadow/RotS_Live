@@ -39,8 +39,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "world-mutation",
      "Setter must preserve movement triggers, mounts, followers, and visibility rules."},
     {JsApiStructOwner::CharData, "char_data", "player", "profile", "getProfile", "setProfile",
-     "CharacterProfile", false, Deferred, Unsupported,
-     "Planned structured getter for public identity fields such as name, level, race, and title.",
+     "CharacterProfile", false, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only snapshot of copied public char_player_data fields, including "
+     "identity text, description text, demographic ids, language metadata, age timestamps, and "
+     "display ranking. Raw char pointers are not exposed.",
      "Whole-profile mutation is unsupported for builder scripts; identity, title, race, level, "
      "description, and account-backed fields need separate audited helpers with persistence and "
      "player/NPC authority rules.",

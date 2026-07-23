@@ -7,6 +7,7 @@
 #include "zone.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <sstream>
@@ -916,6 +917,38 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->interrupt_count = character->interrupt_count;
     fixture->interrupt_time = character->interrupt_time;
     fixture->special_busy = character->spec_busy;
+    fixture->profile.name = copy_c_string(character->player.name);
+    fixture->profile.short_description = character->player.short_descr != nullptr
+                                             ? copy_c_string(character->player.short_descr)
+                                             : fixture->profile.name;
+    fixture->profile.has_long_description = character->player.long_descr != nullptr;
+    fixture->profile.long_description = copy_c_string(character->player.long_descr);
+    fixture->profile.has_description = character->player.description != nullptr;
+    fixture->profile.description = copy_c_string(character->player.description);
+    fixture->profile.has_title = character->player.title != nullptr;
+    fixture->profile.title = copy_c_string(character->player.title);
+    fixture->profile.has_death_cry = character->player.death_cry != nullptr;
+    fixture->profile.death_cry = copy_c_string(character->player.death_cry);
+    fixture->profile.has_death_cry2 = character->player.death_cry2 != nullptr;
+    fixture->profile.death_cry2 = copy_c_string(character->player.death_cry2);
+    fixture->profile.corpse_number = character->player.corpse_num;
+    fixture->profile.race_id = character->player.race;
+    fixture->profile.sex = character->player.sex;
+    fixture->profile.body_type = character->player.bodytype;
+    fixture->profile.profession = character->player.prof;
+    fixture->profile.level = character->player.level;
+    fixture->profile.language = character->player.language;
+    fixture->profile.hometown = character->player.hometown;
+    fixture->profile.birth_epoch_seconds = static_cast<std::int64_t>(character->player.time.birth);
+    fixture->profile.logon_epoch_seconds = static_cast<std::int64_t>(character->player.time.logon);
+    fixture->profile.played_seconds = character->player.time.played;
+    fixture->profile.weight = character->player.weight;
+    fixture->profile.height = character->player.height;
+    fixture->profile.ranking = character->player.ranking;
+    fixture->profile.talks.clear();
+    fixture->profile.talks.reserve(MAX_TOUNGE);
+    for (int index = 0; index < MAX_TOUNGE; ++index)
+        fixture->profile.talks.push_back(character->player.talks[index]);
     fixture->base_abilities.strength = character->abilities.str;
     fixture->base_abilities.intelligence = character->abilities.intel;
     fixture->base_abilities.willpower = character->abilities.wil;
