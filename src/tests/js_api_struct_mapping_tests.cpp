@@ -1051,7 +1051,7 @@ TEST(JsApiStructMapping, PinsCharacterNestedProfileAndStatSetterDeferrals) {
             "SpecializationData", false, "implemented-read-only-getter", "unsupported", "mutation",
             "class-specific invariants"},
         {"damage_details", "damageDetails", "setDamageDetails", "DamageDetails", false,
-            "deferred", "unsupported", "mutation", "combat participation"},
+            "implemented-read-only-getter", "unsupported", "mutation", "combat participation"},
         {"skills", "skills", "setSkill", "readonly SkillValue[]", true, "deferred",
             "unsupported", "mutation", "practice sessions"},
         {"knowledge", "knowledge", "setKnowledge", "readonly SkillValue[]", true, "deferred",

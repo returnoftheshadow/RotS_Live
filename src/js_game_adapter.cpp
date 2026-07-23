@@ -1,6 +1,7 @@
 #include "js_game_adapter.h"
 
 #include "db.h"
+#include "spells.h"
 #include "structs.h"
 #include "utils.h"
 #include "zone.h"
@@ -95,6 +96,22 @@ const CharacterSpecializationField& character_specialization_field(int id)
     static constexpr CharacterSpecializationField UnknownSpecialization = { -1, "Unknown",
         "Unknown" };
     return UnknownSpecialization;
+}
+
+std::pair<std::string, std::string> damage_source_metadata(int source_id)
+{
+    if (source_id >= TYPE_HIT && source_id <= TYPE_CRUSH) {
+        const attack_hit_type& hit_text = get_hit_text(source_id);
+        return { "attack", copy_c_string(hit_text.singular) };
+    }
+
+    if (source_id >= 0 && source_id < MAX_SKILLS) {
+        const skill_data* skills = get_skill_array();
+        if (skills != nullptr)
+            return { "skill", copy_c_string(skills[source_id].name) };
+    }
+
+    return { "unknown", "Unknown" };
 }
 
 std::string table_name_or_unknown(char **table, int value)
@@ -884,6 +901,39 @@ bool js_game_adapter_character_fixture(const char_data *character,
         character->extra_specialization_data.is_mage_spec();
     fixture->specializations.has_runtime_state =
         character->extra_specialization_data.current_spec_info != nullptr;
+    fixture->damage_details.entries.clear();
+    fixture->damage_details.elapsed_combat_seconds =
+        character->damage_details.get_elapsed_combat_seconds();
+    fixture->damage_details.total_damage = 0;
+    for (const auto& damage_entry : character->damage_details.get_damage_map()) {
+        fixture->damage_details.total_damage += damage_entry.second.get_total_damage();
+    }
+    const double combat_seconds =
+        std::max(fixture->damage_details.elapsed_combat_seconds, 0.5);
+    fixture->damage_details.damage_per_second =
+        static_cast<double>(fixture->damage_details.total_damage) / combat_seconds;
+    fixture->damage_details.entries.reserve(character->damage_details.get_damage_map().size());
+    for (const auto& damage_entry : character->damage_details.get_damage_map()) {
+        JsGameDamageEntryFixture entry_fixture;
+        const auto [source_kind, source_name] = damage_source_metadata(damage_entry.first);
+        entry_fixture.source_id = damage_entry.first;
+        entry_fixture.source_kind = source_kind;
+        entry_fixture.source_name = source_name;
+        entry_fixture.instance_count = damage_entry.second.get_instance_count();
+        entry_fixture.total_damage = damage_entry.second.get_total_damage();
+        entry_fixture.largest_damage = damage_entry.second.get_largest_damage();
+        entry_fixture.average_damage =
+            entry_fixture.instance_count > 0
+                ? static_cast<double>(entry_fixture.total_damage) / entry_fixture.instance_count
+                : 0;
+        entry_fixture.percent_of_total =
+            fixture->damage_details.total_damage > 0
+                ? (static_cast<double>(entry_fixture.total_damage)
+                      / fixture->damage_details.total_damage)
+                    * 100
+                : 0;
+        fixture->damage_details.entries.push_back(std::move(entry_fixture));
+    }
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;

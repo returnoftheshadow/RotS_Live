@@ -283,6 +283,38 @@ std::string specializations_literal(const JsGameSpecializationFixture& specializ
     return out.str();
 }
 
+std::string damage_entry_literal(const JsGameDamageEntryFixture& entry)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"sourceId\":" << entry.source_id << ","
+        << "\"sourceKind\":" << js_quote(entry.source_kind) << ","
+        << "\"sourceName\":" << js_quote(entry.source_name) << ","
+        << "\"instanceCount\":" << entry.instance_count << ","
+        << "\"totalDamage\":" << entry.total_damage << ","
+        << "\"largestDamage\":" << entry.largest_damage << ","
+        << "\"averageDamage\":" << entry.average_damage << ","
+        << "\"percentOfTotal\":" << entry.percent_of_total << "}";
+    return out.str();
+}
+
+std::string damage_details_literal(const JsGameDamageDetailsFixture& damage_details)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"elapsedCombatSeconds\":" << damage_details.elapsed_combat_seconds << ","
+        << "\"totalDamage\":" << damage_details.total_damage << ","
+        << "\"damagePerSecond\":" << damage_details.damage_per_second << ","
+        << "\"entries\":[";
+    for (std::size_t index = 0; index < damage_details.entries.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << damage_entry_literal(damage_details.entries[index]);
+    }
+    out << "]}";
+    return out.str();
+}
+
 std::string character_literal(const JsGameCharacterFixture& character)
 {
     std::ostringstream out;
@@ -319,6 +351,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"specials2\":" << character_specials2_literal(character.specials2) << ","
         << "\"professions\":" << professions_literal(character.professions) << ","
         << "\"specializations\":" << specializations_literal(character.specializations) << ","
+        << "\"damageDetails\":" << damage_details_literal(character.damage_details) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

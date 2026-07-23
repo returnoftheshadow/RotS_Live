@@ -1,5 +1,6 @@
 #include "../js_game_runtime.h"
 #include "../js_api_struct_mapping.h"
+#include "../spells.h"
 #include "../structs.h"
 
 #include <gtest/gtest.h>
@@ -8,6 +9,22 @@ extern char* sector_types[];
 extern char num_of_sector_types;
 
 namespace {
+
+JsGameDamageEntryFixture make_damage_entry(int source_id, const std::string& source_kind,
+    const std::string& source_name, int instance_count, int total_damage, int largest_damage,
+    double average_damage, double percent_of_total)
+{
+    JsGameDamageEntryFixture entry;
+    entry.source_id = source_id;
+    entry.source_kind = source_kind;
+    entry.source_name = source_name;
+    entry.instance_count = instance_count;
+    entry.total_damage = total_damage;
+    entry.largest_damage = largest_damage;
+    entry.average_damage = average_damage;
+    entry.percent_of_total = percent_of_total;
+    return entry;
+}
 
 JsGameTriggerContextFixture make_context()
 {
@@ -119,6 +136,13 @@ JsGameTriggerContextFixture make_context()
     context.self.specializations.current_name = "cold";
     context.self.specializations.is_mage_specialization = true;
     context.self.specializations.has_runtime_state = true;
+    context.self.damage_details.elapsed_combat_seconds = 2.0;
+    context.self.damage_details.total_damage = 35;
+    context.self.damage_details.damage_per_second = 17.5;
+    context.self.damage_details.entries.push_back(
+        make_damage_entry(1, "skill", "Kick", 1, 5, 5, 5.0, 14.285714285714286));
+    context.self.damage_details.entries.push_back(
+        make_damage_entry(TYPE_HIT, "attack", "hit", 2, 30, 20, 15.0, 85.71428571428571));
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -220,6 +244,11 @@ JsGameTriggerContextFixture make_context()
     context.actor.specializations.current_key = "weaponMastery";
     context.actor.specializations.current_name = "weapon mastery";
     context.actor.specializations.has_runtime_state = false;
+    context.actor.damage_details.elapsed_combat_seconds = 4.0;
+    context.actor.damage_details.total_damage = 12;
+    context.actor.damage_details.damage_per_second = 3.0;
+    context.actor.damage_details.entries.push_back(
+        make_damage_entry(7, "skill", "Rescue", 3, 12, 6, 4.0, 100.0));
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -651,6 +680,25 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.specializations.currentName === 'cold'\n"
         "  && ctx.self.specializations.isMageSpecialization === true\n"
         "  && ctx.self.specializations.hasRuntimeState === true\n"
+        "  && ctx.self.damageDetails.elapsedCombatSeconds === 2\n"
+        "  && ctx.self.damageDetails.totalDamage === 35\n"
+        "  && ctx.self.damageDetails.damagePerSecond === 17.5\n"
+        "  && ctx.self.damageDetails.entries.length === 2\n"
+        "  && ctx.self.damageDetails.entries[0].sourceId === 1\n"
+        "  && ctx.self.damageDetails.entries[0].sourceKind === 'skill'\n"
+        "  && ctx.self.damageDetails.entries[0].sourceName === 'Kick'\n"
+        "  && ctx.self.damageDetails.entries[0].instanceCount === 1\n"
+        "  && ctx.self.damageDetails.entries[0].totalDamage === 5\n"
+        "  && ctx.self.damageDetails.entries[0].largestDamage === 5\n"
+        "  && ctx.self.damageDetails.entries[0].averageDamage === 5\n"
+        "  && Math.abs(ctx.self.damageDetails.entries[0].percentOfTotal - 14.285714285714286) < 0.0001\n"
+        "  && ctx.self.damageDetails.entries[1].sourceKind === 'attack'\n"
+        "  && ctx.self.damageDetails.entries[1].sourceName === 'hit'\n"
+        "  && ctx.self.damageDetails.entries[1].instanceCount === 2\n"
+        "  && ctx.self.damageDetails.entries[1].totalDamage === 30\n"
+        "  && ctx.self.damageDetails.entries[1].largestDamage === 20\n"
+        "  && ctx.self.damageDetails.entries[1].averageDamage === 15\n"
+        "  && Math.abs(ctx.self.damageDetails.entries[1].percentOfTotal - 85.71428571428571) < 0.0001\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -720,6 +768,11 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.specializations.currentName === 'weapon mastery'\n"
         "  && ctx.actor.specializations.isMageSpecialization === false\n"
         "  && ctx.actor.specializations.hasRuntimeState === false\n"
+        "  && ctx.actor.damageDetails.elapsedCombatSeconds === 4\n"
+        "  && ctx.actor.damageDetails.totalDamage === 12\n"
+        "  && ctx.actor.damageDetails.damagePerSecond === 3\n"
+        "  && ctx.actor.damageDetails.entries[0].sourceName === 'Rescue'\n"
+        "  && ctx.actor.damageDetails.entries[0].percentOfTotal === 100\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1821,6 +1874,9 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.professions.constructor === 'undefined'\n"
         "  && typeof ctx.self.professions[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.specializations.constructor === 'undefined'\n"
+        "  && typeof ctx.self.damageDetails.constructor === 'undefined'\n"
+        "  && typeof ctx.self.damageDetails.entries.constructor === 'undefined'\n"
+        "  && typeof ctx.self.damageDetails.entries[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -1833,6 +1889,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.specials2.conditions) === null\n"
         "  && Object.getPrototypeOf(ctx.self.professions[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.specializations) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.damageDetails) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.damageDetails.entries[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -1849,6 +1907,9 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.professions)\n"
         "  && Object.isFrozen(ctx.self.professions[0])\n"
         "  && Object.isFrozen(ctx.self.specializations)\n"
+        "  && Object.isFrozen(ctx.self.damageDetails)\n"
+        "  && Object.isFrozen(ctx.self.damageDetails.entries)\n"
+        "  && Object.isFrozen(ctx.self.damageDetails.entries[0])\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -1916,6 +1977,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
                   .status,
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.damageDetails.totalDamage = 1;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.damageDetails.entries[0].totalDamage = 1;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.points.bodypartHits[0] = 1;\n"
                          "return true;",
                          make_context())
@@ -1937,6 +2010,28 @@ TEST(JsGameRuntime, DefaultsMissingCharacterPointBodypartsToLiveShape)
         "  && ctx.self.points.bodypartHits.every(function(hit) { return hit === 0; })\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined';",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, DefaultsMissingCharacterDamageDetailsToEmptySnapshot)
+{
+    JsGameTriggerContextFixture context;
+    context.has_self = true;
+    context.self.id = "char:default-damage";
+    context.self.name = "Default Damage";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.self.damageDetails.elapsedCombatSeconds === 0\n"
+        "  && ctx.self.damageDetails.totalDamage === 0\n"
+        "  && ctx.self.damageDetails.damagePerSecond === 0\n"
+        "  && ctx.self.damageDetails.entries.length === 0\n"
+        "  && Object.isFrozen(ctx.self.damageDetails)\n"
+        "  && Object.isFrozen(ctx.self.damageDetails.entries)\n"
+        "  && Object.getPrototypeOf(ctx.self.damageDetails) === null\n"
+        "  && typeof ctx.self.damageDetails.constructor === 'undefined';",
         context);
 
     expect_ok_allows(result);

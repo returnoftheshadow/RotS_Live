@@ -1599,6 +1599,8 @@ public:
         elapsed_combat_seconds = 0;
     }
 
+    const std::map<int, damage_details>& get_damage_map() const { return damage_map; }
+    float get_elapsed_combat_seconds() const { return elapsed_combat_seconds; }
     std::string get_damage_report(const char_data* character) const;
 
 private:

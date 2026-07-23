@@ -79,6 +79,8 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
         "CharacterSpecials2",
         "Profession",
         "SpecializationData",
+        "DamageDetails",
+        "DamageEntry",
         "Player",
         "Mob",
         "GameObject",
@@ -256,7 +258,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     for (const char *member_name :
         {"classPoints", "interruptCount", "interruptTime", "specialBusy", "baseAbilities",
             "currentAbilities", "rolledAbilities", "points", "specials", "specials2",
-            "professions", "specializations"}) {
+            "professions", "specializations", "damageDetails"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -280,6 +282,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         "readonly Profession[]");
     EXPECT_STREQ(find_js_api_contract_member(*character, "specializations")->type_name,
         "SpecializationData");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "damageDetails")->type_name,
+        "DamageDetails");
 
     const JsApiType *ability_scores = find_js_api_contract_type("AbilityScores");
     ASSERT_NE(ability_scores, nullptr);
@@ -308,6 +312,40 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
     }
+    const JsApiType *damage_details = find_js_api_contract_type("DamageDetails");
+    ASSERT_NE(damage_details, nullptr);
+    for (const char *member_name :
+        {"elapsedCombatSeconds", "totalDamage", "damagePerSecond", "entries"}) {
+        const JsApiMember *member = find_js_api_contract_member(*damage_details, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
+    EXPECT_STREQ(find_js_api_contract_member(*damage_details, "elapsedCombatSeconds")->type_name,
+        "number");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_details, "totalDamage")->type_name,
+        "number");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_details, "damagePerSecond")->type_name,
+        "number");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_details, "entries")->type_name,
+        "readonly DamageEntry[]");
+    const JsApiType *damage_entry = find_js_api_contract_type("DamageEntry");
+    ASSERT_NE(damage_entry, nullptr);
+    for (const char *member_name : {"sourceId", "sourceKind", "sourceName", "instanceCount",
+             "totalDamage", "largestDamage", "averageDamage", "percentOfTotal"}) {
+        const JsApiMember *member = find_js_api_contract_member(*damage_entry, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
+    EXPECT_STREQ(find_js_api_contract_member(*damage_entry, "sourceKind")->type_name,
+        "'skill' | 'attack' | 'unknown'");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_entry, "sourceId")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_entry, "sourceName")->type_name, "string");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_entry, "instanceCount")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_entry, "totalDamage")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_entry, "largestDamage")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_entry, "averageDamage")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*damage_entry, "percentOfTotal")->type_name,
+        "number");
 
     const JsApiType* mob = find_js_api_contract_type("Mob");
     ASSERT_NE(mob, nullptr);

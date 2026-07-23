@@ -148,6 +148,24 @@ struct JsGameSpecializationFixture {
     bool has_runtime_state = false;
 };
 
+struct JsGameDamageEntryFixture {
+    int source_id = 0;
+    std::string source_kind = "unknown";
+    std::string source_name = "Unknown";
+    int instance_count = 0;
+    int total_damage = 0;
+    int largest_damage = 0;
+    double average_damage = 0;
+    double percent_of_total = 0;
+};
+
+struct JsGameDamageDetailsFixture {
+    double elapsed_combat_seconds = 0;
+    long total_damage = 0;
+    double damage_per_second = 0;
+    std::vector<JsGameDamageEntryFixture> entries;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -171,6 +189,7 @@ struct JsGameCharacterFixture {
     JsGameCharacterSpecials2Fixture specials2;
     std::vector<JsGameProfessionFixture> professions;
     JsGameSpecializationFixture specializations;
+    JsGameDamageDetailsFixture damage_details;
     bool is_npc = false;
 
     bool has_room = false;

@@ -97,6 +97,10 @@ constexpr JsApiMember CharacterMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only specialization summary. Raw runtime specialization subclass state, "
      "targets, off-hand object pointers, timestamps, and direct mutation are not exposed."},
+    {"damageDetails", JsApiMemberKind::Property, "DamageDetails", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only combat damage summary. It exposes aggregate and per-source counters only; "
+     "combat ownership, threat, XP sharing, timers, and cleanup state are not exposed."},
     {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
      "Checks whether this invocation-local handle still points at a live entity."},
@@ -631,6 +635,49 @@ constexpr JsApiMember SpecializationDataMembers[] = {
      "True when runtime specialization helper state has been allocated for this invocation."},
 };
 
+constexpr JsApiMember DamageDetailsMembers[] = {
+    {"elapsedCombatSeconds", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Elapsed combat seconds tracked by the combat engine for this character's current report."},
+    {"totalDamage", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Total recorded damage across all tracked sources."},
+    {"damagePerSecond", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Total damage divided by combat time, using the same minimum half-second divisor as the "
+     "legacy damage report."},
+    {"entries", JsApiMemberKind::Property, "readonly DamageEntry[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen per-source damage entries ordered by the underlying source id."},
+};
+
+constexpr JsApiMember DamageEntryMembers[] = {
+    {"sourceId", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Skill id or attack type id used by the combat engine as the damage source."},
+    {"sourceKind", JsApiMemberKind::Property, "'skill' | 'attack' | 'unknown'", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Classifies whether the source id resolved to a skill, attack type, or unknown id."},
+    {"sourceName", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Builder-facing skill or attack name for the source id."},
+    {"instanceCount", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Number of recorded damage instances for this source."},
+    {"totalDamage", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Total recorded damage for this source."},
+    {"largestDamage", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Largest single recorded damage value for this source."},
+    {"averageDamage", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Average recorded damage for this source."},
+    {"percentOfTotal", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Percent of the character's total recorded damage represented by this source."},
+};
+
 constexpr JsApiMember ScriptMembers[] = {
     {"sendToCharacter", JsApiMemberKind::Method, "(target: Character, text: string) => void",
      "void", false, true, JsApiSideEffect::Output, JsApiMemberStatus::Deferred, "deferred",
@@ -669,6 +716,12 @@ constexpr JsApiType ApiTypes[] = {
     {"SpecializationData", JsApiTypeKind::Interface, "",
      "Frozen read-only character specialization summary.", SpecializationDataMembers,
      sizeof(SpecializationDataMembers) / sizeof(SpecializationDataMembers[0])},
+    {"DamageDetails", JsApiTypeKind::Interface, "",
+     "Frozen read-only character combat damage summary.", DamageDetailsMembers,
+     sizeof(DamageDetailsMembers) / sizeof(DamageDetailsMembers[0])},
+    {"DamageEntry", JsApiTypeKind::Interface, "",
+     "Frozen read-only per-source combat damage entry.", DamageEntryMembers,
+     sizeof(DamageEntryMembers) / sizeof(DamageEntryMembers[0])},
     {"Player", JsApiTypeKind::Interface, "Character", "Read-only player character handle.",
      PlayerMembers, sizeof(PlayerMembers) / sizeof(PlayerMembers[0])},
     {"Mob", JsApiTypeKind::Interface, "Character", "Read-only non-player mobile handle.",

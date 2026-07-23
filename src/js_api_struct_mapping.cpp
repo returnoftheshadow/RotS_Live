@@ -122,8 +122,11 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "respec rules, combat bonuses, and persistence/audit semantics need explicit admin helpers.",
      "mutation", "Nested data."},
     {JsApiStructOwner::CharData, "char_data", "damage_details", "damageDetails", "getDamageDetails",
-     "setDamageDetails", "DamageDetails", false, Deferred, Unsupported,
-     "Planned snapshot of current damage bookkeeping for combat triggers.",
+     "setDamageDetails", "DamageDetails", false, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only combat damage summary with elapsed combat seconds, aggregate "
+     "damage, damage per second, and per-source id/name/kind/count/total/max/average/percent "
+     "entries. Combat ownership, threat, XP sharing, timer internals, and cleanup state are not "
+     "exposed.",
      "Damage bookkeeping writes are unsupported for builder scripts; combat participation, XP "
      "sharing, threat, timers, and cleanup must stay owned by combat engine helpers.",
      "mutation", "Combat-internal data."},

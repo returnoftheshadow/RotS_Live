@@ -1,6 +1,7 @@
 #include "../js_game_adapter.h"
 
 #include "../db.h"
+#include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
@@ -414,6 +415,73 @@ TEST(JsGameAdapter, SnapshotsCharacterProfessionsWhenPresent)
     EXPECT_EQ(fixture.specializations.current_name, "cold");
     EXPECT_TRUE(fixture.specializations.is_mage_specialization);
     EXPECT_TRUE(fixture.specializations.has_runtime_state);
+}
+
+TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    player.damage_details.add_damage(1, 5);
+    player.damage_details.add_damage(TYPE_HIT, 10);
+    player.damage_details.add_damage(TYPE_HIT, 20);
+    player.damage_details.tick(2.0f);
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    EXPECT_DOUBLE_EQ(fixture.damage_details.elapsed_combat_seconds, 2.0);
+    EXPECT_EQ(fixture.damage_details.total_damage, 35);
+    EXPECT_DOUBLE_EQ(fixture.damage_details.damage_per_second, 17.5);
+    ASSERT_EQ(fixture.damage_details.entries.size(), 2u);
+
+    const JsGameDamageEntryFixture& skill_entry = fixture.damage_details.entries[0];
+    EXPECT_EQ(skill_entry.source_id, 1);
+    EXPECT_EQ(skill_entry.source_kind, "skill");
+    EXPECT_EQ(skill_entry.source_name, get_skill_array()[1].name);
+    EXPECT_EQ(skill_entry.instance_count, 1);
+    EXPECT_EQ(skill_entry.total_damage, 5);
+    EXPECT_EQ(skill_entry.largest_damage, 5);
+    EXPECT_DOUBLE_EQ(skill_entry.average_damage, 5.0);
+    EXPECT_NEAR(skill_entry.percent_of_total, 14.2857, 0.0001);
+
+    const JsGameDamageEntryFixture& attack_entry = fixture.damage_details.entries[1];
+    EXPECT_EQ(attack_entry.source_id, TYPE_HIT);
+    EXPECT_EQ(attack_entry.source_kind, "attack");
+    EXPECT_EQ(attack_entry.source_name, get_hit_text(TYPE_HIT).singular);
+    EXPECT_EQ(attack_entry.instance_count, 2);
+    EXPECT_EQ(attack_entry.total_damage, 30);
+    EXPECT_EQ(attack_entry.largest_damage, 20);
+    EXPECT_DOUBLE_EQ(attack_entry.average_damage, 15.0);
+    EXPECT_NEAR(attack_entry.percent_of_total, 85.7142, 0.0001);
+}
+
+TEST(JsGameAdapter, SnapshotsEmptyAndUnknownCharacterDamageDetails)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+    EXPECT_DOUBLE_EQ(fixture.damage_details.elapsed_combat_seconds, 0.0);
+    EXPECT_EQ(fixture.damage_details.total_damage, 0);
+    EXPECT_DOUBLE_EQ(fixture.damage_details.damage_per_second, 0.0);
+    EXPECT_TRUE(fixture.damage_details.entries.empty());
+
+    player.damage_details.add_damage(MAX_SKILLS + 10, 10);
+    player.damage_details.tick(0.25f);
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+    EXPECT_DOUBLE_EQ(fixture.damage_details.elapsed_combat_seconds, 0.25);
+    EXPECT_EQ(fixture.damage_details.total_damage, 10);
+    EXPECT_DOUBLE_EQ(fixture.damage_details.damage_per_second, 20.0);
+    ASSERT_EQ(fixture.damage_details.entries.size(), 1u);
+    EXPECT_EQ(fixture.damage_details.entries[0].source_id, MAX_SKILLS + 10);
+    EXPECT_EQ(fixture.damage_details.entries[0].source_kind, "unknown");
+    EXPECT_EQ(fixture.damage_details.entries[0].source_name, "Unknown");
+    EXPECT_EQ(fixture.damage_details.entries[0].percent_of_total, 100.0);
 }
 
 TEST(JsGameAdapter, SnapshotsMissingAndInvalidSpecializationSafely)
