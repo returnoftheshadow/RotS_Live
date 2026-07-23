@@ -74,6 +74,7 @@ enum class JsTriggerHelperMutationTransactionStatus {
     InvalidTarget,
     InvalidArguments,
     AuditRejected,
+    ApplyRejected,
 };
 
 struct JsTriggerHelperMutationOperationRegistry {
@@ -96,12 +97,16 @@ struct JsTriggerHelperMutationValidationContext {
 
 using JsTriggerHelperMutationAuditCallback = bool (*)(
     const JsTriggerHelperMutationAuditRequest& request, std::string* diagnostic, void* user_data);
+using JsTriggerHelperMutationApplyPreconditionCallback = bool (*)(
+    std::size_t mutation_index, void* user_data);
 
 struct JsTriggerHelperMutationTransactionOptions {
     JsTriggerHelperMutationOperationRegistry registry;
     const JsTriggerHelperMutationValidationContext* validation_context = nullptr;
     JsTriggerHelperMutationAuditCallback audit_callback = nullptr;
     void* audit_user_data = nullptr;
+    JsTriggerHelperMutationApplyPreconditionCallback apply_precondition_callback = nullptr;
+    void* apply_precondition_user_data = nullptr;
 };
 
 struct JsTriggerHelperMutationTransactionResult {
@@ -115,6 +120,16 @@ struct JsTriggerRuntimeMutationTransactionProbeResult {
     bool ok = false;
     std::string diagnostic;
     std::size_t prepared_setter_count = 0;
+    std::size_t prepared_helper_count = 0;
+    JsTriggerHelperMutationTransactionStatus helper_status =
+        JsTriggerHelperMutationTransactionStatus::NotEvaluated;
+};
+
+struct JsTriggerRuntimeMutationTransactionApplyResult {
+    bool ok = false;
+    std::string diagnostic;
+    std::size_t applied_setter_count = 0;
+    std::size_t applied_helper_count = 0;
     JsTriggerHelperMutationTransactionStatus helper_status =
         JsTriggerHelperMutationTransactionStatus::NotEvaluated;
 };
@@ -161,6 +176,15 @@ JsTriggerHelperMutationOperationRegistry js_trigger_dispatch_room_flag_helper_op
 // builder scripts, HTTP publish responses, or script-visible diagnostics.
 JsTriggerRuntimeMutationTransactionProbeResult
 js_trigger_dispatch_probe_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& mutations,
+    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
+    const JsTriggerMutationAuthorityContext& authority,
+    const JsTriggerHelperMutationTransactionOptions& helper_options = {});
+
+// Internal transaction applicator for game dispatch and C++ tooling/tests. Do not expose this
+// function or detailed result through builder scripts, HTTP publish responses, or script-visible
+// diagnostics.
+JsTriggerRuntimeMutationTransactionApplyResult
+js_trigger_dispatch_apply_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& mutations,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
     const JsTriggerMutationAuthorityContext& authority,
     const JsTriggerHelperMutationTransactionOptions& helper_options = {});
