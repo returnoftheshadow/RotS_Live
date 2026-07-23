@@ -543,6 +543,28 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         EXPECT_EQ(object_block.find(std::string(member_name) + "("), std::string::npos)
             << member_name;
     }
+    const std::string object_flags_block =
+        declaration_block(declarations, "export interface ObjectFlags");
+    ASSERT_FALSE(object_flags_block.empty());
+    const char *raw_object_flag_members[] = {
+        "values",     "rawValues",    "value",      "value0",      "value1",   "value2",
+        "value3",     "value4",       "typeFlag",   "type_flag",   "wearBits", "wear_flags",
+        "extraBits",  "extra_flags",  "bitvector",  "butcherItem", "butcher_item",
+        "progNumber", "prog_number",  "scriptNumber", "script_number", "scriptInfo",
+        "script_info", "poisoned",    "poisonData", "poisondata",  "poison_data",
+        "rawMaterial",
+    };
+    for (const char *member_name : raw_object_flag_members) {
+        EXPECT_EQ(object_flags_block.find(std::string(member_name) + ":"),
+                  std::string::npos)
+            << member_name;
+        EXPECT_EQ(object_flags_block.find(std::string(member_name) + "?:"),
+                  std::string::npos)
+            << member_name;
+        EXPECT_EQ(object_flags_block.find(std::string(member_name) + "("),
+                  std::string::npos)
+            << member_name;
+    }
 }
 
 TEST(JsBuilderArtifacts, EmitsDiscriminatedMutationResultType) {

@@ -625,8 +625,16 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     const JsApiMember *object_type = find_js_api_contract_member(*object_flags_type, "itemType");
     ASSERT_NE(object_type, nullptr);
     EXPECT_STREQ(object_type->type_name, "string");
-    const JsApiMember *object_values = find_js_api_contract_member(*object_flags_type, "values");
-    EXPECT_EQ(object_values, nullptr);
+    for (const char *member_name :
+         {"values",      "rawValues",    "value",        "value0",      "value1",
+          "value2",      "value3",       "value4",       "typeFlag",    "type_flag",
+          "wearBits",    "wear_flags",   "extraBits",    "extra_flags", "bitvector",
+          "butcherItem", "butcher_item", "progNumber",   "prog_number", "scriptNumber",
+          "script_number", "scriptInfo", "script_info",  "poisoned",    "poisonData",
+          "poisondata",  "poison_data",  "rawMaterial"}) {
+        EXPECT_EQ(find_js_api_contract_member(*object_flags_type, member_name), nullptr)
+            << member_name;
+    }
     const JsApiMember *object_material =
         find_js_api_contract_member(*object_flags_type, "material");
     ASSERT_NE(object_material, nullptr);

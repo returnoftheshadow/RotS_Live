@@ -1252,7 +1252,12 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.object.flags.itemType === 'weapon'\n"
         "  && ctx.object.flags.wearFlags.join(',') === 'take,wield'\n"
         "  && ctx.object.flags.extraFlags.join(',') === 'glow,magic'\n"
-        "  && typeof ctx.object.flags.values === 'undefined'\n"
+        "  && ['values', 'rawValues', 'value', 'value0', 'value1', 'value2', 'value3', 'value4',\n"
+        "      'typeFlag', 'type_flag', 'wearBits', 'wear_flags', 'extraBits', 'extra_flags',\n"
+        "      'bitvector', 'butcherItem', 'butcher_item', 'progNumber', 'prog_number',\n"
+        "      'scriptNumber', 'script_number', 'scriptInfo', 'script_info', 'poisoned',\n"
+        "      'poisonData', 'poisondata', 'poison_data', 'rawMaterial']\n"
+        "      .every((field) => typeof ctx.object.flags[field] === 'undefined')\n"
         "  && ctx.object.flags.level === 12\n"
         "  && ctx.object.flags.weight === 7\n"
         "  && ctx.object.flags.cost === 450\n"
@@ -1360,6 +1365,30 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
     expect_ok_allows(result);
 }
 
+TEST(JsGameRuntime, OmitsRawObjectFlagDomainsFromNestedObjectSnapshots) {
+    JsGameTriggerContextFixture context = make_context();
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const forbidden = ['values', 'rawValues', 'value', 'value0', 'value1', 'value2',\n"
+        "  'value3', 'value4', 'typeFlag', 'type_flag', 'wearBits', 'wear_flags',\n"
+        "  'extraBits', 'extra_flags', 'bitvector', 'butcherItem', 'butcher_item',\n"
+        "  'progNumber', 'prog_number', 'scriptNumber', 'script_number', 'scriptInfo',\n"
+        "  'script_info', 'poisoned', 'poisonData', 'poisondata', 'poison_data',\n"
+        "  'rawMaterial'];\n"
+        "const noRaw = (flags) => forbidden.every((field) => typeof flags[field] === 'undefined');\n"
+        "return noRaw(ctx.object.flags)\n"
+        "  && noRaw(ctx.object.container.flags)\n"
+        "  && noRaw(ctx.object.contents[0].flags)\n"
+        "  && noRaw(ctx.self.equipment[6].object.flags)\n"
+        "  && noRaw(ctx.self.inventory[0].flags)\n"
+        "  && (!ctx.weapon || noRaw(ctx.weapon.flags))\n"
+        "  && (!ctx.targ2 || !ctx.targ2.flags || noRaw(ctx.targ2.flags));",
+        context);
+
+    expect_ok_allows(result);
+}
+
 TEST(JsGameRuntime, KeepsObjectFlagArraysFrozenAndConstructorSafe) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
@@ -1374,7 +1403,12 @@ TEST(JsGameRuntime, KeepsObjectFlagArraysFrozenAndConstructorSafe) {
         "try { ctx.object.flags.extraFlags.length = 0; } catch (error) { lengthBlocked = true; }\n"
         "return ctx.object.flags.wearFlags.join(',') === 'take,wield'\n"
         "  && ctx.object.flags.extraFlags.join(',') === 'glow,magic'\n"
-        "  && typeof ctx.object.flags.values === 'undefined'\n"
+        "  && ['values', 'rawValues', 'value', 'value0', 'value1', 'value2', 'value3', 'value4',\n"
+        "      'typeFlag', 'type_flag', 'wearBits', 'wear_flags', 'extraBits', 'extra_flags',\n"
+        "      'bitvector', 'butcherItem', 'butcher_item', 'progNumber', 'prog_number',\n"
+        "      'scriptNumber', 'script_number', 'scriptInfo', 'script_info', 'poisoned',\n"
+        "      'poisonData', 'poisondata', 'poison_data', 'rawMaterial']\n"
+        "      .every((field) => typeof ctx.object.flags[field] === 'undefined')\n"
         "  && Object.isFrozen(ctx.object.flags)\n"
         "  && Object.isFrozen(ctx.object.flags.wearFlags)\n"
         "  && Object.isFrozen(ctx.object.flags.extraFlags)\n"
