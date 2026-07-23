@@ -1,5 +1,7 @@
 #include "js_api_struct_mapping.h"
 
+#include "structs.h"
+
 #include <cstring>
 
 namespace {
@@ -894,6 +896,47 @@ constexpr JsApiHelperMutationGateRequirement HelperMutationGateRequirements[] = 
      "world-map redraw only after commit, and mixed scalar/helper setter batches."},
 };
 
+constexpr const char *RoomFlagHelperAllowedFlags =
+    "dark|death|noMob|indoors|noRide|shadowy|noMagic|tunnel|private|godRoom|drinkWater|"
+    "drinkPoison|securityRoom|peaceRoom|noTeleport|hideVnum";
+
+constexpr const char *RoomFlagHelperExcludedFlags =
+    "BFS_MARK|PERMAFFECT|permanentAffect|unnamed-room-flag-bits";
+
+constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
+    {"room.flags.add", "Room.addFlag(name: RoomFlagName): MutationResult",
+     RoomFlagHelperAllowedFlags, RoomFlagHelperExcludedFlags,
+     "Requires an opaque room target token resolved to a loaded room in the authenticated "
+     "builder's authorized zone; rejects stale rooms, copied tokens, raw vnums, wrong-zone "
+     "rooms, BFS_MARK, PERMAFFECT/permanentAffect, and unnamed bits before audit.",
+     "Audit request is recorded after target/flag validation and before any room_data.room_flags "
+     "bit is changed; script-visible failure remains a sanitized MutationResult.",
+     "Prepare captures the previous room_data.room_flags value and restores it if any later "
+     "helper in the same mixed mutation batch fails before commit.",
+     "Offline fixtures use the same flag vocabulary, token/stale-handle model, sanitized "
+     "MutationResult shape, and no-partial-write behavior without requiring authentication.",
+     "Cover allowed add, duplicate add idempotence, forbidden BFS_MARK/PERMAFFECT, wrong-zone "
+     "room, stale room token, audit rejection, rollback after mixed failure, and absence of raw "
+     "Room.setFlags."},
+    {"room.flags.remove", "Room.removeFlag(name: RoomFlagName): MutationResult",
+     RoomFlagHelperAllowedFlags, RoomFlagHelperExcludedFlags,
+     "Requires an opaque room target token resolved to a loaded room in the authenticated "
+     "builder's authorized zone; rejects stale rooms, copied tokens, raw vnums, wrong-zone "
+     "rooms, BFS_MARK, PERMAFFECT/permanentAffect, and unnamed bits before audit.",
+     "Audit request is recorded after target/flag validation and before any room_data.room_flags "
+     "bit is changed; script-visible failure remains a sanitized MutationResult.",
+     "Prepare captures the previous room_data.room_flags value and restores it if any later "
+     "helper in the same mixed mutation batch fails before commit.",
+     "Offline fixtures use the same flag vocabulary, token/stale-handle model, sanitized "
+     "MutationResult shape, and no-partial-write behavior without requiring authentication.",
+     "Cover allowed remove, missing remove idempotence, forbidden BFS_MARK/PERMAFFECT, wrong-zone "
+     "room, stale room token, audit rejection, rollback after mixed failure, and absence of raw "
+     "Room.setFlags."},
+};
+
+static_assert(BFS_MARK != 0, "BFS_MARK must stay an explicit room flag helper exclusion.");
+static_assert(PERMAFFECT != 0, "PERMAFFECT must stay an explicit room flag helper exclusion.");
+
 constexpr JsApiRawSetterGuardrail RawSetterGuardrails[] = {
     {JsApiStructOwner::CharData, "in_room", "setRoom", "character-movement-relationships",
      "Character movement must use movement/teleport helpers, not raw room assignment."},
@@ -1042,4 +1085,14 @@ const JsApiHelperMutationGateRequirement *js_api_helper_mutation_gate_requiremen
 std::size_t js_api_helper_mutation_gate_requirement_count()
 {
     return sizeof(HelperMutationGateRequirements) / sizeof(HelperMutationGateRequirements[0]);
+}
+
+const JsApiRoomFlagHelperOperation *js_api_room_flag_helper_operations()
+{
+    return RoomFlagHelperOperations;
+}
+
+std::size_t js_api_room_flag_helper_operation_count()
+{
+    return sizeof(RoomFlagHelperOperations) / sizeof(RoomFlagHelperOperations[0]);
 }

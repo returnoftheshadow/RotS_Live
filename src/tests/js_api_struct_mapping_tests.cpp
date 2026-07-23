@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <set>
@@ -606,6 +607,83 @@ TEST(JsApiStructMapping, HelperGuardrailFoundationCoversEveryMutationGateRequire
             ADD_FAILURE() << "Unhandled helper gate requirement id: " << requirement.id;
         }
     }
+}
+
+TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) {
+    ASSERT_EQ(js_api_room_flag_helper_operation_count(), 2U);
+
+    const JsApiDeferredHelperPlan *plan = find_deferred_helper_plan("room-flags");
+    ASSERT_NE(plan, nullptr);
+    const std::string plan_text = std::string(plan->helper_shape) + " " + plan->authority_policy +
+                                  " " + plan->offline_parity + " " + plan->test_focus;
+
+    const std::vector<std::string> expected_allowed_flags = {"dark", "death", "noMob",
+        "indoors", "noRide", "shadowy", "noMagic", "tunnel", "private", "godRoom",
+        "drinkWater", "drinkPoison", "securityRoom", "peaceRoom", "noTeleport", "hideVnum"};
+    const std::vector<std::string> expected_excluded_flags = {
+        "BFS_MARK", "PERMAFFECT", "permanentAffect", "unnamed-room-flag-bits"};
+    const char *expected_operations[] = {"room.flags.add", "room.flags.remove"};
+    const char *expected_helpers[] = {"Room.addFlag(name: RoomFlagName): MutationResult",
+        "Room.removeFlag(name: RoomFlagName): MutationResult"};
+
+    std::set<std::string> operation_names;
+    for (std::size_t index = 0; index < js_api_room_flag_helper_operation_count(); ++index) {
+        const JsApiRoomFlagHelperOperation &operation =
+            js_api_room_flag_helper_operations()[index];
+        SCOPED_TRACE(operation.operation_name);
+
+        EXPECT_TRUE(operation_names.insert(operation.operation_name).second);
+        EXPECT_STREQ(operation.operation_name, expected_operations[index]);
+        EXPECT_STREQ(operation.helper_name, expected_helpers[index]);
+        for (const char *forbidden : {"setFlags", "setRaw", "bitvector", "value"}) {
+            EXPECT_EQ(std::string(operation.operation_name).find(forbidden), std::string::npos)
+                << forbidden;
+            EXPECT_EQ(std::string(operation.helper_name).find(forbidden), std::string::npos)
+                << forbidden;
+        }
+        EXPECT_NE(std::string(operation.authority_policy).find("opaque room target token"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.authority_policy).find("authorized zone"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("before any room_data.room_flags"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.rollback_policy).find("previous room_data.room_flags"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.offline_policy).find("same flag vocabulary"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.test_focus).find("Room.setFlags"), std::string::npos);
+
+        const std::vector<std::string> allowed_flags =
+            split_pipe_list(operation.allowed_flags);
+        EXPECT_EQ(allowed_flags, expected_allowed_flags);
+        EXPECT_EQ(std::set<std::string>(allowed_flags.begin(), allowed_flags.end()).size(),
+                  allowed_flags.size());
+        EXPECT_EQ(std::find(allowed_flags.begin(), allowed_flags.end(), "BFS_MARK"),
+                  allowed_flags.end());
+        EXPECT_EQ(std::find(allowed_flags.begin(), allowed_flags.end(), "PERMAFFECT"),
+                  allowed_flags.end());
+        EXPECT_EQ(std::find(allowed_flags.begin(), allowed_flags.end(), "permanentAffect"),
+                  allowed_flags.end());
+        EXPECT_EQ(std::find(allowed_flags.begin(), allowed_flags.end(), "bfsMark"),
+                  allowed_flags.end());
+        EXPECT_EQ(std::find(allowed_flags.begin(), allowed_flags.end(), "permaffect"),
+                  allowed_flags.end());
+
+        const std::vector<std::string> excluded_flags =
+            split_pipe_list(operation.excluded_flags);
+        EXPECT_EQ(excluded_flags, expected_excluded_flags);
+        EXPECT_EQ(std::set<std::string>(excluded_flags.begin(), excluded_flags.end()).size(),
+                  excluded_flags.size());
+        for (const std::string &flag : excluded_flags)
+            EXPECT_EQ(std::find(allowed_flags.begin(), allowed_flags.end(), flag),
+                      allowed_flags.end())
+                << flag;
+    }
+
+    EXPECT_TRUE(operation_names.count("room.flags.add") > 0);
+    EXPECT_TRUE(operation_names.count("room.flags.remove") > 0);
+    EXPECT_NE(plan_text.find("BFS_MARK/PERMAFFECT"), std::string::npos);
+    EXPECT_NE(plan_text.find("atomic mixed batches"), std::string::npos);
 }
 
 TEST(JsApiStructMapping, RawSetterGuardrailsReferenceNonCallableMappedFields) {

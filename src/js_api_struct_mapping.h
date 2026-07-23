@@ -55,6 +55,18 @@ struct JsApiHelperMutationGateRequirement {
     const char *test_policy;
 };
 
+struct JsApiRoomFlagHelperOperation {
+    const char *operation_name;
+    const char *helper_name;
+    const char *allowed_flags;
+    const char *excluded_flags;
+    const char *authority_policy;
+    const char *audit_policy;
+    const char *rollback_policy;
+    const char *offline_policy;
+    const char *test_focus;
+};
+
 const JsApiStructFieldMapping *js_api_struct_field_mappings();
 std::size_t js_api_struct_field_mapping_count();
 const char *js_api_struct_owner_name(JsApiStructOwner owner);
@@ -67,5 +79,7 @@ const JsApiRawSetterGuardrail *js_api_raw_setter_guardrails();
 std::size_t js_api_raw_setter_guardrail_count();
 const JsApiHelperMutationGateRequirement *js_api_helper_mutation_gate_requirements();
 std::size_t js_api_helper_mutation_gate_requirement_count();
+const JsApiRoomFlagHelperOperation *js_api_room_flag_helper_operations();
+std::size_t js_api_room_flag_helper_operation_count();
 
 #endif
