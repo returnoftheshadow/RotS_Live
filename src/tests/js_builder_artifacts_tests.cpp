@@ -455,6 +455,28 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
             EXPECT_EQ(block.find("setOwners("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setResetCommandCount("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setResetCommands("), std::string::npos) << interface_name;
+            const char *forbidden_zone_members[] = {
+                "owners", "resetCommandCount", "resetCommands", "cmdno", "cmd",
+                "zone_short_description", "zone_extra_description", "zone_description", "zone_map",
+                "min_level_look", "white_power", "dark_power", "magi_power",
+                "shortDescriptions", "extraDescriptions", "mapDescriptions", "ownerIds",
+                "reset_command_count", "reset_commands", "zoneShortDescription",
+                "zoneShortDescriptions", "zoneExtraDescription", "zoneExtraDescriptions",
+                "zoneMapDescription", "zoneMapDescriptions", "minLevelLook",
+                "minimum_level_look", "setOwnerIds", "setCmd", "setCmdno",
+            };
+            for (const char *member_name : forbidden_zone_members) {
+                EXPECT_EQ(block.find(std::string(member_name) + ":"), std::string::npos)
+                    << interface_name << " " << member_name;
+                EXPECT_EQ(block.find(std::string(member_name) + "?:"), std::string::npos)
+                    << interface_name << " " << member_name;
+                EXPECT_EQ(block.find(std::string("readonly ") + member_name), std::string::npos)
+                    << interface_name << " " << member_name;
+                EXPECT_EQ(block.find(std::string(member_name) + "("), std::string::npos)
+                    << interface_name << " " << member_name;
+                EXPECT_EQ(block.find(std::string(member_name) + " ("), std::string::npos)
+                    << interface_name << " " << member_name;
+            }
         } else {
             if (std::string(interface_name) != "export interface GameObject" &&
                 std::string(interface_name) != "export interface Room")

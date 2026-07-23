@@ -33,6 +33,15 @@ void expect_contains_field(const std::string &json, const char *key, const char 
     EXPECT_NE(json.find(expected), std::string::npos) << expected;
 }
 
+void expect_does_not_contain_field(const std::string &json, const char *key, const char *value) {
+    std::string forbidden = "\"";
+    forbidden += key;
+    forbidden += "\":\"";
+    forbidden += value;
+    forbidden += "\"";
+    EXPECT_EQ(json.find(forbidden), std::string::npos) << forbidden;
+}
+
 void expect_contains_json_string(const std::string &json, const char *value) {
     std::string expected = "\"";
     expected += value;
@@ -488,6 +497,58 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
     for (const char *property : internal_object_properties) {
         EXPECT_EQ(json.find(std::string("\"property\":\"") + property + "\""), std::string::npos)
             << property;
+    }
+
+    const char *internal_zone_properties[] = {
+        "owners",
+        "resetCommandCount",
+        "resetCommands",
+    };
+    for (const char *property : internal_zone_properties) {
+        expect_does_not_contain_field(json, "fieldId",
+                                      (std::string("Zone.") + property).c_str());
+        expect_does_not_contain_field(json, "property", property);
+    }
+    const char *internal_zone_accessors[] = {
+        "getOwners",
+        "setOwners",
+        "getResetCommandCount",
+        "setResetCommandCount",
+        "getResetCommands",
+        "setResetCommands",
+    };
+    for (const char *accessor : internal_zone_accessors) {
+        expect_does_not_contain_field(json, "getterName", accessor);
+        expect_does_not_contain_field(json, "setterName", accessor);
+    }
+
+    const char *raw_zone_aliases[] = {
+        "cmdno",
+        "cmd",
+        "zone_short_description",
+        "zone_extra_description",
+        "zone_description",
+        "zone_map",
+        "min_level_look",
+        "white_power",
+        "dark_power",
+        "magi_power",
+        "reset_command_count",
+        "reset_commands",
+        "zoneShortDescription",
+        "zoneShortDescriptions",
+        "zoneExtraDescription",
+        "zoneExtraDescriptions",
+        "zoneMapDescription",
+        "zoneMapDescriptions",
+        "minLevelLook",
+        "minimum_level_look",
+        "ownerIds",
+    };
+    for (const char *property : raw_zone_aliases) {
+        expect_does_not_contain_field(json, "fieldId",
+                                      (std::string("Zone.") + property).c_str());
+        expect_does_not_contain_field(json, "property", property);
     }
 }
 

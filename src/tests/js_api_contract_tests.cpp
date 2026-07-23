@@ -761,6 +761,24 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     ASSERT_NE(zone_symbol, nullptr);
     EXPECT_STREQ(zone_symbol->type_name, "string");
     EXPECT_EQ(zone_symbol->status, JsApiMemberStatus::PlannedReadOnly);
+    for (const char *member_name :
+         {"setMinimumLookLevel", "setAge",          "setTopRoomVnum",
+          "setVnum",             "setWhitePower",   "setDarkPower",
+          "setMagiPower",        "setShortDescriptions",
+          "setExtraDescriptions", "setMapDescriptions", "setOwners",
+          "setResetCommandCount", "setResetCommands", "owners",
+          "resetCommandCount",   "resetCommands",   "cmdno",
+          "cmd",                 "zone_short_description",
+          "zone_extra_description", "zone_description", "zone_map", "min_level_look",
+          "white_power",         "dark_power",      "magi_power",
+          "shortDescriptions",   "extraDescriptions", "mapDescriptions",
+          "ownerIds",            "reset_command_count", "reset_commands",
+          "zoneShortDescription", "zoneShortDescriptions", "zoneExtraDescription",
+          "zoneExtraDescriptions", "zoneMapDescription", "zoneMapDescriptions",
+          "minLevelLook",        "minimum_level_look", "setOwnerIds", "setCmd",
+          "setCmdno"}) {
+        EXPECT_EQ(find_js_api_contract_member(*zone, member_name), nullptr) << member_name;
+    }
 
     EXPECT_EQ(find_js_api_contract_type("Missing"), nullptr);
     EXPECT_EQ(find_js_api_contract_member(*character, "missing"), nullptr);
