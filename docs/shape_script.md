@@ -249,6 +249,24 @@ runtime:
   covers `do_say`, `send_to_char`, `send_to_room`, and `do_wait`.
 - [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
   covers `load_obj`, `do_give`, and `send_to_char`.
+- [Legacy script corpus plan](../BuilderClient/docs/legacy-script-corpus.md)
+  tracks the active `lib/world/scr` scan and the JavaScript example slices
+  derived from current game scripts.
+- [`1100-herald-enter.ts`](../BuilderClient/examples/legacy-script/1100-herald-enter.ts)
+  is derived from `lib/world/scr/11.scr` script `#1100` and covers a simple
+  `ON_ENTER` player guard with `doSay`.
+- [`1101-training-reward.ts`](../BuilderClient/examples/legacy-script/1101-training-reward.ts)
+  is a supported-subset translation of `lib/world/scr/11.scr` script `#1101`
+  and covers `ON_ENTER`, race branching, `loadObj`, and `MutationResult`
+  fallback messaging. Legacy local object variables plus mob-inventory custody
+  before giving remain a future helper slice.
+- [`27500-gate-watch.ts`](../BuilderClient/examples/legacy-script/27500-gate-watch.ts)
+  is derived from `lib/world/scr/275.scr` script `#27500` and covers race
+  branching, output, and `doWait`; repeated door-state commands remain a future
+  room/exit helper slice.
+- [`6300-climb-before-enter.ts`](../BuilderClient/examples/legacy-script/6300-climb-before-enter.ts)
+  is derived from `lib/world/scr/63.scr` script `#6300` and covers
+  `ON_BEFORE_ENTER`, allow/block returns, and fall messaging.
 
 Builder-facing client docs are maintained with the client:
 
