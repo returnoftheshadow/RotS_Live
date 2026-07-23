@@ -1,5 +1,6 @@
 #include "../js_game_runtime.h"
 #include "../js_api_struct_mapping.h"
+#include "../structs.h"
 
 #include <gtest/gtest.h>
 
@@ -110,6 +111,14 @@ JsGameTriggerContextFixture make_context()
         { "ranger", "Ranger", 3, 25, 25, 3300 },
         { "warrior", "Warrior", 2, 16, 16, 2400 },
     };
+    context.self.specializations.selected_id = game_types::PS_Cold;
+    context.self.specializations.selected_key = "cold";
+    context.self.specializations.selected_name = "cold";
+    context.self.specializations.current_id = game_types::PS_Cold;
+    context.self.specializations.current_key = "cold";
+    context.self.specializations.current_name = "cold";
+    context.self.specializations.is_mage_specialization = true;
+    context.self.specializations.has_runtime_state = true;
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -204,6 +213,13 @@ JsGameTriggerContextFixture make_context()
         { "mage", "Mage", 1, 25, 25, 1100 },
         { "warrior", "Warrior", 4, 100, 100, 4400 },
     };
+    context.actor.specializations.selected_id = game_types::PS_WeaponMaster;
+    context.actor.specializations.selected_key = "weaponMastery";
+    context.actor.specializations.selected_name = "weapon mastery";
+    context.actor.specializations.current_id = game_types::PS_WeaponMaster;
+    context.actor.specializations.current_key = "weaponMastery";
+    context.actor.specializations.current_name = "weapon mastery";
+    context.actor.specializations.has_runtime_state = false;
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -627,6 +643,14 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.professions[3].points === 16\n"
         "  && ctx.self.professions[3].coefficient === 16\n"
         "  && ctx.self.professions[3].experience === 2400\n"
+        "  && ctx.self.specializations.selectedId === 2\n"
+        "  && ctx.self.specializations.selectedKey === 'cold'\n"
+        "  && ctx.self.specializations.selectedName === 'cold'\n"
+        "  && ctx.self.specializations.currentId === 2\n"
+        "  && ctx.self.specializations.currentKey === 'cold'\n"
+        "  && ctx.self.specializations.currentName === 'cold'\n"
+        "  && ctx.self.specializations.isMageSpecialization === true\n"
+        "  && ctx.self.specializations.hasRuntimeState === true\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -692,6 +716,10 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.professions[1].points === 100\n"
         "  && ctx.actor.professions[1].coefficient === 100\n"
         "  && ctx.actor.professions[1].experience === 4400\n"
+        "  && ctx.actor.specializations.selectedKey === 'weaponMastery'\n"
+        "  && ctx.actor.specializations.currentName === 'weapon mastery'\n"
+        "  && ctx.actor.specializations.isMageSpecialization === false\n"
+        "  && ctx.actor.specializations.hasRuntimeState === false\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1792,6 +1820,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.specials2.actFlags.constructor === 'undefined'\n"
         "  && typeof ctx.self.professions.constructor === 'undefined'\n"
         "  && typeof ctx.self.professions[0].constructor === 'undefined'\n"
+        "  && typeof ctx.self.specializations.constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -1803,6 +1832,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.specials2) === null\n"
         "  && Object.getPrototypeOf(ctx.self.specials2.conditions) === null\n"
         "  && Object.getPrototypeOf(ctx.self.professions[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.specializations) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -1818,6 +1848,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.specials2.hideFlags)\n"
         "  && Object.isFrozen(ctx.self.professions)\n"
         "  && Object.isFrozen(ctx.self.professions[0])\n"
+        "  && Object.isFrozen(ctx.self.specializations)\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -1874,6 +1905,12 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.professions.push({ key: 'test' });\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.specializations.selectedKey = 'fire';\n"
                          "return true;",
                          make_context())
                   .status,

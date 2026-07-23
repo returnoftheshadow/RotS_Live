@@ -112,9 +112,12 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "persistence.",
      "mutation", "Pointer-owned nested data."},
     {JsApiStructOwner::CharData, "char_data", "extra_specialization_data", "specializations",
-     "getSpecializations", "setSpecializations", "SpecializationData", false, Deferred,
+     "getSpecializations", "setSpecializations", "SpecializationData", false, ImplementedReadOnly,
      Unsupported,
-     "Planned snapshot of specialization state.",
+     "Returns a frozen read-only specialization summary with persisted selected id/key/name, "
+     "runtime current id/key/name, mage-specialization classification, and whether runtime "
+     "specialization state exists. Raw specialization subclass counters, targets, off-hand "
+     "object pointers, and timestamps are intentionally not exposed.",
      "Specialization writes are unsupported for builder scripts; class-specific invariants, "
      "respec rules, combat bonuses, and persistence/audit semantics need explicit admin helpers.",
      "mutation", "Nested data."},

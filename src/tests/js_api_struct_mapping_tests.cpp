@@ -1048,7 +1048,7 @@ TEST(JsApiStructMapping, PinsCharacterNestedProfileAndStatSetterDeferrals) {
         {"profs", "professions", "setProfessions", "readonly Profession[]", true,
             "implemented-read-only-getter", "unsupported", "mutation", "skill recalculation"},
         {"extra_specialization_data", "specializations", "setSpecializations",
-            "SpecializationData", false, "deferred", "unsupported", "mutation",
+            "SpecializationData", false, "implemented-read-only-getter", "unsupported", "mutation",
             "class-specific invariants"},
         {"damage_details", "damageDetails", "setDamageDetails", "DamageDetails", false,
             "deferred", "unsupported", "mutation", "combat participation"},

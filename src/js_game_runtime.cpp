@@ -268,6 +268,21 @@ std::string professions_literal(const std::vector<JsGameProfessionFixture>& prof
     return out.str();
 }
 
+std::string specializations_literal(const JsGameSpecializationFixture& specializations)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"selectedId\":" << specializations.selected_id << ","
+        << "\"selectedKey\":" << js_quote(specializations.selected_key) << ","
+        << "\"selectedName\":" << js_quote(specializations.selected_name) << ","
+        << "\"currentId\":" << specializations.current_id << ","
+        << "\"currentKey\":" << js_quote(specializations.current_key) << ","
+        << "\"currentName\":" << js_quote(specializations.current_name) << ","
+        << "\"isMageSpecialization\":" << js_bool(specializations.is_mage_specialization) << ","
+        << "\"hasRuntimeState\":" << js_bool(specializations.has_runtime_state) << "}";
+    return out.str();
+}
+
 std::string character_literal(const JsGameCharacterFixture& character)
 {
     std::ostringstream out;
@@ -303,6 +318,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"specials\":" << character_specials_literal(character.specials) << ","
         << "\"specials2\":" << character_specials2_literal(character.specials2) << ","
         << "\"professions\":" << professions_literal(character.professions) << ","
+        << "\"specializations\":" << specializations_literal(character.specializations) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

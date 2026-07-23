@@ -78,6 +78,7 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
         "CharacterConditions",
         "CharacterSpecials2",
         "Profession",
+        "SpecializationData",
         "Player",
         "Mob",
         "GameObject",
@@ -255,7 +256,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     for (const char *member_name :
         {"classPoints", "interruptCount", "interruptTime", "specialBusy", "baseAbilities",
             "currentAbilities", "rolledAbilities", "points", "specials", "specials2",
-            "professions"}) {
+            "professions", "specializations"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -277,6 +278,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         "CharacterSpecials2");
     EXPECT_STREQ(find_js_api_contract_member(*character, "professions")->type_name,
         "readonly Profession[]");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "specializations")->type_name,
+        "SpecializationData");
 
     const JsApiType *ability_scores = find_js_api_contract_type("AbilityScores");
     ASSERT_NE(ability_scores, nullptr);
@@ -297,6 +300,14 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     }
     EXPECT_NE(std::string(find_js_api_contract_member(*profession, "key")->type_name).find("mage"),
         std::string::npos);
+    const JsApiType *specialization_data = find_js_api_contract_type("SpecializationData");
+    ASSERT_NE(specialization_data, nullptr);
+    for (const char *member_name : {"selectedId", "selectedKey", "selectedName", "currentId",
+             "currentKey", "currentName", "isMageSpecialization", "hasRuntimeState"}) {
+        const JsApiMember *member = find_js_api_contract_member(*specialization_data, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
 
     const JsApiType* mob = find_js_api_contract_type("Mob");
     ASSERT_NE(mob, nullptr);

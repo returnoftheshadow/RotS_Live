@@ -373,6 +373,7 @@ TEST(JsGameAdapter, SnapshotsCharacterProfessionsWhenPresent)
     professions.colors[0] = 7;
     professions.specialization = 2;
     player.profs = &professions;
+    player.extra_specialization_data.set(player);
     const char_data *live_characters[] = { &player };
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
         nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
@@ -405,6 +406,100 @@ TEST(JsGameAdapter, SnapshotsCharacterProfessionsWhenPresent)
     EXPECT_EQ(fixture.professions[3].points, 16);
     EXPECT_EQ(fixture.professions[3].coefficient, 16);
     EXPECT_EQ(fixture.professions[3].experience, 2400);
+    EXPECT_EQ(fixture.specializations.selected_id, game_types::PS_Cold);
+    EXPECT_EQ(fixture.specializations.selected_key, "cold");
+    EXPECT_EQ(fixture.specializations.selected_name, "cold");
+    EXPECT_EQ(fixture.specializations.current_id, game_types::PS_Cold);
+    EXPECT_EQ(fixture.specializations.current_key, "cold");
+    EXPECT_EQ(fixture.specializations.current_name, "cold");
+    EXPECT_TRUE(fixture.specializations.is_mage_specialization);
+    EXPECT_TRUE(fixture.specializations.has_runtime_state);
+}
+
+TEST(JsGameAdapter, SnapshotsMissingAndInvalidSpecializationSafely)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+    EXPECT_EQ(fixture.specializations.selected_key, "nothing");
+    EXPECT_EQ(fixture.specializations.selected_id, game_types::PS_None);
+    EXPECT_EQ(fixture.specializations.selected_name, "nothing");
+    EXPECT_EQ(fixture.specializations.current_key, "nothing");
+    EXPECT_EQ(fixture.specializations.current_id, game_types::PS_None);
+    EXPECT_EQ(fixture.specializations.current_name, "nothing");
+    EXPECT_FALSE(fixture.specializations.is_mage_specialization);
+    EXPECT_FALSE(fixture.specializations.has_runtime_state);
+
+    char_prof_data professions {};
+    professions.specialization = game_types::PS_Count;
+    player.profs = &professions;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+    EXPECT_EQ(fixture.specializations.selected_id, -1);
+    EXPECT_EQ(fixture.specializations.selected_key, "Unknown");
+    EXPECT_EQ(fixture.specializations.selected_name, "Unknown");
+    EXPECT_EQ(fixture.specializations.current_id, game_types::PS_None);
+    EXPECT_EQ(fixture.specializations.current_key, "nothing");
+    EXPECT_EQ(fixture.specializations.current_name, "nothing");
+    EXPECT_FALSE(fixture.specializations.is_mage_specialization);
+    EXPECT_FALSE(fixture.specializations.has_runtime_state);
+}
+
+TEST(JsGameAdapter, MapsEverySpecializationIdToStablePublicNames)
+{
+    struct ExpectedSpecialization {
+        int id;
+        const char *key;
+        const char *name;
+        bool mage;
+        bool runtime_state;
+    };
+    const ExpectedSpecialization expected[] = {
+        {game_types::PS_None, "nothing", "nothing", false, false},
+        {game_types::PS_Fire, "fire", "fire", true, true},
+        {game_types::PS_Cold, "cold", "cold", true, true},
+        {game_types::PS_Regeneration, "regeneration", "regeneration", false, false},
+        {game_types::PS_Protection, "protection", "protection", false, false},
+        {game_types::PS_Animals, "animals", "animals", false, false},
+        {game_types::PS_Stealth, "stealth", "stealth", false, false},
+        {game_types::PS_WildFighting, "wildFighting", "wild fighting", false, true},
+        {game_types::PS_Teleportation, "teleportation", "teleportation", false, false},
+        {game_types::PS_Illusion, "illusion", "illusion", false, false},
+        {game_types::PS_Lightning, "lightning", "lightning", true, true},
+        {game_types::PS_Guardian, "guardian", "guardian", false, false},
+        {game_types::PS_HeavyFighting, "heavyFighting", "heavy fighting", false, true},
+        {game_types::PS_LightFighting, "lightFighting", "light fighting", false, true},
+        {game_types::PS_Defender, "defending", "defending", false, true},
+        {game_types::PS_Archery, "archery", "archery", false, false},
+        {game_types::PS_Darkness, "darkness", "darkness", true, true},
+        {game_types::PS_Arcane, "arcane", "arcane", true, true},
+        {game_types::PS_WeaponMaster, "weaponMastery", "weapon mastery", false, false},
+        {game_types::PS_BattleMage, "battleMagic", "battle magic", true, true},
+    };
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    char_prof_data professions {};
+    player.profs = &professions;
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    for (const ExpectedSpecialization& entry : expected) {
+        professions.specialization = entry.id;
+        player.extra_specialization_data.set(player);
+        JsGameCharacterFixture fixture;
+        ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture)) << entry.key;
+        EXPECT_EQ(fixture.specializations.selected_id, entry.id) << entry.key;
+        EXPECT_EQ(fixture.specializations.selected_key, entry.key) << entry.key;
+        EXPECT_EQ(fixture.specializations.selected_name, entry.name) << entry.key;
+        EXPECT_EQ(fixture.specializations.current_id, entry.id) << entry.key;
+        EXPECT_EQ(fixture.specializations.current_key, entry.key) << entry.key;
+        EXPECT_EQ(fixture.specializations.current_name, entry.name) << entry.key;
+        EXPECT_EQ(fixture.specializations.is_mage_specialization, entry.mage) << entry.key;
+        EXPECT_EQ(fixture.specializations.has_runtime_state, entry.runtime_state) << entry.key;
+    }
 }
 
 TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum)

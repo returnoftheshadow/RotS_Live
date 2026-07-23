@@ -137,6 +137,17 @@ struct JsGameProfessionFixture {
     long experience = 0;
 };
 
+struct JsGameSpecializationFixture {
+    int selected_id = 0;
+    std::string selected_key = "nothing";
+    std::string selected_name = "nothing";
+    int current_id = 0;
+    std::string current_key = "nothing";
+    std::string current_name = "nothing";
+    bool is_mage_specialization = false;
+    bool has_runtime_state = false;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -159,6 +170,7 @@ struct JsGameCharacterFixture {
     JsGameCharacterSpecialsFixture specials;
     JsGameCharacterSpecials2Fixture specials2;
     std::vector<JsGameProfessionFixture> professions;
+    JsGameSpecializationFixture specializations;
     bool is_npc = false;
 
     bool has_room = false;

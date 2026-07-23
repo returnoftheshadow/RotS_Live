@@ -35,6 +35,35 @@ constexpr CharacterProfessionField CharacterProfessionFields[] = {
     {PROF_WARRIOR, "warrior", "Warrior"},
 };
 
+struct CharacterSpecializationField {
+    int id;
+    const char* key;
+    const char* name;
+};
+
+constexpr CharacterSpecializationField CharacterSpecializationFields[] = {
+    {game_types::PS_None, "nothing", "nothing"},
+    {game_types::PS_Fire, "fire", "fire"},
+    {game_types::PS_Cold, "cold", "cold"},
+    {game_types::PS_Regeneration, "regeneration", "regeneration"},
+    {game_types::PS_Protection, "protection", "protection"},
+    {game_types::PS_Animals, "animals", "animals"},
+    {game_types::PS_Stealth, "stealth", "stealth"},
+    {game_types::PS_WildFighting, "wildFighting", "wild fighting"},
+    {game_types::PS_Teleportation, "teleportation", "teleportation"},
+    {game_types::PS_Illusion, "illusion", "illusion"},
+    {game_types::PS_Lightning, "lightning", "lightning"},
+    {game_types::PS_Guardian, "guardian", "guardian"},
+    {game_types::PS_HeavyFighting, "heavyFighting", "heavy fighting"},
+    {game_types::PS_LightFighting, "lightFighting", "light fighting"},
+    {game_types::PS_Defender, "defending", "defending"},
+    {game_types::PS_Archery, "archery", "archery"},
+    {game_types::PS_Darkness, "darkness", "darkness"},
+    {game_types::PS_Arcane, "arcane", "arcane"},
+    {game_types::PS_WeaponMaster, "weaponMastery", "weapon mastery"},
+    {game_types::PS_BattleMage, "battleMagic", "battle magic"},
+};
+
 template <typename T>
 bool pointer_in_table(const T *candidate, const T *const *table, std::size_t count)
 {
@@ -55,6 +84,17 @@ std::string copy_c_string(const char *value, std::size_t max_length = MaxAdapter
 bool character_is_npc(const char_data &character)
 {
     return (character.specials2.act & MOB_ISNPC) != 0;
+}
+
+const CharacterSpecializationField& character_specialization_field(int id)
+{
+    for (const CharacterSpecializationField& field : CharacterSpecializationFields) {
+        if (field.id == id)
+            return field;
+    }
+    static constexpr CharacterSpecializationField UnknownSpecialization = { -1, "Unknown",
+        "Unknown" };
+    return UnknownSpecialization;
 }
 
 std::string table_name_or_unknown(char **table, int value)
@@ -829,6 +869,21 @@ bool js_game_adapter_character_fixture(const char_data *character,
             fixture->professions.push_back(std::move(profession_fixture));
         }
     }
+    const CharacterSpecializationField& selected_specialization =
+        character_specialization_field(character->profs != nullptr ? character->profs->specialization
+                                                                   : game_types::PS_None);
+    const CharacterSpecializationField& current_specialization =
+        character_specialization_field(character->extra_specialization_data.get_current_spec());
+    fixture->specializations.selected_id = selected_specialization.id;
+    fixture->specializations.selected_key = selected_specialization.key;
+    fixture->specializations.selected_name = selected_specialization.name;
+    fixture->specializations.current_id = current_specialization.id;
+    fixture->specializations.current_key = current_specialization.key;
+    fixture->specializations.current_name = current_specialization.name;
+    fixture->specializations.is_mage_specialization =
+        character->extra_specialization_data.is_mage_spec();
+    fixture->specializations.has_runtime_state =
+        character->extra_specialization_data.current_spec_info != nullptr;
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;

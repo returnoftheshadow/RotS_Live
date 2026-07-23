@@ -93,6 +93,10 @@ constexpr JsApiMember CharacterMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only profession progression snapshot for mage, mystic, ranger, and warrior. "
      "Color settings, specialization state, and direct profession mutation are not exposed."},
+    {"specializations", JsApiMemberKind::Property, "SpecializationData", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only specialization summary. Raw runtime specialization subclass state, "
+     "targets, off-hand object pointers, timestamps, and direct mutation are not exposed."},
     {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
      "Checks whether this invocation-local handle still points at a live entity."},
@@ -602,6 +606,31 @@ constexpr JsApiMember ProfessionMembers[] = {
      "Experience tracked for this profession."},
 };
 
+constexpr JsApiMember SpecializationDataMembers[] = {
+    {"selectedId", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Persisted selected specialization id from the character's profession storage."},
+    {"selectedKey", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Stable key for the persisted selection."},
+    {"selectedName", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Builder-facing name for the persisted selected specialization."},
+    {"currentId", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Runtime current specialization id after specialization state has been initialized."},
+    {"currentKey", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Stable key for the runtime current state."},
+    {"currentName", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Builder-facing name for the runtime current specialization state."},
+    {"isMageSpecialization", JsApiMemberKind::Property, "boolean", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "True when the runtime current specialization is one of the mage-specialization families."},
+    {"hasRuntimeState", JsApiMemberKind::Property, "boolean", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "True when runtime specialization helper state has been allocated for this invocation."},
+};
+
 constexpr JsApiMember ScriptMembers[] = {
     {"sendToCharacter", JsApiMemberKind::Method, "(target: Character, text: string) => void",
      "void", false, true, JsApiSideEffect::Output, JsApiMemberStatus::Deferred, "deferred",
@@ -637,6 +666,9 @@ constexpr JsApiType ApiTypes[] = {
     {"Profession", JsApiTypeKind::Interface, "",
      "Frozen read-only character profession progression entry.", ProfessionMembers,
      sizeof(ProfessionMembers) / sizeof(ProfessionMembers[0])},
+    {"SpecializationData", JsApiTypeKind::Interface, "",
+     "Frozen read-only character specialization summary.", SpecializationDataMembers,
+     sizeof(SpecializationDataMembers) / sizeof(SpecializationDataMembers[0])},
     {"Player", JsApiTypeKind::Interface, "Character", "Read-only player character handle.",
      PlayerMembers, sizeof(PlayerMembers) / sizeof(PlayerMembers[0])},
     {"Mob", JsApiTypeKind::Interface, "Character", "Read-only non-player mobile handle.",
