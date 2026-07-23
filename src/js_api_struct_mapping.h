@@ -47,6 +47,14 @@ struct JsApiRawSetterGuardrail {
     const char *reason;
 };
 
+struct JsApiHelperMutationGateRequirement {
+    const char *id;
+    const char *title;
+    const char *server_policy;
+    const char *offline_policy;
+    const char *test_policy;
+};
+
 const JsApiStructFieldMapping *js_api_struct_field_mappings();
 std::size_t js_api_struct_field_mapping_count();
 const char *js_api_struct_owner_name(JsApiStructOwner owner);
@@ -57,5 +65,7 @@ const JsApiDeferredHelperPlan *js_api_deferred_helper_plans();
 std::size_t js_api_deferred_helper_plan_count();
 const JsApiRawSetterGuardrail *js_api_raw_setter_guardrails();
 std::size_t js_api_raw_setter_guardrail_count();
+const JsApiHelperMutationGateRequirement *js_api_helper_mutation_gate_requirements();
+std::size_t js_api_helper_mutation_gate_requirement_count();
 
 #endif

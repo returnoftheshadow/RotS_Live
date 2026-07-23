@@ -46,6 +46,14 @@ JsApiStructOwner owner_from_source_struct(const std::string &source_struct) {
     return JsApiStructOwner::CharData;
 }
 
+const JsApiDeferredHelperPlan *find_deferred_helper_plan(const std::string &id) {
+    for (std::size_t index = 0; index < js_api_deferred_helper_plan_count(); ++index) {
+        if (js_api_deferred_helper_plans()[index].id == id)
+            return &js_api_deferred_helper_plans()[index];
+    }
+    return nullptr;
+}
+
 std::string strip_line_comment(std::string line) {
     const std::size_t comment = line.find("//");
     if (comment != std::string::npos)
@@ -502,6 +510,101 @@ TEST(JsApiStructMapping, DeferredHelperPlanPrioritizesHighImpactBuilderAuthoring
                   std::string::npos);
         EXPECT_NE(std::string(plan.test_focus).find(expected_plan.required_test_text),
                   std::string::npos);
+    }
+}
+
+TEST(JsApiStructMapping, HelperMutationGateRequirementsAreCompleteAndBuilderSafe) {
+    struct ExpectedRequirement {
+        const char *id;
+        const char *server_text;
+        const char *offline_text;
+        const char *test_text;
+    };
+
+    const ExpectedRequirement expected[] = {
+        {"opaque-target-tokens", "package id/checksum", "fixture-local handles", "forged ids"},
+        {"target-scoped-authority", "host type", "authority failure shape", "wrong-zone"},
+        {"stale-handle-denial", "generation/version mismatches", "mark handles stale",
+         "extracted objects"},
+        {"per-helper-mutation-limit", "before enqueue and before audit", "same caps",
+         "excessive helper calls"},
+        {"sanitized-mutation-result", "not-authorized and stale-handle", "frozen",
+         "hidden evidence"},
+        {"audit-before-apply", "audit failure must leave live state unchanged",
+         "readiness diagnostics",
+         "audit write failure"},
+        {"atomic-no-partial-write", "across room, object, zone, and affect helper families",
+         "fixture state unchanged",
+         "valid-then-invalid batches"},
+    };
+
+    ASSERT_EQ(js_api_helper_mutation_gate_requirement_count(),
+              sizeof(expected) / sizeof(expected[0]));
+
+    std::set<std::string> ids;
+    for (std::size_t index = 0; index < js_api_helper_mutation_gate_requirement_count();
+         ++index) {
+        const JsApiHelperMutationGateRequirement &requirement =
+            js_api_helper_mutation_gate_requirements()[index];
+        const ExpectedRequirement &expected_requirement = expected[index];
+        SCOPED_TRACE(requirement.id);
+
+        EXPECT_TRUE(ids.insert(requirement.id).second);
+        EXPECT_STREQ(requirement.id, expected_requirement.id);
+        EXPECT_STRNE(requirement.title, "");
+        EXPECT_NE(std::string(requirement.server_policy).find(expected_requirement.server_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(requirement.offline_policy).find(expected_requirement.offline_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(requirement.test_policy).find(expected_requirement.test_text),
+                  std::string::npos);
+
+        const std::string combined_text = std::string(requirement.server_policy) + " " +
+                                          requirement.offline_policy + " " +
+                                          requirement.test_policy;
+        EXPECT_EQ(combined_text.find("char_data *"), std::string::npos);
+        EXPECT_EQ(combined_text.find("obj_data *"), std::string::npos);
+        EXPECT_EQ(combined_text.find("room_data *"), std::string::npos);
+        EXPECT_EQ(combined_text.find("zone_data *"), std::string::npos);
+        EXPECT_EQ(combined_text.find("/home/"), std::string::npos);
+        EXPECT_EQ(combined_text.find("Bearer"), std::string::npos);
+    }
+}
+
+TEST(JsApiStructMapping, HelperGuardrailFoundationCoversEveryMutationGateRequirement) {
+    const JsApiDeferredHelperPlan *foundation =
+        find_deferred_helper_plan("helper-guardrail-foundation");
+    ASSERT_NE(foundation, nullptr);
+
+    const std::string foundation_policy = std::string(foundation->helper_shape) + " " +
+                                          foundation->authority_policy + " " +
+                                          foundation->offline_parity + " " +
+                                          foundation->test_focus + " " +
+                                          foundation->notes;
+
+    for (std::size_t index = 0; index < js_api_helper_mutation_gate_requirement_count();
+         ++index) {
+        const JsApiHelperMutationGateRequirement &requirement =
+            js_api_helper_mutation_gate_requirements()[index];
+        SCOPED_TRACE(requirement.id);
+
+        if (std::string(requirement.id) == "opaque-target-tokens") {
+            EXPECT_NE(foundation_policy.find("live target tokens"), std::string::npos);
+        } else if (std::string(requirement.id) == "target-scoped-authority") {
+            EXPECT_NE(foundation_policy.find("target-scoped authority"), std::string::npos);
+        } else if (std::string(requirement.id) == "stale-handle-denial") {
+            EXPECT_NE(foundation_policy.find("stale-handle"), std::string::npos);
+        } else if (std::string(requirement.id) == "per-helper-mutation-limit") {
+            EXPECT_NE(foundation_policy.find("mutation-count limits"), std::string::npos);
+        } else if (std::string(requirement.id) == "sanitized-mutation-result") {
+            EXPECT_NE(foundation_policy.find("sanitized MutationResult"), std::string::npos);
+        } else if (std::string(requirement.id) == "audit-before-apply") {
+            EXPECT_NE(foundation_policy.find("audit-before-mutation"), std::string::npos);
+        } else if (std::string(requirement.id) == "atomic-no-partial-write") {
+            EXPECT_NE(foundation_policy.find("no-partial-write rollback"), std::string::npos);
+        } else {
+            ADD_FAILURE() << "Unhandled helper gate requirement id: " << requirement.id;
+        }
     }
 }
 

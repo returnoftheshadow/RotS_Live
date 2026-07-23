@@ -835,6 +835,65 @@ constexpr JsApiDeferredHelperPlan DeferredHelperPlans[] = {
      "script authoring primitives."},
 };
 
+constexpr JsApiHelperMutationGateRequirement HelperMutationGateRequirements[] = {
+    {"opaque-target-tokens", "Opaque live target tokens",
+     "Helper mutation envelopes must identify live targets through server-issued opaque handle ids "
+     "or role ids only, bound to invocation id, package id/checksum, handler, host type, target "
+     "kind, live identity/generation, authorized zone, and expiry; scripts must not supply "
+     "pointers, table indexes, raw vnums, or owner ids as authorization facts.",
+     "Offline fixtures may emulate the same opaque ids for deterministic testing, but they must keep "
+     "them as fixture-local handles and must not treat raw numbers as proof of authority.",
+     "Cover forged ids, raw numeric ids, copied ids from another target type, and ids for handles that "
+     "were never present in the trigger context."},
+    {"target-scoped-authority", "Target-scoped authority",
+     "Each helper must resolve the live target and verify it belongs to the authenticated builder's "
+     "authorized zone, host type, or narrower target scope before preparing any mutation.",
+     "Offline runs should report the same authority failure shape without blocking unauthenticated "
+     "editing or local fixture execution.",
+     "Cover wrong-zone room, object-in-wrong-zone, nested contained object, room-owned zone, and "
+     "missing builder authority cases."},
+    {"stale-handle-denial", "Stale-handle denial",
+     "Helper target resolution must reject stale, moved, extracted, invalid, or type-mismatched "
+     "handles, including generation/version mismatches, rather than falling back to a live role or "
+     "global lookup.",
+     "Offline fixtures must be able to mark handles stale or moved so builders can test rejection "
+     "paths locally.",
+     "Cover extracted objects, moved objects, invalid rooms, stale characters, stale zones, and "
+     "explicit stale targets with valid fallback roles available."},
+    {"per-helper-mutation-limit", "Per-helper mutation limit",
+     "Helper APIs must stay within the runtime mutation-envelope cap and any helper-specific item "
+     "count cap before dispatch prepares mutations; malformed calls must fail before enqueue and "
+     "before audit.",
+     "Offline emulation must enforce the same caps and return deterministic diagnostics for over-large "
+     "batches.",
+     "Cover excessive helper calls, excessive list arguments, repeated calls in one trigger, and mixed "
+     "setter/helper batches."},
+    {"sanitized-mutation-result", "Sanitized MutationResult",
+     "Script-visible helper results must use the public MutationResult shape with stable codes and "
+     "builder-safe messages only; authorization evidence, account ids, live paths, and raw target "
+     "metadata stay server-side, and helper-specific codes such as not-authorized and stale-handle "
+     "must not leak internal evidence.",
+     "Offline MutationResult objects must stay frozen, prototype-free, and shaped like server results "
+     "so IntelliSense and tests match production behavior.",
+     "Cover thrown helper errors, denied authority, invalid values, unsupported target states, and "
+     "attempts to mutate result objects or inspect hidden evidence."},
+    {"audit-before-apply", "Audit-before-apply policy",
+     "Persistent helper mutations must have a durable audit decision recorded or explicitly staged "
+     "after validation and before live state changes are applied; audit failure must leave live "
+     "state unchanged.",
+     "Offline runs should expose audit requirements as readiness diagnostics, not as a server "
+     "dependency for local editing.",
+     "Cover audit write failure, missing request id, missing builder identity, redacted audit "
+     "diagnostics, and no live-state changes after audit failure."},
+    {"atomic-no-partial-write", "Atomic no-partial-write behavior",
+     "Dispatch must validate all helper mutations and capture rollback-safe pending changes before "
+     "applying any live write; one rejected helper in a batch rejects the whole batch across room, "
+     "object, zone, and affect helper families.",
+     "Offline emulation must keep fixture state unchanged when any helper in the batch fails.",
+     "Cover valid-then-invalid batches, invalid-then-valid batches, rollback after allocation failure, "
+     "world-map redraw only after commit, and mixed scalar/helper setter batches."},
+};
+
 constexpr JsApiRawSetterGuardrail RawSetterGuardrails[] = {
     {JsApiStructOwner::CharData, "in_room", "setRoom", "character-movement-relationships",
      "Character movement must use movement/teleport helpers, not raw room assignment."},
@@ -973,4 +1032,14 @@ const JsApiRawSetterGuardrail *js_api_raw_setter_guardrails() { return RawSetter
 
 std::size_t js_api_raw_setter_guardrail_count() {
     return sizeof(RawSetterGuardrails) / sizeof(RawSetterGuardrails[0]);
+}
+
+const JsApiHelperMutationGateRequirement *js_api_helper_mutation_gate_requirements()
+{
+    return HelperMutationGateRequirements;
+}
+
+std::size_t js_api_helper_mutation_gate_requirement_count()
+{
+    return sizeof(HelperMutationGateRequirements) / sizeof(HelperMutationGateRequirements[0]);
 }
