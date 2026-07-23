@@ -168,6 +168,31 @@ JsGameCharacterReferenceFixture make_character_reference(const std::string &id,
     return character;
 }
 
+void add_gatehouse_exits(JsGameRoomFixture &room) {
+    JsGameRoomExitFixture north;
+    north.direction_index = 0;
+    north.direction = "north";
+    north.has_to_room_vnum = true;
+    north.to_room_vnum = 1205;
+    north.keyword = "gate";
+    north.description = "A raised portcullis opens onto the road.";
+    north.key_vnum = 3001;
+    north.width = 2;
+    north.flags = {"door", "closed", "locked", "pickproof"};
+    room.exits.push_back(north);
+
+    JsGameRoomExitFixture down;
+    down.direction_index = 5;
+    down.direction = "down";
+    down.has_to_room_vnum = false;
+    down.keyword = "trapdoor";
+    down.description = "A sealed trapdoor leads nowhere useful.";
+    down.key_vnum = -1;
+    down.width = 1;
+    down.flags = {"noLook", "hidden"};
+    room.exits.push_back(down);
+}
+
 JsGameTriggerContextFixture make_context() {
     JsGameTriggerContextFixture context;
     context.has_self = true;
@@ -353,6 +378,7 @@ JsGameTriggerContextFixture make_context() {
     context.self.room.sector_type = "City";
     context.self.room.flags = {"dark", "indoors"};
     context.self.room.extra_descriptions.push_back({"arch", "Ancient stonework frames the gate."});
+    add_gatehouse_exits(context.self.room);
     context.self.room.alignment = -2;
     context.self.room.light = 1;
     context.self.room.is_sunlit = true;
@@ -511,6 +537,7 @@ JsGameTriggerContextFixture make_context() {
     context.object.room.flags = {"dark", "indoors"};
     context.object.room.extra_descriptions.push_back(
         {"arch", "Ancient stonework frames the gate."});
+    add_gatehouse_exits(context.object.room);
     context.object.room.alignment = -2;
     context.object.room.light = 1;
     context.object.room.is_sunlit = true;
@@ -544,6 +571,7 @@ JsGameTriggerContextFixture make_context() {
     context.room.sector_type = "City";
     context.room.flags = {"dark", "indoors"};
     context.room.extra_descriptions.push_back({"arch", "Ancient stonework frames the gate."});
+    add_gatehouse_exits(context.room);
     context.room.alignment = -2;
     context.room.light = 1;
     context.room.is_sunlit = true;
@@ -1341,6 +1369,18 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.room.extraDescriptions.length === 1\n"
         "  && ctx.room.extraDescriptions[0].keyword === 'arch'\n"
         "  && ctx.room.extraDescriptions[0].description === 'Ancient stonework frames the gate.'\n"
+        "  && ctx.room.exits.length === 2\n"
+        "  && ctx.room.exits[0].directionIndex === 0\n"
+        "  && ctx.room.exits[0].direction === 'north'\n"
+        "  && ctx.room.exits[0].toRoomVnum === 1205\n"
+        "  && ctx.room.exits[0].keyword === 'gate'\n"
+        "  && ctx.room.exits[0].description === 'A raised portcullis opens onto the road.'\n"
+        "  && ctx.room.exits[0].keyVnum === 3001\n"
+        "  && ctx.room.exits[0].width === 2\n"
+        "  && ctx.room.exits[0].flags.join(',') === 'door,closed,locked,pickproof'\n"
+        "  && ctx.room.exits[1].direction === 'down'\n"
+        "  && ctx.room.exits[1].toRoomVnum === null\n"
+        "  && ctx.room.exits[1].flags.join(',') === 'noLook,hidden'\n"
         "  && ctx.room.alignment === -2\n"
         "  && ctx.room.light === 1\n"
         "  && ctx.zone.level === 6\n"
@@ -1362,13 +1402,18 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.object.room.flags.join(',') === ctx.room.flags.join(',')\n"
         "  && ctx.object.room.extraDescriptions[0].keyword === "
         "ctx.room.extraDescriptions[0].keyword\n"
+        "  && ctx.object.room.exits[0].toRoomVnum === ctx.room.exits[0].toRoomVnum\n"
+        "  && Object.isFrozen(ctx.object.room.exits)\n"
+        "  && Object.isFrozen(ctx.object.room.exits[0])\n"
+        "  && Object.isFrozen(ctx.object.room.exits[0].flags)\n"
         "  && ctx.object.room.light === ctx.room.light\n"
         "  && ctx.object.room.zone.description === ctx.zone.description\n"
         "  && ctx.object.room.zone.map === ctx.zone.map\n"
         "  && ctx.object.room.zone.level === ctx.zone.level\n"
         "  && ctx.object.room.zone.whitePower === ctx.zone.whitePower\n"
         "  && ctx.room.zone.darkPower === ctx.zone.darkPower\n"
-        "  && ctx.self.room.zone.magiPower === ctx.zone.magiPower;",
+        "  && ctx.self.room.zone.magiPower === ctx.zone.magiPower\n"
+        "  && ctx.self.room.exits[1].direction === ctx.room.exits[1].direction;",
         context);
 
     expect_ok_allows(result);
@@ -1471,6 +1516,36 @@ TEST(JsGameRuntime, KeepsRoomExtraDescriptionsFrozenAndConstructorSafe) {
         "  && typeof ctx.room.extraDescriptions.constructor === 'undefined'\n"
         "  && typeof ctx.room.extraDescriptions[0].constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx.room.extraDescriptions[0]) === null;",
+        make_context());
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, KeepsRoomExitsFrozenAndConstructorSafe) {
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "let pushBlocked = false;\n"
+        "let indexBlocked = false;\n"
+        "let flagPushBlocked = false;\n"
+        "try { ctx.room.exits.push({ direction: 'east' }); } catch (error) { pushBlocked = true; "
+        "}\n"
+        "try { ctx.room.exits[0].toRoomVnum = 9999; } catch (error) { indexBlocked = true; }\n"
+        "try { ctx.room.exits[0].flags.push('hidden'); } catch (error) { flagPushBlocked = true; "
+        "}\n"
+        "return Array.isArray(ctx.room.exits)\n"
+        "  && ctx.room.exits.length === 2\n"
+        "  && ctx.room.exits[0].direction === 'north'\n"
+        "  && ctx.room.exits[0].toRoomVnum === 1205\n"
+        "  && ctx.room.exits[0].flags.join(',') === 'door,closed,locked,pickproof'\n"
+        "  && ctx.room.exits[1].toRoomVnum === null\n"
+        "  && Object.isFrozen(ctx.room.exits)\n"
+        "  && Object.isFrozen(ctx.room.exits[0])\n"
+        "  && Object.isFrozen(ctx.room.exits[0].flags)\n"
+        "  && pushBlocked && indexBlocked && flagPushBlocked\n"
+        "  && typeof ctx.room.exits.constructor === 'undefined'\n"
+        "  && typeof ctx.room.exits[0].constructor === 'undefined'\n"
+        "  && typeof ctx.room.exits[0].flags.constructor === 'undefined'\n"
+        "  && Object.getPrototypeOf(ctx.room.exits[0]) === null;",
         make_context());
 
     expect_ok_allows(result);
@@ -3375,6 +3450,13 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
     EXPECT_NE(literal.find("\"extraDescriptions\":[{\"keyword\":\"arch\","
                            "\"description\":\"Ancient stonework frames the gate.\"}]"),
               std::string::npos);
+    EXPECT_NE(literal.find("\"exits\":[{\"directionIndex\":0,\"direction\":\"north\","
+                           "\"toRoomVnum\":1205,\"keyword\":\"gate\","
+                           "\"description\":\"A raised portcullis opens onto the road.\","
+                           "\"keyVnum\":3001,\"width\":2,"
+                           "\"flags\":[\"door\",\"closed\",\"locked\",\"pickproof\"]},"
+                           "{\"directionIndex\":5,\"direction\":\"down\",\"toRoomVnum\":null,"),
+              std::string::npos);
     EXPECT_NE(literal.find("\"light\":1"), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);
     EXPECT_NE(literal.find("\"isValid\":function() { return true; }"), std::string::npos);
@@ -3460,7 +3542,7 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
     EXPECT_EQ(count_occurrences(literal, "\"args\":"), 1);
     EXPECT_EQ(count_occurrences(literal, "\"target\":"), 1);
     EXPECT_EQ(count_occurrences(literal, "\"tick\":"), 1);
-    EXPECT_EQ(count_occurrences(literal, "\"direction\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"direction\":"), 7);
     EXPECT_EQ(count_occurrences(literal, "\"reverseDirection\":"), 1);
     EXPECT_EQ(count_occurrences(literal, "\"targ1\":"), 1);
     EXPECT_EQ(count_occurrences(literal, "\"targ2\":"), 1);

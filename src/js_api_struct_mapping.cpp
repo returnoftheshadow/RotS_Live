@@ -307,7 +307,8 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "slots.",
      "Object affect writes are unsupported for builder scripts until a slot-specific helper owns "
      "equipment recalculation, apply-location validation, canonical ordering, and persistence.",
-     "mutation", "Fixed-size equipment modifier slots are exposed as a read-only diagnostic snapshot."},
+     "mutation",
+     "Fixed-size equipment modifier slots are exposed as a read-only diagnostic snapshot."},
     {JsApiStructOwner::ObjData, "obj_data", "name", "name", "getName", "setName", "string", false,
      ImplementedReadOnly, SetterImplemented,
      "Returns the object's keyword/name string for builder conditions and diagnostics.",
@@ -365,7 +366,8 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "none", "May reveal account/player identity policy."},
     {JsApiStructOwner::ObjData, "obj_data", "in_obj", "container", "getContainer", "setContainer",
      "EquipmentObjectSnapshot | null", true, ImplementedReadOnly, Deferred,
-     "Returns a shallow read-only snapshot of the containing object when the container is live and its "
+     "Returns a shallow read-only snapshot of the containing object when the container is live and "
+     "its "
      "contents list reciprocally contains this object within bounded cycle-safe traversal.",
      "Container changes require explicit object movement helpers and are deferred. Direct "
      "container writes would bypass nested weight propagation, capacity/counting rules, decay "
@@ -460,12 +462,14 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "bounded list size, text length, sanitization, persistence, rollback, and audit semantics.",
      "mutation", "Linked-list storage is exposed only as a bounded frozen text snapshot."},
     {JsApiStructOwner::RoomData, "room_data", "dir_option", "exits", "getExits", "setExit",
-     "readonly RoomExit[]", false, Deferred, Deferred,
-     "Planned read-only room exit snapshot by direction.",
+     "readonly RoomExit[]", false, ImplementedReadOnly, Deferred,
+     "Returns frozen read-only room exit entries copied by direction from loaded room exits.",
      "Exit writes require explicit setExit/removeExit helpers and are deferred until direction, "
      "door, destination-room, reset-command, bidirectional-link, permission, and persistence "
      "semantics are mapped.",
-     "world-mutation", "Pointer array must never be exposed."},
+     "world-mutation",
+     "Pointer array is exposed only as copied direction, text, destination-vnum, width, key, and "
+     "symbolic flag values."},
     {JsApiStructOwner::RoomData, "room_data", "room_track", "tracks", "getTracks", "setTracks",
      "readonly RoomTrack[]", false, Internal, Unsupported,
      "Room tracking data is internal unless a future tracking API is designed.",

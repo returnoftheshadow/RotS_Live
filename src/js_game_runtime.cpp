@@ -63,6 +63,10 @@ std::string nullable_literal(bool present, const std::string &literal) {
     return present ? literal : "null";
 }
 
+std::string nullable_number_literal(bool present, int value) {
+    return present ? std::to_string(value) : "null";
+}
+
 std::string string_array_literal(const std::vector<std::string> &values) {
     std::ostringstream out;
     out << "[";
@@ -242,6 +246,33 @@ extra_descriptions_literal(const std::vector<JsGameExtraDescriptionFixture> &ext
     return out.str();
 }
 
+std::string room_exit_literal(const JsGameRoomExitFixture &exit) {
+    std::ostringstream out;
+    out << "{"
+        << "\"directionIndex\":" << exit.direction_index << ","
+        << "\"direction\":" << js_quote(exit.direction) << ","
+        << "\"toRoomVnum\":" << nullable_number_literal(exit.has_to_room_vnum, exit.to_room_vnum)
+        << ","
+        << "\"keyword\":" << js_quote(exit.keyword) << ","
+        << "\"description\":" << js_quote(exit.description) << ","
+        << "\"keyVnum\":" << exit.key_vnum << ","
+        << "\"width\":" << exit.width << ","
+        << "\"flags\":" << string_array_literal(exit.flags) << "}";
+    return out.str();
+}
+
+std::string room_exits_literal(const std::vector<JsGameRoomExitFixture> &exits) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < exits.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << room_exit_literal(exits[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string room_literal(const JsGameRoomFixture &room) {
     std::ostringstream out;
     out << "{"
@@ -253,6 +284,7 @@ std::string room_literal(const JsGameRoomFixture &room) {
         << "\"sectorType\":" << js_quote(room.sector_type) << ","
         << "\"flags\":" << string_array_literal(room.flags) << ","
         << "\"extraDescriptions\":" << extra_descriptions_literal(room.extra_descriptions) << ","
+        << "\"exits\":" << room_exits_literal(room.exits) << ","
         << "\"alignment\":" << room.alignment << ","
         << "\"light\":" << room.light << ","
         << "\"isSunlit\":" << js_bool(room.is_sunlit) << ","

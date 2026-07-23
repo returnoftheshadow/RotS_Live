@@ -34,6 +34,18 @@ struct JsGameExtraDescriptionFixture {
     std::string description;
 };
 
+struct JsGameRoomExitFixture {
+    int direction_index = 0;
+    std::string direction;
+    bool has_to_room_vnum = false;
+    int to_room_vnum = 0;
+    std::string keyword;
+    std::string description;
+    int key_vnum = -1;
+    int width = 0;
+    std::vector<std::string> flags;
+};
+
 struct JsGameRoomFixture {
     std::string id;
     std::string name;
@@ -43,6 +55,7 @@ struct JsGameRoomFixture {
     std::string sector_type;
     std::vector<std::string> flags;
     std::vector<JsGameExtraDescriptionFixture> extra_descriptions;
+    std::vector<JsGameRoomExitFixture> exits;
     int alignment = 0;
     int light = 0;
     bool is_sunlit = false;

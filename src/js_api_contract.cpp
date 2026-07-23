@@ -461,15 +461,18 @@ constexpr JsApiMember GameObjectMembers[] = {
      "legacy flag storage or bitvectors."},
     {"affects", JsApiMemberKind::Property, "readonly ObjectAffect[]", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Frozen read-only fixed-slot object affect snapshot. Empty none-location plus zero-modifier slots "
+     "Frozen read-only fixed-slot object affect snapshot. Empty none-location plus zero-modifier "
+     "slots "
      "are omitted; malformed legacy nonzero slots are still exposed for diagnostics."},
     {"extraDescriptions", JsApiMemberKind::Property, "readonly ExtraDescription[]", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Frozen read-only object extra-description entries copied from the live linked list with bounded "
+     "Frozen read-only object extra-description entries copied from the live linked list with "
+     "bounded "
      "entry count and text length."},
     {"container", JsApiMemberKind::Property, "EquipmentObjectSnapshot | null", "", true, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "Shallow read-only object snapshot containing this object, or null when the object is not nested "
+     "Shallow read-only object snapshot containing this object, or null when the object is not "
+     "nested "
      "in another live object with reciprocal contents membership."},
     {"contents", JsApiMemberKind::Property, "readonly EquipmentObjectSnapshot[]", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
@@ -547,9 +550,12 @@ constexpr JsApiMember RoomMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Builder-safe room flag names copied from the loaded room snapshot. The list excludes "
      "pathfinding scratch bits such as BFS_MARK and unnamed/internal bit positions."},
-    {"extraDescriptions", JsApiMemberKind::Property, "readonly ExtraDescription[]", "", false,
-     true, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+    {"extraDescriptions", JsApiMemberKind::Property, "readonly ExtraDescription[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Bounded read-only room extra-description entries copied from the loaded linked list."},
+    {"exits", JsApiMemberKind::Property, "readonly RoomExit[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only room exit entries copied by direction from loaded room exits."},
     {"alignment", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only", "Room alignment value."},
     {"light", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
@@ -977,6 +983,32 @@ constexpr JsApiMember ExtraDescriptionMembers[] = {
      "Description text shown when the keyword matches."},
 };
 
+constexpr JsApiMember RoomExitMembers[] = {
+    {"directionIndex", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Zero-based live direction index for this exit."},
+    {"direction", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Canonical direction name such as north, east, south, west, up, or down."},
+    {"toRoomVnum", JsApiMemberKind::Property, "number | null", "", true, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Destination room vnum when the exit points at a loaded room, or null for NOWHERE/stale "
+     "exits."},
+    {"keyword", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Copied door keyword text used by open, close, lock, and unlock commands."},
+    {"description", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Copied look-direction description text."},
+    {"keyVnum", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Object vnum of the key, or -1 when none."},
+    {"width", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Legacy exit width value copied from the room."},
+    {"flags", JsApiMemberKind::Property, "readonly string[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Builder-safe symbolic exit flags copied from the live exit bitvector."},
+};
+
 constexpr JsApiMember EquipmentSlotMembers[] = {
     {"slotIndex", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
@@ -1147,6 +1179,8 @@ constexpr JsApiType ApiTypes[] = {
     {"ExtraDescription", JsApiTypeKind::Interface, "",
      "Frozen read-only object extra-description entry.", ExtraDescriptionMembers,
      sizeof(ExtraDescriptionMembers) / sizeof(ExtraDescriptionMembers[0])},
+    {"RoomExit", JsApiTypeKind::Interface, "", "Frozen read-only room exit entry.", RoomExitMembers,
+     sizeof(RoomExitMembers) / sizeof(RoomExitMembers[0])},
     {"EquipmentSlot", JsApiTypeKind::Interface, "",
      "Frozen read-only character equipment slot entry.", EquipmentSlotMembers,
      sizeof(EquipmentSlotMembers) / sizeof(EquipmentSlotMembers[0])},

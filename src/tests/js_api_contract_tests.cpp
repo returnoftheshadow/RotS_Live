@@ -586,6 +586,22 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     EXPECT_STREQ(room_extra_descriptions->type_name, "readonly ExtraDescription[]");
     EXPECT_EQ(room_extra_descriptions->status, JsApiMemberStatus::PlannedReadOnly);
 
+    const JsApiMember *room_exits = find_js_api_contract_member(*room, "exits");
+    ASSERT_NE(room_exits, nullptr);
+    EXPECT_STREQ(room_exits->type_name, "readonly RoomExit[]");
+    EXPECT_EQ(room_exits->status, JsApiMemberStatus::PlannedReadOnly);
+
+    const JsApiType *room_exit = find_js_api_contract_type("RoomExit");
+    ASSERT_NE(room_exit, nullptr);
+    EXPECT_STREQ(find_js_api_contract_member(*room_exit, "directionIndex")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*room_exit, "direction")->type_name, "string");
+    EXPECT_STREQ(find_js_api_contract_member(*room_exit, "toRoomVnum")->type_name, "number | null");
+    EXPECT_STREQ(find_js_api_contract_member(*room_exit, "keyword")->type_name, "string");
+    EXPECT_STREQ(find_js_api_contract_member(*room_exit, "description")->type_name, "string");
+    EXPECT_STREQ(find_js_api_contract_member(*room_exit, "keyVnum")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*room_exit, "width")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*room_exit, "flags")->type_name, "readonly string[]");
+
     const JsApiMember *room_alignment = find_js_api_contract_member(*room, "alignment");
     ASSERT_NE(room_alignment, nullptr);
     EXPECT_STREQ(room_alignment->type_name, "number");

@@ -337,6 +337,14 @@ struct LongFlagName {
     const char *name;
 };
 
+constexpr LongFlagName ExitFlagNames[] = {
+    {EX_ISDOOR, "door"},       {EX_CLOSED, "closed"},        {EX_LOCKED, "locked"},
+    {EX_NOFLEE, "noFlee"},     {EX_RSLOCKED, "resetLocked"}, {EX_PICKPROOF, "pickproof"},
+    {EX_DOORISHEAVY, "heavy"}, {EX_NOBREAK, "noBreak"},      {EX_NO_LOOK, "noLook"},
+    {EX_ISHIDDEN, "hidden"},   {EX_ISBROKEN, "broken"},      {EX_NORIDE, "noRide"},
+    {EX_NOBLINK, "noBlink"},   {EX_LEVER, "lever"},          {EX_NOWALK, "noWalk"},
+};
+
 constexpr IntName ObjectTypeNames[] = {
     {ITEM_LIGHT, "light"},
     {ITEM_SCROLL, "scroll"},
@@ -536,6 +544,10 @@ std::vector<std::string> named_flags(long bitvector, const LongFlagName *names, 
     return flags;
 }
 
+std::vector<std::string> exit_flag_names(int exit_info) {
+    return named_flags(exit_info, ExitFlagNames, std::size(ExitFlagNames));
+}
+
 std::vector<std::string> character_act_flags(const char_data &character) {
     return character_is_npc(character)
                ? named_flags(character.specials2.act, MobFlagNames, std::size(MobFlagNames))
@@ -593,6 +605,32 @@ extra_descriptions_fixture(const extra_descr_data *extra_descriptions) {
         JsGameExtraDescriptionFixture fixture;
         fixture.keyword = copy_c_string(node->keyword);
         fixture.description = copy_c_string(node->description, MaxAdapterTextLength);
+        fixtures.push_back(std::move(fixture));
+    }
+    return fixtures;
+}
+
+std::vector<JsGameRoomExitFixture> room_exits_fixture(const room_data &room_data,
+                                                      const JsGameAdapterOptions &options) {
+    std::vector<JsGameRoomExitFixture> fixtures;
+    for (int direction_index = 0; direction_index < NUM_OF_DIRS; ++direction_index) {
+        const room_direction_data *exit = room_data.dir_option[direction_index];
+        if (exit == nullptr)
+            continue;
+
+        JsGameRoomExitFixture fixture;
+        fixture.direction_index = direction_index;
+        fixture.direction = dirs != nullptr && dirs[direction_index] != nullptr
+                                ? copy_c_string(dirs[direction_index])
+                                : "unknown";
+        fixture.has_to_room_vnum = js_game_adapter_room_is_valid(exit->to_room, options);
+        if (fixture.has_to_room_vnum)
+            fixture.to_room_vnum = options.world[exit->to_room].number;
+        fixture.keyword = copy_c_string(exit->keyword);
+        fixture.description = copy_c_string(exit->general_description, MaxAdapterTextLength);
+        fixture.key_vnum = exit->key;
+        fixture.width = exit->exit_width;
+        fixture.flags = exit_flag_names(exit->exit_info);
         fixtures.push_back(std::move(fixture));
     }
     return fixtures;
@@ -1376,6 +1414,7 @@ bool js_game_adapter_room_fixture(int room, const JsGameAdapterOptions &options,
     fixture->sector_type = room_sector_type_name(room_data.sector_type);
     fixture->flags = room_flag_names(room_data.room_flags);
     fixture->extra_descriptions = extra_descriptions_fixture(room_data.ex_description);
+    fixture->exits = room_exits_fixture(room_data, options);
     fixture->alignment = room_data.alignment;
     fixture->light = room_data.light;
     fixture->is_sunlit = room_is_sunlit(room_data);

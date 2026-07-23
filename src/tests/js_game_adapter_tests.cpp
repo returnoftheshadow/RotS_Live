@@ -156,6 +156,8 @@ room_data make_room(const char *name, int number, int zone) {
     room.sector_type = SECT_CITY;
     room.room_flags = DARK | INDOORS;
     room.ex_description = nullptr;
+    for (room_direction_data *&exit : room.dir_option)
+        exit = nullptr;
     room.alignment = -3;
     room.light = 2;
     return room;
@@ -1496,13 +1498,38 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     rune_extra.next = &hinge_extra;
     object.ex_description = &rune_extra;
     const obj_data *live_objects[] = {&object};
-    room_data world[1] = {make_room("Northern Gate", 1204, 0)};
+    room_data world[2] = {make_room("Northern Gate", 1204, 0), make_room("Old Road", 1205, 0)};
     extra_descr_data arch_extra{};
     arch_extra.keyword = const_cast<char *>("arch");
     arch_extra.description = const_cast<char *>("Ancient stonework frames the gate.");
     world[0].ex_description = &arch_extra;
+    room_direction_data north_exit{};
+    north_exit.general_description = const_cast<char *>("A raised portcullis opens onto the road.");
+    north_exit.keyword = const_cast<char *>("gate");
+    north_exit.exit_info = EX_ISDOOR | EX_CLOSED | EX_LOCKED | EX_PICKPROOF;
+    north_exit.key = 3001;
+    north_exit.to_room = 1;
+    north_exit.exit_width = 2;
+    room_direction_data east_exit{};
+    east_exit.general_description =
+        const_cast<char *>("An unfinished archway leads into blank air.");
+    east_exit.keyword = const_cast<char *>("archway");
+    east_exit.exit_info = EX_ISDOOR | EX_CLOSED;
+    east_exit.key = -1;
+    east_exit.to_room = 77;
+    east_exit.exit_width = 0;
+    room_direction_data down_exit{};
+    down_exit.general_description = const_cast<char *>("A sealed trapdoor leads nowhere useful.");
+    down_exit.keyword = const_cast<char *>("trapdoor");
+    down_exit.exit_info = EX_ISHIDDEN | EX_NO_LOOK;
+    down_exit.key = -1;
+    down_exit.to_room = NOWHERE;
+    down_exit.exit_width = 1;
+    world[0].dir_option[NORTH] = &north_exit;
+    world[0].dir_option[EAST] = &east_exit;
+    world[0].dir_option[DOWN] = &down_exit;
     zone_data zones[1] = {make_zone("Old City", 12)};
-    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, world, 0, nullptr, 0,
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, world, 1, nullptr, 0,
                                                 object_index, 1, zones, 1, nullptr, 0);
 
     JsGameObjectFixture object_fixture;
@@ -1556,6 +1583,27 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     ASSERT_EQ(room_fixture.extra_descriptions.size(), 1U);
     EXPECT_EQ(room_fixture.extra_descriptions[0].keyword, "arch");
     EXPECT_EQ(room_fixture.extra_descriptions[0].description, "Ancient stonework frames the gate.");
+    ASSERT_EQ(room_fixture.exits.size(), 3U);
+    EXPECT_EQ(room_fixture.exits[0].direction_index, NORTH);
+    EXPECT_EQ(room_fixture.exits[0].direction, "north");
+    EXPECT_TRUE(room_fixture.exits[0].has_to_room_vnum);
+    EXPECT_EQ(room_fixture.exits[0].to_room_vnum, 1205);
+    EXPECT_EQ(room_fixture.exits[0].keyword, "gate");
+    EXPECT_EQ(room_fixture.exits[0].description, "A raised portcullis opens onto the road.");
+    EXPECT_EQ(room_fixture.exits[0].key_vnum, 3001);
+    EXPECT_EQ(room_fixture.exits[0].width, 2);
+    EXPECT_EQ(room_fixture.exits[0].flags,
+              (std::vector<std::string>{"door", "closed", "locked", "pickproof"}));
+    EXPECT_EQ(room_fixture.exits[1].direction_index, EAST);
+    EXPECT_EQ(room_fixture.exits[1].direction, "east");
+    EXPECT_FALSE(room_fixture.exits[1].has_to_room_vnum);
+    EXPECT_EQ(room_fixture.exits[1].keyword, "archway");
+    EXPECT_EQ(room_fixture.exits[1].flags, (std::vector<std::string>{"door", "closed"}));
+    EXPECT_EQ(room_fixture.exits[2].direction_index, DOWN);
+    EXPECT_EQ(room_fixture.exits[2].direction, "down");
+    EXPECT_FALSE(room_fixture.exits[2].has_to_room_vnum);
+    EXPECT_EQ(room_fixture.exits[2].keyword, "trapdoor");
+    EXPECT_EQ(room_fixture.exits[2].flags, (std::vector<std::string>{"noLook", "hidden"}));
     EXPECT_EQ(room_fixture.alignment, -3);
     EXPECT_EQ(room_fixture.light, 2);
     EXPECT_FALSE(room_fixture.is_sunlit);

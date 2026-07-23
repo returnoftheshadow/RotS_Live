@@ -974,7 +974,7 @@ TEST(JsApiStructMapping, PinsObjectAndRoomNestedListSetterDeferrals) {
          "readonly ExtraDescription[]", false, "implemented-read-only-getter", "unsupported",
          "mutation", "add/update/remove helper APIs"},
         {JsApiStructOwner::RoomData, "dir_option", "exits", "setExit", "readonly RoomExit[]", false,
-         "deferred", "deferred", "world-mutation", "destination-room"},
+         "implemented-read-only-getter", "deferred", "world-mutation", "destination-room"},
         {JsApiStructOwner::RoomData, "contents", "contents", "setContents", "readonly GameObject[]",
          true, "deferred", "unsupported", "world-mutation", "object movement/load/extract helpers"},
         {JsApiStructOwner::RoomData, "people", "characters", "setCharacters",

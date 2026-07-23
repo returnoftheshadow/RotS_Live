@@ -114,7 +114,10 @@ std::string markdown_host_names(unsigned flags) {
 }
 
 std::string declaration_block(const std::string &declarations, const std::string &start) {
-    const std::size_t start_index = declarations.find(start);
+    std::string exact_start = start + " {";
+    std::size_t start_index = declarations.find(exact_start);
+    if (start_index == std::string::npos)
+        start_index = declarations.find(start);
     if (start_index == std::string::npos)
         return "";
     const std::size_t open_brace = declarations.find('{', start_index);
@@ -512,6 +515,13 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     const std::string room_block = declaration_block(declarations, "export interface Room");
     ASSERT_FALSE(room_block.empty());
     EXPECT_NE(room_block.find("readonly extraDescriptions:"), std::string::npos);
+    EXPECT_NE(room_block.find("readonly exits: readonly RoomExit[]"), std::string::npos);
+    const std::string room_exit_block =
+        declaration_block(declarations, "export interface RoomExit");
+    ASSERT_FALSE(room_exit_block.empty());
+    EXPECT_NE(room_exit_block.find("readonly directionIndex: number"), std::string::npos);
+    EXPECT_NE(room_exit_block.find("readonly toRoomVnum: number | null"), std::string::npos);
+    EXPECT_NE(room_exit_block.find("readonly flags: readonly string[]"), std::string::npos);
     const char *room_nested_list_setters[] = {
         "setExtraDescriptions", "setExit", "setContents", "setCharacters", "setAffects",
     };
