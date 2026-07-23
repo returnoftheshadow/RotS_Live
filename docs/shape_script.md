@@ -273,10 +273,12 @@ not promoted as a live command-target API. During live dispatch, `target` is
 resolved only from the explicit target payload; a stale explicit target never
 falls back to `targ1` or `targ2`. Room-valued polymorphic command targets must
 still point at a loaded world room; detached rooms are rejected before output,
-object loading, audit, or mixed-batch side effects. BuilderClient offline
-fixtures currently record command-helper events in source call order for
-diagnostics; full offline emulation of inventory, room, and wait-list state
-remains a separate parity slice.
+object loading, audit, or mixed-batch side effects. If an object helper batch
+does fail after object apply begins, loaded objects are extracted and `do_give`
+transfers are reversed when the expected recipient still carries the object.
+BuilderClient offline fixtures currently record command-helper events in source
+call order for diagnostics; full offline emulation of inventory, room, and
+wait-list state remains a separate parity slice.
 
 ### Greeter with gift
 

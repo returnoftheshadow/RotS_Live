@@ -122,6 +122,18 @@ struct PendingObjectCommand {
     int real_object_index = -1;
 };
 
+enum class AppliedObjectCommandKind {
+    LoadedObject,
+    GaveObject,
+};
+
+struct AppliedObjectCommand {
+    AppliedObjectCommandKind kind = AppliedObjectCommandKind::LoadedObject;
+    obj_data *object = nullptr;
+    char_data *giver = nullptr;
+    char_data *recipient = nullptr;
+};
+
 struct PendingWaitCommand {
     std::string character_id;
     int pulses = 0;
@@ -1922,34 +1934,64 @@ void apply_output_commands(const std::vector<PendingOutputCommand> &commands) {
     }
 }
 
+void rollback_applied_object_commands(const std::vector<AppliedObjectCommand> &applied) {
+    for (auto it = applied.rbegin(); it != applied.rend(); ++it) {
+        const AppliedObjectCommand &command = *it;
+        if (command.object == nullptr)
+            continue;
+        if (command.kind == AppliedObjectCommandKind::LoadedObject) {
+            extract_obj(command.object);
+            continue;
+        }
+        if (command.kind == AppliedObjectCommandKind::GaveObject && command.giver != nullptr &&
+            command.recipient != nullptr && command.object->carried_by == command.recipient &&
+            object_is_directly_carried_by(command.object, command.recipient)) {
+            obj_from_char(command.object);
+            obj_to_char(command.object, command.giver);
+        }
+    }
+}
+
 bool apply_object_commands(const std::vector<PendingObjectCommand> &commands) {
+    std::vector<AppliedObjectCommand> applied;
+    auto fail = [&applied]() {
+        rollback_applied_object_commands(applied);
+        return false;
+    };
     for (const PendingObjectCommand &command : commands) {
         if (command.operation == "script.load_obj") {
             if (command.target == PendingObjectCommandTarget::None)
                 continue;
             obj_data *object = read_object(command.real_object_index, REAL);
             if (object == nullptr)
-                return false;
+                return fail();
             if (command.target == PendingObjectCommandTarget::Character &&
                 command.target_character != nullptr) {
                 obj_to_char(object, command.target_character);
+                applied.push_back(
+                    {AppliedObjectCommandKind::LoadedObject, object, nullptr, nullptr});
                 continue;
             }
             if (command.target == PendingObjectCommandTarget::Room &&
                 command.target_room != NOWHERE) {
                 obj_to_room(object, command.target_room);
+                applied.push_back(
+                    {AppliedObjectCommandKind::LoadedObject, object, nullptr, nullptr});
                 continue;
             }
-            return false;
+            extract_obj(object);
+            return fail();
         }
         if (command.operation == "script.do_give") {
             if (command.giver == nullptr || command.recipient == nullptr ||
                 command.object == nullptr)
-                return false;
+                return fail();
             perform_give(command.giver, command.recipient, command.object);
+            applied.push_back({AppliedObjectCommandKind::GaveObject, command.object, command.giver,
+                               command.recipient});
             continue;
         }
-        return false;
+        return fail();
     }
     return true;
 }
