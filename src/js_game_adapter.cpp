@@ -22,6 +22,19 @@ namespace {
 constexpr std::size_t MaxAdapterStringLength = 512;
 constexpr std::size_t MaxAdapterTextLength = 1024;
 
+struct CharacterProfessionField {
+    int index;
+    const char* key;
+    const char* name;
+};
+
+constexpr CharacterProfessionField CharacterProfessionFields[] = {
+    {PROF_MAGE, "mage", "Mage"},
+    {PROF_CLERIC, "mystic", "Mystic"},
+    {PROF_RANGER, "ranger", "Ranger"},
+    {PROF_WARRIOR, "warrior", "Warrior"},
+};
+
 template <typename T>
 bool pointer_in_table(const T *candidate, const T *const *table, std::size_t count)
 {
@@ -802,6 +815,20 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->specials2.casting = named_value(
         character->specials2.casting, CharacterCastingNames, std::size(CharacterCastingNames));
     fixture->specials2.two_handed = character->specials2.two_handed != 0;
+    fixture->professions.clear();
+    if (character->profs != nullptr) {
+        fixture->professions.reserve(std::size(CharacterProfessionFields));
+        for (const CharacterProfessionField& profession : CharacterProfessionFields) {
+            JsGameProfessionFixture profession_fixture;
+            profession_fixture.key = profession.key;
+            profession_fixture.name = profession.name;
+            profession_fixture.level = character->profs->prof_level[profession.index];
+            profession_fixture.points = character->profs->prof_coof[profession.index];
+            profession_fixture.coefficient = character->profs->prof_coof[profession.index];
+            profession_fixture.experience = character->profs->prof_exp[profession.index];
+            fixture->professions.push_back(std::move(profession_fixture));
+        }
+    }
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;

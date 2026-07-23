@@ -89,6 +89,10 @@ constexpr JsApiMember CharacterMembers[] = {
      "Frozen read-only snapshot of additional persistent character state. Persistent identity, "
      "owner ids, raw roleplay/teaching bitvectors, and authentication failure counters are not "
      "exposed."},
+    {"professions", JsApiMemberKind::Property, "readonly Profession[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only profession progression snapshot for mage, mystic, ranger, and warrior. "
+     "Color settings, specialization state, and direct profession mutation are not exposed."},
     {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
      "Checks whether this invocation-local handle still points at a live entity."},
@@ -579,6 +583,25 @@ constexpr JsApiMember ScriptResultMembers[] = {
      "Explicit helper for blocking a blocking trigger."},
 };
 
+constexpr JsApiMember ProfessionMembers[] = {
+    {"key", JsApiMemberKind::Property, "'mage' | 'mystic' | 'ranger' | 'warrior'", "", false,
+     true, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Stable lowercase profession key."},
+    {"name", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Builder-facing profession display name."},
+    {"level", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Current profession level."},
+    {"points", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Profession point/coefficient value used by legacy progression calculations."},
+    {"coefficient", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Alias of the stored profession coefficient value; 100 means a full profession coefficient."},
+    {"experience", JsApiMemberKind::Property, "number", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Experience tracked for this profession."},
+};
+
 constexpr JsApiMember ScriptMembers[] = {
     {"sendToCharacter", JsApiMemberKind::Method, "(target: Character, text: string) => void",
      "void", false, true, JsApiSideEffect::Output, JsApiMemberStatus::Deferred, "deferred",
@@ -611,6 +634,9 @@ constexpr JsApiType ApiTypes[] = {
     {"CharacterSpecials2", JsApiTypeKind::Interface, "",
      "Frozen read-only additional character state snapshot.", CharacterSpecials2Members,
      sizeof(CharacterSpecials2Members) / sizeof(CharacterSpecials2Members[0])},
+    {"Profession", JsApiTypeKind::Interface, "",
+     "Frozen read-only character profession progression entry.", ProfessionMembers,
+     sizeof(ProfessionMembers) / sizeof(ProfessionMembers[0])},
     {"Player", JsApiTypeKind::Interface, "Character", "Read-only player character handle.",
      PlayerMembers, sizeof(PlayerMembers) / sizeof(PlayerMembers[0])},
     {"Mob", JsApiTypeKind::Interface, "Character", "Read-only non-player mobile handle.",

@@ -347,10 +347,64 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.specials2.casting, "slow");
     EXPECT_TRUE(fixture.specials2.two_handed);
     EXPECT_TRUE(fixture.is_npc);
+    EXPECT_TRUE(fixture.professions.empty());
     ASSERT_TRUE(fixture.has_room);
     EXPECT_EQ(fixture.room.vnum, 1204);
     ASSERT_TRUE(fixture.room.has_zone);
     EXPECT_EQ(fixture.room.zone.vnum, 12);
+}
+
+TEST(JsGameAdapter, SnapshotsCharacterProfessionsWhenPresent)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    char_prof_data professions {};
+    professions.prof_level[PROF_MAGE] = 8;
+    professions.prof_coof[PROF_MAGE] = 121;
+    professions.prof_exp[PROF_MAGE] = 8100;
+    professions.prof_level[PROF_CLERIC] = 5;
+    professions.prof_coof[PROF_CLERIC] = 64;
+    professions.prof_exp[PROF_CLERIC] = 5200;
+    professions.prof_level[PROF_RANGER] = 3;
+    professions.prof_coof[PROF_RANGER] = 25;
+    professions.prof_exp[PROF_RANGER] = 3300;
+    professions.prof_level[PROF_WARRIOR] = 2;
+    professions.prof_coof[PROF_WARRIOR] = 16;
+    professions.prof_exp[PROF_WARRIOR] = 2400;
+    professions.colors[0] = 7;
+    professions.specialization = 2;
+    player.profs = &professions;
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    ASSERT_EQ(fixture.professions.size(), 4u);
+    EXPECT_EQ(fixture.professions[0].key, "mage");
+    EXPECT_EQ(fixture.professions[0].name, "Mage");
+    EXPECT_EQ(fixture.professions[0].level, 8);
+    EXPECT_EQ(fixture.professions[0].points, 121);
+    EXPECT_EQ(fixture.professions[0].coefficient, 121);
+    EXPECT_EQ(fixture.professions[0].experience, 8100);
+    EXPECT_EQ(fixture.professions[1].key, "mystic");
+    EXPECT_EQ(fixture.professions[1].name, "Mystic");
+    EXPECT_EQ(fixture.professions[1].level, 5);
+    EXPECT_EQ(fixture.professions[1].points, 64);
+    EXPECT_EQ(fixture.professions[1].coefficient, 64);
+    EXPECT_EQ(fixture.professions[1].experience, 5200);
+    EXPECT_EQ(fixture.professions[2].key, "ranger");
+    EXPECT_EQ(fixture.professions[2].name, "Ranger");
+    EXPECT_EQ(fixture.professions[2].level, 3);
+    EXPECT_EQ(fixture.professions[2].points, 25);
+    EXPECT_EQ(fixture.professions[2].coefficient, 25);
+    EXPECT_EQ(fixture.professions[2].experience, 3300);
+    EXPECT_EQ(fixture.professions[3].key, "warrior");
+    EXPECT_EQ(fixture.professions[3].name, "Warrior");
+    EXPECT_EQ(fixture.professions[3].level, 2);
+    EXPECT_EQ(fixture.professions[3].points, 16);
+    EXPECT_EQ(fixture.professions[3].coefficient, 16);
+    EXPECT_EQ(fixture.professions[3].experience, 2400);
 }
 
 TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum)

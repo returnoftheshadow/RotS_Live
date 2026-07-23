@@ -128,6 +128,15 @@ struct JsGameCharacterSpecials2Fixture {
     bool two_handed = false;
 };
 
+struct JsGameProfessionFixture {
+    std::string key;
+    std::string name;
+    int level = 0;
+    int points = 0;
+    int coefficient = 0;
+    long experience = 0;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -149,6 +158,7 @@ struct JsGameCharacterFixture {
     JsGameCharacterPointsFixture points;
     JsGameCharacterSpecialsFixture specials;
     JsGameCharacterSpecials2Fixture specials2;
+    std::vector<JsGameProfessionFixture> professions;
     bool is_npc = false;
 
     bool has_room = false;

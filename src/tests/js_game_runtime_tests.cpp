@@ -104,6 +104,12 @@ JsGameTriggerContextFixture make_context()
     context.self.specials2.shooting = "fast";
     context.self.specials2.casting = "slow";
     context.self.specials2.two_handed = true;
+    context.self.professions = {
+        { "mage", "Mage", 8, 121, 121, 8100 },
+        { "mystic", "Mystic", 5, 64, 64, 5200 },
+        { "ranger", "Ranger", 3, 25, 25, 3300 },
+        { "warrior", "Warrior", 2, 16, 16, 2400 },
+    };
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -194,6 +200,10 @@ JsGameTriggerContextFixture make_context()
     context.actor.specials2.tactics = "normal";
     context.actor.specials2.shooting = "slow";
     context.actor.specials2.casting = "fast";
+    context.actor.professions = {
+        { "mage", "Mage", 1, 25, 25, 1100 },
+        { "warrior", "Warrior", 4, 100, 100, 4400 },
+    };
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -592,6 +602,31 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && !('owner' in ctx.self.specials2)\n"
         "  && !('roleplayFlags' in ctx.self.specials2)\n"
         "  && !('willTeach' in ctx.self.specials2)\n"
+        "  && ctx.self.professions.length === 4\n"
+        "  && ctx.self.professions[0].key === 'mage'\n"
+        "  && ctx.self.professions[0].name === 'Mage'\n"
+        "  && ctx.self.professions[0].level === 8\n"
+        "  && ctx.self.professions[0].points === 121\n"
+        "  && ctx.self.professions[0].coefficient === 121\n"
+        "  && ctx.self.professions[0].experience === 8100\n"
+        "  && ctx.self.professions[1].key === 'mystic'\n"
+        "  && ctx.self.professions[1].name === 'Mystic'\n"
+        "  && ctx.self.professions[1].level === 5\n"
+        "  && ctx.self.professions[1].points === 64\n"
+        "  && ctx.self.professions[1].coefficient === 64\n"
+        "  && ctx.self.professions[1].experience === 5200\n"
+        "  && ctx.self.professions[2].key === 'ranger'\n"
+        "  && ctx.self.professions[2].name === 'Ranger'\n"
+        "  && ctx.self.professions[2].level === 3\n"
+        "  && ctx.self.professions[2].points === 25\n"
+        "  && ctx.self.professions[2].coefficient === 25\n"
+        "  && ctx.self.professions[2].experience === 3300\n"
+        "  && ctx.self.professions[3].key === 'warrior'\n"
+        "  && ctx.self.professions[3].name === 'Warrior'\n"
+        "  && ctx.self.professions[3].level === 2\n"
+        "  && ctx.self.professions[3].points === 16\n"
+        "  && ctx.self.professions[3].coefficient === 16\n"
+        "  && ctx.self.professions[3].experience === 2400\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -644,6 +679,19 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.specials2.actFlags.join(',') === 'isNpc,memory'\n"
         "  && ctx.actor.specials2.conditions.full === 7\n"
         "  && ctx.actor.specials2.casting === 'fast'\n"
+        "  && ctx.actor.professions.length === 2\n"
+        "  && ctx.actor.professions[0].key === 'mage'\n"
+        "  && ctx.actor.professions[0].name === 'Mage'\n"
+        "  && ctx.actor.professions[0].level === 1\n"
+        "  && ctx.actor.professions[0].points === 25\n"
+        "  && ctx.actor.professions[0].coefficient === 25\n"
+        "  && ctx.actor.professions[0].experience === 1100\n"
+        "  && ctx.actor.professions[1].key === 'warrior'\n"
+        "  && ctx.actor.professions[1].name === 'Warrior'\n"
+        "  && ctx.actor.professions[1].level === 4\n"
+        "  && ctx.actor.professions[1].points === 100\n"
+        "  && ctx.actor.professions[1].coefficient === 100\n"
+        "  && ctx.actor.professions[1].experience === 4400\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1742,6 +1790,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.specials2.constructor === 'undefined'\n"
         "  && typeof ctx.self.specials2.conditions.constructor === 'undefined'\n"
         "  && typeof ctx.self.specials2.actFlags.constructor === 'undefined'\n"
+        "  && typeof ctx.self.professions.constructor === 'undefined'\n"
+        "  && typeof ctx.self.professions[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -1752,6 +1802,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.specials) === null\n"
         "  && Object.getPrototypeOf(ctx.self.specials2) === null\n"
         "  && Object.getPrototypeOf(ctx.self.specials2.conditions) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.professions[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -1765,6 +1816,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.specials2.actFlags)\n"
         "  && Object.isFrozen(ctx.self.specials2.preferenceFlags)\n"
         "  && Object.isFrozen(ctx.self.specials2.hideFlags)\n"
+        "  && Object.isFrozen(ctx.self.professions)\n"
+        "  && Object.isFrozen(ctx.self.professions[0])\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -1809,6 +1862,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.specials2.actFlags[0] = 'deleted';\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.professions[0].level = 99;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.professions.push({ key: 'test' });\n"
                          "return true;",
                          make_context())
                   .status,

@@ -242,6 +242,32 @@ std::string room_literal(const JsGameRoomFixture& room)
     return out.str();
 }
 
+std::string profession_literal(const JsGameProfessionFixture& profession)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"key\":" << js_quote(profession.key) << ","
+        << "\"name\":" << js_quote(profession.name) << ","
+        << "\"level\":" << profession.level << ","
+        << "\"points\":" << profession.points << ","
+        << "\"coefficient\":" << profession.coefficient << ","
+        << "\"experience\":" << profession.experience << "}";
+    return out.str();
+}
+
+std::string professions_literal(const std::vector<JsGameProfessionFixture>& professions)
+{
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < professions.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << profession_literal(professions[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string character_literal(const JsGameCharacterFixture& character)
 {
     std::ostringstream out;
@@ -276,6 +302,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"points\":" << character_points_literal(character.points) << ","
         << "\"specials\":" << character_specials_literal(character.specials) << ","
         << "\"specials2\":" << character_specials2_literal(character.specials2) << ","
+        << "\"professions\":" << professions_literal(character.professions) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

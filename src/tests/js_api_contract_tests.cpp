@@ -77,6 +77,7 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
         "CharacterSpecials",
         "CharacterConditions",
         "CharacterSpecials2",
+        "Profession",
         "Player",
         "Mob",
         "GameObject",
@@ -253,7 +254,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
 
     for (const char *member_name :
         {"classPoints", "interruptCount", "interruptTime", "specialBusy", "baseAbilities",
-            "currentAbilities", "rolledAbilities", "points", "specials", "specials2"}) {
+            "currentAbilities", "rolledAbilities", "points", "specials", "specials2",
+            "professions"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -273,6 +275,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         "CharacterSpecials");
     EXPECT_STREQ(find_js_api_contract_member(*character, "specials2")->type_name,
         "CharacterSpecials2");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "professions")->type_name,
+        "readonly Profession[]");
 
     const JsApiType *ability_scores = find_js_api_contract_type("AbilityScores");
     ASSERT_NE(ability_scores, nullptr);
@@ -283,6 +287,16 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         EXPECT_STREQ(member->type_name, "number") << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
     }
+    const JsApiType *profession = find_js_api_contract_type("Profession");
+    ASSERT_NE(profession, nullptr);
+    for (const char *member_name : {"key", "name", "level", "points", "coefficient",
+             "experience"}) {
+        const JsApiMember *member = find_js_api_contract_member(*profession, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
+    EXPECT_NE(std::string(find_js_api_contract_member(*profession, "key")->type_name).find("mage"),
+        std::string::npos);
 
     const JsApiType* mob = find_js_api_contract_type("Mob");
     ASSERT_NE(mob, nullptr);

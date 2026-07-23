@@ -102,8 +102,11 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "mutation",
      "Nested struct."},
     {JsApiStructOwner::CharData, "char_data", "profs", "professions", "getProfessions",
-     "setProfessions", "readonly Profession[]", true, Deferred, Unsupported,
-     "Planned snapshot of profession coefficients when available.",
+     "setProfessions", "readonly Profession[]", true, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only snapshot of public profession progression data for mage, "
+     "mystic, ranger, and warrior entries when a character has profession storage: level, "
+     "points, coefficient, and experience. Color settings and specialization state are exposed "
+     "through separate planned surfaces.",
      "Profession writes are unsupported for builder scripts; any future admin-only helper must "
      "validate profession domains, level progression, skill recalculation, and player-file "
      "persistence.",
