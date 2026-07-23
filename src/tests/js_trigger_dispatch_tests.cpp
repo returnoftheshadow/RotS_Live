@@ -2,6 +2,7 @@
 
 #include "../comm.h"
 #include "../db.h"
+#include "../handler.h"
 #include "../interpre.h"
 #include "../js_api_struct_mapping.h"
 #include "../js_live_registry_reload_service.h"
@@ -24,6 +25,10 @@ extern char world_map[];
 extern char *sector_types[];
 extern char num_of_sector_types;
 extern descriptor_data *descriptor_list;
+extern index_data *obj_index;
+extern obj_data *obj_proto;
+extern obj_data *object_list;
+extern int top_of_objt;
 void draw_map();
 
 namespace {
@@ -83,6 +88,36 @@ struct DescriptorListGuard {
     descriptor_data *saved_descriptor_list = descriptor_list;
 
     ~DescriptorListGuard() { descriptor_list = saved_descriptor_list; }
+};
+
+struct ObjectPrototypeGuard {
+    index_data *saved_obj_index = obj_index;
+    obj_data *saved_obj_proto = obj_proto;
+    obj_data *saved_object_list = object_list;
+    int saved_top_of_objt = top_of_objt;
+    index_data fixture_index[1] = {};
+    obj_data fixture_proto[1] = {};
+
+    explicit ObjectPrototypeGuard(int vnum) {
+        fixture_index[0].virt = vnum;
+        fixture_proto[0] = make_object("script reward", 0);
+        fixture_proto[0].description = const_cast<char *>("A script reward rests here.");
+        fixture_proto[0].action_description = nullptr;
+        fixture_proto[0].in_room = NOWHERE;
+        fixture_proto[0].obj_flags.weight = 1;
+        obj_index = fixture_index;
+        obj_proto = fixture_proto;
+        top_of_objt = 0;
+    }
+
+    ~ObjectPrototypeGuard() {
+        while (object_list != nullptr && object_list != saved_object_list)
+            extract_obj(object_list);
+        object_list = saved_object_list;
+        obj_index = saved_obj_index;
+        obj_proto = saved_obj_proto;
+        top_of_objt = saved_top_of_objt;
+    }
 };
 
 JsScriptRegistryReplaceOptions internal_options() {
@@ -391,6 +426,10 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlySupportedCommandH
         make_script_command_mutation("script.load_obj", "{\"vnum\":4201}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(load));
 
+    const JsRuntimeMutation targeted_load = make_script_command_mutation(
+        "script.load_obj", "{\"vnum\":4201,\"loadTargetId\":\"player:7\"}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(targeted_load));
+
     const JsRuntimeMutation give = make_script_command_mutation(
         "script.do_give",
         "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
@@ -488,6 +527,101 @@ TEST(JsTriggerDispatch, OutputCommandHelpersRejectForgedTargetsWithoutWriting) {
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.diagnostic, "JavaScript trigger output command target rejected");
     EXPECT_STREQ(descriptor.output, "");
+}
+
+TEST(JsTriggerDispatch, LoadObjCommandHelperPlacesObjectInLiveCharacterInventory) {
+    ObjectPrototypeGuard object_guard(6201);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5854, "function onEnter(ctx) {\n"
+              "  const reward = RotS.Script.load_obj(6201, ctx.actor);\n"
+              "  return reward.ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    ASSERT_NE(actor.carrying, nullptr);
+    EXPECT_EQ(actor.carrying->item_number, 0);
+    EXPECT_EQ(actor.carrying->carried_by, &actor);
+    EXPECT_EQ(obj_index[0].number, 1);
+}
+
+TEST(JsTriggerDispatch, DoGiveCommandHelperTransfersCurrentLiveCarriedObject) {
+    ObjectPrototypeGuard object_guard(5104);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5855, "function onEnter(ctx) {\n"
+              "  const give = RotS.Script.do_give(ctx.actor, ctx.self, ctx.object);\n"
+              "  return give.ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 1;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(self.carrying, &token);
+    EXPECT_EQ(token.carried_by, &self);
+    EXPECT_EQ(actor.specials.carry_items, 0);
+    EXPECT_EQ(self.specials.carry_items, 1);
+}
+
+TEST(JsTriggerDispatch, ObjectCommandHelpersRejectForgedLoadTargetsWithoutCreatingObjects) {
+    ObjectPrototypeGuard object_guard(6201);
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    const JsRuntimeMutation forged = make_script_command_mutation(
+        "script.load_obj", "{\"vnum\":6201,\"loadTargetId\":\"mob:999\"}");
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction({forged}, request, adapter_options,
+                                                               test_mutation_authority());
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger object command target rejected");
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
 }
 
 TEST(JsTriggerDispatch, HelperTransactionRejectsUnsupportedEnvelopesBeforeAudit) {

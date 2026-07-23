@@ -560,8 +560,8 @@ constexpr JsApiMember RoomMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only direct room object snapshots copied from the room contents linked list. "
      "Entries are shallow object snapshots without ownership handles or recursive contents."},
-    {"characters", JsApiMemberKind::Property, "readonly CharacterRelationshipSnapshot[]", "",
-     false, true, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+    {"characters", JsApiMemberKind::Property, "readonly CharacterRelationshipSnapshot[]", "", false,
+     true, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only shallow occupant snapshots copied from the room people linked list. "
      "Entries omit recursive followers, master, mount, group, inventory, equipment, and setters."},
     {"affects", JsApiMemberKind::Property, "readonly Affect[]", "", false, true,
@@ -1123,9 +1123,9 @@ constexpr JsApiMember InventoryObjectSnapshotMembers[] = {
 };
 
 constexpr JsApiMember ScriptMembers[] = {
-    {"do_wait", JsApiMemberKind::Method, "(pulses: number) => MutationResult",
-     "MutationResult", false, false, JsApiSideEffect::Mutation,
-     JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
+    {"do_wait", JsApiMemberKind::Method, "(pulses: number) => MutationResult", "MutationResult",
+     false, false, JsApiSideEffect::Mutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+     "builder-zone",
      "Queue a bounded legacy-style wait request for the current script invocation. Live "
      "continuation scheduling remains a follow-up; v1 records and validates the request so "
      "BuilderClient examples and server dispatch agree on helper shape."},
@@ -1142,15 +1142,16 @@ constexpr JsApiMember ScriptMembers[] = {
      "Queue a bounded object-give request between live character and object handles. Live "
      "ownership transfer is promoted in a later audited helper slice; v1 validates the helper "
      "envelope and offline fixtures report the intended action."},
-    {"load_obj", JsApiMemberKind::Method, "(vnum: number) => MutationResult", "MutationResult",
-     false, false, JsApiSideEffect::WorldMutation,
+    {"load_obj", JsApiMemberKind::Method,
+     "(vnum: number, target?: Character | Room) => MutationResult", "MutationResult", false, false,
+     JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
+     "Queue a bounded object-load request by prototype vnum. When a live character or room target "
+     "is supplied, live dispatch creates the object and places it into that validated target in "
+     "the authorized zone. The one-argument form remains a validated no-placement intent until "
+     "legacy-style local object variables are designed."},
+    {"send_to_char", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
+     "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "Queue a bounded object-load request by prototype vnum. Live creation/placement is "
-     "promoted in a later audited helper slice; v1 validates the helper envelope and offline "
-     "fixtures report the intended action."},
-    {"send_to_char", JsApiMemberKind::Method,
-     "(target: Character, text: string) => MutationResult", "MutationResult", false, true,
-     JsApiSideEffect::Output, JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
      "Queue bounded text output to a character handle without exposing descriptors or account "
      "state to builder scripts."},
     {"send_to_room", JsApiMemberKind::Method, "(room: Room, text: string) => MutationResult",
@@ -1158,9 +1159,8 @@ constexpr JsApiMember ScriptMembers[] = {
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
      "Queue bounded room output for the current invocation room handle."},
     {"doWait", JsApiMemberKind::Method, "(pulses: number) => MutationResult", "MutationResult",
-     false, false, JsApiSideEffect::Mutation,
-     JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "CamelCase alias for `do_wait`."},
+     false, false, JsApiSideEffect::Mutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+     "builder-zone", "CamelCase alias for `do_wait`."},
     {"doSay", JsApiMemberKind::Method, "(speaker: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
@@ -1171,9 +1171,8 @@ constexpr JsApiMember ScriptMembers[] = {
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
      "CamelCase alias for `do_give`."},
     {"loadObj", JsApiMemberKind::Method, "(vnum: number) => MutationResult", "MutationResult",
-     false, false, JsApiSideEffect::WorldMutation,
-     JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "CamelCase alias for `load_obj`."},
+     false, false, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+     "builder-zone", "CamelCase alias for `load_obj`."},
     {"sendToChar", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",

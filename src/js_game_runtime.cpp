@@ -306,7 +306,8 @@ std::string room_content_object_literal(const JsGameRoomContentObjectFixture &ob
     return out.str();
 }
 
-std::string room_content_objects_literal(const std::vector<JsGameRoomContentObjectFixture> &objects) {
+std::string
+room_content_objects_literal(const std::vector<JsGameRoomContentObjectFixture> &objects) {
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < objects.size(); ++index) {
@@ -962,10 +963,10 @@ bool parse_mutation(JsonReader *reader, JsRuntimeMutation *mutation, std::string
                },
                error_message) &&
            (kind == "setter" || kind == "helper" || kind == "command") &&
-           (kind == "helper" || kind == "command" ||
-               value_kind == "string" || value_kind == "null" || value_kind == "number") &&
+           (kind == "helper" || kind == "command" || value_kind == "string" ||
+            value_kind == "null" || value_kind == "number") &&
            (mutation->kind = kind, mutation->value_kind = value_kind,
-               mutation->has_value = kind == "setter" && value_kind != "null", true);
+            mutation->has_value = kind == "setter" && value_kind != "null", true);
 }
 
 bool parse_game_envelope(const std::string &envelope, JsRuntimeEvalResult *result) {
@@ -1379,7 +1380,8 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "      const result = __rotsValidateSectorTypeSetter(value);\n"
         << "      if (result.ok) {\n"
         << "        current = value;\n"
-        << "        __rotsMutations.push({ kind: 'setter', targetType: 'room', targetId: __rotsString(handle.id), "
+        << "        __rotsMutations.push({ kind: 'setter', targetType: 'room', targetId: "
+           "__rotsString(handle.id), "
            "property: 'sectorType', valueKind: 'string', value: value });\n"
         << "      }\n"
         << "      return result;\n"
@@ -1453,9 +1455,14 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
            "value.isValid() !== true) return null;\n"
         << "  if (expectedType === 'character') {\n"
         << "    return value.id.indexOf('character:') === 0 || value.id.indexOf('char:') === 0 || "
-           "value.id.indexOf('player:') === 0 || value.id.indexOf('mob:') === 0 ? value.id : "
-           "null;\n"
+           "value.id.indexOf('player:') === 0 || value.id.indexOf('mob:') === 0 || "
+           "value.id === 'self' || value.id === 'actor' || value.id === 'speaker' || "
+           "value.id === 'attacker' || value.id === 'victim' || value.id === 'killer' || "
+           "value.id === 'dying' ? value.id : null;\n"
         << "  }\n"
+        << "  if (expectedType === 'object' && (value.id === 'object' || value.id === 'weapon')) "
+           "return value.id;\n"
+        << "  if (expectedType === 'room' && value.id === 'room') return value.id;\n"
         << "  if (value.id.indexOf(expectedType + ':') !== 0) return null;\n"
         << "  return value.id;\n"
         << "}\n"
@@ -1466,7 +1473,8 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "}\n"
         << "function __rotsDoSay(speaker, text) {\n"
         << "  const speakerId = __rotsHandleId(speaker, 'character', 'speaker');\n"
-        << "  if (speakerId === null) return __rotsMutationResult(false, 'invalid-value', 'Expected "
+        << "  if (speakerId === null) return __rotsMutationResult(false, 'invalid-value', "
+           "'Expected "
            "a live character handle.', 'speaker');\n"
         << "  const result = __rotsValidateCommandText(text, 'text');\n"
         << "  return result.ok ? __rotsCommandMutationResult('script.do_say', { speakerId: "
@@ -1488,10 +1496,19 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "  return result.ok ? __rotsCommandMutationResult('script.send_to_room', { roomId: "
            "roomId, text: text }) : result;\n"
         << "}\n"
-        << "function __rotsLoadObj(vnum) {\n"
+        << "function __rotsLoadObj(vnum, target) {\n"
         << "  const result = __rotsValidateCommandInteger(vnum, 'vnum', 0, 999999);\n"
-        << "  return result.ok ? __rotsCommandMutationResult('script.load_obj', { vnum: vnum }) : "
-           "result;\n"
+        << "  if (!result.ok) return result;\n"
+        << "  if (arguments.length < 2 || target === undefined || target === null) return "
+           "__rotsCommandMutationResult('script.load_obj', { vnum: vnum });\n"
+        << "  const characterId = __rotsHandleId(target, 'character', 'target');\n"
+        << "  const roomId = characterId === null ? __rotsHandleId(target, 'room', 'target') : "
+           "null;\n"
+        << "  const loadTargetId = characterId !== null ? characterId : roomId;\n"
+        << "  if (loadTargetId === null) return __rotsMutationResult(false, 'invalid-value', "
+           "'Expected a live character or room handle.', 'target');\n"
+        << "  return __rotsCommandMutationResult('script.load_obj', { vnum: vnum, loadTargetId: "
+           "loadTargetId });\n"
         << "}\n"
         << "function __rotsDoGive(giver, recipient, object) {\n"
         << "  const giverId = __rotsHandleId(giver, 'character', 'giver');\n"
@@ -1500,7 +1517,8 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "  if (giverId === null || recipientId === null || objectId === null) return "
            "__rotsMutationResult(false, 'invalid-value', 'Expected live giver, recipient, and "
            "object handles.', 'target');\n"
-        << "  return __rotsCommandMutationResult('script.do_give', { giverId: giverId, recipientId: "
+        << "  return __rotsCommandMutationResult('script.do_give', { giverId: giverId, "
+           "recipientId: "
            "recipientId, objectId: objectId });\n"
         << "}\n"
         << "const console = __rotsDeepFreeze({ log: function() { return undefined; } });\n"

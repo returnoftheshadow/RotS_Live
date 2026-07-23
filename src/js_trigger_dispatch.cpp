@@ -2,6 +2,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "handler.h"
 #include "js_api_struct_mapping.h"
 #include "json_utils.h"
 #include "structs.h"
@@ -20,6 +21,7 @@
 #include <vector>
 
 void draw_map();
+void perform_give(struct char_data *ch, struct char_data *vict, struct obj_data *obj);
 extern char *sector_types[];
 extern char num_of_sector_types;
 
@@ -102,6 +104,23 @@ struct AppliedRoomFlagMutation {
     long previous_flags = 0;
 };
 
+enum class PendingObjectCommandTarget {
+    None,
+    Character,
+    Room,
+};
+
+struct PendingObjectCommand {
+    std::string operation;
+    char_data *giver = nullptr;
+    char_data *recipient = nullptr;
+    obj_data *object = nullptr;
+    PendingObjectCommandTarget target = PendingObjectCommandTarget::None;
+    char_data *target_character = nullptr;
+    int target_room = NOWHERE;
+    int real_object_index = -1;
+};
+
 struct ScriptCommandArguments {
     std::string text;
     std::string speaker_id;
@@ -110,6 +129,7 @@ struct ScriptCommandArguments {
     std::string giver_id;
     std::string recipient_id;
     std::string object_id;
+    std::string load_target_id;
     int vnum = -1;
     int pulses = -1;
     bool saw_text = false;
@@ -119,6 +139,7 @@ struct ScriptCommandArguments {
     bool saw_giver_id = false;
     bool saw_recipient_id = false;
     bool saw_object_id = false;
+    bool saw_load_target_id = false;
     bool saw_vnum = false;
     bool saw_pulses = false;
 };
@@ -405,6 +426,11 @@ bool command_id_is_valid(const std::string &value, const char *prefix) {
         return (value.find("room:") == 0 && value.size() > std::strlen(prefix)) ||
                value == "room" || value == "target" || value == "targ1" || value == "targ2";
     }
+    if (std::strcmp(prefix, "object:") == 0) {
+        return (value.find("object:") == 0 && value.size() > std::strlen(prefix)) ||
+               value == "object" || value == "weapon" || value == "target" || value == "targ1" ||
+               value == "targ2";
+    }
     return value.find(prefix) == 0 && value.size() > std::strlen(prefix);
 }
 
@@ -451,6 +477,10 @@ bool parse_script_command_arguments(const JsRuntimeMutation &mutation,
                     local.saw_object_id = true;
                     return nested_reader->parse_string(&local.object_id, nested_error);
                 }
+                if (name == "loadTargetId" && !local.saw_load_target_id) {
+                    local.saw_load_target_id = true;
+                    return nested_reader->parse_string(&local.load_target_id, nested_error);
+                }
                 if (name == "vnum" && !local.saw_vnum) {
                     local.saw_vnum = true;
                     return nested_reader->parse_integer(&local.vnum, nested_error);
@@ -468,7 +498,10 @@ bool parse_script_command_arguments(const JsRuntimeMutation &mutation,
     if (mutation.operation == "script.do_wait")
         valid = local.saw_pulses && command_pulses_are_valid(local.pulses);
     else if (mutation.operation == "script.load_obj")
-        valid = local.saw_vnum && command_vnum_is_valid(local.vnum);
+        valid =
+            local.saw_vnum && command_vnum_is_valid(local.vnum) &&
+            (!local.saw_load_target_id || command_id_is_valid(local.load_target_id, "character:") ||
+             command_id_is_valid(local.load_target_id, "room:"));
     else if (mutation.operation == "script.do_say")
         valid = local.saw_speaker_id && local.saw_text &&
                 command_id_is_valid(local.speaker_id, "character:") &&
@@ -527,6 +560,8 @@ bool runtime_mutations_require_persistent_authority(
 
 bool room_matches_mutation_authority(const room_data &room, const JsGameAdapterOptions &options,
                                      const JsTriggerMutationAuthorityContext &authority);
+bool object_matches_mutation_authority(const obj_data &object, const JsGameAdapterOptions &options,
+                                       const JsTriggerMutationAuthorityContext &authority);
 JsTriggerHelperMutationTransactionResult prepare_helper_mutation_transaction(
     const std::vector<JsRuntimeMutation> &mutations,
     const JsTriggerHelperMutationTransactionOptions &options,
@@ -1007,6 +1042,43 @@ int live_room_role_for_command_id(const std::string &id, const JsTriggerDispatch
     return NOWHERE;
 }
 
+obj_data *live_object_role_for_command_id(const std::string &id,
+                                          const JsTriggerDispatchRequest &request,
+                                          const JsGameAdapterOptions &options) {
+    const obj_data *candidate = nullptr;
+    if (id == "object")
+        candidate = request.context_input.object;
+    else if (id == "weapon")
+        candidate = request.context_input.weapon;
+    if (candidate == nullptr || !js_game_adapter_is_live_object(candidate, options))
+        return nullptr;
+    return const_cast<obj_data *>(candidate);
+}
+
+bool command_target_matches_authority(const char_data *character,
+                                      const JsGameAdapterOptions &options,
+                                      const JsTriggerMutationAuthorityContext &authority) {
+    return character != nullptr && js_game_adapter_is_live_character(character, options) &&
+           js_game_adapter_room_is_valid(character->in_room, options) &&
+           room_matches_mutation_authority(options.world[character->in_room], options, authority);
+}
+
+bool command_target_matches_authority(int room, const JsGameAdapterOptions &options,
+                                      const JsTriggerMutationAuthorityContext &authority) {
+    return js_game_adapter_room_is_valid(room, options) &&
+           room_matches_mutation_authority(options.world[room], options, authority);
+}
+
+bool object_is_directly_carried_by(const obj_data *object, const char_data *character) {
+    if (object == nullptr || character == nullptr || object->carried_by != character)
+        return false;
+    for (const obj_data *node = character->carrying; node != nullptr; node = node->next_content) {
+        if (node == object)
+            return true;
+    }
+    return false;
+}
+
 std::string output_command_line(const std::string &text) { return text + "\n\r"; }
 
 std::string say_command_line(const char_data *speaker, const std::string &text) {
@@ -1050,6 +1122,66 @@ bool prepare_output_command_mutations(const std::vector<JsRuntimeMutation> &muta
                 return false;
         }
         pending_output->push_back(pending);
+    }
+    return true;
+}
+
+bool prepare_object_command_mutations(const std::vector<JsRuntimeMutation> &mutations,
+                                      const JsTriggerDispatchRequest &request,
+                                      const JsGameAdapterOptions &options,
+                                      const JsTriggerMutationAuthorityContext &authority,
+                                      std::vector<PendingObjectCommand> *pending_object_commands) {
+    if (pending_object_commands == nullptr)
+        return false;
+    pending_object_commands->clear();
+    for (const JsRuntimeMutation &mutation : mutations) {
+        if (!runtime_mutation_kind_is_command(mutation) ||
+            script_command_mutation_is_output(mutation) || mutation.operation == "script.do_wait")
+            continue;
+        ScriptCommandArguments arguments;
+        if (!parse_script_command_arguments(mutation, &arguments))
+            return false;
+
+        PendingObjectCommand pending;
+        pending.operation = mutation.operation;
+        if (mutation.operation == "script.load_obj") {
+            pending.real_object_index = real_object(arguments.vnum);
+            if (pending.real_object_index < 0)
+                return false;
+            if (arguments.saw_load_target_id) {
+                pending.target_character =
+                    live_character_role_for_command_id(arguments.load_target_id, request, options);
+                if (pending.target_character != nullptr) {
+                    if (!command_target_matches_authority(pending.target_character, options,
+                                                          authority))
+                        return false;
+                    pending.target = PendingObjectCommandTarget::Character;
+                } else {
+                    pending.target_room =
+                        live_room_role_for_command_id(arguments.load_target_id, request, options);
+                    if (!command_target_matches_authority(pending.target_room, options, authority))
+                        return false;
+                    pending.target = PendingObjectCommandTarget::Room;
+                }
+            }
+        } else if (mutation.operation == "script.do_give") {
+            pending.giver =
+                live_character_role_for_command_id(arguments.giver_id, request, options);
+            pending.recipient =
+                live_character_role_for_command_id(arguments.recipient_id, request, options);
+            pending.object = live_object_role_for_command_id(arguments.object_id, request, options);
+            if (pending.giver == nullptr || pending.recipient == nullptr ||
+                pending.object == nullptr ||
+                !object_is_directly_carried_by(pending.object, pending.giver))
+                return false;
+            if (!command_target_matches_authority(pending.giver, options, authority) ||
+                !command_target_matches_authority(pending.recipient, options, authority) ||
+                !object_matches_mutation_authority(*pending.object, options, authority))
+                return false;
+        } else {
+            return false;
+        }
+        pending_object_commands->push_back(pending);
     }
     return true;
 }
@@ -1407,6 +1539,7 @@ bool prepare_runtime_mutation_transaction(
     const JsTriggerHelperMutationTransactionOptions &helper_options,
     std::vector<PendingTextMutation> *pending,
     std::vector<PendingRoomFlagMutation> *pending_room_flag_mutations,
+    std::vector<PendingObjectCommand> *pending_object_commands,
     std::vector<PendingOutputCommand> *pending_output_commands, std::string *diagnostic,
     JsTriggerHelperMutationTransactionStatus *helper_status = nullptr) {
     std::vector<JsRuntimeMutation> setter_mutations;
@@ -1430,6 +1563,8 @@ bool prepare_runtime_mutation_transaction(
 
     if (pending_room_flag_mutations != nullptr)
         pending_room_flag_mutations->clear();
+    if (pending_object_commands != nullptr)
+        pending_object_commands->clear();
     if (pending_output_commands != nullptr)
         pending_output_commands->clear();
 
@@ -1440,6 +1575,8 @@ bool prepare_runtime_mutation_transaction(
             *helper_status = JsTriggerHelperMutationTransactionStatus::NotEvaluated;
         if (pending_room_flag_mutations != nullptr)
             pending_room_flag_mutations->clear();
+        if (pending_object_commands != nullptr)
+            pending_object_commands->clear();
         if (pending_output_commands != nullptr)
             pending_output_commands->clear();
         return false;
@@ -1454,6 +1591,8 @@ bool prepare_runtime_mutation_transaction(
             pending->clear();
         if (pending_room_flag_mutations != nullptr)
             pending_room_flag_mutations->clear();
+        if (pending_object_commands != nullptr)
+            pending_object_commands->clear();
         if (pending_output_commands != nullptr)
             pending_output_commands->clear();
         return false;
@@ -1469,6 +1608,25 @@ bool prepare_runtime_mutation_transaction(
             pending->clear();
         if (pending_room_flag_mutations != nullptr)
             pending_room_flag_mutations->clear();
+        if (pending_object_commands != nullptr)
+            pending_object_commands->clear();
+        if (pending_output_commands != nullptr)
+            pending_output_commands->clear();
+        return false;
+    }
+
+    if (!prepare_object_command_mutations(command_mutations, request, options, authority,
+                                          pending_object_commands)) {
+        if (diagnostic != nullptr)
+            *diagnostic = "JavaScript trigger object command target rejected";
+        if (helper_status != nullptr)
+            *helper_status = JsTriggerHelperMutationTransactionStatus::NotEvaluated;
+        if (pending != nullptr)
+            pending->clear();
+        if (pending_room_flag_mutations != nullptr)
+            pending_room_flag_mutations->clear();
+        if (pending_object_commands != nullptr)
+            pending_object_commands->clear();
         if (pending_output_commands != nullptr)
             pending_output_commands->clear();
         return false;
@@ -1491,6 +1649,8 @@ bool prepare_runtime_mutation_transaction(
             pending->clear();
         if (pending_room_flag_mutations != nullptr)
             pending_room_flag_mutations->clear();
+        if (pending_object_commands != nullptr)
+            pending_object_commands->clear();
         if (pending_output_commands != nullptr)
             pending_output_commands->clear();
         if (diagnostic != nullptr)
@@ -1541,6 +1701,48 @@ void apply_output_commands(const std::vector<PendingOutputCommand> &commands) {
             continue;
         }
     }
+}
+
+bool apply_object_commands(const std::vector<PendingObjectCommand> &commands) {
+    for (const PendingObjectCommand &command : commands) {
+        if (command.operation == "script.load_obj") {
+            if (command.target == PendingObjectCommandTarget::None)
+                continue;
+            obj_data *object = read_object(command.real_object_index, REAL);
+            if (object == nullptr)
+                return false;
+            if (command.target == PendingObjectCommandTarget::Character &&
+                command.target_character != nullptr) {
+                obj_to_char(object, command.target_character);
+                continue;
+            }
+            if (command.target == PendingObjectCommandTarget::Room &&
+                command.target_room != NOWHERE) {
+                obj_to_room(object, command.target_room);
+                continue;
+            }
+            return false;
+        }
+        if (command.operation == "script.do_give") {
+            if (command.giver == nullptr || command.recipient == nullptr ||
+                command.object == nullptr)
+                return false;
+            perform_give(command.giver, command.recipient, command.object);
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+std::size_t runtime_object_command_mutation_count(const std::vector<JsRuntimeMutation> &mutations) {
+    std::size_t count = 0;
+    for (const JsRuntimeMutation &mutation : mutations) {
+        if (runtime_mutation_kind_is_command(mutation) &&
+            !script_command_mutation_is_output(mutation) && mutation.operation != "script.do_wait")
+            ++count;
+    }
+    return count;
 }
 
 bool apply_room_flag_mutations(const std::vector<PendingRoomFlagMutation> &mutations,
@@ -1834,12 +2036,13 @@ js_trigger_dispatch_probe_runtime_mutation_transaction(
     const JsTriggerHelperMutationTransactionOptions &helper_options) {
     std::vector<PendingTextMutation> pending_mutations;
     std::vector<PendingRoomFlagMutation> pending_room_flag_mutations;
+    std::vector<PendingObjectCommand> pending_object_commands;
     std::vector<PendingOutputCommand> pending_output_commands;
     JsTriggerRuntimeMutationTransactionProbeResult result;
     result.ok = prepare_runtime_mutation_transaction(
         mutations, request, adapter_options, authority, helper_options, &pending_mutations,
-        &pending_room_flag_mutations, &pending_output_commands, &result.diagnostic,
-        &result.helper_status);
+        &pending_room_flag_mutations, &pending_object_commands, &pending_output_commands,
+        &result.diagnostic, &result.helper_status);
     result.prepared_setter_count = pending_mutations.size();
     result.prepared_helper_count = pending_room_flag_mutations.size();
     return result;
@@ -1852,12 +2055,13 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
     const JsTriggerHelperMutationTransactionOptions &helper_options) {
     std::vector<PendingTextMutation> pending_mutations;
     std::vector<PendingRoomFlagMutation> pending_room_flag_mutations;
+    std::vector<PendingObjectCommand> pending_object_commands;
     std::vector<PendingOutputCommand> pending_output_commands;
     JsTriggerRuntimeMutationTransactionApplyResult result;
     result.ok = prepare_runtime_mutation_transaction(
         mutations, request, adapter_options, authority, helper_options, &pending_mutations,
-        &pending_room_flag_mutations, &pending_output_commands, &result.diagnostic,
-        &result.helper_status);
+        &pending_room_flag_mutations, &pending_object_commands, &pending_output_commands,
+        &result.diagnostic, &result.helper_status);
     if (!result.ok)
         return result;
 
@@ -1876,6 +2080,24 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
         result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
         result.applied_setter_count = 0;
         result.diagnostic = "JavaScript trigger helper mutation apply rejected";
+        return result;
+    }
+
+    if (runtime_object_command_mutation_count(mutations) != pending_object_commands.size()) {
+        result.ok = false;
+        result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
+        result.applied_setter_count = 0;
+        result.applied_helper_count = 0;
+        result.diagnostic = "JavaScript trigger object command apply rejected";
+        return result;
+    }
+
+    if (!apply_object_commands(pending_object_commands)) {
+        result.ok = false;
+        result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
+        result.applied_setter_count = 0;
+        result.applied_helper_count = 0;
+        result.diagnostic = "JavaScript trigger object command apply rejected";
         return result;
     }
 

@@ -367,7 +367,9 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     expect_contains(declarations, "export function do_wait(pulses: number): MutationResult;");
     expect_contains(declarations,
                     "export function do_say(speaker: Character, text: string): MutationResult;");
-    expect_contains(declarations, "export function load_obj(vnum: number): MutationResult;");
+    expect_contains(
+        declarations,
+        "export function load_obj(vnum: number, target?: Character | Room): MutationResult;");
     expect_contains(declarations, "export function send_to_char(target: Character, text: string): "
                                   "MutationResult;");
     expect_contains(declarations, "export function sendToRoom(room: Room, text: string): "
@@ -435,12 +437,29 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
             EXPECT_EQ(block.find("removeFlag("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setLight("), std::string::npos) << interface_name;
             const char *forbidden_room_members[] = {
-                "addFlag",     "removeFlag", "setTracks",   "setBleedTracks",
-                "setBfsDirection", "setBfsNext", "setSpecialProcedure", "tracks",
-                "bleedTracks", "bfsDirection",
-                "bfsNext",     "specialProcedure", "room_track", "bleed_track",
-                "bfs_dir",     "bfs_next", "funct", "roomTrack", "bleedTrack", "bfsDir",
-                "bfsNextRaw",  "specialProc", "special",
+                "addFlag",
+                "removeFlag",
+                "setTracks",
+                "setBleedTracks",
+                "setBfsDirection",
+                "setBfsNext",
+                "setSpecialProcedure",
+                "tracks",
+                "bleedTracks",
+                "bfsDirection",
+                "bfsNext",
+                "specialProcedure",
+                "room_track",
+                "bleed_track",
+                "bfs_dir",
+                "bfs_next",
+                "funct",
+                "roomTrack",
+                "bleedTrack",
+                "bfsDir",
+                "bfsNextRaw",
+                "specialProc",
+                "special",
             };
             for (const char *member_name : forbidden_room_members) {
                 EXPECT_EQ(block.find(member_name), std::string::npos)
@@ -480,14 +499,36 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
             EXPECT_EQ(block.find("setResetCommandCount("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setResetCommands("), std::string::npos) << interface_name;
             const char *forbidden_zone_members[] = {
-                "owners", "resetCommandCount", "resetCommands", "cmdno", "cmd",
-                "zone_short_description", "zone_extra_description", "zone_description", "zone_map",
-                "min_level_look", "white_power", "dark_power", "magi_power",
-                "shortDescriptions", "extraDescriptions", "mapDescriptions", "ownerIds",
-                "reset_command_count", "reset_commands", "zoneShortDescription",
-                "zoneShortDescriptions", "zoneExtraDescription", "zoneExtraDescriptions",
-                "zoneMapDescription", "zoneMapDescriptions", "minLevelLook",
-                "minimum_level_look", "setOwnerIds", "setCmd", "setCmdno",
+                "owners",
+                "resetCommandCount",
+                "resetCommands",
+                "cmdno",
+                "cmd",
+                "zone_short_description",
+                "zone_extra_description",
+                "zone_description",
+                "zone_map",
+                "min_level_look",
+                "white_power",
+                "dark_power",
+                "magi_power",
+                "shortDescriptions",
+                "extraDescriptions",
+                "mapDescriptions",
+                "ownerIds",
+                "reset_command_count",
+                "reset_commands",
+                "zoneShortDescription",
+                "zoneShortDescriptions",
+                "zoneExtraDescription",
+                "zoneExtraDescriptions",
+                "zoneMapDescription",
+                "zoneMapDescriptions",
+                "minLevelLook",
+                "minimum_level_look",
+                "setOwnerIds",
+                "setCmd",
+                "setCmdno",
             };
             for (const char *member_name : forbidden_zone_members) {
                 EXPECT_EQ(block.find(std::string(member_name) + ":"), std::string::npos)
@@ -528,20 +569,31 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     ASSERT_FALSE(inventory_object_block.empty());
     EXPECT_NE(inventory_object_block.find("readonly touched:"), std::string::npos);
     const char *object_lifecycle_setters[] = {
-        "setVnum",        "setFlags",       "setAffects",   "setExtraDescriptions",
-        "setRoom",        "setCarriedBy",   "setContainer", "setContents",
-        "setTouched",     "setOwnerId",     "setNextContent", "setNext",
-        "setLoadedBy",
+        "setVnum",        "setFlags",     "setAffects",  "setExtraDescriptions", "setRoom",
+        "setCarriedBy",   "setContainer", "setContents", "setTouched",           "setOwnerId",
+        "setNextContent", "setNext",      "setLoadedBy",
     };
     for (const char *setter_name : object_lifecycle_setters) {
         EXPECT_EQ(object_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
     }
     const char *raw_object_members[] = {
-        "ownerId",       "nextContent",      "next",          "loadedBy",
-        "item_number",   "in_room",          "obj_flags",     "affected",
-        "short_description", "action_description", "ex_description", "carried_by",
-        "owner",         "in_obj",           "contains",      "next_content",
+        "ownerId",
+        "nextContent",
+        "next",
+        "loadedBy",
+        "item_number",
+        "in_room",
+        "obj_flags",
+        "affected",
+        "short_description",
+        "action_description",
+        "ex_description",
+        "carried_by",
+        "owner",
+        "in_obj",
+        "contains",
+        "next_content",
         "loaded_by",
     };
     for (const char *member_name : raw_object_members) {
@@ -600,16 +652,43 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
             << setter_name;
     }
     const char *raw_character_members[] = {
-        "internalIndex", "playerIndex",      "descriptor",     "nextInRoom",
-        "next",          "nextFighting",     "nextFastUpdate", "masterNumber",
-        "temporaryData", "delay",            "nextDying",      "group",
-        "abs_number",    "player_index",     "nr",             "in_room",
-        "player",        "abilities",        "tmpabilities",   "constabilities",
-        "profs",         "extra_specialization_data", "damage_details", "affected",
-        "carrying",      "desc",             "next_in_room",   "next_fighting",
-        "next_fast_update",                  "master_number",  "mount_data",
-        "temp",          "next_die",         "classpoints",    "interrupt_count",
-        "interrupt_time",                    "spec_busy",
+        "internalIndex",
+        "playerIndex",
+        "descriptor",
+        "nextInRoom",
+        "next",
+        "nextFighting",
+        "nextFastUpdate",
+        "masterNumber",
+        "temporaryData",
+        "delay",
+        "nextDying",
+        "group",
+        "abs_number",
+        "player_index",
+        "nr",
+        "in_room",
+        "player",
+        "abilities",
+        "tmpabilities",
+        "constabilities",
+        "profs",
+        "extra_specialization_data",
+        "damage_details",
+        "affected",
+        "carrying",
+        "desc",
+        "next_in_room",
+        "next_fighting",
+        "next_fast_update",
+        "master_number",
+        "mount_data",
+        "temp",
+        "next_die",
+        "classpoints",
+        "interrupt_count",
+        "interrupt_time",
+        "spec_busy",
     };
     for (const char *member_name : raw_character_members) {
         EXPECT_EQ(character_block.find(std::string(member_name) + ":"), std::string::npos)
@@ -638,9 +717,21 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_NE(room_exit_block.find("readonly toRoomVnum: number | null"), std::string::npos);
     EXPECT_NE(room_exit_block.find("readonly flags: readonly string[]"), std::string::npos);
     const char *room_nested_list_setters[] = {
-        "setExtraDescriptions", "setExit", "setContents", "setCharacters", "setAffects",
-        "setAlignment",         "setFlags", "addFlag", "removeFlag", "setLight", "setTracks",
-        "setBleedTracks",       "setBfsDirection", "setBfsNext", "setSpecialProcedure",
+        "setExtraDescriptions",
+        "setExit",
+        "setContents",
+        "setCharacters",
+        "setAffects",
+        "setAlignment",
+        "setFlags",
+        "addFlag",
+        "removeFlag",
+        "setLight",
+        "setTracks",
+        "setBleedTracks",
+        "setBfsDirection",
+        "setBfsNext",
+        "setSpecialProcedure",
     };
     for (const char *setter_name : room_nested_list_setters) {
         EXPECT_EQ(room_block.find(std::string(setter_name) + "("), std::string::npos)
@@ -839,10 +930,9 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     EXPECT_EQ(markdown.find("loadedBy"), std::string::npos);
     EXPECT_EQ(markdown.find("getOwners"), std::string::npos);
     EXPECT_EQ(markdown.find("internal-only"), std::string::npos);
-    expect_contains(markdown,
-                    "| `Room` | `Room.flags` | `flags` | `getFlags` | `setFlags` | "
-                    "`readonly string[]` | `no` | `implemented-read-only-getter` | "
-                    "`deferred` | `yes` | `no` | `yes` | `mutation` |");
+    expect_contains(markdown, "| `Room` | `Room.flags` | `flags` | `getFlags` | `setFlags` | "
+                              "`readonly string[]` | `no` | `implemented-read-only-getter` | "
+                              "`deferred` | `yes` | `no` | `yes` | `mutation` |");
     expect_contains(markdown,
                     "| `Zone` | `Zone.age` | `age` | `getAge` | `setAge` | `number` | "
                     "`no` | `implemented-read-only-getter` | `unsupported` | `yes` | `no` | "
