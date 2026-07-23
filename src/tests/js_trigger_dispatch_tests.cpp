@@ -296,6 +296,151 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorRejectsHelperFieldsOnSetterE
     EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(mutation));
 }
 
+TEST(JsTriggerDispatch, HelperTransactionRejectsUnsupportedEnvelopesBeforeAudit)
+{
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    JsRuntimeMutation setter;
+    setter.kind = "setter";
+    setter.target_type = "room";
+    setter.target_id = "room";
+    setter.property = "level";
+    setter.value_kind = "number";
+    setter.has_value = true;
+    setter.value = "10";
+
+    const JsTriggerHelperMutationTransactionResult result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({ setter }, options);
+
+    EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope);
+    EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
+        "unsupported-envelope");
+    EXPECT_EQ(result.mutation_count, 0U);
+    EXPECT_EQ(audit_calls, 0);
+    EXPECT_EQ(result.diagnostic, "JavaScript helper mutation envelope rejected");
+
+    JsRuntimeMutation missing_token;
+    missing_token.kind = "helper";
+    missing_token.operation = "room.flags.add";
+    missing_token.arguments_json = "{\"flag\":\"peace\"}";
+    const JsTriggerHelperMutationTransactionResult malformed =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({ missing_token }, options);
+    EXPECT_EQ(malformed.status, JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope);
+    EXPECT_EQ(malformed.mutation_count, 0U);
+    EXPECT_EQ(audit_calls, 0);
+    EXPECT_EQ(malformed.diagnostic.find("fixture-token"), std::string::npos);
+}
+
+TEST(JsTriggerDispatch, HelperTransactionRejectsUnknownOperationsBeforeAudit)
+{
+    const char* const allowed_operations[] = { "room.flags.add" };
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry.operation_names = allowed_operations;
+    options.registry.operation_count = 1;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    JsRuntimeMutation helper;
+    helper.kind = "helper";
+    helper.operation = "setFlags";
+    helper.target_token = "fixture-token";
+    helper.arguments_json = "{\"flag\":\"peace\"}";
+
+    const JsTriggerHelperMutationTransactionResult result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+
+    EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::UnknownOperation);
+    EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
+        "unknown-operation");
+    EXPECT_EQ(result.mutation_count, 0U);
+    EXPECT_EQ(audit_calls, 0);
+    EXPECT_EQ(result.diagnostic, "JavaScript helper mutation operation is not supported");
+}
+
+TEST(JsTriggerDispatch, HelperTransactionRequiresAuditBeforeSuccessfulPrepare)
+{
+    const char* const allowed_operations[] = { "room.flags.add", "room.flags.remove" };
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry.operation_names = allowed_operations;
+    options.registry.operation_count = 2;
+
+    JsRuntimeMutation add_flag;
+    add_flag.kind = "helper";
+    add_flag.operation = "room.flags.add";
+    add_flag.target_token = "fixture-room-token";
+    add_flag.arguments_json = "{\"flag\":\"peace\"}";
+    JsRuntimeMutation remove_flag = add_flag;
+    remove_flag.operation = "room.flags.remove";
+    remove_flag.arguments_json = "{\"flag\":\"dark\"}";
+
+    JsTriggerHelperMutationTransactionResult missing_audit =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({ add_flag }, options);
+    EXPECT_EQ(missing_audit.status, JsTriggerHelperMutationTransactionStatus::AuditRejected);
+    EXPECT_EQ(missing_audit.mutation_count, 1U);
+    EXPECT_EQ(missing_audit.diagnostic, "JavaScript helper mutation audit rejected");
+
+    int audit_calls = 0;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
+                                 std::string* diagnostic, void* user_data) {
+        ++*static_cast<int*>(user_data);
+        EXPECT_EQ(request.mutation_count, 2U);
+        EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
+        if (diagnostic != nullptr)
+            *diagnostic = "backend path /tmp/secret should stay hidden";
+        return false;
+    };
+
+    JsTriggerHelperMutationTransactionResult audit_rejected =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({ add_flag, remove_flag }, options);
+    EXPECT_EQ(audit_rejected.status, JsTriggerHelperMutationTransactionStatus::AuditRejected);
+    EXPECT_EQ(audit_rejected.mutation_count, 2U);
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_EQ(audit_rejected.diagnostic, "JavaScript helper mutation audit rejected");
+    EXPECT_EQ(audit_rejected.diagnostic.find("/tmp/secret"), std::string::npos);
+
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void*) { return true; };
+    JsTriggerHelperMutationTransactionResult ok =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({ add_flag, remove_flag }, options);
+    EXPECT_EQ(ok.status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(ok.status), "ok");
+    EXPECT_EQ(ok.mutation_count, 2U);
+    EXPECT_TRUE(ok.diagnostic.empty());
+}
+
+TEST(JsTriggerDispatch, HelperTransactionAllowsEmptyBatchWithoutAudit)
+{
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions options;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return false;
+    };
+
+    const JsTriggerHelperMutationTransactionResult result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({}, options);
+
+    EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_EQ(result.mutation_count, 0U);
+    EXPECT_TRUE(result.diagnostic.empty());
+    EXPECT_EQ(audit_calls, 0);
+}
+
 TEST(JsTriggerDispatch, StartsWithExplicitNoMatchStatusForEmptyRegistry)
 {
     JsScriptPackageRegistry registry;

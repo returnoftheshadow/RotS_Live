@@ -9,6 +9,8 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <set>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -313,6 +315,42 @@ bool validate_mutation_value(const JsRuntimeMutation& mutation)
 bool runtime_mutation_kind_is_setter(const JsRuntimeMutation& mutation)
 {
     return mutation.kind == "setter";
+}
+
+bool runtime_mutation_kind_is_helper(const JsRuntimeMutation& mutation)
+{
+    return mutation.kind == "helper";
+}
+
+bool registry_contains_operation(
+    const JsTriggerHelperMutationOperationRegistry& registry, const std::string& operation)
+{
+    if (operation.empty() || registry.operation_names == nullptr)
+        return false;
+    for (std::size_t index = 0; index < registry.operation_count; ++index) {
+        if (registry.operation_names[index] != nullptr && operation == registry.operation_names[index])
+            return true;
+    }
+    return false;
+}
+
+std::string helper_operations_summary(const std::vector<JsRuntimeMutation>& helper_mutations)
+{
+    std::set<std::string> operations;
+    for (const JsRuntimeMutation& mutation : helper_mutations) {
+        if (!mutation.operation.empty())
+            operations.insert(mutation.operation);
+    }
+
+    std::ostringstream summary;
+    bool first = true;
+    for (const std::string& operation : operations) {
+        if (!first)
+            summary << ",";
+        first = false;
+        summary << operation;
+    }
+    return summary.str();
 }
 
 bool has_persistent_setter_authority(const JsTriggerMutationAuthorityContext& authority)
@@ -864,12 +902,73 @@ const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status)
     return "unknown";
 }
 
+const char* js_trigger_helper_mutation_transaction_status_name(
+    JsTriggerHelperMutationTransactionStatus status)
+{
+    switch (status) {
+    case JsTriggerHelperMutationTransactionStatus::Ok:
+        return "ok";
+    case JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope:
+        return "unsupported-envelope";
+    case JsTriggerHelperMutationTransactionStatus::UnknownOperation:
+        return "unknown-operation";
+    case JsTriggerHelperMutationTransactionStatus::AuditRejected:
+        return "audit-rejected";
+    }
+    return "unknown";
+}
+
 bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation& mutation)
 {
     if (runtime_mutation_kind_is_setter(mutation))
         return mutation.operation.empty() && mutation.target_token.empty() &&
             mutation.arguments_json.empty();
     return false;
+}
+
+JsTriggerHelperMutationTransactionResult js_trigger_dispatch_prepare_helper_mutation_transaction(
+    const std::vector<JsRuntimeMutation>& mutations,
+    const JsTriggerHelperMutationTransactionOptions& options)
+{
+    JsTriggerHelperMutationTransactionResult result;
+    std::vector<JsRuntimeMutation> helper_mutations;
+    helper_mutations.reserve(mutations.size());
+
+    for (const JsRuntimeMutation& mutation : mutations) {
+        if (!runtime_mutation_kind_is_helper(mutation)) {
+            result.status = JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope;
+            result.diagnostic = "JavaScript helper mutation envelope rejected";
+            return result;
+        }
+        if (mutation.operation.empty() || mutation.target_token.empty() ||
+            mutation.arguments_json.empty()) {
+            result.status = JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope;
+            result.diagnostic = "JavaScript helper mutation envelope rejected";
+            return result;
+        }
+        if (!registry_contains_operation(options.registry, mutation.operation)) {
+            result.status = JsTriggerHelperMutationTransactionStatus::UnknownOperation;
+            result.diagnostic = "JavaScript helper mutation operation is not supported";
+            return result;
+        }
+        helper_mutations.push_back(mutation);
+    }
+
+    result.mutation_count = helper_mutations.size();
+    if (helper_mutations.empty())
+        return result;
+
+    JsTriggerHelperMutationAuditRequest audit_request;
+    audit_request.mutation_count = helper_mutations.size();
+    audit_request.operations_summary = helper_operations_summary(helper_mutations);
+    if (options.audit_callback == nullptr ||
+        !options.audit_callback(audit_request, &result.diagnostic, options.audit_user_data)) {
+        result.status = JsTriggerHelperMutationTransactionStatus::AuditRejected;
+        result.diagnostic = "JavaScript helper mutation audit rejected";
+        return result;
+    }
+
+    return result;
 }
 
 bool JsTriggerDispatchBudget::try_consume(

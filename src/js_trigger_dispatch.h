@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 enum class JsTriggerDispatchStatus {
     NoMatch,
@@ -90,8 +91,46 @@ struct JsTriggerDispatchResult {
     std::size_t matched_package_count = 0;
 };
 
+enum class JsTriggerHelperMutationTransactionStatus {
+    Ok,
+    UnsupportedEnvelope,
+    UnknownOperation,
+    AuditRejected,
+};
+
+struct JsTriggerHelperMutationOperationRegistry {
+    const char* const* operation_names = nullptr;
+    std::size_t operation_count = 0;
+};
+
+struct JsTriggerHelperMutationAuditRequest {
+    std::size_t mutation_count = 0;
+    std::string operations_summary;
+};
+
+using JsTriggerHelperMutationAuditCallback = bool (*)(
+    const JsTriggerHelperMutationAuditRequest& request, std::string* diagnostic, void* user_data);
+
+struct JsTriggerHelperMutationTransactionOptions {
+    JsTriggerHelperMutationOperationRegistry registry;
+    JsTriggerHelperMutationAuditCallback audit_callback = nullptr;
+    void* audit_user_data = nullptr;
+};
+
+struct JsTriggerHelperMutationTransactionResult {
+    JsTriggerHelperMutationTransactionStatus status =
+        JsTriggerHelperMutationTransactionStatus::Ok;
+    std::string diagnostic;
+    std::size_t mutation_count = 0;
+};
+
 const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status);
+const char* js_trigger_helper_mutation_transaction_status_name(
+    JsTriggerHelperMutationTransactionStatus status);
 bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation& mutation);
+JsTriggerHelperMutationTransactionResult js_trigger_dispatch_prepare_helper_mutation_transaction(
+    const std::vector<JsRuntimeMutation>& mutations,
+    const JsTriggerHelperMutationTransactionOptions& options = {});
 
 JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
     const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
