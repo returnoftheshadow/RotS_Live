@@ -682,6 +682,36 @@ TEST(JsManifestExport, MarksOnlyImplementedStructSettersCallable) {
     }
 }
 
+TEST(JsManifestExport, KeepsRawSetterGuardrailsDocumentationOnly) {
+    const std::string json = js_export_api_contract_json();
+
+    for (std::size_t index = 0; index < js_api_raw_setter_guardrail_count(); ++index) {
+        const JsApiRawSetterGuardrail &guardrail = js_api_raw_setter_guardrails()[index];
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(guardrail.owner, guardrail.source_field);
+        ASSERT_NE(mapping, nullptr) << guardrail.setter_name;
+        if (!mapping_is_public(*mapping)) {
+            expect_does_not_contain_field(json, "fieldId",
+                                          (std::string(public_owner_name(mapping->owner)) + "." +
+                                           mapping->js_property)
+                                              .c_str());
+            continue;
+        }
+
+        const std::string object = expected_mapping_json_object(*mapping);
+        expect_contains_json_object(json, object);
+        EXPECT_NE(object.find("\"setterName\":\"" + std::string(guardrail.setter_name) + "\""),
+                  std::string::npos)
+            << guardrail.setter_name;
+        EXPECT_NE(object.find("\"setterCallable\":false"), std::string::npos)
+            << guardrail.setter_name;
+        EXPECT_NE(object.find("\"documentationOnly\":true"), std::string::npos)
+            << guardrail.setter_name;
+        EXPECT_EQ(object.find("\"setterCallable\":true"), std::string::npos)
+            << guardrail.setter_name;
+    }
+}
+
 TEST(JsManifestExport, ExportsCombinedBuilderCompatibilityBlock) {
     const std::string json = js_export_builder_manifest_json();
     const JsScriptingManifestMetadata &trigger_metadata = js_scripting_manifest_metadata();

@@ -505,6 +505,38 @@ TEST(JsApiStructMapping, DeferredHelperPlanPrioritizesHighImpactBuilderAuthoring
     }
 }
 
+TEST(JsApiStructMapping, RawSetterGuardrailsReferenceNonCallableMappedFields) {
+    EXPECT_GT(js_api_raw_setter_guardrail_count(), 30U);
+
+    std::set<std::string> helper_plan_ids;
+    for (std::size_t index = 0; index < js_api_deferred_helper_plan_count(); ++index)
+        helper_plan_ids.insert(js_api_deferred_helper_plans()[index].id);
+
+    std::set<std::string> guardrail_keys;
+    for (std::size_t index = 0; index < js_api_raw_setter_guardrail_count(); ++index) {
+        const JsApiRawSetterGuardrail &guardrail = js_api_raw_setter_guardrails()[index];
+        SCOPED_TRACE(std::string(js_api_struct_owner_name(guardrail.owner)) + "." +
+                     guardrail.source_field + "." + guardrail.setter_name);
+
+        EXPECT_TRUE(helper_plan_ids.count(guardrail.helper_plan_id) > 0)
+            << guardrail.helper_plan_id;
+        EXPECT_STRNE(guardrail.reason, "");
+        EXPECT_TRUE(guardrail_keys
+                        .insert(std::string(js_api_struct_owner_name(guardrail.owner)) + "." +
+                                guardrail.source_field + "." + guardrail.setter_name)
+                        .second);
+
+        const JsApiStructFieldMapping *mapping =
+            find_js_api_struct_field_mapping(guardrail.owner, guardrail.source_field);
+        ASSERT_NE(mapping, nullptr);
+        EXPECT_STREQ(mapping->setter_name, guardrail.setter_name);
+        EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
+        EXPECT_TRUE(std::string(mapping->setter_status) == "deferred" ||
+                    std::string(mapping->setter_status) == "unsupported")
+            << mapping->setter_status;
+    }
+}
+
 TEST(JsApiStructMapping, FinalAccessorPolicyMatrixStaysIntentional) {
     struct ExpectedFieldPolicy {
         JsApiStructOwner owner;

@@ -389,6 +389,14 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
                 << public_field_id(mapping);
         }
     }
+    for (std::size_t index = 0; index < js_api_raw_setter_guardrail_count(); ++index) {
+        const JsApiRawSetterGuardrail &guardrail = js_api_raw_setter_guardrails()[index];
+        const std::string block = declaration_block(
+            declarations, "export interface " + std::string(public_owner_name(guardrail.owner)));
+        ASSERT_FALSE(block.empty()) << guardrail.setter_name;
+        EXPECT_EQ(block.find(std::string(guardrail.setter_name) + "("), std::string::npos)
+            << guardrail.setter_name << " should remain behind " << guardrail.helper_plan_id;
+    }
 
     const char *handle_interfaces[] = {
         "export interface Character",

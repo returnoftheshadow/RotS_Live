@@ -39,6 +39,14 @@ struct JsApiDeferredHelperPlan {
     const char *notes;
 };
 
+struct JsApiRawSetterGuardrail {
+    JsApiStructOwner owner;
+    const char *source_field;
+    const char *setter_name;
+    const char *helper_plan_id;
+    const char *reason;
+};
+
 const JsApiStructFieldMapping *js_api_struct_field_mappings();
 std::size_t js_api_struct_field_mapping_count();
 const char *js_api_struct_owner_name(JsApiStructOwner owner);
@@ -47,5 +55,7 @@ const JsApiStructFieldMapping *find_js_api_struct_field_mapping(JsApiStructOwner
                                                                 const char *source_field);
 const JsApiDeferredHelperPlan *js_api_deferred_helper_plans();
 std::size_t js_api_deferred_helper_plan_count();
+const JsApiRawSetterGuardrail *js_api_raw_setter_guardrails();
+std::size_t js_api_raw_setter_guardrail_count();
 
 #endif

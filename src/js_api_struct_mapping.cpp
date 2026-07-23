@@ -835,6 +835,91 @@ constexpr JsApiDeferredHelperPlan DeferredHelperPlans[] = {
      "script authoring primitives."},
 };
 
+constexpr JsApiRawSetterGuardrail RawSetterGuardrails[] = {
+    {JsApiStructOwner::CharData, "in_room", "setRoom", "character-movement-relationships",
+     "Character movement must use movement/teleport helpers, not raw room assignment."},
+    {JsApiStructOwner::CharData, "affected", "setAffects", "affects",
+     "Character affects must use add/remove helpers with recomputation."},
+    {JsApiStructOwner::CharData, "equipment", "setEquipmentSlot",
+     "inventory-equipment-object-movement",
+     "Equipment changes must use wear/remove helpers with trigger parity."},
+    {JsApiStructOwner::CharData, "carrying", "setInventory",
+     "inventory-equipment-object-movement",
+     "Inventory list replacement would bypass ownership, weight, containers, and crash-save."},
+    {JsApiStructOwner::CharData, "followers", "setFollowers",
+     "character-movement-relationships",
+     "Follower list replacement would bypass reciprocal links and loop prevention."},
+    {JsApiStructOwner::CharData, "master", "setMaster", "character-movement-relationships",
+     "Master changes need follow/unfollow helpers with reciprocal validation."},
+    {JsApiStructOwner::CharData, "mount_data", "setMount", "character-movement-relationships",
+     "Mount changes need mount/dismount helpers with rider propagation."},
+    {JsApiStructOwner::CharData, "group", "setGroup", "character-movement-relationships",
+     "Group writes need a live group registry or equivalent lifetime token."},
+    {JsApiStructOwner::CharData, "player", "setProfile", "profile-admin",
+     "Profile updates need split admin helpers and account/player persistence policy."},
+    {JsApiStructOwner::CharData, "skills", "setSkill", "profile-admin",
+     "Skill updates need training/admin helpers and derived knowledge recalculation."},
+    {JsApiStructOwner::ObjData, "obj_flags", "setFlags", "object-value-domains",
+     "Object flags and values need item-type-specific helpers, not raw obj_flags replacement."},
+    {JsApiStructOwner::ObjData, "affected", "setAffects", "affects",
+     "Object affects need slot-specific helpers and equipment recalculation."},
+    {JsApiStructOwner::ObjData, "ex_description", "setExtraDescriptions",
+     "zone-descriptions-and-visibility",
+     "Object extra descriptions need bounded add/update/remove helpers."},
+    {JsApiStructOwner::ObjData, "in_room", "setRoom", "inventory-equipment-object-movement",
+     "Object room placement needs movement/load/extract helpers."},
+    {JsApiStructOwner::ObjData, "carried_by", "setCarriedBy",
+     "inventory-equipment-object-movement",
+     "Carrier changes need inventory transfer helpers with reciprocal list validation."},
+    {JsApiStructOwner::ObjData, "in_obj", "setContainer",
+     "inventory-equipment-object-movement",
+     "Container changes need put/get helpers with cycle, capacity, and weight checks."},
+    {JsApiStructOwner::ObjData, "contains", "setContents",
+     "inventory-equipment-object-movement",
+     "Contents replacement would bypass nested ownership and linked-list invariants."},
+    {JsApiStructOwner::ObjData, "touched", "setTouched", "object-value-domains",
+     "Touched is runtime/player-interaction state and remains read-only."},
+    {JsApiStructOwner::RoomData, "room_flags", "setFlags", "room-flags",
+     "Room flags need a named allowlist and internal/transient bit exclusion."},
+    {JsApiStructOwner::RoomData, "dir_option", "setExit", "room-exits",
+     "Exit changes need directional helpers with destination, door, reset, and persistence policy."},
+    {JsApiStructOwner::RoomData, "ex_description", "setExtraDescriptions",
+     "zone-descriptions-and-visibility",
+     "Room extra descriptions need bounded add/update/remove helpers."},
+    {JsApiStructOwner::RoomData, "contents", "setContents",
+     "inventory-equipment-object-movement",
+     "Room contents replacement would bypass object placement and light/counting rules."},
+    {JsApiStructOwner::RoomData, "people", "setCharacters",
+     "character-movement-relationships",
+     "Room occupant replacement would bypass movement, combat, mounts, and followers."},
+    {JsApiStructOwner::RoomData, "affected", "setAffects", "affects",
+     "Room affects need add/remove helpers with room-flag synchronization."},
+    {JsApiStructOwner::RoomData, "light", "setLight", "room-flags",
+     "Light is a derived live counter owned by object/light mechanics."},
+    {JsApiStructOwner::ZoneData, "zone_short_description", "setShortDescriptions",
+     "zone-descriptions-and-visibility",
+     "Zone description lists need bounded add/update/remove helpers."},
+    {JsApiStructOwner::ZoneData, "zone_description", "setExtraDescriptions",
+     "zone-descriptions-and-visibility",
+     "Zone extra-description lists need bounded add/update/remove helpers."},
+    {JsApiStructOwner::ZoneData, "zone_map", "setMapDescriptions",
+     "zone-descriptions-and-visibility",
+     "Zone map-description lists need bounded add/update/remove helpers."},
+    {JsApiStructOwner::ZoneData, "min_level_look", "setMinimumLookLevel",
+     "zone-descriptions-and-visibility",
+     "Minimum-look writes need a confirmed persisted builder edit path."},
+    {JsApiStructOwner::ZoneData, "white_power", "setWhitePower", "zone-faction-power",
+     "Faction power is derived live state and needs admin recalculation helpers."},
+    {JsApiStructOwner::ZoneData, "dark_power", "setDarkPower", "zone-faction-power",
+     "Faction power is derived live state and needs admin recalculation helpers."},
+    {JsApiStructOwner::ZoneData, "magi_power", "setMagiPower", "zone-faction-power",
+     "Faction power is derived live state and needs admin recalculation helpers."},
+    {JsApiStructOwner::ZoneData, "cmdno", "setResetCommandCount", "zone-reset-authoring",
+     "Reset command count must be owned by atomic reset-command helpers."},
+    {JsApiStructOwner::ZoneData, "cmd", "setResetCommands", "zone-reset-authoring",
+     "Reset command tables must be owned by atomic reset-command helpers."},
+};
+
 } // namespace
 
 const JsApiStructFieldMapping *js_api_struct_field_mappings() { return FieldMappings; }
@@ -882,4 +967,10 @@ const JsApiDeferredHelperPlan *js_api_deferred_helper_plans() { return DeferredH
 
 std::size_t js_api_deferred_helper_plan_count() {
     return sizeof(DeferredHelperPlans) / sizeof(DeferredHelperPlans[0]);
+}
+
+const JsApiRawSetterGuardrail *js_api_raw_setter_guardrails() { return RawSetterGuardrails; }
+
+std::size_t js_api_raw_setter_guardrail_count() {
+    return sizeof(RawSetterGuardrails) / sizeof(RawSetterGuardrails[0]);
 }
