@@ -1,5 +1,6 @@
 #include "../js_trigger_dispatch.h"
 
+#include "../comm.h"
 #include "../db.h"
 #include "../interpre.h"
 #include "../js_api_struct_mapping.h"
@@ -20,19 +21,19 @@
 #include <vector>
 
 extern char world_map[];
-extern char* sector_types[];
+extern char *sector_types[];
 extern char num_of_sector_types;
+extern descriptor_data *descriptor_list;
 void draw_map();
 
 namespace {
 
-char_data make_character(const char* name, int race = 1, int level = 10, bool npc = false)
-{
-    char_data character {};
+char_data make_character(const char *name, int race = 1, int level = 10, bool npc = false) {
+    char_data character{};
     character.nr = npc ? 0 : -1;
     character.in_room = 0;
-    character.player.name = const_cast<char*>(name);
-    character.player.short_descr = const_cast<char*>(name);
+    character.player.name = const_cast<char *>(name);
+    character.player.short_descr = const_cast<char *>(name);
     character.player.race = race;
     character.player.level = level;
     character.tmpabilities.hit = 22;
@@ -43,49 +44,60 @@ char_data make_character(const char* name, int race = 1, int level = 10, bool np
     return character;
 }
 
-obj_data make_object(const char* name, int item_number = 0)
-{
-    obj_data object {};
+obj_data make_object(const char *name, int item_number = 0) {
+    obj_data object{};
     object.item_number = item_number;
     object.in_room = 0;
-    object.name = const_cast<char*>(name);
-    object.short_description = const_cast<char*>(name);
+    object.name = const_cast<char *>(name);
+    object.short_description = const_cast<char *>(name);
     return object;
 }
 
-room_data make_room(const char* name, int number, int zone)
-{
-    room_data room {};
-    room.name = const_cast<char*>(name);
+room_data make_room(const char *name, int number, int zone) {
+    room_data room{};
+    room.name = const_cast<char *>(name);
     room.number = number;
     room.zone = zone;
     return room;
 }
 
-zone_data make_zone(const char* name, int number)
-{
-    zone_data zone {};
-    zone.name = const_cast<char*>(name);
+zone_data make_zone(const char *name, int number) {
+    zone_data zone{};
+    zone.name = const_cast<char *>(name);
     zone.number = number;
     return zone;
 }
 
-JsScriptRegistryReplaceOptions internal_options()
-{
+void attach_descriptor(descriptor_data &descriptor, char_data &character) {
+    descriptor = {};
+    descriptor.connected = CON_PLYNG;
+    descriptor.character = &character;
+    descriptor.output = descriptor.small_outbuf;
+    descriptor.small_outbuf[0] = '\0';
+    descriptor.bufptr = 0;
+    descriptor.bufspace = SMALL_BUFSIZE - 1;
+    character.desc = &descriptor;
+}
+
+struct DescriptorListGuard {
+    descriptor_data *saved_descriptor_list = descriptor_list;
+
+    ~DescriptorListGuard() { descriptor_list = saved_descriptor_list; }
+};
+
+JsScriptRegistryReplaceOptions internal_options() {
     JsScriptRegistryReplaceOptions options;
     options.validation_options.mode = JsScriptPackageValidationMode::InternalValidationOnly;
     return options;
 }
 
-void refresh_checksum(JsScriptPackage& package)
-{
+void refresh_checksum(JsScriptPackage &package) {
     package.compiled_javascript_checksum = js_script_package_compiled_javascript_checksum(package);
 }
 
 JsScriptPackage make_package(int vnum, JsScriptPackageHost host, JsScriptingManifestKind kind,
-    int trigger, const char* handler, const std::string& source)
-{
-    const JsScriptingManifestMetadata& metadata = js_scripting_manifest_metadata();
+                             int trigger, const char *handler, const std::string &source) {
+    const JsScriptingManifestMetadata &metadata = js_scripting_manifest_metadata();
     JsScriptPackage package;
     package.vnum = vnum;
     package.package_id = "pkg-" + std::to_string(vnum);
@@ -98,19 +110,17 @@ JsScriptPackage make_package(int vnum, JsScriptPackageHost host, JsScriptingMani
     package.runtime_version = metadata.selected_runtime_version;
     package.generated_typings_version = metadata.generated_typings_version;
     package.compiled_javascript = source;
-    package.trigger_bindings.push_back({ kind, trigger, handler });
+    package.trigger_bindings.push_back({kind, trigger, handler});
     refresh_checksum(package);
     return package;
 }
 
-JsScriptPackage make_character_enter_package(int vnum, const std::string& source)
-{
+JsScriptPackage make_character_enter_package(int vnum, const std::string &source) {
     return make_package(vnum, JsScriptPackageHost::Character,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER, "onEnter", source);
+                        JsScriptingManifestKind::LegacyScriptTrigger, ON_ENTER, "onEnter", source);
 }
 
-JsStagedPackageStageOptions make_stage_options(const std::string& base_live = "live:old")
-{
+JsStagedPackageStageOptions make_stage_options(const std::string &base_live = "live:old") {
     JsStagedPackageStageOptions options;
     options.identity_options.zone = 30;
     options.identity_options.builder_account_id = "account:builder";
@@ -127,10 +137,9 @@ JsStagedPackageStageOptions make_stage_options(const std::string& base_live = "l
     return options;
 }
 
-JsStagedPackageRecord stage_package(
-    JsStagedPackageRepository& repository, const JsScriptPackage& package,
-    const std::string& base_live = "live:old")
-{
+JsStagedPackageRecord stage_package(JsStagedPackageRepository &repository,
+                                    const JsScriptPackage &package,
+                                    const std::string &base_live = "live:old") {
     JsStagedPackageStageResult staged =
         repository.stage_package(package, make_stage_options(base_live));
     EXPECT_TRUE(staged.ok);
@@ -138,10 +147,9 @@ JsStagedPackageRecord stage_package(
 }
 
 JsStagedPackageRecord activate_live_package_for_dispatch(
-    JsStagedPackageRepository& repository, JsLivePackageStore& live_store,
-    const JsScriptPackage& package,
-    const std::string& expected_previous_live_checksum = "live:old")
-{
+    JsStagedPackageRepository &repository, JsLivePackageStore &live_store,
+    const JsScriptPackage &package,
+    const std::string &expected_previous_live_checksum = "live:old") {
     JsStagedPackageRecord record =
         stage_package(repository, package, expected_previous_live_checksum);
     JsLivePackagePointer pointer;
@@ -161,11 +169,12 @@ JsStagedPackageRecord activate_live_package_for_dispatch(
     return record;
 }
 
-JsGameAdapterOptions make_options(const char_data* const* characters, std::size_t character_count,
-    const obj_data* const* objects, std::size_t object_count, room_data* world, int top_of_world,
-    index_data* obj_index, std::size_t obj_index_count, zone_data* zones, std::size_t zone_count)
-{
-    static const char* races[] = { "God", "Human", "Dwarf" };
+JsGameAdapterOptions make_options(const char_data *const *characters, std::size_t character_count,
+                                  const obj_data *const *objects, std::size_t object_count,
+                                  room_data *world, int top_of_world, index_data *obj_index,
+                                  std::size_t obj_index_count, zone_data *zones,
+                                  std::size_t zone_count) {
+    static const char *races[] = {"God", "Human", "Dwarf"};
     JsGameAdapterOptions options;
     options.live_characters = characters;
     options.live_character_count = character_count;
@@ -183,8 +192,7 @@ JsGameAdapterOptions make_options(const char_data* const* characters, std::size_
     return options;
 }
 
-JsTriggerDispatchRequest character_request(const char_data* self)
-{
+JsTriggerDispatchRequest character_request(const char_data *self) {
     JsTriggerDispatchRequest request;
     request.host = JsScriptPackageHost::Character;
     request.kind = JsScriptingManifestKind::LegacyScriptTrigger;
@@ -195,8 +203,7 @@ JsTriggerDispatchRequest character_request(const char_data* self)
     return request;
 }
 
-JsTriggerMutationAuthorityContext test_mutation_authority(int target_zone = 30)
-{
+JsTriggerMutationAuthorityContext test_mutation_authority(int target_zone = 30) {
     JsTriggerMutationAuthorityContext authority;
     authority.allow_persistent_setter_mutations = true;
     authority.builder_account_id = "account:builder";
@@ -207,8 +214,7 @@ JsTriggerMutationAuthorityContext test_mutation_authority(int target_zone = 30)
     return authority;
 }
 
-JsRuntimeMutation make_zone_name_setter(const char* value)
-{
+JsRuntimeMutation make_zone_name_setter(const char *value) {
     JsRuntimeMutation mutation;
     mutation.kind = "setter";
     mutation.target_type = "zone";
@@ -220,9 +226,8 @@ JsRuntimeMutation make_zone_name_setter(const char* value)
     return mutation;
 }
 
-JsRuntimeMutation make_script_command_mutation(
-    const char* operation, const std::string& arguments_json)
-{
+JsRuntimeMutation make_script_command_mutation(const char *operation,
+                                               const std::string &arguments_json) {
     JsRuntimeMutation mutation;
     mutation.kind = "command";
     mutation.operation = operation;
@@ -230,8 +235,7 @@ JsRuntimeMutation make_script_command_mutation(
     return mutation;
 }
 
-JsRuntimeMutation make_helper_mutation(const char* operation)
-{
+JsRuntimeMutation make_helper_mutation(const char *operation) {
     JsRuntimeMutation mutation;
     mutation.kind = "helper";
     mutation.operation = operation;
@@ -240,13 +244,11 @@ JsRuntimeMutation make_helper_mutation(const char* operation)
     return mutation;
 }
 
-bool contains(const std::string& value, const std::string& needle)
-{
+bool contains(const std::string &value, const std::string &needle) {
     return value.find(needle) != std::string::npos;
 }
 
-std::vector<std::string> split_pipe_list(const char* value)
-{
+std::vector<std::string> split_pipe_list(const char *value) {
     std::vector<std::string> entries;
     if (value == nullptr)
         return entries;
@@ -260,9 +262,8 @@ std::vector<std::string> split_pipe_list(const char* value)
     return entries;
 }
 
-std::string read_first_available_file(const std::vector<std::string>& paths)
-{
-    for (const std::string& path : paths) {
+std::string read_first_available_file(const std::vector<std::string> &paths) {
+    for (const std::string &path : paths) {
         std::ifstream file(path);
         if (!file)
             continue;
@@ -273,10 +274,9 @@ std::string read_first_available_file(const std::vector<std::string>& paths)
     return "";
 }
 
-std::vector<std::string> parse_dispatch_room_flag_helper_names()
-{
+std::vector<std::string> parse_dispatch_room_flag_helper_names() {
     const std::string source =
-        read_first_available_file({ "src/js_trigger_dispatch.cpp", "../js_trigger_dispatch.cpp" });
+        read_first_available_file({"src/js_trigger_dispatch.cpp", "../js_trigger_dispatch.cpp"});
     EXPECT_FALSE(source.empty());
     const std::string start_marker = "constexpr RoomFlagHelperFlag RoomFlagHelperAllowedFlags[]";
     const std::size_t start = source.find(start_marker);
@@ -304,15 +304,13 @@ std::vector<std::string> parse_dispatch_room_flag_helper_names()
     return names;
 }
 
-std::size_t world_map_symbol_offset(int x, int y)
-{
+std::size_t world_map_symbol_offset(int x, int y) {
     return static_cast<std::size_t>((y + 1) * (WORLD_SIZE_X + 4) + x * 2 + 1);
 }
 
 } // namespace
 
-TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlyScalarSetterEnvelopes)
-{
+TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlyScalarSetterEnvelopes) {
     JsRuntimeMutation missing_kind_setter;
     missing_kind_setter.target_type = "room";
     missing_kind_setter.target_id = "room";
@@ -338,10 +336,9 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlyScalarSetterEnvel
     EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(unknown));
 }
 
-TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorDoesNotTreatHelperNamesAsSetterKinds)
-{
-    for (const char *property : {"moveTo", "setExit", "addAffect", "inventory", "contents",
-             "flags", "cmd", "resetCommands"}) {
+TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorDoesNotTreatHelperNamesAsSetterKinds) {
+    for (const char *property : {"moveTo", "setExit", "addAffect", "inventory", "contents", "flags",
+                                 "cmd", "resetCommands"}) {
         JsRuntimeMutation mutation;
         mutation.kind = property;
         mutation.target_type = "room";
@@ -354,8 +351,7 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorDoesNotTreatHelperNamesAsSet
     }
 }
 
-TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorRejectsHelperFieldsOnSetterEnvelopes)
-{
+TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorRejectsHelperFieldsOnSetterEnvelopes) {
     JsRuntimeMutation mutation;
     mutation.kind = "setter";
     mutation.target_type = "zone";
@@ -378,43 +374,37 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorRejectsHelperFieldsOnSetterE
     EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(mutation));
 }
 
-TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlySupportedCommandHelpers)
-{
-    const JsRuntimeMutation say =
-        make_script_command_mutation("script.do_say",
-            "{\"speakerId\":\"char:1001\",\"text\":\"The gate opens.\"}");
+TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlySupportedCommandHelpers) {
+    const JsRuntimeMutation say = make_script_command_mutation(
+        "script.do_say", "{\"speakerId\":\"char:1001\",\"text\":\"The gate opens.\"}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(say));
 
-    const JsRuntimeMutation send =
-        make_script_command_mutation("script.send_to_char",
-            "{\"targetId\":\"player:7\",\"text\":\"You hear a click.\"}");
+    const JsRuntimeMutation send = make_script_command_mutation(
+        "script.send_to_char", "{\"targetId\":\"player:7\",\"text\":\"You hear a click.\"}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(send));
 
-    const JsRuntimeMutation room =
-        make_script_command_mutation("script.send_to_room",
-            "{\"roomId\":\"room:100\",\"text\":\"Stone grinds nearby.\"}");
+    const JsRuntimeMutation room = make_script_command_mutation(
+        "script.send_to_room", "{\"roomId\":\"room:100\",\"text\":\"Stone grinds nearby.\"}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(room));
 
     const JsRuntimeMutation load =
         make_script_command_mutation("script.load_obj", "{\"vnum\":4201}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(load));
 
-    const JsRuntimeMutation give =
-        make_script_command_mutation("script.do_give",
-            "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
+    const JsRuntimeMutation give = make_script_command_mutation(
+        "script.do_give",
+        "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(give));
 
-    const JsRuntimeMutation wait =
-        make_script_command_mutation("script.do_wait", "{\"pulses\":4}");
+    const JsRuntimeMutation wait = make_script_command_mutation("script.do_wait", "{\"pulses\":4}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(wait));
 
     const JsRuntimeMutation unknown =
         make_script_command_mutation("script.raw_command", "{\"text\":\"force north\"}");
     EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(unknown));
 
-    const JsRuntimeMutation multiline =
-        make_script_command_mutation("script.send_to_char",
-            "{\"targetId\":\"player:7\",\"text\":\"bad\\ntext\"}");
+    const JsRuntimeMutation multiline = make_script_command_mutation(
+        "script.send_to_char", "{\"targetId\":\"player:7\",\"text\":\"bad\\ntext\"}");
     EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(multiline));
 
     JsRuntimeMutation polluted = wait;
@@ -422,14 +412,91 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlySupportedCommandH
     EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(polluted));
 }
 
-TEST(JsTriggerDispatch, HelperTransactionRejectsUnsupportedEnvelopesBeforeAudit)
-{
+TEST(JsTriggerDispatch, OutputCommandHelpersApplyToLiveDescriptorsWithoutPersistentAuthority) {
+    DescriptorListGuard descriptor_guard;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5851, "function onEnter(ctx) {\n"
+              "  const tell = RotS.Script.send_to_char(ctx.actor, 'Private notice.');\n"
+              "  const room = RotS.Script.send_to_room(ctx.room, 'Room notice.');\n"
+              "  const say = RotS.Script.do_say(ctx.self, 'Gate opens.');\n"
+              "  return tell.ok && room.ok && say.ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    char_data observer = make_character("Observer");
+    self.next_in_room = &actor;
+    actor.next_in_room = &observer;
+    observer.next_in_room = nullptr;
+    descriptor_data self_descriptor{};
+    descriptor_data actor_descriptor{};
+    descriptor_data observer_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    attach_descriptor(actor_descriptor, actor);
+    attach_descriptor(observer_descriptor, observer);
+    self_descriptor.next = &actor_descriptor;
+    actor_descriptor.next = &observer_descriptor;
+    observer_descriptor.next = nullptr;
+    descriptor_list = &self_descriptor;
+
+    const char_data *live_characters[] = {&self, &actor, &observer};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    world[0].people = &self;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 3, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+
+    JsTriggerDispatchOptions dispatch_options;
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_TRUE(contains(self_descriptor.output, "Room notice.\n\r"));
+    EXPECT_TRUE(contains(self_descriptor.output, "Self says 'Gate opens.'\n\r"));
+    EXPECT_FALSE(contains(self_descriptor.output, "Private notice."));
+    EXPECT_TRUE(contains(actor_descriptor.output, "Private notice.\n\r"));
+    EXPECT_TRUE(contains(actor_descriptor.output, "Room notice.\n\r"));
+    EXPECT_TRUE(contains(actor_descriptor.output, "Self says 'Gate opens.'\n\r"));
+    EXPECT_TRUE(contains(observer_descriptor.output, "Room notice.\n\r"));
+    EXPECT_TRUE(contains(observer_descriptor.output, "Self says 'Gate opens.'\n\r"));
+}
+
+TEST(JsTriggerDispatch, OutputCommandHelpersRejectForgedTargetsWithoutWriting) {
+    DescriptorListGuard descriptor_guard;
+    char_data self = make_character("Self");
+    descriptor_data descriptor{};
+    attach_descriptor(descriptor, self);
+    descriptor_list = &descriptor;
+
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    const JsRuntimeMutation forged = make_script_command_mutation(
+        "script.send_to_char", "{\"targetId\":\"mob:999\",\"text\":\"Forged notice.\"}");
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction({forged}, request, adapter_options,
+                                                               {});
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger output command target rejected");
+    EXPECT_STREQ(descriptor.output, "");
+}
+
+TEST(JsTriggerDispatch, HelperTransactionRejectsUnsupportedEnvelopesBeforeAudit) {
     int audit_calls = 0;
     JsTriggerHelperMutationTransactionOptions options;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
@@ -443,11 +510,11 @@ TEST(JsTriggerDispatch, HelperTransactionRejectsUnsupportedEnvelopesBeforeAudit)
     setter.value = "10";
 
     const JsTriggerHelperMutationTransactionResult result =
-        js_trigger_dispatch_prepare_helper_mutation_transaction({ setter }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({setter}, options);
 
     EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope);
     EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
-        "unsupported-envelope");
+                 "unsupported-envelope");
     EXPECT_EQ(result.mutation_count, 0U);
     EXPECT_EQ(audit_calls, 0);
     EXPECT_EQ(result.diagnostic, "JavaScript helper mutation envelope rejected");
@@ -457,24 +524,23 @@ TEST(JsTriggerDispatch, HelperTransactionRejectsUnsupportedEnvelopesBeforeAudit)
     missing_token.operation = "room.flags.add";
     missing_token.arguments_json = "{\"flag\":\"peace\"}";
     const JsTriggerHelperMutationTransactionResult malformed =
-        js_trigger_dispatch_prepare_helper_mutation_transaction({ missing_token }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({missing_token}, options);
     EXPECT_EQ(malformed.status, JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope);
     EXPECT_EQ(malformed.mutation_count, 0U);
     EXPECT_EQ(audit_calls, 0);
     EXPECT_EQ(malformed.diagnostic.find("fixture-token"), std::string::npos);
 }
 
-TEST(JsTriggerDispatch, HelperTransactionRejectsUnknownOperationsBeforeAudit)
-{
-    const char* const allowed_operations[] = { "room.flags.add" };
+TEST(JsTriggerDispatch, HelperTransactionRejectsUnknownOperationsBeforeAudit) {
+    const char *const allowed_operations[] = {"room.flags.add"};
     int audit_calls = 0;
     JsTriggerHelperMutationTransactionOptions options;
     options.registry.operation_names = allowed_operations;
     options.registry.operation_count = 1;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
@@ -485,18 +551,17 @@ TEST(JsTriggerDispatch, HelperTransactionRejectsUnknownOperationsBeforeAudit)
     helper.arguments_json = "{\"flag\":\"peace\"}";
 
     const JsTriggerHelperMutationTransactionResult result =
-        js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({helper}, options);
 
     EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::UnknownOperation);
     EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
-        "unknown-operation");
+                 "unknown-operation");
     EXPECT_EQ(result.mutation_count, 0U);
     EXPECT_EQ(audit_calls, 0);
     EXPECT_EQ(result.diagnostic, "JavaScript helper mutation operation is not supported");
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperRegistryMatchesServerCatalog)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryMatchesServerCatalog) {
     const JsTriggerHelperMutationOperationRegistry registry =
         js_trigger_dispatch_room_flag_helper_operation_registry();
     ASSERT_NE(registry.operation_names, nullptr);
@@ -504,21 +569,19 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryMatchesServerCatalog)
     ASSERT_EQ(registry.operation_count, 2U);
 
     for (std::size_t index = 0; index < registry.operation_count; ++index) {
-        ASSERT_STREQ(
-            registry.operation_names[index], js_api_room_flag_helper_operations()[index].operation_name);
+        ASSERT_STREQ(registry.operation_names[index],
+                     js_api_room_flag_helper_operations()[index].operation_name);
     }
     EXPECT_STREQ(registry.operation_names[0], "room.flags.add");
     EXPECT_STREQ(registry.operation_names[1], "room.flags.remove");
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperDispatchAcceptedFlagsMatchServerPolicyCatalog)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperDispatchAcceptedFlagsMatchServerPolicyCatalog) {
     const std::vector<std::string> dispatch_flags = parse_dispatch_room_flag_helper_names();
     ASSERT_FALSE(dispatch_flags.empty());
 
     for (std::size_t index = 0; index < js_api_room_flag_helper_operation_count(); ++index) {
-        const JsApiRoomFlagHelperOperation &operation =
-            js_api_room_flag_helper_operations()[index];
+        const JsApiRoomFlagHelperOperation &operation = js_api_room_flag_helper_operations()[index];
         SCOPED_TRACE(operation.operation_name);
         const std::vector<std::string> policy_flags = split_pipe_list(operation.allowed_flags);
         EXPECT_EQ(dispatch_flags, policy_flags);
@@ -537,13 +600,12 @@ TEST(JsTriggerDispatch, RoomFlagHelperDispatchAcceptedFlagsMatchServerPolicyCata
     }
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTransaction)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTransaction) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = 0;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -560,9 +622,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTra
 
     int audit_calls = 0;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 2U);
         EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
         return true;
@@ -579,7 +641,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTra
     remove_flag.arguments_json = "{\"flag\":\"dark\"}";
 
     const JsTriggerHelperMutationTransactionResult result =
-        js_trigger_dispatch_prepare_helper_mutation_transaction({ add_flag, remove_flag }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({add_flag, remove_flag}, options);
 
     EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok);
     EXPECT_EQ(result.mutation_count, 2U);
@@ -587,13 +649,12 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTra
     EXPECT_TRUE(result.diagnostic.empty());
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperRegistryUsesSortedUniqueAuditSummary)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryUsesSortedUniqueAuditSummary) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = 0;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -610,9 +671,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryUsesSortedUniqueAuditSummary)
 
     int audit_calls = 0;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 3U);
         EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
         return true;
@@ -629,8 +690,8 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryUsesSortedUniqueAuditSummary)
     remove_flag.arguments_json = "{\"flag\":\"dark\"}";
 
     const JsTriggerHelperMutationTransactionResult result =
-        js_trigger_dispatch_prepare_helper_mutation_transaction(
-            { remove_flag, add_flag, add_flag }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({remove_flag, add_flag, add_flag},
+                                                                options);
 
     EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok);
     EXPECT_EQ(result.mutation_count, 3U);
@@ -638,22 +699,21 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryUsesSortedUniqueAuditSummary)
     EXPECT_TRUE(result.diagnostic.empty());
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperRegistryRejectsRawOrUnknownOperationsBeforeAudit)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryRejectsRawOrUnknownOperationsBeforeAudit) {
     JsTriggerHelperMutationTransactionOptions options;
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
 
     int audit_calls = 0;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
-    for (const char* operation : { "room.flags.setRaw", "room.flags.replace", "setFlags",
-             "Room.addFlag", "room.flags.permanentAffect", "__proto__", "constructor",
-             "toString", "   ", "room.flags.add " }) {
+    for (const char *operation : {"room.flags.setRaw", "room.flags.replace", "setFlags",
+                                  "Room.addFlag", "room.flags.permanentAffect", "__proto__",
+                                  "constructor", "toString", "   ", "room.flags.add "}) {
         JsRuntimeMutation helper;
         helper.kind = "helper";
         helper.operation = operation;
@@ -661,7 +721,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryRejectsRawOrUnknownOperationsBefor
         helper.arguments_json = "{\"flag\":\"dark\"}";
 
         const JsTriggerHelperMutationTransactionResult result =
-            js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+            js_trigger_dispatch_prepare_helper_mutation_transaction({helper}, options);
 
         EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::UnknownOperation)
             << operation;
@@ -676,30 +736,29 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryRejectsRawOrUnknownOperationsBefor
     empty_operation.arguments_json = "{\"flag\":\"dark\"}";
 
     const JsTriggerHelperMutationTransactionResult empty_operation_result =
-        js_trigger_dispatch_prepare_helper_mutation_transaction({ empty_operation }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({empty_operation}, options);
 
-    EXPECT_EQ(
-        empty_operation_result.status, JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope);
+    EXPECT_EQ(empty_operation_result.status,
+              JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope);
     EXPECT_EQ(empty_operation_result.mutation_count, 0U);
     EXPECT_EQ(empty_operation_result.diagnostic, "JavaScript helper mutation envelope rejected");
     EXPECT_EQ(audit_calls, 0);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsMissingContextBeforeAudit)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsMissingContextBeforeAudit) {
     int audit_calls = 0;
     JsTriggerHelperMutationTransactionOptions options;
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
     const JsTriggerHelperMutationTransactionResult result =
         js_trigger_dispatch_prepare_helper_mutation_transaction(
-            { make_helper_mutation("room.flags.add") }, options);
+            {make_helper_mutation("room.flags.add")}, options);
 
     EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget);
     EXPECT_EQ(result.mutation_count, 0U);
@@ -707,12 +766,11 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsMissingContextBeforeAudit
     EXPECT_EQ(audit_calls, 0);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsNullContextMembersBeforeAudit)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsNullContextMembersBeforeAudit) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -723,8 +781,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsNullContextMembersBeforeA
         AdapterOptions,
         Authority,
     };
-    const NullContextMember null_members[] = { NullContextMember::Request,
-        NullContextMember::AdapterOptions, NullContextMember::Authority };
+    const NullContextMember null_members[] = {NullContextMember::Request,
+                                              NullContextMember::AdapterOptions,
+                                              NullContextMember::Authority};
 
     for (NullContextMember null_member : null_members) {
         JsTriggerHelperMutationValidationContext validation_context;
@@ -748,15 +807,15 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsNullContextMembersBeforeA
         options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
         options.validation_context = &validation_context;
         options.audit_user_data = &audit_calls;
-        options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                     void* user_data) {
-            ++*static_cast<int*>(user_data);
+        options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                    void *user_data) {
+            ++*static_cast<int *>(user_data);
             return true;
         };
 
         const JsTriggerHelperMutationTransactionResult result =
             js_trigger_dispatch_prepare_helper_mutation_transaction(
-                { make_helper_mutation("room.flags.add") }, options);
+                {make_helper_mutation("room.flags.add")}, options);
 
         EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget);
         EXPECT_EQ(result.mutation_count, 0U);
@@ -765,12 +824,11 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsNullContextMembersBeforeA
     }
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperRegistryWorksThroughMixedTransactionProbe)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryWorksThroughMixedTransactionProbe) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -779,9 +837,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryWorksThroughMixedTransactionProbe)
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
-                                        std::string*, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request,
+                                       std::string *, void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 1U);
         EXPECT_EQ(request.operations_summary, "room.flags.add");
         return true;
@@ -794,7 +852,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryWorksThroughMixedTransactionProbe)
 
     JsTriggerRuntimeMutationTransactionProbeResult result =
         js_trigger_dispatch_probe_runtime_mutation_transaction(
-            { setter, helper }, request, adapter_options, test_mutation_authority(), helper_options);
+            {setter, helper}, request, adapter_options, test_mutation_authority(), helper_options);
 
     EXPECT_TRUE(result.ok) << result.diagnostic;
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::Ok);
@@ -804,13 +862,12 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryWorksThroughMixedTransactionProbe)
     EXPECT_EQ(audit_calls, 1);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperApplyMutatesFlagsAfterAuditAndPreparedSetters)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperApplyMutatesFlagsAfterAuditAndPreparedSetters) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = PEACEROOM;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Zone");
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -820,9 +877,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyMutatesFlagsAfterAuditAndPreparedSett
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
-                                        std::string*, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request,
+                                       std::string *, void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 3U);
         EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
         return true;
@@ -837,8 +894,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyMutatesFlagsAfterAuditAndPreparedSett
     remove_peace.arguments_json = "{\"flag\":\"peaceRoom\"}";
 
     const JsTriggerRuntimeMutationTransactionApplyResult result =
-        js_trigger_dispatch_apply_runtime_mutation_transaction({ setter, add_dark, add_peace,
-            remove_peace }, request, adapter_options, test_mutation_authority(), helper_options);
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, add_dark, add_peace, remove_peace}, request, adapter_options,
+            test_mutation_authority(), helper_options);
 
     EXPECT_TRUE(result.ok) << result.diagnostic;
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::Ok);
@@ -852,13 +910,12 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyMutatesFlagsAfterAuditAndPreparedSett
     free(zones[0].name);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperApplyKeepsSettersAndFlagsUnchangedWhenAuditRejects)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperApplyKeepsSettersAndFlagsUnchangedWhenAuditRejects) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = DARK;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Zone");
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -868,9 +925,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyKeepsSettersAndFlagsUnchangedWhenAudi
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                        void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *user_data) {
+        ++*static_cast<int *>(user_data);
         return false;
     };
 
@@ -879,8 +936,8 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyKeepsSettersAndFlagsUnchangedWhenAudi
     helper.arguments_json = "{\"flag\":\"peaceRoom\"}";
 
     const JsTriggerRuntimeMutationTransactionApplyResult result =
-        js_trigger_dispatch_apply_runtime_mutation_transaction({ setter, helper }, request,
-            adapter_options, test_mutation_authority(), helper_options);
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, helper}, request, adapter_options, test_mutation_authority(), helper_options);
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::AuditRejected);
@@ -893,13 +950,12 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyKeepsSettersAndFlagsUnchangedWhenAudi
     free(zones[0].name);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackFlagsAndSkipsSettersWhenApplyFails)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackFlagsAndSkipsSettersWhenApplyFails) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = DARK;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Zone");
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -910,14 +966,14 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackFlagsAndSkipsSettersWhenAppl
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                        void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
     helper_options.apply_precondition_user_data = &apply_precondition_calls;
-    helper_options.apply_precondition_callback = [](std::size_t mutation_index, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.apply_precondition_callback = [](std::size_t mutation_index, void *user_data) {
+        ++*static_cast<int *>(user_data);
         return mutation_index == 0;
     };
 
@@ -928,13 +984,14 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackFlagsAndSkipsSettersWhenAppl
     remove_dark.arguments_json = "{\"flag\":\"dark\"}";
 
     const JsTriggerRuntimeMutationTransactionApplyResult result =
-        js_trigger_dispatch_apply_runtime_mutation_transaction({ setter, add_peace, remove_dark },
-            request, adapter_options, test_mutation_authority(), helper_options);
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, add_peace, remove_dark}, request, adapter_options, test_mutation_authority(),
+            helper_options);
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::ApplyRejected);
-    EXPECT_STREQ(
-        js_trigger_helper_mutation_transaction_status_name(result.helper_status), "apply-rejected");
+    EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.helper_status),
+                 "apply-rejected");
     EXPECT_EQ(result.applied_setter_count, 0U);
     EXPECT_EQ(result.applied_helper_count, 1U);
     EXPECT_EQ(result.diagnostic, "JavaScript trigger helper mutation apply rejected");
@@ -945,14 +1002,13 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackFlagsAndSkipsSettersWhenAppl
     free(zones[0].name);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleRoomsWhenApplyFails)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleRoomsWhenApplyFails) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[2] = { make_room("Gate", 100, 0), make_room("Hall", 101, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[2] = {make_room("Gate", 100, 0), make_room("Hall", 101, 0)};
     world[0].room_flags = 0;
     world[1].room_flags = DARK;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Zone");
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 1, nullptr, 0, zones, 1);
@@ -963,15 +1019,15 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleRoomsWhenApplyFails)
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
-                                        std::string*, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request,
+                                       std::string *, void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 3U);
         return true;
     };
     helper_options.apply_precondition_user_data = &apply_precondition_calls;
-    helper_options.apply_precondition_callback = [](std::size_t mutation_index, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.apply_precondition_callback = [](std::size_t mutation_index, void *user_data) {
+        ++*static_cast<int *>(user_data);
         return mutation_index < 2;
     };
 
@@ -987,9 +1043,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleRoomsWhenApplyFails)
     add_magic_to_gate.arguments_json = "{\"flag\":\"noMagic\"}";
 
     const JsTriggerRuntimeMutationTransactionApplyResult result =
-        js_trigger_dispatch_apply_runtime_mutation_transaction({ setter, add_peace_to_gate,
-            remove_dark_from_hall, add_magic_to_gate }, request, adapter_options,
-            test_mutation_authority(), helper_options);
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, add_peace_to_gate, remove_dark_from_hall, add_magic_to_gate}, request,
+            adapter_options, test_mutation_authority(), helper_options);
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::ApplyRejected);
@@ -1003,13 +1059,12 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleRoomsWhenApplyFails)
     free(zones[0].name);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleStepsOnSameRoomWhenApplyFails)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleStepsOnSameRoomWhenApplyFails) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = DARK;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Zone");
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -1020,15 +1075,15 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleStepsOnSameRoomWhenA
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
-                                        std::string*, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request,
+                                       std::string *, void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 3U);
         return true;
     };
     helper_options.apply_precondition_user_data = &apply_precondition_calls;
-    helper_options.apply_precondition_callback = [](std::size_t mutation_index, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.apply_precondition_callback = [](std::size_t mutation_index, void *user_data) {
+        ++*static_cast<int *>(user_data);
         return mutation_index < 2;
     };
 
@@ -1044,16 +1099,16 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleStepsOnSameRoomWhenA
     JsTriggerHelperMutationTransactionOptions probe_options;
     probe_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     probe_options.audit_user_data = &probe_audit_calls;
-    probe_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
-                                       std::string*, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    probe_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request,
+                                      std::string *, void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 3U);
         return true;
     };
 
     const JsTriggerRuntimeMutationTransactionProbeResult probe_result =
         js_trigger_dispatch_probe_runtime_mutation_transaction(
-            { setter, add_peace, remove_dark, add_magic }, request, adapter_options,
+            {setter, add_peace, remove_dark, add_magic}, request, adapter_options,
             test_mutation_authority(), probe_options);
     EXPECT_TRUE(probe_result.ok);
     EXPECT_EQ(probe_result.prepared_setter_count, 1U);
@@ -1063,7 +1118,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleStepsOnSameRoomWhenA
 
     const JsTriggerRuntimeMutationTransactionApplyResult result =
         js_trigger_dispatch_apply_runtime_mutation_transaction(
-            { setter, add_peace, remove_dark, add_magic }, request, adapter_options,
+            {setter, add_peace, remove_dark, add_magic}, request, adapter_options,
             test_mutation_authority(), helper_options);
 
     EXPECT_FALSE(result.ok);
@@ -1077,14 +1132,14 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRollsBackMultipleStepsOnSameRoomWhenA
     free(zones[0].name);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperApplyRejectsInvalidHelpersBeforeAnyWrite)
-{
-    for (const char* bad_arguments : { "{\"flag\":\"BFS_MARK\"}", "{\"flag\":\"permanentAffect\"}" }) {
+TEST(JsTriggerDispatch, RoomFlagHelperApplyRejectsInvalidHelpersBeforeAnyWrite) {
+    for (const char *bad_arguments :
+         {"{\"flag\":\"BFS_MARK\"}", "{\"flag\":\"permanentAffect\"}"}) {
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
         world[0].room_flags = DARK;
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        zone_data zones[1] = {make_zone("Zone", 30)};
         zones[0].name = str_dup("Zone");
         JsGameAdapterOptions adapter_options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -1094,9 +1149,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRejectsInvalidHelpersBeforeAnyWrite)
         JsTriggerHelperMutationTransactionOptions helper_options;
         helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
         helper_options.audit_user_data = &audit_calls;
-        helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                            void* user_data) {
-            ++*static_cast<int*>(user_data);
+        helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &,
+                                           std::string *, void *user_data) {
+            ++*static_cast<int *>(user_data);
             return true;
         };
 
@@ -1105,8 +1160,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRejectsInvalidHelpersBeforeAnyWrite)
         helper.arguments_json = bad_arguments;
 
         const JsTriggerRuntimeMutationTransactionApplyResult result =
-            js_trigger_dispatch_apply_runtime_mutation_transaction({ setter, helper }, request,
-                adapter_options, test_mutation_authority(), helper_options);
+            js_trigger_dispatch_apply_runtime_mutation_transaction(
+                {setter, helper}, request, adapter_options, test_mutation_authority(),
+                helper_options);
 
         EXPECT_FALSE(result.ok) << bad_arguments;
         EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::InvalidArguments)
@@ -1120,10 +1176,10 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRejectsInvalidHelpersBeforeAnyWrite)
     }
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = DARK;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Zone");
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -1133,9 +1189,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRejectsInvalidHelpersBeforeAnyWrite)
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                        void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
@@ -1144,8 +1200,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRejectsInvalidHelpersBeforeAnyWrite)
     wrong_secret.target_token = "room-token:v1:30:100:wrong-secret";
 
     const JsTriggerRuntimeMutationTransactionApplyResult result =
-        js_trigger_dispatch_apply_runtime_mutation_transaction({ setter, wrong_secret }, request,
-            adapter_options, test_mutation_authority(), helper_options);
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, wrong_secret}, request, adapter_options, test_mutation_authority(),
+            helper_options);
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::InvalidTarget);
@@ -1157,27 +1214,26 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyRejectsInvalidHelpersBeforeAnyWrite)
     free(zones[0].name);
 }
 
-TEST(JsTriggerDispatch, HelperApplyFailsClosedWhenRegistryOperationHasNoApplier)
-{
+TEST(JsTriggerDispatch, HelperApplyFailsClosedWhenRegistryOperationHasNoApplier) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = 0;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Zone");
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
 
-    const char* const allowed_operations[] = { "fixture.helper.add" };
+    const char *const allowed_operations[] = {"fixture.helper.add"};
     int audit_calls = 0;
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry.operation_names = allowed_operations;
     helper_options.registry.operation_count = 1;
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                        void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
@@ -1187,8 +1243,9 @@ TEST(JsTriggerDispatch, HelperApplyFailsClosedWhenRegistryOperationHasNoApplier)
     generic_helper.arguments_json = "{\"fixture\":true}";
 
     const JsTriggerRuntimeMutationTransactionApplyResult result =
-        js_trigger_dispatch_apply_runtime_mutation_transaction({ setter, generic_helper }, request,
-            adapter_options, test_mutation_authority(), helper_options);
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, generic_helper}, request, adapter_options, test_mutation_authority(),
+            helper_options);
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::ApplyRejected);
@@ -1201,12 +1258,11 @@ TEST(JsTriggerDispatch, HelperApplyFailsClosedWhenRegistryOperationHasNoApplier)
     free(zones[0].name);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadTargetTokensBeforeAudit)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadTargetTokensBeforeAudit) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -1222,40 +1278,39 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadTargetTokensBeforeAudi
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     options.validation_context = &validation_context;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
-    for (const char* token : { "room:100", "100", "room-token:v1:31:100:test-room-target-secret",
-             "room-token:v1:30:999:test-room-target-secret", "room-token:v1:30",
-             "room-token:v1:30:100", "room-token:v1:30:100:wrong-secret",
-             "room-token:v1:30:100:test-room-target-secret:extra", "room-token:v1:-1:100:secret",
-             "room-token:v1:9999999999:100:test-room-target-secret",
-             "room-token:v1:30:9999999999:test-room-target-secret" }) {
+    for (const char *token :
+         {"room:100", "100", "room-token:v1:31:100:test-room-target-secret",
+          "room-token:v1:30:999:test-room-target-secret", "room-token:v1:30",
+          "room-token:v1:30:100", "room-token:v1:30:100:wrong-secret",
+          "room-token:v1:30:100:test-room-target-secret:extra", "room-token:v1:-1:100:secret",
+          "room-token:v1:9999999999:100:test-room-target-secret",
+          "room-token:v1:30:9999999999:test-room-target-secret"}) {
         JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
         helper.target_token = token;
 
         const JsTriggerHelperMutationTransactionResult result =
-            js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+            js_trigger_dispatch_prepare_helper_mutation_transaction({helper}, options);
 
-        EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget)
-            << token;
+        EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget) << token;
         EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
-            "invalid-target");
+                     "invalid-target");
         EXPECT_EQ(result.mutation_count, 0U) << token;
         EXPECT_EQ(result.diagnostic, "JavaScript helper mutation target rejected") << token;
     }
     EXPECT_EQ(audit_calls, 0);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsForgedTokenForWrongZoneRoom)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsForgedTokenForWrongZoneRoom) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 1) };
-    zone_data zones[2] = { make_zone("Builder Zone", 30), make_zone("Other Zone", 31) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 1)};
+    zone_data zones[2] = {make_zone("Builder Zone", 30), make_zone("Other Zone", 31)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 2);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -1271,9 +1326,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsForgedTokenForWrongZoneRo
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     options.validation_context = &validation_context;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
@@ -1281,7 +1336,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsForgedTokenForWrongZoneRo
     helper.target_token = "room-token:v1:30:100:test-room-target-secret";
 
     const JsTriggerHelperMutationTransactionResult result =
-        js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({helper}, options);
 
     EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget);
     EXPECT_EQ(result.mutation_count, 0U);
@@ -1289,8 +1344,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsForgedTokenForWrongZoneRo
     EXPECT_EQ(audit_calls, 0);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresPersistentAuthorityBeforeAudit)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresPersistentAuthorityBeforeAudit) {
     enum class MissingAuthorityField {
         Allow,
         BuilderAccount,
@@ -1300,16 +1354,18 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresPersistentAuthorityBefor
         DecisionEvidence,
     };
 
-    const MissingAuthorityField missing_fields[] = { MissingAuthorityField::Allow,
-        MissingAuthorityField::BuilderAccount, MissingAuthorityField::EligibleCharacter,
-        MissingAuthorityField::TargetZone, MissingAuthorityField::TargetTokenSecret,
-        MissingAuthorityField::DecisionEvidence };
+    const MissingAuthorityField missing_fields[] = {MissingAuthorityField::Allow,
+                                                    MissingAuthorityField::BuilderAccount,
+                                                    MissingAuthorityField::EligibleCharacter,
+                                                    MissingAuthorityField::TargetZone,
+                                                    MissingAuthorityField::TargetTokenSecret,
+                                                    MissingAuthorityField::DecisionEvidence};
 
     for (MissingAuthorityField missing_field : missing_fields) {
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
         JsGameAdapterOptions adapter_options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
         JsTriggerDispatchRequest request = character_request(&self);
@@ -1346,15 +1402,15 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresPersistentAuthorityBefor
         options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
         options.validation_context = &validation_context;
         options.audit_user_data = &audit_calls;
-        options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                     void* user_data) {
-            ++*static_cast<int*>(user_data);
+        options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                    void *user_data) {
+            ++*static_cast<int *>(user_data);
             return true;
         };
 
         const JsTriggerHelperMutationTransactionResult result =
             js_trigger_dispatch_prepare_helper_mutation_transaction(
-                { make_helper_mutation("room.flags.add") }, options);
+                {make_helper_mutation("room.flags.add")}, options);
 
         EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidTarget);
         EXPECT_EQ(result.mutation_count, 0U);
@@ -1363,12 +1419,11 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresPersistentAuthorityBefor
     }
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsBuilderZonePolicyFlags)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsBuilderZonePolicyFlags) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -1384,9 +1439,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsBuilderZonePolicyFlags)
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     options.validation_context = &validation_context;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
@@ -1394,14 +1449,14 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsBuilderZonePolicyFlags)
         split_pipe_list(js_api_room_flag_helper_operations()[0].builder_zone_flags);
     ASSERT_EQ(builder_zone_flags.size(), 11U);
 
-    const char* operations[] = { "room.flags.add", "room.flags.remove" };
-    for (const char* operation : operations) {
-        for (const std::string& flag : builder_zone_flags) {
+    const char *operations[] = {"room.flags.add", "room.flags.remove"};
+    for (const char *operation : operations) {
+        for (const std::string &flag : builder_zone_flags) {
             JsRuntimeMutation helper = make_helper_mutation(operation);
             helper.arguments_json = std::string("{\"flag\":\"") + flag + "\"}";
 
             const JsTriggerHelperMutationTransactionResult result =
-                js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+                js_trigger_dispatch_prepare_helper_mutation_transaction({helper}, options);
 
             EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok)
                 << operation << " " << flag;
@@ -1412,12 +1467,11 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAcceptsBuilderZonePolicyFlags)
     EXPECT_EQ(audit_calls, 22);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsAdminOnlyFlagsWithoutOverrideBeforeAudit)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsAdminOnlyFlagsWithoutOverrideBeforeAudit) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -1433,9 +1487,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsAdminOnlyFlagsWithoutOver
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     options.validation_context = &validation_context;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
@@ -1443,19 +1497,19 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsAdminOnlyFlagsWithoutOver
         split_pipe_list(js_api_room_flag_helper_operations()[0].admin_only_flags);
     ASSERT_EQ(admin_only_flags.size(), 5U);
 
-    const char* operations[] = { "room.flags.add", "room.flags.remove" };
-    for (const char* operation : operations) {
-        for (const std::string& flag : admin_only_flags) {
+    const char *operations[] = {"room.flags.add", "room.flags.remove"};
+    for (const char *operation : operations) {
+        for (const std::string &flag : admin_only_flags) {
             JsRuntimeMutation helper = make_helper_mutation(operation);
             helper.arguments_json = std::string("{\"flag\":\"") + flag + "\"}";
 
             const JsTriggerHelperMutationTransactionResult result =
-                js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+                js_trigger_dispatch_prepare_helper_mutation_transaction({helper}, options);
 
             EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::AuthorityRejected)
                 << operation << " " << flag;
             EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
-                "authority-rejected");
+                         "authority-rejected");
             EXPECT_EQ(result.mutation_count, 0U) << operation << " " << flag;
             EXPECT_EQ(result.diagnostic, "JavaScript helper mutation authority rejected")
                 << operation << " " << flag;
@@ -1464,18 +1518,17 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsAdminOnlyFlagsWithoutOver
     EXPECT_EQ(audit_calls, 0);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresOverrideFlagAndEvidence)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresOverrideFlagAndEvidence) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
 
-    for (const bool allow_override : { false, true }) {
-        for (const char* evidence : { "", "immortal-admin-override:test" }) {
+    for (const bool allow_override : {false, true}) {
+        for (const char *evidence : {"", "immortal-admin-override:test"}) {
             if (allow_override && evidence[0] != '\0')
                 continue;
 
@@ -1493,9 +1546,9 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresOverrideFlagAndEvidence)
             options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
             options.validation_context = &validation_context;
             options.audit_user_data = &audit_calls;
-            options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                         void* user_data) {
-                ++*static_cast<int*>(user_data);
+            options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                        void *user_data) {
+                ++*static_cast<int *>(user_data);
                 return true;
             };
 
@@ -1503,7 +1556,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresOverrideFlagAndEvidence)
             helper.arguments_json = "{\"flag\":\"private\"}";
 
             const JsTriggerHelperMutationTransactionResult result =
-                js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+                js_trigger_dispatch_prepare_helper_mutation_transaction({helper}, options);
 
             EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::AuthorityRejected)
                 << "allow_override=" << allow_override << " evidence=" << evidence;
@@ -1513,13 +1566,12 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRequiresOverrideFlagAndEvidence)
     }
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsAdminOnlyFlagsWithOverrideEvidence)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsAdminOnlyFlagsWithOverrideEvidence) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = DEATH;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -1537,15 +1589,16 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsAdminOnlyFlagsWithOverride
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     options.validation_context = &validation_context;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
-                                 std::string*, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 2U);
         EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
         EXPECT_TRUE(request.requires_room_flag_admin_override);
         EXPECT_EQ(request.room_flag_admin_override_evidence, "immortal-admin-override:test");
         EXPECT_EQ(request.room_flag_authority_summary, "admin-only");
-        EXPECT_EQ(request.room_flag_audit_summary,
+        EXPECT_EQ(
+            request.room_flag_audit_summary,
             "add:private:admin-only:room=100:zoneVnum=30:zoneIndex=0:previous=false:new=true;"
             "remove:death:admin-only:room=100:zoneVnum=30:zoneIndex=0:previous=true:new=false");
         return true;
@@ -1557,8 +1610,8 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsAdminOnlyFlagsWithOverride
     remove_death.arguments_json = "{\"flag\":\"death\"}";
 
     const JsTriggerHelperMutationTransactionResult result =
-        js_trigger_dispatch_prepare_helper_mutation_transaction(
-            { add_private, remove_death }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({add_private, remove_death},
+                                                                options);
 
     EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok);
     EXPECT_EQ(result.mutation_count, 2U);
@@ -1566,13 +1619,12 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsAdminOnlyFlagsWithOverride
     EXPECT_EQ(audit_calls, 1);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsMixedAuthorityWithStagedPreviousState)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsMixedAuthorityWithStagedPreviousState) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = PEACEROOM;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -1590,18 +1642,20 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsMixedAuthorityWithStagedPr
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     options.validation_context = &validation_context;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
-                                 std::string*, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 4U);
         EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
         EXPECT_TRUE(request.requires_room_flag_admin_override);
         EXPECT_EQ(request.room_flag_admin_override_evidence, "immortal-admin-override:mixed");
         EXPECT_EQ(request.room_flag_authority_summary, "admin-only,builder-zone");
-        EXPECT_EQ(request.room_flag_audit_summary,
+        EXPECT_EQ(
+            request.room_flag_audit_summary,
             "add:dark:builder-zone:room=100:zoneVnum=30:zoneIndex=0:previous=false:new=true;"
             "remove:dark:builder-zone:room=100:zoneVnum=30:zoneIndex=0:previous=true:new=false;"
-            "remove:peaceRoom:builder-zone:room=100:zoneVnum=30:zoneIndex=0:previous=true:new=false;"
+            "remove:peaceRoom:builder-zone:room=100:zoneVnum=30:zoneIndex=0:previous=true:new="
+            "false;"
             "add:private:admin-only:room=100:zoneVnum=30:zoneIndex=0:previous=false:new=true");
         return true;
     };
@@ -1617,7 +1671,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsMixedAuthorityWithStagedPr
 
     const JsTriggerHelperMutationTransactionResult result =
         js_trigger_dispatch_prepare_helper_mutation_transaction(
-            { add_dark, remove_dark, remove_peace, add_private }, options);
+            {add_dark, remove_dark, remove_peace, add_private}, options);
 
     EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok);
     EXPECT_EQ(result.mutation_count, 4U);
@@ -1625,12 +1679,11 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationAuditsMixedAuthorityWithStagedPr
     EXPECT_EQ(audit_calls, 1);
 }
 
-TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadArgumentsBeforeAudit)
-{
+TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadArgumentsBeforeAudit) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -1646,29 +1699,35 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadArgumentsBeforeAudit)
     options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
     options.validation_context = &validation_context;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
-    for (const char* arguments_json : { "{}", "{\"flag\":\"permanentAffect\"}",
-             "{\"flag\":\"BFS_MARK\"}", "{\"flag\":\"PERMAFFECT\"}", "{\"flag\":\"peace\"}",
-             "{\"flag\":\"Dark\"}", "{\"flag\":\"dark \"}", "{\"flag\":\" dark\"}",
-             "{\"flag\":\"\"}", "{\"flag\":1}", "{\"flag\":null}", "{\"flag\":true}",
-             "{\"flag\":\"dark\",\"flag\":\"death\"}", "{\"flag\":\"dark\",\"extra\":true}",
-             "[]", "{not-json}",
-             "{\"flag\":\"dark\",\"padding\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}" }) {
+    for (const char *arguments_json :
+         {"{}", "{\"flag\":\"permanentAffect\"}", "{\"flag\":\"BFS_MARK\"}",
+          "{\"flag\":\"PERMAFFECT\"}", "{\"flag\":\"peace\"}", "{\"flag\":\"Dark\"}",
+          "{\"flag\":\"dark \"}", "{\"flag\":\" dark\"}", "{\"flag\":\"\"}", "{\"flag\":1}",
+          "{\"flag\":null}", "{\"flag\":true}", "{\"flag\":\"dark\",\"flag\":\"death\"}",
+          "{\"flag\":\"dark\",\"extra\":true}", "[]", "{not-json}",
+          "{\"flag\":\"dark\",\"padding\":"
+          "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}"}) {
         JsRuntimeMutation helper = make_helper_mutation("room.flags.remove");
         helper.arguments_json = arguments_json;
 
         const JsTriggerHelperMutationTransactionResult result =
-            js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+            js_trigger_dispatch_prepare_helper_mutation_transaction({helper}, options);
 
         EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::InvalidArguments)
             << arguments_json;
         EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.status),
-            "invalid-arguments");
+                     "invalid-arguments");
         EXPECT_EQ(result.mutation_count, 0U) << arguments_json;
         EXPECT_EQ(result.diagnostic, "JavaScript helper mutation arguments rejected")
             << arguments_json;
@@ -1676,9 +1735,8 @@ TEST(JsTriggerDispatch, RoomFlagHelperValidationRejectsBadArgumentsBeforeAudit)
     EXPECT_EQ(audit_calls, 0);
 }
 
-TEST(JsTriggerDispatch, HelperTransactionRequiresAuditBeforeSuccessfulPrepare)
-{
-    const char* const allowed_operations[] = { "fixture.helper.add", "fixture.helper.remove" };
+TEST(JsTriggerDispatch, HelperTransactionRequiresAuditBeforeSuccessfulPrepare) {
+    const char *const allowed_operations[] = {"fixture.helper.add", "fixture.helper.remove"};
     JsTriggerHelperMutationTransactionOptions options;
     options.registry.operation_names = allowed_operations;
     options.registry.operation_count = 2;
@@ -1693,16 +1751,16 @@ TEST(JsTriggerDispatch, HelperTransactionRequiresAuditBeforeSuccessfulPrepare)
     remove_flag.arguments_json = "{\"flag\":\"dark\"}";
 
     JsTriggerHelperMutationTransactionResult missing_audit =
-        js_trigger_dispatch_prepare_helper_mutation_transaction({ add_flag }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({add_flag}, options);
     EXPECT_EQ(missing_audit.status, JsTriggerHelperMutationTransactionStatus::AuditRejected);
     EXPECT_EQ(missing_audit.mutation_count, 1U);
     EXPECT_EQ(missing_audit.diagnostic, "JavaScript helper mutation audit rejected");
 
     int audit_calls = 0;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
-                                 std::string* diagnostic, void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &request,
+                                std::string *diagnostic, void *user_data) {
+        ++*static_cast<int *>(user_data);
         EXPECT_EQ(request.mutation_count, 2U);
         EXPECT_EQ(request.operations_summary, "fixture.helper.add,fixture.helper.remove");
         if (diagnostic != nullptr)
@@ -1711,31 +1769,30 @@ TEST(JsTriggerDispatch, HelperTransactionRequiresAuditBeforeSuccessfulPrepare)
     };
 
     JsTriggerHelperMutationTransactionResult audit_rejected =
-        js_trigger_dispatch_prepare_helper_mutation_transaction({ add_flag, remove_flag }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({add_flag, remove_flag}, options);
     EXPECT_EQ(audit_rejected.status, JsTriggerHelperMutationTransactionStatus::AuditRejected);
     EXPECT_EQ(audit_rejected.mutation_count, 2U);
     EXPECT_EQ(audit_calls, 1);
     EXPECT_EQ(audit_rejected.diagnostic, "JavaScript helper mutation audit rejected");
     EXPECT_EQ(audit_rejected.diagnostic.find("/tmp/secret"), std::string::npos);
 
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void*) { return true; };
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *) { return true; };
     JsTriggerHelperMutationTransactionResult ok =
-        js_trigger_dispatch_prepare_helper_mutation_transaction({ add_flag, remove_flag }, options);
+        js_trigger_dispatch_prepare_helper_mutation_transaction({add_flag, remove_flag}, options);
     EXPECT_EQ(ok.status, JsTriggerHelperMutationTransactionStatus::Ok);
     EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(ok.status), "ok");
     EXPECT_EQ(ok.mutation_count, 2U);
     EXPECT_TRUE(ok.diagnostic.empty());
 }
 
-TEST(JsTriggerDispatch, HelperTransactionAllowsEmptyBatchWithoutAudit)
-{
+TEST(JsTriggerDispatch, HelperTransactionAllowsEmptyBatchWithoutAudit) {
     int audit_calls = 0;
     JsTriggerHelperMutationTransactionOptions options;
     options.audit_user_data = &audit_calls;
-    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                 void* user_data) {
-        ++*static_cast<int*>(user_data);
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                void *user_data) {
+        ++*static_cast<int *>(user_data);
         return false;
     };
 
@@ -1748,12 +1805,11 @@ TEST(JsTriggerDispatch, HelperTransactionAllowsEmptyBatchWithoutAudit)
     EXPECT_EQ(audit_calls, 0);
 }
 
-TEST(JsTriggerDispatch, MixedTransactionRejectsHelperWithoutKeepingPreparedSetters)
-{
+TEST(JsTriggerDispatch, MixedTransactionRejectsHelperWithoutKeepingPreparedSetters) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Original Zone");
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -1764,7 +1820,7 @@ TEST(JsTriggerDispatch, MixedTransactionRejectsHelperWithoutKeepingPreparedSette
 
     JsTriggerRuntimeMutationTransactionProbeResult result =
         js_trigger_dispatch_probe_runtime_mutation_transaction(
-            { setter, helper }, request, adapter_options, test_mutation_authority());
+            {setter, helper}, request, adapter_options, test_mutation_authority());
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::UnknownOperation);
@@ -1775,25 +1831,24 @@ TEST(JsTriggerDispatch, MixedTransactionRejectsHelperWithoutKeepingPreparedSette
     free(zones[0].name);
 }
 
-TEST(JsTriggerDispatch, MixedTransactionSkipsHelperAuditWhenSetterValidationFails)
-{
+TEST(JsTriggerDispatch, MixedTransactionSkipsHelperAuditWhenSetterValidationFails) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
 
-    const char* const allowed_operations[] = { "room.flags.add" };
+    const char *const allowed_operations[] = {"room.flags.add"};
     int audit_calls = 0;
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry.operation_names = allowed_operations;
     helper_options.registry.operation_count = 1;
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                        void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
@@ -1802,37 +1857,37 @@ TEST(JsTriggerDispatch, MixedTransactionSkipsHelperAuditWhenSetterValidationFail
     JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
 
     JsTriggerRuntimeMutationTransactionProbeResult result =
-        js_trigger_dispatch_probe_runtime_mutation_transaction({ invalid_setter, helper },
-            request, adapter_options, test_mutation_authority(), helper_options);
+        js_trigger_dispatch_probe_runtime_mutation_transaction(
+            {invalid_setter, helper}, request, adapter_options, test_mutation_authority(),
+            helper_options);
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::NotEvaluated);
     EXPECT_STREQ(js_trigger_helper_mutation_transaction_status_name(result.helper_status),
-        "not-evaluated");
+                 "not-evaluated");
     EXPECT_EQ(result.prepared_setter_count, 0U);
     EXPECT_EQ(result.diagnostic, "JavaScript trigger mutation target rejected");
     EXPECT_EQ(audit_calls, 0);
 }
 
-TEST(JsTriggerDispatch, MixedTransactionRejectsHelperAuditFailureWithoutKeepingPreparedSetters)
-{
+TEST(JsTriggerDispatch, MixedTransactionRejectsHelperAuditFailureWithoutKeepingPreparedSetters) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
 
-    const char* const allowed_operations[] = { "room.flags.add" };
+    const char *const allowed_operations[] = {"room.flags.add"};
     int audit_calls = 0;
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry.operation_names = allowed_operations;
     helper_options.registry.operation_count = 1;
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                        void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *user_data) {
+        ++*static_cast<int *>(user_data);
         return false;
     };
 
@@ -1841,7 +1896,7 @@ TEST(JsTriggerDispatch, MixedTransactionRejectsHelperAuditFailureWithoutKeepingP
 
     JsTriggerRuntimeMutationTransactionProbeResult result =
         js_trigger_dispatch_probe_runtime_mutation_transaction(
-            { setter, helper }, request, adapter_options, test_mutation_authority(), helper_options);
+            {setter, helper}, request, adapter_options, test_mutation_authority(), helper_options);
 
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::AuditRejected);
@@ -1850,25 +1905,24 @@ TEST(JsTriggerDispatch, MixedTransactionRejectsHelperAuditFailureWithoutKeepingP
     EXPECT_EQ(audit_calls, 1);
 }
 
-TEST(JsTriggerDispatch, MixedTransactionKeepsPreparedSettersWhenHelperAuditPasses)
-{
+TEST(JsTriggerDispatch, MixedTransactionKeepsPreparedSettersWhenHelperAuditPasses) {
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
 
-    const char* const allowed_operations[] = { "room.flags.add" };
+    const char *const allowed_operations[] = {"room.flags.add"};
     int audit_calls = 0;
     JsTriggerHelperMutationTransactionOptions helper_options;
     helper_options.registry.operation_names = allowed_operations;
     helper_options.registry.operation_count = 1;
     helper_options.audit_user_data = &audit_calls;
-    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
-                                        void* user_data) {
-        ++*static_cast<int*>(user_data);
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *user_data) {
+        ++*static_cast<int *>(user_data);
         return true;
     };
 
@@ -1877,7 +1931,7 @@ TEST(JsTriggerDispatch, MixedTransactionKeepsPreparedSettersWhenHelperAuditPasse
 
     JsTriggerRuntimeMutationTransactionProbeResult result =
         js_trigger_dispatch_probe_runtime_mutation_transaction(
-            { setter, helper }, request, adapter_options, test_mutation_authority(), helper_options);
+            {setter, helper}, request, adapter_options, test_mutation_authority(), helper_options);
 
     EXPECT_TRUE(result.ok) << result.diagnostic;
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::Ok);
@@ -1886,12 +1940,11 @@ TEST(JsTriggerDispatch, MixedTransactionKeepsPreparedSettersWhenHelperAuditPasse
     EXPECT_EQ(audit_calls, 1);
 }
 
-TEST(JsTriggerDispatch, StartsWithExplicitNoMatchStatusForEmptyRegistry)
-{
+TEST(JsTriggerDispatch, StartsWithExplicitNoMatchStatusForEmptyRegistry) {
     JsScriptPackageRegistry registry;
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -1904,33 +1957,32 @@ TEST(JsTriggerDispatch, StartsWithExplicitNoMatchStatusForEmptyRegistry)
     EXPECT_TRUE(result.diagnostic.empty());
 }
 
-TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
-{
+TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5825,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('lever keys');\n"
-        "  ctx.object.setDescription('A brass lever has new glyphs.');\n"
-        "  ctx.object.setShortDescription('a renamed lever');\n"
-        "  ctx.object.setActionDescription(null);\n"
-        "  ctx.object.setLevel(42);\n"
-        "  ctx.object.setRarity(201);\n"
-        "  ctx.room.setName('Changed Gate');\n"
-        "  ctx.room.setDescription('The gate was changed by script.');\n"
-        "  ctx.room.setLevel(42);\n"
-        "  ctx.room.setSectorType('Water_noswim');\n"
-        "  ctx.zone.setName('Changed Zone');\n"
-        "  ctx.zone.setDescription(null);\n"
-        "  ctx.zone.setMap('N-G-S-E');\n"
-        "  ctx.zone.setSymbol('*');\n"
-        "  ctx.zone.setX(25);\n"
-        "  ctx.zone.setY(24);\n"
-        "  ctx.zone.setResetMode(3);\n"
-        "  ctx.zone.setLifespan(60);\n"
-        "  ctx.zone.setLevel(42);\n"
-        "  return RotS.ScriptResult.block();\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(
+        5825, "function onEnter(ctx) {\n"
+              "  ctx.object.setName('lever keys');\n"
+              "  ctx.object.setDescription('A brass lever has new glyphs.');\n"
+              "  ctx.object.setShortDescription('a renamed lever');\n"
+              "  ctx.object.setActionDescription(null);\n"
+              "  ctx.object.setLevel(42);\n"
+              "  ctx.object.setRarity(201);\n"
+              "  ctx.room.setName('Changed Gate');\n"
+              "  ctx.room.setDescription('The gate was changed by script.');\n"
+              "  ctx.room.setLevel(42);\n"
+              "  ctx.room.setSectorType('Water_noswim');\n"
+              "  ctx.zone.setName('Changed Zone');\n"
+              "  ctx.zone.setDescription(null);\n"
+              "  ctx.zone.setMap('N-G-S-E');\n"
+              "  ctx.zone.setSymbol('*');\n"
+              "  ctx.zone.setX(25);\n"
+              "  ctx.zone.setY(24);\n"
+              "  ctx.zone.setResetMode(3);\n"
+              "  ctx.zone.setLifespan(60);\n"
+              "  ctx.zone.setLevel(42);\n"
+              "  return RotS.ScriptResult.block();\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
@@ -1940,14 +1992,14 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     object.action_description = str_dup("Pulling the lever does nothing.");
     object.obj_flags.level = 5;
     object.obj_flags.rarity = 7;
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].name = str_dup("Gate");
     world[0].description = str_dup("The old gate.");
     world[0].level = 5;
     world[0].sector_type = SECT_CITY;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Zone");
     zones[0].description = str_dup("The old zone.");
     zones[0].map = str_dup("N-G-S");
@@ -1999,24 +2051,23 @@ TEST(JsTriggerDispatch, PersistsFirstTextSettersToLiveGameRecords)
     free(zones[0].map);
 }
 
-TEST(JsTriggerDispatch, RejectsPersistentSettersWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsPersistentSettersWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5827,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('unauthorized changed name');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5827, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('unauthorized changed name');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.name = str_dup("lever keys old");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -2033,20 +2084,19 @@ TEST(JsTriggerDispatch, RejectsPersistentSettersWithoutExplicitAuthority)
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneMapSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsZoneMapSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5831,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setMap('unauthorized map');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5831, "function onEnter(ctx) {\n"
+                                           "  ctx.zone.setMap('unauthorized map');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].map = str_dup("N-G-S");
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2062,20 +2112,18 @@ TEST(JsTriggerDispatch, RejectsZoneMapSetterWithoutExplicitAuthority)
     free(zones[0].map);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneSymbolSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsZoneSymbolSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5839,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setSymbol('*');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5839, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setSymbol('*');\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].symbol = 'Z';
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2089,20 +2137,18 @@ TEST(JsTriggerDispatch, RejectsZoneSymbolSetterWithoutExplicitAuthority)
     EXPECT_EQ(zones[0].symbol, 'Z');
 }
 
-TEST(JsTriggerDispatch, RejectsZoneXSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsZoneXSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5844,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setX(25);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5844, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setX(25);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].x = 10;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2116,20 +2162,18 @@ TEST(JsTriggerDispatch, RejectsZoneXSetterWithoutExplicitAuthority)
     EXPECT_EQ(zones[0].x, 10);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneYSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsZoneYSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5850,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setY(25);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5850, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setY(25);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].y = 10;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2143,20 +2187,18 @@ TEST(JsTriggerDispatch, RejectsZoneYSetterWithoutExplicitAuthority)
     EXPECT_EQ(zones[0].y, 10);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneResetModeSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsZoneResetModeSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5853,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setResetMode(3);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5853, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setResetMode(3);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].reset_mode = 1;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2170,20 +2212,18 @@ TEST(JsTriggerDispatch, RejectsZoneResetModeSetterWithoutExplicitAuthority)
     EXPECT_EQ(zones[0].reset_mode, 1);
 }
 
-TEST(JsTriggerDispatch, PersistsNullableZoneMapSetterToLiveGameRecord)
-{
+TEST(JsTriggerDispatch, PersistsNullableZoneMapSetterToLiveGameRecord) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5829,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setMap(null);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5829, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setMap(null);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].map = str_dup("N-G-S");
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2200,9 +2240,8 @@ TEST(JsTriggerDispatch, PersistsNullableZoneMapSetterToLiveGameRecord)
     free(zones[0].map);
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidZoneSymbolSetterValues)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, IgnoresInvalidZoneSymbolSetterValues) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.zone.setSymbol(''); return true; }",
         "function onEnter(ctx) { ctx.zone.setSymbol(' '); return true; }",
         "function onEnter(ctx) { ctx.zone.setSymbol('**'); return true; }",
@@ -2210,15 +2249,15 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneSymbolSetterValues)
         "function onEnter(ctx) { ctx.zone.setSymbol(42); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5840, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
         zones[0].symbol = 'Z';
         JsGameAdapterOptions options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2236,9 +2275,8 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneSymbolSetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidZoneCoordinateSetterValues)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, IgnoresInvalidZoneCoordinateSetterValues) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.zone.setX(-1); return true; }",
         "function onEnter(ctx) { ctx.zone.setX(26); return true; }",
         "function onEnter(ctx) { ctx.zone.setX(1.5); return true; }",
@@ -2253,15 +2291,15 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneCoordinateSetterValues)
         "function onEnter(ctx) { ctx.zone.setY('7'); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5845, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
         zones[0].x = 10;
         zones[0].y = 11;
         JsGameAdapterOptions options =
@@ -2281,9 +2319,8 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneCoordinateSetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidZoneResetModeSetterValues)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, IgnoresInvalidZoneResetModeSetterValues) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.zone.setResetMode(-1); return true; }",
         "function onEnter(ctx) { ctx.zone.setResetMode(4); return true; }",
         "function onEnter(ctx) { ctx.zone.setResetMode(1.5); return true; }",
@@ -2292,15 +2329,15 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneResetModeSetterValues)
         "function onEnter(ctx) { ctx.zone.setResetMode('2'); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5854, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
         zones[0].reset_mode = 1;
         JsGameAdapterOptions options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2318,27 +2355,24 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneResetModeSetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, RejectsZoneLifespanSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsZoneLifespanSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5858,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setLifespan(60);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5858, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setLifespan(60);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].lifespan = 30;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
 
-    JsTriggerDispatchResult result =
-        js_trigger_dispatch_first_match(registry, request, options);
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
@@ -2346,9 +2380,8 @@ TEST(JsTriggerDispatch, RejectsZoneLifespanSetterWithoutExplicitAuthority)
     EXPECT_EQ(zones[0].lifespan, 30);
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidZoneLifespanSetterValues)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, IgnoresInvalidZoneLifespanSetterValues) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.zone.setLifespan(0); return true; }",
         "function onEnter(ctx) { ctx.zone.setLifespan(-1); return true; }",
         "function onEnter(ctx) { ctx.zone.setLifespan(10081); return true; }",
@@ -2358,15 +2391,15 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneLifespanSetterValues)
         "function onEnter(ctx) { ctx.zone.setLifespan('60'); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5859, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
         zones[0].lifespan = 30;
         JsGameAdapterOptions options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2384,27 +2417,24 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneLifespanSetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, RejectsZoneLevelSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsZoneLevelSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5863,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5863, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setLevel(42);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].level = 5;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
 
-    JsTriggerDispatchResult result =
-        js_trigger_dispatch_first_match(registry, request, options);
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
@@ -2412,9 +2442,8 @@ TEST(JsTriggerDispatch, RejectsZoneLevelSetterWithoutExplicitAuthority)
     EXPECT_EQ(zones[0].level, 5);
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidZoneLevelSetterValues)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, IgnoresInvalidZoneLevelSetterValues) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.zone.setLevel(-1); return true; }",
         "function onEnter(ctx) { ctx.zone.setLevel(101); return true; }",
         "function onEnter(ctx) { ctx.zone.setLevel(1.5); return true; }",
@@ -2423,15 +2452,15 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneLevelSetterValues)
         "function onEnter(ctx) { ctx.zone.setLevel('42'); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5864, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
         zones[0].level = 5;
         JsGameAdapterOptions options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -2449,30 +2478,27 @@ TEST(JsTriggerDispatch, IgnoresInvalidZoneLevelSetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, RejectsObjectLevelSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsObjectLevelSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5865,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5865, "function onEnter(ctx) {\n"
+                                                                 "  ctx.object.setLevel(42);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.obj_flags.level = 5;
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
     request.context_input.object = &object;
 
-    JsTriggerDispatchResult result =
-        js_trigger_dispatch_first_match(registry, request, options);
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
@@ -2480,9 +2506,8 @@ TEST(JsTriggerDispatch, RejectsObjectLevelSetterWithoutExplicitAuthority)
     EXPECT_EQ(object.obj_flags.level, 5);
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidObjectLevelSetterValues)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, IgnoresInvalidObjectLevelSetterValues) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.object.setLevel(-1); return true; }",
         "function onEnter(ctx) { ctx.object.setLevel(101); return true; }",
         "function onEnter(ctx) { ctx.object.setLevel(1.5); return true; }",
@@ -2491,18 +2516,18 @@ TEST(JsTriggerDispatch, IgnoresInvalidObjectLevelSetterValues)
         "function onEnter(ctx) { ctx.object.setLevel('42'); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5866, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
         obj_data object = make_object("lever");
         object.obj_flags.level = 5;
-        const char_data* live_characters[] = { &self };
-        const obj_data* live_objects[] = { &object };
-        room_data world[1] = { make_room("Gate", 100, 0) };
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        const char_data *live_characters[] = {&self};
+        const obj_data *live_objects[] = {&object};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
         JsGameAdapterOptions options =
             make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
         JsTriggerDispatchRequest request = character_request(&self);
@@ -2520,30 +2545,27 @@ TEST(JsTriggerDispatch, IgnoresInvalidObjectLevelSetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, RejectsObjectRaritySetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsObjectRaritySetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5867,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setRarity(201);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5867, "function onEnter(ctx) {\n"
+                                                                 "  ctx.object.setRarity(201);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.obj_flags.rarity = 7;
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
     request.context_input.object = &object;
 
-    JsTriggerDispatchResult result =
-        js_trigger_dispatch_first_match(registry, request, options);
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
@@ -2551,9 +2573,8 @@ TEST(JsTriggerDispatch, RejectsObjectRaritySetterWithoutExplicitAuthority)
     EXPECT_EQ(object.obj_flags.rarity, 7);
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidObjectRaritySetterValues)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, IgnoresInvalidObjectRaritySetterValues) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.object.setRarity(-1); return true; }",
         "function onEnter(ctx) { ctx.object.setRarity(256); return true; }",
         "function onEnter(ctx) { ctx.object.setRarity(1.5); return true; }",
@@ -2563,18 +2584,18 @@ TEST(JsTriggerDispatch, IgnoresInvalidObjectRaritySetterValues)
         "function onEnter(ctx) { ctx.object.setRarity(null); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5868, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
         obj_data object = make_object("lever");
         object.obj_flags.rarity = 7;
-        const char_data* live_characters[] = { &self };
-        const obj_data* live_objects[] = { &object };
-        room_data world[1] = { make_room("Gate", 100, 0) };
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        const char_data *live_characters[] = {&self};
+        const obj_data *live_objects[] = {&object};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
         JsGameAdapterOptions options =
             make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
         JsTriggerDispatchRequest request = character_request(&self);
@@ -2592,23 +2613,21 @@ TEST(JsTriggerDispatch, IgnoresInvalidObjectRaritySetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, PersistsNestedWeaponRaritySetter)
-{
+TEST(JsTriggerDispatch, PersistsNestedWeaponRaritySetter) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5869,
-        "function onEnter(ctx) {\n"
-        "  ctx.weapon.setRarity(201);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5869, "function onEnter(ctx) {\n"
+                                                                 "  ctx.weapon.setRarity(201);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data weapon = make_object("blade");
     weapon.obj_flags.rarity = 7;
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &weapon };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&weapon};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -2625,23 +2644,21 @@ TEST(JsTriggerDispatch, PersistsNestedWeaponRaritySetter)
     EXPECT_EQ(weapon.obj_flags.rarity, 201);
 }
 
-TEST(JsTriggerDispatch, RejectsObjectRaritySetterWhenAuthorityTargetsAnotherZone)
-{
+TEST(JsTriggerDispatch, RejectsObjectRaritySetterWhenAuthorityTargetsAnotherZone) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5870,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setRarity(201);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5870, "function onEnter(ctx) {\n"
+                                                                 "  ctx.object.setRarity(201);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.obj_flags.rarity = 7;
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[1] = { make_room("Wrong Zone", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 31) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Wrong Zone", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 31)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -2658,27 +2675,25 @@ TEST(JsTriggerDispatch, RejectsObjectRaritySetterWhenAuthorityTargetsAnotherZone
     EXPECT_EQ(object.obj_flags.rarity, 7);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedObjectRarityTargetFailureWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch, RejectsMixedObjectRarityTargetFailureWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5871,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setRarity(201);\n"
-        "  ctx.room.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5871, "function onEnter(ctx) {\n"
+                                                                 "  ctx.object.setRarity(201);\n"
+                                                                 "  ctx.room.setLevel(42);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     self.in_room = 1;
     obj_data object = make_object("lever");
     object.in_room = 0;
     object.obj_flags.rarity = 7;
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[2] = { make_room("Authorized", 100, 0), make_room("Wrong Zone", 200, 1) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[2] = {make_room("Authorized", 100, 0), make_room("Wrong Zone", 200, 1)};
     world[1].level = 5;
-    zone_data zones[2] = { make_zone("Authorized Zone", 30), make_zone("Wrong Zone", 31) };
+    zone_data zones[2] = {make_zone("Authorized Zone", 30), make_zone("Wrong Zone", 31)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 1, nullptr, 0, zones, 2);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -2697,27 +2712,24 @@ TEST(JsTriggerDispatch, RejectsMixedObjectRarityTargetFailureWithoutPartialWrite
     EXPECT_EQ(world[1].level, 5);
 }
 
-TEST(JsTriggerDispatch, RejectsRoomLevelSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsRoomLevelSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5868,
-        "function onEnter(ctx) {\n"
-        "  ctx.room.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5868, "function onEnter(ctx) {\n"
+                                                                 "  ctx.room.setLevel(42);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].level = 5;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
 
-    JsTriggerDispatchResult result =
-        js_trigger_dispatch_first_match(registry, request, options);
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
@@ -2725,9 +2737,8 @@ TEST(JsTriggerDispatch, RejectsRoomLevelSetterWithoutExplicitAuthority)
     EXPECT_EQ(world[0].level, 5);
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidRoomLevelSetterValues)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, IgnoresInvalidRoomLevelSetterValues) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.room.setLevel(-1); return true; }",
         "function onEnter(ctx) { ctx.room.setLevel(101); return true; }",
         "function onEnter(ctx) { ctx.room.setLevel(1.5); return true; }",
@@ -2736,16 +2747,16 @@ TEST(JsTriggerDispatch, IgnoresInvalidRoomLevelSetterValues)
         "function onEnter(ctx) { ctx.room.setLevel('42'); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5869, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
         world[0].level = 5;
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        zone_data zones[1] = {make_zone("Zone", 30)};
         JsGameAdapterOptions options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
         JsTriggerDispatchRequest request = character_request(&self);
@@ -2762,27 +2773,25 @@ TEST(JsTriggerDispatch, IgnoresInvalidRoomLevelSetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, RejectsRoomSectorTypeSetterWithoutExplicitAuthority)
-{
+TEST(JsTriggerDispatch, RejectsRoomSectorTypeSetterWithoutExplicitAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5873,
-        "function onEnter(ctx) {\n"
-        "  ctx.room.setSectorType('Underwater');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5873, "function onEnter(ctx) {\n"
+                                           "  ctx.room.setSectorType('Underwater');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].sector_type = SECT_CITY;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
 
-    JsTriggerDispatchResult result =
-        js_trigger_dispatch_first_match(registry, request, options);
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(registry, request, options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Error);
@@ -2790,9 +2799,8 @@ TEST(JsTriggerDispatch, RejectsRoomSectorTypeSetterWithoutExplicitAuthority)
     EXPECT_EQ(world[0].sector_type, SECT_CITY);
 }
 
-TEST(JsTriggerDispatch, IgnoresInvalidRoomSectorTypeSetterValues)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, IgnoresInvalidRoomSectorTypeSetterValues) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.room.setSectorType('Unknown'); return true; }",
         "function onEnter(ctx) { ctx.room.setSectorType('water_noswim'); return true; }",
         "function onEnter(ctx) { ctx.room.setSectorType(' Water_noswim'); return true; }",
@@ -2802,16 +2810,16 @@ TEST(JsTriggerDispatch, IgnoresInvalidRoomSectorTypeSetterValues)
         "function onEnter(ctx) { ctx.room.setSectorType(null); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5874, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
         world[0].sector_type = SECT_CITY;
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        zone_data zones[1] = {make_zone("Zone", 30)};
         JsGameAdapterOptions options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
         JsTriggerDispatchRequest request = character_request(&self);
@@ -2828,8 +2836,7 @@ TEST(JsTriggerDispatch, IgnoresInvalidRoomSectorTypeSetterValues)
     }
 }
 
-TEST(JsTriggerDispatch, PersistsEveryCanonicalRoomSectorTypeToMatchingLiveIndex)
-{
+TEST(JsTriggerDispatch, PersistsEveryCanonicalRoomSectorTypeToMatchingLiveIndex) {
     ASSERT_NE(sector_types, nullptr);
     ASSERT_GT(num_of_sector_types, 0);
 
@@ -2840,17 +2847,19 @@ TEST(JsTriggerDispatch, PersistsEveryCanonicalRoomSectorTypeToMatchingLiveIndex)
 
         JsScriptPackageRegistry registry;
         const std::string script = "function onEnter(ctx) {\n"
-                                   "  ctx.room.setSectorType('" + sector_name + "');\n"
+                                   "  ctx.room.setSectorType('" +
+                                   sector_name +
+                                   "');\n"
                                    "  return true;\n"
                                    "}";
         JsScriptPackage package = make_character_enter_package(5877, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
         world[0].sector_type = SECT_CITY;
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        zone_data zones[1] = {make_zone("Zone", 30)};
         JsGameAdapterOptions options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
         JsTriggerDispatchRequest request = character_request(&self);
@@ -2860,32 +2869,32 @@ TEST(JsTriggerDispatch, PersistsEveryCanonicalRoomSectorTypeToMatchingLiveIndex)
         JsTriggerDispatchResult result =
             js_trigger_dispatch_first_match(registry, request, options, dispatch_options);
 
-        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << sector_name << ": "
-                                                                 << result.diagnostic;
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow)
+            << sector_name << ": " << result.diagnostic;
         EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok) << sector_name;
         EXPECT_TRUE(result.diagnostic.empty()) << result.diagnostic;
         EXPECT_EQ(world[0].sector_type, sector) << sector_name;
     }
 }
 
-TEST(JsTriggerDispatch, RejectsMixedRoomSectorTypeTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch,
+     RejectsMixedRoomSectorTypeTargetFailureAfterEarlierValidMutationWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5875,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('authorized object edit');\n"
-        "  ctx.room.setSectorType('Underwater');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5875, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('authorized object edit');\n"
+                                           "  ctx.room.setSectorType('Underwater');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Script Room", 100, 0),
         make_room("Authorized Object Room", 200, 1),
@@ -2915,24 +2924,23 @@ TEST(JsTriggerDispatch, RejectsMixedRoomSectorTypeTargetFailureAfterEarlierValid
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedLaterObjectFailureAfterRoomSectorTypeWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch, RejectsMixedLaterObjectFailureAfterRoomSectorTypeWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5878,
-        "function onEnter(ctx) {\n"
-        "  ctx.room.setSectorType('Underwater');\n"
-        "  ctx.object.setName('unauthorized object edit');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5878, "function onEnter(ctx) {\n"
+                                           "  ctx.room.setSectorType('Underwater');\n"
+                                           "  ctx.object.setName('unauthorized object edit');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Authorized Room", 100, 0),
         make_room("Object Room", 200, 1),
@@ -2962,23 +2970,22 @@ TEST(JsTriggerDispatch, RejectsMixedLaterObjectFailureAfterRoomSectorTypeWithout
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, PersistsNestedObjectRoomSectorTypeSetterToLiveGameRecord)
-{
+TEST(JsTriggerDispatch, PersistsNestedObjectRoomSectorTypeSetterToLiveGameRecord) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5876,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.room.setSectorType('Underwater');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5876, "function onEnter(ctx) {\n"
+                                           "  ctx.object.room.setSectorType('Underwater');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Script Room", 100, 0),
         make_room("Object Room", 200, 1),
@@ -3005,24 +3012,22 @@ TEST(JsTriggerDispatch, PersistsNestedObjectRoomSectorTypeSetterToLiveGameRecord
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneSymbolSetter)
-{
+TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneSymbolSetter) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5842,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setSymbol('*');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5842, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setSymbol('*');\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].x = 10;
     zones[0].y = 10;
     zones[0].symbol = 'Z';
-    zone_data* previous_zone_table = zone_table;
+    zone_data *previous_zone_table = zone_table;
     const int previous_top_of_zone_table = top_of_zone_table;
     zone_table = zones;
     top_of_zone_table = 0;
@@ -3048,21 +3053,20 @@ TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneSymbolSetter)
         draw_map();
 }
 
-TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneXSetter)
-{
+TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneXSetter) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5846,
-        "function onEnter(ctx) {\n"
-        "  try { Number.isInteger = function() { return false; }; } catch (error) {}\n"
-        "  try { globalThis.String = function() { return '25'; }; } catch (error) {}\n"
-        "  ctx.zone.setX(0);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(
+        5846, "function onEnter(ctx) {\n"
+              "  try { Number.isInteger = function() { return false; }; } catch (error) {}\n"
+              "  try { globalThis.String = function() { return '25'; }; } catch (error) {}\n"
+              "  ctx.zone.setX(0);\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     zone_data zones[2] = {
         make_zone("Zone", 30),
         make_zone("Stale Bad Coordinates", 31),
@@ -3073,7 +3077,7 @@ TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneXSetter)
     zones[1].x = -1;
     zones[1].y = WORLD_SIZE_Y;
     zones[1].symbol = 'B';
-    zone_data* previous_zone_table = zone_table;
+    zone_data *previous_zone_table = zone_table;
     const int previous_top_of_zone_table = top_of_zone_table;
     zone_table = zones;
     top_of_zone_table = 1;
@@ -3100,21 +3104,20 @@ TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneXSetter)
         draw_map();
 }
 
-TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneYSetter)
-{
+TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneYSetter) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5849,
-        "function onEnter(ctx) {\n"
-        "  try { Number.isInteger = function() { return false; }; } catch (error) {}\n"
-        "  try { globalThis.String = function() { return '25'; }; } catch (error) {}\n"
-        "  ctx.zone.setY(0);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(
+        5849, "function onEnter(ctx) {\n"
+              "  try { Number.isInteger = function() { return false; }; } catch (error) {}\n"
+              "  try { globalThis.String = function() { return '25'; }; } catch (error) {}\n"
+              "  ctx.zone.setY(0);\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     zone_data zones[2] = {
         make_zone("Zone", 30),
         make_zone("Stale Bad Coordinates", 31),
@@ -3125,7 +3128,7 @@ TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneYSetter)
     zones[1].x = -1;
     zones[1].y = WORLD_SIZE_Y;
     zones[1].symbol = 'B';
-    zone_data* previous_zone_table = zone_table;
+    zone_data *previous_zone_table = zone_table;
     const int previous_top_of_zone_table = top_of_zone_table;
     zone_table = zones;
     top_of_zone_table = 1;
@@ -3152,24 +3155,22 @@ TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedZoneYSetter)
         draw_map();
 }
 
-TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedNestedZoneYSetter)
-{
+TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedNestedZoneYSetter) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5851,
-        "function onEnter(ctx) {\n"
-        "  ctx.room.zone.setY(25);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5851, "function onEnter(ctx) {\n"
+                                                                 "  ctx.room.zone.setY(25);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].x = 10;
     zones[0].y = 10;
     zones[0].symbol = 'Z';
-    zone_data* previous_zone_table = zone_table;
+    zone_data *previous_zone_table = zone_table;
     const int previous_top_of_zone_table = top_of_zone_table;
     zone_table = zones;
     top_of_zone_table = 0;
@@ -3196,20 +3197,19 @@ TEST(JsTriggerDispatch, RedrawsGlobalWorldMapAfterPersistedNestedZoneYSetter)
         draw_map();
 }
 
-TEST(JsTriggerDispatch, PersistsNestedZoneResetModeSetter)
-{
+TEST(JsTriggerDispatch, PersistsNestedZoneResetModeSetter) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5856,
-        "function onEnter(ctx) {\n"
-        "  ctx.room.zone.setResetMode(3);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5856, "function onEnter(ctx) {\n"
+                                           "  ctx.room.zone.setResetMode(3);\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].reset_mode = 1;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -3225,20 +3225,19 @@ TEST(JsTriggerDispatch, PersistsNestedZoneResetModeSetter)
     EXPECT_EQ(zones[0].reset_mode, 3);
 }
 
-TEST(JsTriggerDispatch, PersistsNestedZoneLifespanSetter)
-{
+TEST(JsTriggerDispatch, PersistsNestedZoneLifespanSetter) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5860,
-        "function onEnter(ctx) {\n"
-        "  ctx.room.zone.setLifespan(90);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5860, "function onEnter(ctx) {\n"
+                                           "  ctx.room.zone.setLifespan(90);\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].lifespan = 30;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -3254,20 +3253,18 @@ TEST(JsTriggerDispatch, PersistsNestedZoneLifespanSetter)
     EXPECT_EQ(zones[0].lifespan, 90);
 }
 
-TEST(JsTriggerDispatch, PersistsNestedZoneLevelSetter)
-{
+TEST(JsTriggerDispatch, PersistsNestedZoneLevelSetter) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5865,
-        "function onEnter(ctx) {\n"
-        "  ctx.room.zone.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5865, "function onEnter(ctx) {\n"
+                                                                 "  ctx.room.zone.setLevel(42);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].level = 5;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -3283,24 +3280,22 @@ TEST(JsTriggerDispatch, PersistsNestedZoneLevelSetter)
     EXPECT_EQ(zones[0].level, 42);
 }
 
-TEST(JsTriggerDispatch, PersistsNestedRoomLevelSetter)
-{
+TEST(JsTriggerDispatch, PersistsNestedRoomLevelSetter) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5870,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.room.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5870, "function onEnter(ctx) {\n"
+                                                                 "  ctx.object.room.setLevel(42);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 0;
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].level = 5;
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -3316,19 +3311,17 @@ TEST(JsTriggerDispatch, PersistsNestedRoomLevelSetter)
     EXPECT_EQ(world[0].level, 42);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneLifespanSetterWhenAuthorityTargetsAnotherZone)
-{
+TEST(JsTriggerDispatch, RejectsZoneLifespanSetterWhenAuthorityTargetsAnotherZone) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5861,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setLifespan(90);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5861, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setLifespan(90);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     zone_data zones[2] = {
         make_zone("Script Zone", 30),
         make_zone("Other Zone", 31),
@@ -3351,19 +3344,17 @@ TEST(JsTriggerDispatch, RejectsZoneLifespanSetterWhenAuthorityTargetsAnotherZone
     EXPECT_EQ(zones[1].lifespan, 45);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneLevelSetterWhenAuthorityTargetsAnotherZone)
-{
+TEST(JsTriggerDispatch, RejectsZoneLevelSetterWhenAuthorityTargetsAnotherZone) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5866,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5866, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setLevel(42);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     zone_data zones[2] = {
         make_zone("Script Zone", 30),
         make_zone("Other Zone", 31),
@@ -3386,19 +3377,17 @@ TEST(JsTriggerDispatch, RejectsZoneLevelSetterWhenAuthorityTargetsAnotherZone)
     EXPECT_EQ(zones[1].level, 7);
 }
 
-TEST(JsTriggerDispatch, RejectsRoomLevelSetterWhenAuthorityTargetsAnotherZone)
-{
+TEST(JsTriggerDispatch, RejectsRoomLevelSetterWhenAuthorityTargetsAnotherZone) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5871,
-        "function onEnter(ctx) {\n"
-        "  ctx.room.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5871, "function onEnter(ctx) {\n"
+                                                                 "  ctx.room.setLevel(42);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].level = 5;
     zone_data zones[2] = {
         make_zone("Script Zone", 30),
@@ -3419,24 +3408,23 @@ TEST(JsTriggerDispatch, RejectsRoomLevelSetterWhenAuthorityTargetsAnotherZone)
     EXPECT_EQ(world[0].level, 5);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedSymbolBatchWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch, RejectsMixedSymbolBatchWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5843,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setSymbol('*');\n"
-        "  ctx.object.setName('unauthorized object');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5843, "function onEnter(ctx) {\n"
+                                           "  ctx.zone.setSymbol('*');\n"
+                                           "  ctx.object.setName('unauthorized object');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Authorized Gate", 100, 0),
         make_room("Other Gate", 200, 1),
@@ -3467,25 +3455,24 @@ TEST(JsTriggerDispatch, RejectsMixedSymbolBatchWithoutPartialWrites)
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedZoneCoordinateBatchWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch, RejectsMixedZoneCoordinateBatchWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5847,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setX(25);\n"
-        "  ctx.zone.setY(24);\n"
-        "  ctx.object.setName('unauthorized object');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5847, "function onEnter(ctx) {\n"
+                                           "  ctx.zone.setX(25);\n"
+                                           "  ctx.zone.setY(24);\n"
+                                           "  ctx.object.setName('unauthorized object');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Authorized Gate", 100, 0),
         make_room("Other Gate", 200, 1),
@@ -3517,24 +3504,24 @@ TEST(JsTriggerDispatch, RejectsMixedZoneCoordinateBatchWithoutPartialWrites)
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedZoneYTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch,
+     RejectsMixedZoneYTargetFailureAfterEarlierValidMutationWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5848,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('authorized object edit');\n"
-        "  ctx.zone.setY(25);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5848, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('authorized object edit');\n"
+                                           "  ctx.zone.setY(25);\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Script Room", 100, 0),
         make_room("Authorized Object Room", 200, 1),
@@ -3566,24 +3553,24 @@ TEST(JsTriggerDispatch, RejectsMixedZoneYTargetFailureAfterEarlierValidMutationW
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedZoneResetModeTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch,
+     RejectsMixedZoneResetModeTargetFailureAfterEarlierValidMutationWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5857,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('authorized object edit');\n"
-        "  ctx.zone.setResetMode(3);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5857, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('authorized object edit');\n"
+                                           "  ctx.zone.setResetMode(3);\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Script Room", 100, 0),
         make_room("Authorized Object Room", 200, 1),
@@ -3613,24 +3600,24 @@ TEST(JsTriggerDispatch, RejectsMixedZoneResetModeTargetFailureAfterEarlierValidM
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedZoneLifespanTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch,
+     RejectsMixedZoneLifespanTargetFailureAfterEarlierValidMutationWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5862,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('authorized object edit');\n"
-        "  ctx.zone.setLifespan(90);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5862, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('authorized object edit');\n"
+                                           "  ctx.zone.setLifespan(90);\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Script Room", 100, 0),
         make_room("Authorized Object Room", 200, 1),
@@ -3660,24 +3647,24 @@ TEST(JsTriggerDispatch, RejectsMixedZoneLifespanTargetFailureAfterEarlierValidMu
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedZoneLevelTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch,
+     RejectsMixedZoneLevelTargetFailureAfterEarlierValidMutationWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5867,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('authorized object edit');\n"
-        "  ctx.zone.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5867, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('authorized object edit');\n"
+                                           "  ctx.zone.setLevel(42);\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Script Room", 100, 0),
         make_room("Authorized Object Room", 200, 1),
@@ -3707,24 +3694,24 @@ TEST(JsTriggerDispatch, RejectsMixedZoneLevelTargetFailureAfterEarlierValidMutat
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsMixedRoomLevelTargetFailureAfterEarlierValidMutationWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch,
+     RejectsMixedRoomLevelTargetFailureAfterEarlierValidMutationWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5872,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('authorized object edit');\n"
-        "  ctx.room.setLevel(42);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5872, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('authorized object edit');\n"
+                                           "  ctx.room.setLevel(42);\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.in_room = 1;
     object.name = str_dup("old lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
     room_data world[2] = {
         make_room("Script Room", 100, 0),
         make_room("Authorized Object Room", 200, 1),
@@ -3754,22 +3741,21 @@ TEST(JsTriggerDispatch, RejectsMixedRoomLevelTargetFailureAfterEarlierValidMutat
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneMapSetterWithZoneFileSyntaxMarkers)
-{
-    const char* scripts[] = {
+TEST(JsTriggerDispatch, RejectsZoneMapSetterWithZoneFileSyntaxMarkers) {
+    const char *scripts[] = {
         "function onEnter(ctx) { ctx.zone.setMap('bad~map'); return true; }",
         "function onEnter(ctx) { ctx.zone.setMap('ok\\n  #31'); return true; }",
     };
 
-    for (const char* script : scripts) {
+    for (const char *script : scripts) {
         JsScriptPackageRegistry registry;
         JsScriptPackage package = make_character_enter_package(5832, script);
-        ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+        ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
         char_data self = make_character("Self");
-        const char_data* live_characters[] = { &self };
-        room_data world[1] = { make_room("Gate", 100, 0) };
-        zone_data zones[1] = { make_zone("Zone", 30) };
+        const char_data *live_characters[] = {&self};
+        room_data world[1] = {make_room("Gate", 100, 0)};
+        zone_data zones[1] = {make_zone("Zone", 30)};
         zones[0].map = str_dup("N-G-S");
         JsGameAdapterOptions options =
             make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -3789,20 +3775,19 @@ TEST(JsTriggerDispatch, RejectsZoneMapSetterWithZoneFileSyntaxMarkers)
     }
 }
 
-TEST(JsTriggerDispatch, RejectsZoneSetterWhenAuthorityTargetsAnotherZone)
-{
+TEST(JsTriggerDispatch, RejectsZoneSetterWhenAuthorityTargetsAnotherZone) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5830,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setMap('unauthorized map');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5830, "function onEnter(ctx) {\n"
+                                           "  ctx.zone.setMap('unauthorized map');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].map = str_dup("N-G-S");
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -3821,20 +3806,18 @@ TEST(JsTriggerDispatch, RejectsZoneSetterWhenAuthorityTargetsAnotherZone)
     free(zones[0].map);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneSymbolSetterWhenAuthorityTargetsAnotherZone)
-{
+TEST(JsTriggerDispatch, RejectsZoneSymbolSetterWhenAuthorityTargetsAnotherZone) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5841,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setSymbol('*');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5841, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setSymbol('*');\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].symbol = 'Z';
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -3851,20 +3834,18 @@ TEST(JsTriggerDispatch, RejectsZoneSymbolSetterWhenAuthorityTargetsAnotherZone)
     EXPECT_EQ(zones[0].symbol, 'Z');
 }
 
-TEST(JsTriggerDispatch, RejectsZoneXSetterWhenAuthorityTargetsAnotherZone)
-{
+TEST(JsTriggerDispatch, RejectsZoneXSetterWhenAuthorityTargetsAnotherZone) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5848,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setX(25);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5848, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setX(25);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].x = 10;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -3881,20 +3862,18 @@ TEST(JsTriggerDispatch, RejectsZoneXSetterWhenAuthorityTargetsAnotherZone)
     EXPECT_EQ(zones[0].x, 10);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneYSetterWhenAuthorityTargetsAnotherZone)
-{
+TEST(JsTriggerDispatch, RejectsZoneYSetterWhenAuthorityTargetsAnotherZone) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5852,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setY(25);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5852, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setY(25);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].y = 10;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -3911,20 +3890,18 @@ TEST(JsTriggerDispatch, RejectsZoneYSetterWhenAuthorityTargetsAnotherZone)
     EXPECT_EQ(zones[0].y, 10);
 }
 
-TEST(JsTriggerDispatch, RejectsZoneResetModeSetterWhenAuthorityTargetsAnotherZone)
-{
+TEST(JsTriggerDispatch, RejectsZoneResetModeSetterWhenAuthorityTargetsAnotherZone) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5855,
-        "function onEnter(ctx) {\n"
-        "  ctx.zone.setResetMode(3);\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(5855, "function onEnter(ctx) {\n"
+                                                                 "  ctx.zone.setResetMode(3);\n"
+                                                                 "  return true;\n"
+                                                                 "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].reset_mode = 1;
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
@@ -3941,27 +3918,26 @@ TEST(JsTriggerDispatch, RejectsZoneResetModeSetterWhenAuthorityTargetsAnotherZon
     EXPECT_EQ(zones[0].reset_mode, 1);
 }
 
-TEST(JsTriggerDispatch, RejectsObjectRoomAndZoneSettersOutsideAuthorityTargetWithoutPartialWrites)
-{
+TEST(JsTriggerDispatch, RejectsObjectRoomAndZoneSettersOutsideAuthorityTargetWithoutPartialWrites) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5833,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('changed object');\n"
-        "  ctx.room.setName('Changed Room');\n"
-        "  ctx.zone.setMap('changed map');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5833, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('changed object');\n"
+                                           "  ctx.room.setName('Changed Room');\n"
+                                           "  ctx.zone.setMap('changed map');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.name = str_dup("lever");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[1] = { make_room("Gate", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].name = str_dup("Gate");
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].map = str_dup("N-G-S");
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
@@ -3986,15 +3962,14 @@ TEST(JsTriggerDispatch, RejectsObjectRoomAndZoneSettersOutsideAuthorityTargetWit
     free(zones[0].map);
 }
 
-TEST(JsTriggerDispatch, PersistsCarriedWeaponSetterWhenCarrierRoomMatchesAuthority)
-{
+TEST(JsTriggerDispatch, PersistsCarriedWeaponSetterWhenCarrierRoomMatchesAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5834,
-        "function onEnter(ctx) {\n"
-        "  ctx.weapon.setName('authorized blade');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5834, "function onEnter(ctx) {\n"
+                                           "  ctx.weapon.setName('authorized blade');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data weapon = make_object("blade");
@@ -4003,10 +3978,10 @@ TEST(JsTriggerDispatch, PersistsCarriedWeaponSetterWhenCarrierRoomMatchesAuthori
     self.equipment[WIELD] = &weapon;
     weapon.name = str_dup("old blade");
     weapon.short_description = str_dup("a blade");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &weapon };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&weapon};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -4024,15 +3999,14 @@ TEST(JsTriggerDispatch, PersistsCarriedWeaponSetterWhenCarrierRoomMatchesAuthori
     free(weapon.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierRoomIsOutsideAuthorityTarget)
-{
+TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierRoomIsOutsideAuthorityTarget) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5835,
-        "function onEnter(ctx) {\n"
-        "  ctx.weapon.setName('wrong zone blade');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5835, "function onEnter(ctx) {\n"
+                                           "  ctx.weapon.setName('wrong zone blade');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data weapon = make_object("blade");
@@ -4041,10 +4015,10 @@ TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierRoomIsOutsideAuthor
     self.equipment[WIELD] = &weapon;
     weapon.name = str_dup("old blade");
     weapon.short_description = str_dup("a blade");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &weapon };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&weapon};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -4064,15 +4038,14 @@ TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierRoomIsOutsideAuthor
     free(weapon.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierPointerIsStale)
-{
+TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierPointerIsStale) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5836,
-        "function onEnter(ctx) {\n"
-        "  ctx.weapon.setName('stale carrier blade');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5836, "function onEnter(ctx) {\n"
+                                           "  ctx.weapon.setName('stale carrier blade');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data weapon = make_object("blade");
@@ -4080,10 +4053,10 @@ TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierPointerIsStale)
     weapon.carried_by = &self;
     weapon.name = str_dup("old blade");
     weapon.short_description = str_dup("a blade");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &weapon };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&weapon};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -4103,15 +4076,14 @@ TEST(JsTriggerDispatch, RejectsCarriedWeaponSetterWhenCarrierPointerIsStale)
     free(weapon.short_description);
 }
 
-TEST(JsTriggerDispatch, PersistsContainedObjectSetterWhenContainerRoomMatchesAuthority)
-{
+TEST(JsTriggerDispatch, PersistsContainedObjectSetterWhenContainerRoomMatchesAuthority) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5837,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('authorized gem');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5837, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('authorized gem');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data container = make_object("box");
@@ -4122,10 +4094,10 @@ TEST(JsTriggerDispatch, PersistsContainedObjectSetterWhenContainerRoomMatchesAut
     object.in_obj = &container;
     object.name = str_dup("old gem");
     object.short_description = str_dup("a gem");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object, &container };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object, &container};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 2, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -4143,15 +4115,14 @@ TEST(JsTriggerDispatch, PersistsContainedObjectSetterWhenContainerRoomMatchesAut
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsContainedObjectSetterWhenContainerPointerIsStale)
-{
+TEST(JsTriggerDispatch, RejectsContainedObjectSetterWhenContainerPointerIsStale) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5838,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('stale container gem');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5838, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('stale container gem');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data container = make_object("box");
@@ -4161,10 +4132,10 @@ TEST(JsTriggerDispatch, RejectsContainedObjectSetterWhenContainerPointerIsStale)
     object.in_obj = &container;
     object.name = str_dup("old gem");
     object.short_description = str_dup("a gem");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object, &container };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object, &container};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 2, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -4184,24 +4155,23 @@ TEST(JsTriggerDispatch, RejectsContainedObjectSetterWhenContainerPointerIsStale)
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, RejectsPersistentSettersWhenAuthorityEvidenceIsIncomplete)
-{
+TEST(JsTriggerDispatch, RejectsPersistentSettersWhenAuthorityEvidenceIsIncomplete) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5828,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('incomplete authority name');\n"
-        "  return true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5828, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('incomplete authority name');\n"
+                                           "  return true;\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.name = str_dup("lever keys old");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -4224,24 +4194,23 @@ TEST(JsTriggerDispatch, RejectsPersistentSettersWhenAuthorityEvidenceIsIncomplet
     free(object.short_description);
 }
 
-TEST(JsTriggerDispatch, DoesNotPersistSetterSnapshotsWhenHandlerFails)
-{
+TEST(JsTriggerDispatch, DoesNotPersistSetterSnapshotsWhenHandlerFails) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5826,
-        "function onEnter(ctx) {\n"
-        "  ctx.object.setName('unsafe changed name');\n"
-        "  throw new TypeError('boom');\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5826, "function onEnter(ctx) {\n"
+                                           "  ctx.object.setName('unsafe changed name');\n"
+                                           "  throw new TypeError('boom');\n"
+                                           "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     obj_data object = make_object("lever");
     object.name = str_dup("lever keys old");
     object.short_description = str_dup("a lever");
-    const char_data* live_characters[] = { &self };
-    const obj_data* live_objects[] = { &object };
-    room_data world[1] = { make_room("Gate", 100, 0) };
-    zone_data zones[1] = { make_zone("Zone", 30) };
+    const char_data *live_characters[] = {&self};
+    const obj_data *live_objects[] = {&object};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, nullptr, 0, zones, 1);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -4256,9 +4225,8 @@ TEST(JsTriggerDispatch, DoesNotPersistSetterSnapshotsWhenHandlerFails)
     free(object.short_description);
 }
 
-TEST(JsScriptingRuntimePolicy, PinsLiveDispatchDefaults)
-{
-    const JsScriptingRuntimeSafetyPolicy& policy = js_scripting_runtime_safety_policy();
+TEST(JsScriptingRuntimePolicy, PinsLiveDispatchDefaults) {
+    const JsScriptingRuntimeSafetyPolicy &policy = js_scripting_runtime_safety_policy();
 
     EXPECT_EQ(policy.runtime_limits.memory_limit_bytes, 1024U * 1024U);
     EXPECT_EQ(policy.runtime_limits.stack_limit_bytes, 256U * 1024U);
@@ -4272,20 +4240,19 @@ TEST(JsScriptingRuntimePolicy, PinsLiveDispatchDefaults)
     EXPECT_TRUE(contains(policy.failure_logging_policy, "tokens"));
 }
 
-TEST(JsTriggerDispatch, NearMissHostKindAndValueDoNotExecutePackageSource)
-{
+TEST(JsTriggerDispatch, NearMissHostKindAndValueDoNotExecutePackageSource) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5001,
-        "function onEnter(ctx) { syntax error if this runs }\n"
-        "function onDamage(ctx) { return false; }");
+    JsScriptPackage package =
+        make_character_enter_package(5001, "function onEnter(ctx) { syntax error if this runs }\n"
+                                           "function onDamage(ctx) { return false; }");
     package.trigger_bindings.push_back(
-        { JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage" });
+        {JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage"});
     refresh_checksum(package);
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4293,33 +4260,33 @@ TEST(JsTriggerDispatch, NearMissHostKindAndValueDoNotExecutePackageSource)
     wrong_host.host = JsScriptPackageHost::Object;
     wrong_host.context_input.self = nullptr;
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, wrong_host, options).status,
-        JsTriggerDispatchStatus::NoMatch);
+              JsTriggerDispatchStatus::NoMatch);
 
     JsTriggerDispatchRequest wrong_kind = character_request(&self);
     wrong_kind.kind = JsScriptingManifestKind::MudlleCallFlag;
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, wrong_kind, options).status,
-        JsTriggerDispatchStatus::NoMatch);
+              JsTriggerDispatchStatus::NoMatch);
 
     JsTriggerDispatchRequest wrong_value = character_request(&self);
     wrong_value.legacy_value = ON_RECEIVE;
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, wrong_value, options).status,
-        JsTriggerDispatchStatus::NoMatch);
+              JsTriggerDispatchStatus::NoMatch);
 }
 
-TEST(JsTriggerDispatch, InvokesOnlyBoundHandlerFromFullCompiledPackage)
-{
+TEST(JsTriggerDispatch, InvokesOnlyBoundHandlerFromFullCompiledPackage) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5101,
+    JsScriptPackage package = make_character_enter_package(
+        5101,
         "function onDamage(ctx) { return false; }\n"
         "function onEnter(ctx) {\n"
         "  return ctx.self.name === 'Self' && ctx.trigger.legacyName === 'ON_ENTER'\n"
         "    && ctx.trigger.hostType === 'character' && ctx.trigger.blocksGameplay === true;\n"
         "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4335,21 +4302,21 @@ TEST(JsTriggerDispatch, InvokesOnlyBoundHandlerFromFullCompiledPackage)
     EXPECT_EQ(result.matched_package_count, 1U);
 }
 
-TEST(JsTriggerDispatch, DispatchesBuilderClientCommonJsExportsAndScriptResultHelpers)
-{
+TEST(JsTriggerDispatch, DispatchesBuilderClientCommonJsExportsAndScriptResultHelpers) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5151,
-        "\"use strict\";\n"
-        "Object.defineProperty(exports, \"__esModule\", { value: true });\n"
-        "exports.onEnter = onEnter;\n"
-        "function onEnter(ctx) {\n"
-        "  return ctx.self.name === 'Self' ? RotS.ScriptResult.block() : RotS.ScriptResult.allow();\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(
+        5151, "\"use strict\";\n"
+              "Object.defineProperty(exports, \"__esModule\", { value: true });\n"
+              "exports.onEnter = onEnter;\n"
+              "function onEnter(ctx) {\n"
+              "  return ctx.self.name === 'Self' ? RotS.ScriptResult.block() : "
+              "RotS.ScriptResult.allow();\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4362,17 +4329,16 @@ TEST(JsTriggerDispatch, DispatchesBuilderClientCommonJsExportsAndScriptResultHel
     EXPECT_EQ(result.handler_name, "onEnter");
 }
 
-TEST(JsTriggerDispatch, PrefersCompiledExportOverGlobalHandlerFallback)
-{
+TEST(JsTriggerDispatch, PrefersCompiledExportOverGlobalHandlerFallback) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5152,
-        "exports.onEnter = function(ctx) { return RotS.ScriptResult.allow(); };\n"
-        "function onEnter(ctx) { return RotS.ScriptResult.block(); }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package = make_character_enter_package(
+        5152, "exports.onEnter = function(ctx) { return RotS.ScriptResult.allow(); };\n"
+              "function onEnter(ctx) { return RotS.ScriptResult.block(); }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4385,19 +4351,19 @@ TEST(JsTriggerDispatch, PrefersCompiledExportOverGlobalHandlerFallback)
     EXPECT_EQ(result.handler_name, "onEnter");
 }
 
-TEST(JsTriggerDispatch, MapsFalseReturnToBlockForBlockingManifestTriggers)
-{
+TEST(JsTriggerDispatch, MapsFalseReturnToBlockForBlockingManifestTriggers) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5201, JsScriptPackageHost::Character,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_BEFORE_ENTER, "onBeforeEnter",
-        "function onBeforeEnter(ctx) {\n"
-        "  return ctx.trigger.blocksGameplay ? false : true;\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_package(5201, JsScriptPackageHost::Character,
+                     JsScriptingManifestKind::LegacyScriptTrigger, ON_BEFORE_ENTER, "onBeforeEnter",
+                     "function onBeforeEnter(ctx) {\n"
+                     "  return ctx.trigger.blocksGameplay ? false : true;\n"
+                     "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Guard");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4410,18 +4376,17 @@ TEST(JsTriggerDispatch, MapsFalseReturnToBlockForBlockingManifestTriggers)
     EXPECT_EQ(result.runtime_status, JsRuntimeStatus::Ok);
 }
 
-TEST(JsTriggerDispatch, UsesFirstMatchingPackageInRegistryOrder)
-{
+TEST(JsTriggerDispatch, UsesFirstMatchingPackageInRegistryOrder) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage first = make_character_enter_package(5301,
-        "function onEnter(ctx) { return false; }");
-    JsScriptPackage second = make_character_enter_package(5302,
-        "function onEnter(ctx) { syntax error if this runs }");
-    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+    JsScriptPackage first =
+        make_character_enter_package(5301, "function onEnter(ctx) { return false; }");
+    JsScriptPackage second =
+        make_character_enter_package(5302, "function onEnter(ctx) { syntax error if this runs }");
+    ASSERT_TRUE(registry.replace_all({first, second}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4433,18 +4398,17 @@ TEST(JsTriggerDispatch, UsesFirstMatchingPackageInRegistryOrder)
     EXPECT_EQ(result.matched_package_count, 2U);
 }
 
-TEST(JsTriggerDispatch, PackageVnumFilterDispatchesOnlyAttachedPackage)
-{
+TEST(JsTriggerDispatch, PackageVnumFilterDispatchesOnlyAttachedPackage) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage first = make_character_enter_package(5351,
-        "function onEnter(ctx) { return false; }");
-    JsScriptPackage second = make_character_enter_package(5352,
-        "function onEnter(ctx) { return true; }");
-    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+    JsScriptPackage first =
+        make_character_enter_package(5351, "function onEnter(ctx) { return false; }");
+    JsScriptPackage second =
+        make_character_enter_package(5352, "function onEnter(ctx) { return true; }");
+    ASSERT_TRUE(registry.replace_all({first, second}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4458,22 +4422,21 @@ TEST(JsTriggerDispatch, PackageVnumFilterDispatchesOnlyAttachedPackage)
 
     request.package_vnum = 9999;
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, request, options).status,
-        JsTriggerDispatchStatus::NoMatch);
+              JsTriggerDispatchStatus::NoMatch);
 }
 
-TEST(JsTriggerDispatch, PackageVnumFilterDoesNotFallBackWhenAttachedPackageIsWrongTrigger)
-{
+TEST(JsTriggerDispatch, PackageVnumFilterDoesNotFallBackWhenAttachedPackageIsWrongTrigger) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage wrong_attached = make_package(5371, JsScriptPackageHost::Character,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
-        "function onDamage(ctx) { return true; }");
-    JsScriptPackage global_match = make_character_enter_package(5372,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ wrong_attached, global_match }, internal_options()));
+    JsScriptPackage wrong_attached = make_package(
+        5371, JsScriptPackageHost::Character, JsScriptingManifestKind::LegacyScriptTrigger,
+        ON_DAMAGE, "onDamage", "function onDamage(ctx) { return true; }");
+    JsScriptPackage global_match =
+        make_character_enter_package(5372, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({wrong_attached, global_match}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4485,20 +4448,19 @@ TEST(JsTriggerDispatch, PackageVnumFilterDoesNotFallBackWhenAttachedPackageIsWro
     EXPECT_EQ(result.matched_package_count, 0U);
 }
 
-TEST(JsTriggerDispatch, DispatchesFromRefreshedLiveRegistryService)
-{
+TEST(JsTriggerDispatch, DispatchesFromRefreshedLiveRegistryService) {
     JsStagedPackageRepository repository;
     JsLivePackageStore live_store;
-    JsScriptPackage package = make_character_enter_package(5381,
-        "function onEnter(ctx) { return ctx.self.name === 'Self'; }");
+    JsScriptPackage package = make_character_enter_package(
+        5381, "function onEnter(ctx) { return ctx.self.name === 'Self'; }");
     JsStagedPackageRecord record =
         activate_live_package_for_dispatch(repository, live_store, package);
     JsLiveRegistryReloadService service;
     ASSERT_TRUE(service.refresh_from_live_store(live_store));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4514,12 +4476,11 @@ TEST(JsTriggerDispatch, DispatchesFromRefreshedLiveRegistryService)
     EXPECT_EQ(result.matched_package_count, 1U);
 }
 
-TEST(JsTriggerDispatch, LiveRegistryBridgeNoMatchDoesNotExposePackageMetadata)
-{
+TEST(JsTriggerDispatch, LiveRegistryBridgeNoMatchDoesNotExposePackageMetadata) {
     JsLiveRegistryReloadService empty_service;
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4554,8 +4515,7 @@ TEST(JsTriggerDispatch, LiveRegistryBridgeNoMatchDoesNotExposePackageMetadata)
     EXPECT_TRUE(wrong_vnum_result.diagnostic.empty());
 }
 
-TEST(JsTriggerDispatch, LiveRegistryDispatchUsesRefreshSnapshotUntilReloaded)
-{
+TEST(JsTriggerDispatch, LiveRegistryDispatchUsesRefreshSnapshotUntilReloaded) {
     JsStagedPackageRepository repository;
     JsLivePackageStore live_store;
     JsStagedPackageRecord first = activate_live_package_for_dispatch(
@@ -4565,8 +4525,8 @@ TEST(JsTriggerDispatch, LiveRegistryDispatchUsesRefreshSnapshotUntilReloaded)
     ASSERT_TRUE(service.refresh_from_live_store(live_store));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchRequest request = character_request(&self);
@@ -4594,8 +4554,7 @@ TEST(JsTriggerDispatch, LiveRegistryDispatchUsesRefreshSnapshotUntilReloaded)
     EXPECT_EQ(stale_result.package_id, refreshed_result.package_id);
 }
 
-TEST(JsTriggerDispatch, FailedLiveRegistryRefreshKeepsPreviousDispatchSnapshot)
-{
+TEST(JsTriggerDispatch, FailedLiveRegistryRefreshKeepsPreviousDispatchSnapshot) {
     JsStagedPackageRepository repository;
     JsLivePackageStore first_store;
     activate_live_package_for_dispatch(
@@ -4618,8 +4577,8 @@ TEST(JsTriggerDispatch, FailedLiveRegistryRefreshKeepsPreviousDispatchSnapshot)
     EXPECT_EQ(reload_result.status, JsLiveRegistryReloadStatus::ValidationFailed);
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchResult result =
@@ -4633,17 +4592,16 @@ TEST(JsTriggerDispatch, FailedLiveRegistryRefreshKeepsPreviousDispatchSnapshot)
     EXPECT_EQ(service.successful_reload_count(), 1U);
 }
 
-TEST(JsTriggerDispatch, RejectsMissingRequiredCharacterHostBeforeRuntimeExecution)
-{
+TEST(JsTriggerDispatch, RejectsMissingRequiredCharacterHostBeforeRuntimeExecution) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5401,
-        "function onEnter(ctx) { return true; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5401, "function onEnter(ctx) { return true; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data stale_self = make_character("Stale");
     char_data live_other = make_character("Live");
-    const char_data* live_characters[] = { &live_other };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&live_other};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4658,20 +4616,19 @@ TEST(JsTriggerDispatch, RejectsMissingRequiredCharacterHostBeforeRuntimeExecutio
     EXPECT_FALSE(contains(result.diagnostic, "Stale"));
 }
 
-TEST(JsTriggerDispatch, RejectsMissingRequiredObjectHostBeforeRuntimeExecution)
-{
+TEST(JsTriggerDispatch, RejectsMissingRequiredObjectHostBeforeRuntimeExecution) {
     JsScriptPackageRegistry registry;
     JsScriptPackage package = make_package(5501, JsScriptPackageHost::Object,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
-        "function onDamage(ctx) { return true; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+                                           JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE,
+                                           "onDamage", "function onDamage(ctx) { return true; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     obj_data stale_object = make_object("stale object", 0);
     obj_data live_object = make_object("live object", 0);
-    const obj_data* live_objects[] = { &live_object };
-    index_data object_index[1] {};
+    const obj_data *live_objects[] = {&live_object};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    room_data world[1] = { make_room("Room", 100, 0) };
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(nullptr, 0, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
 
@@ -4689,30 +4646,32 @@ TEST(JsTriggerDispatch, RejectsMissingRequiredObjectHostBeforeRuntimeExecution)
     EXPECT_FALSE(contains(result.diagnostic, "stale object"));
 }
 
-TEST(JsTriggerDispatch, ObjectHostProvidesObjectContextAndNoCharacterSelfAlias)
-{
+TEST(JsTriggerDispatch, ObjectHostProvidesObjectContextAndNoCharacterSelfAlias) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5601, JsScriptPackageHost::Object,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+    JsScriptPackage package = make_package(
+        5601, JsScriptPackageHost::Object, JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE,
+        "onDamage",
         "function onDamage(ctx) {\n"
         "  if (ctx.self !== null) throw new TypeError('self-alias');\n"
         "  if (ctx.object === null) throw new TypeError('missing-object');\n"
         "  if (ctx.object.id !== 'object') throw new TypeError(ctx.object.id);\n"
         "  if (ctx.object.name !== 'Blade') throw new TypeError(ctx.object.name);\n"
         "  if (ctx.object.vnum !== 300) throw new TypeError(String(ctx.object.vnum));\n"
-        "  if (ctx.object.room.vnum !== 100) throw new TypeError(String(ctx.object.room && ctx.object.room.vnum));\n"
-        "  if (ctx.object.room.zone.vnum !== 10) throw new TypeError(String(ctx.object.room.zone && ctx.object.room.zone.vnum));\n"
+        "  if (ctx.object.room.vnum !== 100) throw new TypeError(String(ctx.object.room && "
+        "ctx.object.room.vnum));\n"
+        "  if (ctx.object.room.zone.vnum !== 10) throw new TypeError(String(ctx.object.room.zone "
+        "&& ctx.object.room.zone.vnum));\n"
         "  if (ctx.room.vnum !== 100) throw new TypeError(String(ctx.room.vnum));\n"
         "  return ctx.trigger.hostType === 'object';\n"
         "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     obj_data object = make_object("Blade", 0);
-    const obj_data* live_objects[] = { &object };
-    index_data object_index[1] {};
+    const obj_data *live_objects[] = {&object};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    room_data world[1] = { make_room("Room", 100, 0) };
-    zone_data zones[1] = { make_zone("Test Zone", 10) };
+    room_data world[1] = {make_room("Room", 100, 0)};
+    zone_data zones[1] = {make_zone("Test Zone", 10)};
     JsGameAdapterOptions options =
         make_options(nullptr, 0, live_objects, 1, world, 0, object_index, 1, zones, 1);
 
@@ -4728,32 +4687,33 @@ TEST(JsTriggerDispatch, ObjectHostProvidesObjectContextAndNoCharacterSelfAlias)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, ObjectHostProvidesCarriedBySnapshot)
-{
+TEST(JsTriggerDispatch, ObjectHostProvidesCarriedBySnapshot) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5602, JsScriptPackageHost::Object,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+    JsScriptPackage package = make_package(
+        5602, JsScriptPackageHost::Object, JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE,
+        "onDamage",
         "function onDamage(ctx) {\n"
         "  if (ctx.object === null) throw new TypeError('missing-object');\n"
         "  if (ctx.object.room !== null) throw new TypeError('unexpected-room');\n"
         "  if (ctx.object.wornBy !== null) throw new TypeError('unexpected-worn');\n"
         "  if (ctx.object.carriedBy === null) throw new TypeError('missing-carrier');\n"
-        "  if (ctx.object.carriedBy.name !== 'Carrier') throw new TypeError(ctx.object.carriedBy.name);\n"
+        "  if (ctx.object.carriedBy.name !== 'Carrier') throw new "
+        "TypeError(ctx.object.carriedBy.name);\n"
         "  if (ctx.object.carriedBy.room.vnum !== 100) throw new TypeError('carrier-room');\n"
         "  return ctx.object.carriedBy.isValid();\n"
         "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data carrier = make_character("Carrier");
     obj_data object = make_object("Blade", 0);
     object.in_room = -1;
     object.carried_by = &carrier;
     carrier.carrying = &object;
-    const char_data* live_characters[] = { &carrier };
-    const obj_data* live_objects[] = { &object };
-    index_data object_index[1] {};
+    const char_data *live_characters[] = {&carrier};
+    const obj_data *live_objects[] = {&object};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    room_data world[1] = { make_room("Room", 100, 0) };
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
 
@@ -4769,11 +4729,11 @@ TEST(JsTriggerDispatch, ObjectHostProvidesCarriedBySnapshot)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, ObjectHostProvidesWornBySnapshot)
-{
+TEST(JsTriggerDispatch, ObjectHostProvidesWornBySnapshot) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5603, JsScriptPackageHost::Object,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+    JsScriptPackage package = make_package(
+        5603, JsScriptPackageHost::Object, JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE,
+        "onDamage",
         "function onDamage(ctx) {\n"
         "  if (ctx.object === null) throw new TypeError('missing-object');\n"
         "  if (ctx.object.room !== null) throw new TypeError('unexpected-room');\n"
@@ -4783,18 +4743,18 @@ TEST(JsTriggerDispatch, ObjectHostProvidesWornBySnapshot)
         "  if (ctx.object.wornBy.room.vnum !== 100) throw new TypeError('wearer-room');\n"
         "  return ctx.object.wornBy.isValid();\n"
         "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data wearer = make_character("Wearer");
     obj_data object = make_object("Blade", 0);
     object.in_room = -1;
     object.carried_by = &wearer;
     wearer.equipment[WIELD] = &object;
-    const char_data* live_characters[] = { &wearer };
-    const obj_data* live_objects[] = { &object };
-    index_data object_index[1] {};
+    const char_data *live_characters[] = {&wearer};
+    const obj_data *live_objects[] = {&object};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    room_data world[1] = { make_room("Room", 100, 0) };
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
 
@@ -4810,23 +4770,23 @@ TEST(JsTriggerDispatch, ObjectHostProvidesWornBySnapshot)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, CharacterDieProvidesKillerRoleSnapshot)
-{
+TEST(JsTriggerDispatch, CharacterDieProvidesKillerRoleSnapshot) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5608, JsScriptPackageHost::Character,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DIE, "onDie",
-        "function onDie(ctx) {\n"
-        "  if (ctx.hostType !== 'character') throw new TypeError('host');\n"
-        "  if (ctx.self.name !== 'Victim') throw new TypeError('self');\n"
-        "  if (ctx.killer.name !== 'Killer') throw new TypeError('killer');\n"
-        "  return ctx.killer.isValid();\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_package(5608, JsScriptPackageHost::Character,
+                     JsScriptingManifestKind::LegacyScriptTrigger, ON_DIE, "onDie",
+                     "function onDie(ctx) {\n"
+                     "  if (ctx.hostType !== 'character') throw new TypeError('host');\n"
+                     "  if (ctx.self.name !== 'Victim') throw new TypeError('self');\n"
+                     "  if (ctx.killer.name !== 'Killer') throw new TypeError('killer');\n"
+                     "  return ctx.killer.isValid();\n"
+                     "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data victim = make_character("Victim");
     char_data killer = make_character("Killer");
-    const char_data* live_characters[] = { &victim, &killer };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&victim, &killer};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4843,17 +4803,17 @@ TEST(JsTriggerDispatch, CharacterDieProvidesKillerRoleSnapshot)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, CharacterDieModelsMissingKillerAsNull)
-{
+TEST(JsTriggerDispatch, CharacterDieModelsMissingKillerAsNull) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5609, JsScriptPackageHost::Character,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DIE, "onDie",
+    JsScriptPackage package = make_package(
+        5609, JsScriptPackageHost::Character, JsScriptingManifestKind::LegacyScriptTrigger, ON_DIE,
+        "onDie",
         "function onDie(ctx) { return ctx.self.name === 'Victim' && ctx.killer === null; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data victim = make_character("Victim");
-    const char_data* live_characters[] = { &victim };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&victim};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4869,11 +4829,11 @@ TEST(JsTriggerDispatch, CharacterDieModelsMissingKillerAsNull)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, CharacterDamageProvidesAttackerAndVictimRoleSnapshots)
-{
+TEST(JsTriggerDispatch, CharacterDamageProvidesAttackerAndVictimRoleSnapshots) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5610, JsScriptPackageHost::Character,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+    JsScriptPackage package = make_package(
+        5610, JsScriptPackageHost::Character, JsScriptingManifestKind::LegacyScriptTrigger,
+        ON_DAMAGE, "onDamage",
         "function onDamage(ctx) {\n"
         "  if (ctx.hostType !== 'character') throw new TypeError('host');\n"
         "  if (ctx.self.name !== 'Victim') throw new TypeError('self');\n"
@@ -4883,16 +4843,16 @@ TEST(JsTriggerDispatch, CharacterDamageProvidesAttackerAndVictimRoleSnapshots)
         "  if (ctx.weapon.name !== 'Blade') throw new TypeError('weapon');\n"
         "  return ctx.attacker.isValid() && ctx.victim.isValid() && ctx.weapon.isValid();\n"
         "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data victim = make_character("Victim");
     char_data attacker = make_character("Attacker");
     obj_data weapon = make_object("Blade", 0);
-    const char_data* live_characters[] = { &victim, &attacker };
-    const obj_data* live_objects[] = { &weapon };
-    index_data object_index[1] {};
+    const char_data *live_characters[] = {&victim, &attacker};
+    const obj_data *live_objects[] = {&weapon};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    room_data world[1] = { make_room("Room", 100, 0) };
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 2, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
 
@@ -4912,11 +4872,11 @@ TEST(JsTriggerDispatch, CharacterDamageProvidesAttackerAndVictimRoleSnapshots)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, ObjectDamageProvidesAttackerAndVictimRoleSnapshots)
-{
+TEST(JsTriggerDispatch, ObjectDamageProvidesAttackerAndVictimRoleSnapshots) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5612, JsScriptPackageHost::Object,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+    JsScriptPackage package = make_package(
+        5612, JsScriptPackageHost::Object, JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE,
+        "onDamage",
         "function onDamage(ctx) {\n"
         "  if (ctx.hostType !== 'object') throw new TypeError('host');\n"
         "  if (ctx.self !== null) throw new TypeError('self');\n"
@@ -4927,16 +4887,16 @@ TEST(JsTriggerDispatch, ObjectDamageProvidesAttackerAndVictimRoleSnapshots)
         "  if (ctx.weapon.name !== 'Blade') throw new TypeError('weapon');\n"
         "  return ctx.attacker.isValid() && ctx.victim.isValid() && ctx.weapon.isValid();\n"
         "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data victim = make_character("Victim");
     char_data attacker = make_character("Attacker");
     obj_data object = make_object("Blade", 0);
-    const char_data* live_characters[] = { &victim, &attacker };
-    const obj_data* live_objects[] = { &object };
-    index_data object_index[1] {};
+    const char_data *live_characters[] = {&victim, &attacker};
+    const obj_data *live_objects[] = {&object};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    room_data world[1] = { make_room("Room", 100, 0) };
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 2, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
 
@@ -4956,18 +4916,19 @@ TEST(JsTriggerDispatch, ObjectDamageProvidesAttackerAndVictimRoleSnapshots)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, CharacterDamageModelsMissingWeaponAsNull)
-{
+TEST(JsTriggerDispatch, CharacterDamageModelsMissingWeaponAsNull) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5613, JsScriptPackageHost::Character,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
-        "function onDamage(ctx) { return ctx.weapon === null && ctx.attacker.name === 'Attacker'; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_package(5613, JsScriptPackageHost::Character,
+                     JsScriptingManifestKind::LegacyScriptTrigger, ON_DAMAGE, "onDamage",
+                     "function onDamage(ctx) { return ctx.weapon === null && ctx.attacker.name === "
+                     "'Attacker'; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data victim = make_character("Victim");
     char_data attacker = make_character("Attacker");
-    const char_data* live_characters[] = { &victim, &attacker };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&victim, &attacker};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -4986,26 +4947,26 @@ TEST(JsTriggerDispatch, CharacterDamageModelsMissingWeaponAsNull)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, ObjectWearProvidesWearSlot)
-{
+TEST(JsTriggerDispatch, ObjectWearProvidesWearSlot) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5614, JsScriptPackageHost::Object,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_WEAR, "onWear",
-        "function onWear(ctx) {\n"
-        "  if (ctx.hostType !== 'object') throw new TypeError('host');\n"
-        "  if (ctx.object.name !== 'Helm') throw new TypeError('object');\n"
-        "  if (ctx.actor.name !== 'Actor') throw new TypeError('actor');\n"
-        "  return ctx.wearSlot === 'head';\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_package(5614, JsScriptPackageHost::Object,
+                     JsScriptingManifestKind::LegacyScriptTrigger, ON_WEAR, "onWear",
+                     "function onWear(ctx) {\n"
+                     "  if (ctx.hostType !== 'object') throw new TypeError('host');\n"
+                     "  if (ctx.object.name !== 'Helm') throw new TypeError('object');\n"
+                     "  if (ctx.actor.name !== 'Actor') throw new TypeError('actor');\n"
+                     "  return ctx.wearSlot === 'head';\n"
+                     "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data actor = make_character("Actor");
     obj_data object = make_object("Helm", 0);
-    const char_data* live_characters[] = { &actor };
-    const obj_data* live_objects[] = { &object };
-    index_data object_index[1] {};
+    const char_data *live_characters[] = {&actor};
+    const obj_data *live_objects[] = {&object};
+    index_data object_index[1]{};
     object_index[0].virt = 300;
-    room_data world[1] = { make_room("Room", 100, 0) };
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, live_objects, 1, world, 0, object_index, 1, nullptr, 0);
 
@@ -5023,24 +4984,24 @@ TEST(JsTriggerDispatch, ObjectWearProvidesWearSlot)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, CharacterHearProvidesSpeakerRoleSnapshot)
-{
+TEST(JsTriggerDispatch, CharacterHearProvidesSpeakerRoleSnapshot) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5611, JsScriptPackageHost::Character,
-        JsScriptingManifestKind::LegacyScriptTrigger, ON_HEAR_SAY, "onHearSay",
-        "function onHearSay(ctx) {\n"
-        "  if (ctx.hostType !== 'character') throw new TypeError('host');\n"
-        "  if (ctx.self.name !== 'Listener') throw new TypeError('self');\n"
-        "  if (ctx.actor.name !== 'Speaker') throw new TypeError('actor');\n"
-        "  if (ctx.speaker.name !== 'Speaker') throw new TypeError('speaker');\n"
-        "  return ctx.text === 'hello there' && ctx.speaker.isValid();\n"
-        "}");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_package(5611, JsScriptPackageHost::Character,
+                     JsScriptingManifestKind::LegacyScriptTrigger, ON_HEAR_SAY, "onHearSay",
+                     "function onHearSay(ctx) {\n"
+                     "  if (ctx.hostType !== 'character') throw new TypeError('host');\n"
+                     "  if (ctx.self.name !== 'Listener') throw new TypeError('self');\n"
+                     "  if (ctx.actor.name !== 'Speaker') throw new TypeError('actor');\n"
+                     "  if (ctx.speaker.name !== 'Speaker') throw new TypeError('speaker');\n"
+                     "  return ctx.text === 'hello there' && ctx.speaker.isValid();\n"
+                     "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data listener = make_character("Listener");
     char_data speaker = make_character("Speaker");
-    const char_data* live_characters[] = { &listener, &speaker };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&listener, &speaker};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -5059,18 +5020,18 @@ TEST(JsTriggerDispatch, CharacterHearProvidesSpeakerRoleSnapshot)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, RejectsMudlleMobileDispatchWhenSelfIsNotNpc)
-{
+TEST(JsTriggerDispatch, RejectsMudlleMobileDispatchWhenSelfIsNotNpc) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_package(5651, JsScriptPackageHost::MudlleMobile,
-        JsScriptingManifestKind::MudlleCallFlag, SPECIAL_COMMAND, "onSpecialCommand",
-        "function onSpecialCommand(ctx) { return ctx.self.isNpc === true; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_package(5651, JsScriptPackageHost::MudlleMobile,
+                     JsScriptingManifestKind::MudlleCallFlag, SPECIAL_COMMAND, "onSpecialCommand",
+                     "function onSpecialCommand(ctx) { return ctx.self.isNpc === true; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data player = make_character("Player");
     char_data mobile = make_character("Mobile", 1, 10, true);
-    const char_data* live_characters[] = { &player, &mobile };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&player, &mobile};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 2, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -5090,16 +5051,15 @@ TEST(JsTriggerDispatch, RejectsMudlleMobileDispatchWhenSelfIsNotNpc)
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, RuntimeErrorsKeepSafeMetadataAndRedactContextText)
-{
+TEST(JsTriggerDispatch, RuntimeErrorsKeepSafeMetadataAndRedactContextText) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5701,
-        "function onEnter(ctx) { throw ctx.text; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5701, "function onEnter(ctx) { throw ctx.text; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -5120,17 +5080,16 @@ TEST(JsTriggerDispatch, RuntimeErrorsKeepSafeMetadataAndRedactContextText)
     EXPECT_LE(result.diagnostic.size(), 120U);
 }
 
-TEST(JsTriggerDispatch, TopLevelPackageReturnCannotPreemptBoundHandler)
-{
+TEST(JsTriggerDispatch, TopLevelPackageReturnCannotPreemptBoundHandler) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5751,
-        "return false;\n"
-        "function onEnter(ctx) { return true; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5751, "return false;\n"
+                                           "function onEnter(ctx) { return true; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -5142,16 +5101,15 @@ TEST(JsTriggerDispatch, TopLevelPackageReturnCannotPreemptBoundHandler)
     EXPECT_NE(result.status, JsTriggerDispatchStatus::Block);
 }
 
-TEST(JsTriggerDispatch, RuntimeLimitsPropagateThroughFacade)
-{
+TEST(JsTriggerDispatch, RuntimeLimitsPropagateThroughFacade) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5771,
-        "function onEnter(ctx) { while (true) {} }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5771, "function onEnter(ctx) { while (true) {} }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsRuntimeLimits limits;
@@ -5167,16 +5125,15 @@ TEST(JsTriggerDispatch, RuntimeLimitsPropagateThroughFacade)
     EXPECT_FALSE(contains(result.diagnostic, "while"));
 }
 
-TEST(JsTriggerDispatch, SamePulsePerPackageBudgetSkipsRuntimeExecution)
-{
+TEST(JsTriggerDispatch, SamePulsePerPackageBudgetSkipsRuntimeExecution) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5772,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5772, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchBudget budget;
@@ -5185,12 +5142,10 @@ TEST(JsTriggerDispatch, SamePulsePerPackageBudgetSkipsRuntimeExecution)
     dispatch_options.budget_limits.max_invocations_per_package_per_pulse = 1;
     dispatch_options.current_pulse = 90;
 
-    JsTriggerDispatchResult first =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
-    JsTriggerDispatchResult second =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult first = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
+    JsTriggerDispatchResult second = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
 
     EXPECT_EQ(first.status, JsTriggerDispatchStatus::Block) << first.diagnostic;
     EXPECT_EQ(first.runtime_status, JsRuntimeStatus::Ok);
@@ -5205,16 +5160,15 @@ TEST(JsTriggerDispatch, SamePulsePerPackageBudgetSkipsRuntimeExecution)
     EXPECT_FALSE(contains(second.diagnostic, "function onEnter"));
 }
 
-TEST(JsTriggerDispatch, BudgetResetsWhenPulseChanges)
-{
+TEST(JsTriggerDispatch, BudgetResetsWhenPulseChanges) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5773,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5773, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchBudget budget;
@@ -5224,47 +5178,44 @@ TEST(JsTriggerDispatch, BudgetResetsWhenPulseChanges)
     dispatch_options.current_pulse = 91;
 
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-                  dispatch_options)
+                                              dispatch_options)
                   .status,
-        JsTriggerDispatchStatus::Block);
+              JsTriggerDispatchStatus::Block);
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-                  dispatch_options)
+                                              dispatch_options)
                   .status,
-        JsTriggerDispatchStatus::BudgetExceeded);
+              JsTriggerDispatchStatus::BudgetExceeded);
 
     dispatch_options.current_pulse = 92;
-    JsTriggerDispatchResult next_pulse =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult next_pulse = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
 
     EXPECT_EQ(next_pulse.status, JsTriggerDispatchStatus::Block) << next_pulse.diagnostic;
     EXPECT_EQ(next_pulse.package_vnum, 5773);
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-                  dispatch_options)
+                                              dispatch_options)
                   .status,
-        JsTriggerDispatchStatus::BudgetExceeded);
+              JsTriggerDispatchStatus::BudgetExceeded);
 
     dispatch_options.current_pulse = 0;
-    JsTriggerDispatchResult wrapped_pulse =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult wrapped_pulse = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
 
     EXPECT_EQ(wrapped_pulse.status, JsTriggerDispatchStatus::Block) << wrapped_pulse.diagnostic;
     EXPECT_EQ(wrapped_pulse.package_vnum, 5773);
 }
 
-TEST(JsTriggerDispatch, TotalPulseBudgetAppliesAcrossPackages)
-{
+TEST(JsTriggerDispatch, TotalPulseBudgetAppliesAcrossPackages) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage first = make_character_enter_package(5774,
-        "function onEnter(ctx) { return true; }");
-    JsScriptPackage second = make_character_enter_package(5775,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+    JsScriptPackage first =
+        make_character_enter_package(5774, "function onEnter(ctx) { return true; }");
+    JsScriptPackage second =
+        make_character_enter_package(5775, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({first, second}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchBudget budget;
@@ -5281,8 +5232,8 @@ TEST(JsTriggerDispatch, TotalPulseBudgetAppliesAcrossPackages)
 
     JsTriggerDispatchResult first_result =
         js_trigger_dispatch_first_match(registry, first_request, adapter_options, dispatch_options);
-    JsTriggerDispatchResult second_result =
-        js_trigger_dispatch_first_match(registry, second_request, adapter_options, dispatch_options);
+    JsTriggerDispatchResult second_result = js_trigger_dispatch_first_match(
+        registry, second_request, adapter_options, dispatch_options);
 
     EXPECT_EQ(first_result.status, JsTriggerDispatchStatus::Allow) << first_result.diagnostic;
     EXPECT_EQ(first_result.package_vnum, 5774);
@@ -5291,18 +5242,17 @@ TEST(JsTriggerDispatch, TotalPulseBudgetAppliesAcrossPackages)
     EXPECT_EQ(second_result.handler_name, "onEnter");
 }
 
-TEST(JsTriggerDispatch, BudgetExceededAttemptDoesNotConsumeTotalBudget)
-{
+TEST(JsTriggerDispatch, BudgetExceededAttemptDoesNotConsumeTotalBudget) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage first = make_character_enter_package(5777,
-        "function onEnter(ctx) { return true; }");
-    JsScriptPackage second = make_character_enter_package(5778,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+    JsScriptPackage first =
+        make_character_enter_package(5777, "function onEnter(ctx) { return true; }");
+    JsScriptPackage second =
+        make_character_enter_package(5778, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({first, second}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchBudget budget;
@@ -5317,32 +5267,30 @@ TEST(JsTriggerDispatch, BudgetExceededAttemptDoesNotConsumeTotalBudget)
     JsTriggerDispatchRequest second_request = character_request(&self);
     second_request.package_vnum = 5778;
 
-    EXPECT_EQ(js_trigger_dispatch_first_match(registry, first_request, adapter_options,
-                  dispatch_options)
-                  .status,
+    EXPECT_EQ(
+        js_trigger_dispatch_first_match(registry, first_request, adapter_options, dispatch_options)
+            .status,
         JsTriggerDispatchStatus::Allow);
-    EXPECT_EQ(js_trigger_dispatch_first_match(registry, first_request, adapter_options,
-                  dispatch_options)
-                  .status,
+    EXPECT_EQ(
+        js_trigger_dispatch_first_match(registry, first_request, adapter_options, dispatch_options)
+            .status,
         JsTriggerDispatchStatus::BudgetExceeded);
-    JsTriggerDispatchResult second_package =
-        js_trigger_dispatch_first_match(registry, second_request, adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult second_package = js_trigger_dispatch_first_match(
+        registry, second_request, adapter_options, dispatch_options);
 
     EXPECT_EQ(second_package.status, JsTriggerDispatchStatus::Block) << second_package.diagnostic;
     EXPECT_EQ(second_package.package_vnum, 5778);
 }
 
-TEST(JsTriggerDispatch, ZeroBudgetLimitsAreUnlimitedWhenBudgetIsProvided)
-{
+TEST(JsTriggerDispatch, ZeroBudgetLimitsAreUnlimitedWhenBudgetIsProvided) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5779,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5779, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchBudget budget;
@@ -5351,24 +5299,22 @@ TEST(JsTriggerDispatch, ZeroBudgetLimitsAreUnlimitedWhenBudgetIsProvided)
     dispatch_options.current_pulse = 96;
 
     for (int invocation = 0; invocation < 4; ++invocation) {
-        JsTriggerDispatchResult result =
-            js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-                dispatch_options);
-        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Block) << invocation << ": "
-                                                                 << result.diagnostic;
+        JsTriggerDispatchResult result = js_trigger_dispatch_first_match(
+            registry, character_request(&self), adapter_options, dispatch_options);
+        EXPECT_EQ(result.status, JsTriggerDispatchStatus::Block)
+            << invocation << ": " << result.diagnostic;
     }
 }
 
-TEST(JsTriggerDispatch, DepthExceededSkipsRuntimeExecution)
-{
+TEST(JsTriggerDispatch, DepthExceededSkipsRuntimeExecution) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5780,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5780, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchDepthGuard depth_guard;
@@ -5379,9 +5325,8 @@ TEST(JsTriggerDispatch, DepthExceededSkipsRuntimeExecution)
     dispatch_options.depth_guard = &depth_guard;
     dispatch_options.depth_limits = depth_limits;
 
-    JsTriggerDispatchResult result =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::DepthExceeded);
     EXPECT_STREQ(js_trigger_dispatch_status_name(result.status), "depth-exceeded");
@@ -5394,16 +5339,15 @@ TEST(JsTriggerDispatch, DepthExceededSkipsRuntimeExecution)
     depth_guard.leave();
 }
 
-TEST(JsTriggerDispatch, SuccessfulDispatchLeavesDepthForNextInvocation)
-{
+TEST(JsTriggerDispatch, SuccessfulDispatchLeavesDepthForNextInvocation) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5781,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5781, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchDepthGuard depth_guard;
@@ -5411,28 +5355,25 @@ TEST(JsTriggerDispatch, SuccessfulDispatchLeavesDepthForNextInvocation)
     dispatch_options.depth_guard = &depth_guard;
     dispatch_options.depth_limits.max_dispatch_depth = 1;
 
-    JsTriggerDispatchResult first =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
-    JsTriggerDispatchResult second =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult first = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
+    JsTriggerDispatchResult second = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
 
     EXPECT_EQ(first.status, JsTriggerDispatchStatus::Block) << first.diagnostic;
     EXPECT_EQ(second.status, JsTriggerDispatchStatus::Block) << second.diagnostic;
     EXPECT_EQ(depth_guard.current_depth(), 0U);
 }
 
-TEST(JsTriggerDispatch, ZeroDepthLimitIsUnlimitedWhenGuardIsProvided)
-{
+TEST(JsTriggerDispatch, ZeroDepthLimitIsUnlimitedWhenGuardIsProvided) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5782,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5782, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchDepthGuard depth_guard;
@@ -5443,9 +5384,8 @@ TEST(JsTriggerDispatch, ZeroDepthLimitIsUnlimitedWhenGuardIsProvided)
     dispatch_options.depth_guard = &depth_guard;
     dispatch_options.depth_limits = unlimited_limits;
 
-    JsTriggerDispatchResult result =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult result = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Block) << result.diagnostic;
     EXPECT_EQ(depth_guard.current_depth(), 2U);
@@ -5453,18 +5393,17 @@ TEST(JsTriggerDispatch, ZeroDepthLimitIsUnlimitedWhenGuardIsProvided)
     depth_guard.leave();
 }
 
-TEST(JsTriggerDispatch, RuntimeErrorReleasesTriggerDepthForNextDispatch)
-{
+TEST(JsTriggerDispatch, RuntimeErrorReleasesTriggerDepthForNextDispatch) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage first = make_character_enter_package(5783,
-        "function onEnter(ctx) { throw new Error('boom'); }");
-    JsScriptPackage second = make_character_enter_package(5784,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+    JsScriptPackage first =
+        make_character_enter_package(5783, "function onEnter(ctx) { throw new Error('boom'); }");
+    JsScriptPackage second =
+        make_character_enter_package(5784, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({first, second}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchDepthGuard depth_guard;
@@ -5478,26 +5417,25 @@ TEST(JsTriggerDispatch, RuntimeErrorReleasesTriggerDepthForNextDispatch)
 
     JsTriggerDispatchResult first_result =
         js_trigger_dispatch_first_match(registry, first_request, adapter_options, dispatch_options);
-    JsTriggerDispatchResult second_result =
-        js_trigger_dispatch_first_match(registry, second_request, adapter_options, dispatch_options);
+    JsTriggerDispatchResult second_result = js_trigger_dispatch_first_match(
+        registry, second_request, adapter_options, dispatch_options);
 
     EXPECT_EQ(first_result.status, JsTriggerDispatchStatus::Error);
     EXPECT_EQ(depth_guard.current_depth(), 0U);
     EXPECT_EQ(second_result.status, JsTriggerDispatchStatus::Block) << second_result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, InterruptedRuntimeReleasesTriggerDepthForNextDispatch)
-{
+TEST(JsTriggerDispatch, InterruptedRuntimeReleasesTriggerDepthForNextDispatch) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage first = make_character_enter_package(5785,
-        "function onEnter(ctx) { while (true) {} }");
-    JsScriptPackage second = make_character_enter_package(5786,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ first, second }, internal_options()));
+    JsScriptPackage first =
+        make_character_enter_package(5785, "function onEnter(ctx) { while (true) {} }");
+    JsScriptPackage second =
+        make_character_enter_package(5786, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({first, second}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchDepthGuard depth_guard;
@@ -5513,8 +5451,8 @@ TEST(JsTriggerDispatch, InterruptedRuntimeReleasesTriggerDepthForNextDispatch)
     JsTriggerDispatchRequest second_request = character_request(&self);
     second_request.package_vnum = 5786;
 
-    JsTriggerDispatchResult first_result =
-        js_trigger_dispatch_first_match(registry, first_request, adapter_options, interrupt_options);
+    JsTriggerDispatchResult first_result = js_trigger_dispatch_first_match(
+        registry, first_request, adapter_options, interrupt_options);
     JsTriggerDispatchResult second_result =
         js_trigger_dispatch_first_match(registry, second_request, adapter_options, normal_options);
 
@@ -5524,16 +5462,15 @@ TEST(JsTriggerDispatch, InterruptedRuntimeReleasesTriggerDepthForNextDispatch)
     EXPECT_EQ(second_result.status, JsTriggerDispatchStatus::Block) << second_result.diagnostic;
 }
 
-TEST(JsTriggerDispatch, DepthExceededAttemptDoesNotConsumeDepth)
-{
+TEST(JsTriggerDispatch, DepthExceededAttemptDoesNotConsumeDepth) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5787,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5787, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchDepthGuard depth_guard;
@@ -5543,30 +5480,28 @@ TEST(JsTriggerDispatch, DepthExceededAttemptDoesNotConsumeDepth)
     ASSERT_TRUE(depth_guard.try_enter(dispatch_options.depth_limits));
 
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-                  dispatch_options)
+                                              dispatch_options)
                   .status,
-        JsTriggerDispatchStatus::DepthExceeded);
+              JsTriggerDispatchStatus::DepthExceeded);
     EXPECT_EQ(depth_guard.current_depth(), 1U);
     depth_guard.leave();
 
-    JsTriggerDispatchResult after_release =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult after_release = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
 
     EXPECT_EQ(after_release.status, JsTriggerDispatchStatus::Block) << after_release.diagnostic;
     EXPECT_EQ(depth_guard.current_depth(), 0U);
 }
 
-TEST(JsTriggerDispatch, DepthExceededDoesNotConsumeBudget)
-{
+TEST(JsTriggerDispatch, DepthExceededDoesNotConsumeBudget) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5788,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5788, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchBudget budget;
@@ -5580,28 +5515,26 @@ TEST(JsTriggerDispatch, DepthExceededDoesNotConsumeBudget)
     ASSERT_TRUE(depth_guard.try_enter(dispatch_options.depth_limits));
 
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-                  dispatch_options)
+                                              dispatch_options)
                   .status,
-        JsTriggerDispatchStatus::DepthExceeded);
+              JsTriggerDispatchStatus::DepthExceeded);
     depth_guard.leave();
-    JsTriggerDispatchResult after_release =
-        js_trigger_dispatch_first_match(registry, character_request(&self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult after_release = js_trigger_dispatch_first_match(
+        registry, character_request(&self), adapter_options, dispatch_options);
 
     EXPECT_EQ(after_release.status, JsTriggerDispatchStatus::Block) << after_release.diagnostic;
 }
 
-TEST(JsTriggerDispatch, NoMatchAndMissingLiveContextDoNotAcquireTriggerDepth)
-{
+TEST(JsTriggerDispatch, NoMatchAndMissingLiveContextDoNotAcquireTriggerDepth) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5789,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5789, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data stale_self = make_character("Stale");
     char_data live_self = make_character("Live");
-    const char_data* live_characters[] = { &live_self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&live_self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchDepthGuard depth_guard;
@@ -5611,36 +5544,33 @@ TEST(JsTriggerDispatch, NoMatchAndMissingLiveContextDoNotAcquireTriggerDepth)
 
     JsTriggerDispatchRequest no_match = character_request(&live_self);
     no_match.legacy_value = ON_DAMAGE;
-    EXPECT_EQ(js_trigger_dispatch_first_match(registry, no_match, adapter_options,
-                  dispatch_options)
+    EXPECT_EQ(js_trigger_dispatch_first_match(registry, no_match, adapter_options, dispatch_options)
                   .status,
-        JsTriggerDispatchStatus::NoMatch);
+              JsTriggerDispatchStatus::NoMatch);
     EXPECT_EQ(depth_guard.current_depth(), 0U);
     EXPECT_EQ(js_trigger_dispatch_first_match(registry, character_request(&stale_self),
-                  adapter_options, dispatch_options)
+                                              adapter_options, dispatch_options)
                   .status,
-        JsTriggerDispatchStatus::Error);
+              JsTriggerDispatchStatus::Error);
     EXPECT_EQ(depth_guard.current_depth(), 0U);
 
-    JsTriggerDispatchResult live_result =
-        js_trigger_dispatch_first_match(registry, character_request(&live_self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult live_result = js_trigger_dispatch_first_match(
+        registry, character_request(&live_self), adapter_options, dispatch_options);
 
     EXPECT_EQ(live_result.status, JsTriggerDispatchStatus::Block) << live_result.diagnostic;
     EXPECT_EQ(depth_guard.current_depth(), 0U);
 }
 
-TEST(JsTriggerDispatch, MissingLiveContextDoesNotConsumeBudget)
-{
+TEST(JsTriggerDispatch, MissingLiveContextDoesNotConsumeBudget) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5776,
-        "function onEnter(ctx) { return false; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5776, "function onEnter(ctx) { return false; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data stale_self = make_character("Stale");
     char_data live_self = make_character("Live");
-    const char_data* live_characters[] = { &live_self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&live_self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions adapter_options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
     JsTriggerDispatchBudget budget;
@@ -5649,12 +5579,10 @@ TEST(JsTriggerDispatch, MissingLiveContextDoesNotConsumeBudget)
     dispatch_options.budget_limits.max_invocations_per_package_per_pulse = 1;
     dispatch_options.current_pulse = 94;
 
-    JsTriggerDispatchResult stale_result =
-        js_trigger_dispatch_first_match(registry, character_request(&stale_self), adapter_options,
-            dispatch_options);
-    JsTriggerDispatchResult live_result =
-        js_trigger_dispatch_first_match(registry, character_request(&live_self), adapter_options,
-            dispatch_options);
+    JsTriggerDispatchResult stale_result = js_trigger_dispatch_first_match(
+        registry, character_request(&stale_self), adapter_options, dispatch_options);
+    JsTriggerDispatchResult live_result = js_trigger_dispatch_first_match(
+        registry, character_request(&live_self), adapter_options, dispatch_options);
 
     EXPECT_EQ(stale_result.status, JsTriggerDispatchStatus::Error);
     EXPECT_TRUE(contains(stale_result.diagnostic, "missing live character"));
@@ -5662,16 +5590,15 @@ TEST(JsTriggerDispatch, MissingLiveContextDoesNotConsumeBudget)
     EXPECT_EQ(live_result.package_vnum, 5776);
 }
 
-TEST(JsTriggerDispatch, MissingHandlerFailsClosedInsteadOfAllowing)
-{
+TEST(JsTriggerDispatch, MissingHandlerFailsClosedInsteadOfAllowing) {
     JsScriptPackageRegistry registry;
-    JsScriptPackage package = make_character_enter_package(5801,
-        "function onDamage(ctx) { return true; }");
-    ASSERT_TRUE(registry.replace_all({ package }, internal_options()));
+    JsScriptPackage package =
+        make_character_enter_package(5801, "function onDamage(ctx) { return true; }");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
-    const char_data* live_characters[] = { &self };
-    room_data world[1] = { make_room("Room", 100, 0) };
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Room", 100, 0)};
     JsGameAdapterOptions options =
         make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, nullptr, 0);
 
@@ -5688,14 +5615,13 @@ TEST(JsTriggerDispatch, MissingHandlerFailsClosedInsteadOfAllowing)
     EXPECT_NE(result.status, JsTriggerDispatchStatus::Allow);
 }
 
-TEST(JsTriggerDispatch, BuildFilesReferenceDispatchSourcesAndTests)
-{
+TEST(JsTriggerDispatch, BuildFilesReferenceDispatchSourcesAndTests) {
     const std::string cmake =
-        read_first_available_file({ "src/CMakeLists.txt", "../src/CMakeLists.txt" });
+        read_first_available_file({"src/CMakeLists.txt", "../src/CMakeLists.txt"});
     const std::string server_makefile =
-        read_first_available_file({ "src/Makefile", "../src/Makefile" });
+        read_first_available_file({"src/Makefile", "../src/Makefile"});
     const std::string test_makefile =
-        read_first_available_file({ "src/tests/Makefile", "../src/tests/Makefile" });
+        read_first_available_file({"src/tests/Makefile", "../src/tests/Makefile"});
 
     ASSERT_FALSE(cmake.empty());
     ASSERT_FALSE(server_makefile.empty());
