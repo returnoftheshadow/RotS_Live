@@ -608,6 +608,16 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     ASSERT_NE(room_exits, nullptr);
     EXPECT_STREQ(room_exits->type_name, "readonly RoomExit[]");
     EXPECT_EQ(room_exits->status, JsApiMemberStatus::PlannedReadOnly);
+    for (const char *member_name :
+         {"setExit",       "setFlags",       "setAlignment", "setLight",
+          "setTracks",     "setBleedTracks", "setBfsDirection", "setBfsNext",
+          "setSpecialProcedure", "tracks",   "bleedTracks", "bfsDirection",
+          "bfsNext",       "specialProcedure", "room_track", "bleed_track",
+          "bfs_dir",       "bfs_next",       "funct",       "roomTrack",
+          "bleedTrack",    "bfsDir",         "bfsNextRaw",  "specialProc",
+          "special"}) {
+        EXPECT_EQ(find_js_api_contract_member(*room, member_name), nullptr) << member_name;
+    }
 
     const JsApiType *room_exit = find_js_api_contract_type("RoomExit");
     ASSERT_NE(room_exit, nullptr);

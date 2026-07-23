@@ -734,6 +734,13 @@ TEST(JsApiStructMapping, PinsRoomValueDomainGetterGroupStatus) {
             EXPECT_STREQ(mapping->setter_status, "implemented-validated-setter");
             EXPECT_NE(std::string(mapping->setter_docs).find("canonical live sector-name"),
                       std::string::npos);
+        } else if (std::string(entry.field) == "light") {
+            EXPECT_STREQ(mapping->setter_status, "unsupported");
+            EXPECT_NE(std::string(mapping->getter_docs).find("light-source count"),
+                      std::string::npos);
+            EXPECT_NE(std::string(mapping->setter_docs).find("Direct light counter writes"),
+                      std::string::npos);
+            EXPECT_NE(std::string(mapping->notes).find("Derived counter"), std::string::npos);
         } else {
             EXPECT_STRNE(mapping->setter_status, "implemented-validated-setter");
         }

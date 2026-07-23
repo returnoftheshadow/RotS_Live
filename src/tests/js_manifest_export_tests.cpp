@@ -439,6 +439,14 @@ TEST(JsManifestExport, ExportsApiContractMetadataAndEveryTypeMember) {
         EXPECT_STREQ(mapping->getter_status, "implemented-read-only-getter") << source_field;
         expect_contains_json_object(json, expected_mapping_json_object(*mapping));
     }
+    const JsApiStructFieldMapping *room_light =
+        find_js_api_struct_field_mapping(JsApiStructOwner::RoomData, "light");
+    ASSERT_NE(room_light, nullptr);
+    EXPECT_STREQ(room_light->setter_status, "unsupported");
+    EXPECT_NE(std::string(room_light->setter_docs).find("Direct light counter writes"),
+              std::string::npos);
+    EXPECT_NE(std::string(room_light->notes).find("Derived counter"), std::string::npos);
+    expect_contains_json_object(json, expected_mapping_json_object(*room_light));
 
     const JsApiStructFieldMapping *object_flags =
         find_js_api_struct_field_mapping(JsApiStructOwner::ObjData, "obj_flags");
