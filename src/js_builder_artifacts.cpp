@@ -124,7 +124,8 @@ std::string markdown_mapping_field_id(const JsApiStructFieldMapping &mapping) {
 
 bool member_is_active_typing(const JsApiMember &member) {
     return member.status == JsApiMemberStatus::PlannedReadOnly ||
-           member.status == JsApiMemberStatus::PlannedPureHelper;
+           member.status == JsApiMemberStatus::PlannedPureHelper ||
+           member.status == JsApiMemberStatus::ImplementedSideEffectHelper;
 }
 
 bool trigger_is_authorable_typing(const JsScriptingManifestEntry &entry) {

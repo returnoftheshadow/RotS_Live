@@ -2527,6 +2527,50 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults) {
         runtime.evaluate_trigger_body("return ctx.object.name === 'silver lever';", context));
 }
 
+TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_actor = true;
+    context.actor.id = "player:7";
+    context.actor.name = "Builder";
+    context.has_object = true;
+    context.object.id = "object:301";
+    context.object.name = "token";
+    context.object.description = "A token rests here.";
+    context.object.short_description = "a token";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const say = RotS.Script.do_say(ctx.self, 'The gate opens.');\n"
+        "const tell = RotS.Script.send_to_char(ctx.actor, 'You hear a click.');\n"
+        "const room = RotS.Script.send_to_room(ctx.room, 'Stone grinds nearby.');\n"
+        "const load = RotS.Script.load_obj(4201);\n"
+        "const give = RotS.Script.do_give(ctx.self, ctx.actor, ctx.object);\n"
+        "const wait = RotS.Script.do_wait(4);\n"
+        "return say.ok && tell.ok && room.ok && load.ok && give.ok && wait.ok;\n",
+        context);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    ASSERT_EQ(result.mutations.size(), 6U);
+    EXPECT_EQ(result.mutations[0].kind, "command");
+    EXPECT_EQ(result.mutations[0].operation, "script.do_say");
+    EXPECT_EQ(result.mutations[0].arguments_json,
+        "{\"speakerId\":\"char:1001\",\"text\":\"The gate opens.\"}");
+    EXPECT_EQ(result.mutations[1].operation, "script.send_to_char");
+    EXPECT_EQ(result.mutations[1].arguments_json,
+        "{\"targetId\":\"player:7\",\"text\":\"You hear a click.\"}");
+    EXPECT_EQ(result.mutations[2].operation, "script.send_to_room");
+    EXPECT_EQ(result.mutations[2].arguments_json,
+        "{\"roomId\":\"room:1204\",\"text\":\"Stone grinds nearby.\"}");
+    EXPECT_EQ(result.mutations[3].operation, "script.load_obj");
+    EXPECT_EQ(result.mutations[3].arguments_json, "{\"vnum\":4201}");
+    EXPECT_EQ(result.mutations[4].operation, "script.do_give");
+    EXPECT_EQ(result.mutations[4].arguments_json,
+        "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
+    EXPECT_EQ(result.mutations[5].operation, "script.do_wait");
+    EXPECT_EQ(result.mutations[5].arguments_json, "{\"pulses\":4}");
+}
+
 TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts) {
     JsGameRuntime runtime;
     JsRuntimeEvalResult body_result =

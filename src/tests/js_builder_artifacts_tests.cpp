@@ -39,7 +39,8 @@ bool contains_raw_cpp_type_text(const std::string &text) {
 
 bool member_is_active_typing(const JsApiMember &member) {
     return member.status == JsApiMemberStatus::PlannedReadOnly ||
-           member.status == JsApiMemberStatus::PlannedPureHelper;
+           member.status == JsApiMemberStatus::PlannedPureHelper ||
+           member.status == JsApiMemberStatus::ImplementedSideEffectHelper;
 }
 
 bool trigger_is_authorable_typing(const JsScriptingManifestEntry &entry) {
@@ -361,9 +362,16 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
 
     EXPECT_EQ(declarations.find("accountName"), std::string::npos);
     EXPECT_EQ(declarations.find("sendToCharacter"), std::string::npos);
-    EXPECT_EQ(declarations.find("sendToRoom"), std::string::npos);
     EXPECT_EQ(declarations.find("loadMob"), std::string::npos);
     EXPECT_EQ(declarations.find("extractCharacter"), std::string::npos);
+    expect_contains(declarations, "export function do_wait(pulses: number): MutationResult;");
+    expect_contains(declarations,
+                    "export function do_say(speaker: Character, text: string): MutationResult;");
+    expect_contains(declarations, "export function load_obj(vnum: number): MutationResult;");
+    expect_contains(declarations, "export function send_to_char(target: Character, text: string): "
+                                  "MutationResult;");
+    expect_contains(declarations, "export function sendToRoom(room: Room, text: string): "
+                                  "MutationResult;");
     EXPECT_EQ(declarations.find("runtimeSafety:"), std::string::npos);
     EXPECT_EQ(declarations.find("namespace MutationResult"), std::string::npos);
     EXPECT_EQ(declarations.find("export const MutationResult"), std::string::npos);

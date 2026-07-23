@@ -350,6 +350,11 @@ bool runtime_mutation_kind_is_helper(const JsRuntimeMutation& mutation)
     return mutation.kind == "helper";
 }
 
+bool runtime_mutation_kind_is_command(const JsRuntimeMutation& mutation)
+{
+    return mutation.kind == "command";
+}
+
 std::size_t runtime_helper_mutation_count(const std::vector<JsRuntimeMutation>& mutations)
 {
     std::size_t count = 0;
@@ -363,6 +368,143 @@ std::size_t runtime_helper_mutation_count(const std::vector<JsRuntimeMutation>& 
 bool has_persistent_setter_authority(const JsTriggerMutationAuthorityContext& authority);
 bool has_room_flag_admin_override_authority(
     const JsTriggerMutationAuthorityContext& authority);
+
+bool command_text_is_valid(const std::string& value)
+{
+    if (value.empty() || value.size() > 512)
+        return false;
+    for (char ch : value) {
+        if (ch == '\0' || ch == '\r' || ch == '\n')
+            return false;
+    }
+    return true;
+}
+
+bool command_id_is_valid(const std::string& value, const char* prefix)
+{
+    if (value.empty() || value.size() > 128 || prefix == nullptr)
+        return false;
+    if (std::strcmp(prefix, "character:") == 0) {
+        return value.find("character:") == 0 || value.find("char:") == 0 ||
+            value.find("player:") == 0 || value.find("mob:") == 0;
+    }
+    return value.find(prefix) == 0 && value.size() > std::strlen(prefix);
+}
+
+bool command_vnum_is_valid(int vnum)
+{
+    return vnum >= 0 && vnum <= 999999;
+}
+
+bool command_pulses_are_valid(int pulses)
+{
+    return pulses >= 1 && pulses <= 10000;
+}
+
+bool parse_script_command_arguments(const JsRuntimeMutation& mutation)
+{
+    if (mutation.arguments_json.empty() || mutation.arguments_json.size() > 1024)
+        return false;
+
+    json_utils::JsonReader reader(mutation.arguments_json);
+    std::string text;
+    std::string speaker_id;
+    std::string target_id;
+    std::string room_id;
+    std::string giver_id;
+    std::string recipient_id;
+    std::string object_id;
+    int vnum = -1;
+    int pulses = -1;
+    bool saw_text = false;
+    bool saw_speaker_id = false;
+    bool saw_target_id = false;
+    bool saw_room_id = false;
+    bool saw_giver_id = false;
+    bool saw_recipient_id = false;
+    bool saw_object_id = false;
+    bool saw_vnum = false;
+    bool saw_pulses = false;
+    std::string error;
+    if (!reader.parse_root_object(
+            [&](const std::string& name, json_utils::JsonReader* nested_reader,
+                std::string* nested_error) {
+                if (name == "text" && !saw_text) {
+                    saw_text = true;
+                    return nested_reader->parse_string(&text, nested_error);
+                }
+                if (name == "speakerId" && !saw_speaker_id) {
+                    saw_speaker_id = true;
+                    return nested_reader->parse_string(&speaker_id, nested_error);
+                }
+                if (name == "targetId" && !saw_target_id) {
+                    saw_target_id = true;
+                    return nested_reader->parse_string(&target_id, nested_error);
+                }
+                if (name == "roomId" && !saw_room_id) {
+                    saw_room_id = true;
+                    return nested_reader->parse_string(&room_id, nested_error);
+                }
+                if (name == "giverId" && !saw_giver_id) {
+                    saw_giver_id = true;
+                    return nested_reader->parse_string(&giver_id, nested_error);
+                }
+                if (name == "recipientId" && !saw_recipient_id) {
+                    saw_recipient_id = true;
+                    return nested_reader->parse_string(&recipient_id, nested_error);
+                }
+                if (name == "objectId" && !saw_object_id) {
+                    saw_object_id = true;
+                    return nested_reader->parse_string(&object_id, nested_error);
+                }
+                if (name == "vnum" && !saw_vnum) {
+                    saw_vnum = true;
+                    return nested_reader->parse_integer(&vnum, nested_error);
+                }
+                if (name == "pulses" && !saw_pulses) {
+                    saw_pulses = true;
+                    return nested_reader->parse_integer(&pulses, nested_error);
+                }
+                return false;
+            },
+            &error))
+        return false;
+
+    if (mutation.operation == "script.do_wait")
+        return saw_pulses && command_pulses_are_valid(pulses);
+    if (mutation.operation == "script.load_obj")
+        return saw_vnum && command_vnum_is_valid(vnum);
+    if (mutation.operation == "script.do_say")
+        return saw_speaker_id && saw_text && command_id_is_valid(speaker_id, "character:") &&
+            command_text_is_valid(text);
+    if (mutation.operation == "script.send_to_char")
+        return saw_target_id && saw_text && command_id_is_valid(target_id, "character:") &&
+            command_text_is_valid(text);
+    if (mutation.operation == "script.send_to_room")
+        return saw_room_id && saw_text && command_id_is_valid(room_id, "room:") &&
+            command_text_is_valid(text);
+    if (mutation.operation == "script.do_give")
+        return saw_giver_id && saw_recipient_id && saw_object_id &&
+            command_id_is_valid(giver_id, "character:") &&
+            command_id_is_valid(recipient_id, "character:") &&
+            command_id_is_valid(object_id, "object:");
+    return false;
+}
+
+bool validate_script_command_mutations(const std::vector<JsRuntimeMutation>& mutations)
+{
+    for (const JsRuntimeMutation& mutation : mutations) {
+        if (!runtime_mutation_kind_is_command(mutation))
+            return false;
+        if (!mutation.target_type.empty() || !mutation.target_id.empty() ||
+            !mutation.property.empty() || !mutation.value_kind.empty() || mutation.has_value ||
+            !mutation.value.empty() || !mutation.target_token.empty())
+            return false;
+        if (!parse_script_command_arguments(mutation))
+            return false;
+    }
+    return true;
+}
 bool room_matches_mutation_authority(
     const room_data& room, const JsGameAdapterOptions& options,
     const JsTriggerMutationAuthorityContext& authority);
@@ -1163,12 +1305,18 @@ bool prepare_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& 
 {
     std::vector<JsRuntimeMutation> setter_mutations;
     std::vector<JsRuntimeMutation> helper_mutations;
+    std::vector<JsRuntimeMutation> command_mutations;
     setter_mutations.reserve(mutations.size());
     helper_mutations.reserve(mutations.size());
+    command_mutations.reserve(mutations.size());
 
     for (const JsRuntimeMutation& mutation : mutations) {
         if (runtime_mutation_kind_is_helper(mutation)) {
             helper_mutations.push_back(mutation);
+            continue;
+        }
+        if (runtime_mutation_kind_is_command(mutation)) {
+            command_mutations.push_back(mutation);
             continue;
         }
         setter_mutations.push_back(mutation);
@@ -1182,6 +1330,18 @@ bool prepare_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& 
             *diagnostic = "JavaScript trigger mutation target rejected";
         if (helper_status != nullptr)
             *helper_status = JsTriggerHelperMutationTransactionStatus::NotEvaluated;
+        if (pending_room_flag_mutations != nullptr)
+            pending_room_flag_mutations->clear();
+        return false;
+    }
+
+    if (!validate_script_command_mutations(command_mutations)) {
+        if (diagnostic != nullptr)
+            *diagnostic = "JavaScript trigger command helper mutation rejected";
+        if (helper_status != nullptr)
+            *helper_status = JsTriggerHelperMutationTransactionStatus::NotEvaluated;
+        if (pending != nullptr)
+            pending->clear();
         if (pending_room_flag_mutations != nullptr)
             pending_room_flag_mutations->clear();
         return false;
@@ -1416,6 +1576,11 @@ bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation& muta
     if (runtime_mutation_kind_is_setter(mutation))
         return mutation.operation.empty() && mutation.target_token.empty() &&
             mutation.arguments_json.empty();
+    if (runtime_mutation_kind_is_command(mutation))
+        return mutation.target_type.empty() && mutation.target_id.empty() &&
+            mutation.property.empty() && mutation.value_kind.empty() && !mutation.has_value &&
+            mutation.value.empty() && mutation.target_token.empty() &&
+            parse_script_command_arguments(mutation);
     return false;
 }
 

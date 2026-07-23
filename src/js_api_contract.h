@@ -17,6 +17,7 @@ enum class JsApiMemberKind {
 enum class JsApiMemberStatus {
     PlannedReadOnly,
     PlannedPureHelper,
+    ImplementedSideEffectHelper,
     Deferred,
     Unsupported,
 };

@@ -220,6 +220,16 @@ JsRuntimeMutation make_zone_name_setter(const char* value)
     return mutation;
 }
 
+JsRuntimeMutation make_script_command_mutation(
+    const char* operation, const std::string& arguments_json)
+{
+    JsRuntimeMutation mutation;
+    mutation.kind = "command";
+    mutation.operation = operation;
+    mutation.arguments_json = arguments_json;
+    return mutation;
+}
+
 JsRuntimeMutation make_helper_mutation(const char* operation)
 {
     JsRuntimeMutation mutation;
@@ -366,6 +376,50 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorRejectsHelperFieldsOnSetterE
 
     mutation.arguments_json = "{}";
     EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(mutation));
+}
+
+TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlySupportedCommandHelpers)
+{
+    const JsRuntimeMutation say =
+        make_script_command_mutation("script.do_say",
+            "{\"speakerId\":\"char:1001\",\"text\":\"The gate opens.\"}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(say));
+
+    const JsRuntimeMutation send =
+        make_script_command_mutation("script.send_to_char",
+            "{\"targetId\":\"player:7\",\"text\":\"You hear a click.\"}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(send));
+
+    const JsRuntimeMutation room =
+        make_script_command_mutation("script.send_to_room",
+            "{\"roomId\":\"room:100\",\"text\":\"Stone grinds nearby.\"}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(room));
+
+    const JsRuntimeMutation load =
+        make_script_command_mutation("script.load_obj", "{\"vnum\":4201}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(load));
+
+    const JsRuntimeMutation give =
+        make_script_command_mutation("script.do_give",
+            "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(give));
+
+    const JsRuntimeMutation wait =
+        make_script_command_mutation("script.do_wait", "{\"pulses\":4}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(wait));
+
+    const JsRuntimeMutation unknown =
+        make_script_command_mutation("script.raw_command", "{\"text\":\"force north\"}");
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(unknown));
+
+    const JsRuntimeMutation multiline =
+        make_script_command_mutation("script.send_to_char",
+            "{\"targetId\":\"player:7\",\"text\":\"bad\\ntext\"}");
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(multiline));
+
+    JsRuntimeMutation polluted = wait;
+    polluted.target_token = "room-token:v1:1:100:secret";
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(polluted));
 }
 
 TEST(JsTriggerDispatch, HelperTransactionRejectsUnsupportedEnvelopesBeforeAudit)

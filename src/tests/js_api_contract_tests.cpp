@@ -161,7 +161,7 @@ TEST(JsApiContract, DoesNotExposeRawCppPointersOrInternalStructs) {
     }
 }
 
-TEST(JsApiContract, KeepsSideEffectApisDeferredOrUnsupported) {
+TEST(JsApiContract, AllowsOnlyReviewedSideEffectStatuses) {
     for (std::size_t type_index = 0; type_index < js_api_contract_type_count(); ++type_index) {
         const JsApiType &type = js_api_contract_types()[type_index];
         for (std::size_t member_index = 0; member_index < type.member_count; ++member_index) {
@@ -169,7 +169,8 @@ TEST(JsApiContract, KeepsSideEffectApisDeferredOrUnsupported) {
             if (member.side_effect == JsApiSideEffect::None)
                 continue;
 
-            EXPECT_TRUE(member.status == JsApiMemberStatus::Deferred ||
+            EXPECT_TRUE(member.status == JsApiMemberStatus::ImplementedSideEffectHelper ||
+                        member.status == JsApiMemberStatus::Deferred ||
                         member.status == JsApiMemberStatus::Unsupported)
                 << type.name << "." << member.name;
             EXPECT_STRNE(member.permission, "read-only") << type.name << "." << member.name;
