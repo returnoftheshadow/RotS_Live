@@ -167,29 +167,43 @@ void append_ts_doc_comment(std::ostringstream &out, const std::string &indent, c
 void append_mutation_result_type(std::ostringstream &out) {
     out << "export type MutationResult =\n";
     out << "    | {\n";
-    out << "        /** True when a validated setter applies the requested change. */\n";
+    out << "        /** True when a validated setter or command helper accepts the requested "
+           "change. */\n";
     out << "        readonly ok: true;\n";
     out << "        /** Stable machine-readable result code for successful mutations. */\n";
     out << "        readonly code: 'ok';\n";
-    out << "        /** Sanitized builder-facing detail text, or null when no safe detail is available. */\n";
+    out << "        /** Sanitized builder-facing detail text, or null when no safe detail is "
+           "available. */\n";
     out << "        readonly message: string | null;\n";
-    out << "        /** Public API field or setter argument name related to the result, or null for whole-operation results. */\n";
+    out << "        /** Public API field or setter argument name related to the result, or null "
+           "for whole-operation results. */\n";
     out << "        readonly field: string | null;\n";
     out << "      }\n";
     out << "    | {\n";
-    out << "        /** False when a validated setter rejects or defers the requested change. */\n";
+    out << "        /** False when a validated setter or command helper rejects or defers the "
+           "requested change. */\n";
     out << "        readonly ok: false;\n";
-    out << "        /** Stable machine-readable result code for rejected or deferred mutations. */\n";
+    out << "        /** Stable machine-readable result code for rejected or deferred mutations. "
+           "*/\n";
     out << "        readonly code:\n";
     out << "          | 'invalid-value'\n";
     out << "          | 'out-of-range'\n";
     out << "          | 'not-authorized'\n";
     out << "          | 'stale-handle'\n";
     out << "          | 'unsupported'\n";
-    out << "          | 'deferred';\n";
-    out << "        /** Sanitized builder-facing detail text, or null when no safe detail is available. */\n";
+    out << "          | 'deferred'\n";
+    out << "          | 'invalid-target'\n";
+    out << "          | 'not-carried'\n";
+    out << "          | 'no-drop'\n";
+    out << "          | 'inventory-full'\n";
+    out << "          | 'too-heavy'\n";
+    out << "          | 'audit-rejected'\n";
+    out << "          | 'not-found';\n";
+    out << "        /** Sanitized builder-facing detail text, or null when no safe detail is "
+           "available. */\n";
     out << "        readonly message: string | null;\n";
-    out << "        /** Public API field or setter argument name related to the result, or null for whole-operation results. */\n";
+    out << "        /** Public API field or setter argument name related to the result, or null "
+           "for whole-operation results. */\n";
     out << "        readonly field: string | null;\n";
     out << "      };\n\n";
 }
@@ -467,8 +481,7 @@ std::string js_generate_api_markdown_reference() {
                                                                                         : "no")
             << " | " << markdown_inline_code(mapping_setter_is_callable(mapping) ? "yes" : "no")
             << " | " << markdown_inline_code(mapping_setter_is_callable(mapping) ? "no" : "yes")
-            << " | "
-            << markdown_inline_code(mapping.side_effect) << " | "
+            << " | " << markdown_inline_code(mapping.side_effect) << " | "
             << markdown_cell(mapping.getter_docs) << " | " << markdown_cell(mapping.setter_docs)
             << " | " << markdown_cell(mapping.notes) << " |\n";
     }

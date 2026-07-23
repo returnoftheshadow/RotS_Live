@@ -250,14 +250,16 @@ runtime:
 - [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
   covers `load_obj`, `do_give`, and `send_to_char`.
 
-These helpers currently queue validated JavaScript command intents. A successful
-helper call means the request was accepted by the JavaScript-side helper shape;
-it does not yet guarantee that the live game mutation has completed. The command
-API is being retrofitted so builders can branch on final `MutationResult` codes
-for helpers like `do_give` without writing a separate `canGive` preflight first.
-Until that bridge is complete, final capacity, liveness, authority, and audit
-failures reject the whole server transaction rather than returning inline to the
-script. After the handler returns successfully, live dispatch prepares all
+These helpers currently queue or reserve validated JavaScript command intents.
+For `do_give` and targeted `load_obj`, live dispatch now returns inline
+`MutationResult` codes for the failures it can classify before queuing the
+command, so builders do not need a separate preflight helper for normal capacity
+or ownership branches. A successful `ok` result means the command was accepted
+into the current mutation transaction; it does not mean the live game mutation
+has already completed inside the running script. Helpers that have not yet been
+retrofitted to the final result bridge can still reject the whole server
+transaction instead of returning inline to the script. After the handler returns
+successfully, live dispatch prepares all
 setter, room-flag helper, object-helper, wait, and output intents, including
 setter target validation; rejects malformed targets, failed command-helper
 audit, and failed room-flag-helper audit before writing; rechecks room-flag,
@@ -315,6 +317,16 @@ send their own fallback text. A successful `ok` result means the give was
 accepted into the current mutation transaction, not that the object has already
 moved inside the running script. The engine still performs the actual transfer
 once during transaction apply and rechecks live state before committing.
+`RotS.Script.loadObj(vnum, target)` follows the same accepted-transaction model:
+`not-found`, `invalid-target`, `not-authorized`, `inventory-full`, `too-heavy`,
+and `audit-rejected` failures do not queue object creation, while `ok` creates
+the object later during transaction apply after a final recheck. The
+one-argument form also returns an inline result, but currently represents a
+validated no-placement intent and does not create an object until local object
+variables are designed. BuilderClient offline fixtures can emulate target handle
+failures, inventory-count failures, and approximate carried-weight failures now;
+exact prototype `not-found` and prototype-weight parity remain server-owned
+until fixture prototype catalogs are added.
 BuilderClient offline fixtures currently record command-helper events in source
 call order for diagnostics. They compile and validate the same helper API, but
 they do not yet fully emulate server category ordering, descriptor buffering,

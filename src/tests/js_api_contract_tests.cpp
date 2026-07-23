@@ -913,10 +913,12 @@ TEST(JsApiContract, DefinesSetterMutationResultContract) {
     const JsApiType *mutation_result = find_js_api_contract_type("MutationResult");
     ASSERT_NE(mutation_result, nullptr);
     EXPECT_EQ(mutation_result->kind, JsApiTypeKind::Interface);
-    EXPECT_NE(std::string(mutation_result->docs).find("does not make any setter callable"),
-              std::string::npos);
-    EXPECT_NE(std::string(mutation_result->docs).find("validated setter methods"),
-              std::string::npos);
+    EXPECT_NE(
+        std::string(mutation_result->docs).find("does not make any setter or helper callable"),
+        std::string::npos);
+    EXPECT_NE(
+        std::string(mutation_result->docs).find("validated setter methods and command helpers"),
+        std::string::npos);
     EXPECT_EQ(std::string(mutation_result->docs).find("future validated setter"),
               std::string::npos);
 
@@ -946,7 +948,7 @@ TEST(JsApiContract, DefinesSetterMutationResultContract) {
 
     const JsApiMember *ok = find_js_api_contract_member(*mutation_result, "ok");
     ASSERT_NE(ok, nullptr);
-    EXPECT_NE(std::string(ok->docs).find("validated setter applies the requested change"),
+    EXPECT_NE(std::string(ok->docs).find("validated setter or command helper accepts"),
               std::string::npos);
     EXPECT_EQ(std::string(ok->docs).find("future validated setter"), std::string::npos);
 }

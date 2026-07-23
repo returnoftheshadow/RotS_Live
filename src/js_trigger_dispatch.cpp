@@ -590,6 +590,9 @@ bool object_matches_mutation_authority(const obj_data &object, const JsGameAdapt
                                        const JsTriggerMutationAuthorityContext &authority);
 JsTriggerCommandResultCode classify_do_give_result(const obj_data *object, const char_data *giver,
                                                    const char_data *recipient);
+JsTriggerCommandResultCode
+classify_load_object_to_character_result(int real_object_index, const JsGameAdapterOptions &options,
+                                         const char_data *recipient);
 bool can_transfer_object_for_script(const obj_data *object, const char_data *giver,
                                     const char_data *recipient);
 bool can_load_object_to_character_for_script(int real_object_index,
@@ -1246,19 +1249,18 @@ std::string js_command_result_json(bool handled, bool ok, const char *code, cons
     return out.str();
 }
 
-struct DoGiveCommandBridgeContext {
+struct CommandBridgeContext {
     const JsTriggerDispatchRequest *request = nullptr;
     const JsGameAdapterOptions *adapter_options = nullptr;
     const JsTriggerMutationAuthorityContext *authority = nullptr;
     const JsTriggerHelperMutationTransactionOptions *helper_options = nullptr;
 };
 
-std::string do_give_command_bridge_result(const JsGameCommandResultRequest &bridge_request,
-                                          void *user_data) {
-    DoGiveCommandBridgeContext *context = static_cast<DoGiveCommandBridgeContext *>(user_data);
+std::string command_bridge_result(const JsGameCommandResultRequest &bridge_request,
+                                  void *user_data) {
+    CommandBridgeContext *context = static_cast<CommandBridgeContext *>(user_data);
     if (context == nullptr || context->request == nullptr || context->adapter_options == nullptr ||
-        context->authority == nullptr || context->helper_options == nullptr ||
-        bridge_request.operation != "script.do_give") {
+        context->authority == nullptr || context->helper_options == nullptr) {
         return js_command_result_json(false, false, "unsupported", nullptr);
     }
 
@@ -1269,6 +1271,57 @@ std::string do_give_command_bridge_result(const JsGameCommandResultRequest &brid
     ScriptCommandArguments arguments;
     if (!parse_script_command_arguments(mutation, &arguments))
         return js_command_result_json(true, false, "invalid-target", "target");
+
+    if (bridge_request.operation == "script.load_obj") {
+        if (!has_persistent_setter_authority(*context->authority))
+            return js_command_result_json(true, false, "not-authorized", "target");
+
+        const int real_object_index = real_object(arguments.vnum);
+        if (real_object_index < 0 || context->adapter_options->object_index == nullptr ||
+            static_cast<std::size_t>(real_object_index) >=
+                context->adapter_options->object_index_count) {
+            return js_command_result_json(true, false, "not-found", "vnum");
+        }
+
+        if (arguments.saw_load_target_id) {
+            char_data *target_character = live_character_role_for_command_id(
+                arguments.load_target_id, *context->request, *context->adapter_options);
+            if (target_character != nullptr) {
+                if (!command_target_matches_authority(target_character, *context->adapter_options,
+                                                      *context->authority)) {
+                    return js_command_result_json(true, false, "not-authorized", "target");
+                }
+                const JsTriggerCommandResultCode code = classify_load_object_to_character_result(
+                    real_object_index, *context->adapter_options, target_character);
+                if (code != JsTriggerCommandResultCode::Ok) {
+                    return js_command_result_json(
+                        true, false, js_trigger_command_result_code_name(code), "target");
+                }
+            } else {
+                const int target_room = live_room_role_for_command_id(
+                    arguments.load_target_id, *context->request, *context->adapter_options);
+                if (target_room == NOWHERE)
+                    return js_command_result_json(true, false, "invalid-target", "target");
+                if (!command_target_matches_authority(target_room, *context->adapter_options,
+                                                      *context->authority)) {
+                    return js_command_result_json(true, false, "not-authorized", "target");
+                }
+            }
+        }
+
+        std::vector<JsRuntimeMutation> command_mutations;
+        command_mutations.push_back(mutation);
+        std::string diagnostic;
+        if (!audit_command_mutations(command_mutations, *context->request, *context->authority,
+                                     *context->helper_options, &diagnostic)) {
+            return js_command_result_json(true, false, "audit-rejected", nullptr);
+        }
+
+        return js_command_result_json(true, true, "ok", "script.load_obj");
+    }
+
+    if (bridge_request.operation != "script.do_give")
+        return js_command_result_json(false, false, "unsupported", nullptr);
 
     char_data *giver = live_character_role_for_command_id(arguments.giver_id, *context->request,
                                                           *context->adapter_options);
@@ -2082,16 +2135,24 @@ bool can_transfer_object_for_script(const obj_data *object, const char_data *giv
 bool can_load_object_to_character_for_script(int real_object_index,
                                              const JsGameAdapterOptions &options,
                                              char_data *recipient) {
-    if (recipient == nullptr || real_object_index < 0 || options.object_index == nullptr ||
-        obj_proto == nullptr ||
+    return classify_load_object_to_character_result(real_object_index, options, recipient) ==
+           JsTriggerCommandResultCode::Ok;
+}
+
+JsTriggerCommandResultCode
+classify_load_object_to_character_result(int real_object_index, const JsGameAdapterOptions &options,
+                                         const char_data *recipient) {
+    if (recipient == nullptr)
+        return JsTriggerCommandResultCode::InvalidTarget;
+    if (real_object_index < 0 || options.object_index == nullptr || obj_proto == nullptr ||
         static_cast<std::size_t>(real_object_index) >= options.object_index_count)
-        return false;
+        return JsTriggerCommandResultCode::NotFound;
     const obj_data &prototype = obj_proto[real_object_index];
     if (IS_CARRYING_N(recipient) >= CAN_CARRY_N(recipient))
-        return false;
+        return JsTriggerCommandResultCode::InventoryFull;
     if (GET_OBJ_WEIGHT(&prototype) + IS_CARRYING_W(recipient) > CAN_CARRY_W(recipient))
-        return false;
-    return true;
+        return JsTriggerCommandResultCode::TooHeavy;
+    return JsTriggerCommandResultCode::Ok;
 }
 
 void transfer_object_for_script(obj_data *object, char_data *giver, char_data *recipient) {
@@ -2399,6 +2460,8 @@ const char *js_trigger_command_result_code_name(JsTriggerCommandResultCode code)
         return "inventory-full";
     case JsTriggerCommandResultCode::TooHeavy:
         return "too-heavy";
+    case JsTriggerCommandResultCode::NotFound:
+        return "not-found";
     }
     return "unknown";
 }
@@ -2804,13 +2867,13 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
     command_bridge_request.package_vnum = package.vnum;
     command_bridge_request.package_id = package.package_id;
     command_bridge_request.handler_name = binding->handler_name;
-    DoGiveCommandBridgeContext command_bridge_context;
+    CommandBridgeContext command_bridge_context;
     command_bridge_context.request = &command_bridge_request;
     command_bridge_context.adapter_options = &adapter_options;
     command_bridge_context.authority = &options.mutation_authority;
     command_bridge_context.helper_options = &options.helper_mutation_options;
     JsGameRuntimeEvaluationOptions evaluation_options;
-    evaluation_options.command_result_callback = do_give_command_bridge_result;
+    evaluation_options.command_result_callback = command_bridge_result;
     evaluation_options.command_result_user_data = &command_bridge_context;
     const JsRuntimeEvalResult evaluation =
         runtime.evaluate_trigger_package_handler(package.compiled_javascript, binding->handler_name,

@@ -287,8 +287,8 @@ TEST(JsBuilderArtifacts, GeneratesTypescriptDeclarationsWithCompatibilityHeader)
     expect_contains(declarations, "export type DispatchStatus");
     expect_contains(declarations, "export interface RuntimeSafetyPolicy");
     expect_contains(declarations, "export type MutationResult =");
-    expect_contains(declarations, "does not make any setter callable");
-    expect_contains(declarations, "True when a validated setter applies the requested change.");
+    expect_contains(declarations, "does not make any setter or helper callable");
+    expect_contains(declarations, "True when a validated setter or command helper accepts");
     EXPECT_EQ(declarations.find("future validated setter"), std::string::npos);
     expect_contains(declarations, "readonly ok: true;");
     expect_contains(declarations, "readonly ok: false;");
@@ -846,7 +846,7 @@ TEST(JsBuilderArtifacts, GeneratesMarkdownReferenceFromManifestAndContract) {
     expect_contains(markdown, markdown_cell(policy.failure_logging_policy));
     expect_contains(markdown, "## API Types");
     expect_contains(markdown, "### MutationResult");
-    expect_contains(markdown, "does not make any setter callable");
+    expect_contains(markdown, "does not make any setter or helper callable");
     expect_contains(markdown, "Stable machine-readable result code");
     expect_contains(markdown, "Messages are bounded, single-line");
     expect_contains(markdown, "## Public Field Accessor Mapping");

@@ -744,7 +744,7 @@ constexpr JsApiMember ScriptContextMembers[] = {
 constexpr JsApiMember MutationResultMembers[] = {
     {"ok", JsApiMemberKind::Property, "boolean", "", false, false, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
-     "True when a validated setter applies the requested change."},
+     "True when a validated setter or command helper accepts the requested change."},
     {"code", JsApiMemberKind::Property,
      "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
      "'unsupported' | 'deferred' | 'invalid-target' | 'not-carried' | 'no-drop' | "
@@ -1147,10 +1147,10 @@ constexpr JsApiMember ScriptMembers[] = {
     {"load_obj", JsApiMemberKind::Method,
      "(vnum: number, target?: Character | Room) => MutationResult", "MutationResult", false, false,
      JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "Queue a bounded object-load request by prototype vnum. When a live character or room target "
-     "is supplied, live dispatch creates the object and places it into that validated target in "
-     "the authorized zone. The one-argument form remains a validated no-placement intent until "
-     "legacy-style local object variables are designed."},
+     "Request a bounded object load by prototype vnum. Live dispatch returns inline failure codes "
+     "before queuing when possible. Successful `ok` means transaction accepted; apply creates the "
+     "object once after recheck. The one-argument form returns an inline result but remains a "
+     "no-placement intent until local object variables are designed."},
     {"send_to_char", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
@@ -1279,8 +1279,8 @@ constexpr JsApiType ApiTypes[] = {
      "Per-invocation trigger context. Handles are not valid across invocations.",
      ScriptContextMembers, sizeof(ScriptContextMembers) / sizeof(ScriptContextMembers[0])},
     {"MutationResult", JsApiTypeKind::Interface, "",
-     "Type-only result returned by validated setter methods. It does not make any setter callable "
-     "by itself.",
+     "Type-only result returned by validated setter methods and command helpers. It does not make "
+     "any setter or helper callable by itself.",
      MutationResultMembers, sizeof(MutationResultMembers) / sizeof(MutationResultMembers[0])},
     {"ScriptResult", JsApiTypeKind::Namespace, "", "Pure return-value helpers.",
      ScriptResultMembers, sizeof(ScriptResultMembers) / sizeof(ScriptResultMembers[0])},

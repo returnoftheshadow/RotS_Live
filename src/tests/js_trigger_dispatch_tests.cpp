@@ -746,6 +746,323 @@ TEST(JsTriggerDispatch, LoadObjCommandHelperPlacesObjectInLiveCharacterInventory
     EXPECT_EQ(obj_index[0].number, 1);
 }
 
+TEST(JsTriggerDispatch, LoadObjInlineNotFoundResultAllowsBuilderFallbackMessage) {
+    DescriptorListGuard descriptor_guard;
+    descriptor_list = nullptr;
+    ObjectPrototypeGuard object_guard(6201);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5883, "function onEnter(ctx) {\n"
+              "  const reward = RotS.Script.loadObj(9999, ctx.actor);\n"
+              "  if (!reward.ok && reward.code === 'not-found') {\n"
+              "    RotS.Script.sendToChar(ctx.self, 'That reward prototype is missing.');\n"
+              "  }\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data self_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    descriptor_list = &self_descriptor;
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    add_accepting_command_audit(dispatch_options);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+    EXPECT_TRUE(contains(self_descriptor.output, "That reward prototype is missing.\n\r"));
+}
+
+TEST(JsTriggerDispatch, LoadObjInlineUnauthorizedDoesNotRevealPrototypeExistence) {
+    ObjectPrototypeGuard object_guard(6201);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5886, "function onEnter(ctx) {\n"
+              "  const existing = RotS.Script.loadObj(6201, ctx.actor);\n"
+              "  const missing = RotS.Script.loadObj(9999, ctx.actor);\n"
+              "  return !existing.ok && !missing.ok && existing.code === 'not-authorized' && "
+              "missing.code === 'not-authorized';\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsTriggerDispatchOptions dispatch_options;
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 0);
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+}
+
+TEST(JsTriggerDispatch, LoadObjInlineInventoryFullResultDoesNotQueueObjectCreate) {
+    DescriptorListGuard descriptor_guard;
+    descriptor_list = nullptr;
+    ObjectPrototypeGuard object_guard(6201);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5884, "function onEnter(ctx) {\n"
+              "  const reward = RotS.Script.loadObj(6201, ctx.actor);\n"
+              "  if (!reward.ok && reward.code === 'inventory-full') {\n"
+              "    RotS.Script.sendToChar(ctx.self, 'You cannot carry the reward.');\n"
+              "  }\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data self_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    descriptor_list = &self_descriptor;
+    actor.specials.carry_items = CAN_CARRY_N(&actor);
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    add_accepting_command_audit(dispatch_options);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+    EXPECT_TRUE(contains(self_descriptor.output, "You cannot carry the reward.\n\r"));
+}
+
+TEST(JsTriggerDispatch, LoadObjInlineTooHeavyResultDoesNotQueueObjectCreate) {
+    DescriptorListGuard descriptor_guard;
+    descriptor_list = nullptr;
+    ObjectPrototypeGuard object_guard(6201);
+    object_guard.fixture_proto[0].obj_flags.weight = 2;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5887, "function onEnter(ctx) {\n"
+              "  const reward = RotS.Script.loadObj(6201, ctx.actor);\n"
+              "  if (!reward.ok && reward.code === 'too-heavy') {\n"
+              "    RotS.Script.sendToChar(ctx.self, 'The reward is too heavy.');\n"
+              "  }\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data self_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    descriptor_list = &self_descriptor;
+    actor.specials.carry_weight = CAN_CARRY_W(&actor) - 1;
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    add_accepting_command_audit(dispatch_options);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+    EXPECT_TRUE(contains(self_descriptor.output, "The reward is too heavy.\n\r"));
+}
+
+TEST(JsTriggerDispatch, LoadObjInlineAuditRejectedResultDoesNotQueueObjectCreate) {
+    DescriptorListGuard descriptor_guard;
+    descriptor_list = nullptr;
+    ObjectPrototypeGuard object_guard(6201);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5888, "function onEnter(ctx) {\n"
+              "  const reward = RotS.Script.loadObj(6201, ctx.actor);\n"
+              "  if (!reward.ok && reward.code === 'audit-rejected') {\n"
+              "    RotS.Script.sendToChar(ctx.self, 'The reward is not approved.');\n"
+              "  }\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data self_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    descriptor_list = &self_descriptor;
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    dispatch_options.helper_mutation_options.command_audit_user_data = &audit_calls;
+    dispatch_options.helper_mutation_options.command_audit_callback =
+        [](const JsTriggerCommandMutationAuditRequest &request, std::string *diagnostic,
+           void *user_data) {
+            ++*static_cast<int *>(user_data);
+            if (request.operations_summary == "script.load_obj") {
+                if (diagnostic != nullptr)
+                    *diagnostic = "private audit detail";
+                return false;
+            }
+            return true;
+        };
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 2);
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+    EXPECT_TRUE(contains(self_descriptor.output, "The reward is not approved.\n\r"));
+    EXPECT_FALSE(contains(self_descriptor.output, "private audit detail"));
+}
+
+TEST(JsTriggerDispatch, LoadObjInlineSuccessAuditsOnceAndCreatesAtCommit) {
+    ObjectPrototypeGuard object_guard(6201);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5885, "function onEnter(ctx) {\n"
+              "  const reward = RotS.Script.loadObj(6201, ctx.actor);\n"
+              "  return reward.ok && reward.code === 'ok' && ctx.actor.inventory.length === 0;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    ASSERT_NE(actor.carrying, nullptr);
+    EXPECT_EQ(actor.carrying->item_number, 0);
+    EXPECT_EQ(actor.carrying->carried_by, &actor);
+    EXPECT_EQ(actor.specials.carry_items, 1);
+    EXPECT_EQ(actor.specials.carry_weight, 1);
+    EXPECT_EQ(obj_index[0].number, 1);
+}
+
+TEST(JsTriggerDispatch, LoadObjInlineNoTargetAuditsOnceWithoutObjectCreation) {
+    ObjectPrototypeGuard object_guard(6201);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5889, "function onEnter() {\n"
+              "  const reward = RotS.Script.loadObj(6201);\n"
+              "  return reward.ok && reward.code === 'ok' && reward.field === 'script.load_obj';\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+}
+
+TEST(JsTriggerDispatch, LoadObjInlineRoomTargetAuditsOnceAndCreatesAtCommit) {
+    ObjectPrototypeGuard object_guard(6201);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5890, "function onEnter(ctx) {\n"
+              "  const reward = RotS.Script.loadObj(6201, ctx.room);\n"
+              "  return reward.ok && reward.code === 'ok' && ctx.room.contents.length === 0;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    ASSERT_NE(world[0].contents, nullptr);
+    EXPECT_EQ(world[0].contents->item_number, 0);
+    EXPECT_EQ(world[0].contents->in_room, 0);
+    EXPECT_EQ(obj_index[0].number, 1);
+}
+
 TEST(JsTriggerDispatch, DoGiveCommandHelperTransfersCurrentLiveCarriedObject) {
     ObjectPrototypeGuard object_guard(5104);
     JsScriptPackageRegistry registry;
@@ -1040,6 +1357,42 @@ TEST(JsTriggerDispatch, BridgeAcceptedDoGiveStillTransfersExactlyOnceAtApply) {
     EXPECT_EQ(actor.specials.carry_weight, 0);
     EXPECT_EQ(self.specials.carry_items, 1);
     EXPECT_EQ(self.specials.carry_weight, 2);
+}
+
+TEST(JsTriggerDispatch, BridgeAcceptedLoadObjFailsClosedWhenCapacityChangesBeforeApply) {
+    ObjectPrototypeGuard object_guard(6201);
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    actor.specials.carry_items = CAN_CARRY_N(&actor);
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    zones[0].name = str_dup("Original Zone");
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation load = make_script_command_mutation(
+        "script.load_obj", "{\"vnum\":6201,\"loadTargetId\":\"actor\"}");
+    load.command_result_bridge_accepted = true;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+
+    JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, load}, request, adapter_options, test_mutation_authority(), helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::NotEvaluated);
+    EXPECT_EQ(result.applied_setter_count, 0U);
+    EXPECT_EQ(result.applied_helper_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger object command target rejected");
+    EXPECT_STREQ(zones[0].name, "Original Zone");
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(actor.specials.carry_items, CAN_CARRY_N(&actor));
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+    free(zones[0].name);
 }
 
 TEST(JsTriggerDispatch, DoGiveResultClassifierReportsStableReasonCodes) {
