@@ -349,9 +349,12 @@ BuilderClient offline fixtures currently record command-helper events in source
 call order for diagnostics. They compile and validate the same helper API, but
 they do not yet fully emulate server category ordering, descriptor buffering,
 wait-list mutation, object placement, or inventory transfer as persistent
-offline game state. For output helpers, offline fixtures currently assume valid
-fixture handles are reachable and do not emulate live `no-recipient` descriptor
-state. Full offline state emulation remains a separate parity slice.
+offline game state. For output helpers, offline fixtures can emulate
+`no-recipient` by setting a character fixture handle's `canReceiveOutput` to
+`false`, or by giving a room fixture a `characters` array with no reachable
+character entries. Fixture handles remain reachable by default when this
+descriptor state is omitted, so existing examples stay concise while branch
+tests can still model disconnected recipients.
 
 ### Greeter with gift
 
