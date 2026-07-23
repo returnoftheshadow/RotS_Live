@@ -250,19 +250,25 @@ runtime:
 - [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
   covers `load_obj`, `do_give`, and `send_to_char`.
 
-These helpers queue validated JavaScript command intents. Live dispatch now
-applies speech/output delivery, explicit-target object creation/placement,
-current-context object giving, and bounded no-continuation wait-state changes
-after the handler returns successfully. The live transaction groups side effects
-by category rather than replaying every JavaScript call in source order, and
-descriptor output is applied last so earlier validation failures do not emit
-messages. Command helpers only accept real handles from the current `ctx`; fake
-objects, spread copies, prototype copies, copied ids, or borrowed `isValid`
-functions are rejected before any command event is queued. Server-side command
-audit can also reject a whole output/object/wait helper batch before room flags,
-setters, object movement, wait state, or descriptor output changes. Audit records
-the operation summary plus trigger/package/handler context. Numeric target ids
-must use bounded, unsigned live id forms such as `player:7`, `room:1204`, or
+These helpers queue validated JavaScript command intents. A successful helper
+call does not immediately mutate the game while the JavaScript handler is still
+running. After the handler returns successfully, live dispatch prepares all
+setter, room-flag helper, object-helper, wait, and output intents, including
+setter target validation; rejects malformed targets, failed command-helper
+audit, and failed room-flag-helper audit before writing; rechecks room-flag,
+object-helper, and wait liveness plus zone authority; applies object commands;
+applies room-flag helpers; applies scalar setters; applies wait state; then
+applies descriptor output last. That category order means output cannot leak
+from a script whose earlier mutation validation fails, but it also means live
+side effects are not replayed strictly in JavaScript source order.
+
+Command helpers only accept real handles from the current `ctx`; fake objects,
+spread copies, prototype copies, copied ids, or borrowed `isValid` functions are
+rejected before any command event is queued. Server-side command audit can also
+reject a whole output/object/wait helper batch before room flags, setters,
+object movement, wait state, or descriptor output changes. Audit records the
+operation summary plus trigger/package/handler context. Numeric target ids must
+use bounded, unsigned live id forms such as `player:7`, `room:1204`, or
 `object:301`; malformed ids reject before audit. Polymorphic trigger roles
 (`ctx.target`, `ctx.targ1`, and `ctx.targ2`) can be passed to command helpers
 only when the role's concrete handle kind matches the helper. Character targets
@@ -273,12 +279,22 @@ not promoted as a live command-target API. During live dispatch, `target` is
 resolved only from the explicit target payload; a stale explicit target never
 falls back to `targ1` or `targ2`. Room-valued polymorphic command targets must
 still point at a loaded world room; detached rooms are rejected before output,
-object loading, audit, or mixed-batch side effects. If an object helper batch
-does fail after object apply begins, loaded objects are extracted and `do_give`
-transfers are reversed when the expected recipient still carries the object.
+object loading, audit, or mixed-batch side effects. Mutating command helpers
+require server command audit when persistent authority is present. If an object
+helper batch or a later room-flag apply step fails after object apply begins,
+loaded objects are extracted and `do_give` transfers are reversed when the
+expected recipient still carries the object. JavaScript `load_obj(vnum,
+character)` prechecks the recipient's count and carried-weight capacity before
+creating the object. JavaScript `do_give` uses a silent transaction transfer,
+not the legacy player-command `perform_give()` path, so it does not emit
+give-command messages, write legacy give logs, or fire `ON_RECEIVE` while the
+outer transaction is only partially applied.
 BuilderClient offline fixtures currently record command-helper events in source
-call order for diagnostics; full offline emulation of inventory, room, and
-wait-list state remains a separate parity slice.
+call order for diagnostics. They compile and validate the same helper API, but
+they do not yet fully emulate server category ordering, descriptor buffering,
+wait-list mutation, object placement, or inventory transfer as persistent
+offline game state. Full offline state emulation remains a separate parity
+slice.
 
 ### Greeter with gift
 

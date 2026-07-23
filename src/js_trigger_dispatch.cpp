@@ -21,8 +21,8 @@
 #include <vector>
 
 void draw_map();
-void perform_give(struct char_data *ch, struct char_data *vict, struct obj_data *obj);
 extern struct char_data *waiting_list;
+extern struct obj_data *obj_proto;
 extern char *sector_types[];
 extern char num_of_sector_types;
 
@@ -587,6 +587,10 @@ bool room_matches_mutation_authority(const room_data &room, const JsGameAdapterO
                                      const JsTriggerMutationAuthorityContext &authority);
 bool object_matches_mutation_authority(const obj_data &object, const JsGameAdapterOptions &options,
                                        const JsTriggerMutationAuthorityContext &authority);
+bool can_transfer_object_for_script(obj_data *object, char_data *giver, char_data *recipient);
+bool can_load_object_to_character_for_script(int real_object_index,
+                                             const JsGameAdapterOptions &options,
+                                             char_data *recipient);
 JsTriggerHelperMutationTransactionResult prepare_helper_mutation_transaction(
     const std::vector<JsRuntimeMutation> &mutations,
     const JsTriggerHelperMutationTransactionOptions &options,
@@ -1286,6 +1290,9 @@ bool prepare_object_command_mutations(const std::vector<JsRuntimeMutation> &muta
                     if (!command_target_matches_authority(pending.target_character, options,
                                                           authority))
                         return false;
+                    if (!can_load_object_to_character_for_script(pending.real_object_index, options,
+                                                                 pending.target_character))
+                        return false;
                     pending.target = PendingObjectCommandTarget::Character;
                 } else {
                     pending.target_room =
@@ -1303,7 +1310,7 @@ bool prepare_object_command_mutations(const std::vector<JsRuntimeMutation> &muta
             pending.object = live_object_role_for_command_id(arguments.object_id, request, options);
             if (pending.giver == nullptr || pending.recipient == nullptr ||
                 pending.object == nullptr ||
-                !object_is_directly_carried_by(pending.object, pending.giver))
+                !can_transfer_object_for_script(pending.object, pending.giver, pending.recipient))
                 return false;
             if (!command_target_matches_authority(pending.giver, options, authority) ||
                 !command_target_matches_authority(pending.recipient, options, authority) ||
@@ -1344,8 +1351,15 @@ bool audit_command_mutations(const std::vector<JsRuntimeMutation> &command_mutat
                              const JsTriggerMutationAuthorityContext &authority,
                              const JsTriggerHelperMutationTransactionOptions &helper_options,
                              std::string *diagnostic) {
-    if (command_mutations.empty() || helper_options.command_audit_callback == nullptr)
+    if (command_mutations.empty())
         return true;
+    if (helper_options.command_audit_callback == nullptr) {
+        if (!runtime_mutations_require_persistent_authority(command_mutations))
+            return true;
+        if (diagnostic != nullptr)
+            *diagnostic = "JavaScript trigger command helper audit required";
+        return false;
+    }
 
     JsTriggerCommandMutationAuditRequest audit_request;
     audit_request.mutation_count = command_mutations.size();
@@ -1952,10 +1966,48 @@ void rollback_applied_object_commands(const std::vector<AppliedObjectCommand> &a
     }
 }
 
-bool apply_object_commands(const std::vector<PendingObjectCommand> &commands) {
-    std::vector<AppliedObjectCommand> applied;
-    auto fail = [&applied]() {
-        rollback_applied_object_commands(applied);
+bool can_transfer_object_for_script(obj_data *object, char_data *giver, char_data *recipient) {
+    if (object == nullptr || giver == nullptr || recipient == nullptr)
+        return false;
+    if (!object_is_directly_carried_by(object, giver))
+        return false;
+    if (IS_SET(object->obj_flags.extra_flags, ITEM_NODROP))
+        return false;
+    if (IS_CARRYING_N(recipient) >= CAN_CARRY_N(recipient))
+        return false;
+    if (GET_OBJ_WEIGHT(object) + IS_CARRYING_W(recipient) > CAN_CARRY_W(recipient))
+        return false;
+    return true;
+}
+
+bool can_load_object_to_character_for_script(int real_object_index,
+                                             const JsGameAdapterOptions &options,
+                                             char_data *recipient) {
+    if (recipient == nullptr || real_object_index < 0 || options.object_index == nullptr ||
+        obj_proto == nullptr ||
+        static_cast<std::size_t>(real_object_index) >= options.object_index_count)
+        return false;
+    const obj_data &prototype = obj_proto[real_object_index];
+    if (IS_CARRYING_N(recipient) >= CAN_CARRY_N(recipient))
+        return false;
+    if (GET_OBJ_WEIGHT(&prototype) + IS_CARRYING_W(recipient) > CAN_CARRY_W(recipient))
+        return false;
+    return true;
+}
+
+void transfer_object_for_script(obj_data *object, char_data *giver, char_data *recipient) {
+    obj_from_char(object);
+    obj_to_char(object, recipient);
+}
+
+bool apply_object_commands(const std::vector<PendingObjectCommand> &commands,
+                           const JsGameAdapterOptions &options,
+                           std::vector<AppliedObjectCommand> *applied) {
+    if (applied == nullptr)
+        return false;
+    auto fail = [applied]() {
+        rollback_applied_object_commands(*applied);
+        applied->clear();
         return false;
     };
     for (const PendingObjectCommand &command : commands) {
@@ -1967,15 +2019,20 @@ bool apply_object_commands(const std::vector<PendingObjectCommand> &commands) {
                 return fail();
             if (command.target == PendingObjectCommandTarget::Character &&
                 command.target_character != nullptr) {
+                if (!can_load_object_to_character_for_script(command.real_object_index, options,
+                                                             command.target_character)) {
+                    extract_obj(object);
+                    return fail();
+                }
                 obj_to_char(object, command.target_character);
-                applied.push_back(
+                applied->push_back(
                     {AppliedObjectCommandKind::LoadedObject, object, nullptr, nullptr});
                 continue;
             }
             if (command.target == PendingObjectCommandTarget::Room &&
                 command.target_room != NOWHERE) {
                 obj_to_room(object, command.target_room);
-                applied.push_back(
+                applied->push_back(
                     {AppliedObjectCommandKind::LoadedObject, object, nullptr, nullptr});
                 continue;
             }
@@ -1983,12 +2040,11 @@ bool apply_object_commands(const std::vector<PendingObjectCommand> &commands) {
             return fail();
         }
         if (command.operation == "script.do_give") {
-            if (command.giver == nullptr || command.recipient == nullptr ||
-                command.object == nullptr)
+            if (!can_transfer_object_for_script(command.object, command.giver, command.recipient))
                 return fail();
-            perform_give(command.giver, command.recipient, command.object);
-            applied.push_back({AppliedObjectCommandKind::GaveObject, command.object, command.giver,
-                               command.recipient});
+            transfer_object_for_script(command.object, command.giver, command.recipient);
+            applied->push_back({AppliedObjectCommandKind::GaveObject, command.object, command.giver,
+                                command.recipient});
             continue;
         }
         return fail();
@@ -2009,6 +2065,9 @@ bool object_commands_still_applicable(const std::vector<PendingObjectCommand> &c
             if (command.target == PendingObjectCommandTarget::Character) {
                 if (!command_target_matches_authority(command.target_character, options, authority))
                     return false;
+                if (!can_load_object_to_character_for_script(command.real_object_index, options,
+                                                             command.target_character))
+                    return false;
                 continue;
             }
             if (command.target == PendingObjectCommandTarget::Room) {
@@ -2021,7 +2080,7 @@ bool object_commands_still_applicable(const std::vector<PendingObjectCommand> &c
         if (command.operation == "script.do_give") {
             if (command.giver == nullptr || command.recipient == nullptr ||
                 command.object == nullptr ||
-                !object_is_directly_carried_by(command.object, command.giver))
+                !can_transfer_object_for_script(command.object, command.giver, command.recipient))
                 return false;
             if (!command_target_matches_authority(command.giver, options, authority) ||
                 !command_target_matches_authority(command.recipient, options, authority) ||
@@ -2400,6 +2459,7 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
     std::vector<PendingObjectCommand> pending_object_commands;
     std::vector<PendingWaitCommand> pending_wait_commands;
     std::vector<PendingOutputCommand> pending_output_commands;
+    std::vector<AppliedObjectCommand> applied_object_commands;
     JsTriggerRuntimeMutationTransactionApplyResult result;
     result.ok = prepare_runtime_mutation_transaction(
         mutations, request, adapter_options, authority, helper_options, &pending_mutations,
@@ -2463,7 +2523,8 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
         return result;
     }
 
-    if (!apply_object_commands(pending_object_commands)) {
+    if (!apply_object_commands(pending_object_commands, adapter_options,
+                               &applied_object_commands)) {
         result.ok = false;
         result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
         result.applied_setter_count = 0;
@@ -2474,6 +2535,7 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
 
     if (!apply_room_flag_mutations(pending_room_flag_mutations, helper_options,
                                    &result.applied_helper_count)) {
+        rollback_applied_object_commands(applied_object_commands);
         result.ok = false;
         result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
         result.applied_setter_count = 0;
@@ -2484,6 +2546,7 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
 
     apply_text_mutations(pending_mutations);
     if (!apply_wait_commands(pending_wait_commands, request, adapter_options, authority)) {
+        rollback_applied_object_commands(applied_object_commands);
         result.ok = false;
         result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
         result.applied_setter_count = 0;
