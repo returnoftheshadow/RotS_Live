@@ -1,6 +1,7 @@
 #include "js_trigger_dispatch.h"
 
 #include "db.h"
+#include "js_api_struct_mapping.h"
 #include "structs.h"
 #include "utils.h"
 #include "zone.h"
@@ -1014,6 +1015,31 @@ JsTriggerHelperMutationTransactionResult js_trigger_dispatch_prepare_helper_muta
     }
 
     return result;
+}
+
+JsTriggerHelperMutationOperationRegistry js_trigger_dispatch_room_flag_helper_operation_registry()
+{
+    static const char* operation_names[2] = {};
+    static bool initialized = false;
+    static bool valid = false;
+    if (!initialized) {
+        const std::size_t operation_count = js_api_room_flag_helper_operation_count();
+        if (operation_count == sizeof(operation_names) / sizeof(operation_names[0])) {
+            const JsApiRoomFlagHelperOperation* operations = js_api_room_flag_helper_operations();
+            valid = operations != nullptr && operations[0].operation_name != nullptr &&
+                operations[1].operation_name != nullptr &&
+                std::strcmp(operations[0].operation_name, "room.flags.add") == 0 &&
+                std::strcmp(operations[1].operation_name, "room.flags.remove") == 0;
+            if (valid) {
+                for (std::size_t index = 0; index < operation_count; ++index)
+                    operation_names[index] = operations[index].operation_name;
+            }
+        }
+        initialized = true;
+    }
+    if (!valid)
+        return { nullptr, 0 };
+    return { operation_names, sizeof(operation_names) / sizeof(operation_names[0]) };
 }
 
 JsTriggerRuntimeMutationTransactionProbeResult

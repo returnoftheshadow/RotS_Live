@@ -141,6 +141,7 @@ bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation& muta
 JsTriggerHelperMutationTransactionResult js_trigger_dispatch_prepare_helper_mutation_transaction(
     const std::vector<JsRuntimeMutation>& mutations,
     const JsTriggerHelperMutationTransactionOptions& options = {});
+JsTriggerHelperMutationOperationRegistry js_trigger_dispatch_room_flag_helper_operation_registry();
 
 // Non-mutating transaction verifier for C++ tooling/tests. Do not expose this result through
 // builder scripts, HTTP publish responses, or script-visible diagnostics.

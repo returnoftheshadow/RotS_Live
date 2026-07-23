@@ -2,6 +2,7 @@
 
 #include "../db.h"
 #include "../interpre.h"
+#include "../js_api_struct_mapping.h"
 #include "../js_live_registry_reload_service.h"
 #include "../js_scripting_runtime_policy.h"
 #include "../script.h"
@@ -390,6 +391,176 @@ TEST(JsTriggerDispatch, HelperTransactionRejectsUnknownOperationsBeforeAudit)
     EXPECT_EQ(result.mutation_count, 0U);
     EXPECT_EQ(audit_calls, 0);
     EXPECT_EQ(result.diagnostic, "JavaScript helper mutation operation is not supported");
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryMatchesServerCatalog)
+{
+    const JsTriggerHelperMutationOperationRegistry registry =
+        js_trigger_dispatch_room_flag_helper_operation_registry();
+    ASSERT_NE(registry.operation_names, nullptr);
+    ASSERT_EQ(registry.operation_count, js_api_room_flag_helper_operation_count());
+    ASSERT_EQ(registry.operation_count, 2U);
+
+    for (std::size_t index = 0; index < registry.operation_count; ++index) {
+        ASSERT_STREQ(
+            registry.operation_names[index], js_api_room_flag_helper_operations()[index].operation_name);
+    }
+    EXPECT_STREQ(registry.operation_names[0], "room.flags.add");
+    EXPECT_STREQ(registry.operation_names[1], "room.flags.remove");
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTransaction)
+{
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+
+    int audit_calls = 0;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        EXPECT_EQ(request.mutation_count, 2U);
+        EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
+        return true;
+    };
+
+    JsRuntimeMutation add_flag;
+    add_flag.kind = "helper";
+    add_flag.operation = js_api_room_flag_helper_operations()[0].operation_name;
+    add_flag.target_token = "opaque-room-token:30:3001";
+    add_flag.arguments_json = "{\"flag\":\"peaceRoom\"}";
+
+    JsRuntimeMutation remove_flag = add_flag;
+    remove_flag.operation = js_api_room_flag_helper_operations()[1].operation_name;
+    remove_flag.arguments_json = "{\"flag\":\"dark\"}";
+
+    const JsTriggerHelperMutationTransactionResult result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({ add_flag, remove_flag }, options);
+
+    EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_EQ(result.mutation_count, 2U);
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_TRUE(result.diagnostic.empty());
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryUsesSortedUniqueAuditSummary)
+{
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+
+    int audit_calls = 0;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        EXPECT_EQ(request.mutation_count, 3U);
+        EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
+        return true;
+    };
+
+    JsRuntimeMutation add_flag;
+    add_flag.kind = "helper";
+    add_flag.operation = "room.flags.add";
+    add_flag.target_token = "opaque-room-token:30:3001";
+    add_flag.arguments_json = "{\"flag\":\"peaceRoom\"}";
+
+    JsRuntimeMutation remove_flag = add_flag;
+    remove_flag.operation = "room.flags.remove";
+    remove_flag.arguments_json = "{\"flag\":\"dark\"}";
+
+    const JsTriggerHelperMutationTransactionResult result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction(
+            { remove_flag, add_flag, add_flag }, options);
+
+    EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_EQ(result.mutation_count, 3U);
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_TRUE(result.diagnostic.empty());
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryRejectsRawOrUnknownOperationsBeforeAudit)
+{
+    JsTriggerHelperMutationTransactionOptions options;
+    options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+
+    int audit_calls = 0;
+    options.audit_user_data = &audit_calls;
+    options.audit_callback = [](const JsTriggerHelperMutationAuditRequest&, std::string*,
+                                 void* user_data) {
+        ++*static_cast<int*>(user_data);
+        return true;
+    };
+
+    for (const char* operation : { "room.flags.setRaw", "room.flags.replace", "setFlags",
+             "Room.addFlag", "room.flags.permanentAffect", "__proto__", "constructor",
+             "toString", "   ", "room.flags.add " }) {
+        JsRuntimeMutation helper;
+        helper.kind = "helper";
+        helper.operation = operation;
+        helper.target_token = "opaque-room-token:30:3001";
+        helper.arguments_json = "{\"flag\":\"dark\"}";
+
+        const JsTriggerHelperMutationTransactionResult result =
+            js_trigger_dispatch_prepare_helper_mutation_transaction({ helper }, options);
+
+        EXPECT_EQ(result.status, JsTriggerHelperMutationTransactionStatus::UnknownOperation)
+            << operation;
+        EXPECT_EQ(result.mutation_count, 0U) << operation;
+        EXPECT_EQ(result.diagnostic, "JavaScript helper mutation operation is not supported")
+            << operation;
+    }
+
+    JsRuntimeMutation empty_operation;
+    empty_operation.kind = "helper";
+    empty_operation.target_token = "opaque-room-token:30:3001";
+    empty_operation.arguments_json = "{\"flag\":\"dark\"}";
+
+    const JsTriggerHelperMutationTransactionResult empty_operation_result =
+        js_trigger_dispatch_prepare_helper_mutation_transaction({ empty_operation }, options);
+
+    EXPECT_EQ(
+        empty_operation_result.status, JsTriggerHelperMutationTransactionStatus::UnsupportedEnvelope);
+    EXPECT_EQ(empty_operation_result.mutation_count, 0U);
+    EXPECT_EQ(empty_operation_result.diagnostic, "JavaScript helper mutation envelope rejected");
+    EXPECT_EQ(audit_calls, 0);
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperRegistryWorksThroughMixedTransactionProbe)
+{
+    char_data self = make_character("Self");
+    const char_data* live_characters[] = { &self };
+    room_data world[1] = { make_room("Gate", 100, 0) };
+    zone_data zones[1] = { make_zone("Zone", 30) };
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    int audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    helper_options.audit_user_data = &audit_calls;
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest& request,
+                                        std::string*, void* user_data) {
+        ++*static_cast<int*>(user_data);
+        EXPECT_EQ(request.mutation_count, 1U);
+        EXPECT_EQ(request.operations_summary, "room.flags.add");
+        return true;
+    };
+
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation helper = make_helper_mutation("room.flags.add");
+    helper.target_token = "opaque-room-token:30:3001";
+    helper.arguments_json = "{\"flag\":\"peaceRoom\"}";
+
+    JsTriggerRuntimeMutationTransactionProbeResult result =
+        js_trigger_dispatch_probe_runtime_mutation_transaction(
+            { setter, helper }, request, adapter_options, test_mutation_authority(), helper_options);
+
+    EXPECT_TRUE(result.ok) << result.diagnostic;
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::Ok);
+    EXPECT_EQ(result.prepared_setter_count, 1U);
+    EXPECT_TRUE(result.diagnostic.empty());
+    EXPECT_EQ(audit_calls, 1);
 }
 
 TEST(JsTriggerDispatch, HelperTransactionRequiresAuditBeforeSuccessfulPrepare)
