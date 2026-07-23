@@ -113,6 +113,10 @@ constexpr JsApiMember CharacterMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only active affect snapshot. Raw linked-list pointers and direct add/remove "
      "mutation are not exposed."},
+    {"equipment", JsApiMemberKind::Property, "readonly EquipmentSlot[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only equipment snapshot with one entry for each live wear slot. Raw object "
+     "pointer slots and direct wear/remove mutation are not exposed."},
     {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
      "Checks whether this invocation-local handle still points at a live entity."},
@@ -805,6 +809,55 @@ constexpr JsApiMember AffectMembers[] = {
      "Affect-specific counter value copied from the live affect node."},
 };
 
+constexpr JsApiMember EquipmentSlotMembers[] = {
+    {"slotIndex", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Zero-based live wear slot index copied from the fixed MAX_WEAR equipment array."},
+    {"slotName", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Builder-facing canonical wear slot name such as head, wield, or belt1."},
+    {"object", JsApiMemberKind::Property, "EquipmentObjectSnapshot | null", "", true, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Read-only object snapshot currently worn in this slot, or null when the slot is empty. "
+     "The nested object does not expose mutation methods or recursive carriedBy/wornBy ownership "
+     "handles."},
+};
+
+constexpr JsApiMember EquipmentObjectSnapshotMembers[] = {
+    {"id", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Opaque invocation-local object snapshot id for this worn item."},
+    {"name", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only", "Object prototype name copied read-only."},
+    {"description", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Object room/inventory description copied read-only."},
+    {"shortDescription", JsApiMemberKind::Property, "string", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Short object description copied read-only, with the same fallback as GameObject snapshots."},
+    {"actionDescription", JsApiMemberKind::Property, "string | null", "", true, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Optional action description copied read-only."},
+    {"vnum", JsApiMemberKind::Property, "number | null", "", true, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Resolved object prototype vnum when available, or null."},
+    {"flags", JsApiMemberKind::Property, "ObjectFlags", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Filtered object flag/value snapshot copied read-only."},
+    {"room", JsApiMemberKind::Property, "null", "", true, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Always null for equipment snapshots because worn objects are not directly in a room."},
+    {"carriedBy", JsApiMemberKind::Property, "null", "", true, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Always null for equipment snapshots to avoid recursive owner handles."},
+    {"wornBy", JsApiMemberKind::Property, "null", "", true, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Always null for equipment snapshots to avoid recursive owner handles."},
+    {"isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
+     "Returns true for the invocation-local worn-object snapshot."},
+};
+
 constexpr JsApiMember ScriptMembers[] = {
     {"sendToCharacter", JsApiMemberKind::Method, "(target: Character, text: string) => void",
      "void", false, true, JsApiSideEffect::Output, JsApiMemberStatus::Deferred, "deferred",
@@ -857,6 +910,13 @@ constexpr JsApiType ApiTypes[] = {
      sizeof(KnowledgeValueMembers) / sizeof(KnowledgeValueMembers[0])},
     {"Affect", JsApiTypeKind::Interface, "", "Frozen read-only active affect entry.",
      AffectMembers, sizeof(AffectMembers) / sizeof(AffectMembers[0])},
+    {"EquipmentSlot", JsApiTypeKind::Interface, "",
+     "Frozen read-only character equipment slot entry.", EquipmentSlotMembers,
+     sizeof(EquipmentSlotMembers) / sizeof(EquipmentSlotMembers[0])},
+    {"EquipmentObjectSnapshot", JsApiTypeKind::Interface, "",
+     "Frozen read-only worn object snapshot without mutation helpers.",
+     EquipmentObjectSnapshotMembers,
+     sizeof(EquipmentObjectSnapshotMembers) / sizeof(EquipmentObjectSnapshotMembers[0])},
     {"Player", JsApiTypeKind::Interface, "Character", "Read-only player character handle.",
      PlayerMembers, sizeof(PlayerMembers) / sizeof(PlayerMembers[0])},
     {"Mob", JsApiTypeKind::Interface, "Character", "Read-only non-player mobile handle.",

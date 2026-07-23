@@ -67,6 +67,12 @@ constexpr CharacterSpecializationField CharacterSpecializationFields[] = {
     {game_types::PS_BattleMage, "battleMagic", "battle magic"},
 };
 
+constexpr const char* EquipmentSlotNames[] = {
+    "light", "fingerRight", "fingerLeft", "neck1", "neck2", "body", "head", "legs",
+    "feet", "hands", "arms", "shield", "aboutBody", "waist", "wristRight", "wristLeft",
+    "wield", "hold", "back", "belt1", "belt2", "belt3"
+};
+
 template <typename T>
 bool pointer_in_table(const T *candidate, const T *const *table, std::size_t count)
 {
@@ -624,6 +630,30 @@ bool object_is_carried_by(const obj_data *object, const char_data *carrier)
     return false;
 }
 
+bool equipment_object_fixture(
+    const obj_data* object, const char_data* wearer, const JsGameAdapterOptions& options,
+    JsGameEquipmentObjectFixture* fixture)
+{
+    if (fixture == nullptr || !js_game_adapter_is_live_object(object, options))
+        return false;
+    if (wearer == nullptr || object->carried_by != wearer || object->in_room != NOWHERE ||
+        object->in_obj != nullptr || !object_is_worn_by(object, wearer))
+        return false;
+
+    const char* display_name =
+        object->short_description != nullptr ? object->short_description : object->name;
+    fixture->id = object_id(*object, options);
+    fixture->name = copy_c_string(display_name);
+    fixture->description = copy_c_string(object->description);
+    fixture->short_description = copy_c_string(display_name);
+    fixture->has_action_description = object->action_description != nullptr;
+    fixture->action_description = copy_c_string(object->action_description);
+    fixture->vnum = object_vnum(*object, options);
+    fixture->flags = object_flags_fixture(object->obj_flags);
+    fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
+    return true;
+}
+
 int room_index_for_pointer(const room_data *room, const JsGameAdapterOptions &options)
 {
     if (room == nullptr || options.world == nullptr)
@@ -1053,6 +1083,18 @@ bool js_game_adapter_character_fixture(const char_data *character,
         affect_fixture.bitvector_names = affect_bitvector_names(affect->bitvector);
         affect_fixture.counter = affect->counter;
         fixture->affects.push_back(std::move(affect_fixture));
+    }
+    fixture->equipment.clear();
+    fixture->equipment.reserve(MAX_WEAR);
+    for (int slot = 0; slot < MAX_WEAR; ++slot) {
+        JsGameEquipmentSlotFixture slot_fixture;
+        slot_fixture.slot_index = slot;
+        slot_fixture.slot_name = slot < static_cast<int>(std::size(EquipmentSlotNames))
+            ? EquipmentSlotNames[slot]
+            : "unknown";
+        slot_fixture.has_object =
+            equipment_object_fixture(character->equipment[slot], character, options, &slot_fixture.object);
+        fixture->equipment.push_back(std::move(slot_fixture));
     }
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);

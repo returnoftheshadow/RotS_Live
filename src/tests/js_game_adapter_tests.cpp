@@ -580,6 +580,86 @@ TEST(JsGameAdapter, DefaultsMissingCharacterAffectsToEmptySnapshot)
     EXPECT_TRUE(fixture.affects.empty());
 }
 
+TEST(JsGameAdapter, SnapshotsCharacterEquipmentSlotsWithShallowObjects)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    obj_data helm = make_object("silver helm", 0);
+    helm.in_room = -1;
+    helm.carried_by = &player;
+    player.equipment[WEAR_HEAD] = &helm;
+    obj_data stale = make_object("stale ring", 1);
+    stale.in_room = -1;
+    player.equipment[WEAR_FINGER_L] = &stale;
+    char_data other_wearer = make_character("OtherOne", 1, 20, 50, 60, false);
+    obj_data foreign = make_object("foreign shield", 2);
+    foreign.in_room = -1;
+    foreign.carried_by = &other_wearer;
+    player.equipment[WEAR_SHIELD] = &foreign;
+    obj_data room_object = make_object("room boots", 3);
+    room_object.carried_by = &player;
+    room_object.in_room = 0;
+    player.equipment[WEAR_FEET] = &room_object;
+    obj_data container = make_object("container", 4);
+    obj_data contained = make_object("contained gloves", 5);
+    contained.carried_by = &player;
+    contained.in_room = -1;
+    contained.in_obj = &container;
+    player.equipment[WEAR_HANDS] = &contained;
+
+    const char_data *live_characters[] = { &player };
+    const obj_data *live_objects[] = { &helm, &foreign, &room_object, &container, &contained };
+    index_data object_index[1] {};
+    object_index[0].virt = 4301;
+    JsGameAdapterOptions options = make_options(live_characters, 1, live_objects, 1, nullptr, -1,
+        nullptr, 0, object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    ASSERT_EQ(fixture.equipment.size(), static_cast<std::size_t>(MAX_WEAR));
+    EXPECT_EQ(fixture.equipment[0].slot_index, 0);
+    EXPECT_EQ(fixture.equipment[0].slot_name, "light");
+    EXPECT_FALSE(fixture.equipment[0].has_object);
+
+    ASSERT_LT(WEAR_HEAD, static_cast<int>(fixture.equipment.size()));
+    const JsGameEquipmentSlotFixture &head = fixture.equipment[WEAR_HEAD];
+    EXPECT_EQ(head.slot_index, WEAR_HEAD);
+    EXPECT_EQ(head.slot_name, "head");
+    ASSERT_TRUE(head.has_object);
+    EXPECT_EQ(head.object.id, "object:4301");
+    EXPECT_EQ(head.object.name, "silver helm");
+    EXPECT_EQ(head.object.short_description, "silver helm");
+    EXPECT_EQ(head.object.description, "A detailed object description.");
+    EXPECT_TRUE(head.object.has_action_description);
+    EXPECT_EQ(head.object.action_description, "A detailed action description.");
+    EXPECT_EQ(head.object.vnum, 4301);
+    EXPECT_EQ(head.object.flags.item_type, "weapon");
+    EXPECT_EQ(head.object.flags.level, 12);
+    EXPECT_FALSE(head.object.has_room);
+
+    ASSERT_LT(WEAR_FINGER_L, static_cast<int>(fixture.equipment.size()));
+    EXPECT_EQ(fixture.equipment[WEAR_FINGER_L].slot_name, "fingerLeft");
+    EXPECT_FALSE(fixture.equipment[WEAR_FINGER_L].has_object);
+    EXPECT_FALSE(fixture.equipment[WEAR_SHIELD].has_object);
+    EXPECT_FALSE(fixture.equipment[WEAR_FEET].has_object);
+    EXPECT_FALSE(fixture.equipment[WEAR_HANDS].has_object);
+}
+
+TEST(JsGameAdapter, DefaultsMissingCharacterEquipmentToEmptySlots)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    ASSERT_EQ(fixture.equipment.size(), static_cast<std::size_t>(MAX_WEAR));
+    for (const JsGameEquipmentSlotFixture &slot : fixture.equipment)
+        EXPECT_FALSE(slot.has_object) << slot.slot_name;
+}
+
 TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)
 {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);

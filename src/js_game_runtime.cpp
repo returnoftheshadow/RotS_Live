@@ -411,6 +411,8 @@ std::string affects_literal(const std::vector<JsGameAffectFixture>& affects)
     return out.str();
 }
 
+std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture>& equipment);
+
 std::string character_literal(const JsGameCharacterFixture& character)
 {
     std::ostringstream out;
@@ -451,6 +453,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"skills\":" << skill_values_literal(character.skills) << ","
         << "\"knowledge\":" << knowledge_values_literal(character.knowledge) << ","
         << "\"affects\":" << affects_literal(character.affects) << ","
+        << "\"equipment\":" << equipment_slots_literal(character.equipment) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","
@@ -473,6 +476,70 @@ std::string object_flags_literal(const JsGameObjectFlagsFixture& flags)
         << "\"timer\":" << flags.timer << ","
         << "\"rarity\":" << flags.rarity << ","
         << "\"material\":" << js_quote(flags.material) << "}";
+    return out.str();
+}
+
+std::string equipment_object_literal(const JsGameEquipmentObjectFixture& object)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"id\":" << js_quote(object.id) << ","
+        << "\"name\":" << js_quote(object.name) << ","
+        << "\"description\":" << js_quote(object.description) << ","
+        << "\"shortDescription\":" << js_quote(object.short_description) << ","
+        << "\"actionDescription\":"
+        << nullable_literal(object.has_action_description, js_quote(object.action_description))
+        << ","
+        << "\"vnum\":";
+    if (object.vnum >= 0)
+        out << object.vnum;
+    else
+        out << "null";
+    out << ","
+        << "\"flags\":" << object_flags_literal(object.flags) << ","
+        << "\"room\":" << nullable_literal(object.has_room, room_literal(object.room)) << ","
+        << "\"carriedBy\":null,"
+        << "\"wornBy\":null,"
+        << "\"__rotsReadOnlySnapshot\":true,"
+        << "\"isValid\":function() { return true; }"
+        << "}";
+    return out.str();
+}
+
+std::string equipment_slot_literal(const JsGameEquipmentSlotFixture& slot)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"slotIndex\":" << slot.slot_index << ","
+        << "\"slotName\":" << js_quote(slot.slot_name) << ","
+        << "\"object\":" << nullable_literal(slot.has_object, equipment_object_literal(slot.object))
+        << "}";
+    return out.str();
+}
+
+std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture>& equipment)
+{
+    constexpr const char* WearSlotNames[] = {
+        "light", "fingerRight", "fingerLeft", "neck1", "neck2", "body", "head", "legs",
+        "feet", "hands", "arms", "shield", "aboutBody", "waist", "wristRight", "wristLeft",
+        "wield", "hold", "back", "belt1", "belt2", "belt3"};
+    std::ostringstream out;
+    out << "[";
+    const std::size_t slot_count =
+        equipment.empty() ? sizeof(WearSlotNames) / sizeof(WearSlotNames[0]) : equipment.size();
+    for (std::size_t index = 0; index < slot_count; ++index) {
+        if (index > 0)
+            out << ",";
+        if (equipment.empty()) {
+            JsGameEquipmentSlotFixture empty_slot;
+            empty_slot.slot_index = static_cast<int>(index);
+            empty_slot.slot_name = WearSlotNames[index];
+            out << equipment_slot_literal(empty_slot);
+        } else {
+            out << equipment_slot_literal(equipment[index]);
+        }
+    }
+    out << "]";
     return out.str();
 }
 
@@ -785,6 +852,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
             << "const __rotsMutations = [];\n"
             << "function __rotsDeepFreeze(value) {\n"
             << "  if (value && (typeof value === 'object' || typeof value === 'function') && !Object.isFrozen(value)) {\n"
+            << "    if (value.__rotsReadOnlySnapshot === true) delete value.__rotsReadOnlySnapshot;\n"
             << "    if (typeof value === 'object' && !Array.isArray(value)) Object.setPrototypeOf(value, null);\n"
             << "    Object.freeze(value);\n"
             << "    for (const key of Object.keys(value)) __rotsDeepFreeze(value[key]);\n"
@@ -1045,6 +1113,7 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
             << "  if (!value || typeof value !== 'object') return;\n"
             << "  if (seen.indexOf(value) !== -1) return;\n"
             << "  seen.push(value);\n"
+            << "  if (value.__rotsReadOnlySnapshot === true) return;\n"
             << "  if ('shortDescription' in value || 'actionDescription' in value || 'carriedBy' in value) {\n"
             << "    __rotsAttachTextSetter(value, 'object', 'name', 'setName', 256, false);\n"
             << "    __rotsAttachTextSetter(value, 'object', 'description', 'setDescription', 8192, false);\n"

@@ -211,6 +211,40 @@ struct JsGameAffectFixture {
     int counter = 0;
 };
 
+struct JsGameObjectFlagsFixture {
+    std::string item_type;
+    std::vector<std::string> wear_flags;
+    std::vector<std::string> extra_flags;
+    int level = 0;
+    int weight = 0;
+    int cost = 0;
+    int cost_per_day = 0;
+    int timer = 0;
+    int rarity = 0;
+    std::string material;
+};
+
+struct JsGameEquipmentObjectFixture {
+    std::string id;
+    std::string name;
+    std::string description;
+    std::string short_description;
+    bool has_action_description = false;
+    std::string action_description;
+    int vnum = 0;
+    JsGameObjectFlagsFixture flags;
+
+    bool has_room = false;
+    JsGameRoomFixture room;
+};
+
+struct JsGameEquipmentSlotFixture {
+    int slot_index = 0;
+    std::string slot_name;
+    bool has_object = false;
+    JsGameEquipmentObjectFixture object;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -238,23 +272,11 @@ struct JsGameCharacterFixture {
     std::vector<JsGameSkillValueFixture> skills;
     std::vector<JsGameKnowledgeValueFixture> knowledge;
     std::vector<JsGameAffectFixture> affects;
+    std::vector<JsGameEquipmentSlotFixture> equipment;
     bool is_npc = false;
 
     bool has_room = false;
     JsGameRoomFixture room;
-};
-
-struct JsGameObjectFlagsFixture {
-    std::string item_type;
-    std::vector<std::string> wear_flags;
-    std::vector<std::string> extra_flags;
-    int level = 0;
-    int weight = 0;
-    int cost = 0;
-    int cost_per_day = 0;
-    int timer = 0;
-    int rarity = 0;
-    std::string material;
 };
 
 struct JsGameObjectFixture {

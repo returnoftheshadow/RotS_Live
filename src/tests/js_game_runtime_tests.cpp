@@ -86,6 +86,35 @@ JsGameAffectFixture make_affect(int type, const std::string& name, int duration,
     return affect;
 }
 
+JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string& slot_name,
+    bool has_object)
+{
+    JsGameEquipmentSlotFixture slot;
+    slot.slot_index = slot_index;
+    slot.slot_name = slot_name;
+    slot.has_object = has_object;
+    if (has_object) {
+        slot.object.id = "object:2001";
+        slot.object.name = "silver helm";
+        slot.object.description = "A polished silver helm.";
+        slot.object.short_description = "a silver helm";
+        slot.object.has_action_description = true;
+        slot.object.action_description = "The helm glints in the light.";
+        slot.object.vnum = 2001;
+        slot.object.flags.item_type = "armor";
+        slot.object.flags.wear_flags = { "take", "head" };
+        slot.object.flags.extra_flags = { "glow" };
+        slot.object.flags.level = 12;
+        slot.object.flags.weight = 7;
+        slot.object.flags.cost = 450;
+        slot.object.flags.cost_per_day = 15;
+        slot.object.flags.timer = 30;
+        slot.object.flags.rarity = 2;
+        slot.object.flags.material = "metal";
+    }
+    return slot;
+}
+
 JsGameTriggerContextFixture make_context()
 {
     JsGameTriggerContextFixture context;
@@ -214,6 +243,15 @@ JsGameTriggerContextFixture make_context()
     context.self.affects.push_back(make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128,
         { "SANCT" }, 6));
     context.self.affects.push_back(make_affect(999, "Unknown", 2, 3, -1, -1, "Unknown", 0, {}, 4));
+    const char* equipment_slot_names[] = {
+        "light", "fingerRight", "fingerLeft", "neck1", "neck2", "body", "head", "legs",
+        "feet", "hands", "arms", "shield", "aboutBody", "waist", "wristRight", "wristLeft",
+        "wield", "hold", "back", "belt1", "belt2", "belt3"
+    };
+    for (int slot_index = 0; slot_index < 22; ++slot_index) {
+        context.self.equipment.push_back(
+            make_equipment_slot(slot_index, equipment_slot_names[slot_index], slot_index == 6));
+    }
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -818,6 +856,29 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.affects[0].location === 2\n"
         "  && ctx.self.affects[0].locationName === 'DEX'\n"
         "  && ctx.self.affects[0].bitvector === 128\n"
+        "  && ctx.self.affects[0].bitvectorNames.length === 1\n"
+        "  && ctx.self.affects[0].bitvectorNames[0] === 'SANCT'\n"
+        "  && ctx.self.equipment.length === 22\n"
+        "  && ctx.self.equipment[0].slotIndex === 0\n"
+        "  && ctx.self.equipment[0].slotName === 'light'\n"
+        "  && ctx.self.equipment[0].object === null\n"
+        "  && ctx.self.equipment[6].slotIndex === 6\n"
+        "  && ctx.self.equipment[6].slotName === 'head'\n"
+        "  && ctx.self.equipment[6].object.id === 'object:2001'\n"
+        "  && ctx.self.equipment[6].object.name === 'silver helm'\n"
+        "  && ctx.self.equipment[6].object.shortDescription === 'a silver helm'\n"
+        "  && ctx.self.equipment[6].object.actionDescription === 'The helm glints in the light.'\n"
+        "  && ctx.self.equipment[6].object.vnum === 2001\n"
+        "  && ctx.self.equipment[6].object.flags.itemType === 'armor'\n"
+        "  && ctx.self.equipment[6].object.flags.wearFlags[1] === 'head'\n"
+        "  && ctx.self.equipment[6].object.flags.level === 12\n"
+        "  && ctx.self.equipment[6].object.room === null\n"
+        "  && ctx.self.equipment[6].object.carriedBy === null\n"
+        "  && ctx.self.equipment[6].object.wornBy === null\n"
+        "  && ctx.self.equipment[6].object.isValid() === true\n"
+        "  && ctx.self.equipment[16].slotIndex === 16\n"
+        "  && ctx.self.equipment[16].slotName === 'wield'\n"
+        "  && ctx.self.equipment[16].object === null\n"
         "  && ctx.self.affects[0].bitvectorNames.join(',') === 'SANCT'\n"
         "  && ctx.self.affects[0].counter === 6\n"
         "  && ctx.self.affects[1].name === 'Unknown'\n"
@@ -2017,6 +2078,18 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.affects.constructor === 'undefined'\n"
         "  && typeof ctx.self.affects[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.affects[0].bitvectorNames.constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment.constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.__rotsReadOnlySnapshot === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.setName === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.setDescription === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.setShortDescription === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.setActionDescription === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.setLevel === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.setRarity === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.flags.constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.flags.wearFlags.constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -2034,6 +2107,9 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.skills[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.knowledge[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.affects[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.equipment[6]) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.equipment[6].object) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.equipment[6].object.flags) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -2060,6 +2136,12 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.affects)\n"
         "  && Object.isFrozen(ctx.self.affects[0])\n"
         "  && Object.isFrozen(ctx.self.affects[0].bitvectorNames)\n"
+        "  && Object.isFrozen(ctx.self.equipment)\n"
+        "  && Object.isFrozen(ctx.self.equipment[6])\n"
+        "  && Object.isFrozen(ctx.self.equipment[6].object)\n"
+        "  && Object.isFrozen(ctx.self.equipment[6].object.flags)\n"
+        "  && Object.isFrozen(ctx.self.equipment[6].object.flags.wearFlags)\n"
+        "  && Object.isFrozen(ctx.self.equipment[6].object.flags.extraFlags)\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -2181,6 +2263,42 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
                   .status,
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.equipment[6].slotName = 'wield';\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.equipment[6].object.name = 'unsafe';\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.equipment[6].object.flags.level = 99;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.equipment[6].object.flags.wearFlags.push('unsafe');\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.equipment[6].object.flags.extraFlags[0] = 'unsafe';\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.equipment.push({ slotName: 'unsafe' });\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.points.bodypartHits[0] = 1;\n"
                          "return true;",
                          make_context())
@@ -2275,6 +2393,30 @@ TEST(JsGameRuntime, DefaultsMissingCharacterAffectsToEmptySnapshot)
         "return ctx.self.affects.length === 0\n"
         "  && Object.isFrozen(ctx.self.affects)\n"
         "  && typeof ctx.self.affects.constructor === 'undefined';",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, DefaultsMissingCharacterEquipmentToEmptySnapshot)
+{
+    JsGameTriggerContextFixture context;
+    context.has_self = true;
+    context.self.id = "char:default-equipment";
+    context.self.name = "Default Equipment";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.self.equipment.length === 22\n"
+        "  && ctx.self.equipment[0].slotName === 'light'\n"
+        "  && ctx.self.equipment[0].object === null\n"
+        "  && ctx.self.equipment[6].slotName === 'head'\n"
+        "  && ctx.self.equipment[6].object === null\n"
+        "  && ctx.self.equipment[16].slotName === 'wield'\n"
+        "  && ctx.self.equipment[16].object === null\n"
+        "  && Object.isFrozen(ctx.self.equipment)\n"
+        "  && Object.isFrozen(ctx.self.equipment[6])\n"
+        "  && typeof ctx.self.equipment.constructor === 'undefined';",
         context);
 
     expect_ok_allows(result);

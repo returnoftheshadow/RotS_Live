@@ -84,6 +84,8 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes)
         "SkillValue",
         "KnowledgeValue",
         "Affect",
+        "EquipmentSlot",
+        "EquipmentObjectSnapshot",
         "Player",
         "Mob",
         "GameObject",
@@ -262,7 +264,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         {"classPoints", "interruptCount", "interruptTime", "specialBusy", "baseAbilities",
             "currentAbilities", "rolledAbilities", "points", "specials", "specials2",
             "professions", "specializations", "damageDetails", "skills", "knowledge",
-            "affects"}) {
+            "affects", "equipment"}) {
         const JsApiMember *member = find_js_api_contract_member(*character, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
@@ -294,6 +296,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
         "readonly KnowledgeValue[]");
     EXPECT_STREQ(find_js_api_contract_member(*character, "affects")->type_name,
         "readonly Affect[]");
+    EXPECT_STREQ(find_js_api_contract_member(*character, "equipment")->type_name,
+        "readonly EquipmentSlot[]");
 
     const JsApiType *ability_scores = find_js_api_contract_type("AbilityScores");
     ASSERT_NE(ability_scores, nullptr);
@@ -391,6 +395,39 @@ TEST(JsApiContract, FindsTypesAndMembersByName)
     }
     EXPECT_STREQ(find_js_api_contract_member(*affect, "bitvectorNames")->type_name,
         "readonly string[]");
+
+    const JsApiMember *character_equipment =
+        find_js_api_contract_member(*character, "equipment");
+    ASSERT_NE(character_equipment, nullptr);
+    EXPECT_STREQ(character_equipment->type_name, "readonly EquipmentSlot[]");
+    EXPECT_EQ(character_equipment->status, JsApiMemberStatus::PlannedReadOnly);
+    const JsApiType *equipment_slot = find_js_api_contract_type("EquipmentSlot");
+    ASSERT_NE(equipment_slot, nullptr);
+    for (const char *member_name : {"slotIndex", "slotName", "object"}) {
+        const JsApiMember *member = find_js_api_contract_member(*equipment_slot, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
+    EXPECT_STREQ(find_js_api_contract_member(*equipment_slot, "slotIndex")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*equipment_slot, "slotName")->type_name, "string");
+    EXPECT_STREQ(find_js_api_contract_member(*equipment_slot, "object")->type_name,
+        "EquipmentObjectSnapshot | null");
+    EXPECT_TRUE(find_js_api_contract_member(*equipment_slot, "object")->nullable);
+    const JsApiType *equipment_object = find_js_api_contract_type("EquipmentObjectSnapshot");
+    ASSERT_NE(equipment_object, nullptr);
+    for (const char *member_name : {"id", "name", "description", "shortDescription",
+             "actionDescription", "vnum", "flags", "room", "carriedBy", "wornBy", "isValid"}) {
+        const JsApiMember *member = find_js_api_contract_member(*equipment_object, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_NE(member->name, std::string("setName"));
+        EXPECT_EQ(member->status == JsApiMemberStatus::PlannedReadOnly
+                || member->status == JsApiMemberStatus::PlannedPureHelper,
+            true)
+            << member_name;
+    }
+    EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "room")->type_name, "null");
+    EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "carriedBy")->type_name, "null");
+    EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "wornBy")->type_name, "null");
 
     const JsApiType* mob = find_js_api_contract_type("Mob");
     ASSERT_NE(mob, nullptr);

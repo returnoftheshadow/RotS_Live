@@ -162,8 +162,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "world-mutation",
      "Linked list pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "equipment", "equipment", "getEquipment",
-     "setEquipmentSlot", "readonly (GameObject | null)[]", false, Deferred, Deferred,
-     "Planned equipment-slot snapshot using safe object handles.",
+     "setEquipmentSlot", "readonly EquipmentSlot[]", false, ImplementedReadOnly, Deferred,
+     "Returns a frozen read-only equipment snapshot with one entry per MAX_WEAR slot, including "
+     "the slot index, canonical builder-facing slot name, and a nullable shallow object snapshot. "
+     "Raw object pointer slots and recursive wearer/carrier handles are not exposed.",
      "Equipment writes require validated wear/remove helpers and trigger parity. Direct equipment "
      "slot assignment would bypass ON_WEAR JavaScript/legacy triggers, wear restrictions, carried "
      "list transfer, light recounting, apply-affect recalculation, combat stat recalculation, and "
