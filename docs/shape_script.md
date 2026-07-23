@@ -352,9 +352,16 @@ descriptor-output category, where script output again filters recipients to
 connected playing descriptors.
 BuilderClient offline fixtures currently record command-helper events in source
 call order for diagnostics. They compile and validate the same helper API, but
-they do not yet fully emulate server category ordering, descriptor buffering,
-wait-list mutation, object placement, or inventory transfer as persistent
-offline game state. For output helpers, offline fixtures can emulate
+they do not emulate live server category ordering as the final commit order.
+Offline object-helper state is private, per-run diagnostic state: accepted
+`load_obj(vnum, character)` and `do_give(giver, recipient, object)` calls update
+hidden count, weight, and ownership facts so later helper calls in the same run
+can branch on realistic `inventory-full`, `too-heavy`, or `not-carried`
+results. Failed object helpers do not update that hidden state, repeated fixture
+runs start from the original fixture, and script-visible frozen snapshots such
+as `ctx.actor.inventory` and `ctx.object.carriedBy` do not change. Remaining
+fixture parity gaps include room object placement and descriptor buffering. For
+output helpers, offline fixtures can emulate
 `no-recipient` by setting a character fixture handle's `canReceiveOutput` to
 `false`, or by giving a room fixture a `characters` array with no reachable
 character entries. Fixture handles remain reachable by default when this
