@@ -269,10 +269,12 @@ only when the role's concrete handle kind matches the helper. Character targets
 work with character helpers, room targets work with room helpers, and object
 targets work as object helper arguments. Wrong-kind polymorphic handles fail
 without queuing a command event, and raw numeric character/object id lookup is
-not promoted as a live command-target API. BuilderClient offline fixtures
-currently record command-helper events in source call order for diagnostics; full
-offline emulation of inventory, room, and wait-list state remains a separate
-parity slice.
+not promoted as a live command-target API. During live dispatch, `target` is
+resolved only from the explicit target payload; a stale explicit target never
+falls back to `targ1` or `targ2`. BuilderClient offline fixtures currently
+record command-helper events in source call order for diagnostics; full offline
+emulation of inventory, room, and wait-list state remains a separate parity
+slice.
 
 ### Greeter with gift
 

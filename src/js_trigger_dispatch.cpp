@@ -1026,13 +1026,6 @@ const char_data *polymorphic_character_for_command_id(const std::string &id,
         return character_from_polymorphic_target_data(request.context_input.targ1, options);
     if (id == "targ2")
         return character_from_polymorphic_target_data(request.context_input.targ2, options);
-    if (id == "target") {
-        const char_data *target =
-            character_from_polymorphic_target_data(request.context_input.targ1, options);
-        if (target != nullptr)
-            return target;
-        return character_from_polymorphic_target_data(request.context_input.targ2, options);
-    }
     return nullptr;
 }
 
@@ -1046,13 +1039,6 @@ const obj_data *polymorphic_object_for_command_id(const std::string &id,
         return object_from_polymorphic_target_data(request.context_input.targ1, options);
     if (id == "targ2")
         return object_from_polymorphic_target_data(request.context_input.targ2, options);
-    if (id == "target") {
-        const obj_data *target =
-            object_from_polymorphic_target_data(request.context_input.targ1, options);
-        if (target != nullptr)
-            return target;
-        return object_from_polymorphic_target_data(request.context_input.targ2, options);
-    }
     return nullptr;
 }
 
@@ -1065,12 +1051,6 @@ int polymorphic_room_for_command_id(const std::string &id, const JsTriggerDispat
         return room_from_polymorphic_target_data(request.context_input.targ1, options);
     if (id == "targ2")
         return room_from_polymorphic_target_data(request.context_input.targ2, options);
-    if (id == "target") {
-        int room = room_from_polymorphic_target_data(request.context_input.targ1, options);
-        if (room != NOWHERE)
-            return room;
-        return room_from_polymorphic_target_data(request.context_input.targ2, options);
-    }
     return NOWHERE;
 }
 
