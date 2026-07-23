@@ -622,6 +622,11 @@ TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) 
         "drinkWater", "drinkPoison", "securityRoom", "peaceRoom", "noTeleport", "hideVnum"};
     const std::vector<std::string> expected_excluded_flags = {
         "BFS_MARK", "PERMAFFECT", "permanentAffect", "unnamed-room-flag-bits"};
+    const std::vector<std::string> expected_builder_zone_flags = {"dark", "noMob",
+        "indoors", "noRide", "shadowy", "noMagic", "tunnel", "drinkWater", "drinkPoison",
+        "peaceRoom", "hideVnum"};
+    const std::vector<std::string> expected_admin_only_flags = {
+        "death", "private", "godRoom", "securityRoom", "noTeleport"};
     const char *expected_operations[] = {"room.flags.add", "room.flags.remove"};
     const char *expected_helpers[] = {"Room.addFlag(name: RoomFlagName): MutationResult",
         "Room.removeFlag(name: RoomFlagName): MutationResult"};
@@ -645,7 +650,39 @@ TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) 
                   std::string::npos);
         EXPECT_NE(std::string(operation.authority_policy).find("authorized zone"),
                   std::string::npos);
+        EXPECT_NE(std::string(operation.authority_policy).find("immortal/admin override"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.side_effect_policy).find("lighting"), std::string::npos);
+        EXPECT_NE(std::string(operation.side_effect_policy).find("movement"), std::string::npos);
+        EXPECT_NE(std::string(operation.side_effect_policy).find("combat"), std::string::npos);
+        EXPECT_NE(std::string(operation.side_effect_policy).find("security"), std::string::npos);
+        for (const char *side_effect : {"drinkWater/drinkPoison", "noMagic", "noRide",
+                 "noTeleport", "hideVnum", "entry limits"}) {
+            EXPECT_NE(std::string(operation.side_effect_policy).find(side_effect),
+                      std::string::npos)
+                << side_effect;
+        }
         EXPECT_NE(std::string(operation.audit_policy).find("before any room_data.room_flags"),
+                  std::string::npos);
+        for (const char *audit_field : {"operation", "canonical flag name", "authority class",
+                 "builder account id", "eligible immortal character id", "target zone",
+                 "room vnum", "package id", "request id", "verified override scope",
+                 "override decision evidence", "previous flag membership",
+                 "intended new flag membership"}) {
+            EXPECT_NE(std::string(operation.audit_policy).find(audit_field), std::string::npos)
+                << audit_field;
+        }
+        EXPECT_NE(std::string(operation.diagnostic_policy).find("stable reason category"),
+                  std::string::npos);
+        for (const char *diagnostic_category : {"unsupported-envelope", "unknown-operation",
+                 "invalid-target", "invalid-arguments", "blocked-flag", "admin-only-flag",
+                 "stale-room", "wrong-zone", "invalid-token", "audit-rejected",
+                 "apply-rejected"}) {
+            EXPECT_NE(std::string(operation.diagnostic_policy).find(diagnostic_category),
+                      std::string::npos)
+                << diagnostic_category;
+        }
+        EXPECT_NE(std::string(operation.diagnostic_policy).find("without exposing token secrets"),
                   std::string::npos);
         EXPECT_NE(std::string(operation.rollback_policy).find("previous room_data.room_flags"),
                   std::string::npos);
@@ -672,12 +709,42 @@ TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) 
         EXPECT_EQ(std::find(allowed_flags.begin(), allowed_flags.end(), "permaffect"),
                   allowed_flags.end());
 
+        const std::vector<std::string> builder_zone_flags =
+            split_pipe_list(operation.builder_zone_flags);
+        const std::vector<std::string> admin_only_flags =
+            split_pipe_list(operation.admin_only_flags);
+        const std::vector<std::string> blocked_flags =
+            split_pipe_list(operation.blocked_flags);
+        EXPECT_EQ(builder_zone_flags, expected_builder_zone_flags);
+        EXPECT_EQ(admin_only_flags, expected_admin_only_flags);
+        EXPECT_EQ(blocked_flags, expected_excluded_flags);
+
+        std::set<std::string> authority_classified_flags;
+        for (const std::string &flag : builder_zone_flags) {
+            EXPECT_TRUE(std::find(allowed_flags.begin(), allowed_flags.end(), flag) !=
+                        allowed_flags.end())
+                << flag;
+            EXPECT_TRUE(authority_classified_flags.insert(flag).second) << flag;
+        }
+        for (const std::string &flag : admin_only_flags) {
+            EXPECT_TRUE(std::find(allowed_flags.begin(), allowed_flags.end(), flag) !=
+                        allowed_flags.end())
+                << flag;
+            EXPECT_TRUE(authority_classified_flags.insert(flag).second) << flag;
+        }
+        EXPECT_EQ(authority_classified_flags,
+                  std::set<std::string>(allowed_flags.begin(), allowed_flags.end()));
+
         const std::vector<std::string> excluded_flags =
             split_pipe_list(operation.excluded_flags);
         EXPECT_EQ(excluded_flags, expected_excluded_flags);
         EXPECT_EQ(std::set<std::string>(excluded_flags.begin(), excluded_flags.end()).size(),
                   excluded_flags.size());
         for (const std::string &flag : excluded_flags)
+            EXPECT_EQ(std::find(allowed_flags.begin(), allowed_flags.end(), flag),
+                      allowed_flags.end())
+                << flag;
+        for (const std::string &flag : blocked_flags)
             EXPECT_EQ(std::find(allowed_flags.begin(), allowed_flags.end(), flag),
                       allowed_flags.end())
                 << flag;

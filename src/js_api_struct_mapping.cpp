@@ -903,35 +903,77 @@ constexpr const char *RoomFlagHelperAllowedFlags =
 constexpr const char *RoomFlagHelperExcludedFlags =
     "BFS_MARK|PERMAFFECT|permanentAffect|unnamed-room-flag-bits";
 
+constexpr const char *RoomFlagHelperBuilderZoneFlags =
+    "dark|noMob|indoors|noRide|shadowy|noMagic|tunnel|drinkWater|drinkPoison|peaceRoom|"
+    "hideVnum";
+
+constexpr const char *RoomFlagHelperAdminOnlyFlags =
+    "death|private|godRoom|securityRoom|noTeleport";
+
+constexpr const char *RoomFlagHelperBlockedFlags =
+    "BFS_MARK|PERMAFFECT|permanentAffect|unnamed-room-flag-bits";
+
 constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
     {"room.flags.add", "Room.addFlag(name: RoomFlagName): MutationResult",
      RoomFlagHelperAllowedFlags, RoomFlagHelperExcludedFlags,
+     RoomFlagHelperBuilderZoneFlags, RoomFlagHelperAdminOnlyFlags, RoomFlagHelperBlockedFlags,
      "Requires an opaque room target token resolved to a loaded room in the authenticated "
-     "builder's authorized zone; rejects stale rooms, copied tokens, raw vnums, wrong-zone "
-     "rooms, BFS_MARK, PERMAFFECT/permanentAffect, and unnamed bits before audit.",
+     "builder's authorized zone. Builder-zone authority may change ordinary presentation, "
+     "movement-cost, entry, magic, riding, drinking, peace, and vnum-visibility flags only; "
+     "death, private, godRoom, securityRoom, and noTeleport require explicit immortal/admin "
+     "override evidence; BFS_MARK, PERMAFFECT/permanentAffect, and unnamed bits are always "
+     "blocked before audit.",
+     "dark/shadowy affect lighting and look output; noMob/noRide/tunnel affect movement and "
+     "entry limits; noMagic affects spell use; drinkWater/drinkPoison affect drinking results; "
+     "peaceRoom affects combat start; hideVnum affects builder visibility; death/private/"
+     "godRoom/securityRoom/noTeleport are high-impact safety/security/transport flags.",
      "Audit request is recorded after target/flag validation and before any room_data.room_flags "
-     "bit is changed; script-visible failure remains a sanitized MutationResult.",
+     "bit is changed; it must include operation, canonical flag name, authority class, builder "
+     "account id, eligible immortal character id, target zone, room vnum, package id, and "
+     "request id. Admin-only flag changes must also include verified override scope, override "
+     "decision evidence, previous flag membership, and intended new flag membership.",
+     "Builder diagnostics name only the rejected flag and stable reason category "
+     "(unsupported-envelope, unknown-operation, invalid-target, invalid-arguments, "
+     "blocked-flag, admin-only-flag, stale-room, wrong-zone, invalid-token, audit-rejected, "
+     "apply-rejected) without exposing token secrets or owner evidence.",
      "Apply records each previous room_data.room_flags value and restores it in reverse order "
      "if any later helper in the same mixed mutation batch fails before scalar setters commit.",
      "Offline fixtures use the same flag vocabulary, token/stale-handle model, sanitized "
-     "MutationResult shape, and no-partial-write behavior without requiring authentication.",
+     "MutationResult shape, policy classifications, side-effect notes, and no-partial-write "
+     "behavior without requiring authentication.",
      "Cover allowed add, duplicate add idempotence, forbidden BFS_MARK/PERMAFFECT, wrong-zone "
-     "room, stale room token, audit rejection, rollback after mixed failure, and absence of raw "
-     "Room.setFlags."},
+     "room, stale room token, admin-only denial without override, audit rejection, rollback "
+     "after mixed failure, and absence of raw Room.setFlags."},
     {"room.flags.remove", "Room.removeFlag(name: RoomFlagName): MutationResult",
      RoomFlagHelperAllowedFlags, RoomFlagHelperExcludedFlags,
+     RoomFlagHelperBuilderZoneFlags, RoomFlagHelperAdminOnlyFlags, RoomFlagHelperBlockedFlags,
      "Requires an opaque room target token resolved to a loaded room in the authenticated "
-     "builder's authorized zone; rejects stale rooms, copied tokens, raw vnums, wrong-zone "
-     "rooms, BFS_MARK, PERMAFFECT/permanentAffect, and unnamed bits before audit.",
+     "builder's authorized zone. Builder-zone authority may change ordinary presentation, "
+     "movement-cost, entry, magic, riding, drinking, peace, and vnum-visibility flags only; "
+     "death, private, godRoom, securityRoom, and noTeleport require explicit immortal/admin "
+     "override evidence; BFS_MARK, PERMAFFECT/permanentAffect, and unnamed bits are always "
+     "blocked before audit.",
+     "dark/shadowy affect lighting and look output; noMob/noRide/tunnel affect movement and "
+     "entry limits; noMagic affects spell use; drinkWater/drinkPoison affect drinking results; "
+     "peaceRoom affects combat start; hideVnum affects builder visibility; death/private/"
+     "godRoom/securityRoom/noTeleport are high-impact safety/security/transport flags.",
      "Audit request is recorded after target/flag validation and before any room_data.room_flags "
-     "bit is changed; script-visible failure remains a sanitized MutationResult.",
+     "bit is changed; it must include operation, canonical flag name, authority class, builder "
+     "account id, eligible immortal character id, target zone, room vnum, package id, and "
+     "request id. Admin-only flag changes must also include verified override scope, override "
+     "decision evidence, previous flag membership, and intended new flag membership.",
+     "Builder diagnostics name only the rejected flag and stable reason category "
+     "(unsupported-envelope, unknown-operation, invalid-target, invalid-arguments, "
+     "blocked-flag, admin-only-flag, stale-room, wrong-zone, invalid-token, audit-rejected, "
+     "apply-rejected) without exposing token secrets or owner evidence.",
      "Apply records each previous room_data.room_flags value and restores it in reverse order "
      "if any later helper in the same mixed mutation batch fails before scalar setters commit.",
      "Offline fixtures use the same flag vocabulary, token/stale-handle model, sanitized "
-     "MutationResult shape, and no-partial-write behavior without requiring authentication.",
+     "MutationResult shape, policy classifications, side-effect notes, and no-partial-write "
+     "behavior without requiring authentication.",
      "Cover allowed remove, missing remove idempotence, forbidden BFS_MARK/PERMAFFECT, wrong-zone "
-     "room, stale room token, audit rejection, rollback after mixed failure, and absence of raw "
-     "Room.setFlags."},
+     "room, stale room token, admin-only denial without override, audit rejection, rollback "
+     "after mixed failure, and absence of raw Room.setFlags."},
 };
 
 static_assert(BFS_MARK != 0, "BFS_MARK must stay an explicit room flag helper exclusion.");

@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -262,6 +263,35 @@ std::string read_first_available_file(const std::vector<std::string>& paths)
     return "";
 }
 
+std::vector<std::string> parse_dispatch_room_flag_helper_names()
+{
+    const std::string source =
+        read_first_available_file({ "src/js_trigger_dispatch.cpp", "../js_trigger_dispatch.cpp" });
+    EXPECT_FALSE(source.empty());
+    const std::string start_marker = "constexpr RoomFlagHelperFlag RoomFlagHelperAllowedFlags[]";
+    const std::size_t start = source.find(start_marker);
+    EXPECT_NE(start, std::string::npos);
+    const std::size_t open_brace = source.find('{', start);
+    EXPECT_NE(open_brace, std::string::npos);
+    const std::size_t end = source.find("};", open_brace);
+    EXPECT_NE(end, std::string::npos);
+
+    std::vector<std::string> names;
+    std::size_t cursor = open_brace;
+    while (cursor < end) {
+        const std::size_t quote = source.find('"', cursor);
+        if (quote == std::string::npos || quote >= end)
+            break;
+        const std::size_t close = source.find('"', quote + 1);
+        EXPECT_NE(close, std::string::npos);
+        if (close == std::string::npos || close >= end)
+            break;
+        names.push_back(source.substr(quote + 1, close - quote - 1));
+        cursor = close + 1;
+    }
+    return names;
+}
+
 std::size_t world_map_symbol_offset(int x, int y)
 {
     return static_cast<std::size_t>((y + 1) * (WORLD_SIZE_X + 4) + x * 2 + 1);
@@ -423,6 +453,32 @@ TEST(JsTriggerDispatch, RoomFlagHelperRegistryMatchesServerCatalog)
     }
     EXPECT_STREQ(registry.operation_names[0], "room.flags.add");
     EXPECT_STREQ(registry.operation_names[1], "room.flags.remove");
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelperDispatchAcceptedFlagsMatchServerPolicyCatalog)
+{
+    const std::vector<std::string> dispatch_flags = parse_dispatch_room_flag_helper_names();
+    ASSERT_FALSE(dispatch_flags.empty());
+
+    for (std::size_t index = 0; index < js_api_room_flag_helper_operation_count(); ++index) {
+        const JsApiRoomFlagHelperOperation &operation =
+            js_api_room_flag_helper_operations()[index];
+        SCOPED_TRACE(operation.operation_name);
+        const std::vector<std::string> policy_flags = split_pipe_list(operation.allowed_flags);
+        EXPECT_EQ(dispatch_flags, policy_flags);
+
+        const std::vector<std::string> builder_zone_flags =
+            split_pipe_list(operation.builder_zone_flags);
+        const std::vector<std::string> admin_only_flags =
+            split_pipe_list(operation.admin_only_flags);
+        std::set<std::string> authority_classified_flags;
+        for (const std::string &flag : builder_zone_flags)
+            EXPECT_TRUE(authority_classified_flags.insert(flag).second) << flag;
+        for (const std::string &flag : admin_only_flags)
+            EXPECT_TRUE(authority_classified_flags.insert(flag).second) << flag;
+        EXPECT_EQ(authority_classified_flags,
+                  std::set<std::string>(dispatch_flags.begin(), dispatch_flags.end()));
+    }
 }
 
 TEST(JsTriggerDispatch, RoomFlagHelperRegistryAcceptsCatalogOperationsThroughTransaction)

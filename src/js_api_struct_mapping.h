@@ -60,8 +60,13 @@ struct JsApiRoomFlagHelperOperation {
     const char *helper_name;
     const char *allowed_flags;
     const char *excluded_flags;
+    const char *builder_zone_flags;
+    const char *admin_only_flags;
+    const char *blocked_flags;
     const char *authority_policy;
+    const char *side_effect_policy;
     const char *audit_policy;
+    const char *diagnostic_policy;
     const char *rollback_policy;
     const char *offline_policy;
     const char *test_focus;
