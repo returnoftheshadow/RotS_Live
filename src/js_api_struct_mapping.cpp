@@ -301,12 +301,13 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "documented builder-facing domain. Object flags.level and flags.rarity are implemented "
      "subfield setters because they have bounded persisted scalar paths."},
     {JsApiStructOwner::ObjData, "obj_data", "affected", "affects", "getAffects", "setAffects",
-     "readonly ObjectAffect[]", false, Deferred, Unsupported,
-     "Deferred fixed-slot equipment modifier snapshot. Future entries must use named apply "
-     "locations, integer modifiers, canonical ordering, and omit empty slots.",
+     "readonly ObjectAffect[]", false, ImplementedReadOnly, Unsupported,
+     "Returns a fixed-slot equipment modifier snapshot. Entries use named apply locations, "
+     "integer modifiers, canonical slot ordering, and omit empty none-location plus zero-modifier "
+     "slots.",
      "Object affect writes are unsupported for builder scripts until a slot-specific helper owns "
      "equipment recalculation, apply-location validation, canonical ordering, and persistence.",
-     "mutation", "Fixed-size equipment modifier slots; no builder getter is emitted yet."},
+     "mutation", "Fixed-size equipment modifier slots are exposed as a read-only diagnostic snapshot."},
     {JsApiStructOwner::ObjData, "obj_data", "name", "name", "getName", "setName", "string", false,
      ImplementedReadOnly, SetterImplemented,
      "Returns the object's keyword/name string for builder conditions and diagnostics.",

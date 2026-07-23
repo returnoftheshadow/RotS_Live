@@ -557,6 +557,24 @@ JsGameObjectFlagsFixture object_flags_fixture(const obj_flag_data &flags) {
     return fixture;
 }
 
+std::vector<JsGameObjectAffectFixture> object_affects_fixture(
+    const obj_affected_type (&affected)[MAX_OBJ_AFFECT]) {
+    std::vector<JsGameObjectAffectFixture> fixtures;
+    for (int slot_index = 0; slot_index < MAX_OBJ_AFFECT; ++slot_index) {
+        const obj_affected_type &affect = affected[slot_index];
+        if (affect.location == APPLY_NONE && affect.modifier == 0)
+            continue;
+
+        JsGameObjectAffectFixture fixture;
+        fixture.slot_index = slot_index;
+        fixture.location = affect.location;
+        fixture.location_name = table_name_at(apply_types, affect.location, 40);
+        fixture.modifier = affect.modifier;
+        fixtures.push_back(std::move(fixture));
+    }
+    return fixtures;
+}
+
 bool object_is_worn_by(const obj_data *object, const char_data *carrier) {
     if (object == nullptr || carrier == nullptr)
         return false;
@@ -697,6 +715,7 @@ bool equipment_object_fixture(const obj_data *object, const char_data *wearer,
     fixture->action_description = copy_c_string(object->action_description);
     fixture->vnum = object_vnum(*object, options);
     fixture->flags = object_flags_fixture(object->obj_flags);
+    fixture->affects = object_affects_fixture(object->affected);
     fixture->has_room = false;
     return true;
 }
@@ -721,6 +740,7 @@ bool inventory_object_fixture(const obj_data *object, const char_data *carrier,
     fixture->action_description = copy_c_string(object->action_description);
     fixture->vnum = object_vnum(*object, options);
     fixture->flags = object_flags_fixture(object->obj_flags);
+    fixture->affects = object_affects_fixture(object->affected);
     fixture->has_room = false;
     return true;
 }
@@ -1253,6 +1273,7 @@ bool js_game_adapter_object_fixture(const obj_data *object, const JsGameAdapterO
     fixture->action_description = copy_c_string(object->action_description);
     fixture->vnum = object_vnum(*object, options);
     fixture->flags = object_flags_fixture(object->obj_flags);
+    fixture->affects = object_affects_fixture(object->affected);
     fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
 
     fixture->has_carried_by = false;

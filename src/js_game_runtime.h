@@ -255,6 +255,13 @@ struct JsGameObjectFlagsFixture {
     std::string material;
 };
 
+struct JsGameObjectAffectFixture {
+    int slot_index = 0;
+    int location = 0;
+    std::string location_name;
+    int modifier = 0;
+};
+
 struct JsGameEquipmentObjectFixture {
     std::string id;
     std::string name;
@@ -264,6 +271,7 @@ struct JsGameEquipmentObjectFixture {
     std::string action_description;
     int vnum = 0;
     JsGameObjectFlagsFixture flags;
+    std::vector<JsGameObjectAffectFixture> affects;
 
     bool has_room = false;
     JsGameRoomFixture room;
@@ -346,6 +354,7 @@ struct JsGameObjectFixture {
     std::string action_description;
     int vnum = 0;
     JsGameObjectFlagsFixture flags;
+    std::vector<JsGameObjectAffectFixture> affects;
 
     bool has_room = false;
     JsGameRoomFixture room;

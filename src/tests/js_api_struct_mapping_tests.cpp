@@ -820,8 +820,9 @@ TEST(JsApiStructMapping, PinsObjectDeferredClassificationMappings) {
         const char *notes_fragment;
     };
     const ExpectedMapping expected[] = {
-        {"affected", "affects", "readonly ObjectAffect[]", "deferred", "unsupported", "mutation",
-         "Future entries must use named apply locations", "no builder getter is emitted yet"},
+        {"affected", "affects", "readonly ObjectAffect[]", "implemented-read-only-getter",
+         "unsupported", "mutation", "canonical slot ordering",
+         "read-only diagnostic snapshot"},
         {"ex_description", "extraDescriptions", "readonly ExtraDescription[]", "deferred",
          "unsupported", "mutation", "bounded list size", "not exposed to builders"},
         {"owner", "ownerId", "never", "internal-only", "unsupported", "none",
@@ -962,7 +963,7 @@ TEST(JsApiStructMapping, PinsObjectAndRoomNestedListSetterDeferrals) {
         {JsApiStructOwner::ObjData, "obj_flags", "flags", "setFlags", "ObjectFlags", false,
          "implemented-read-only-getter", "unsupported", "mutation", "separate named helper APIs"},
         {JsApiStructOwner::ObjData, "affected", "affects", "setAffects", "readonly ObjectAffect[]",
-         false, "deferred", "unsupported", "mutation", "slot-specific helper"},
+         false, "implemented-read-only-getter", "unsupported", "mutation", "slot-specific helper"},
         {JsApiStructOwner::ObjData, "ex_description", "extraDescriptions", "setExtraDescriptions",
          "readonly ExtraDescription[]", true, "deferred", "unsupported", "mutation",
          "add/update/remove helper APIs"},

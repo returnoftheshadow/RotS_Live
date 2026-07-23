@@ -88,6 +88,16 @@ JsGameAffectFixture make_affect(int type, const std::string &name, int duration,
     return affect;
 }
 
+JsGameObjectAffectFixture make_object_affect(int slot_index, int location,
+                                             const std::string &location_name, int modifier) {
+    JsGameObjectAffectFixture affect;
+    affect.slot_index = slot_index;
+    affect.location = location;
+    affect.location_name = location_name;
+    affect.modifier = modifier;
+    return affect;
+}
+
 JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string &slot_name,
                                                bool has_object) {
     JsGameEquipmentSlotFixture slot;
@@ -112,6 +122,7 @@ JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string
         slot.object.flags.timer = 30;
         slot.object.flags.rarity = 2;
         slot.object.flags.material = "metal";
+        slot.object.affects.push_back(make_object_affect(0, 2, "DEX", 1));
     }
     return slot;
 }
@@ -136,6 +147,7 @@ JsGameEquipmentObjectFixture make_inventory_object(const std::string &id, const 
     object.flags.timer = 0;
     object.flags.rarity = 1;
     object.flags.material = "wood";
+    object.affects.push_back(make_object_affect(1, 24, "SPEED", 3));
     return object;
 }
 
@@ -458,6 +470,8 @@ JsGameTriggerContextFixture make_context() {
     context.object.flags.timer = 30;
     context.object.flags.rarity = 2;
     context.object.flags.material = "metal";
+    context.object.affects.push_back(make_object_affect(0, 1, "STR", 2));
+    context.object.affects.push_back(make_object_affect(1, 2, "DEX", -1));
     context.object.has_room = true;
     context.object.room.id = "room:1204";
     context.object.room.name = "Northern Gate";
@@ -1216,6 +1230,21 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.object.flags.timer === 30\n"
         "  && ctx.object.flags.rarity === 2\n"
         "  && ctx.object.flags.material === 'metal'\n"
+        "  && ctx.object.affects.length === 2\n"
+        "  && ctx.object.affects[0].slotIndex === 0\n"
+        "  && ctx.object.affects[0].location === 1\n"
+        "  && ctx.object.affects[0].locationName === 'STR'\n"
+        "  && ctx.object.affects[0].modifier === 2\n"
+        "  && ctx.object.affects[1].slotIndex === 1\n"
+        "  && ctx.object.affects[1].locationName === 'DEX'\n"
+        "  && ctx.object.affects[1].modifier === -1\n"
+        "  && ctx.self.equipment[6].object.affects.length === 1\n"
+        "  && ctx.self.equipment[6].object.affects[0].locationName === 'DEX'\n"
+        "  && ctx.self.equipment[6].object.affects[0].modifier === 1\n"
+        "  && ctx.self.inventory[0].affects.length === 1\n"
+        "  && ctx.self.inventory[0].affects[0].slotIndex === 1\n"
+        "  && ctx.self.inventory[0].affects[0].locationName === 'SPEED'\n"
+        "  && ctx.self.inventory[0].affects[0].modifier === 3\n"
         "  && ctx.self.profile.name === 'Aldren'\n"
         "  && ctx.self.profile.shortDescription === 'Aldren the builder'\n"
         "  && ctx.self.profile.longDescription === 'Aldren is reviewing the old gate.'\n"
@@ -1538,6 +1567,9 @@ TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent) {
     JsRuntimeEvalResult result =
         runtime.evaluate_trigger_body("return ctx.weapon !== null\n"
                                       "  && ctx.weapon.name === 'silver lever'\n"
+                                      "  && ctx.weapon.affects.length === 2\n"
+                                      "  && ctx.weapon.affects[0].locationName === 'STR'\n"
+                                      "  && ctx.weapon.affects[1].modifier === -1\n"
                                       "  && ctx.weapon.room.vnum === 1204\n"
                                       "  && ctx.weapon.isValid();",
                                       context);
@@ -2255,6 +2287,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.self.equipment[6].object.setRarity === 'undefined'\n"
         "  && typeof ctx.self.equipment[6].object.flags.constructor === 'undefined'\n"
         "  && typeof ctx.self.equipment[6].object.flags.wearFlags.constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.affects.constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.affects[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory.constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].__rotsReadOnlySnapshot === 'undefined'\n"
@@ -2266,6 +2300,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.self.inventory[0].setRarity === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].flags.constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].flags.wearFlags.constructor === 'undefined'\n"
+        "  && typeof ctx.self.inventory[0].affects.constructor === 'undefined'\n"
+        "  && typeof ctx.self.inventory[0].affects[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.followers.constructor === 'undefined'\n"
         "  && typeof ctx.self.followers[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.followers[0].__rotsReadOnlySnapshot === 'undefined'\n"
@@ -2301,8 +2337,10 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && Object.getPrototypeOf(ctx.self.equipment[6]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.equipment[6].object) === null\n"
         "  && Object.getPrototypeOf(ctx.self.equipment[6].object.flags) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.equipment[6].object.affects[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.inventory[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.inventory[0].flags) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.inventory[0].affects[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.followers[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.master) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
@@ -2339,11 +2377,20 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && Object.isFrozen(ctx.self.equipment[6].object.flags)\n"
         "  && Object.isFrozen(ctx.self.equipment[6].object.flags.wearFlags)\n"
         "  && Object.isFrozen(ctx.self.equipment[6].object.flags.extraFlags)\n"
+        "  && Object.isFrozen(ctx.self.equipment[6].object.affects)\n"
+        "  && Object.isFrozen(ctx.self.equipment[6].object.affects[0])\n"
         "  && Object.isFrozen(ctx.self.inventory)\n"
         "  && Object.isFrozen(ctx.self.inventory[0])\n"
         "  && Object.isFrozen(ctx.self.inventory[0].flags)\n"
         "  && Object.isFrozen(ctx.self.inventory[0].flags.wearFlags)\n"
         "  && Object.isFrozen(ctx.self.inventory[0].flags.extraFlags)\n"
+        "  && Object.isFrozen(ctx.self.inventory[0].affects)\n"
+        "  && Object.isFrozen(ctx.self.inventory[0].affects[0])\n"
+        "  && typeof ctx.object.affects.constructor === 'undefined'\n"
+        "  && typeof ctx.object.affects[0].constructor === 'undefined'\n"
+        "  && Object.getPrototypeOf(ctx.object.affects[0]) === null\n"
+        "  && Object.isFrozen(ctx.object.affects)\n"
+        "  && Object.isFrozen(ctx.object.affects[0])\n"
         "  && Object.isFrozen(ctx.self.followers)\n"
         "  && Object.isFrozen(ctx.self.followers[0])\n"
         "  && Object.isFrozen(ctx.self.master)\n"
@@ -2472,6 +2519,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
                   .status,
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.object.affects[0].modifier = 99;\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.object.affects.push({ slotIndex: 1 });\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.self.equipment[6].slotName = 'wield';\n"
                                          "return true;",
                                          make_context())
@@ -2504,6 +2563,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
             .status,
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.equipment[6].object.affects[0].modifier = 99;\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.equipment[6].object.affects.push({ slotIndex: 1 });\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.self.equipment.push({ slotName: 'unsafe' });\n"
                                          "return true;",
                                          make_context())
@@ -2523,6 +2594,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.self.inventory[0].flags.wearFlags.push('unsafe');\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.inventory[0].affects[0].modifier = 99;\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.inventory[0].affects.push({ slotIndex: 1 });\n"
                                          "return true;",
                                          make_context())
                   .status,
@@ -2641,6 +2724,23 @@ TEST(JsGameRuntime, DefaultsMissingCharacterAffectsToEmptySnapshot) {
         runtime.evaluate_trigger_body("return ctx.self.affects.length === 0\n"
                                       "  && Object.isFrozen(ctx.self.affects)\n"
                                       "  && typeof ctx.self.affects.constructor === 'undefined';",
+                                      context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, DefaultsMissingObjectAffectsToEmptySnapshot) {
+    JsGameTriggerContextFixture context;
+    context.has_object = true;
+    context.object.id = "object:default-affects";
+    context.object.name = "Default Object";
+    context.object.short_description = "Default Object";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.object.affects.length === 0\n"
+                                      "  && Object.isFrozen(ctx.object.affects)\n"
+                                      "  && typeof ctx.object.affects.constructor === 'undefined';",
                                       context);
 
     expect_ok_allows(result);
@@ -3054,6 +3154,9 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
                            "\"extraFlags\":[\"glow\",\"magic\"],\"level\":12,\"weight\":7,"
                            "\"cost\":450,\"costPerDay\":15,\"timer\":30,\"rarity\":2,"
                            "\"material\":\"metal\"},"
+                           "\"affects\":[{\"slotIndex\":0,\"location\":1,\"locationName\":\"STR\","
+                           "\"modifier\":2},{\"slotIndex\":1,\"location\":2,"
+                           "\"locationName\":\"DEX\",\"modifier\":-1}],"
                            "\"room\":{\"id\":\"room:1204\""),
               std::string::npos);
     EXPECT_NE(literal.find("\"description\":\"The old city zone.\""), std::string::npos);

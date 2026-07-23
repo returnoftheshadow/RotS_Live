@@ -72,6 +72,7 @@ TEST(JsApiContract, ContainsExpectedHandleAndContextTypes) {
         "SkillValue",
         "KnowledgeValue",
         "Affect",
+        "ObjectAffect",
         "EquipmentSlot",
         "EquipmentObjectSnapshot",
         "InventoryObjectSnapshot",
@@ -380,6 +381,17 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     }
     EXPECT_STREQ(find_js_api_contract_member(*affect, "bitvectorNames")->type_name,
                  "readonly string[]");
+    const JsApiType *object_affect = find_js_api_contract_type("ObjectAffect");
+    ASSERT_NE(object_affect, nullptr);
+    for (const char *member_name : {"slotIndex", "location", "locationName", "modifier"}) {
+        const JsApiMember *member = find_js_api_contract_member(*object_affect, member_name);
+        ASSERT_NE(member, nullptr) << member_name;
+        EXPECT_EQ(member->status, JsApiMemberStatus::PlannedReadOnly) << member_name;
+    }
+    EXPECT_STREQ(find_js_api_contract_member(*object_affect, "slotIndex")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*object_affect, "location")->type_name, "number");
+    EXPECT_STREQ(find_js_api_contract_member(*object_affect, "locationName")->type_name, "string");
+    EXPECT_STREQ(find_js_api_contract_member(*object_affect, "modifier")->type_name, "number");
 
     const JsApiMember *character_equipment = find_js_api_contract_member(*character, "equipment");
     ASSERT_NE(character_equipment, nullptr);
@@ -401,7 +413,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     ASSERT_NE(equipment_object, nullptr);
     for (const char *member_name :
          {"id", "name", "description", "shortDescription", "actionDescription", "vnum", "flags",
-          "room", "carriedBy", "wornBy", "isValid"}) {
+          "affects", "room", "carriedBy", "wornBy", "isValid"}) {
         const JsApiMember *member = find_js_api_contract_member(*equipment_object, member_name);
         ASSERT_NE(member, nullptr) << member_name;
         EXPECT_NE(member->name, std::string("setName"));
@@ -410,6 +422,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
                   true)
             << member_name;
     }
+    EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "affects")->type_name,
+                 "readonly ObjectAffect[]");
     EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "room")->type_name, "null");
     EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "carriedBy")->type_name, "null");
     EXPECT_STREQ(find_js_api_contract_member(*equipment_object, "wornBy")->type_name, "null");
@@ -420,6 +434,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     const JsApiType *inventory_object = find_js_api_contract_type("InventoryObjectSnapshot");
     ASSERT_NE(inventory_object, nullptr);
     EXPECT_NE(find_js_api_contract_member(*inventory_object, "flags"), nullptr);
+    EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "affects")->type_name,
+                 "readonly ObjectAffect[]");
     EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "room")->type_name, "null");
     EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "carriedBy")->type_name, "null");
     EXPECT_STREQ(find_js_api_contract_member(*inventory_object, "wornBy")->type_name, "null");
@@ -604,8 +620,8 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     EXPECT_STREQ(object_material->type_name, "string");
 
     const char *classification_only_object_members[] = {
-        "affects", "extraDescriptions", "container", "contents", "nextContent", "next",
-        "touched", "ownerId",           "loadedBy",  "values",   "value0",      "rawValues",
+        "extraDescriptions", "container", "contents", "nextContent", "next", "touched",
+        "ownerId",           "loadedBy",  "values",   "value0",      "rawValues",
     };
     for (const char *member_name : classification_only_object_members) {
         EXPECT_EQ(find_js_api_contract_member(*object, member_name), nullptr) << member_name;

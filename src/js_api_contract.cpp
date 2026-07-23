@@ -459,6 +459,10 @@ constexpr JsApiMember GameObjectMembers[] = {
      "Structured read-only object flag snapshot. It exposes symbolic item type, wear flags, extra "
      "flags, material, and scalar economy/timer fields without exposing the "
      "legacy flag storage or bitvectors."},
+    {"affects", JsApiMemberKind::Property, "readonly ObjectAffect[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only fixed-slot object affect snapshot. Empty none-location plus zero-modifier slots "
+     "are omitted; malformed legacy nonzero slots are still exposed for diagnostics."},
     {"room", JsApiMemberKind::Property, "Room | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Direct room containing the object, or null when carried, worn, nested, or invalid."},
@@ -930,6 +934,21 @@ constexpr JsApiMember AffectMembers[] = {
      "Affect-specific counter value copied from the live affect node."},
 };
 
+constexpr JsApiMember ObjectAffectMembers[] = {
+    {"slotIndex", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Zero-based fixed object affect slot copied from the live object."},
+    {"location", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Raw apply-location id copied read-only for diagnostics."},
+    {"locationName", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Builder-facing apply-location name when the location id is known."},
+    {"modifier", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Numeric modifier applied by this object affect slot."},
+};
+
 constexpr JsApiMember EquipmentSlotMembers[] = {
     {"slotIndex", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
@@ -965,6 +984,9 @@ constexpr JsApiMember EquipmentObjectSnapshotMembers[] = {
     {"flags", JsApiMemberKind::Property, "ObjectFlags", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Filtered object flag/value snapshot copied read-only."},
+    {"affects", JsApiMemberKind::Property, "readonly ObjectAffect[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Filtered fixed-slot object affect snapshot copied read-only."},
     {"room", JsApiMemberKind::Property, "null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Always null for equipment snapshots because worn objects are not directly in a room."},
@@ -1000,6 +1022,9 @@ constexpr JsApiMember InventoryObjectSnapshotMembers[] = {
     {"flags", JsApiMemberKind::Property, "ObjectFlags", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Filtered object flag/value snapshot copied read-only."},
+    {"affects", JsApiMemberKind::Property, "readonly ObjectAffect[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Filtered fixed-slot object affect snapshot copied read-only."},
     {"room", JsApiMemberKind::Property, "null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Always null for inventory snapshots because carried objects are not directly in a room."},
@@ -1076,6 +1101,9 @@ constexpr JsApiType ApiTypes[] = {
      sizeof(KnowledgeValueMembers) / sizeof(KnowledgeValueMembers[0])},
     {"Affect", JsApiTypeKind::Interface, "", "Frozen read-only active affect entry.", AffectMembers,
      sizeof(AffectMembers) / sizeof(AffectMembers[0])},
+    {"ObjectAffect", JsApiTypeKind::Interface, "",
+     "Frozen read-only fixed-slot object affect entry.", ObjectAffectMembers,
+     sizeof(ObjectAffectMembers) / sizeof(ObjectAffectMembers[0])},
     {"EquipmentSlot", JsApiTypeKind::Interface, "",
      "Frozen read-only character equipment slot entry.", EquipmentSlotMembers,
      sizeof(EquipmentSlotMembers) / sizeof(EquipmentSlotMembers[0])},

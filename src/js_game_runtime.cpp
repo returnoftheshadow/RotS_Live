@@ -398,6 +398,28 @@ std::string affects_literal(const std::vector<JsGameAffectFixture> &affects) {
     return out.str();
 }
 
+std::string object_affect_literal(const JsGameObjectAffectFixture &affect) {
+    std::ostringstream out;
+    out << "{"
+        << "\"slotIndex\":" << affect.slot_index << ","
+        << "\"location\":" << affect.location << ","
+        << "\"locationName\":" << js_quote(affect.location_name) << ","
+        << "\"modifier\":" << affect.modifier << "}";
+    return out.str();
+}
+
+std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture> &affects) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < affects.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << object_affect_literal(affects[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture> &equipment);
 std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFixture> &inventory);
 std::string character_reference_literal(const JsGameCharacterReferenceFixture &character);
@@ -541,6 +563,7 @@ std::string equipment_object_literal(const JsGameEquipmentObjectFixture &object)
         out << "null";
     out << ","
         << "\"flags\":" << object_flags_literal(object.flags) << ","
+        << "\"affects\":" << object_affects_literal(object.affects) << ","
         << "\"room\":" << nullable_literal(object.has_room, room_literal(object.room)) << ","
         << "\"carriedBy\":null,"
         << "\"wornBy\":null,"
@@ -655,6 +678,7 @@ std::string object_literal(const JsGameObjectFixture &object) {
         out << "null";
     out << ","
         << "\"flags\":" << object_flags_literal(object.flags) << ","
+        << "\"affects\":" << object_affects_literal(object.affects) << ","
         << "\"room\":" << nullable_literal(object.has_room, room_literal(object.room)) << ","
         << "\"carriedBy\":"
         << nullable_literal(object.has_carried_by, character_literal(object.carried_by)) << ","

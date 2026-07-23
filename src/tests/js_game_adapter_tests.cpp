@@ -616,6 +616,8 @@ TEST(JsGameAdapter, DefaultsMissingCharacterAffectsToEmptySnapshot) {
 TEST(JsGameAdapter, SnapshotsCharacterEquipmentSlotsWithShallowObjects) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     obj_data helm = make_object("silver helm", 0);
+    helm.affected[0].location = APPLY_DEX;
+    helm.affected[0].modifier = 2;
     helm.in_room = -1;
     helm.carried_by = &player;
     player.equipment[WEAR_HEAD] = &helm;
@@ -668,6 +670,11 @@ TEST(JsGameAdapter, SnapshotsCharacterEquipmentSlotsWithShallowObjects) {
     EXPECT_EQ(head.object.vnum, 4301);
     EXPECT_EQ(head.object.flags.item_type, "weapon");
     EXPECT_EQ(head.object.flags.level, 12);
+    ASSERT_EQ(head.object.affects.size(), 1U);
+    EXPECT_EQ(head.object.affects[0].slot_index, 0);
+    EXPECT_EQ(head.object.affects[0].location, APPLY_DEX);
+    EXPECT_EQ(head.object.affects[0].location_name, "DEX");
+    EXPECT_EQ(head.object.affects[0].modifier, 2);
     EXPECT_FALSE(head.object.has_room);
 
     ASSERT_LT(WEAR_FINGER_L, static_cast<int>(fixture.equipment.size()));
@@ -695,6 +702,8 @@ TEST(JsGameAdapter, DefaultsMissingCharacterEquipmentToEmptySlots) {
 TEST(JsGameAdapter, SnapshotsCharacterInventoryWithShallowObjects) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     obj_data torch = make_object("oak torch", 0);
+    torch.affected[1].location = APPLY_NONE;
+    torch.affected[1].modifier = 4;
     torch.in_room = -1;
     torch.carried_by = &player;
     obj_data key = make_object("small key", 1);
@@ -744,6 +753,11 @@ TEST(JsGameAdapter, SnapshotsCharacterInventoryWithShallowObjects) {
     EXPECT_EQ(fixture.inventory[0].id, "object:5001");
     EXPECT_EQ(fixture.inventory[0].name, "oak torch");
     EXPECT_EQ(fixture.inventory[0].vnum, 5001);
+    ASSERT_EQ(fixture.inventory[0].affects.size(), 1U);
+    EXPECT_EQ(fixture.inventory[0].affects[0].slot_index, 1);
+    EXPECT_EQ(fixture.inventory[0].affects[0].location, APPLY_NONE);
+    EXPECT_EQ(fixture.inventory[0].affects[0].location_name, "NONE");
+    EXPECT_EQ(fixture.inventory[0].affects[0].modifier, 4);
     EXPECT_FALSE(fixture.inventory[0].has_room);
     EXPECT_EQ(fixture.inventory[1].id, "object:5002");
     EXPECT_EQ(fixture.inventory[1].name, "small key");
@@ -1451,6 +1465,10 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     index_data object_index[1]{};
     object_index[0].virt = 300;
     obj_data object = make_object("silver lever", 0);
+    object.affected[0].location = APPLY_STR;
+    object.affected[0].modifier = 2;
+    object.affected[1].location = 41;
+    object.affected[1].modifier = -1;
     const obj_data *live_objects[] = {&object};
     room_data world[1] = {make_room("Northern Gate", 1204, 0)};
     zone_data zones[1] = {make_zone("Old City", 12)};
@@ -1476,6 +1494,15 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     EXPECT_EQ(object_fixture.flags.timer, 30);
     EXPECT_EQ(object_fixture.flags.rarity, 2);
     EXPECT_EQ(object_fixture.flags.material, "metal");
+    ASSERT_EQ(object_fixture.affects.size(), 2U);
+    EXPECT_EQ(object_fixture.affects[0].slot_index, 0);
+    EXPECT_EQ(object_fixture.affects[0].location, APPLY_STR);
+    EXPECT_EQ(object_fixture.affects[0].location_name, "STR");
+    EXPECT_EQ(object_fixture.affects[0].modifier, 2);
+    EXPECT_EQ(object_fixture.affects[1].slot_index, 1);
+    EXPECT_EQ(object_fixture.affects[1].location, 41);
+    EXPECT_EQ(object_fixture.affects[1].location_name, "Unknown");
+    EXPECT_EQ(object_fixture.affects[1].modifier, -1);
     ASSERT_TRUE(object_fixture.has_room);
     EXPECT_EQ(object_fixture.room.vnum, 1204);
     ASSERT_TRUE(object_fixture.room.has_zone);

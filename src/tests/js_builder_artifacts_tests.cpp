@@ -518,7 +518,6 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     }
 
     const char *classification_only_members[] = {
-        "affects",
         "extraDescriptions",
         "container",
         "contents",
