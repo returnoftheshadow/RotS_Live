@@ -914,7 +914,8 @@ TEST(JsApiStructMapping, PinsCharacterRelationshipAndStateSetterDeferrals) {
     const ExpectedCharacterDeferral deferred[] = {
         {"in_room", "room", "setRoom", "Room | null", true, "implemented-read-only-getter",
             "deferred", "world-mutation", "movement triggers"},
-        {"affected", "affects", "setAffects", "readonly Affect[]", true, "deferred", "deferred",
+        {"affected", "affects", "setAffects", "readonly Affect[]", true,
+            "implemented-read-only-getter", "deferred",
             "world-mutation", "duration accounting"},
         {"equipment", "equipment", "setEquipmentSlot", "readonly (GameObject | null)[]", false,
             "deferred", "deferred", "world-mutation", "ON_WEAR"},

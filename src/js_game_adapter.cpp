@@ -17,6 +17,8 @@ extern char *sector_types[];
 extern char num_of_sector_types;
 extern char *dirs[];
 extern char *tactics[];
+extern char *affected_bits[];
+extern char *apply_types[];
 
 namespace {
 
@@ -82,6 +84,16 @@ std::string copy_c_string(const char *value, std::size_t max_length = MaxAdapter
     return std::string(value, strnlen(value, max_length));
 }
 
+std::string table_name_at(char *const *table, int index, int max_entries)
+{
+    if (table == nullptr || index < 0 || index >= max_entries)
+        return "Unknown";
+    const std::string name = copy_c_string(table[index]);
+    if (name.empty() || name == "\n")
+        return "Unknown";
+    return name;
+}
+
 bool character_is_npc(const char_data &character)
 {
     return (character.specials2.act & MOB_ISNPC) != 0;
@@ -130,6 +142,19 @@ std::pair<std::string, std::string> damage_source_metadata(int source_id)
     }
 
     return { "unknown", "Unknown" };
+}
+
+std::vector<std::string> affect_bitvector_names(long bitvector)
+{
+    std::vector<std::string> names;
+    for (int bit_index = 0; bit_index < 32; ++bit_index) {
+        if ((bitvector & (1L << bit_index)) == 0)
+            continue;
+        const std::string name = table_name_at(affected_bits, bit_index, 32);
+        if (name != "Unknown")
+            names.push_back(name);
+    }
+    return names;
 }
 
 std::string table_name_or_unknown(char **table, int value)
@@ -1005,6 +1030,29 @@ bool js_game_adapter_character_fixture(const char_data *character,
                 fixture->knowledge.push_back(std::move(knowledge_fixture));
             }
         }
+    }
+    fixture->affects.clear();
+    const skill_data* skill_table = get_skill_array();
+    int affect_count = 0;
+    for (const affected_type* affect = character->affected;
+         affect != nullptr && affect_count < MAX_AFFECT;
+         affect = affect->next, ++affect_count) {
+        JsGameAffectFixture affect_fixture;
+        affect_fixture.type = affect->type;
+        if (skill_table != nullptr && affect->type >= 0 && affect->type < MAX_SKILLS) {
+            const std::string name = copy_c_string(skill_table[affect->type].name);
+            if (!name.empty())
+                affect_fixture.name = name;
+        }
+        affect_fixture.duration = affect->duration;
+        affect_fixture.time_phase = affect->time_phase;
+        affect_fixture.modifier = affect->modifier;
+        affect_fixture.location = affect->location;
+        affect_fixture.location_name = table_name_at(apply_types, affect->location, 40);
+        affect_fixture.bitvector = affect->bitvector;
+        affect_fixture.bitvector_names = affect_bitvector_names(affect->bitvector);
+        affect_fixture.counter = affect->counter;
+        fixture->affects.push_back(std::move(affect_fixture));
     }
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);

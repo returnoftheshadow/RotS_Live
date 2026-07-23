@@ -517,6 +517,69 @@ TEST(JsGameAdapter, DefaultsMissingCharacterKnowledgeToEmptySnapshot)
     EXPECT_TRUE(fixture.knowledge.empty());
 }
 
+TEST(JsGameAdapter, SnapshotsCharacterAffectsWhenPresent)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    affected_type unknown_affect {};
+    unknown_affect.type = MAX_SKILLS + 1;
+    unknown_affect.duration = 2;
+    unknown_affect.time_phase = 3;
+    unknown_affect.modifier = -1;
+    unknown_affect.location = -1;
+    unknown_affect.bitvector = 0;
+    unknown_affect.counter = 4;
+
+    affected_type sanctuary_affect {};
+    sanctuary_affect.type = SPELL_SANCTUARY;
+    sanctuary_affect.duration = 8;
+    sanctuary_affect.time_phase = 1;
+    sanctuary_affect.modifier = 5;
+    sanctuary_affect.location = APPLY_DEX;
+    sanctuary_affect.bitvector = AFF_SANCTUARY;
+    sanctuary_affect.counter = 6;
+    sanctuary_affect.next = &unknown_affect;
+    player.affected = &sanctuary_affect;
+
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    ASSERT_EQ(fixture.affects.size(), 2u);
+    EXPECT_EQ(fixture.affects[0].type, SPELL_SANCTUARY);
+    EXPECT_EQ(fixture.affects[0].name, get_skill_array()[SPELL_SANCTUARY].name);
+    EXPECT_EQ(fixture.affects[0].duration, 8);
+    EXPECT_EQ(fixture.affects[0].time_phase, 1);
+    EXPECT_EQ(fixture.affects[0].modifier, 5);
+    EXPECT_EQ(fixture.affects[0].location, APPLY_DEX);
+    EXPECT_EQ(fixture.affects[0].location_name, "DEX");
+    EXPECT_EQ(fixture.affects[0].bitvector, AFF_SANCTUARY);
+    ASSERT_EQ(fixture.affects[0].bitvector_names.size(), 1u);
+    EXPECT_EQ(fixture.affects[0].bitvector_names[0], "SANCT");
+    EXPECT_EQ(fixture.affects[0].counter, 6);
+
+    EXPECT_EQ(fixture.affects[1].type, MAX_SKILLS + 1);
+    EXPECT_EQ(fixture.affects[1].name, "Unknown");
+    EXPECT_EQ(fixture.affects[1].location_name, "Unknown");
+    EXPECT_TRUE(fixture.affects[1].bitvector_names.empty());
+}
+
+TEST(JsGameAdapter, DefaultsMissingCharacterAffectsToEmptySnapshot)
+{
+    char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
+    player.affected = nullptr;
+    const char_data *live_characters[] = { &player };
+    JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
+        nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
+
+    JsGameCharacterFixture fixture;
+    ASSERT_TRUE(js_game_adapter_character_fixture(&player, options, &fixture));
+
+    EXPECT_TRUE(fixture.affects.empty());
+}
+
 TEST(JsGameAdapter, SnapshotsCharacterDamageDetails)
 {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);

@@ -198,6 +198,19 @@ struct JsGameKnowledgeValueFixture {
     int specialization = 0;
 };
 
+struct JsGameAffectFixture {
+    int type = 0;
+    std::string name = "Unknown";
+    int duration = 0;
+    int time_phase = 0;
+    int modifier = 0;
+    int location = 0;
+    std::string location_name = "Unknown";
+    long bitvector = 0;
+    std::vector<std::string> bitvector_names;
+    int counter = 0;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -224,6 +237,7 @@ struct JsGameCharacterFixture {
     JsGameDamageDetailsFixture damage_details;
     std::vector<JsGameSkillValueFixture> skills;
     std::vector<JsGameKnowledgeValueFixture> knowledge;
+    std::vector<JsGameAffectFixture> affects;
     bool is_npc = false;
 
     bool has_room = false;

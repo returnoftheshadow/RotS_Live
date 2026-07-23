@@ -68,6 +68,24 @@ JsGameKnowledgeValueFixture make_knowledge_value(int id, const std::string& name
     return value;
 }
 
+JsGameAffectFixture make_affect(int type, const std::string& name, int duration, int time_phase,
+    int modifier, int location, const std::string& location_name, long bitvector,
+    const std::vector<std::string>& bitvector_names, int counter)
+{
+    JsGameAffectFixture affect;
+    affect.type = type;
+    affect.name = name;
+    affect.duration = duration;
+    affect.time_phase = time_phase;
+    affect.modifier = modifier;
+    affect.location = location;
+    affect.location_name = location_name;
+    affect.bitvector = bitvector;
+    affect.bitvector_names = bitvector_names;
+    affect.counter = counter;
+    return affect;
+}
+
 JsGameTriggerContextFixture make_context()
 {
     JsGameTriggerContextFixture context;
@@ -193,6 +211,9 @@ JsGameTriggerContextFixture make_context()
         POSITION_FIGHTING, 0, 0, 16, 30, 1, false, 0));
     context.self.knowledge.push_back(make_knowledge_value(8, "Swimming", "ranger", 2, 55,
         POSITION_FIGHTING, 0, 0, 16, 25, 1, false, 0));
+    context.self.affects.push_back(make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128,
+        { "SANCT" }, 6));
+    context.self.affects.push_back(make_affect(999, "Unknown", 2, 3, -1, -1, "Unknown", 0, {}, 4));
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -303,6 +324,7 @@ JsGameTriggerContextFixture make_context()
         POSITION_FIGHTING, 0, 0, 16, 10, 1, false, 0));
     context.actor.knowledge.push_back(make_knowledge_value(14, "Rescue", "warrior", 3, 66,
         POSITION_FIGHTING, 0, 0, 16, 10, 1, false, 0));
+    context.actor.affects.push_back(make_affect(14, "Rescue", 3, 2, 1, 0, "NONE", 0, {}, 9));
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -787,6 +809,20 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.knowledge[1].name === 'Swimming'\n"
         "  && ctx.self.knowledge[1].profession === 'ranger'\n"
         "  && ctx.self.knowledge[1].knowledge === 55\n"
+        "  && ctx.self.affects.length === 2\n"
+        "  && ctx.self.affects[0].type === 56\n"
+        "  && ctx.self.affects[0].name === 'Sanctuary'\n"
+        "  && ctx.self.affects[0].duration === 8\n"
+        "  && ctx.self.affects[0].timePhase === 1\n"
+        "  && ctx.self.affects[0].modifier === 5\n"
+        "  && ctx.self.affects[0].location === 2\n"
+        "  && ctx.self.affects[0].locationName === 'DEX'\n"
+        "  && ctx.self.affects[0].bitvector === 128\n"
+        "  && ctx.self.affects[0].bitvectorNames.join(',') === 'SANCT'\n"
+        "  && ctx.self.affects[0].counter === 6\n"
+        "  && ctx.self.affects[1].name === 'Unknown'\n"
+        "  && ctx.self.affects[1].locationName === 'Unknown'\n"
+        "  && ctx.self.affects[1].bitvectorNames.length === 0\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -867,6 +903,9 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.knowledge.length === 1\n"
         "  && ctx.actor.knowledge[0].name === 'Rescue'\n"
         "  && ctx.actor.knowledge[0].knowledge === 66\n"
+        "  && ctx.actor.affects.length === 1\n"
+        "  && ctx.actor.affects[0].name === 'Rescue'\n"
+        "  && ctx.actor.affects[0].counter === 9\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1975,6 +2014,9 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.skills[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.knowledge.constructor === 'undefined'\n"
         "  && typeof ctx.self.knowledge[0].constructor === 'undefined'\n"
+        "  && typeof ctx.self.affects.constructor === 'undefined'\n"
+        "  && typeof ctx.self.affects[0].constructor === 'undefined'\n"
+        "  && typeof ctx.self.affects[0].bitvectorNames.constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -1991,6 +2033,7 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.damageDetails.entries[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.skills[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.knowledge[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.affects[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -2014,6 +2057,9 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.skills[0])\n"
         "  && Object.isFrozen(ctx.self.knowledge)\n"
         "  && Object.isFrozen(ctx.self.knowledge[0])\n"
+        "  && Object.isFrozen(ctx.self.affects)\n"
+        "  && Object.isFrozen(ctx.self.affects[0])\n"
+        "  && Object.isFrozen(ctx.self.affects[0].bitvectorNames)\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -2117,6 +2163,24 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
                   .status,
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.affects[0].duration = 99;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.affects.push({ type: 42, name: 'unsafe' });\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.affects[0].bitvectorNames[0] = 'unsafe';\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.points.bodypartHits[0] = 1;\n"
                          "return true;",
                          make_context())
@@ -2194,6 +2258,23 @@ TEST(JsGameRuntime, DefaultsMissingCharacterKnowledgeToEmptySnapshot)
         "return ctx.self.knowledge.length === 0\n"
         "  && Object.isFrozen(ctx.self.knowledge)\n"
         "  && typeof ctx.self.knowledge.constructor === 'undefined';",
+        context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, DefaultsMissingCharacterAffectsToEmptySnapshot)
+{
+    JsGameTriggerContextFixture context;
+    context.has_self = true;
+    context.self.id = "char:default-affects";
+    context.self.name = "Default Affects";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.self.affects.length === 0\n"
+        "  && Object.isFrozen(ctx.self.affects)\n"
+        "  && typeof ctx.self.affects.constructor === 'undefined';",
         context);
 
     expect_ok_allows(result);

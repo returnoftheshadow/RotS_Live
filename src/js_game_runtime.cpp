@@ -381,6 +381,36 @@ std::string knowledge_values_literal(const std::vector<JsGameKnowledgeValueFixtu
     return out.str();
 }
 
+std::string affect_literal(const JsGameAffectFixture& affect)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"type\":" << affect.type << ","
+        << "\"name\":" << js_quote(affect.name) << ","
+        << "\"duration\":" << affect.duration << ","
+        << "\"timePhase\":" << affect.time_phase << ","
+        << "\"modifier\":" << affect.modifier << ","
+        << "\"location\":" << affect.location << ","
+        << "\"locationName\":" << js_quote(affect.location_name) << ","
+        << "\"bitvector\":" << affect.bitvector << ","
+        << "\"bitvectorNames\":" << string_array_literal(affect.bitvector_names) << ","
+        << "\"counter\":" << affect.counter << "}";
+    return out.str();
+}
+
+std::string affects_literal(const std::vector<JsGameAffectFixture>& affects)
+{
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < affects.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << affect_literal(affects[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string character_literal(const JsGameCharacterFixture& character)
 {
     std::ostringstream out;
@@ -420,6 +450,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"damageDetails\":" << damage_details_literal(character.damage_details) << ","
         << "\"skills\":" << skill_values_literal(character.skills) << ","
         << "\"knowledge\":" << knowledge_values_literal(character.knowledge) << ","
+        << "\"affects\":" << affects_literal(character.affects) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

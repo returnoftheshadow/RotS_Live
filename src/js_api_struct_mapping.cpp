@@ -152,7 +152,10 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "mutation",
      "Raw byte pointer must never be exposed."},
     {JsApiStructOwner::CharData, "char_data", "affected", "affects", "getAffects", "setAffects",
-     "readonly Affect[]", true, Deferred, Deferred, "Planned read-only list of active affects.",
+     "readonly Affect[]", true, ImplementedReadOnly, Deferred,
+     "Returns a frozen read-only active-affect snapshot capped at MAX_AFFECT entries, including "
+     "spell/skill type id, builder-facing name, duration, tick phase, modifier, APPLY_* location "
+     "id/name, AFF_* bitvector id/names, and counter. Raw linked-list pointers are not exposed.",
      "Affect mutation needs explicit add/remove helpers and is deferred because raw list writes "
      "would bypass duration accounting, affect bit recalculation, stat recomputation, combat "
      "side effects, room/mount interactions, and persistence rules.",
