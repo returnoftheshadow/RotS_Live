@@ -1554,6 +1554,156 @@ TEST(JsTriggerDispatch, MixedCommandHelperBatchRejectsStaleObjectPolymorphicTarg
     free(zones[0].name);
 }
 
+TEST(JsTriggerDispatch,
+     MixedCommandHelperBatchRejectsDetachedRoomPolymorphicOutputWithoutPartialWrites) {
+    DescriptorListGuard descriptor_guard;
+    WaitingListGuard wait_guard;
+    ObjectPrototypeGuard object_guard(6212);
+    waiting_list = nullptr;
+    descriptor_list = nullptr;
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data actor_descriptor{};
+    attach_descriptor(actor_descriptor, actor);
+    descriptor_list = &actor_descriptor;
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    room_data detached_room = make_room("Detached", 999, 0);
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    zones[0].name = str_dup("Zone");
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    target_data detached_targ1{};
+    detached_targ1.type = TARGET_ROOM;
+    detached_targ1.ptr.room = &detached_room;
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.targ1 = &detached_targ1;
+
+    int helper_audit_calls = 0;
+    int command_audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    helper_options.audit_user_data = &helper_audit_calls;
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *user_data) {
+        ++*static_cast<int *>(user_data);
+        return true;
+    };
+    helper_options.command_audit_user_data = &command_audit_calls;
+    helper_options.command_audit_callback = [](const JsTriggerCommandMutationAuditRequest &,
+                                               std::string *, void *user_data) {
+        ++*static_cast<int *>(user_data);
+        return true;
+    };
+
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation room_flag = make_helper_mutation("room.flags.add");
+    room_flag.arguments_json = "{\"flag\":\"dark\"}";
+    const JsRuntimeMutation detached_room_output = make_script_command_mutation(
+        "script.send_to_room", "{\"roomId\":\"targ1\",\"text\":\"Batch complete.\"}");
+    const JsRuntimeMutation load = make_script_command_mutation(
+        "script.load_obj", "{\"vnum\":6212,\"loadTargetId\":\"actor\"}");
+    const JsRuntimeMutation wait = make_script_command_mutation("script.do_wait", "{\"pulses\":3}");
+
+    const JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, room_flag, detached_room_output, load, wait}, request, adapter_options,
+            test_mutation_authority(), helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::NotEvaluated);
+    EXPECT_EQ(result.applied_setter_count, 0U);
+    EXPECT_EQ(result.applied_helper_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger output command target rejected");
+    EXPECT_EQ(helper_audit_calls, 0);
+    EXPECT_EQ(command_audit_calls, 0);
+    EXPECT_STREQ(zones[0].name, "Zone");
+    EXPECT_EQ(world[0].room_flags, 0);
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_FALSE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 0);
+    EXPECT_STREQ(actor_descriptor.output, "");
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+    free(zones[0].name);
+}
+
+TEST(JsTriggerDispatch,
+     MixedCommandHelperBatchRejectsDetachedRoomPolymorphicLoadWithoutPartialWrites) {
+    DescriptorListGuard descriptor_guard;
+    WaitingListGuard wait_guard;
+    ObjectPrototypeGuard object_guard(6213);
+    waiting_list = nullptr;
+    descriptor_list = nullptr;
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data actor_descriptor{};
+    attach_descriptor(actor_descriptor, actor);
+    descriptor_list = &actor_descriptor;
+    const char_data *live_characters[] = {&self, &actor};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    room_data detached_room = make_room("Detached", 999, 0);
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    zones[0].name = str_dup("Zone");
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 0, obj_index, 1, zones, 1);
+    target_data detached_targ1{};
+    detached_targ1.type = TARGET_ROOM;
+    detached_targ1.ptr.room = &detached_room;
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.targ1 = &detached_targ1;
+
+    int helper_audit_calls = 0;
+    int command_audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    helper_options.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    helper_options.audit_user_data = &helper_audit_calls;
+    helper_options.audit_callback = [](const JsTriggerHelperMutationAuditRequest &, std::string *,
+                                       void *user_data) {
+        ++*static_cast<int *>(user_data);
+        return true;
+    };
+    helper_options.command_audit_user_data = &command_audit_calls;
+    helper_options.command_audit_callback = [](const JsTriggerCommandMutationAuditRequest &,
+                                               std::string *, void *user_data) {
+        ++*static_cast<int *>(user_data);
+        return true;
+    };
+
+    JsRuntimeMutation setter = make_zone_name_setter("Changed Zone");
+    JsRuntimeMutation room_flag = make_helper_mutation("room.flags.add");
+    room_flag.arguments_json = "{\"flag\":\"dark\"}";
+    const JsRuntimeMutation detached_room_load = make_script_command_mutation(
+        "script.load_obj", "{\"vnum\":6213,\"loadTargetId\":\"targ1\"}");
+    const JsRuntimeMutation wait = make_script_command_mutation("script.do_wait", "{\"pulses\":3}");
+    const JsRuntimeMutation tell = make_script_command_mutation(
+        "script.send_to_char", "{\"targetId\":\"actor\",\"text\":\"Batch complete.\"}");
+
+    const JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, room_flag, detached_room_load, wait, tell}, request, adapter_options,
+            test_mutation_authority(), helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::NotEvaluated);
+    EXPECT_EQ(result.applied_setter_count, 0U);
+    EXPECT_EQ(result.applied_helper_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger object command target rejected");
+    EXPECT_EQ(helper_audit_calls, 0);
+    EXPECT_EQ(command_audit_calls, 0);
+    EXPECT_STREQ(zones[0].name, "Zone");
+    EXPECT_EQ(world[0].room_flags, 0);
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_FALSE(IS_SET(self.specials.affected_by, AFF_WAITING));
+    EXPECT_EQ(self.delay.wait_value, 0);
+    EXPECT_STREQ(actor_descriptor.output, "");
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+    free(zones[0].name);
+}
+
 TEST(JsTriggerDispatch, MixedCommandHelperBatchRejectsHelperPreconditionWithoutPartialWrites) {
     DescriptorListGuard descriptor_guard;
     WaitingListGuard wait_guard;
