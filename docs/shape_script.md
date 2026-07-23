@@ -250,9 +250,14 @@ runtime:
 - [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
   covers `load_obj`, `do_give`, and `send_to_char`.
 
-These helpers queue validated JavaScript command intents. A successful helper
-call does not immediately mutate the game while the JavaScript handler is still
-running. After the handler returns successfully, live dispatch prepares all
+These helpers currently queue validated JavaScript command intents. A successful
+helper call means the request was accepted by the JavaScript-side helper shape;
+it does not yet guarantee that the live game mutation has completed. The command
+API is being retrofitted so builders can branch on final `MutationResult` codes
+for helpers like `do_give` without writing a separate `canGive` preflight first.
+Until that bridge is complete, final capacity, liveness, authority, and audit
+failures reject the whole server transaction rather than returning inline to the
+script. After the handler returns successfully, live dispatch prepares all
 setter, room-flag helper, object-helper, wait, and output intents, including
 setter target validation; rejects malformed targets, failed command-helper
 audit, and failed room-flag-helper audit before writing; rechecks room-flag,
@@ -289,6 +294,22 @@ creating the object. JavaScript `do_give` uses a silent transaction transfer,
 not the legacy player-command `perform_give()` path, so it does not emit
 give-command messages, write legacy give logs, or fire `ON_RECEIVE` while the
 outer transaction is only partially applied.
+
+The intended final helper shape is:
+
+```ts
+const give = RotS.Script.doGive(giver, recipient, object);
+if (!give.ok) {
+  RotS.Script.sendToChar(recipient, give.code === "inventory-full"
+    ? "It appears your inventory is full."
+    : "I cannot give that to you right now.");
+  return;
+}
+```
+
+The `inventory-full`, `too-heavy`, and `no-drop` result codes are planned bridge
+codes for final command outcomes; they are not yet returned inline by the queued
+runtime path.
 BuilderClient offline fixtures currently record command-helper events in source
 call order for diagnostics. They compile and validate the same helper API, but
 they do not yet fully emulate server category ordering, descriptor buffering,
