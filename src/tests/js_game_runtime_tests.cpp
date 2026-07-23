@@ -2575,6 +2575,94 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
     EXPECT_EQ(result.mutations[5].arguments_json, "{\"pulses\":4}");
 }
 
+struct CommandBridgeProbe {
+    int calls = 0;
+    std::string operation;
+    std::string arguments_json;
+    std::string response = "{\"handled\":true,\"ok\":false,\"code\":\"inventory-full\","
+                           "\"message\":null,\"field\":\"target\"}";
+};
+
+std::string command_bridge_probe_callback(const JsGameCommandResultRequest &request,
+                                          void *user_data) {
+    CommandBridgeProbe *probe = static_cast<CommandBridgeProbe *>(user_data);
+    if (probe == nullptr)
+        return "{\"handled\":false}";
+    ++probe->calls;
+    probe->operation = request.operation;
+    probe->arguments_json = request.arguments_json;
+    return probe->response;
+}
+
+TEST(JsGameRuntime, DoGiveUsesNativeResultBridgeWithoutExposingCallbackSurface) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_actor = true;
+    context.actor.id = "player:7";
+    context.actor.name = "Builder";
+    context.has_object = true;
+    context.object.id = "object:301";
+    context.object.name = "token";
+    context.object.description = "A token rests here.";
+    context.object.short_description = "a token";
+
+    CommandBridgeProbe probe;
+    JsGameRuntimeEvaluationOptions options;
+    options.command_result_callback = command_bridge_probe_callback;
+    options.command_result_user_data = &probe;
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const give = RotS.Script.do_give(ctx.self, ctx.actor, ctx.object);\n"
+        "return !give.ok\n"
+        "  && give.code === 'inventory-full'\n"
+        "  && typeof __rotsNativeCommandResult === 'undefined'\n"
+        "  && typeof __rotsNativeCommandResultHost === 'undefined'\n"
+        "  && typeof __rotsCommandBridgeMutationResult === 'undefined';\n",
+        context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    EXPECT_TRUE(result.mutations.empty());
+    EXPECT_EQ(probe.calls, 1);
+    EXPECT_EQ(probe.operation, "script.do_give");
+    EXPECT_EQ(
+        probe.arguments_json,
+        "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
+}
+
+TEST(JsGameRuntime, DoGiveBridgeAcceptedResultQueuesSingleMarkedMutation) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_actor = true;
+    context.actor.id = "player:7";
+    context.actor.name = "Builder";
+    context.has_object = true;
+    context.object.id = "object:301";
+    context.object.name = "token";
+    context.object.description = "A token rests here.";
+    context.object.short_description = "a token";
+
+    CommandBridgeProbe probe;
+    probe.response = "{\"handled\":true,\"ok\":true,\"code\":\"ok\",\"message\":null,\"field\":"
+                     "\"script.do_give\"}";
+    JsGameRuntimeEvaluationOptions options;
+    options.command_result_callback = command_bridge_probe_callback;
+    options.command_result_user_data = &probe;
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const give = RotS.Script.doGive(ctx.self, ctx.actor, ctx.object);\n"
+        "return give.ok && give.code === 'ok';\n",
+        context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    ASSERT_EQ(result.mutations.size(), 1U);
+    EXPECT_EQ(result.mutations[0].operation, "script.do_give");
+    EXPECT_EQ(
+        result.mutations[0].arguments_json,
+        "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
+    EXPECT_TRUE(result.mutations[0].command_result_bridge_accepted);
+    EXPECT_EQ(probe.calls, 1);
+}
+
 TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughPolymorphicTargetsByKind) {
     JsGameTriggerContextFixture context = make_context();
     context.has_actor = true;
@@ -2693,7 +2781,14 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts) {
                                       "  && typeof __rotsValidateCoordinateSetter === 'undefined'\n"
                                       "  && typeof __rotsValidateResetModeSetter === 'undefined'\n"
                                       "  && typeof __rotsValidateLifespanSetter === 'undefined'\n"
-                                      "  && typeof __rotsValidateLevelSetter === 'undefined';",
+                                      "  && typeof __rotsValidateLevelSetter === 'undefined'\n"
+                                      "  && typeof __rotsJsonParse === 'undefined'\n"
+                                      "  && typeof __rotsNativeCommandResult === 'undefined'\n"
+                                      "  && typeof __rotsNativeCommandResultHost === 'undefined'\n"
+                                      "  && typeof __rotsBridgeCodeIsSupported === 'undefined'\n"
+                                      "  && typeof __rotsSanitizeBridgeResult === 'undefined'\n"
+                                      "  && typeof __rotsCommandBridgeMutationResult === "
+                                      "'undefined';",
                                       make_context());
     JsRuntimeEvalResult package_result = runtime.evaluate_trigger_package_handler(
         "exports.onEnter = function(ctx) {\n"
@@ -2723,6 +2818,12 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts) {
         "    && typeof __rotsValidateCoordinateSetter === 'undefined'\n"
         "    && typeof __rotsValidateResetModeSetter === 'undefined'\n"
         "    && typeof __rotsValidateLifespanSetter === 'undefined'\n"
+        "    && typeof __rotsJsonParse === 'undefined'\n"
+        "    && typeof __rotsNativeCommandResult === 'undefined'\n"
+        "    && typeof __rotsNativeCommandResultHost === 'undefined'\n"
+        "    && typeof __rotsBridgeCodeIsSupported === 'undefined'\n"
+        "    && typeof __rotsSanitizeBridgeResult === 'undefined'\n"
+        "    && typeof __rotsCommandBridgeMutationResult === 'undefined'\n"
         "    && typeof __rotsValidateLevelSetter === 'undefined';\n"
         "};\n",
         "onEnter", make_context());

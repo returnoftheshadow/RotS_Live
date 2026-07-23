@@ -788,6 +788,170 @@ TEST(JsTriggerDispatch, DoGiveCommandHelperTransfersCurrentLiveCarriedObject) {
     EXPECT_EQ(self.specials.carry_items, 1);
 }
 
+TEST(JsTriggerDispatch, DoGiveInlineInventoryFullResultAllowsBuilderFallbackMessage) {
+    DescriptorListGuard descriptor_guard;
+    descriptor_list = nullptr;
+    ObjectPrototypeGuard object_guard(5104);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5880, "function onEnter(ctx) {\n"
+              "  const give = RotS.Script.doGive(ctx.actor, ctx.self, ctx.object);\n"
+              "  if (!give.ok && give.code === 'inventory-full') {\n"
+              "    RotS.Script.sendToChar(ctx.self, 'It appears your inventory is full.');\n"
+              "  }\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data self_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    descriptor_list = &self_descriptor;
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    token.obj_flags.weight = 1;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 1;
+    self.specials.carry_items = CAN_CARRY_N(&self);
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    add_accepting_command_audit(dispatch_options);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(actor.carrying, &token);
+    EXPECT_EQ(self.carrying, nullptr);
+    EXPECT_EQ(token.carried_by, &actor);
+    EXPECT_TRUE(contains(self_descriptor.output, "It appears your inventory is full.\n\r"));
+}
+
+TEST(JsTriggerDispatch, DoGiveInlineAuditRejectedResultDoesNotQueueTransfer) {
+    DescriptorListGuard descriptor_guard;
+    descriptor_list = nullptr;
+    ObjectPrototypeGuard object_guard(5104);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5881, "function onEnter(ctx) {\n"
+              "  const give = RotS.Script.doGive(ctx.actor, ctx.self, ctx.object);\n"
+              "  if (!give.ok && give.code === 'audit-rejected') {\n"
+              "    RotS.Script.sendToChar(ctx.self, 'The transfer is not approved.');\n"
+              "  }\n"
+              "  return true;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    descriptor_data self_descriptor{};
+    attach_descriptor(self_descriptor, self);
+    descriptor_list = &self_descriptor;
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    token.obj_flags.weight = 1;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 1;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    dispatch_options.helper_mutation_options.command_audit_user_data = &audit_calls;
+    dispatch_options.helper_mutation_options.command_audit_callback =
+        [](const JsTriggerCommandMutationAuditRequest &request, std::string *diagnostic,
+           void *user_data) {
+            ++*static_cast<int *>(user_data);
+            if (request.operations_summary == "script.do_give") {
+                if (diagnostic != nullptr)
+                    *diagnostic = "private audit detail";
+                return false;
+            }
+            return true;
+        };
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 2);
+    EXPECT_EQ(actor.carrying, &token);
+    EXPECT_EQ(self.carrying, nullptr);
+    EXPECT_EQ(token.carried_by, &actor);
+    EXPECT_TRUE(contains(self_descriptor.output, "The transfer is not approved.\n\r"));
+    EXPECT_FALSE(contains(self_descriptor.output, "private audit detail"));
+}
+
+TEST(JsTriggerDispatch, DoGiveInlineSuccessAuditsOnceAndTransfersAtCommit) {
+    ObjectPrototypeGuard object_guard(5104);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5882, "function onEnter(ctx) {\n"
+              "  const give = RotS.Script.doGive(ctx.actor, ctx.self, ctx.object);\n"
+              "  return give.ok && give.code === 'ok'\n"
+              "    && ctx.actor.inventory.length === 1\n"
+              "    && ctx.self.inventory.length === 0;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    token.obj_flags.weight = 1;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 1;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(self.carrying, &token);
+    EXPECT_EQ(token.carried_by, &self);
+    EXPECT_EQ(actor.specials.carry_items, 0);
+    EXPECT_EQ(actor.specials.carry_weight, 0);
+    EXPECT_EQ(self.specials.carry_items, 1);
+    EXPECT_EQ(self.specials.carry_weight, 1);
+}
+
 TEST(JsTriggerDispatch, DoGiveResultClassifierReportsStableReasonCodes) {
     char_data giver = make_character("Giver");
     char_data recipient = make_character("Recipient");

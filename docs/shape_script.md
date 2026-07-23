@@ -307,10 +307,14 @@ if (!give.ok) {
 }
 ```
 
-The `inventory-full`, `too-heavy`, and `no-drop` result codes are reserved
-bridge codes for final command outcomes, and the server-side `do_give`
-classifier already uses them internally. They are not yet returned inline by the
-queued runtime path.
+For live server dispatch, `RotS.Script.doGive()` returns inline command outcome
+codes for the current transaction preflight. `inventory-full`, `too-heavy`,
+`no-drop`, `not-carried`, `invalid-target`, `not-authorized`, and
+`audit-rejected` failures do not queue a transfer, so builders can branch and
+send their own fallback text. A successful `ok` result means the give was
+accepted into the current mutation transaction, not that the object has already
+moved inside the running script. The engine still performs the actual transfer
+once during transaction apply and rechecks live state before committing.
 BuilderClient offline fixtures currently record command-helper events in source
 call order for diagnostics. They compile and validate the same helper API, but
 they do not yet fully emulate server category ordering, descriptor buffering,

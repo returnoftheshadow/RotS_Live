@@ -4,6 +4,7 @@
 #include "db.h"
 #include "handler.h"
 #include "js_api_struct_mapping.h"
+#include "js_game_runtime.h"
 #include "json_utils.h"
 #include "structs.h"
 #include "utils.h"
@@ -594,6 +595,11 @@ bool can_transfer_object_for_script(const obj_data *object, const char_data *giv
 bool can_load_object_to_character_for_script(int real_object_index,
                                              const JsGameAdapterOptions &options,
                                              char_data *recipient);
+bool audit_command_mutations(const std::vector<JsRuntimeMutation> &command_mutations,
+                             const JsTriggerDispatchRequest &request,
+                             const JsTriggerMutationAuthorityContext &authority,
+                             const JsTriggerHelperMutationTransactionOptions &helper_options,
+                             std::string *diagnostic);
 JsTriggerHelperMutationTransactionResult prepare_helper_mutation_transaction(
     const std::vector<JsRuntimeMutation> &mutations,
     const JsTriggerHelperMutationTransactionOptions &options,
@@ -1225,6 +1231,82 @@ std::string say_command_line(const char_data *speaker, const std::string &text) 
     return std::string(name) + " says '" + text + "'\n\r";
 }
 
+std::string js_command_result_json(bool handled, bool ok, const char *code, const char *field) {
+    std::ostringstream out;
+    out << "{\"handled\":" << (handled ? "true" : "false");
+    if (handled) {
+        out << ",\"ok\":" << (ok ? "true" : "false") << ",\"code\":\"" << code
+            << "\",\"message\":null,\"field\":";
+        if (field != nullptr)
+            out << "\"" << field << "\"";
+        else
+            out << "null";
+    }
+    out << "}";
+    return out.str();
+}
+
+struct DoGiveCommandBridgeContext {
+    const JsTriggerDispatchRequest *request = nullptr;
+    const JsGameAdapterOptions *adapter_options = nullptr;
+    const JsTriggerMutationAuthorityContext *authority = nullptr;
+    const JsTriggerHelperMutationTransactionOptions *helper_options = nullptr;
+};
+
+std::string do_give_command_bridge_result(const JsGameCommandResultRequest &bridge_request,
+                                          void *user_data) {
+    DoGiveCommandBridgeContext *context = static_cast<DoGiveCommandBridgeContext *>(user_data);
+    if (context == nullptr || context->request == nullptr || context->adapter_options == nullptr ||
+        context->authority == nullptr || context->helper_options == nullptr ||
+        bridge_request.operation != "script.do_give") {
+        return js_command_result_json(false, false, "unsupported", nullptr);
+    }
+
+    JsRuntimeMutation mutation;
+    mutation.kind = "command";
+    mutation.operation = bridge_request.operation;
+    mutation.arguments_json = bridge_request.arguments_json;
+    ScriptCommandArguments arguments;
+    if (!parse_script_command_arguments(mutation, &arguments))
+        return js_command_result_json(true, false, "invalid-target", "target");
+
+    char_data *giver = live_character_role_for_command_id(arguments.giver_id, *context->request,
+                                                          *context->adapter_options);
+    char_data *recipient = live_character_role_for_command_id(
+        arguments.recipient_id, *context->request, *context->adapter_options);
+    obj_data *object = live_object_role_for_command_id(arguments.object_id, *context->request,
+                                                       *context->adapter_options);
+    if (giver == nullptr || recipient == nullptr || object == nullptr)
+        return js_command_result_json(true, false, "invalid-target", "target");
+
+    if (!has_persistent_setter_authority(*context->authority))
+        return js_command_result_json(true, false, "not-authorized", "target");
+
+    if (!command_target_matches_authority(giver, *context->adapter_options, *context->authority) ||
+        !command_target_matches_authority(recipient, *context->adapter_options,
+                                          *context->authority) ||
+        !object_matches_mutation_authority(*object, *context->adapter_options,
+                                           *context->authority)) {
+        return js_command_result_json(true, false, "not-authorized", "target");
+    }
+
+    const JsTriggerCommandResultCode code = classify_do_give_result(object, giver, recipient);
+    if (code != JsTriggerCommandResultCode::Ok) {
+        return js_command_result_json(true, false, js_trigger_command_result_code_name(code),
+                                      "target");
+    }
+
+    std::vector<JsRuntimeMutation> command_mutations;
+    command_mutations.push_back(mutation);
+    std::string diagnostic;
+    if (!audit_command_mutations(command_mutations, *context->request, *context->authority,
+                                 *context->helper_options, &diagnostic)) {
+        return js_command_result_json(true, false, "audit-rejected", nullptr);
+    }
+
+    return js_command_result_json(true, true, "ok", "script.do_give");
+}
+
 bool prepare_output_command_mutations(const std::vector<JsRuntimeMutation> &mutations,
                                       const JsTriggerDispatchRequest &request,
                                       const JsGameAdapterOptions &options,
@@ -1356,8 +1438,16 @@ bool audit_command_mutations(const std::vector<JsRuntimeMutation> &command_mutat
                              std::string *diagnostic) {
     if (command_mutations.empty())
         return true;
+    std::vector<JsRuntimeMutation> audit_required_mutations;
+    audit_required_mutations.reserve(command_mutations.size());
+    for (const JsRuntimeMutation &mutation : command_mutations) {
+        if (!mutation.command_result_bridge_accepted)
+            audit_required_mutations.push_back(mutation);
+    }
+    if (audit_required_mutations.empty())
+        return true;
     if (helper_options.command_audit_callback == nullptr) {
-        if (!runtime_mutations_require_persistent_authority(command_mutations))
+        if (!runtime_mutations_require_persistent_authority(audit_required_mutations))
             return true;
         if (diagnostic != nullptr)
             *diagnostic = "JavaScript trigger command helper audit required";
@@ -1365,8 +1455,8 @@ bool audit_command_mutations(const std::vector<JsRuntimeMutation> &command_mutat
     }
 
     JsTriggerCommandMutationAuditRequest audit_request;
-    audit_request.mutation_count = command_mutations.size();
-    audit_request.operations_summary = command_operations_summary(command_mutations);
+    audit_request.mutation_count = audit_required_mutations.size();
+    audit_request.operations_summary = command_operations_summary(audit_required_mutations);
     audit_request.host = request.host;
     audit_request.kind = request.kind;
     audit_request.legacy_value = request.legacy_value;
@@ -2710,8 +2800,21 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
 
     JsGameRuntime runtime(options.runtime_limits);
     const std::string filename = "js-package-" + std::to_string(package.vnum) + ".js";
-    const JsRuntimeEvalResult evaluation = runtime.evaluate_trigger_package_handler(
-        package.compiled_javascript, binding->handler_name, context, filename.c_str());
+    JsTriggerDispatchRequest command_bridge_request = request;
+    command_bridge_request.package_vnum = package.vnum;
+    command_bridge_request.package_id = package.package_id;
+    command_bridge_request.handler_name = binding->handler_name;
+    DoGiveCommandBridgeContext command_bridge_context;
+    command_bridge_context.request = &command_bridge_request;
+    command_bridge_context.adapter_options = &adapter_options;
+    command_bridge_context.authority = &options.mutation_authority;
+    command_bridge_context.helper_options = &options.helper_mutation_options;
+    JsGameRuntimeEvaluationOptions evaluation_options;
+    evaluation_options.command_result_callback = do_give_command_bridge_result;
+    evaluation_options.command_result_user_data = &command_bridge_context;
+    const JsRuntimeEvalResult evaluation =
+        runtime.evaluate_trigger_package_handler(package.compiled_javascript, binding->handler_name,
+                                                 context, evaluation_options, filename.c_str());
 
     JsTriggerDispatchResult result;
     result.runtime_status = evaluation.status;

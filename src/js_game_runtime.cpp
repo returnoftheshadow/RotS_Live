@@ -17,6 +17,19 @@ constexpr std::size_t CharacterBodypartHitCount = 11;
 
 JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result);
 
+std::string game_command_result_callback_bridge(const std::string &operation,
+                                                const std::string &arguments_json,
+                                                void *user_data) {
+    const JsGameRuntimeEvaluationOptions *options =
+        static_cast<const JsGameRuntimeEvaluationOptions *>(user_data);
+    if (options == nullptr || options->command_result_callback == nullptr)
+        return "{\"handled\":false}";
+    JsGameCommandResultRequest request;
+    request.operation = operation;
+    request.arguments_json = arguments_json;
+    return options->command_result_callback(request, options->command_result_user_data);
+}
+
 std::string js_quote(const std::string &value) {
     std::ostringstream out;
     out << '"';
@@ -962,6 +975,9 @@ bool parse_mutation(JsonReader *reader, JsRuntimeMutation *mutation, std::string
                        return nested_reader->parse_string(&mutation->target_token, nested_error);
                    if (name == "argumentsJson")
                        return nested_reader->parse_string(&mutation->arguments_json, nested_error);
+                   if (name == "commandResultBridgeAccepted")
+                       return nested_reader->parse_bool(&mutation->command_result_bridge_accepted,
+                                                        nested_error);
                    return nested_reader->skip_value(nested_error);
                },
                error_message) &&
@@ -1022,10 +1038,16 @@ bool parse_game_envelope(const std::string &envelope, JsRuntimeEvalResult *resul
 }
 
 JsRuntimeEvalResult evaluate_game_source(const std::string &source, const JsRuntimeLimits &limits,
+                                         const JsGameRuntimeEvaluationOptions &evaluation_options,
                                          const char *filename) {
     JsRuntime runtime(limits);
-    JsRuntimeEvalResult result =
-        sanitize_game_result(runtime.evaluate_trusted_wrapped_source(source, filename));
+    JsRuntimeNativeCommandResultOptions native_options;
+    native_options.callback = evaluation_options.command_result_callback == nullptr
+                                  ? nullptr
+                                  : game_command_result_callback_bridge;
+    native_options.user_data = const_cast<JsGameRuntimeEvaluationOptions *>(&evaluation_options);
+    JsRuntimeEvalResult result = sanitize_game_result(
+        runtime.evaluate_trusted_wrapped_source(source, filename, native_options));
     if (result.status != JsRuntimeStatus::Ok)
         return result;
     if (!result.has_string_value) {
@@ -1081,6 +1103,10 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "const __rotsNumberIsInteger = Number.isInteger;\n"
         << "const __rotsString = String;\n"
         << "const __rotsJsonStringify = JSON.stringify;\n"
+        << "const __rotsJsonParse = JSON.parse;\n"
+        << "const __rotsNativeCommandResultHost = typeof globalThis.__rotsNativeCommandResult === "
+           "'function' ? globalThis.__rotsNativeCommandResult : null;\n"
+        << "try { delete globalThis.__rotsNativeCommandResult; } catch (__rotsDeleteError) {}\n"
         << "Object.freeze(Number);\n"
         << "Object.freeze(JSON);\n"
         << "const __rotsMutations = [];\n"
@@ -1444,6 +1470,41 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
            "__rotsJsonStringify.call(JSON, args) });\n"
         << "  return __rotsMutationResult(true, 'ok', null, operation);\n"
         << "}\n"
+        << "function __rotsBridgeCodeIsSupported(code) {\n"
+        << "  return code === 'ok' || code === 'invalid-value' || code === 'out-of-range' || "
+           "code === 'not-authorized' || code === 'stale-handle' || code === 'unsupported' || "
+           "code === 'deferred' || code === 'invalid-target' || code === 'not-carried' || "
+           "code === 'no-drop' || code === 'inventory-full' || code === 'too-heavy' || "
+           "code === 'audit-rejected' || code === 'not-found';\n"
+        << "}\n"
+        << "function __rotsSanitizeBridgeResult(value, operation) {\n"
+        << "  if (!value || typeof value !== 'object') return null;\n"
+        << "  if (value.handled === false) return null;\n"
+        << "  if (typeof value.ok !== 'boolean' || typeof value.code !== 'string' || "
+           "!__rotsBridgeCodeIsSupported(value.code)) return __rotsMutationResult(false, "
+           "'unsupported', null, operation);\n"
+        << "  const message = typeof value.message === 'string' ? value.message : null;\n"
+        << "  const field = typeof value.field === 'string' ? value.field : null;\n"
+        << "  return __rotsMutationResult(value.ok, value.code, message, field);\n"
+        << "}\n"
+        << "function __rotsCommandBridgeMutationResult(operation, args) {\n"
+        << "  if (__rotsNativeCommandResultHost === null) return null;\n"
+        << "  let payload = null;\n"
+        << "  try { payload = __rotsNativeCommandResultHost(operation, "
+           "__rotsJsonStringify.call(JSON, args)); } catch (__rotsBridgeError) { return "
+           "__rotsMutationResult(false, 'unsupported', null, operation); }\n"
+        << "  if (typeof payload !== 'string' || payload.length > 512) return "
+           "__rotsMutationResult(false, 'unsupported', null, operation);\n"
+        << "  let parsed = null;\n"
+        << "  try { parsed = __rotsJsonParse.call(JSON, payload); } catch (__rotsParseError) { "
+           "return __rotsMutationResult(false, 'unsupported', null, operation); }\n"
+        << "  const result = __rotsSanitizeBridgeResult(parsed, operation);\n"
+        << "  if (result === null) return null;\n"
+        << "  if (result.ok) __rotsMutations.push({ kind: 'command', operation: operation, "
+           "argumentsJson: __rotsJsonStringify.call(JSON, args), "
+           "commandResultBridgeAccepted: true });\n"
+        << "  return result;\n"
+        << "}\n"
         << "function __rotsValidateCommandText(value, field) {\n"
         << "  if (typeof value !== 'string') return __rotsMutationResult(false, 'invalid-value', "
            "'Expected text.', field);\n"
@@ -1532,11 +1593,12 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "  const recipientId = __rotsHandleId(recipient, 'character', 'recipient');\n"
         << "  const objectId = __rotsHandleId(object, 'object', 'object');\n"
         << "  if (giverId === null || recipientId === null || objectId === null) return "
-           "__rotsMutationResult(false, 'invalid-value', 'Expected live giver, recipient, and "
+           "__rotsMutationResult(false, 'invalid-target', 'Expected live giver, recipient, and "
            "object handles.', 'target');\n"
-        << "  return __rotsCommandMutationResult('script.do_give', { giverId: giverId, "
-           "recipientId: "
-           "recipientId, objectId: objectId });\n"
+        << "  const args = { giverId: giverId, recipientId: recipientId, objectId: objectId };\n"
+        << "  const bridged = __rotsCommandBridgeMutationResult('script.do_give', args);\n"
+        << "  return bridged === null ? __rotsCommandMutationResult('script.do_give', args) : "
+           "bridged;\n"
         << "}\n"
         << "const console = __rotsDeepFreeze({ log: function() { return undefined; } });\n"
         << "const RotS = __rotsDeepFreeze({\n"
@@ -1607,17 +1669,62 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string &sour
            "__rotsValidateLifespanSetter, __rotsValidateLevelSetter, __rotsValidateRaritySetter, "
            "__rotsValidateSectorTypeSetter, "
            "__rotsMutationResult, __rotsDeepFreeze, __rotsJsonStringify, __rotsNumberIsInteger, "
-           "__rotsString, __rotsLiveHandleTypes) {\n"
+           "__rotsString, __rotsLiveHandleTypes, __rotsJsonParse, "
+           "__rotsNativeCommandResultHost, __rotsBridgeCodeIsSupported, "
+           "__rotsSanitizeBridgeResult, __rotsCommandBridgeMutationResult) {\n"
         << "  'use strict';\n"
         << source << "\n"
         << "})(ctx, undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
            "undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
-           "undefined, undefined, undefined, undefined, undefined, undefined, undefined);\n"
+           "undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
+           "undefined, undefined, undefined, undefined, undefined);\n"
         << "__rotsJsonStringify.call(JSON, { allow: __rotsReturn === undefined || "
            "!!__rotsReturn, mutations: "
            "__rotsMutations });";
 
-    return evaluate_game_source(wrapped.str(), m_limits, filename);
+    return evaluate_game_source(wrapped.str(), m_limits, {}, filename);
+}
+
+JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(
+    const std::string &source, const JsGameTriggerContextFixture &context,
+    const JsGameRuntimeEvaluationOptions &evaluation_options, const char *filename) {
+    if (source_has_unsafe_wrapper_boundary(source)) {
+        JsRuntimeEvalResult result;
+        result.status = JsRuntimeStatus::Error;
+        result.diagnostic = "JavaScript game script body is not structurally valid";
+        return result;
+    }
+    JsRuntimeEvalResult policy_result = validate_builder_source_policy(source);
+    if (policy_result.status == JsRuntimeStatus::Error)
+        return sanitize_game_result(policy_result);
+
+    std::ostringstream wrapped;
+    wrapped
+        << trigger_context_preamble(context)
+        << "const __rotsReturn = (function(ctx, __rotsMutations, __rotsAttachTextSetter, "
+           "__rotsAttachSymbolSetter, __rotsAttachCoordinateSetter, __rotsAttachResetModeSetter, "
+           "__rotsAttachLifespanSetter, __rotsAttachLevelSetter, __rotsAttachObjectLevelSetter, "
+           "__rotsAttachObjectRaritySetter, __rotsAttachSectorTypeSetter, "
+           "__rotsAttachSetterApi, __rotsValidateTextSetter, "
+           "__rotsValidateSymbolSetter, "
+           "__rotsValidateCoordinateSetter, __rotsValidateResetModeSetter, "
+           "__rotsValidateLifespanSetter, __rotsValidateLevelSetter, __rotsValidateRaritySetter, "
+           "__rotsValidateSectorTypeSetter, "
+           "__rotsMutationResult, __rotsDeepFreeze, __rotsJsonStringify, __rotsNumberIsInteger, "
+           "__rotsString, __rotsLiveHandleTypes, __rotsJsonParse, "
+           "__rotsNativeCommandResultHost, __rotsBridgeCodeIsSupported, "
+           "__rotsSanitizeBridgeResult, __rotsCommandBridgeMutationResult) {\n"
+        << "  'use strict';\n"
+        << source << "\n"
+        << "})(ctx, undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
+           "undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
+           "undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
+           "undefined, undefined, undefined, undefined, undefined);\n"
+        << "__rotsJsonStringify.call(JSON, { allow: __rotsReturn === undefined || "
+           "!!__rotsReturn, mutations: "
+           "__rotsMutations });";
+
+    return evaluate_game_source(wrapped.str(), m_limits, evaluation_options, filename);
 }
 
 JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
@@ -1646,7 +1753,9 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
            "__rotsValidateLifespanSetter, __rotsValidateLevelSetter, __rotsValidateRaritySetter, "
            "__rotsValidateSectorTypeSetter, "
            "__rotsMutationResult, __rotsDeepFreeze, __rotsJsonStringify, __rotsNumberIsInteger, "
-           "__rotsString, __rotsLiveHandleTypes) {\n"
+           "__rotsString, __rotsLiveHandleTypes, __rotsJsonParse, "
+           "__rotsNativeCommandResultHost, __rotsBridgeCodeIsSupported, "
+           "__rotsSanitizeBridgeResult, __rotsCommandBridgeMutationResult) {\n"
         << "  'use strict';\n"
         << package_source << "\n"
         << "  return { fallback: typeof " << handler_name << " === 'function' ? " << handler_name
@@ -1654,7 +1763,8 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
         << "})(exports, undefined, undefined, undefined, undefined, undefined, undefined, "
            "undefined, "
            "undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
-           "undefined, undefined, undefined, undefined, undefined, undefined, undefined);\n"
+           "undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
+           "undefined, undefined, undefined, undefined, undefined);\n"
         << "const __rotsHandler = typeof exports." << handler_name << " === 'function' ? exports."
         << handler_name << "\n"
         << "  : __rotsPackage.fallback;\n"
@@ -1665,7 +1775,59 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
            "!!__rotsReturn, mutations: "
            "__rotsMutations });";
 
-    return evaluate_game_source(wrapped.str(), m_limits, filename);
+    return evaluate_game_source(wrapped.str(), m_limits, {}, filename);
+}
+
+JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
+    const std::string &package_source, const std::string &handler_name,
+    const JsGameTriggerContextFixture &context,
+    const JsGameRuntimeEvaluationOptions &evaluation_options, const char *filename) {
+    if (!is_safe_handler_identifier(handler_name)) {
+        JsRuntimeEvalResult result;
+        result.status = JsRuntimeStatus::Error;
+        result.diagnostic = "JavaScript game handler name is not a safe identifier";
+        return result;
+    }
+    JsRuntimeEvalResult policy_result = validate_builder_source_policy(package_source);
+    if (policy_result.status == JsRuntimeStatus::Error)
+        return sanitize_game_result(policy_result);
+
+    std::ostringstream wrapped;
+    wrapped
+        << trigger_context_preamble(context) << "const exports = Object.create(null);\n"
+        << "const __rotsPackage = (function(exports, __rotsMutations, __rotsAttachTextSetter, "
+           "__rotsAttachSymbolSetter, __rotsAttachCoordinateSetter, __rotsAttachResetModeSetter, "
+           "__rotsAttachLifespanSetter, __rotsAttachLevelSetter, __rotsAttachObjectLevelSetter, "
+           "__rotsAttachObjectRaritySetter, __rotsAttachSectorTypeSetter, "
+           "__rotsAttachSetterApi, __rotsValidateTextSetter, "
+           "__rotsValidateSymbolSetter, "
+           "__rotsValidateCoordinateSetter, __rotsValidateResetModeSetter, "
+           "__rotsValidateLifespanSetter, __rotsValidateLevelSetter, __rotsValidateRaritySetter, "
+           "__rotsValidateSectorTypeSetter, "
+           "__rotsMutationResult, __rotsDeepFreeze, __rotsJsonStringify, __rotsNumberIsInteger, "
+           "__rotsString, __rotsLiveHandleTypes, __rotsJsonParse, "
+           "__rotsNativeCommandResultHost, __rotsBridgeCodeIsSupported, "
+           "__rotsSanitizeBridgeResult, __rotsCommandBridgeMutationResult) {\n"
+        << "  'use strict';\n"
+        << package_source << "\n"
+        << "  return { fallback: typeof " << handler_name << " === 'function' ? " << handler_name
+        << " : undefined };\n"
+        << "})(exports, undefined, undefined, undefined, undefined, undefined, undefined, "
+           "undefined, "
+           "undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
+           "undefined, undefined, undefined, undefined, undefined, undefined, undefined, "
+           "undefined, undefined, undefined, undefined, undefined);\n"
+        << "const __rotsHandler = typeof exports." << handler_name << " === 'function' ? exports."
+        << handler_name << "\n"
+        << "  : __rotsPackage.fallback;\n"
+        << "if (typeof __rotsHandler !== 'function') throw new TypeError('JavaScript game handler "
+           "is not callable');\n"
+        << "const __rotsReturn = __rotsHandler(ctx);\n"
+        << "__rotsJsonStringify.call(JSON, { allow: __rotsReturn === undefined || "
+           "!!__rotsReturn, mutations: "
+           "__rotsMutations });";
+
+    return evaluate_game_source(wrapped.str(), m_limits, evaluation_options, filename);
 }
 
 std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture &context) {

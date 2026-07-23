@@ -499,6 +499,19 @@ struct JsGameTriggerContextFixture {
     JsGameTriggerFixture trigger;
 };
 
+struct JsGameCommandResultRequest {
+    std::string operation;
+    std::string arguments_json;
+};
+
+using JsGameCommandResultCallback = std::string (*)(const JsGameCommandResultRequest &request,
+                                                    void *user_data);
+
+struct JsGameRuntimeEvaluationOptions {
+    JsGameCommandResultCallback command_result_callback = nullptr;
+    void *command_result_user_data = nullptr;
+};
+
 class JsGameRuntime {
   public:
     explicit JsGameRuntime(const JsRuntimeLimits &limits = {});
@@ -506,10 +519,20 @@ class JsGameRuntime {
     JsRuntimeEvalResult evaluate_trigger_body(const std::string &source,
                                               const JsGameTriggerContextFixture &context,
                                               const char *filename = "game-script.js");
+    JsRuntimeEvalResult
+    evaluate_trigger_body(const std::string &source, const JsGameTriggerContextFixture &context,
+                          const JsGameRuntimeEvaluationOptions &evaluation_options,
+                          const char *filename = "game-script.js");
     JsRuntimeEvalResult evaluate_trigger_package_handler(const std::string &package_source,
                                                          const std::string &handler_name,
                                                          const JsGameTriggerContextFixture &context,
                                                          const char *filename = "game-script.js");
+    JsRuntimeEvalResult
+    evaluate_trigger_package_handler(const std::string &package_source,
+                                     const std::string &handler_name,
+                                     const JsGameTriggerContextFixture &context,
+                                     const JsGameRuntimeEvaluationOptions &evaluation_options,
+                                     const char *filename = "game-script.js");
 
   private:
     JsRuntimeLimits m_limits;
