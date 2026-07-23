@@ -368,9 +368,10 @@ Missing-prototype and wrong-room failures leave placement state unchanged, and
 each fixture run starts from the original room contents. Offline `doGive`
 treats room-contained objects as `not-carried` unless an accepted transfer has
 explicitly moved them into character ownership. Remaining fixture parity gaps
-include wiring descriptor buffers into script execution. A non-script-visible
-BuilderClient probe already models queued output intents separately from
-committed descriptor output events. For
+include descriptor-buffer failure coverage. A non-script-visible BuilderClient
+probe and private per-run execution buffer model queued output intents
+separately from committed descriptor output events while preserving existing
+source-order command logs. For
 output helpers, offline fixtures can emulate
 `no-recipient` by setting a character fixture handle's `canReceiveOutput` to
 `false`, or by giving a room fixture a `characters` array with no reachable
