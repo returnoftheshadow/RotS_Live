@@ -332,9 +332,11 @@ failures, inventory-count failures, and approximate carried-weight failures now;
 exact prototype `not-found` and prototype-weight parity remain server-owned
 until fixture prototype catalogs are added.
 `RotS.Script.doWait(pulses)` also follows the accepted-transaction model on the
-live server. Offline fixtures currently validate the pulse range and log the
-wait command event on success, but they do not yet emulate persistent wait-list
-state or the `already-waiting` branch.
+live server. Offline fixtures validate the pulse range and can model wait-list
+state with `ctx.hostAlreadyWaiting`. When `hostAlreadyWaiting` is `true`, the
+first offline `doWait()` returns `already-waiting` without logging a command
+event. When it is omitted or `false`, the first valid wait logs a command event
+and later waits in the same fixture run return `already-waiting`.
 `RotS.Script.doSay(speaker, text)`, `RotS.Script.sendToChar(target, text)`, and
 `RotS.Script.sendToRoom(room, text)` return inline `invalid-target`,
 `audit-rejected`, or `no-recipient` failures before queuing when the live server
