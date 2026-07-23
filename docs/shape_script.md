@@ -364,7 +364,9 @@ placement is also covered by a non-script-visible BuilderClient probe and
 private per-run execution state that clone fixture room contents and apply
 accepted `loadObj(vnum, room)` commands with deterministic offline ids while
 leaving `ctx.room.contents` frozen and unchanged for the running script.
-Remaining fixture parity gaps include room-placement failure/isolation coverage
+Missing-prototype and wrong-room failures leave placement state unchanged, and
+each fixture run starts from the original room contents. Remaining fixture
+parity gaps include room-contained object ownership
 and descriptor buffering. For
 output helpers, offline fixtures can emulate
 `no-recipient` by setting a character fixture handle's `canReceiveOutput` to
