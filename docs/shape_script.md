@@ -365,9 +365,10 @@ private per-run execution state that clone fixture room contents and apply
 accepted `loadObj(vnum, room)` commands with deterministic offline ids while
 leaving `ctx.room.contents` frozen and unchanged for the running script.
 Missing-prototype and wrong-room failures leave placement state unchanged, and
-each fixture run starts from the original room contents. Remaining fixture
-parity gaps include room-contained object ownership
-and descriptor buffering. For
+each fixture run starts from the original room contents. Offline `doGive`
+treats room-contained objects as `not-carried` unless an accepted transfer has
+explicitly moved them into character ownership. Remaining fixture parity gaps
+include descriptor buffering. For
 output helpers, offline fixtures can emulate
 `no-recipient` by setting a character fixture handle's `canReceiveOutput` to
 `false`, or by giving a room fixture a `characters` array with no reachable
