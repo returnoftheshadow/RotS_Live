@@ -80,6 +80,30 @@ JsGameTriggerContextFixture make_context()
     context.self.specials.prompt_value = 42;
     context.self.specials.home_zone = 12;
     context.self.specials.load_line = 8;
+    context.self.specials2.load_room = 3001;
+    context.self.specials2.spells_to_learn = 3;
+    context.self.specials2.alignment = 250;
+    context.self.specials2.act_flags = { "writing", "incognito" };
+    context.self.specials2.preference_flags = { "brief", "color", "advancedView" };
+    context.self.specials2.wimp_level = 20;
+    context.self.specials2.freeze_level = 5;
+    context.self.specials2.saving_throw = 7;
+    context.self.specials2.raw_perception = 81;
+    context.self.specials2.perception = 87;
+    context.self.specials2.conditions.drunk = 1;
+    context.self.specials2.conditions.full = 15;
+    context.self.specials2.conditions.thirst = 19;
+    context.self.specials2.mini_level = 2;
+    context.self.specials2.max_mini_level = 4;
+    context.self.specials2.morale = 33;
+    context.self.specials2.rerolls = 2;
+    context.self.specials2.leg_encumbrance = 8;
+    context.self.specials2.retired_on = 1705000000;
+    context.self.specials2.hide_flags = { "hidingWell", "snuckIn" };
+    context.self.specials2.tactics = "aggressive";
+    context.self.specials2.shooting = "fast";
+    context.self.specials2.casting = "slow";
+    context.self.specials2.two_handed = true;
     context.self.has_room = true;
     context.self.room.id = "room:1204";
     context.self.room.name = "Northern Gate";
@@ -164,6 +188,12 @@ JsGameTriggerContextFixture make_context()
     context.actor.specials.last_direction = "east";
     context.actor.specials.tactics = "normal";
     context.actor.specials.energy = 44;
+    context.actor.specials2.act_flags = { "isNpc", "memory" };
+    context.actor.specials2.preference_flags = { "brief" };
+    context.actor.specials2.conditions.full = 7;
+    context.actor.specials2.tactics = "normal";
+    context.actor.specials2.shooting = "slow";
+    context.actor.specials2.casting = "fast";
 
     context.has_object = true;
     context.object.id = "object:300";
@@ -533,6 +563,35 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.self.specials.promptValue === 42\n"
         "  && ctx.self.specials.homeZone === 12\n"
         "  && ctx.self.specials.loadLine === 8\n"
+        "  && ctx.self.specials2.loadRoom === 3001\n"
+        "  && ctx.self.specials2.spellsToLearn === 3\n"
+        "  && ctx.self.specials2.alignment === 250\n"
+        "  && ctx.self.specials2.actFlags.join(',') === 'writing,incognito'\n"
+        "  && ctx.self.specials2.preferenceFlags.join(',') === 'brief,color,advancedView'\n"
+        "  && ctx.self.specials2.wimpLevel === 20\n"
+        "  && ctx.self.specials2.freezeLevel === 5\n"
+        "  && ctx.self.specials2.savingThrow === 7\n"
+        "  && ctx.self.specials2.rawPerception === 81\n"
+        "  && ctx.self.specials2.perception === 87\n"
+        "  && ctx.self.specials2.conditions.drunk === 1\n"
+        "  && ctx.self.specials2.conditions.full === 15\n"
+        "  && ctx.self.specials2.conditions.thirst === 19\n"
+        "  && ctx.self.specials2.miniLevel === 2\n"
+        "  && ctx.self.specials2.maxMiniLevel === 4\n"
+        "  && ctx.self.specials2.morale === 33\n"
+        "  && ctx.self.specials2.rerolls === 2\n"
+        "  && ctx.self.specials2.legEncumbrance === 8\n"
+        "  && ctx.self.specials2.retiredOn === 1705000000\n"
+        "  && ctx.self.specials2.hideFlags.join(',') === 'hidingWell,snuckIn'\n"
+        "  && ctx.self.specials2.tactics === 'aggressive'\n"
+        "  && ctx.self.specials2.shooting === 'fast'\n"
+        "  && ctx.self.specials2.casting === 'slow'\n"
+        "  && ctx.self.specials2.twoHanded === true\n"
+        "  && !('badPws' in ctx.self.specials2)\n"
+        "  && !('idNumber' in ctx.self.specials2)\n"
+        "  && !('owner' in ctx.self.specials2)\n"
+        "  && !('roleplayFlags' in ctx.self.specials2)\n"
+        "  && !('willTeach' in ctx.self.specials2)\n"
         "  && ctx.self.isValid() === true\n"
         "  && ctx.self.room.vnum === 1204\n"
         "  && ctx.self.room.isSunlit === true\n"
@@ -582,6 +641,9 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext)
         "  && ctx.actor.specials.lastDirection === 'east'\n"
         "  && ctx.actor.specials.tactics === 'normal'\n"
         "  && ctx.actor.specials.energy === 44\n"
+        "  && ctx.actor.specials2.actFlags.join(',') === 'isNpc,memory'\n"
+        "  && ctx.actor.specials2.conditions.full === 7\n"
+        "  && ctx.actor.specials2.casting === 'fast'\n"
         "  && ctx.object.vnum === 300\n"
         "  && ctx.object.room.name === 'Northern Gate'\n"
         "  && ctx.object.room.isSunlit === true\n"
@@ -1677,6 +1739,9 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && typeof ctx.self.rolledAbilities.constructor === 'undefined'\n"
         "  && typeof ctx.self.points.constructor === 'undefined'\n"
         "  && typeof ctx.self.specials.constructor === 'undefined'\n"
+        "  && typeof ctx.self.specials2.constructor === 'undefined'\n"
+        "  && typeof ctx.self.specials2.conditions.constructor === 'undefined'\n"
+        "  && typeof ctx.self.specials2.actFlags.constructor === 'undefined'\n"
         "  && typeof ctx.self.points.bodypartHits.constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx) === null\n"
         "  && Object.getPrototypeOf(ctx.self) === null\n"
@@ -1685,6 +1750,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.getPrototypeOf(ctx.self.rolledAbilities) === null\n"
         "  && Object.getPrototypeOf(ctx.self.points) === null\n"
         "  && Object.getPrototypeOf(ctx.self.specials) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.specials2) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.specials2.conditions) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
         "  && Object.isFrozen(ctx)\n"
         "  && Object.isFrozen(ctx.self)\n"
@@ -1693,6 +1760,11 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface)
         "  && Object.isFrozen(ctx.self.rolledAbilities)\n"
         "  && Object.isFrozen(ctx.self.points)\n"
         "  && Object.isFrozen(ctx.self.specials)\n"
+        "  && Object.isFrozen(ctx.self.specials2)\n"
+        "  && Object.isFrozen(ctx.self.specials2.conditions)\n"
+        "  && Object.isFrozen(ctx.self.specials2.actFlags)\n"
+        "  && Object.isFrozen(ctx.self.specials2.preferenceFlags)\n"
+        "  && Object.isFrozen(ctx.self.specials2.hideFlags)\n"
         "  && Object.isFrozen(ctx.self.points.bodypartHits)\n"
         "  && Object.isFrozen(ctx.trigger);",
         make_context());
@@ -1719,6 +1791,24 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots)
         JsRuntimeStatus::Error);
     EXPECT_EQ(runtime.evaluate_trigger_body(
                          "ctx.self.specials.energy = 1;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.specials2.alignment = 1;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.specials2.conditions.full = 1;\n"
+                         "return true;",
+                         make_context())
+                  .status,
+        JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime.evaluate_trigger_body(
+                         "ctx.self.specials2.actFlags[0] = 'deleted';\n"
                          "return true;",
                          make_context())
                   .status,

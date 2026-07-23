@@ -89,8 +89,13 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "counters, and procedure state.",
      "mutation", "Nested struct."},
     {JsApiStructOwner::CharData, "char_data", "specials2", "specials2", "getSpecials2",
-     "setSpecials2", "CharacterSpecials2", false, Deferred, Unsupported,
-     "Planned structured getter for additional safe public character state.",
+     "setSpecials2", "CharacterSpecials2", false, ImplementedReadOnly, Unsupported,
+     "Returns a frozen read-only snapshot of additional character state: load room, spell "
+     "practice count, alignment, player/NPC flags, preferences, wimp/freeze/saving values, "
+     "perception, condition counters, mini-levels, morale, rerolls, leg encumbrance, retirement "
+     "marker, hide flags, tactics, shooting, casting, and two-handed mode. Persistent identity, "
+     "owner ids, raw roleplay/teaching bitvectors, and "
+     "authentication failure counters are intentionally not exposed.",
      "Whole-specials2 mutation is unsupported for builder scripts because the fields include "
      "player/NPC flags, preferences, ids, load rooms, conditions, perception, alignment, "
      "teaching, tactics, and other persistence-sensitive state.",

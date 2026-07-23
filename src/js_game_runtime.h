@@ -97,6 +97,37 @@ struct JsGameCharacterSpecialsFixture {
     int load_line = 0;
 };
 
+struct JsGameCharacterConditionsFixture {
+    int drunk = 0;
+    int full = 0;
+    int thirst = 0;
+};
+
+struct JsGameCharacterSpecials2Fixture {
+    int load_room = 0;
+    int spells_to_learn = 0;
+    int alignment = 0;
+    std::vector<std::string> act_flags;
+    std::vector<std::string> preference_flags;
+    int wimp_level = 0;
+    int freeze_level = 0;
+    int saving_throw = 0;
+    int raw_perception = 0;
+    int perception = 0;
+    JsGameCharacterConditionsFixture conditions;
+    int mini_level = 0;
+    int max_mini_level = 0;
+    int morale = 0;
+    int rerolls = 0;
+    int leg_encumbrance = 0;
+    int retired_on = 0;
+    std::vector<std::string> hide_flags;
+    std::string tactics = "Unknown";
+    std::string shooting = "Unknown";
+    std::string casting = "Unknown";
+    bool two_handed = false;
+};
+
 struct JsGameCharacterFixture {
     std::string id;
     std::string name;
@@ -117,6 +148,7 @@ struct JsGameCharacterFixture {
     JsGameAbilityScoresFixture rolled_abilities;
     JsGameCharacterPointsFixture points;
     JsGameCharacterSpecialsFixture specials;
+    JsGameCharacterSpecials2Fixture specials2;
     bool is_npc = false;
 
     bool has_room = false;

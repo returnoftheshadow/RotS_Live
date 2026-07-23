@@ -88,7 +88,35 @@ char_data make_character(const char *name, int race, int level, int hit, int max
     character.specials.load_line = 8;
     character.specials2.idnum = npc ? -1 : 1234;
     if (npc)
-        character.specials2.act |= MOB_ISNPC;
+        character.specials2.act |= MOB_ISNPC | MOB_MEMORY | MOB_GUARDIAN;
+    else
+        character.specials2.act |= PLR_WRITING | PLR_INCOGNITO;
+    character.specials2.load_room = 3001;
+    character.specials2.spells_to_learn = 3;
+    character.specials2.alignment = 250;
+    character.specials2.pref = PRF_BRIEF | PRF_COLOR | PRF_ADVANCED_VIEW;
+    character.specials2.wimp_level = 20;
+    character.specials2.freeze_level = 5;
+    character.specials2.saving_throw = 7;
+    character.specials2.rawPerception = 81;
+    character.specials2.perception = 87;
+    character.specials2.conditions[0] = 1;
+    character.specials2.conditions[1] = 15;
+    character.specials2.conditions[2] = 19;
+    character.specials2.mini_level = 2;
+    character.specials2.max_mini_level = 4;
+    character.specials2.morale = 33;
+    character.specials2.owner = 987;
+    character.specials2.rerolls = 2;
+    character.specials2.leg_encumb = 8;
+    character.specials2.rp_flag = 17;
+    character.specials2.retiredon = 1705000000;
+    character.specials2.hide_flags = HIDING_WELL | HIDING_SNUCK_IN;
+    character.specials2.will_teach = 123456;
+    character.specials2.tactics = TACTICS_AGGRESSIVE;
+    character.specials2.shooting = SHOOTING_FAST;
+    character.specials2.casting = CASTING_SLOW;
+    character.specials2.two_handed = 1;
     return character;
 }
 
@@ -291,6 +319,33 @@ TEST(JsGameAdapter, SnapshotsApprovedCharacterFields)
     EXPECT_EQ(fixture.specials.prompt_value, 42);
     EXPECT_EQ(fixture.specials.home_zone, 12);
     EXPECT_EQ(fixture.specials.load_line, 8);
+    EXPECT_EQ(fixture.specials2.load_room, 3001);
+    EXPECT_EQ(fixture.specials2.spells_to_learn, 3);
+    EXPECT_EQ(fixture.specials2.alignment, 250);
+    EXPECT_EQ(fixture.specials2.act_flags,
+        (std::vector<std::string> { "isNpc", "memory", "guardian" }));
+    EXPECT_EQ(fixture.specials2.preference_flags,
+        (std::vector<std::string> { "brief", "color", "advancedView" }));
+    EXPECT_EQ(fixture.specials2.wimp_level, 20);
+    EXPECT_EQ(fixture.specials2.freeze_level, 5);
+    EXPECT_EQ(fixture.specials2.saving_throw, 7);
+    EXPECT_EQ(fixture.specials2.raw_perception, 81);
+    EXPECT_EQ(fixture.specials2.perception, 87);
+    EXPECT_EQ(fixture.specials2.conditions.drunk, 1);
+    EXPECT_EQ(fixture.specials2.conditions.full, 15);
+    EXPECT_EQ(fixture.specials2.conditions.thirst, 19);
+    EXPECT_EQ(fixture.specials2.mini_level, 2);
+    EXPECT_EQ(fixture.specials2.max_mini_level, 4);
+    EXPECT_EQ(fixture.specials2.morale, 33);
+    EXPECT_EQ(fixture.specials2.rerolls, 2);
+    EXPECT_EQ(fixture.specials2.leg_encumbrance, 8);
+    EXPECT_EQ(fixture.specials2.retired_on, 1705000000);
+    EXPECT_EQ(fixture.specials2.hide_flags,
+        (std::vector<std::string> { "hidingWell", "snuckIn" }));
+    EXPECT_EQ(fixture.specials2.tactics, "aggressive");
+    EXPECT_EQ(fixture.specials2.shooting, "fast");
+    EXPECT_EQ(fixture.specials2.casting, "slow");
+    EXPECT_TRUE(fixture.specials2.two_handed);
     EXPECT_TRUE(fixture.is_npc);
     ASSERT_TRUE(fixture.has_room);
     EXPECT_EQ(fixture.room.vnum, 1204);
@@ -317,6 +372,8 @@ TEST(JsGameAdapter, SnapshotsPlayerWithoutPrototypeVnum)
     EXPECT_EQ(fixture.experience, 29000);
     EXPECT_EQ(fixture.rank, 32);
     EXPECT_EQ(fixture.specials.tactics, "aggressive");
+    EXPECT_EQ(fixture.specials2.act_flags,
+        (std::vector<std::string> { "writing", "incognito" }));
     EXPECT_FALSE(fixture.is_npc);
 }
 
@@ -327,6 +384,9 @@ TEST(JsGameAdapter, MapsCharacterSpecialsFiniteVocabularies)
     player.specials.default_pos = 99;
     player.specials.last_direction = 99;
     player.specials.tactics = TACTICS_BERSERK;
+    player.specials2.tactics = 99;
+    player.specials2.shooting = 99;
+    player.specials2.casting = 99;
     const char_data *live_characters[] = { &player };
     JsGameAdapterOptions options = make_options(live_characters, 1, nullptr, 0, nullptr, -1,
         nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0);
@@ -338,6 +398,9 @@ TEST(JsGameAdapter, MapsCharacterSpecialsFiniteVocabularies)
     EXPECT_EQ(fixture.specials.default_position, "Unknown");
     EXPECT_EQ(fixture.specials.last_direction, "");
     EXPECT_EQ(fixture.specials.tactics, "berserk");
+    EXPECT_EQ(fixture.specials2.tactics, "Unknown");
+    EXPECT_EQ(fixture.specials2.shooting, "Unknown");
+    EXPECT_EQ(fixture.specials2.casting, "Unknown");
 }
 
 TEST(JsGameAdapter, MapsCharacterSpecialsPointerPresenceWithoutDereferencing)

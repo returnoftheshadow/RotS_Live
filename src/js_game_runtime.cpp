@@ -158,6 +158,45 @@ std::string character_specials_literal(const JsGameCharacterSpecialsFixture& spe
     return out.str();
 }
 
+std::string character_conditions_literal(const JsGameCharacterConditionsFixture& conditions)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"drunk\":" << conditions.drunk << ","
+        << "\"full\":" << conditions.full << ","
+        << "\"thirst\":" << conditions.thirst << "}";
+    return out.str();
+}
+
+std::string character_specials2_literal(const JsGameCharacterSpecials2Fixture& specials2)
+{
+    std::ostringstream out;
+    out << "{"
+        << "\"loadRoom\":" << specials2.load_room << ","
+        << "\"spellsToLearn\":" << specials2.spells_to_learn << ","
+        << "\"alignment\":" << specials2.alignment << ","
+        << "\"actFlags\":" << string_array_literal(specials2.act_flags) << ","
+        << "\"preferenceFlags\":" << string_array_literal(specials2.preference_flags) << ","
+        << "\"wimpLevel\":" << specials2.wimp_level << ","
+        << "\"freezeLevel\":" << specials2.freeze_level << ","
+        << "\"savingThrow\":" << specials2.saving_throw << ","
+        << "\"rawPerception\":" << specials2.raw_perception << ","
+        << "\"perception\":" << specials2.perception << ","
+        << "\"conditions\":" << character_conditions_literal(specials2.conditions) << ","
+        << "\"miniLevel\":" << specials2.mini_level << ","
+        << "\"maxMiniLevel\":" << specials2.max_mini_level << ","
+        << "\"morale\":" << specials2.morale << ","
+        << "\"rerolls\":" << specials2.rerolls << ","
+        << "\"legEncumbrance\":" << specials2.leg_encumbrance << ","
+        << "\"retiredOn\":" << specials2.retired_on << ","
+        << "\"hideFlags\":" << string_array_literal(specials2.hide_flags) << ","
+        << "\"tactics\":" << js_quote(specials2.tactics) << ","
+        << "\"shooting\":" << js_quote(specials2.shooting) << ","
+        << "\"casting\":" << js_quote(specials2.casting) << ","
+        << "\"twoHanded\":" << js_bool(specials2.two_handed) << "}";
+    return out.str();
+}
+
 std::string zone_literal(const JsGameZoneFixture& zone)
 {
     std::ostringstream out;
@@ -236,6 +275,7 @@ std::string character_literal(const JsGameCharacterFixture& character)
         << "\"rolledAbilities\":" << ability_scores_literal(character.rolled_abilities) << ","
         << "\"points\":" << character_points_literal(character.points) << ","
         << "\"specials\":" << character_specials_literal(character.specials) << ","
+        << "\"specials2\":" << character_specials2_literal(character.specials2) << ","
         << "\"isNpc\":" << js_bool(character.is_npc) << ","
         << "\"isPlayer\":" << js_bool(!character.is_npc) << ","
         << "\"room\":" << nullable_literal(character.has_room, room_literal(character.room)) << ","

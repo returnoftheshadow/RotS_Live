@@ -317,6 +317,97 @@ constexpr LongFlagName ObjectExtraFlagNames[] = {
     {ITEM_STAY_ZONE, "stayZone"},
 };
 
+constexpr LongFlagName MobFlagNames[] = {
+    {MOB_SPEC, "specialProcedure"},
+    {MOB_SENTINEL, "sentinel"},
+    {MOB_SCAVENGER, "scavenger"},
+    {MOB_ISNPC, "isNpc"},
+    {MOB_NOBASH, "noBash"},
+    {MOB_AGGRESSIVE, "aggressive"},
+    {MOB_STAY_ZONE, "stayZone"},
+    {MOB_WIMPY, "wimpy"},
+    {MOB_STAY_TYPE, "stayType"},
+    {MOB_MOUNT, "mount"},
+    {MOB_CAN_SWIM, "canSwim"},
+    {MOB_MEMORY, "memory"},
+    {MOB_HELPER, "helper"},
+    {MOB_AGGRESSIVE_EVIL, "aggressiveEvil"},
+    {MOB_AGGRESSIVE_NEUTRAL, "aggressiveNeutral"},
+    {MOB_AGGRESSIVE_GOOD, "aggressiveGood"},
+    {MOB_BODYGUARD, "bodyguard"},
+    {MOB_SHADOW, "shadow"},
+    {MOB_SWITCHING, "switching"},
+    {MOB_NORECALC, "noRecalc"},
+    {MOB_FAST, "active"},
+    {MOB_PET, "pet"},
+    {MOB_HUNTER, "hunter"},
+    {MOB_ORC_FRIEND, "orcFriend"},
+    {MOB_RACE_GUARD, "raceGuard"},
+    {MOB_ASSISTANT, "assistant"},
+    {MOB_GUARDIAN, "guardian"},
+};
+
+constexpr LongFlagName PlayerFlagNames[] = {
+    {PLR_IS_NCHANGED, "isNchanged"},
+    {PLR_FROZEN, "frozen"},
+    {PLR_DONTSET, "dontSet"},
+    {PLR_WRITING, "writing"},
+    {PLR_MAILING, "mailing"},
+    {PLR_CRASH, "crash"},
+    {PLR_SITEOK, "siteOk"},
+    {PLR_NOSHOUT, "noShout"},
+    {PLR_NOTITLE, "noTitle"},
+    {PLR_DELETED, "deleted"},
+    {PLR_LOADROOM, "loadRoom"},
+    {PLR_NOWIZLIST, "noWizlist"},
+    {PLR_NODELETE, "noDelete"},
+    {PLR_INVSTART, "invisibleStart"},
+    {PLR_RETIRED, "retired"},
+    {PLR_SHAPING, "shaping"},
+    {PLR_WR_FINISH, "writingFinished"},
+    {PLR_ISSHADOW, "isShadow"},
+    {PLR_ISAFK, "isAfk"},
+    {PLR_INCOGNITO, "incognito"},
+    {PLR_WAS_KITTED, "wasKitted"},
+};
+
+constexpr LongFlagName PreferenceFlagNames[] = {
+    {PRF_BRIEF, "brief"},
+    {PRF_COMPACT, "compact"},
+    {PRF_NARRATE, "narrate"},
+    {PRF_NOTELL, "noTell"},
+    {PRF_MENTAL, "mental"},
+    {PRF_SWIM, "swim"},
+    {PRF_PROMPT, "prompt"},
+    {PRF_DISPTEXT, "displayText"},
+    {PRF_NOHASSLE, "noHassle"},
+    {PRF_SUMMONABLE, "summonable"},
+    {PRF_ECHO, "echo"},
+    {PRF_HOLYLIGHT, "holyLight"},
+    {PRF_COLOR, "color"},
+    {PRF_SING, "sing"},
+    {PRF_WIZ, "wiz"},
+    {PRF_LOG1, "log1"},
+    {PRF_LOG2, "log2"},
+    {PRF_LOG3, "log3"},
+    {PRF_CHAT, "chat"},
+    {PRF_ROOMFLAGS, "roomFlags"},
+    {PRF_SPAM, "spam"},
+    {PRF_MSDP, "msdp"},
+    {PRF_WRAP, "wrap"},
+    {PRF_LATIN1, "latin1"},
+    {PRF_SPINNER, "spinner"},
+    {PRF_INV_SORT1, "inventorySort1"},
+    {PRF_INV_SORT2, "inventorySort2"},
+    {PRF_ADVANCED_VIEW, "advancedView"},
+    {PRF_ADVANCED_PROMPT, "advancedPrompt"},
+};
+
+constexpr LongFlagName HideFlagNames[] = {
+    {HIDING_WELL, "hidingWell"},
+    {HIDING_SNUCK_IN, "snuckIn"},
+};
+
 constexpr IntName ObjectMaterialNames[] = {
     {0, "usual"},
     {1, "cloth"},
@@ -332,6 +423,26 @@ constexpr IntName ObjectMaterialNames[] = {
     {11, "fur"},
     {12, "glass"},
     {13, "plant"},
+};
+
+constexpr IntName CharacterTacticNames[] = {
+    {TACTICS_DEFENSIVE, "defensive"},
+    {TACTICS_CAREFUL, "careful"},
+    {TACTICS_NORMAL, "normal"},
+    {TACTICS_AGGRESSIVE, "aggressive"},
+    {TACTICS_BERSERK, "berserk"},
+};
+
+constexpr IntName CharacterShootingNames[] = {
+    {SHOOTING_SLOW, "slow"},
+    {SHOOTING_NORMAL, "normal"},
+    {SHOOTING_FAST, "fast"},
+};
+
+constexpr IntName CharacterCastingNames[] = {
+    {CASTING_SLOW, "slow"},
+    {CASTING_NORMAL, "normal"},
+    {CASTING_FAST, "fast"},
 };
 
 std::string named_value(int value, const IntName *names, std::size_t count)
@@ -351,6 +462,13 @@ std::vector<std::string> named_flags(long bitvector, const LongFlagName *names, 
             flags.emplace_back(names[index].name);
     }
     return flags;
+}
+
+std::vector<std::string> character_act_flags(const char_data &character)
+{
+    return character_is_npc(character)
+        ? named_flags(character.specials2.act, MobFlagNames, std::size(MobFlagNames))
+        : named_flags(character.specials2.act, PlayerFlagNames, std::size(PlayerFlagNames));
 }
 
 JsGameObjectFlagsFixture object_flags_fixture(const obj_flag_data &flags)
@@ -655,6 +773,35 @@ bool js_game_adapter_character_fixture(const char_data *character,
     fixture->specials.prompt_value = character->specials.prompt_value;
     fixture->specials.home_zone = character->specials.homezone;
     fixture->specials.load_line = character->specials.load_line;
+    fixture->specials2.load_room = character->specials2.load_room;
+    fixture->specials2.spells_to_learn = character->specials2.spells_to_learn;
+    fixture->specials2.alignment = character->specials2.alignment;
+    fixture->specials2.act_flags = character_act_flags(*character);
+    fixture->specials2.preference_flags =
+        named_flags(character->specials2.pref, PreferenceFlagNames, std::size(PreferenceFlagNames));
+    fixture->specials2.wimp_level = character->specials2.wimp_level;
+    fixture->specials2.freeze_level = character->specials2.freeze_level;
+    fixture->specials2.saving_throw = character->specials2.saving_throw;
+    fixture->specials2.raw_perception = character->specials2.rawPerception;
+    fixture->specials2.perception = character->specials2.perception;
+    fixture->specials2.conditions.drunk = character->specials2.conditions[0];
+    fixture->specials2.conditions.full = character->specials2.conditions[1];
+    fixture->specials2.conditions.thirst = character->specials2.conditions[2];
+    fixture->specials2.mini_level = character->specials2.mini_level;
+    fixture->specials2.max_mini_level = character->specials2.max_mini_level;
+    fixture->specials2.morale = character->specials2.morale;
+    fixture->specials2.rerolls = character->specials2.rerolls;
+    fixture->specials2.leg_encumbrance = character->specials2.leg_encumb;
+    fixture->specials2.retired_on = character->specials2.retiredon;
+    fixture->specials2.hide_flags =
+        named_flags(character->specials2.hide_flags, HideFlagNames, std::size(HideFlagNames));
+    fixture->specials2.tactics = named_value(
+        character->specials2.tactics, CharacterTacticNames, std::size(CharacterTacticNames));
+    fixture->specials2.shooting = named_value(
+        character->specials2.shooting, CharacterShootingNames, std::size(CharacterShootingNames));
+    fixture->specials2.casting = named_value(
+        character->specials2.casting, CharacterCastingNames, std::size(CharacterCastingNames));
+    fixture->specials2.two_handed = character->specials2.two_handed != 0;
     fixture->is_npc = character_is_npc(*character);
     fixture->has_room = js_game_adapter_room_fixture(character->in_room, options, &fixture->room);
     return true;
