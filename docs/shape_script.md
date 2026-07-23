@@ -250,6 +250,15 @@ runtime:
 - [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
   covers `load_obj`, `do_give`, and `send_to_char`.
 
+Builder-facing client docs are maintained with the client:
+
+- [BuilderClient tutorial](../BuilderClient/docs/builder-tutorial.md) covers the
+  end-to-end authoring workflow from Git workspace setup through offline
+  fixtures, packaging, and test-server publishing.
+- [BuilderClient help](../BuilderClient/docs/builder-help.md) is the quick
+  reference for panels, fixture fields, expectations, helper result codes, and
+  troubleshooting.
+
 These helpers currently queue or reserve validated JavaScript command intents.
 For `do_give`, `load_obj`, `do_wait`, `do_say`, `send_to_char`, and
 `send_to_room`, live dispatch now returns inline `MutationResult` codes for the
