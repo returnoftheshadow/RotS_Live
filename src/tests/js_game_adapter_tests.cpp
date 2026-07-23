@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <string>
+#include <vector>
 
 extern char *sector_types[];
 extern char num_of_sector_types;
@@ -616,6 +618,10 @@ TEST(JsGameAdapter, DefaultsMissingCharacterAffectsToEmptySnapshot) {
 TEST(JsGameAdapter, SnapshotsCharacterEquipmentSlotsWithShallowObjects) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     obj_data helm = make_object("silver helm", 0);
+    extra_descr_data helm_extra{};
+    helm_extra.keyword = const_cast<char *>("crest");
+    helm_extra.description = const_cast<char *>("A tiny crest is etched inside.");
+    helm.ex_description = &helm_extra;
     helm.affected[0].location = APPLY_DEX;
     helm.affected[0].modifier = 2;
     helm.in_room = -1;
@@ -675,6 +681,9 @@ TEST(JsGameAdapter, SnapshotsCharacterEquipmentSlotsWithShallowObjects) {
     EXPECT_EQ(head.object.affects[0].location, APPLY_DEX);
     EXPECT_EQ(head.object.affects[0].location_name, "DEX");
     EXPECT_EQ(head.object.affects[0].modifier, 2);
+    ASSERT_EQ(head.object.extra_descriptions.size(), 1U);
+    EXPECT_EQ(head.object.extra_descriptions[0].keyword, "crest");
+    EXPECT_EQ(head.object.extra_descriptions[0].description, "A tiny crest is etched inside.");
     EXPECT_FALSE(head.object.has_room);
 
     ASSERT_LT(WEAR_FINGER_L, static_cast<int>(fixture.equipment.size()));
@@ -702,6 +711,10 @@ TEST(JsGameAdapter, DefaultsMissingCharacterEquipmentToEmptySlots) {
 TEST(JsGameAdapter, SnapshotsCharacterInventoryWithShallowObjects) {
     char_data player = make_character("PlayerOne", 1, 29, 90, 120, false);
     obj_data torch = make_object("oak torch", 0);
+    extra_descr_data torch_extra{};
+    torch_extra.keyword = const_cast<char *>("grain");
+    torch_extra.description = const_cast<char *>("The wood grain is dark and even.");
+    torch.ex_description = &torch_extra;
     torch.affected[1].location = APPLY_NONE;
     torch.affected[1].modifier = 4;
     torch.in_room = -1;
@@ -758,6 +771,10 @@ TEST(JsGameAdapter, SnapshotsCharacterInventoryWithShallowObjects) {
     EXPECT_EQ(fixture.inventory[0].affects[0].location, APPLY_NONE);
     EXPECT_EQ(fixture.inventory[0].affects[0].location_name, "NONE");
     EXPECT_EQ(fixture.inventory[0].affects[0].modifier, 4);
+    ASSERT_EQ(fixture.inventory[0].extra_descriptions.size(), 1U);
+    EXPECT_EQ(fixture.inventory[0].extra_descriptions[0].keyword, "grain");
+    EXPECT_EQ(fixture.inventory[0].extra_descriptions[0].description,
+              "The wood grain is dark and even.");
     EXPECT_FALSE(fixture.inventory[0].has_room);
     EXPECT_EQ(fixture.inventory[1].id, "object:5002");
     EXPECT_EQ(fixture.inventory[1].name, "small key");
@@ -1469,6 +1486,14 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     object.affected[0].modifier = 2;
     object.affected[1].location = 41;
     object.affected[1].modifier = -1;
+    extra_descr_data hinge_extra{};
+    hinge_extra.keyword = const_cast<char *>("hinge");
+    hinge_extra.description = const_cast<char *>("The hinge is polished by use.");
+    extra_descr_data rune_extra{};
+    rune_extra.keyword = const_cast<char *>("runes");
+    rune_extra.description = const_cast<char *>("Faint runes circle the lever.");
+    rune_extra.next = &hinge_extra;
+    object.ex_description = &rune_extra;
     const obj_data *live_objects[] = {&object};
     room_data world[1] = {make_room("Northern Gate", 1204, 0)};
     zone_data zones[1] = {make_zone("Old City", 12)};
@@ -1503,6 +1528,11 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     EXPECT_EQ(object_fixture.affects[1].location, 41);
     EXPECT_EQ(object_fixture.affects[1].location_name, "Unknown");
     EXPECT_EQ(object_fixture.affects[1].modifier, -1);
+    ASSERT_EQ(object_fixture.extra_descriptions.size(), 2U);
+    EXPECT_EQ(object_fixture.extra_descriptions[0].keyword, "runes");
+    EXPECT_EQ(object_fixture.extra_descriptions[0].description, "Faint runes circle the lever.");
+    EXPECT_EQ(object_fixture.extra_descriptions[1].keyword, "hinge");
+    EXPECT_EQ(object_fixture.extra_descriptions[1].description, "The hinge is polished by use.");
     ASSERT_TRUE(object_fixture.has_room);
     EXPECT_EQ(object_fixture.room.vnum, 1204);
     ASSERT_TRUE(object_fixture.room.has_zone);
@@ -1542,6 +1572,97 @@ TEST(JsGameAdapter, SnapshotsObjectRoomAndZoneFields) {
     EXPECT_EQ(zone_fixture.magi_power, 8);
     EXPECT_EQ(zone_fixture.minimum_look_level, 3);
     EXPECT_EQ(zone_fixture.reset_mode, 2);
+}
+
+TEST(JsGameAdapter, BoundsObjectExtraDescriptionSnapshotsAndStopsCycles) {
+    index_data object_index[1]{};
+    object_index[0].virt = 300;
+    obj_data object = make_object("silver lever", 0);
+
+    std::vector<extra_descr_data> descriptions(33);
+    std::vector<std::string> keywords;
+    std::vector<std::string> bodies;
+    keywords.reserve(descriptions.size());
+    bodies.reserve(descriptions.size());
+    for (std::size_t index = 0; index < descriptions.size(); ++index) {
+        keywords.push_back("keyword-" + std::to_string(index));
+        bodies.push_back("description-" + std::to_string(index));
+        descriptions[index].keyword = keywords[index].data();
+        descriptions[index].description = bodies[index].data();
+        descriptions[index].next =
+            index + 1 < descriptions.size() ? &descriptions[index + 1] : &descriptions[5];
+    }
+    object.ex_description = descriptions.data();
+
+    const obj_data *live_objects[] = {&object};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, 0, nullptr, 0,
+                                                object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+
+    ASSERT_EQ(object_fixture.extra_descriptions.size(), 32U);
+    EXPECT_EQ(object_fixture.extra_descriptions.front().keyword, "keyword-0");
+    EXPECT_EQ(object_fixture.extra_descriptions.front().description, "description-0");
+    EXPECT_EQ(object_fixture.extra_descriptions.back().keyword, "keyword-31");
+    EXPECT_EQ(object_fixture.extra_descriptions.back().description, "description-31");
+}
+
+TEST(JsGameAdapter, StopsObjectExtraDescriptionSnapshotsOnPreCapCycles) {
+    index_data object_index[1]{};
+    object_index[0].virt = 300;
+    obj_data object = make_object("silver lever", 0);
+
+    extra_descr_data third{};
+    third.keyword = const_cast<char *>("third");
+    third.description = const_cast<char *>("third description");
+    extra_descr_data second{};
+    second.keyword = const_cast<char *>("second");
+    second.description = const_cast<char *>("second description");
+    second.next = &third;
+    extra_descr_data first{};
+    first.keyword = const_cast<char *>("first");
+    first.description = const_cast<char *>("first description");
+    first.next = &second;
+    third.next = &second;
+    object.ex_description = &first;
+
+    const obj_data *live_objects[] = {&object};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, 0, nullptr, 0,
+                                                object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+
+    ASSERT_EQ(object_fixture.extra_descriptions.size(), 3U);
+    EXPECT_EQ(object_fixture.extra_descriptions[0].keyword, "first");
+    EXPECT_EQ(object_fixture.extra_descriptions[1].keyword, "second");
+    EXPECT_EQ(object_fixture.extra_descriptions[2].keyword, "third");
+}
+
+TEST(JsGameAdapter, BoundsObjectExtraDescriptionTextCopies) {
+    index_data object_index[1]{};
+    object_index[0].virt = 300;
+    obj_data object = make_object("silver lever", 0);
+    std::string long_keyword(513, 'k');
+    std::string long_description(1025, 'd');
+    extra_descr_data description{};
+    description.keyword = long_keyword.data();
+    description.description = long_description.data();
+    object.ex_description = &description;
+
+    const obj_data *live_objects[] = {&object};
+    JsGameAdapterOptions options = make_options(nullptr, 0, live_objects, 1, nullptr, 0, nullptr, 0,
+                                                object_index, 1, nullptr, 0, nullptr, 0);
+
+    JsGameObjectFixture object_fixture;
+    ASSERT_TRUE(js_game_adapter_object_fixture(&object, options, &object_fixture));
+
+    ASSERT_EQ(object_fixture.extra_descriptions.size(), 1U);
+    EXPECT_EQ(object_fixture.extra_descriptions[0].keyword.size(), 512U);
+    EXPECT_EQ(object_fixture.extra_descriptions[0].description.size(), 1024U);
+    EXPECT_EQ(object_fixture.extra_descriptions[0].keyword, std::string(512, 'k'));
+    EXPECT_EQ(object_fixture.extra_descriptions[0].description, std::string(1024, 'd'));
 }
 
 TEST(JsGameAdapter, FiltersUnknownObjectFlagDomains) {

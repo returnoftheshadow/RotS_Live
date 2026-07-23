@@ -25,6 +25,7 @@ namespace {
 
 constexpr std::size_t MaxAdapterStringLength = 512;
 constexpr std::size_t MaxAdapterTextLength = 1024;
+constexpr int MaxExtraDescriptionSnapshotNodes = 32;
 
 struct CharacterProfessionField {
     int index;
@@ -575,6 +576,26 @@ std::vector<JsGameObjectAffectFixture> object_affects_fixture(
     return fixtures;
 }
 
+std::vector<JsGameExtraDescriptionFixture> extra_descriptions_fixture(
+    const extra_descr_data *extra_descriptions) {
+    std::vector<JsGameExtraDescriptionFixture> fixtures;
+    std::vector<const extra_descr_data *> seen_nodes;
+    int nodes_visited = 0;
+    for (const extra_descr_data *node = extra_descriptions;
+         node != nullptr && nodes_visited < MaxExtraDescriptionSnapshotNodes; node = node->next) {
+        if (std::find(seen_nodes.begin(), seen_nodes.end(), node) != seen_nodes.end())
+            break;
+        seen_nodes.push_back(node);
+        ++nodes_visited;
+
+        JsGameExtraDescriptionFixture fixture;
+        fixture.keyword = copy_c_string(node->keyword);
+        fixture.description = copy_c_string(node->description, MaxAdapterTextLength);
+        fixtures.push_back(std::move(fixture));
+    }
+    return fixtures;
+}
+
 bool object_is_worn_by(const obj_data *object, const char_data *carrier) {
     if (object == nullptr || carrier == nullptr)
         return false;
@@ -716,6 +737,7 @@ bool equipment_object_fixture(const obj_data *object, const char_data *wearer,
     fixture->vnum = object_vnum(*object, options);
     fixture->flags = object_flags_fixture(object->obj_flags);
     fixture->affects = object_affects_fixture(object->affected);
+    fixture->extra_descriptions = extra_descriptions_fixture(object->ex_description);
     fixture->has_room = false;
     return true;
 }
@@ -741,6 +763,7 @@ bool inventory_object_fixture(const obj_data *object, const char_data *carrier,
     fixture->vnum = object_vnum(*object, options);
     fixture->flags = object_flags_fixture(object->obj_flags);
     fixture->affects = object_affects_fixture(object->affected);
+    fixture->extra_descriptions = extra_descriptions_fixture(object->ex_description);
     fixture->has_room = false;
     return true;
 }
@@ -1274,6 +1297,7 @@ bool js_game_adapter_object_fixture(const obj_data *object, const JsGameAdapterO
     fixture->vnum = object_vnum(*object, options);
     fixture->flags = object_flags_fixture(object->obj_flags);
     fixture->affects = object_affects_fixture(object->affected);
+    fixture->extra_descriptions = extra_descriptions_fixture(object->ex_description);
     fixture->has_room = js_game_adapter_room_fixture(object->in_room, options, &fixture->room);
 
     fixture->has_carried_by = false;

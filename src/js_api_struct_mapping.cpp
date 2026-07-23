@@ -343,14 +343,14 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "mutation",
      "Persistent application requires target-scoped dispatch mutation authority context."},
     {JsApiStructOwner::ObjData, "obj_data", "ex_description", "extraDescriptions",
-     "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", true, Deferred,
-     Unsupported,
-     "Deferred read-only snapshot of object extra descriptions. Future entries must expose only "
-     "builder text fields such as keywords and description text, with bounded list size.",
+     "getExtraDescriptions", "setExtraDescriptions", "readonly ExtraDescription[]", false,
+     ImplementedReadOnly, Unsupported,
+     "Returns bounded read-only object extra-description entries with keyword and description text "
+     "copied from the live linked list.",
      "Whole extra-description list writes are unsupported for builder scripts; future "
      "add/update/remove helper APIs must own linked-list allocation, stale-handle protection, "
      "bounded list size, text length, sanitization, persistence, rollback, and audit semantics.",
-     "mutation", "Linked-list storage is not exposed to builders."},
+     "mutation", "Linked-list storage is exposed only as a bounded frozen text snapshot."},
     {JsApiStructOwner::ObjData, "obj_data", "carried_by", "carriedBy", "getCarriedBy",
      "setCarriedBy", "Character | null", true, ImplementedReadOnly, Deferred,
      "Returns the live character carrying the object when applicable; otherwise null.",

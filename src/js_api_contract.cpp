@@ -463,6 +463,10 @@ constexpr JsApiMember GameObjectMembers[] = {
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only fixed-slot object affect snapshot. Empty none-location plus zero-modifier slots "
      "are omitted; malformed legacy nonzero slots are still exposed for diagnostics."},
+    {"extraDescriptions", JsApiMemberKind::Property, "readonly ExtraDescription[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only object extra-description entries copied from the live linked list with bounded "
+     "entry count and text length."},
     {"room", JsApiMemberKind::Property, "Room | null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Direct room containing the object, or null when carried, worn, nested, or invalid."},
@@ -949,6 +953,15 @@ constexpr JsApiMember ObjectAffectMembers[] = {
      "Numeric modifier applied by this object affect slot."},
 };
 
+constexpr JsApiMember ExtraDescriptionMembers[] = {
+    {"keyword", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Keyword text used by look/examine commands to match this extra description."},
+    {"description", JsApiMemberKind::Property, "string", "", false, true, JsApiSideEffect::None,
+     JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Description text shown when the keyword matches."},
+};
+
 constexpr JsApiMember EquipmentSlotMembers[] = {
     {"slotIndex", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
@@ -987,6 +1000,9 @@ constexpr JsApiMember EquipmentObjectSnapshotMembers[] = {
     {"affects", JsApiMemberKind::Property, "readonly ObjectAffect[]", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Filtered fixed-slot object affect snapshot copied read-only."},
+    {"extraDescriptions", JsApiMemberKind::Property, "readonly ExtraDescription[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Bounded read-only object extra-description entries copied read-only."},
     {"room", JsApiMemberKind::Property, "null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Always null for equipment snapshots because worn objects are not directly in a room."},
@@ -1025,6 +1041,9 @@ constexpr JsApiMember InventoryObjectSnapshotMembers[] = {
     {"affects", JsApiMemberKind::Property, "readonly ObjectAffect[]", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Filtered fixed-slot object affect snapshot copied read-only."},
+    {"extraDescriptions", JsApiMemberKind::Property, "readonly ExtraDescription[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Bounded read-only object extra-description entries copied read-only."},
     {"room", JsApiMemberKind::Property, "null", "", true, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Always null for inventory snapshots because carried objects are not directly in a room."},
@@ -1104,6 +1123,9 @@ constexpr JsApiType ApiTypes[] = {
     {"ObjectAffect", JsApiTypeKind::Interface, "",
      "Frozen read-only fixed-slot object affect entry.", ObjectAffectMembers,
      sizeof(ObjectAffectMembers) / sizeof(ObjectAffectMembers[0])},
+    {"ExtraDescription", JsApiTypeKind::Interface, "",
+     "Frozen read-only object extra-description entry.", ExtraDescriptionMembers,
+     sizeof(ExtraDescriptionMembers) / sizeof(ExtraDescriptionMembers[0])},
     {"EquipmentSlot", JsApiTypeKind::Interface, "",
      "Frozen read-only character equipment slot entry.", EquipmentSlotMembers,
      sizeof(EquipmentSlotMembers) / sizeof(EquipmentSlotMembers[0])},

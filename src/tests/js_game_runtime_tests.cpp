@@ -123,6 +123,7 @@ JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string
         slot.object.flags.rarity = 2;
         slot.object.flags.material = "metal";
         slot.object.affects.push_back(make_object_affect(0, 2, "DEX", 1));
+        slot.object.extra_descriptions.push_back({"crest", "A tiny crest is etched inside."});
     }
     return slot;
 }
@@ -148,6 +149,7 @@ JsGameEquipmentObjectFixture make_inventory_object(const std::string &id, const 
     object.flags.rarity = 1;
     object.flags.material = "wood";
     object.affects.push_back(make_object_affect(1, 24, "SPEED", 3));
+    object.extra_descriptions.push_back({"grain", "The wood grain is dark and even."});
     return object;
 }
 
@@ -472,6 +474,8 @@ JsGameTriggerContextFixture make_context() {
     context.object.flags.material = "metal";
     context.object.affects.push_back(make_object_affect(0, 1, "STR", 2));
     context.object.affects.push_back(make_object_affect(1, 2, "DEX", -1));
+    context.object.extra_descriptions.push_back({"runes", "Faint runes circle the lever."});
+    context.object.extra_descriptions.push_back({"hinge", "The hinge is polished by use."});
     context.object.has_room = true;
     context.object.room.id = "room:1204";
     context.object.room.name = "Northern Gate";
@@ -1238,13 +1242,21 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.object.affects[1].slotIndex === 1\n"
         "  && ctx.object.affects[1].locationName === 'DEX'\n"
         "  && ctx.object.affects[1].modifier === -1\n"
+        "  && ctx.object.extraDescriptions.length === 2\n"
+        "  && ctx.object.extraDescriptions[0].keyword === 'runes'\n"
+        "  && ctx.object.extraDescriptions[0].description === 'Faint runes circle the lever.'\n"
+        "  && ctx.object.extraDescriptions[1].keyword === 'hinge'\n"
         "  && ctx.self.equipment[6].object.affects.length === 1\n"
         "  && ctx.self.equipment[6].object.affects[0].locationName === 'DEX'\n"
         "  && ctx.self.equipment[6].object.affects[0].modifier === 1\n"
+        "  && ctx.self.equipment[6].object.extraDescriptions.length === 1\n"
+        "  && ctx.self.equipment[6].object.extraDescriptions[0].keyword === 'crest'\n"
         "  && ctx.self.inventory[0].affects.length === 1\n"
         "  && ctx.self.inventory[0].affects[0].slotIndex === 1\n"
         "  && ctx.self.inventory[0].affects[0].locationName === 'SPEED'\n"
         "  && ctx.self.inventory[0].affects[0].modifier === 3\n"
+        "  && ctx.self.inventory[0].extraDescriptions.length === 1\n"
+        "  && ctx.self.inventory[0].extraDescriptions[0].keyword === 'grain'\n"
         "  && ctx.self.profile.name === 'Aldren'\n"
         "  && ctx.self.profile.shortDescription === 'Aldren the builder'\n"
         "  && ctx.self.profile.longDescription === 'Aldren is reviewing the old gate.'\n"
@@ -1567,10 +1579,12 @@ TEST(JsGameRuntime, ExposesDamageWeaponWhenPresent) {
     JsRuntimeEvalResult result =
         runtime.evaluate_trigger_body("return ctx.weapon !== null\n"
                                       "  && ctx.weapon.name === 'silver lever'\n"
-                                      "  && ctx.weapon.affects.length === 2\n"
-                                      "  && ctx.weapon.affects[0].locationName === 'STR'\n"
-                                      "  && ctx.weapon.affects[1].modifier === -1\n"
-                                      "  && ctx.weapon.room.vnum === 1204\n"
+	                                      "  && ctx.weapon.affects.length === 2\n"
+	                                      "  && ctx.weapon.affects[0].locationName === 'STR'\n"
+	                                      "  && ctx.weapon.affects[1].modifier === -1\n"
+	                                      "  && ctx.weapon.extraDescriptions[0].keyword === 'runes'\n"
+	                                      "  && ctx.weapon.extraDescriptions[1].description === 'The hinge is polished by use.'\n"
+	                                      "  && ctx.weapon.room.vnum === 1204\n"
                                       "  && ctx.weapon.isValid();",
                                       context);
 
@@ -2289,6 +2303,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.self.equipment[6].object.flags.wearFlags.constructor === 'undefined'\n"
         "  && typeof ctx.self.equipment[6].object.affects.constructor === 'undefined'\n"
         "  && typeof ctx.self.equipment[6].object.affects[0].constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.extraDescriptions.constructor === 'undefined'\n"
+        "  && typeof ctx.self.equipment[6].object.extraDescriptions[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory.constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].__rotsReadOnlySnapshot === 'undefined'\n"
@@ -2302,6 +2318,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.self.inventory[0].flags.wearFlags.constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].affects.constructor === 'undefined'\n"
         "  && typeof ctx.self.inventory[0].affects[0].constructor === 'undefined'\n"
+        "  && typeof ctx.self.inventory[0].extraDescriptions.constructor === 'undefined'\n"
+        "  && typeof ctx.self.inventory[0].extraDescriptions[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.followers.constructor === 'undefined'\n"
         "  && typeof ctx.self.followers[0].constructor === 'undefined'\n"
         "  && typeof ctx.self.followers[0].__rotsReadOnlySnapshot === 'undefined'\n"
@@ -2338,9 +2356,11 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && Object.getPrototypeOf(ctx.self.equipment[6].object) === null\n"
         "  && Object.getPrototypeOf(ctx.self.equipment[6].object.flags) === null\n"
         "  && Object.getPrototypeOf(ctx.self.equipment[6].object.affects[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.equipment[6].object.extraDescriptions[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.inventory[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.inventory[0].flags) === null\n"
         "  && Object.getPrototypeOf(ctx.self.inventory[0].affects[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.self.inventory[0].extraDescriptions[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.followers[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.self.master) === null\n"
         "  && Object.getPrototypeOf(ctx.trigger) === null\n"
@@ -2379,6 +2399,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && Object.isFrozen(ctx.self.equipment[6].object.flags.extraFlags)\n"
         "  && Object.isFrozen(ctx.self.equipment[6].object.affects)\n"
         "  && Object.isFrozen(ctx.self.equipment[6].object.affects[0])\n"
+        "  && Object.isFrozen(ctx.self.equipment[6].object.extraDescriptions)\n"
+        "  && Object.isFrozen(ctx.self.equipment[6].object.extraDescriptions[0])\n"
         "  && Object.isFrozen(ctx.self.inventory)\n"
         "  && Object.isFrozen(ctx.self.inventory[0])\n"
         "  && Object.isFrozen(ctx.self.inventory[0].flags)\n"
@@ -2386,11 +2408,18 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && Object.isFrozen(ctx.self.inventory[0].flags.extraFlags)\n"
         "  && Object.isFrozen(ctx.self.inventory[0].affects)\n"
         "  && Object.isFrozen(ctx.self.inventory[0].affects[0])\n"
+        "  && Object.isFrozen(ctx.self.inventory[0].extraDescriptions)\n"
+        "  && Object.isFrozen(ctx.self.inventory[0].extraDescriptions[0])\n"
         "  && typeof ctx.object.affects.constructor === 'undefined'\n"
         "  && typeof ctx.object.affects[0].constructor === 'undefined'\n"
+        "  && typeof ctx.object.extraDescriptions.constructor === 'undefined'\n"
+        "  && typeof ctx.object.extraDescriptions[0].constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx.object.affects[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.object.extraDescriptions[0]) === null\n"
         "  && Object.isFrozen(ctx.object.affects)\n"
         "  && Object.isFrozen(ctx.object.affects[0])\n"
+        "  && Object.isFrozen(ctx.object.extraDescriptions)\n"
+        "  && Object.isFrozen(ctx.object.extraDescriptions[0])\n"
         "  && Object.isFrozen(ctx.self.followers)\n"
         "  && Object.isFrozen(ctx.self.followers[0])\n"
         "  && Object.isFrozen(ctx.self.master)\n"
@@ -2531,6 +2560,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
                   .status,
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.object.extraDescriptions[0].keyword = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.object.extraDescriptions.push({ keyword: 'unsafe' });\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.self.equipment[6].slotName = 'wield';\n"
                                          "return true;",
                                          make_context())
@@ -2574,6 +2615,14 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
                                          make_context())
                   .status,
               JsRuntimeStatus::Error);
+    EXPECT_EQ(
+        runtime
+            .evaluate_trigger_body("ctx.self.equipment[6].object.extraDescriptions[0].keyword = "
+                                   "'unsafe';\n"
+                                   "return true;",
+                                   make_context())
+            .status,
+        JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.self.equipment.push({ slotName: 'unsafe' });\n"
                                          "return true;",
@@ -2606,6 +2655,13 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.self.inventory[0].affects.push({ slotIndex: 1 });\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.self.inventory[0].extraDescriptions.push({ keyword: "
+                                         "'unsafe' });\n"
                                          "return true;",
                                          make_context())
                   .status,
@@ -2742,6 +2798,23 @@ TEST(JsGameRuntime, DefaultsMissingObjectAffectsToEmptySnapshot) {
                                       "  && Object.isFrozen(ctx.object.affects)\n"
                                       "  && typeof ctx.object.affects.constructor === 'undefined';",
                                       context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, DefaultsMissingObjectExtraDescriptionsToEmptySnapshot) {
+    JsGameTriggerContextFixture context;
+    context.has_object = true;
+    context.object.id = "object:default-extra-descriptions";
+    context.object.name = "Default Object";
+    context.object.short_description = "Default Object";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "return ctx.object.extraDescriptions.length === 0\n"
+        "  && Object.isFrozen(ctx.object.extraDescriptions)\n"
+        "  && typeof ctx.object.extraDescriptions.constructor === 'undefined';",
+        context);
 
     expect_ok_allows(result);
 }
@@ -3154,10 +3227,14 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
                            "\"extraFlags\":[\"glow\",\"magic\"],\"level\":12,\"weight\":7,"
                            "\"cost\":450,\"costPerDay\":15,\"timer\":30,\"rarity\":2,"
                            "\"material\":\"metal\"},"
-                           "\"affects\":[{\"slotIndex\":0,\"location\":1,\"locationName\":\"STR\","
-                           "\"modifier\":2},{\"slotIndex\":1,\"location\":2,"
-                           "\"locationName\":\"DEX\",\"modifier\":-1}],"
-                           "\"room\":{\"id\":\"room:1204\""),
+	                           "\"affects\":[{\"slotIndex\":0,\"location\":1,\"locationName\":\"STR\","
+	                           "\"modifier\":2},{\"slotIndex\":1,\"location\":2,"
+	                           "\"locationName\":\"DEX\",\"modifier\":-1}],"
+	                           "\"extraDescriptions\":[{\"keyword\":\"runes\","
+	                           "\"description\":\"Faint runes circle the lever.\"},"
+	                           "{\"keyword\":\"hinge\","
+	                           "\"description\":\"The hinge is polished by use.\"}],"
+	                           "\"room\":{\"id\":\"room:1204\""),
               std::string::npos);
     EXPECT_NE(literal.find("\"description\":\"The old city zone.\""), std::string::npos);
     EXPECT_NE(literal.find("\"map\":\"N-G-S\""), std::string::npos);

@@ -420,6 +420,27 @@ std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture> 
     return out.str();
 }
 
+std::string extra_description_literal(const JsGameExtraDescriptionFixture &extra_description) {
+    std::ostringstream out;
+    out << "{"
+        << "\"keyword\":" << js_quote(extra_description.keyword) << ","
+        << "\"description\":" << js_quote(extra_description.description) << "}";
+    return out.str();
+}
+
+std::string extra_descriptions_literal(
+    const std::vector<JsGameExtraDescriptionFixture> &extra_descriptions) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < extra_descriptions.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << extra_description_literal(extra_descriptions[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture> &equipment);
 std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFixture> &inventory);
 std::string character_reference_literal(const JsGameCharacterReferenceFixture &character);
@@ -564,6 +585,7 @@ std::string equipment_object_literal(const JsGameEquipmentObjectFixture &object)
     out << ","
         << "\"flags\":" << object_flags_literal(object.flags) << ","
         << "\"affects\":" << object_affects_literal(object.affects) << ","
+        << "\"extraDescriptions\":" << extra_descriptions_literal(object.extra_descriptions) << ","
         << "\"room\":" << nullable_literal(object.has_room, room_literal(object.room)) << ","
         << "\"carriedBy\":null,"
         << "\"wornBy\":null,"
@@ -679,6 +701,7 @@ std::string object_literal(const JsGameObjectFixture &object) {
     out << ","
         << "\"flags\":" << object_flags_literal(object.flags) << ","
         << "\"affects\":" << object_affects_literal(object.affects) << ","
+        << "\"extraDescriptions\":" << extra_descriptions_literal(object.extra_descriptions) << ","
         << "\"room\":" << nullable_literal(object.has_room, room_literal(object.room)) << ","
         << "\"carriedBy\":"
         << nullable_literal(object.has_carried_by, character_literal(object.carried_by)) << ","

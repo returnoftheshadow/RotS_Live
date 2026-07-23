@@ -455,6 +455,7 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
 
     const std::string object_block = declaration_block(declarations, "export interface GameObject");
     ASSERT_FALSE(object_block.empty());
+    EXPECT_NE(object_block.find("readonly extraDescriptions:"), std::string::npos);
     const char *object_lifecycle_setters[] = {
         "setFlags",
         "setAffects",
@@ -518,7 +519,6 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     }
 
     const char *classification_only_members[] = {
-        "extraDescriptions",
         "container",
         "contents",
         "nextContent",
