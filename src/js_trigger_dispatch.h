@@ -29,7 +29,7 @@ struct JsTriggerDispatchBudgetLimits {
 
 class JsTriggerDispatchBudget {
   public:
-    bool try_consume(int pulse, int package_vnum, const JsTriggerDispatchBudgetLimits& limits);
+    bool try_consume(int pulse, int package_vnum, const JsTriggerDispatchBudgetLimits &limits);
     void reset();
 
   private:
@@ -58,8 +58,8 @@ struct JsTriggerMutationAuthorityContext {
 
 class JsTriggerDispatchDepthGuard {
   public:
-    bool would_exceed(const JsTriggerDispatchDepthLimits& limits) const;
-    bool try_enter(const JsTriggerDispatchDepthLimits& limits);
+    bool would_exceed(const JsTriggerDispatchDepthLimits &limits) const;
+    bool try_enter(const JsTriggerDispatchDepthLimits &limits);
     void leave();
     void reset();
     std::size_t current_depth() const;
@@ -81,7 +81,7 @@ enum class JsTriggerHelperMutationTransactionStatus {
 };
 
 struct JsTriggerHelperMutationOperationRegistry {
-    const char* const* operation_names = nullptr;
+    const char *const *operation_names = nullptr;
     std::size_t operation_count = 0;
 };
 
@@ -94,31 +94,39 @@ struct JsTriggerHelperMutationAuditRequest {
     std::string room_flag_audit_summary;
 };
 
+struct JsTriggerCommandMutationAuditRequest {
+    std::size_t mutation_count = 0;
+    std::string operations_summary;
+};
+
 struct JsTriggerDispatchRequest;
 
 struct JsTriggerHelperMutationValidationContext {
-    const JsTriggerDispatchRequest* request = nullptr;
-    const JsGameAdapterOptions* adapter_options = nullptr;
-    const JsTriggerMutationAuthorityContext* authority = nullptr;
+    const JsTriggerDispatchRequest *request = nullptr;
+    const JsGameAdapterOptions *adapter_options = nullptr;
+    const JsTriggerMutationAuthorityContext *authority = nullptr;
 };
 
 using JsTriggerHelperMutationAuditCallback = bool (*)(
-    const JsTriggerHelperMutationAuditRequest& request, std::string* diagnostic, void* user_data);
-using JsTriggerHelperMutationApplyPreconditionCallback = bool (*)(
-    std::size_t mutation_index, void* user_data);
+    const JsTriggerHelperMutationAuditRequest &request, std::string *diagnostic, void *user_data);
+using JsTriggerCommandMutationAuditCallback = bool (*)(
+    const JsTriggerCommandMutationAuditRequest &request, std::string *diagnostic, void *user_data);
+using JsTriggerHelperMutationApplyPreconditionCallback = bool (*)(std::size_t mutation_index,
+                                                                  void *user_data);
 
 struct JsTriggerHelperMutationTransactionOptions {
     JsTriggerHelperMutationOperationRegistry registry;
-    const JsTriggerHelperMutationValidationContext* validation_context = nullptr;
+    const JsTriggerHelperMutationValidationContext *validation_context = nullptr;
     JsTriggerHelperMutationAuditCallback audit_callback = nullptr;
-    void* audit_user_data = nullptr;
+    void *audit_user_data = nullptr;
+    JsTriggerCommandMutationAuditCallback command_audit_callback = nullptr;
+    void *command_audit_user_data = nullptr;
     JsTriggerHelperMutationApplyPreconditionCallback apply_precondition_callback = nullptr;
-    void* apply_precondition_user_data = nullptr;
+    void *apply_precondition_user_data = nullptr;
 };
 
 struct JsTriggerHelperMutationTransactionResult {
-    JsTriggerHelperMutationTransactionStatus status =
-        JsTriggerHelperMutationTransactionStatus::Ok;
+    JsTriggerHelperMutationTransactionStatus status = JsTriggerHelperMutationTransactionStatus::Ok;
     std::string diagnostic;
     std::size_t mutation_count = 0;
 };
@@ -143,9 +151,9 @@ struct JsTriggerRuntimeMutationTransactionApplyResult {
 
 struct JsTriggerDispatchOptions {
     JsRuntimeLimits runtime_limits;
-    JsTriggerDispatchBudget* budget = nullptr;
+    JsTriggerDispatchBudget *budget = nullptr;
     JsTriggerDispatchBudgetLimits budget_limits;
-    JsTriggerDispatchDepthGuard* depth_guard = nullptr;
+    JsTriggerDispatchDepthGuard *depth_guard = nullptr;
     JsTriggerDispatchDepthLimits depth_limits;
     int current_pulse = 0;
     JsTriggerMutationAuthorityContext mutation_authority;
@@ -170,44 +178,46 @@ struct JsTriggerDispatchResult {
     std::size_t matched_package_count = 0;
 };
 
-const char* js_trigger_dispatch_status_name(JsTriggerDispatchStatus status);
-const char* js_trigger_helper_mutation_transaction_status_name(
-    JsTriggerHelperMutationTransactionStatus status);
-bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation& mutation);
+const char *js_trigger_dispatch_status_name(JsTriggerDispatchStatus status);
+const char *
+js_trigger_helper_mutation_transaction_status_name(JsTriggerHelperMutationTransactionStatus status);
+bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation &mutation);
 JsTriggerHelperMutationTransactionResult js_trigger_dispatch_prepare_helper_mutation_transaction(
-    const std::vector<JsRuntimeMutation>& mutations,
-    const JsTriggerHelperMutationTransactionOptions& options = {});
+    const std::vector<JsRuntimeMutation> &mutations,
+    const JsTriggerHelperMutationTransactionOptions &options = {});
 JsTriggerHelperMutationOperationRegistry js_trigger_dispatch_room_flag_helper_operation_registry();
 
 // Non-mutating transaction verifier for C++ tooling/tests. Do not expose this result through
 // builder scripts, HTTP publish responses, or script-visible diagnostics.
 JsTriggerRuntimeMutationTransactionProbeResult
-js_trigger_dispatch_probe_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& mutations,
-    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
-    const JsTriggerMutationAuthorityContext& authority,
-    const JsTriggerHelperMutationTransactionOptions& helper_options = {});
+js_trigger_dispatch_probe_runtime_mutation_transaction(
+    const std::vector<JsRuntimeMutation> &mutations, const JsTriggerDispatchRequest &request,
+    const JsGameAdapterOptions &adapter_options, const JsTriggerMutationAuthorityContext &authority,
+    const JsTriggerHelperMutationTransactionOptions &helper_options = {});
 
 // Internal transaction applicator for game dispatch and C++ tooling/tests. Do not expose this
 // function or detailed result through builder scripts, HTTP publish responses, or script-visible
 // diagnostics.
 JsTriggerRuntimeMutationTransactionApplyResult
-js_trigger_dispatch_apply_runtime_mutation_transaction(const std::vector<JsRuntimeMutation>& mutations,
-    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
-    const JsTriggerMutationAuthorityContext& authority,
-    const JsTriggerHelperMutationTransactionOptions& helper_options = {});
+js_trigger_dispatch_apply_runtime_mutation_transaction(
+    const std::vector<JsRuntimeMutation> &mutations, const JsTriggerDispatchRequest &request,
+    const JsGameAdapterOptions &adapter_options, const JsTriggerMutationAuthorityContext &authority,
+    const JsTriggerHelperMutationTransactionOptions &helper_options = {});
 
-JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
-    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
-    const JsRuntimeLimits& limits = {});
-JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry& registry,
-    const JsTriggerDispatchRequest& request, const JsGameAdapterOptions& adapter_options,
-    const JsTriggerDispatchOptions& options);
+JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry &registry,
+                                                        const JsTriggerDispatchRequest &request,
+                                                        const JsGameAdapterOptions &adapter_options,
+                                                        const JsRuntimeLimits &limits = {});
+JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageRegistry &registry,
+                                                        const JsTriggerDispatchRequest &request,
+                                                        const JsGameAdapterOptions &adapter_options,
+                                                        const JsTriggerDispatchOptions &options);
 
 JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
-    const JsLiveRegistryReloadService& service, const JsTriggerDispatchRequest& request,
-    const JsGameAdapterOptions& adapter_options, const JsRuntimeLimits& limits = {});
+    const JsLiveRegistryReloadService &service, const JsTriggerDispatchRequest &request,
+    const JsGameAdapterOptions &adapter_options, const JsRuntimeLimits &limits = {});
 JsTriggerDispatchResult js_trigger_dispatch_live_first_match(
-    const JsLiveRegistryReloadService& service, const JsTriggerDispatchRequest& request,
-    const JsGameAdapterOptions& adapter_options, const JsTriggerDispatchOptions& options);
+    const JsLiveRegistryReloadService &service, const JsTriggerDispatchRequest &request,
+    const JsGameAdapterOptions &adapter_options, const JsTriggerDispatchOptions &options);
 
 #endif

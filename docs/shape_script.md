@@ -256,9 +256,14 @@ current-context object giving, and bounded no-continuation wait-state changes
 after the handler returns successfully. The live transaction groups side effects
 by category rather than replaying every JavaScript call in source order, and
 descriptor output is applied last so earlier validation failures do not emit
-messages. BuilderClient offline fixtures currently record command-helper events
-in source call order for diagnostics; full offline emulation of inventory, room,
-and wait-list state remains a separate parity slice.
+messages. Command helpers only accept real handles from the current `ctx`; fake
+objects, spread copies, prototype copies, copied ids, or borrowed `isValid`
+functions are rejected before any command event is queued. Server-side command
+audit can also reject a whole output/object/wait helper batch before room flags,
+setters, object movement, wait state, or descriptor output changes. BuilderClient
+offline fixtures currently record command-helper events in source call order for
+diagnostics; full offline emulation of inventory, room, and wait-list state
+remains a separate parity slice.
 
 ### Greeter with gift
 

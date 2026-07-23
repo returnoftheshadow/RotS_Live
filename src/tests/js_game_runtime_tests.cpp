@@ -395,8 +395,8 @@ JsGameTriggerContextFixture make_context() {
     add_gatehouse_exits(context.self.room);
     context.self.room.contents.push_back(make_room_content_fixture());
     context.self.room.characters.push_back(make_character_reference("mob:4101", "orc guard", true));
-    context.self.room.affects.push_back(make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128,
-                                                    {"SANCT"}, 6));
+    context.self.room.affects.push_back(
+        make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128, {"SANCT"}, 6));
     context.self.room.alignment = -2;
     context.self.room.light = 1;
     context.self.room.is_sunlit = true;
@@ -557,9 +557,10 @@ JsGameTriggerContextFixture make_context() {
         {"arch", "Ancient stonework frames the gate."});
     add_gatehouse_exits(context.object.room);
     context.object.room.contents.push_back(make_room_content_fixture());
-    context.object.room.characters.push_back(make_character_reference("mob:4101", "orc guard", true));
-    context.object.room.affects.push_back(make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128,
-                                                      {"SANCT"}, 6));
+    context.object.room.characters.push_back(
+        make_character_reference("mob:4101", "orc guard", true));
+    context.object.room.affects.push_back(
+        make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128, {"SANCT"}, 6));
     context.object.room.alignment = -2;
     context.object.room.light = 1;
     context.object.room.is_sunlit = true;
@@ -596,10 +597,10 @@ JsGameTriggerContextFixture make_context() {
     add_gatehouse_exits(context.room);
     context.room.contents.push_back(make_room_content_fixture());
     context.room.characters.push_back(make_character_reference("mob:4101", "orc guard", true));
-    context.room.affects.push_back(make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128,
-                                               {"SANCT"}, 6));
-    context.room.affects.push_back(make_affect(2, "Blindness", 3, 0, -4, 5, "DEX", 1,
-                                               {"BLIND"}, 1));
+    context.room.affects.push_back(
+        make_affect(56, "Sanctuary", 8, 1, 5, 2, "DEX", 128, {"SANCT"}, 6));
+    context.room.affects.push_back(
+        make_affect(2, "Blindness", 3, 0, -4, 5, "DEX", 1, {"BLIND"}, 1));
     context.room.alignment = -2;
     context.room.light = 1;
     context.room.is_sunlit = true;
@@ -2119,7 +2120,8 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults) {
         "try { badType.code = 'ok'; } catch (error) {}\n"
         "try { Object.defineProperty(badType, 'extra', { value: true }); } catch (error) {}\n"
         "const forbiddenRoomMembers = [\n"
-        "  'setExit', 'setFlags', 'addFlag', 'removeFlag', 'setAlignment', 'setLight', 'setTracks',\n"
+        "  'setExit', 'setFlags', 'addFlag', 'removeFlag', 'setAlignment', 'setLight', "
+        "'setTracks',\n"
         "  'setBleedTracks', 'setBfsDirection', 'setBfsNext', 'setSpecialProcedure',\n"
         "  'tracks', 'bleedTracks', 'bfsDirection', 'bfsNext', 'specialProcedure',\n"
         "  'room_track', 'bleed_track', 'bfs_dir', 'bfs_next', 'funct',\n"
@@ -2131,7 +2133,8 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults) {
         "  'setExtraDescriptions', 'setMapDescriptions', 'setOwners',\n"
         "  'setResetCommandCount', 'setResetCommands', 'owners', 'resetCommandCount',\n"
         "  'resetCommands', 'cmdno', 'cmd', 'zone_short_description',\n"
-        "  'zone_extra_description', 'zone_description', 'zone_map', 'min_level_look', 'white_power',\n"
+        "  'zone_extra_description', 'zone_description', 'zone_map', 'min_level_look', "
+        "'white_power',\n"
         "  'dark_power', 'magi_power', 'shortDescriptions', 'extraDescriptions',\n"
         "  'mapDescriptions', 'ownerIds', 'reset_command_count', 'reset_commands',\n"
         "  'zoneShortDescription', 'zoneShortDescriptions', 'zoneExtraDescription',\n"
@@ -2555,20 +2558,52 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
     EXPECT_EQ(result.mutations[0].kind, "command");
     EXPECT_EQ(result.mutations[0].operation, "script.do_say");
     EXPECT_EQ(result.mutations[0].arguments_json,
-        "{\"speakerId\":\"char:1001\",\"text\":\"The gate opens.\"}");
+              "{\"speakerId\":\"char:1001\",\"text\":\"The gate opens.\"}");
     EXPECT_EQ(result.mutations[1].operation, "script.send_to_char");
     EXPECT_EQ(result.mutations[1].arguments_json,
-        "{\"targetId\":\"player:7\",\"text\":\"You hear a click.\"}");
+              "{\"targetId\":\"player:7\",\"text\":\"You hear a click.\"}");
     EXPECT_EQ(result.mutations[2].operation, "script.send_to_room");
     EXPECT_EQ(result.mutations[2].arguments_json,
-        "{\"roomId\":\"room:1204\",\"text\":\"Stone grinds nearby.\"}");
+              "{\"roomId\":\"room:1204\",\"text\":\"Stone grinds nearby.\"}");
     EXPECT_EQ(result.mutations[3].operation, "script.load_obj");
     EXPECT_EQ(result.mutations[3].arguments_json, "{\"vnum\":4201}");
     EXPECT_EQ(result.mutations[4].operation, "script.do_give");
-    EXPECT_EQ(result.mutations[4].arguments_json,
+    EXPECT_EQ(
+        result.mutations[4].arguments_json,
         "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
     EXPECT_EQ(result.mutations[5].operation, "script.do_wait");
     EXPECT_EQ(result.mutations[5].arguments_json, "{\"pulses\":4}");
+}
+
+TEST(JsGameRuntime, RejectsForgedLegacyCommandHelperHandles) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_actor = true;
+    context.actor.id = "player:7";
+    context.actor.name = "Builder";
+    context.has_object = true;
+    context.object.id = "object:301";
+    context.object.name = "token";
+    context.object.description = "A token rests here.";
+    context.object.short_description = "a token";
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const fakeActor = { id: ctx.actor.id, isValid: ctx.actor.isValid };\n"
+        "const spreadActor = { ...ctx.actor };\n"
+        "const inheritedActor = Object.create(ctx.actor);\n"
+        "const fakeRoom = { id: ctx.room.id, isValid: function() { return true; } };\n"
+        "const fakeObject = { id: ctx.object.id, isValid: function() { return true; } };\n"
+        "const say = RotS.Script.do_say(fakeActor, 'No.');\n"
+        "const tell = RotS.Script.send_to_char(spreadActor, 'No.');\n"
+        "const room = RotS.Script.send_to_room(fakeRoom, 'No.');\n"
+        "const load = RotS.Script.load_obj(4201, inheritedActor);\n"
+        "const give = RotS.Script.do_give(ctx.self, ctx.actor, fakeObject);\n"
+        "return !say.ok && !tell.ok && !room.ok && !load.ok && !give.ok;\n",
+        context);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    EXPECT_TRUE(result.mutations.empty());
 }
 
 TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts) {
@@ -2590,6 +2625,7 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts) {
                                       "  && typeof __rotsAttachSectorTypeSetter === 'undefined'\n"
                                       "  && typeof __rotsHelperMutationEnvelope === 'undefined'\n"
                                       "  && typeof __rotsAttachHelperApi === 'undefined'\n"
+                                      "  && typeof __rotsLiveHandles === 'undefined'\n"
                                       "  && typeof ctx.__enqueueMutation === 'undefined'\n"
                                       "  && typeof RotS.__mutationEnvelope === 'undefined'\n"
                                       "  && typeof __rotsValidateRaritySetter === 'undefined'\n"
@@ -2619,6 +2655,7 @@ TEST(JsGameRuntime, DoesNotExposeInternalMutationEnvelopeToScripts) {
         "    && typeof __rotsAttachSectorTypeSetter === 'undefined'\n"
         "    && typeof __rotsHelperMutationEnvelope === 'undefined'\n"
         "    && typeof __rotsAttachHelperApi === 'undefined'\n"
+        "    && typeof __rotsLiveHandles === 'undefined'\n"
         "    && typeof ctx.__enqueueMutation === 'undefined'\n"
         "    && typeof RotS.__mutationEnvelope === 'undefined'\n"
         "    && typeof __rotsValidateRaritySetter === 'undefined'\n"

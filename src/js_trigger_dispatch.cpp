@@ -837,6 +837,24 @@ std::string helper_operations_summary(const std::vector<JsRuntimeMutation> &help
     return summary.str();
 }
 
+std::string command_operations_summary(const std::vector<JsRuntimeMutation> &command_mutations) {
+    std::set<std::string> operations;
+    for (const JsRuntimeMutation &mutation : command_mutations) {
+        if (!mutation.operation.empty())
+            operations.insert(mutation.operation);
+    }
+
+    std::ostringstream summary;
+    bool first = true;
+    for (const std::string &operation : operations) {
+        if (!first)
+            summary << ",";
+        first = false;
+        summary << operation;
+    }
+    return summary.str();
+}
+
 bool pending_room_flag_mutations_require_admin_override(
     const std::vector<PendingRoomFlagMutation> *pending_room_flag_mutations) {
     if (pending_room_flag_mutations == nullptr)
@@ -1213,6 +1231,28 @@ bool prepare_wait_command_mutations(const std::vector<JsRuntimeMutation> &mutati
         if (!command_target_matches_authority(host, options, authority))
             return false;
         pending_wait_commands->push_back({"self", arguments.pulses});
+    }
+    return true;
+}
+
+bool audit_command_mutations(const std::vector<JsRuntimeMutation> &command_mutations,
+                             const JsTriggerHelperMutationTransactionOptions &helper_options,
+                             std::string *diagnostic) {
+    if (command_mutations.empty() || helper_options.command_audit_callback == nullptr)
+        return true;
+
+    JsTriggerCommandMutationAuditRequest audit_request;
+    audit_request.mutation_count = command_mutations.size();
+    audit_request.operations_summary = command_operations_summary(command_mutations);
+    std::string audit_diagnostic;
+    if (!helper_options.command_audit_callback(audit_request, &audit_diagnostic,
+                                               helper_options.command_audit_user_data)) {
+        if (diagnostic != nullptr) {
+            *diagnostic = audit_diagnostic.empty()
+                              ? "JavaScript trigger command helper audit rejected"
+                              : audit_diagnostic;
+        }
+        return false;
     }
     return true;
 }
@@ -1678,6 +1718,22 @@ bool prepare_runtime_mutation_transaction(
             *diagnostic = "JavaScript trigger wait command target rejected";
         if (helper_status != nullptr)
             *helper_status = JsTriggerHelperMutationTransactionStatus::NotEvaluated;
+        if (pending != nullptr)
+            pending->clear();
+        if (pending_room_flag_mutations != nullptr)
+            pending_room_flag_mutations->clear();
+        if (pending_object_commands != nullptr)
+            pending_object_commands->clear();
+        if (pending_wait_commands != nullptr)
+            pending_wait_commands->clear();
+        if (pending_output_commands != nullptr)
+            pending_output_commands->clear();
+        return false;
+    }
+
+    if (!audit_command_mutations(command_mutations, helper_options, diagnostic)) {
+        if (helper_status != nullptr)
+            *helper_status = JsTriggerHelperMutationTransactionStatus::AuditRejected;
         if (pending != nullptr)
             pending->clear();
         if (pending_room_flag_mutations != nullptr)
