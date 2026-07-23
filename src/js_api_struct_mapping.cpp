@@ -911,8 +911,8 @@ constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
      "rooms, BFS_MARK, PERMAFFECT/permanentAffect, and unnamed bits before audit.",
      "Audit request is recorded after target/flag validation and before any room_data.room_flags "
      "bit is changed; script-visible failure remains a sanitized MutationResult.",
-     "Prepare captures the previous room_data.room_flags value and restores it if any later "
-     "helper in the same mixed mutation batch fails before commit.",
+     "Apply records each previous room_data.room_flags value and restores it in reverse order "
+     "if any later helper in the same mixed mutation batch fails before scalar setters commit.",
      "Offline fixtures use the same flag vocabulary, token/stale-handle model, sanitized "
      "MutationResult shape, and no-partial-write behavior without requiring authentication.",
      "Cover allowed add, duplicate add idempotence, forbidden BFS_MARK/PERMAFFECT, wrong-zone "
@@ -925,8 +925,8 @@ constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
      "rooms, BFS_MARK, PERMAFFECT/permanentAffect, and unnamed bits before audit.",
      "Audit request is recorded after target/flag validation and before any room_data.room_flags "
      "bit is changed; script-visible failure remains a sanitized MutationResult.",
-     "Prepare captures the previous room_data.room_flags value and restores it if any later "
-     "helper in the same mixed mutation batch fails before commit.",
+     "Apply records each previous room_data.room_flags value and restores it in reverse order "
+     "if any later helper in the same mixed mutation batch fails before scalar setters commit.",
      "Offline fixtures use the same flag vocabulary, token/stale-handle model, sanitized "
      "MutationResult shape, and no-partial-write behavior without requiring authentication.",
      "Cover allowed remove, missing remove idempotence, forbidden BFS_MARK/PERMAFFECT, wrong-zone "

@@ -423,10 +423,13 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
                 << interface_name;
             EXPECT_EQ(block.find("setAlignment("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setFlags("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("addFlag("), std::string::npos) << interface_name;
+            EXPECT_EQ(block.find("removeFlag("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setLight("), std::string::npos) << interface_name;
             const char *forbidden_room_members[] = {
-                "setTracks",   "setBleedTracks", "setBfsDirection", "setBfsNext",
-                "setSpecialProcedure", "tracks", "bleedTracks", "bfsDirection",
+                "addFlag",     "removeFlag", "setTracks",   "setBleedTracks",
+                "setBfsDirection", "setBfsNext", "setSpecialProcedure", "tracks",
+                "bleedTracks", "bfsDirection",
                 "bfsNext",     "specialProcedure", "room_track", "bleed_track",
                 "bfs_dir",     "bfs_next", "funct", "roomTrack", "bleedTrack", "bfsDir",
                 "bfsNextRaw",  "specialProc", "special",
@@ -628,8 +631,8 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_NE(room_exit_block.find("readonly flags: readonly string[]"), std::string::npos);
     const char *room_nested_list_setters[] = {
         "setExtraDescriptions", "setExit", "setContents", "setCharacters", "setAffects",
-        "setAlignment",         "setFlags", "setLight", "setTracks", "setBleedTracks",
-        "setBfsDirection",      "setBfsNext", "setSpecialProcedure",
+        "setAlignment",         "setFlags", "addFlag", "removeFlag", "setLight", "setTracks",
+        "setBleedTracks",       "setBfsDirection", "setBfsNext", "setSpecialProcedure",
     };
     for (const char *setter_name : room_nested_list_setters) {
         EXPECT_EQ(room_block.find(std::string(setter_name) + "("), std::string::npos)

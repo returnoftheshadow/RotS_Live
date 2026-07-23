@@ -649,6 +649,9 @@ TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) 
                   std::string::npos);
         EXPECT_NE(std::string(operation.rollback_policy).find("previous room_data.room_flags"),
                   std::string::npos);
+        EXPECT_NE(std::string(operation.rollback_policy).find("reverse order"), std::string::npos);
+        EXPECT_NE(std::string(operation.rollback_policy).find("before scalar setters commit"),
+                  std::string::npos);
         EXPECT_NE(std::string(operation.offline_policy).find("same flag vocabulary"),
                   std::string::npos);
         EXPECT_NE(std::string(operation.test_focus).find("Room.setFlags"), std::string::npos);

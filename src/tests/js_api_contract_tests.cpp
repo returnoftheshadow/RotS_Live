@@ -609,8 +609,9 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     EXPECT_STREQ(room_exits->type_name, "readonly RoomExit[]");
     EXPECT_EQ(room_exits->status, JsApiMemberStatus::PlannedReadOnly);
     for (const char *member_name :
-         {"setExit",       "setFlags",       "setAlignment", "setLight",
-          "setTracks",     "setBleedTracks", "setBfsDirection", "setBfsNext",
+         {"setExit",       "setFlags",       "addFlag",      "removeFlag",
+          "setAlignment",  "setLight",       "setTracks",    "setBleedTracks",
+          "setBfsDirection", "setBfsNext",
           "setSpecialProcedure", "tracks",   "bleedTracks", "bfsDirection",
           "bfsNext",       "specialProcedure", "room_track", "bleed_track",
           "bfs_dir",       "bfs_next",       "funct",       "roomTrack",
