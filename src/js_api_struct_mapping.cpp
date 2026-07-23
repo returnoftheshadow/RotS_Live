@@ -706,6 +706,135 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "none", "Raw command pointer."},
 };
 
+constexpr JsApiDeferredHelperPlan DeferredHelperPlans[] = {
+    {"helper-guardrail-foundation", 10, "Helper API guardrail foundation",
+     "char_data.in_room|obj_data.in_room|room_data.room_flags|room_data.dir_option",
+     "Shared helper-method registration, generated documentation rules, live/offline mutation "
+     "envelope policy, and raw whole-field setter absence gates before any new helper is callable.",
+     "Requires target-scoped authority, live target tokens, stale-handle denial, mutation-count "
+     "limits, audit-before-mutation policy, no-partial-write rollback, and sanitized "
+     "MutationResult diagnostics.",
+     "Offline fixtures must exercise the same helper names, authority failures, raw setter "
+     "absence, stale-handle errors, mutation-count limits, and atomic rollback behavior.",
+     "Cover generated typings/docs/manifest/fallback/runtime parity, raw setInventory/setContents/"
+     "setFlags/setExtraDescriptions absence, wrong-zone authority, stale handles, thrown scripts, "
+     "and mixed-batch atomicity.",
+     "This foundation prevents helper work from reopening direct struct assignment through docs-only "
+     "setter names."},
+    {"room-flags", 20, "Room flag helper API",
+     "room_data.room_flags|room_data.affected",
+     "Named add/remove/replace helpers over a filtered builder-facing room-flag vocabulary.",
+     "Requires target-scoped room authority, zone ownership, internal/transient bit exclusion, "
+     "and explicit PERMAFFECT/room-affect synchronization policy.",
+     "Offline fixtures must use the same generated flag vocabulary and reject raw numeric "
+     "bitvectors or unnamed bits before local execution.",
+     "Cover allowed flags, BFS_MARK/PERMAFFECT/unnamed-bit rejection, room-affect sync, "
+     "authorization failures, stale rooms, and atomic mixed batches.",
+     "First priority because flags are common builder needs but raw bit writes would affect "
+     "movement, combat, teleport, lighting, drinking, and security behavior."},
+    {"room-exits", 30, "Room exit helper API",
+     "room_data.dir_option",
+     "Directional set/update/remove helpers that own destination, door, keyword, key, width, "
+     "flag, and optional bidirectional-link semantics.",
+     "Requires target-scoped room/zone authority, destination-zone policy, reset-command impact "
+     "checks, and explicit audit for topology changes.",
+     "Offline fixtures must emulate canonical direction names, NOWHERE/null destinations, door "
+     "flags, and bidirectional-link diagnostics without raw dir_option pointers.",
+     "Cover invalid directions, stale destination vnums, private/locked door flags, rollback, "
+     "reset-command conflicts, and partial-update atomicity.",
+     "Exit writes are high-impact world topology changes and must stay out of generic setters."},
+    {"object-value-domains", 40, "Object flag and value-domain helpers",
+     "obj_data.obj_flags",
+     "Item-type-specific helpers for material, wear flags, extra flags, weight, cost, rent, "
+     "timer policy, and value slots such as weapon, container, light, liquid, trap, and lever "
+     "domains.",
+     "Requires object/zone authority, item-type compatibility, economy/combat/equipment "
+     "recalculation policy, and transient/internal bit exclusion.",
+     "Offline fixtures must load generated finite vocabularies and item-type schemas instead of "
+     "accepting raw value arrays or numeric bitvectors.",
+     "Cover malformed value arrays, wrong item-type helpers, economy bounds, combat-affecting "
+     "weapon fields, equipment restriction recalculation, and nested object authority.",
+     "Keeps raw obj_flags storage absent while enabling safe builder-facing object authoring."},
+    {"affects", 50, "Character, room, and object affect helpers",
+     "char_data.affected|room_data.affected|obj_data.affected",
+     "Add/remove/update helpers for active affects and fixed object affect slots using generated "
+     "spell/skill, apply-location, and affect-flag vocabularies.",
+     "Requires target authority, duration/tick accounting, stat/flag recomputation, equipment "
+     "and room side-effect policy, persistence scope, and audit.",
+     "Offline fixtures must emulate affect normalization, generated vocabularies, caps, and "
+     "MutationResult diagnostics without exposing linked-list nodes.",
+     "Cover unknown apply locations, invalid durations, duplicate affects, recalculation hooks, "
+     "room flag synchronization, stale targets, and batch rollback.",
+     "Affects touch derived stats and flags, so helpers must own recalculation before mutation."},
+    {"inventory-equipment-object-movement", 60, "Inventory, equipment, and object movement helpers",
+     "char_data.equipment|char_data.carrying|obj_data.in_room|obj_data.carried_by|obj_data.in_obj|obj_data.contains|room_data.contents",
+     "Load/extract/move/give/take/wear/remove/container helpers that own list transfer, object "
+     "liveness, capacity, weight, light, equipment, and trigger semantics.",
+     "Requires actor/target authority, zone ownership, reciprocal list validation, crash-save "
+     "policy, nested-container cycle prevention, and ON_WEAR/receive trigger ordering.",
+     "Offline fixtures must model list membership, shallow snapshots, wear slots, container "
+     "capacity, and trigger side effects without recursive mutable handles.",
+     "Cover stale objects, duplicate list membership, cycles, weight/capacity limits, wear "
+     "restriction failures, trigger blocks, and atomic extraction rollback.",
+     "Groups the linked object surfaces that would corrupt live lists if exposed as raw setters."},
+    {"character-movement-relationships", 70, "Character movement and relationship helpers",
+     "char_data.in_room|char_data.followers|char_data.master|char_data.mount_data|char_data.group",
+     "Move/teleport/follow/unfollow/mount/dismount/group helpers with explicit relationship and "
+     "movement-trigger semantics.",
+     "Requires character authority, room/zone policy, visibility/security checks, reciprocal "
+     "relationship validation, follower caps, loop prevention, and movement propagation rules.",
+     "Offline fixtures must emulate role relationships, room membership, mount/follower links, "
+     "group lifetime tokens, and blocking trigger results.",
+     "Cover death/private/security rooms, trigger-blocked movement, stale relationship handles, "
+     "looped follow graphs, mount rider propagation, and group lifetime invalidation.",
+     "Raw character relationship writes would bypass movement and social invariants."},
+    {"zone-reset-authoring", 80, "Zone reset-command helper API",
+     "zone_data.cmd|zone_data.cmdno|zone_data.top",
+     "Reset-command add/update/remove/reorder helpers that validate command type, if-flag "
+     "ordering, room/object/mobile vnums, max counts, and zone persistence as one unit.",
+     "Requires zone authority, workspace/server identity binding, staged-package audit, stale "
+     "base checksum checks, and retention-aware rollback.",
+     "Offline fixtures must validate reset command schemas and deterministic ordering without "
+     "exposing raw command arrays.",
+     "Cover command ordering, invalid vnums, max-count bounds, stale base checks, rollback, "
+     "persistence failures, and mixed valid/invalid batch atomicity.",
+     "Zone reset data is persistent world-building state and should be helper-owned."},
+    {"zone-descriptions-and-visibility", 90, "Zone description and visibility helpers",
+     "zone_data.zone_short_description|zone_data.zone_description|zone_data.zone_map|zone_data.min_level_look",
+     "Add/update/remove helpers for zone description lists plus a persisted minimum-look-level "
+     "helper once the legacy save/edit path is confirmed.",
+     "Requires zone authority, text bounds/sanitization, linked-list ownership, visibility "
+     "policy, persistence support, and audit.",
+     "Offline fixtures must emulate list caps, text normalization, null handling, and visibility "
+     "diagnostics without exposing linked-list nodes.",
+     "Cover overlong text, terminators, duplicate keywords, stale list entries, missing "
+     "persistence support, and visibility boundary values.",
+     "Keeps linked-list writes narrow while preserving builder authoring needs."},
+    {"zone-faction-power", 100, "Zone faction-power helper API",
+     "zone_data.white_power|zone_data.dark_power|zone_data.magi_power",
+     "Admin-only recalculate/adjust helpers for zone faction power instead of direct scalar "
+     "assignment.",
+     "Requires admin or explicit zone-control authority, race/allegiance recalculation policy, "
+     "battlefield messaging policy, and audit.",
+     "Offline fixtures must distinguish read-only faction power from admin-only hypothetical "
+     "changes and reject direct setters.",
+     "Cover non-admin rejection, recalculation drift, bounded adjustments, messaging side effects, "
+     "and stale zone snapshots.",
+     "Faction power is derived live state and should not become a builder raw setter."},
+    {"profile-admin", 110, "Character profile, progression, and admin helpers",
+     "char_data.player|char_data.abilities|char_data.tmpabilities|char_data.constabilities|char_data.points|char_data.profs|char_data.extra_specialization_data|char_data.skills|char_data.knowledge",
+     "Separate audited admin/training helpers for identity text, descriptions, race/level, "
+     "ability scores, points, professions, specializations, skills, and knowledge recalculation.",
+     "Requires account/admin authority, player-vs-NPC policy, level/progression rules, derived "
+     "stat recalculation, guild/practice restrictions, player-file persistence, and audit.",
+     "Offline fixtures must keep these surfaces read-only for normal builder scripts and expose "
+     "only generated admin-helper typings once server authority exists.",
+     "Cover auth failures, NPC/player split, invalid skill ids, level bounds, derived stat drift, "
+     "player-file persistence failure, and audit-before-mutation ordering.",
+     "Lowest initial priority because these are admin/player-data operations rather than zone "
+     "script authoring primitives."},
+};
+
 } // namespace
 
 const JsApiStructFieldMapping *js_api_struct_field_mappings() { return FieldMappings; }
@@ -747,4 +876,10 @@ const JsApiStructFieldMapping *find_js_api_struct_field_mapping(JsApiStructOwner
             return &FieldMappings[index];
     }
     return nullptr;
+}
+
+const JsApiDeferredHelperPlan *js_api_deferred_helper_plans() { return DeferredHelperPlans; }
+
+std::size_t js_api_deferred_helper_plan_count() {
+    return sizeof(DeferredHelperPlans) / sizeof(DeferredHelperPlans[0]);
 }

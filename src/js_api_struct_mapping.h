@@ -27,11 +27,25 @@ struct JsApiStructFieldMapping {
     const char *notes;
 };
 
+struct JsApiDeferredHelperPlan {
+    const char *id;
+    int priority;
+    const char *title;
+    const char *source_fields;
+    const char *helper_shape;
+    const char *authority_policy;
+    const char *offline_parity;
+    const char *test_focus;
+    const char *notes;
+};
+
 const JsApiStructFieldMapping *js_api_struct_field_mappings();
 std::size_t js_api_struct_field_mapping_count();
 const char *js_api_struct_owner_name(JsApiStructOwner owner);
 std::size_t js_api_struct_field_mapping_count_for_owner(JsApiStructOwner owner);
 const JsApiStructFieldMapping *find_js_api_struct_field_mapping(JsApiStructOwner owner,
                                                                 const char *source_field);
+const JsApiDeferredHelperPlan *js_api_deferred_helper_plans();
+std::size_t js_api_deferred_helper_plan_count();
 
 #endif

@@ -21,6 +21,31 @@ std::string trim(std::string value) {
     return value;
 }
 
+std::vector<std::string> split_pipe_list(const char *value) {
+    std::vector<std::string> parts;
+    std::stringstream stream(value ? value : "");
+    std::string part;
+    while (std::getline(stream, part, '|')) {
+        part = trim(part);
+        if (!part.empty())
+            parts.push_back(part);
+    }
+    return parts;
+}
+
+JsApiStructOwner owner_from_source_struct(const std::string &source_struct) {
+    if (source_struct == "char_data")
+        return JsApiStructOwner::CharData;
+    if (source_struct == "obj_data")
+        return JsApiStructOwner::ObjData;
+    if (source_struct == "room_data")
+        return JsApiStructOwner::RoomData;
+    if (source_struct == "zone_data")
+        return JsApiStructOwner::ZoneData;
+    ADD_FAILURE() << "Unknown source struct in helper plan: " << source_struct;
+    return JsApiStructOwner::CharData;
+}
+
 std::string strip_line_comment(std::string line) {
     const std::size_t comment = line.find("//");
     if (comment != std::string::npos)
@@ -366,6 +391,118 @@ TEST(JsApiStructMapping, PublicMappingsHaveFinalExplicitAccessorPolicy) {
     EXPECT_GT(implemented_getter_count, 0U);
     EXPECT_GT(callable_setter_count, 0U);
     EXPECT_GT(documented_non_callable_setter_count, 0U);
+}
+
+TEST(JsApiStructMapping, DeferredHelperPlansArePrioritizedAndReferenceMappedFields) {
+    EXPECT_EQ(js_api_deferred_helper_plan_count(), 11U);
+
+    std::set<std::string> ids;
+    std::set<int> priorities;
+    int previous_priority = 0;
+
+    for (std::size_t index = 0; index < js_api_deferred_helper_plan_count(); ++index) {
+        const JsApiDeferredHelperPlan &plan = js_api_deferred_helper_plans()[index];
+        SCOPED_TRACE(plan.id);
+
+        EXPECT_TRUE(ids.insert(plan.id).second);
+        EXPECT_TRUE(priorities.insert(plan.priority).second);
+        EXPECT_GT(plan.priority, previous_priority);
+        previous_priority = plan.priority;
+
+        EXPECT_STRNE(plan.title, "");
+        EXPECT_STRNE(plan.helper_shape, "");
+        EXPECT_STRNE(plan.authority_policy, "");
+        EXPECT_STRNE(plan.offline_parity, "");
+        EXPECT_STRNE(plan.test_focus, "");
+        EXPECT_STRNE(plan.notes, "");
+
+        EXPECT_EQ(std::string(plan.helper_shape).find("raw setter"), std::string::npos);
+        EXPECT_EQ(std::string(plan.helper_shape).find("direct setter"), std::string::npos);
+        const std::string combined_plan_text = std::string(plan.helper_shape) + " " +
+                                               plan.authority_policy + " " + plan.offline_parity +
+                                               " " + plan.test_focus + " " + plan.notes;
+        for (const char *raw_setter : {"Character.setRoom", "GameObject.setRoom",
+                 "GameObject.setCarriedBy", "GameObject.setContainer", "GameObject.setContents",
+                 "GameObject.setFlags", "GameObject.setExtraDescriptions", "Room.setContents",
+                 "Room.setCharacters", "Room.setExtraDescriptions", "Zone.setResetCommands"}) {
+            EXPECT_EQ(combined_plan_text.find(raw_setter), std::string::npos) << raw_setter;
+        }
+        EXPECT_NE(std::string(plan.authority_policy).find("authority"), std::string::npos);
+        EXPECT_NE(std::string(plan.offline_parity).find("Offline fixtures"), std::string::npos);
+        EXPECT_NE(std::string(plan.test_focus).find("Cover"), std::string::npos);
+
+        const std::vector<std::string> source_fields = split_pipe_list(plan.source_fields);
+        EXPECT_FALSE(source_fields.empty());
+        for (const std::string &source_field : source_fields) {
+            const std::size_t separator = source_field.find('.');
+            ASSERT_NE(separator, std::string::npos) << source_field;
+            ASSERT_EQ(source_field.find('.', separator + 1), std::string::npos) << source_field;
+
+            const std::string source_struct = source_field.substr(0, separator);
+            const std::string field = source_field.substr(separator + 1);
+            const JsApiStructFieldMapping *mapping =
+                find_js_api_struct_field_mapping(owner_from_source_struct(source_struct),
+                                                 field.c_str());
+            ASSERT_NE(mapping, nullptr) << source_field;
+
+            const std::string getter_status = mapping->getter_status;
+            const std::string setter_status = mapping->setter_status;
+            EXPECT_NE(getter_status, "planned-read-only-getter") << source_field;
+            EXPECT_NE(setter_status, "planned-validated-setter") << source_field;
+            EXPECT_STRNE(setter_status.c_str(), "implemented-validated-setter") << source_field;
+        }
+    }
+}
+
+TEST(JsApiStructMapping, DeferredHelperPlanPrioritizesHighImpactBuilderAuthoring) {
+    struct ExpectedPlan {
+        const char *id;
+        int priority;
+        const char *required_field;
+        const char *required_authority_text;
+        const char *required_test_text;
+    };
+
+    const ExpectedPlan expected[] = {
+        {"helper-guardrail-foundation", 10, "char_data.in_room", "stale-handle denial",
+         "raw setInventory/setContents/setFlags/setExtraDescriptions absence"},
+        {"room-flags", 20, "room_data.room_flags", "internal/transient bit exclusion",
+         "BFS_MARK/PERMAFFECT/unnamed-bit rejection"},
+        {"room-exits", 30, "room_data.dir_option", "destination-zone policy",
+         "reset-command conflicts"},
+        {"object-value-domains", 40, "obj_data.obj_flags", "item-type compatibility",
+         "wrong item-type helpers"},
+        {"affects", 50, "char_data.affected", "stat/flag recomputation",
+         "room flag synchronization"},
+        {"inventory-equipment-object-movement", 60, "obj_data.contains",
+         "reciprocal list validation", "trigger blocks"},
+        {"character-movement-relationships", 70, "char_data.in_room",
+         "loop prevention", "trigger-blocked movement"},
+        {"zone-reset-authoring", 80, "zone_data.cmd", "stale base checksum checks",
+         "mixed valid/invalid batch atomicity"},
+        {"zone-descriptions-and-visibility", 90, "zone_data.min_level_look",
+         "text bounds/sanitization", "missing persistence support"},
+        {"zone-faction-power", 100, "zone_data.white_power", "admin",
+         "non-admin rejection"},
+        {"profile-admin", 110, "char_data.player", "account/admin authority",
+         "audit-before-mutation ordering"},
+    };
+
+    ASSERT_EQ(js_api_deferred_helper_plan_count(), sizeof(expected) / sizeof(expected[0]));
+    for (std::size_t index = 0; index < js_api_deferred_helper_plan_count(); ++index) {
+        const JsApiDeferredHelperPlan &plan = js_api_deferred_helper_plans()[index];
+        const ExpectedPlan &expected_plan = expected[index];
+        SCOPED_TRACE(expected_plan.id);
+
+        EXPECT_STREQ(plan.id, expected_plan.id);
+        EXPECT_EQ(plan.priority, expected_plan.priority);
+        EXPECT_NE(std::string(plan.source_fields).find(expected_plan.required_field),
+                  std::string::npos);
+        EXPECT_NE(std::string(plan.authority_policy).find(expected_plan.required_authority_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(plan.test_focus).find(expected_plan.required_test_text),
+                  std::string::npos);
+    }
 }
 
 TEST(JsApiStructMapping, FinalAccessorPolicyMatrixStaysIntentional) {
