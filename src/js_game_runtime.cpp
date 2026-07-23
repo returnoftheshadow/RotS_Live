@@ -79,6 +79,9 @@ std::string string_array_literal(const std::vector<std::string> &values) {
     return out.str();
 }
 
+std::string object_flags_literal(const JsGameObjectFlagsFixture &flags);
+std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture> &affects);
+
 std::string int_array_literal(const std::vector<int> &values) {
     std::ostringstream out;
     out << "[";
@@ -273,6 +276,45 @@ std::string room_exits_literal(const std::vector<JsGameRoomExitFixture> &exits) 
     return out.str();
 }
 
+std::string room_content_object_literal(const JsGameRoomContentObjectFixture &object) {
+    std::ostringstream out;
+    out << "{"
+        << "\"id\":" << js_quote(object.id) << ","
+        << "\"name\":" << js_quote(object.name) << ","
+        << "\"description\":" << js_quote(object.description) << ","
+        << "\"shortDescription\":" << js_quote(object.short_description) << ","
+        << "\"actionDescription\":"
+        << nullable_literal(object.has_action_description, js_quote(object.action_description))
+        << ","
+        << "\"vnum\":";
+    if (object.vnum >= 0)
+        out << object.vnum;
+    else
+        out << "null";
+    out << ","
+        << "\"flags\":" << object_flags_literal(object.flags) << ","
+        << "\"affects\":" << object_affects_literal(object.affects) << ","
+        << "\"extraDescriptions\":" << extra_descriptions_literal(object.extra_descriptions) << ","
+        << "\"touched\":" << js_bool(object.touched) << ","
+        << "\"room\":null,\"carriedBy\":null,\"wornBy\":null,"
+        << "\"__rotsReadOnlySnapshot\":true,"
+        << "\"isValid\":function() { return true; }"
+        << "}";
+    return out.str();
+}
+
+std::string room_content_objects_literal(const std::vector<JsGameRoomContentObjectFixture> &objects) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < objects.size(); ++index) {
+        if (index > 0)
+            out << ",";
+        out << room_content_object_literal(objects[index]);
+    }
+    out << "]";
+    return out.str();
+}
+
 std::string room_literal(const JsGameRoomFixture &room) {
     std::ostringstream out;
     out << "{"
@@ -285,6 +327,7 @@ std::string room_literal(const JsGameRoomFixture &room) {
         << "\"flags\":" << string_array_literal(room.flags) << ","
         << "\"extraDescriptions\":" << extra_descriptions_literal(room.extra_descriptions) << ","
         << "\"exits\":" << room_exits_literal(room.exits) << ","
+        << "\"contents\":" << room_content_objects_literal(room.contents) << ","
         << "\"alignment\":" << room.alignment << ","
         << "\"light\":" << room.light << ","
         << "\"isSunlit\":" << js_bool(room.is_sunlit) << ","

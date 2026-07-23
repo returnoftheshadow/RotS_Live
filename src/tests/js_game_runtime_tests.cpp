@@ -193,6 +193,20 @@ void add_gatehouse_exits(JsGameRoomFixture &room) {
     room.exits.push_back(down);
 }
 
+JsGameRoomContentObjectFixture make_room_content_fixture() {
+    JsGameRoomContentObjectFixture object;
+    object.id = "object:303";
+    object.name = "polished orb";
+    object.description = "A polished orb rests on the floor.";
+    object.short_description = "a polished orb";
+    object.vnum = 303;
+    object.flags.item_type = "treasure";
+    object.flags.wear_flags = {"take"};
+    object.extra_descriptions.push_back({"orb", "The orb reflects the gatehouse arch."});
+    object.touched = false;
+    return object;
+}
+
 JsGameTriggerContextFixture make_context() {
     JsGameTriggerContextFixture context;
     context.has_self = true;
@@ -379,6 +393,7 @@ JsGameTriggerContextFixture make_context() {
     context.self.room.flags = {"dark", "indoors"};
     context.self.room.extra_descriptions.push_back({"arch", "Ancient stonework frames the gate."});
     add_gatehouse_exits(context.self.room);
+    context.self.room.contents.push_back(make_room_content_fixture());
     context.self.room.alignment = -2;
     context.self.room.light = 1;
     context.self.room.is_sunlit = true;
@@ -538,6 +553,7 @@ JsGameTriggerContextFixture make_context() {
     context.object.room.extra_descriptions.push_back(
         {"arch", "Ancient stonework frames the gate."});
     add_gatehouse_exits(context.object.room);
+    context.object.room.contents.push_back(make_room_content_fixture());
     context.object.room.alignment = -2;
     context.object.room.light = 1;
     context.object.room.is_sunlit = true;
@@ -572,6 +588,7 @@ JsGameTriggerContextFixture make_context() {
     context.room.flags = {"dark", "indoors"};
     context.room.extra_descriptions.push_back({"arch", "Ancient stonework frames the gate."});
     add_gatehouse_exits(context.room);
+    context.room.contents.push_back(make_room_content_fixture());
     context.room.alignment = -2;
     context.room.light = 1;
     context.room.is_sunlit = true;
@@ -1381,6 +1398,21 @@ TEST(JsGameRuntime, ExposesPromotedStructGetterSnapshots) {
         "  && ctx.room.exits[1].direction === 'down'\n"
         "  && ctx.room.exits[1].toRoomVnum === null\n"
         "  && ctx.room.exits[1].flags.join(',') === 'noLook,hidden'\n"
+        "  && ctx.room.contents.length === 1\n"
+        "  && ctx.room.contents[0].name === 'polished orb'\n"
+        "  && ctx.room.contents[0].extraDescriptions[0].keyword === 'orb'\n"
+        "  && ctx.room.contents[0].room === null\n"
+        "  && typeof ctx.room.contents[0].container === 'undefined'\n"
+        "  && typeof ctx.room.contents[0].contents === 'undefined'\n"
+        "  && typeof ctx.room.contents[0].setName === 'undefined'\n"
+        "  && ctx.object.room.contents[0].name === 'polished orb'\n"
+        "  && ctx.object.room.contents[0].room === null\n"
+        "  && typeof ctx.object.room.contents[0].container === 'undefined'\n"
+        "  && typeof ctx.object.room.contents[0].contents === 'undefined'\n"
+        "  && ctx.self.room.contents[0].name === 'polished orb'\n"
+        "  && ctx.self.room.contents[0].room === null\n"
+        "  && typeof ctx.self.room.contents[0].container === 'undefined'\n"
+        "  && typeof ctx.self.room.contents[0].contents === 'undefined'\n"
         "  && ctx.room.alignment === -2\n"
         "  && ctx.room.light === 1\n"
         "  && ctx.zone.level === 6\n"
@@ -2611,10 +2643,13 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && typeof ctx.object.container.constructor === 'undefined'\n"
         "  && typeof ctx.object.contents.constructor === 'undefined'\n"
         "  && typeof ctx.object.contents[0].constructor === 'undefined'\n"
+        "  && typeof ctx.room.contents.constructor === 'undefined'\n"
+        "  && typeof ctx.room.contents[0].constructor === 'undefined'\n"
         "  && Object.getPrototypeOf(ctx.object.affects[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.object.extraDescriptions[0]) === null\n"
         "  && Object.getPrototypeOf(ctx.object.container) === null\n"
         "  && Object.getPrototypeOf(ctx.object.contents[0]) === null\n"
+        "  && Object.getPrototypeOf(ctx.room.contents[0]) === null\n"
         "  && Object.isFrozen(ctx.object.affects)\n"
         "  && Object.isFrozen(ctx.object.affects[0])\n"
         "  && Object.isFrozen(ctx.object.extraDescriptions)\n"
@@ -2622,6 +2657,8 @@ TEST(JsGameRuntime, ContextObjectsHaveNoMutablePrototypeSurface) {
         "  && Object.isFrozen(ctx.object.container)\n"
         "  && Object.isFrozen(ctx.object.contents)\n"
         "  && Object.isFrozen(ctx.object.contents[0])\n"
+        "  && Object.isFrozen(ctx.room.contents)\n"
+        "  && Object.isFrozen(ctx.room.contents[0])\n"
         "  && Object.isFrozen(ctx.self.followers)\n"
         "  && Object.isFrozen(ctx.self.followers[0])\n"
         "  && Object.isFrozen(ctx.self.master)\n"
@@ -2788,6 +2825,18 @@ TEST(JsGameRuntime, RejectsMutationOfNestedCharacterSnapshots) {
               JsRuntimeStatus::Error);
     EXPECT_EQ(runtime
                   .evaluate_trigger_body("ctx.object.contents.push({ id: 'object:unsafe' });\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.room.contents[0].name = 'unsafe';\n"
+                                         "return true;",
+                                         make_context())
+                  .status,
+              JsRuntimeStatus::Error);
+    EXPECT_EQ(runtime
+                  .evaluate_trigger_body("ctx.room.contents.push({ id: 'object:unsafe' });\n"
                                          "return true;",
                                          make_context())
                   .status,
@@ -3456,6 +3505,12 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
                            "\"keyVnum\":3001,\"width\":2,"
                            "\"flags\":[\"door\",\"closed\",\"locked\",\"pickproof\"]},"
                            "{\"directionIndex\":5,\"direction\":\"down\",\"toRoomVnum\":null,"),
+              std::string::npos);
+    EXPECT_NE(literal.find("\"contents\":[{\"id\":\"object:303\",\"name\":\"polished orb\","
+                           "\"description\":\"A polished orb rests on the floor.\","
+                           "\"shortDescription\":\"a polished orb\",\"actionDescription\":null,"
+                           "\"vnum\":303,\"flags\":{\"itemType\":\"treasure\","
+                           "\"wearFlags\":[\"take\"],\"extraFlags\":[],\"level\":0,"),
               std::string::npos);
     EXPECT_NE(literal.find("\"light\":1"), std::string::npos);
     EXPECT_NE(literal.find("\"zone\":{\"id\":\"zone:12\""), std::string::npos);

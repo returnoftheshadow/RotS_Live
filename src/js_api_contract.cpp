@@ -556,6 +556,10 @@ constexpr JsApiMember RoomMembers[] = {
     {"exits", JsApiMemberKind::Property, "readonly RoomExit[]", "", false, true,
      JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
      "Frozen read-only room exit entries copied by direction from loaded room exits."},
+    {"contents", JsApiMemberKind::Property, "readonly EquipmentObjectSnapshot[]", "", false, true,
+     JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+     "Frozen read-only direct room object snapshots copied from the room contents linked list. "
+     "Entries are shallow object snapshots without ownership handles or recursive contents."},
     {"alignment", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,
      JsApiMemberStatus::PlannedReadOnly, "read-only", "Room alignment value."},
     {"light", JsApiMemberKind::Property, "number", "", false, true, JsApiSideEffect::None,

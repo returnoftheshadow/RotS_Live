@@ -3925,6 +3925,10 @@ room_data::room_data()
     name = 0;
     description = 0;
     ex_description = 0;
+    for (room_direction_data*& exit : dir_option)
+        exit = 0;
+    contents = 0;
+    people = 0;
     affected = NULL;
 }
 

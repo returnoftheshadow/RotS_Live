@@ -516,6 +516,8 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     ASSERT_FALSE(room_block.empty());
     EXPECT_NE(room_block.find("readonly extraDescriptions:"), std::string::npos);
     EXPECT_NE(room_block.find("readonly exits: readonly RoomExit[]"), std::string::npos);
+    EXPECT_NE(room_block.find("readonly contents: readonly EquipmentObjectSnapshot[]"),
+              std::string::npos);
     const std::string room_exit_block =
         declaration_block(declarations, "export interface RoomExit");
     ASSERT_FALSE(room_exit_block.empty());

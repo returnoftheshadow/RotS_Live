@@ -511,12 +511,13 @@ constexpr JsApiStructFieldMapping FieldMappings[] = {
      "Special procedure function pointer is internal.", "Function pointer mutation is unsupported.",
      "none", "Raw function pointer."},
     {JsApiStructOwner::RoomData, "room_data", "contents", "contents", "getContents", "setContents",
-     "readonly GameObject[]", true, Deferred, Unsupported,
-     "Planned read-only snapshot of objects directly in the room.",
+     "readonly EquipmentObjectSnapshot[]", false, ImplementedReadOnly, Unsupported,
+     "Returns a bounded shallow read-only snapshot of directly contained live objects whose room "
+     "index reciprocally references this room.",
      "Replacing the room contents linked list from JavaScript is unsupported; use explicit "
      "object movement/load/extract helpers so room contents, object container/carrier links, "
      "light counters, crash-save flags, and stale-list checks stay centralized.",
-     "world-mutation", "Use explicit object movement helpers if added later."},
+     "world-mutation", "Linked-list storage is exposed only as shallow frozen contents snapshots."},
     {JsApiStructOwner::RoomData, "room_data", "people", "characters", "getCharacters",
      "setCharacters", "readonly Character[]", true, Deferred, Unsupported,
      "Planned read-only snapshot of characters currently in the room.",

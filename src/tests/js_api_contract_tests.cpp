@@ -570,6 +570,12 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     EXPECT_STREQ(room_level->type_name, "number");
     EXPECT_EQ(room_level->status, JsApiMemberStatus::PlannedReadOnly);
 
+    const JsApiMember *room_contents = find_js_api_contract_member(*room, "contents");
+    ASSERT_NE(room_contents, nullptr);
+    EXPECT_STREQ(room_contents->type_name, "readonly EquipmentObjectSnapshot[]");
+    EXPECT_FALSE(room_contents->nullable);
+    EXPECT_EQ(room_contents->status, JsApiMemberStatus::PlannedReadOnly);
+
     const JsApiMember *room_sector_type = find_js_api_contract_member(*room, "sectorType");
     ASSERT_NE(room_sector_type, nullptr);
     EXPECT_STREQ(room_sector_type->type_name, "string");
@@ -676,6 +682,7 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     EXPECT_STREQ(object_contents->type_name, "readonly EquipmentObjectSnapshot[]");
     EXPECT_FALSE(object_contents->nullable);
     EXPECT_EQ(object_contents->status, JsApiMemberStatus::PlannedReadOnly);
+
     const JsApiMember *object_touched = find_js_api_contract_member(*object, "touched");
     ASSERT_NE(object_touched, nullptr);
     EXPECT_STREQ(object_touched->type_name, "boolean");

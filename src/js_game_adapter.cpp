@@ -684,6 +684,27 @@ bool shallow_object_fixture(const obj_data *object, const JsGameAdapterOptions &
     return true;
 }
 
+bool shallow_room_content_object_fixture(const obj_data *object, const JsGameAdapterOptions &options,
+                                         JsGameRoomContentObjectFixture *fixture) {
+    if (fixture == nullptr || !js_game_adapter_is_live_object(object, options))
+        return false;
+
+    const char *display_name =
+        object->short_description != nullptr ? object->short_description : object->name;
+    fixture->id = object_id(*object, options);
+    fixture->name = copy_c_string(display_name);
+    fixture->description = copy_c_string(object->description);
+    fixture->short_description = copy_c_string(display_name);
+    fixture->has_action_description = object->action_description != nullptr;
+    fixture->action_description = copy_c_string(object->action_description);
+    fixture->vnum = object_vnum(*object, options);
+    fixture->flags = object_flags_fixture(object->obj_flags);
+    fixture->affects = object_affects_fixture(object->affected);
+    fixture->extra_descriptions = extra_descriptions_fixture(object->ex_description);
+    fixture->touched = object->touched != 0;
+    return true;
+}
+
 bool object_is_carried_by(const obj_data *object, const char_data *carrier) {
     if (object == nullptr || carrier == nullptr)
         return false;
@@ -714,6 +735,33 @@ object_contents_fixture(const obj_data *container, const JsGameAdapterOptions &o
             continue;
         JsGameEquipmentObjectFixture fixture;
         if (shallow_object_fixture(node, options, &fixture))
+            contents.push_back(std::move(fixture));
+    }
+    return contents;
+}
+
+std::vector<JsGameRoomContentObjectFixture>
+room_contents_fixture(int room, const JsGameAdapterOptions &options) {
+    std::vector<JsGameRoomContentObjectFixture> contents;
+    if (!js_game_adapter_room_is_valid(room, options))
+        return contents;
+
+    const room_data &room_data = options.world[room];
+    std::vector<const obj_data *> seen_nodes;
+    int nodes_visited = 0;
+    for (const obj_data *node = room_data.contents;
+         node != nullptr && nodes_visited < MaxObjectContentsSnapshotNodes;
+         node = node->next_content) {
+        if (std::find(seen_nodes.begin(), seen_nodes.end(), node) != seen_nodes.end())
+            break;
+        seen_nodes.push_back(node);
+        ++nodes_visited;
+        if (!js_game_adapter_is_live_object(node, options))
+            break;
+        if (node->in_room != room || node->in_obj != nullptr || node->carried_by != nullptr)
+            continue;
+        JsGameRoomContentObjectFixture fixture;
+        if (shallow_room_content_object_fixture(node, options, &fixture))
             contents.push_back(std::move(fixture));
     }
     return contents;
@@ -1415,6 +1463,7 @@ bool js_game_adapter_room_fixture(int room, const JsGameAdapterOptions &options,
     fixture->flags = room_flag_names(room_data.room_flags);
     fixture->extra_descriptions = extra_descriptions_fixture(room_data.ex_description);
     fixture->exits = room_exits_fixture(room_data, options);
+    fixture->contents = room_contents_fixture(room, options);
     fixture->alignment = room_data.alignment;
     fixture->light = room_data.light;
     fixture->is_sunlit = room_is_sunlit(room_data);

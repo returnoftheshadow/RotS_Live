@@ -46,6 +46,40 @@ struct JsGameRoomExitFixture {
     std::vector<std::string> flags;
 };
 
+struct JsGameObjectFlagsFixture {
+    std::string item_type;
+    std::vector<std::string> wear_flags;
+    std::vector<std::string> extra_flags;
+    int level = 0;
+    int weight = 0;
+    int cost = 0;
+    int cost_per_day = 0;
+    int timer = 0;
+    int rarity = 0;
+    std::string material;
+};
+
+struct JsGameObjectAffectFixture {
+    int slot_index = 0;
+    int location = 0;
+    std::string location_name;
+    int modifier = 0;
+};
+
+struct JsGameRoomContentObjectFixture {
+    std::string id;
+    std::string name;
+    std::string description;
+    std::string short_description;
+    bool has_action_description = false;
+    std::string action_description;
+    int vnum = 0;
+    JsGameObjectFlagsFixture flags;
+    std::vector<JsGameObjectAffectFixture> affects;
+    std::vector<JsGameExtraDescriptionFixture> extra_descriptions;
+    bool touched = false;
+};
+
 struct JsGameRoomFixture {
     std::string id;
     std::string name;
@@ -56,6 +90,7 @@ struct JsGameRoomFixture {
     std::vector<std::string> flags;
     std::vector<JsGameExtraDescriptionFixture> extra_descriptions;
     std::vector<JsGameRoomExitFixture> exits;
+    std::vector<JsGameRoomContentObjectFixture> contents;
     int alignment = 0;
     int light = 0;
     bool is_sunlit = false;
@@ -259,26 +294,6 @@ struct JsGameCharacterProfileFixture {
     int height = 0;
     int ranking = 0;
     std::vector<int> talks;
-};
-
-struct JsGameObjectFlagsFixture {
-    std::string item_type;
-    std::vector<std::string> wear_flags;
-    std::vector<std::string> extra_flags;
-    int level = 0;
-    int weight = 0;
-    int cost = 0;
-    int cost_per_day = 0;
-    int timer = 0;
-    int rarity = 0;
-    std::string material;
-};
-
-struct JsGameObjectAffectFixture {
-    int slot_index = 0;
-    int location = 0;
-    std::string location_name;
-    int modifier = 0;
 };
 
 struct JsGameEquipmentObjectFixture {
