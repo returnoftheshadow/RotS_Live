@@ -735,6 +735,124 @@ TEST(JsTriggerDispatch, DoGiveCommandHelperTransfersCurrentLiveCarriedObject) {
     EXPECT_EQ(self.specials.carry_items, 1);
 }
 
+TEST(JsTriggerDispatch, CommandHelpersResolvePolymorphicCharacterAndRoomTargetsByKind) {
+    DescriptorListGuard descriptor_guard;
+    ObjectPrototypeGuard object_guard(6207);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5868, "function onEnter(ctx) {\n"
+              "  const tell = RotS.Script.send_to_char(ctx.target, 'Target notice.');\n"
+              "  const room = RotS.Script.send_to_room(ctx.targ2, 'Room notice.');\n"
+              "  const load = RotS.Script.load_obj(6207, ctx.targ2);\n"
+              "  const give = RotS.Script.do_give(ctx.target, ctx.targ1, ctx.object);\n"
+              "  return tell.ok && room.ok && load.ok && give.ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data giver = make_character("Target Giver");
+    char_data recipient = make_character("Target Recipient");
+    char_data observer = make_character("Observer");
+    giver.abs_number = 7001;
+    recipient.abs_number = 7002;
+    observer.in_room = 1;
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &giver;
+    giver.carrying = &token;
+    giver.specials.carry_items = 1;
+    giver.specials.carry_weight = 1;
+    descriptor_data giver_descriptor{};
+    descriptor_data recipient_descriptor{};
+    descriptor_data observer_descriptor{};
+    attach_descriptor(giver_descriptor, giver);
+    attach_descriptor(recipient_descriptor, recipient);
+    attach_descriptor(observer_descriptor, observer);
+    giver_descriptor.next = &recipient_descriptor;
+    recipient_descriptor.next = &observer_descriptor;
+    observer_descriptor.next = nullptr;
+    descriptor_list = &giver_descriptor;
+
+    const char_data *live_characters[] = {&self, &giver, &recipient, &observer};
+    const obj_data *live_objects[] = {&token};
+    room_data world[2] = {make_room("Gate", 100, 0), make_room("Hall", 101, 0)};
+    world[0].people = &self;
+    world[1].people = &observer;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 4, live_objects, 1, world, 1, obj_index, 1, zones, 1);
+    target_data targ1{};
+    targ1.type = TARGET_CHAR;
+    targ1.ptr.ch = &recipient;
+    targ1.ch_num = GET_ABS_NUM(&recipient);
+    target_data targ2{};
+    targ2.type = TARGET_ROOM;
+    targ2.ptr.room = &world[1];
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.target_character = &giver;
+    request.context_input.targ1 = &targ1;
+    request.context_input.targ2 = &targ2;
+    request.context_input.object = &token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_TRUE(contains(giver_descriptor.output, "Target notice.\n\r"));
+    EXPECT_FALSE(contains(recipient_descriptor.output, "Target notice."));
+    EXPECT_TRUE(contains(observer_descriptor.output, "Room notice.\n\r"));
+    EXPECT_NE(object_list, nullptr);
+    EXPECT_EQ(object_list->item_number, 0);
+    EXPECT_EQ(object_list->in_room, 1);
+    EXPECT_EQ(obj_index[0].number, 1);
+    EXPECT_EQ(giver.carrying, nullptr);
+    EXPECT_EQ(recipient.carrying, &token);
+    EXPECT_EQ(token.carried_by, &recipient);
+    EXPECT_EQ(giver.specials.carry_items, 0);
+    EXPECT_EQ(recipient.specials.carry_items, 1);
+}
+
+TEST(JsTriggerDispatch, CommandHelpersResolvePolymorphicObjectTargetsByKind) {
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5869, "function onEnter(ctx) {\n"
+              "  return RotS.Script.do_give(ctx.actor, ctx.self, ctx.target).ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 1;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.target_object = &token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(self.carrying, &token);
+    EXPECT_EQ(token.carried_by, &self);
+    EXPECT_EQ(actor.specials.carry_items, 0);
+    EXPECT_EQ(self.specials.carry_items, 1);
+}
+
 TEST(JsTriggerDispatch, ObjectCommandHelpersRejectForgedLoadTargetsWithoutCreatingObjects) {
     ObjectPrototypeGuard object_guard(6201);
     char_data self = make_character("Self");

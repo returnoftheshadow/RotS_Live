@@ -2575,6 +2575,64 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
     EXPECT_EQ(result.mutations[5].arguments_json, "{\"pulses\":4}");
 }
 
+TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughPolymorphicTargetsByKind) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_actor = true;
+    context.actor.id = "actor";
+    context.actor.name = "Builder";
+    context.has_target = true;
+    set_character_target(context.target, context.actor, "target");
+    context.has_targ1 = true;
+    set_room_target(context.targ1, context.room, "targ1");
+    context.has_targ2 = true;
+    context.object.id = "targ2";
+    context.has_targ2 = true;
+    set_object_target(context.targ2, context.object, "targ2");
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const tell = RotS.Script.send_to_char(ctx.target, 'Target notice.');\n"
+        "const room = RotS.Script.send_to_room(ctx.targ1, 'Room notice.');\n"
+        "const load = RotS.Script.load_obj(4201, ctx.targ1);\n"
+        "const give = RotS.Script.do_give(ctx.actor, ctx.self, ctx.targ2);\n"
+        "return tell.ok && room.ok && load.ok && give.ok;\n",
+        context);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    ASSERT_EQ(result.mutations.size(), 4U);
+    EXPECT_EQ(result.mutations[0].arguments_json,
+              "{\"targetId\":\"target\",\"text\":\"Target notice.\"}");
+    EXPECT_EQ(result.mutations[1].arguments_json,
+              "{\"roomId\":\"targ1\",\"text\":\"Room notice.\"}");
+    EXPECT_EQ(result.mutations[2].arguments_json, "{\"vnum\":4201,\"loadTargetId\":\"targ1\"}");
+    EXPECT_EQ(result.mutations[3].arguments_json,
+              "{\"giverId\":\"actor\",\"recipientId\":\"char:1001\",\"objectId\":\"targ2\"}");
+}
+
+TEST(JsGameRuntime, RejectsWrongKindPolymorphicCommandHelperHandles) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_target = true;
+    set_room_target(context.target, context.room, "target");
+    context.has_targ1 = true;
+    set_character_target(context.targ1, context.actor, "targ1");
+    context.has_targ2 = true;
+    set_object_target(context.targ2, context.object, "targ2");
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const tell = RotS.Script.send_to_char(ctx.target, 'No.');\n"
+        "const room = RotS.Script.send_to_room(ctx.targ1, 'No.');\n"
+        "const load = RotS.Script.load_obj(4201, ctx.targ2);\n"
+        "const give = RotS.Script.do_give(ctx.targ1, ctx.self, ctx.target);\n"
+        "return !tell.ok && !room.ok && !load.ok && !give.ok;\n",
+        context);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    EXPECT_TRUE(result.mutations.empty());
+}
+
 TEST(JsGameRuntime, RejectsForgedLegacyCommandHelperHandles) {
     JsGameTriggerContextFixture context = make_context();
     context.has_actor = true;

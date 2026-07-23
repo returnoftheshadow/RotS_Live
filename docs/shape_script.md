@@ -263,7 +263,13 @@ audit can also reject a whole output/object/wait helper batch before room flags,
 setters, object movement, wait state, or descriptor output changes. Audit records
 the operation summary plus trigger/package/handler context. Numeric target ids
 must use bounded, unsigned live id forms such as `player:7`, `room:1204`, or
-`object:301`; malformed ids reject before audit. BuilderClient offline fixtures
+`object:301`; malformed ids reject before audit. Polymorphic trigger roles
+(`ctx.target`, `ctx.targ1`, and `ctx.targ2`) can be passed to command helpers
+only when the role's concrete handle kind matches the helper. Character targets
+work with character helpers, room targets work with room helpers, and object
+targets work as object helper arguments. Wrong-kind polymorphic handles fail
+without queuing a command event, and raw numeric character/object id lookup is
+not promoted as a live command-target API. BuilderClient offline fixtures
 currently record command-helper events in source call order for diagnostics; full
 offline emulation of inventory, room, and wait-list state remains a separate
 parity slice.

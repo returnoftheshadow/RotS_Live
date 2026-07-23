@@ -976,6 +976,104 @@ bool parse_id_number(const std::string &id, const char *prefix, int *number) {
     return true;
 }
 
+bool target_data_character_is_live(const target_data *target, const JsGameAdapterOptions &options) {
+    return target != nullptr && target->type == TARGET_CHAR &&
+           js_game_adapter_is_live_character(target->ptr.ch, options) &&
+           GET_ABS_NUM(target->ptr.ch) == target->ch_num;
+}
+
+const char_data *character_from_polymorphic_target_data(const target_data *target,
+                                                        const JsGameAdapterOptions &options) {
+    return target_data_character_is_live(target, options) ? target->ptr.ch : nullptr;
+}
+
+const obj_data *object_from_polymorphic_target_data(const target_data *target,
+                                                    const JsGameAdapterOptions &options) {
+    if (target == nullptr || target->type != TARGET_OBJ ||
+        !js_game_adapter_is_live_object(target->ptr.obj, options))
+        return nullptr;
+    return target->ptr.obj;
+}
+
+int room_index_for_polymorphic_room_pointer(const room_data *room,
+                                            const JsGameAdapterOptions &options) {
+    if (room == nullptr || options.world == nullptr)
+        return NOWHERE;
+    const std::size_t room_count = options.world_count > 0
+                                       ? options.world_count
+                                       : static_cast<std::size_t>(options.top_of_world + 1);
+    for (std::size_t index = 0; index < room_count; ++index) {
+        if (&options.world[index] == room)
+            return static_cast<int>(index);
+    }
+    return NOWHERE;
+}
+
+int room_from_polymorphic_target_data(const target_data *target,
+                                      const JsGameAdapterOptions &options) {
+    if (target == nullptr || target->type != TARGET_ROOM)
+        return NOWHERE;
+    return room_index_for_polymorphic_room_pointer(target->ptr.room, options);
+}
+
+const char_data *polymorphic_character_for_command_id(const std::string &id,
+                                                      const JsTriggerDispatchRequest &request,
+                                                      const JsGameAdapterOptions &options) {
+    if (id == "target" && request.context_input.target_character != nullptr &&
+        js_game_adapter_is_live_character(request.context_input.target_character, options))
+        return request.context_input.target_character;
+    if (id == "targ1")
+        return character_from_polymorphic_target_data(request.context_input.targ1, options);
+    if (id == "targ2")
+        return character_from_polymorphic_target_data(request.context_input.targ2, options);
+    if (id == "target") {
+        const char_data *target =
+            character_from_polymorphic_target_data(request.context_input.targ1, options);
+        if (target != nullptr)
+            return target;
+        return character_from_polymorphic_target_data(request.context_input.targ2, options);
+    }
+    return nullptr;
+}
+
+const obj_data *polymorphic_object_for_command_id(const std::string &id,
+                                                  const JsTriggerDispatchRequest &request,
+                                                  const JsGameAdapterOptions &options) {
+    if (id == "target" && request.context_input.target_object != nullptr &&
+        js_game_adapter_is_live_object(request.context_input.target_object, options))
+        return request.context_input.target_object;
+    if (id == "targ1")
+        return object_from_polymorphic_target_data(request.context_input.targ1, options);
+    if (id == "targ2")
+        return object_from_polymorphic_target_data(request.context_input.targ2, options);
+    if (id == "target") {
+        const obj_data *target =
+            object_from_polymorphic_target_data(request.context_input.targ1, options);
+        if (target != nullptr)
+            return target;
+        return object_from_polymorphic_target_data(request.context_input.targ2, options);
+    }
+    return nullptr;
+}
+
+int polymorphic_room_for_command_id(const std::string &id, const JsTriggerDispatchRequest &request,
+                                    const JsGameAdapterOptions &options) {
+    if (id == "target" && request.context_input.target_room >= 0 &&
+        js_game_adapter_room_is_valid(request.context_input.target_room, options))
+        return request.context_input.target_room;
+    if (id == "targ1")
+        return room_from_polymorphic_target_data(request.context_input.targ1, options);
+    if (id == "targ2")
+        return room_from_polymorphic_target_data(request.context_input.targ2, options);
+    if (id == "target") {
+        int room = room_from_polymorphic_target_data(request.context_input.targ1, options);
+        if (room != NOWHERE)
+            return room;
+        return room_from_polymorphic_target_data(request.context_input.targ2, options);
+    }
+    return NOWHERE;
+}
+
 obj_data *mutable_live_object_for_id(const JsRuntimeMutation &mutation,
                                      const JsTriggerDispatchRequest &request,
                                      const JsGameAdapterOptions &options) {
@@ -1050,6 +1148,8 @@ char_data *live_character_role_for_command_id(const std::string &id,
         candidate = request.context_input.killer;
     else if (id == "dying")
         candidate = request.context_input.dying;
+    else if (id == "target" || id == "targ1" || id == "targ2")
+        candidate = polymorphic_character_for_command_id(id, request, options);
     if (candidate == nullptr || !js_game_adapter_is_live_character(candidate, options))
         return nullptr;
     return const_cast<char_data *>(candidate);
@@ -1059,6 +1159,9 @@ int live_room_role_for_command_id(const std::string &id, const JsTriggerDispatch
                                   const JsGameAdapterOptions &options) {
     if (id == "room" && js_game_adapter_room_is_valid(request.context_input.room, options))
         return request.context_input.room;
+
+    if (id == "target" || id == "targ1" || id == "targ2")
+        return polymorphic_room_for_command_id(id, request, options);
 
     int room_vnum = -1;
     if (parse_id_number(id, "room:", &room_vnum)) {
@@ -1084,6 +1187,8 @@ obj_data *live_object_role_for_command_id(const std::string &id,
         candidate = request.context_input.object;
     else if (id == "weapon")
         candidate = request.context_input.weapon;
+    else if (id == "target" || id == "targ1" || id == "targ2")
+        candidate = polymorphic_object_for_command_id(id, request, options);
     if (candidate == nullptr || !js_game_adapter_is_live_object(candidate, options))
         return nullptr;
     return const_cast<obj_data *>(candidate);
