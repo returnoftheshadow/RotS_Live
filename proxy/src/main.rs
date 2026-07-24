@@ -24,7 +24,9 @@ struct GameAddr {
 
 impl GameAddr {
     async fn connect(&self) -> Result<TcpStream, Report> {
-        Ok(TcpStream::connect((self.hostname.as_str(), self.port)).await?)
+        let stream = TcpStream::connect((self.hostname.as_str(), self.port)).await?;
+        stream.set_nodelay(true)?;
+        Ok(stream)
     }
 }
 
@@ -68,6 +70,8 @@ async fn handle_tcp(game: GameAddr, mut stream: TcpStream, addr: SocketAddr) -> 
         SocketAddr::V6(addr) => bail!("Unexpected IPv6: {addr}"),
     };
 
+    stream.set_nodelay(true)?;
+
     // Connect to the game
     let mut game = game.connect().await?;
 
@@ -105,6 +109,8 @@ async fn handle_ws(
         SocketAddr::V4(addr) => *addr.ip(),
         SocketAddr::V6(addr) => bail!("Unexpected IPv6: {addr}"),
     };
+
+    stream.set_nodelay(true)?;
 
     let mut ws = tokio_tungstenite::accept_hdr_async(stream, |req: &Request, res| {
         if let Some(header) = cloudflare

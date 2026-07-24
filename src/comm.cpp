@@ -513,7 +513,7 @@ void clean_expose_elements()
 
                 bool found_target = false;
                 for (char_data* person = current_room.people; person;
-                    person = person->next_in_room) {
+                     person = person->next_in_room) {
                     if (person == spec_data->exposed_target) {
                         found_target = true;
                         break;
@@ -1362,6 +1362,14 @@ SocketType pnew_connection(SocketType s)
         perror("Accept");
         return (0); // probably incorrect..
     }
+
+    {
+        int opt = 1;
+        if (setsockopt(t, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt)) < 0) {
+            perror("setsockopt TCP_NODELAY");
+        }
+    }
+
     sprintf(buf, "Socket %d connected.", t);
     mudlog(buf, NRM, LEVEL_IMPL, TRUE);
 
@@ -1993,7 +2001,7 @@ void send_to_char(const char* message, int character_id)
 {
     if (message && message[0] != 0) {
         for (descriptor_data* connection = descriptor_list; connection;
-            connection = connection->next) {
+             connection = connection->next) {
             char_data* character = connection->character;
             if (character && character->abs_number == character_id && connection->connected == CON_PLYNG) {
                 SEND_TO_Q(message, connection);
