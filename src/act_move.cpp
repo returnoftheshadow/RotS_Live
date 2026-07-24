@@ -662,11 +662,34 @@ ACMD(do_move)
     waiting_type tmpwtl;
     int mounts;
 
+    /* Consume the caller's skip-trigger request (if any) once, unconditionally,
+       before anything else -- including the AFF_HAZE re-roll below -- so it can
+       never dangle. do_flee()/on_windblast_hit() set this flag for the exact
+       direction they already validated via their own check_simple_move() call,
+       expecting the redundant internal check_simple_move() call below to be the
+       one that consumes it. If AFF_HAZE re-rolls cmd to a different direction,
+       or an early return below never reaches check_simple_move() at all (no
+       exit, closed door, hidden exit, wrong mount, etc.), the flag must not
+       survive to wrongly suppress ON_BEFORE_ENTER for a different destination
+       or a later, unrelated move. So: capture it here, and only re-arm it
+       immediately before each check_simple_move(ch, cmd, ...) call site below,
+       gated on the direction still matching what was originally requested. */
+    bool skip_before_enter_requested = (g_skip_next_before_enter_for == ch);
+    if (skip_before_enter_requested) {
+        g_skip_next_before_enter_for = nullptr;
+    }
+    int requested_cmd_before_haze = cmd;
+
     if (IS_AFFECTED(ch, AFF_HAZE) && number(1, 4) == 1) {
         send_to_char("You feel dizzy, and move randomly.\n\r", ch);
         cmd = number(1, NUM_OF_DIRS);
     }
     --cmd;
+
+    /* Only re-arm the suppression for check_simple_move(ch, cmd, ...) call
+       sites below if AFF_HAZE didn't change the direction out from under the
+       caller's already-validated request. */
+    bool skip_before_enter_direction_intact = skip_before_enter_requested && (cmd == requested_cmd_before_haze - 1);
 
     if ((ch->delay.wait_value > 0) && (ch->delay.priority <= 30)) {
         send_to_char("You could not concentrate anymore.\n\r", ch);
@@ -679,13 +702,9 @@ ACMD(do_move)
     if (IS_RIDDEN(ch)) {
         /* This branch never reaches check_simple_move(ch, ...) below (only
            perform_move_mount()'s own check_simple_move() calls for ch's
-           riders, a different pointer) -- so a flag set for ch by a caller
-           expecting the usual check_simple_move(ch, ...) re-check would
-           otherwise dangle and wrongly suppress a later, unrelated
-           ON_BEFORE_ENTER firing for ch. Consume it here defensively. */
-        if (g_skip_next_before_enter_for == ch) {
-            g_skip_next_before_enter_for = nullptr;
-        }
+           riders, a different pointer). No separate consume needed here --
+           the flag was already unconditionally consumed at function entry
+           above, so nothing can dangle past this early return. */
         perform_move_mount(ch, cmd);
         return;
     }
@@ -740,6 +759,9 @@ ACMD(do_move)
         bool different_zone = world[was_in].zone != world[to_room].zone;
 
         if (!IS_RIDING(ch)) {
+            if (skip_before_enter_direction_intact) {
+                g_skip_next_before_enter_for = ch;
+            }
             res_flag = check_simple_move(ch, cmd, &need_move, subcmd);
 
             if (subcmd == SCMD_FOLLOW) {
@@ -876,6 +898,9 @@ ACMD(do_move)
             if ((ch->mount_data.mount)->mount_data.rider != ch) {
                 send_to_char("You do not control your mount.\n\r", ch);
                 return;
+            }
+            if (skip_before_enter_direction_intact) {
+                g_skip_next_before_enter_for = ch;
             }
             res_flag = check_simple_move(ch, cmd, &need_move, subcmd);
 

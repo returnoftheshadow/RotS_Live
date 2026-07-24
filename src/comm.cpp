@@ -909,11 +909,16 @@ void game_loop(SocketType s)
             next_point = point->next;
             if (point->descriptor) {
                 if (FD_ISSET(point->descriptor, &output_set) && *(point->output)) {
-                    if (process_output(point) < 0) {
+                    int output_result = process_output(point);
+                    if (output_result < 0) {
                         close_socket(point, FALSE);
-                    } else {
+                    } else if (output_result > 0) {
                         point->prompt_mode = 1;
                     }
+                    /* output_result == 0: EAGAIN deferral -- t->output is still
+                       full of the unflushed text, so don't set prompt_mode (that
+                       would try to also queue a prompt write on top of buffered
+                       output that hasn't gone out yet); just retry next pulse. */
                 }
             }
         }
@@ -1585,8 +1590,19 @@ int process_output(struct descriptor_data* t)
     if (!t->connected && !(t->character && !IS_NPC(t->character) && PRF_FLAGGED(t->character, PRF_COMPACT)))
         strcat(i + 2, "\n\r");
 
-    if (write_to_descriptor(t->descriptor, i + 2) < 0)
+    int wtd_result = write_to_descriptor(t->descriptor, i + 2);
+    if (wtd_result == -1)
         return -1;
+    if (wtd_result == -2) {
+        /* EAGAIN/EWOULDBLOCK: nothing was written. Leave t->output, t->bufptr,
+           and t->bufspace untouched so the exact same buffered text is retried
+           whole on the next pulse's process_output() call instead of being
+           reset (and lost) by the buffer-reset code below. Return 0 so the
+           caller neither disconnects (that's the < 0 case) nor sets
+           prompt_mode (that's the > 0 case) -- we didn't actually flush
+           anything this pulse. */
+        return 0;
+    }
 
     if (t->snoop.snoop_by) {
         i[0] = '%';
@@ -1666,14 +1682,15 @@ int write_to_descriptor(int desc, char* txt)
             if (thisround < 0) {
                 if ((errno == EAGAIN || errno == EWOULDBLOCK) && sofar == 0) {
                     /* Kernel send buffer is momentarily full and nothing from this
-                       call has gone out yet, so the caller's output buffer (still
-                       fully intact -- process_output() only clears it after a
-                       successful write) can simply be retried whole next pulse
-                       instead of disconnecting the player. A mid-flight EAGAIN
-                       after a partial write is not handled here (would risk
-                       resending already-sent bytes) and still falls through to
-                       the existing fatal-disconnect path below. */
-                    return 0;
+                       call has gone out yet. Return a sentinel distinct from both
+                       the normal-success return (0) and the fatal return (-1) so
+                       process_output() can actually leave the caller's output
+                       buffer intact and retry the whole thing next pulse, instead
+                       of disconnecting the player. A mid-flight EAGAIN after a
+                       partial write is not handled here (would risk resending
+                       already-sent bytes) and still falls through to the existing
+                       fatal-disconnect path below. */
+                    return -2;
                 }
                 perror("Write to socket");
                 return (-1);
@@ -1860,8 +1877,13 @@ int process_input(struct descriptor_data* t)
 
             if (flag) {
                 sprintf(buffer, "Line too long.  Truncated to:\n\r%s\n\r", tmp);
-                if (write_to_descriptor(t->descriptor, buffer) < 0)
+                int trunc_wtd_result = write_to_descriptor(t->descriptor, buffer);
+                if (trunc_wtd_result == -1)
                     return (-1);
+                /* trunc_wtd_result == -2: momentary EAGAIN on this one-off notice.
+                   Nothing buffered to preserve here (unlike process_output()'s
+                   t->output), so just drop the notice and keep processing --
+                   EAGAIN must not disconnect the player. */
 
                 /* skip the rest of the line */
                 for (; !ISNEWL(*(t->buf + i)); i++)
