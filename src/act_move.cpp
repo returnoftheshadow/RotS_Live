@@ -677,6 +677,15 @@ ACMD(do_move)
         fol_people = *ch->followers;
 
     if (IS_RIDDEN(ch)) {
+        /* This branch never reaches check_simple_move(ch, ...) below (only
+           perform_move_mount()'s own check_simple_move() calls for ch's
+           riders, a different pointer) -- so a flag set for ch by a caller
+           expecting the usual check_simple_move(ch, ...) re-check would
+           otherwise dangle and wrongly suppress a later, unrelated
+           ON_BEFORE_ENTER firing for ch. Consume it here defensively. */
+        if (g_skip_next_before_enter_for == ch) {
+            g_skip_next_before_enter_for = nullptr;
+        }
         perform_move_mount(ch, cmd);
         return;
     }
