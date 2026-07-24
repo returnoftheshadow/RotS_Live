@@ -1,5 +1,9 @@
 # Work In Progress
 
+## Recent BuilderClient CI Follow-up
+- Packaged renderer fix: Vite now builds the Electron renderer with relative asset paths (`base: "./"`) so packaged `BrowserWindow.loadFile(dist/index.html)` loads JavaScript and CSS from `./assets/...` instead of broken file-root `/assets/...` URLs. Added a BuilderClient regression test for the packaged renderer asset base, and restored the parent `docs/shape_script.md` BuilderClient example links guarded by local parity tests.
+- Validation: BuilderClient `npm run build` passed and emitted `dist/index.html` with `./assets/...` script/style URLs, BuilderClient `npm run smoke:preload` passed, local `npx electron-builder --linux dir --x64` passed, BuilderClient `npm run typecheck` passed, focused packaged-renderer/main tests passed (`14` tests), full BuilderClient `npm test -- --run` passed (`51` files passed, `1` skipped, `647` tests passed, `12` skipped), and root/BuilderClient `git diff --check` passed. Magus/Vincent/Bazarat review could not be spawned for this follow-up because the subagent thread limit was reached.
+
 ## Current Feature Planning Task - MSDP Unit Test Coverage
 - Active implementation slice complete: `msdp_update()` game-state emitter coverage now includes descriptor safety, broad character stat emission, weather branches, and opponent branches.
 - User requirement:

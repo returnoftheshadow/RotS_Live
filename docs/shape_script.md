@@ -239,6 +239,15 @@ If code adds or renames constants, update this table to match.
 
 ## Examples
 
+BuilderClient TypeScript examples for the current JavaScript authoring path:
+
+- [`gate-greeter.ts`](../BuilderClient/examples/shape-script/gate-greeter.ts)
+- [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
+- [`1100-herald-enter.ts`](../BuilderClient/examples/legacy-script/1100-herald-enter.ts)
+- [`1101-training-reward.ts`](../BuilderClient/examples/legacy-script/1101-training-reward.ts)
+- [`27500-gate-watch.ts`](../BuilderClient/examples/legacy-script/27500-gate-watch.ts)
+- [`6300-climb-before-enter.ts`](../BuilderClient/examples/legacy-script/6300-climb-before-enter.ts)
+
 ### Greeter with gift
 
 ```
