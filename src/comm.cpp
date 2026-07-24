@@ -1705,6 +1705,11 @@ int process_input(struct descriptor_data* t)
     begin = strlen(t->buf);
 
     /* Read in some stuff */
+    int read_iterations = 0;
+    const int MAX_READ_ITERATIONS_PER_CALL = 8; /* ~16KB/call at 2048 bytes/iteration --
+                                                   caps how long one connection can
+                                                   monopolize a single pulse when it
+                                                   keeps sending data with no newline */
     do {
         char inbuf[2048];
         thisround = read(t->descriptor, inbuf, sizeof(inbuf));
@@ -1748,7 +1753,7 @@ int process_input(struct descriptor_data* t)
                 return (-1);
             }
         }
-    } while (!ISNEWL(*(t->buf + begin + sofar - 1)));
+    } while (!ISNEWL(*(t->buf + begin + sofar - 1)) && ++read_iterations < MAX_READ_ITERATIONS_PER_CALL);
 
     if (t->character)
         t->character->specials.timer = 0;
