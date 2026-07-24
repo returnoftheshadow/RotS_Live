@@ -56,6 +56,7 @@ extern void check_break_prep(struct char_data*);
 extern void stop_hiding(struct char_data* ch, char);
 extern void update_pos(struct char_data* victim);
 int check_simple_move(struct char_data* ch, int cmd, int* move_cost, int mode);
+extern char_data* g_skip_next_before_enter_for;
 int check_hallucinate(struct char_data* ch, struct char_data* victim);
 extern void say_spell(char_data* caster, int spell_index);
 
@@ -1689,7 +1690,7 @@ ACMD(do_whistle)
             else
                 act("You hear a powerful whistle nearby.", FALSE, ch, 0, 0, TO_ROOM);
 
-            struct char_data *next_tmpch;
+            struct char_data* next_tmpch;
 
             for (tmpch = rm->people; tmpch; tmpch = next_tmpch) {
                 next_tmpch = tmpch->next_in_room;
@@ -3649,6 +3650,7 @@ void on_windblast_hit(char_data* ch)
                 act("$n gets sweep out from the wave of thunderous force!", FALSE, ch, 0, 0,
                     TO_ROOM);
 
+                g_skip_next_before_enter_for = ch;
                 do_move(ch, dirs[attempt], 0, attempt + 1, SCMD_FLEE);
                 return;
             }

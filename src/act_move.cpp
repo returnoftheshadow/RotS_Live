@@ -52,6 +52,13 @@ void do_power_of_arda(char_data* ch);
 
 ACMD(do_look);
 
+/* Set by a caller that already fired ON_BEFORE_ENTER via its own
+   check_simple_move() call and is about to invoke do_move() for the exact
+   same character+transition (e.g. do_flee(), on_windblast_hit()) -- lets
+   check_simple_move() skip re-firing the trigger for that one redundant
+   internal call instead of running it (and any side effects) twice. */
+char_data* g_skip_next_before_enter_for = nullptr;
+
 bool should_double_strength(char_data* character)
 {
     char_data* master = NULL;
@@ -172,8 +179,11 @@ int check_simple_move(struct char_data* ch, int cmd, int* mv_cost, int mode)
     if (!room_to)
         return 1;
 
-    if (call_trigger(ON_BEFORE_ENTER, room_to, ch, 0) == FALSE)
+    if (g_skip_next_before_enter_for == ch) {
+        g_skip_next_before_enter_for = nullptr;
+    } else if (call_trigger(ON_BEFORE_ENTER, room_to, ch, 0) == FALSE) {
         return 1; //  Trigger doesn't allow them to enter the new room
+    }
     if (IS_SET(EXIT(ch, cmd)->exit_info, EX_NOWALK))
         return 8;
 

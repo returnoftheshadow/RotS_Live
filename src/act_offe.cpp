@@ -43,6 +43,7 @@ ACMD(do_mental);
 /* extern functions */
 extern void raw_kill(char_data* ch, char_data* killer, int attacktype);
 int check_simple_move(struct char_data* ch, int cmd, int* move_cost, int mode);
+extern char_data* g_skip_next_before_enter_for;
 int get_real_stealth(struct char_data* ch);
 int find_door(struct char_data* ch, char* type, char* dir);
 void group_gain(struct char_data* ch, struct char_data* victim);
@@ -401,6 +402,7 @@ ACMD(do_flee)
 
                 send_to_char("You flee head over heels.\n\r", ch);
                 act("$n flees head over heels!", FALSE, ch, 0, 0, TO_ROOM);
+                g_skip_next_before_enter_for = ch;
                 do_move(ch, dirs[attempt], 0, attempt + 1, SCMD_FLEE);
                 return;
             }
