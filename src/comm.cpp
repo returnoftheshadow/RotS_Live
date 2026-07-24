@@ -212,6 +212,7 @@ void run_the_game(sh_int port);
 void game_loop(SocketType s);
 SocketType init_socket(sh_int port);
 SocketType pnew_connection(SocketType s);
+void check_pre_login_idle(); /* below, in this file */
 SocketType pnew_descriptor(SocketType s);
 int process_output(struct descriptor_data* t);
 int process_input(struct descriptor_data* t);
@@ -687,6 +688,25 @@ void msdp_update()
     }
 }
 
+void check_pre_login_idle()
+{
+    const int PRE_LOGIN_IDLE_TIMEOUT = 15 * 60; /* seconds; covers name/password/menu entry only --
+                                                     logged-in players are handled by check_idling() */
+    descriptor_data *point, *next_point;
+
+    for (point = descriptor_list; point; point = next_point) {
+        next_point = point->next;
+
+        if (point->character) {
+            continue; /* has a char_data -- check_idling() covers this one */
+        }
+
+        if (time(0) - point->last_input_time > PRE_LOGIN_IDLE_TIMEOUT) {
+            close_socket(point);
+        }
+    }
+}
+
 void game_loop(SocketType s)
 {
     fd_set input_set, output_set, exc_set;
@@ -1053,6 +1073,11 @@ void game_loop(SocketType s)
 
         msdp_update();
 
+        if (!(pulse % (60 * 4))) /* one minute */
+        {
+            check_pre_login_idle();
+        }
+
         // Periodic point-in-time crash-save snapshot cadence, driven by the configurable seconds
         // interval (autosave_time) through the unit-tested scheduler. Default 30s == 120 pulses (the
         // source's original cadence). Crash_save_all now saves EVERY connected player each cadence
@@ -1367,6 +1392,13 @@ SocketType pnew_connection(SocketType s)
         int opt = 1;
         if (setsockopt(t, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt)) < 0) {
             perror("setsockopt TCP_NODELAY");
+        }
+    }
+
+    {
+        int opt = 1;
+        if (setsockopt(t, SOL_SOCKET, SO_KEEPALIVE, (char*)&opt, sizeof(opt)) < 0) {
+            perror("setsockopt KEEPALIVE");
         }
     }
 
