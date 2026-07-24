@@ -584,7 +584,7 @@ void msdp_room_update(char_data* ch)
         return;
     }
 
-    if (ch->in_room >= 0) {
+    if (ch->in_room < 0) {
         return;
     }
 
