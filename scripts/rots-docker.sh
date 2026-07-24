@@ -4,6 +4,7 @@
 # Usage:
 #   scripts/rots-docker.sh build      Build the i386 toolchain image.
 #   scripts/rots-docker.sh compile    Run `make setup` + `make all` in the container.
+#   scripts/rots-docker.sh test       Run the CMake build + gtest suite (`make test`).
 #   scripts/rots-docker.sh boot       Compile (if needed) and start the server on :1024.
 #                                     Runs WITHOUT -p, so you can connect by plain telnet.
 #   scripts/rots-docker.sh shell      Drop into an interactive shell in the container.
@@ -22,6 +23,18 @@ case "$cmd" in
   compile)
     docker compose run --rm rots bash -lc 'cd /rots/src && make setup && make all'
     ;;
+  test)
+    # Build the TEST target (ageland_tests, not just ageland) and run the gtest binary
+    # directly, passing any extra args through, e.g.:
+    #   scripts/rots-docker.sh test --gtest_filter=PlayerFinalize.*
+    # (`make build` only builds `ageland`; the test binary is the `ageland_tests` target.
+    #  ctest's gtest_discover_tests PRE_TEST mode finds 0 tests under bullseye's cmake 3.18,
+    #  but the i386 test binary itself runs fine under QEMU, so we invoke ./bin/tests directly.)
+    shift || true
+    docker compose run --rm rots bash -lc \
+      'cd /rots && cmake -S src -B build && cmake --build build --target ageland_tests -j16 && ./bin/tests "$@"' \
+      _ "$@"
+    ;;
   boot)
     if [ ! -d lib/world ]; then
       echo "ERROR: lib/world/ is missing — the server cannot boot without world files." >&2
@@ -36,7 +49,7 @@ case "$cmd" in
     docker compose run --rm --service-ports rots bash
     ;;
   *)
-    echo "Unknown command: $cmd (use build|compile|boot|shell)" >&2
+    echo "Unknown command: $cmd (use build|compile|test|boot|shell)" >&2
     exit 1
     ;;
 esac

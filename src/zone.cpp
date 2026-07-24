@@ -399,7 +399,8 @@ void zone_update(void)
  * all requirements.  We'd need an anti-requirement bit for
  * each event if we wanted to allow that sort of control.
  */
-int check_if_flag(int if_flag, int last_cmd, int last_mob, int last_obj, int zone) {
+int check_if_flag(int if_flag, int last_cmd, int last_mob, int last_obj, int zone)
+{
     int is_empty(int);
 
     int require_last_cmd;

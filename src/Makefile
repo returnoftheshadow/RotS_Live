@@ -18,15 +18,17 @@ PROFILE = -g -rdynamic
 #remove the has mark below if compiling under IRIX
 #LIBS = -lmalloc
 
+LIBS += -lcrypt
+
 #############################################################################
 
 CFLAGS = $(MYFLAGS) $(PROFILE) $(OSFLAGS)
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
-	comm.o config.o consts.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o \
+	comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
-	pkill.o profs.o protocol.o ranger.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
+	pkill.o player_file_finalize.o profs.o protocol.o ranger.o save_benchmark.o savebench.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
 	wild_fighting_handler.o weather.o zone.o
 
@@ -41,6 +43,24 @@ clean:
 	rm -f *.o
 
 # Dependencies for the main mud
+
+account_management.o : account_management.cpp account_management.h account_management_types.h account_management_identity.h account_management_storage.h account_management_assets.h account_management_migration.h account_management_presentation.h account_management_internal.cpp account_management_identity.cpp account_management_storage.cpp account_management_assets.cpp account_management_migration.cpp account_management_presentation.cpp json_utils.h
+	$(CC) -c $(CFLAGS) account_management.cpp
+
+account_cache.o : account_cache.cpp account_cache.h account_management.h
+	$(CC) -c $(CFLAGS) account_cache.cpp
+
+character_json.o : character_json.cpp character_json.h json_utils.h structs.h
+	$(CC) -c $(CFLAGS) character_json.cpp
+
+exploits_json.o : exploits_json.cpp exploits_json.h json_utils.h db.h
+	$(CC) -c $(CFLAGS) exploits_json.cpp
+
+json_utils.o : json_utils.cpp json_utils.h
+	$(CC) -c $(CFLAGS) json_utils.cpp
+
+objects_json.o : objects_json.cpp objects_json.h json_utils.h structs.h
+	$(CC) -c $(CFLAGS) objects_json.cpp
 
 clock.o : clock.cpp clock.h
 	$(CC) -c $(CFLAGS) clock.cpp
@@ -156,9 +176,17 @@ graph.o : graph.cpp structs.h utils.h comm.h interpre.h handler.h db.h \
 	$(CC) -c $(CFLAGS) graph.cpp
 config.o : config.cpp structs.h
 	$(CC) -c $(CFLAGS) config.cpp
+crashsave_schedule.o : crashsave_schedule.cpp crashsave_schedule.h
+	$(CC) -c $(CFLAGS) crashsave_schedule.cpp
 ranger.o : ranger.cpp structs.h utils.h comm.h interpre.h handler.h db.h\
 	 spells.h script.h
 	 $(CC) -c $(CFLAGS) ranger.cpp
+player_file_finalize.o : player_file_finalize.cpp player_file_finalize.h
+	$(CC) -c $(CFLAGS) player_file_finalize.cpp
+save_benchmark.o : save_benchmark.cpp save_benchmark.h account_cache.h account_management.h character_json.h db.h stopwatch.h structs.h
+	$(CC) -c $(CFLAGS) save_benchmark.cpp
+savebench.o : savebench.cpp savebench.h save_benchmark.h account_management.h comm.h db.h structs.h utils.h
+	$(CC) -c $(CFLAGS) savebench.cpp
 script.o : script.cpp structs.h utils.h comm.h interpre.h protos.h script.h
 	$(CC) -c $(CFLAGS) script.cpp
 shapemob.o : shapemob.cpp structs.h utils.h comm.h interpre.h protos.h
@@ -201,6 +229,12 @@ format:
 	clang-format -i -style=WebKit *.cpp
 	clang-format -i -style=WebKit *.h
 
+.PHONY: test
+test:
+	$(MAKE) -C tests clean
+	$(MAKE) -C tests tests
+	$(MAKE) -C tests run
+
 .PHONY: setup
 setup:
 	@mkdir -p ../bin ../log ../lib/misc \
@@ -210,6 +244,18 @@ setup:
 		../lib/players/P-T \
 		../lib/players/U-Z \
 		../lib/players/ZZZ \
+		../lib/accounts/A-E \
+		../lib/accounts/F-J \
+		../lib/accounts/K-O \
+		../lib/accounts/P-T \
+		../lib/accounts/U-Z \
+		../lib/accounts/ZZZ \
+		../lib/account_characters/A-E \
+		../lib/account_characters/F-J \
+		../lib/account_characters/K-O \
+		../lib/account_characters/P-T \
+		../lib/account_characters/U-Z \
+		../lib/account_characters/ZZZ \
 		../lib/plrobjs/A-E \
 		../lib/plrobjs/F-J \
 		../lib/plrobjs/K-O \
@@ -230,7 +276,7 @@ setup:
 
 .PHONY: run
 run: ../bin/ageland setup
-	@cd .. && ./bin/ageland -p
+	@cd .. && ./bin/ageland -p 3791
 
 ../bin/ageland:
 	if [ -f ../bin/ageland ]; \

@@ -17,6 +17,7 @@
 #include "warrior_spec_handlers.h"
 
 #include "char_utils.h"
+#include "account_management.h"
 #include <algorithm>
 #include <assert.h>
 #include <cmath>
@@ -33,6 +34,29 @@
 extern struct char_data* character_list;
 extern int max_race_str[];
 extern struct obj_data* object_list;
+
+namespace {
+
+bool should_defer_account_backed_birth_persistence(char_data* character)
+{
+    if (character == nullptr || character->desc == nullptr || *character->desc->account_name == '\0')
+        return false;
+
+    switch (character->desc->connected) {
+    case CON_QSEX:
+    case CON_QRACE:
+    case CON_QPROF:
+    case CON_CREATE:
+    case CON_CREATE2:
+    case CON_COLOR:
+    case CON_LATIN:
+        return true;
+    default:
+        return false;
+    }
+}
+
+}
 
 struct prof_type existing_profs[DEFAULT_PROFS] = {
     { 'm', { 0, 100, 25, 16, 9 } },
@@ -391,6 +415,8 @@ void check_for_special_levels(char_data* character)
 
 void advance_level(char_data* character)
 {
+    const bool defer_account_birth_persistence = should_defer_account_backed_birth_persistence(character);
+
     send_to_char("You feel more powerful!\n\r", character);
 
     if (GET_LEVEL(character) >= LEVEL_IMMORT) {
@@ -404,11 +430,11 @@ void advance_level(char_data* character)
     mudlog(buf, BRF, std::max(LEVEL_IMMORT, GET_INVIS_LEV(character)), TRUE);
 
     /* log following levels in exploits */
-    if ((GET_LEVEL(character) == 6) || ((GET_LEVEL(character) > 6) && !(GET_LEVEL(character) % 5)))
+    if (!defer_account_birth_persistence && ((GET_LEVEL(character) == 6) || ((GET_LEVEL(character) > 6) && !(GET_LEVEL(character) % 5))))
         add_exploit_record(EXPLOIT_LEVEL, character, GET_LEVEL(character), NULL);
 
     /* add birth exploit */
-    if (GET_LEVEL(character) == 1) {
+    if (!defer_account_birth_persistence && GET_LEVEL(character) == 1) {
         add_exploit_record(EXPLOIT_BIRTH, character, 0, NULL);
     }
 
@@ -426,7 +452,8 @@ void advance_level(char_data* character)
 
     character->update_available_practice_sessions();
 
-    save_char(character, NOWHERE, 0);
+    if (!defer_account_birth_persistence)
+        save_char(character, NOWHERE, 0);
 }
 
 namespace {

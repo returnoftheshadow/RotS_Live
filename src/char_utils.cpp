@@ -86,7 +86,8 @@ bool is_affected_by(const char_data& character, long skill_id)
     return utils::is_set(character.specials.affected_by, skill_id);
 }
 
-const bool is_fighting(const char_data& character) {
+const bool is_fighting(const char_data& character)
+{
     return character.specials.fighting;
 }
 

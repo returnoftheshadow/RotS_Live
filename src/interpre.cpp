@@ -13,7 +13,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
+#include "account_management.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -21,13 +25,14 @@
 #include "interpre.h"
 #include "limits.h"
 #include "mail.h"
+#include "mob_csv_extract.h"
 #include "pkill.h"
 #include "profs.h"
 #include "protos.h"
+#include "savebench.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
-#include "mob_csv_extract.h"
 
 #include "big_brother.h"
 #include "char_utils.h"
@@ -53,6 +58,7 @@
 extern struct prof_type existing_profs[DEFAULT_PROFS];
 extern struct player_index_element* player_table;
 extern struct char_data* character_list;
+extern struct descriptor_data* descriptor_list;
 extern struct index_data* mob_index;
 extern struct index_data* obj_index;
 extern struct room_data world;
@@ -77,6 +83,9 @@ int new_player_select(struct descriptor_data*, char*);
 void introduce_char(struct descriptor_data*);
 void one_mobile_activity(struct char_data*);
 int update_memory_list(struct char_data*);
+int load_char(char*, struct char_file_u*);
+void load_character(struct char_data* ch);
+void msdp_room_update(char_data* ch);
 void stop_hiding(struct char_data*, char);
 int valid_name(char*);
 void report_mail(struct char_data*);
@@ -272,6 +281,9 @@ ACMD(do_petitio);
 ACMD(do_namechange);
 ACMD(do_retire);
 ACMD(do_top);
+ACMD(do_account);
+ACMD(do_whoacct);
+ACMD(do_linkaccount);
 ACMD(do_grouproll);
 ACMD(do_shoot);
 ACMD(do_rend);
@@ -467,7 +479,7 @@ const char* command[] = {
     "next", /* prompt */
     "handbook",
     "policy",
-    "", /* 171 */
+    "color", /* 171 */
     "manual", /* nogossip */
     "findzone", /* noauction */
     "setfree", /* nograts */
@@ -517,9 +529,9 @@ const char* command[] = {
     "exploits",
     "trophy",
     "trap", /* "trap",   */
-    "", /* 221 */
-    "",
-    "",
+    "account", /* 221 */
+    "linkaccount",
+    "whoacct",
     "obj2html",
     "delete",
     "world",
@@ -545,6 +557,7 @@ const char* command[] = {
     "defend",
     "renounce",
     "mob2csv",
+    "savebench", // 249
     "\n"
 };
 
@@ -970,7 +983,7 @@ char* target_from_word(struct char_data* ch, char* argument, int mask, struct ta
 
     if (argument[arg_i] == '\'') {
         for (tmp = 0, arg_i++; argument[arg_i] && (argument[arg_i] != '\'');
-             tmp++, arg_i++)
+            tmp++, arg_i++)
             word[tmp] = argument[arg_i];
         word[tmp] = 0;
 
@@ -978,7 +991,7 @@ char* target_from_word(struct char_data* ch, char* argument, int mask, struct ta
             arg_i++;
     } else {
         for (tmp = 0; argument[arg_i] && (argument[arg_i] > ' ');
-             tmp++, arg_i++)
+            tmp++, arg_i++)
             word[tmp] = argument[arg_i];
         word[tmp] = 0;
     }
@@ -2073,8 +2086,8 @@ void assign_command_pointers(void)
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(170, POSITION_DEAD, do_gen_ps, 0, TRUE, SCMD_POLICIES,
         FULL_TARGET, FULL_TARGET, 0);
-    COMMANDO(171, POSITION_DEAD, do_board, 0, TRUE, 0,
-        FULL_TARGET, FULL_TARGET, 0);
+    COMMANDO(171, POSITION_DEAD, do_color, 0, TRUE, 0,
+        FULL_TARGET, FULL_TARGET, CMD_MASK_NO_UNHIDE);
     COMMANDO(172, POSITION_DEAD, do_help, 0, TRUE, 1,
         FULL_TARGET, FULL_TARGET, CMD_MASK_NO_UNHIDE);
     COMMANDO(173, POSITION_DEAD, do_findzone, LEVEL_IMMORT, FALSE, 0,
@@ -2170,6 +2183,12 @@ void assign_command_pointers(void)
     COMMANDO(220, POSITION_STANDING, do_trap, 1, TRUE, 0,
         TAR_TEXT | TAR_NONE_OK, TAR_CHAR_ROOM | TAR_NONE_OK,
         CMD_MASK_NO_UNHIDE);
+    COMMANDO(221, POSITION_DEAD, do_account, LEVEL_GRGOD, FALSE, 0,
+        FULL_TARGET, FULL_TARGET, 0);
+    COMMANDO(222, POSITION_DEAD, do_linkaccount, 0, FALSE, 0,
+        FULL_TARGET, FULL_TARGET, CMD_MASK_NO_UNHIDE);
+    COMMANDO(223, POSITION_DEAD, do_whoacct, LEVEL_GRGOD, FALSE, 0,
+        FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(224, POSITION_DEAD, do_obj2html, LEVEL_GRGOD, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(225, POSITION_DEAD, do_delete, LEVEL_GRGOD, FALSE, 0,
@@ -2220,6 +2239,8 @@ void assign_command_pointers(void)
         FULL_TARGET, TAR_IGNORE, 0);
     COMMANDO(248, POSITION_DEAD, do_mob_csv_extract, LEVEL_IMPL, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
+    COMMANDO(249, POSITION_DEAD, do_savebench, LEVEL_IMPL, FALSE, 0,
+        TAR_IGNORE, TAR_IGNORE, 0);
 }
 
 /* *************************************************************************
@@ -2258,6 +2279,643 @@ int _parse_name(char* arg, char* name)
     return 0;
 }
 
+namespace {
+
+const char* kAccountStorageRoot = ".";
+const char* kAccountOnlyPasswordMarker = "*ACCOUNT*";
+const int kAccountActiveSessionAlternateCharacterLevel = 91;
+
+struct AccountCharacterSelectionUnlock {
+    std::vector<std::string> restricting_character_names;
+};
+
+std::unordered_map<std::string, AccountCharacterSelectionUnlock> g_account_character_selection_unlocks;
+
+struct ActiveAccountCharacterSession {
+    std::string normalized_character_name;
+    std::string display_character_name;
+    int level = 0;
+    bool linkless = false;
+    bool ownership_ambiguous = false;
+};
+
+void show_account_email_prompt(struct descriptor_data* d)
+{
+    SEND_TO_Q("Account email: ", d);
+}
+
+void show_account_verification_prompt(struct descriptor_data* d)
+{
+    SEND_TO_Q("Verification code (or type RESEND/CANCEL): ", d);
+}
+
+void clear_account_login_state(struct descriptor_data* d)
+{
+    *d->account_name = '\0';
+    *d->account_email = '\0';
+    *d->account_password = '\0';
+    *d->account_character_name = '\0';
+}
+
+void set_account_login_name(struct descriptor_data* d, const std::string& account_name)
+{
+    strncpy(d->account_name, account_name.c_str(), MAX_INPUT_LENGTH - 1);
+    d->account_name[MAX_INPUT_LENGTH - 1] = '\0';
+}
+
+void set_account_login_email(struct descriptor_data* d, const std::string& email)
+{
+    strncpy(d->account_email, email.c_str(), MAX_INPUT_LENGTH - 1);
+    d->account_email[MAX_INPUT_LENGTH - 1] = '\0';
+}
+
+void set_account_character_name(struct descriptor_data* d, const std::string& character_name)
+{
+    strncpy(d->account_character_name, character_name.c_str(), MAX_INPUT_LENGTH - 1);
+    d->account_character_name[MAX_INPUT_LENGTH - 1] = '\0';
+}
+
+void set_account_only_character_password(struct descriptor_data* d)
+{
+    std::snprintf(d->pwd, sizeof(d->pwd), "%s", kAccountOnlyPasswordMarker);
+}
+
+std::string format_account_character_name_for_display(const char* character_name)
+{
+    if (character_name == nullptr)
+        return "";
+
+    return account::format_character_name_for_display(character_name);
+}
+
+bool account_links_character(const account::AccountData& account_data, const char* character_name)
+{
+    if (character_name == nullptr || !*character_name)
+        return false;
+
+    const std::string normalized_character_name = account::normalize_account_name(character_name);
+    if (normalized_character_name.empty())
+        return false;
+
+    for (const std::string& linked_character : account_data.characters) {
+        if (account::normalize_account_name(linked_character) == normalized_character_name)
+            return true;
+    }
+
+    return false;
+}
+
+bool descriptor_matches_account(const descriptor_data* descriptor, const account::AccountData& account_data)
+{
+    if (descriptor == nullptr || !*descriptor->account_name || account_data.account_name.empty())
+        return false;
+
+    return account::normalize_account_name(descriptor->account_name)
+        == account::normalize_account_name(account_data.account_name);
+}
+
+bool is_active_account_character_state(int connection_state)
+{
+    return connection_state == CON_PLYNG || connection_state == CON_LINKLS;
+}
+
+bool linked_character_owner_matches_account(
+    const account::AccountData& account_data, const std::string& character_name)
+{
+    std::string owner_account_name;
+    if (!account::find_linked_character_owner_account(
+            kAccountStorageRoot, character_name, &owner_account_name, nullptr))
+        return false;
+
+    return !owner_account_name.empty()
+        && account::normalize_account_name(owner_account_name)
+        == account::normalize_account_name(account_data.account_name);
+}
+
+enum class AccountCharacterSessionMatch {
+    None,
+    Matched,
+    AmbiguousRestriction,
+};
+
+AccountCharacterSessionMatch descriptor_or_character_matches_account(
+    const descriptor_data* descriptor, const account::AccountData& account_data, const char* character_name)
+{
+    if (descriptor_matches_account(descriptor, account_data)) {
+        if (!account_links_character(account_data, character_name))
+            return AccountCharacterSessionMatch::None;
+
+        if (linked_character_owner_matches_account(account_data, character_name))
+            return AccountCharacterSessionMatch::Matched;
+
+        return AccountCharacterSessionMatch::AmbiguousRestriction;
+    }
+
+    if (descriptor != nullptr && *descriptor->account_name)
+        return AccountCharacterSessionMatch::None;
+
+    if (!account_links_character(account_data, character_name))
+        return AccountCharacterSessionMatch::None;
+
+    return linked_character_owner_matches_account(account_data, character_name)
+        ? AccountCharacterSessionMatch::Matched
+        : AccountCharacterSessionMatch::None;
+}
+
+std::vector<ActiveAccountCharacterSession> active_account_character_sessions(
+    const descriptor_data* current_descriptor, const account::AccountData& account_data)
+{
+    std::vector<ActiveAccountCharacterSession> sessions;
+
+    for (descriptor_data* descriptor = descriptor_list; descriptor; descriptor = descriptor->next) {
+        if (descriptor == current_descriptor)
+            continue;
+        if (!is_active_account_character_state(descriptor->connected))
+            continue;
+
+        char_data* character = descriptor->character;
+        if (character == nullptr || IS_NPC(character))
+            continue;
+        if (character->desc != descriptor)
+            continue;
+        if (GET_NAME(character) == nullptr || !*GET_NAME(character))
+            continue;
+        const AccountCharacterSessionMatch session_match
+            = descriptor_or_character_matches_account(descriptor, account_data, GET_NAME(character));
+        if (session_match == AccountCharacterSessionMatch::None)
+            continue;
+
+        ActiveAccountCharacterSession session;
+        session.normalized_character_name = account::normalize_account_name(GET_NAME(character));
+        session.display_character_name = format_account_character_name_for_display(GET_NAME(character));
+        session.level = session_match == AccountCharacterSessionMatch::AmbiguousRestriction
+            ? kAccountActiveSessionAlternateCharacterLevel
+            : GET_LEVEL(character);
+        session.linkless = descriptor->connected == CON_LINKLS;
+        session.ownership_ambiguous = session_match == AccountCharacterSessionMatch::AmbiguousRestriction;
+        sessions.push_back(session);
+    }
+
+    return sessions;
+}
+
+const ActiveAccountCharacterSession* first_restricting_active_account_session(
+    const std::vector<ActiveAccountCharacterSession>& sessions)
+{
+    for (const ActiveAccountCharacterSession& session : sessions) {
+        if (session.level > kAccountActiveSessionAlternateCharacterLevel)
+            return nullptr;
+    }
+
+    for (const ActiveAccountCharacterSession& session : sessions) {
+        if (session.level <= kAccountActiveSessionAlternateCharacterLevel)
+            return &session;
+    }
+
+    return nullptr;
+}
+
+bool account_has_high_level_linked_character(const account::AccountData& account_data)
+{
+    for (const std::string& linked_character : account_data.characters) {
+        char_file_u stored_character {};
+        if (!account::read_account_character_file(
+                kAccountStorageRoot, account_data.account_name, linked_character, &stored_character, nullptr))
+            continue;
+
+        if (IS_SET(stored_character.specials2.act, PLR_DELETED))
+            continue;
+
+        if (!linked_character_owner_matches_account(account_data, linked_character))
+            continue;
+
+        if (stored_character.level > kAccountActiveSessionAlternateCharacterLevel)
+            return true;
+    }
+
+    return false;
+}
+
+const ActiveAccountCharacterSession* first_restricting_active_account_session_for_account(
+    const account::AccountData& account_data, const std::vector<ActiveAccountCharacterSession>& sessions)
+{
+    for (const ActiveAccountCharacterSession& session : sessions) {
+        if (session.ownership_ambiguous)
+            return &session;
+    }
+
+    if (account_has_high_level_linked_character(account_data))
+        return nullptr;
+
+    return first_restricting_active_account_session(sessions);
+}
+
+bool selected_character_is_active_account_session(
+    const std::vector<ActiveAccountCharacterSession>& sessions, const std::string& selected_character_name)
+{
+    const std::string normalized_selection = account::normalize_account_name(selected_character_name);
+    for (const ActiveAccountCharacterSession& session : sessions) {
+        if (session.normalized_character_name == normalized_selection)
+            return true;
+    }
+
+    return false;
+}
+
+bool active_sessions_have_ambiguous_ownership(const std::vector<ActiveAccountCharacterSession>& sessions)
+{
+    for (const ActiveAccountCharacterSession& session : sessions) {
+        if (session.ownership_ambiguous)
+            return true;
+    }
+
+    return false;
+}
+
+std::string account_character_selection_unlock_key(const account::AccountData& account_data)
+{
+    return account::normalize_account_name(account_data.account_name);
+}
+
+bool account_has_usable_character_selection_unlock(
+    const account::AccountData& account_data,
+    const std::vector<ActiveAccountCharacterSession>& sessions)
+{
+    const std::string unlock_key = account_character_selection_unlock_key(account_data);
+    const auto unlock = g_account_character_selection_unlocks.find(unlock_key);
+    if (unlock == g_account_character_selection_unlocks.end())
+        return false;
+
+    if (active_sessions_have_ambiguous_ownership(sessions)) {
+        g_account_character_selection_unlocks.erase(unlock);
+        return false;
+    }
+
+    if (first_restricting_active_account_session_for_account(account_data, sessions) == nullptr) {
+        g_account_character_selection_unlocks.erase(unlock);
+        return false;
+    }
+
+    for (const ActiveAccountCharacterSession& session : sessions) {
+        if (session.level > kAccountActiveSessionAlternateCharacterLevel)
+            continue;
+
+        for (const std::string& granted_character_name : unlock->second.restricting_character_names) {
+            if (session.normalized_character_name == granted_character_name)
+                return true;
+        }
+    }
+
+    g_account_character_selection_unlocks.erase(unlock);
+    return false;
+}
+
+AccountCharacterSelectionUnlock build_account_character_selection_unlock(
+    const std::vector<ActiveAccountCharacterSession>& sessions)
+{
+    AccountCharacterSelectionUnlock unlock;
+    for (const ActiveAccountCharacterSession& session : sessions) {
+        if (!session.ownership_ambiguous && session.level <= kAccountActiveSessionAlternateCharacterLevel)
+            unlock.restricting_character_names.push_back(session.normalized_character_name);
+    }
+
+    return unlock;
+}
+
+bool account_session_allows_character_selection(
+    const account::AccountData& account_data,
+    const std::vector<ActiveAccountCharacterSession>& sessions, const std::string& selected_character_name)
+{
+    if (first_restricting_active_account_session_for_account(account_data, sessions) == nullptr)
+        return true;
+
+    return selected_character_is_active_account_session(sessions, selected_character_name);
+}
+
+bool account_session_allows_character_selection_with_unlock(
+    const account::AccountData& account_data,
+    const std::vector<ActiveAccountCharacterSession>& sessions,
+    const std::string& selected_character_name)
+{
+    if (account_session_allows_character_selection(account_data, sessions, selected_character_name))
+        return true;
+
+    return account_has_usable_character_selection_unlock(account_data, sessions);
+}
+
+bool consume_account_character_selection_unlock(
+    const account::AccountData& account_data,
+    const std::vector<ActiveAccountCharacterSession>& sessions,
+    const std::string& selected_character_name)
+{
+    if (account_session_allows_character_selection(account_data, sessions, selected_character_name))
+        return true;
+
+    if (!account_has_usable_character_selection_unlock(account_data, sessions))
+        return false;
+
+    g_account_character_selection_unlocks.erase(account_character_selection_unlock_key(account_data));
+    vmudlog(BRF, "Account linked-character selection unlock consumed for %s selecting %s",
+        account_data.account_name.c_str(), selected_character_name.c_str());
+    return true;
+}
+
+std::string active_account_session_restriction_message_for_session(
+    const ActiveAccountCharacterSession* restricting_session)
+{
+    if (restricting_session == nullptr)
+        return "";
+
+    return "You are already connected as " + restricting_session->display_character_name
+        + ". Reconnect to that character or log out before playing another character.\n\r";
+}
+
+std::string active_account_session_restriction_message(
+    const account::AccountData& account_data, const std::vector<ActiveAccountCharacterSession>& sessions)
+{
+    return active_account_session_restriction_message_for_session(
+        first_restricting_active_account_session_for_account(account_data, sessions));
+}
+
+void append_active_account_session_status(std::string* menu, const std::vector<ActiveAccountCharacterSession>& sessions)
+{
+    if (menu == nullptr || sessions.empty())
+        return;
+
+    if (sessions.size() == 1) {
+        const ActiveAccountCharacterSession& session = sessions.front();
+        *menu += "Active character: " + session.display_character_name
+            + " (level " + std::to_string(session.level) + ", "
+            + (session.linkless ? "linkless" : "playing") + ")\n\r";
+    } else {
+        *menu += "Active characters:\n\r";
+        for (const ActiveAccountCharacterSession& session : sessions) {
+            *menu += "- " + session.display_character_name
+                + " (level " + std::to_string(session.level) + ", "
+                + (session.linkless ? "linkless" : "playing") + ")\n\r";
+        }
+    }
+}
+
+void discard_descriptor_character_selection(struct descriptor_data* d)
+{
+    if (d == nullptr || d->character == nullptr)
+        return;
+
+    clear_account_backed_object_bytes_for_character(d->character);
+    d->character->desc = nullptr;
+    free_char(d->character);
+    d->character = nullptr;
+    d->pos = -1;
+}
+
+void mudlog_account_event(struct descriptor_data* d, const char* action, const char* email_override = nullptr)
+{
+    const char* account_email = email_override;
+    if ((account_email == nullptr || !*account_email) && d != nullptr)
+        account_email = d->account_email;
+    if (account_email == nullptr || !*account_email)
+        account_email = "<unknown-account>";
+
+    const char* host = (d != nullptr && *d->host) ? d->host : "<unknown-host>";
+    vmudlog(BRF, "%s for %s [%s]", const_cast<char*>(action), const_cast<char*>(account_email), const_cast<char*>(host));
+}
+
+void show_character_menu_impl(struct descriptor_data* d)
+{
+    if (*d->account_name) {
+        SEND_TO_Q("\n\r"
+                  "Welcome to Arda!\n\r"
+                  "0) Back to Account Menu.\n\r"
+                  "1) Enter the game.\n\r"
+                  "3) Read the background story.\n\r"
+                  "4) Change password.\n\r"
+                  "5) Delete this character.\n\r"
+                  "6) View class powers.\n\r"
+                  "\n\r"
+                  "   Make your choice: ",
+            d);
+        return;
+    }
+
+    SEND_TO_Q(MENU, d);
+}
+
+void show_account_menu(struct descriptor_data* d, const account::AccountData& account_data)
+{
+    std::string menu = "\n\rAccount: " + account_data.normalized_email
+        + "\n\rLinked characters: " + std::to_string(static_cast<unsigned long>(account_data.characters.size())) + "\n\r";
+    append_active_account_session_status(&menu, active_account_character_sessions(d, account_data));
+    menu += "\n\r"
+            "1) List linked characters\n\r"
+            "2) Play a linked character\n\r"
+            "3) Add an existing character\n\r"
+            "4) Create a new character\n\r"
+            "5) Reset account password\n\r"
+            "0) Log out\n\r"
+            "\n\r"
+            "Choice: ";
+    SEND_TO_Q(menu.c_str(), d);
+}
+
+void show_account_character_list(struct descriptor_data* d, const account::AccountData& account_data)
+{
+    const std::string character_list = account::format_account_character_list(kAccountStorageRoot, account_data);
+    SEND_TO_Q(character_list.c_str(), d);
+}
+
+void complete_existing_character_login(struct descriptor_data* d, int load_result)
+{
+    char buf[1000];
+    struct char_data* tmp_ch;
+
+    if (isbanned(d->host) == BAN_SELECT && !PLR_FLAGGED(d->character, PLR_SITEOK)) {
+        clear_account_backed_object_bytes_for_character(d->character);
+        SEND_TO_Q("Sorry, this character has not been cleared for login from your site!\n\r", d);
+        STATE(d) = CON_CLOSE;
+        vmudlog(NRM, "Connection attempt for %s denied from %s", GET_NAME(d->character), d->host);
+        return;
+    }
+
+    if (GET_LEVEL(d->character) < restrict) {
+        clear_account_backed_object_bytes_for_character(d->character);
+        SEND_TO_Q("The game is temporarily restricted.\r\nTry again later.", d);
+        SEND_TO_Q(wizlock_msg, d);
+        SEND_TO_Q("\n\r", d);
+        STATE(d) = CON_CLOSE;
+        vmudlog(NRM, "Request for login denied for %s [%s] (wizlock)", GET_NAME(d->character), d->host);
+        return;
+    }
+
+    for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next) {
+        if (IS_NPC(tmp_ch) && tmp_ch->desc && tmp_ch->desc->original && GET_IDNUM(tmp_ch->desc->original) == GET_IDNUM(d->character)) {
+            SEND_TO_Q("Disconnecting.", tmp_ch->desc);
+            free_char(d->character);
+            d->character = tmp_ch->desc->original;
+            d->character->desc = d;
+            tmp_ch->desc->character = 0;
+            tmp_ch->desc->original = 0;
+            STATE(tmp_ch->desc) = CON_CLOSE;
+            d->character->specials.timer = 0;
+            SEND_TO_Q("Reconnecting to unswitched char.", d);
+            REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+            clear_account_backed_object_bytes_for_character(d->character);
+            STATE(d) = CON_PLYNG;
+            vmudlog(NRM, "%s [%s] has reconnected.", GET_NAME(d->character), d->host);
+            return;
+        }
+    }
+
+    for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next) {
+        if (!IS_NPC(tmp_ch) && GET_IDNUM(d->character) == GET_IDNUM(tmp_ch)) {
+            if (!tmp_ch->desc || (!tmp_ch->desc->descriptor)) {
+                SEND_TO_Q("Reconnecting.\n\r", d);
+                act("$n has reconnected.", TRUE, tmp_ch, 0, 0, TO_ROOM);
+                vmudlog(NRM, "%s [%s] has reconnected.", GET_NAME(d->character), d->host);
+
+                if (tmp_ch->desc) {
+                    tmp_ch->desc->character = 0;
+                    close_socket(tmp_ch->desc, TRUE);
+                }
+            } else {
+                vmudlog(NRM, "%s [%s] has re-logged in; disconnecting old socket.", GET_NAME(tmp_ch), d->host);
+                SEND_TO_Q("This body has been usurped!\n\r", tmp_ch->desc);
+                STATE(tmp_ch->desc) = CON_CLOSE;
+                tmp_ch->desc->character = 0;
+                tmp_ch->desc = 0;
+                SEND_TO_Q("You take over your own body, already in use!\n\r", d);
+                act("$n has reconnected.\n\r$n's body has been taken over by a new spirit!", TRUE, tmp_ch, 0, 0, TO_ROOM);
+            }
+
+            clear_account_backed_object_bytes_for_character(d->character);
+            free_char(d->character);
+            tmp_ch->desc = d;
+            d->character = tmp_ch;
+            tmp_ch->specials.timer = 0;
+            REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+            STATE(d) = CON_PLYNG;
+            if (!d->pProtocol)
+                d->pProtocol = ProtocolCreate();
+            ProtocolNegotiate(d);
+            msdp_room_update(d->character);
+            return;
+        }
+    }
+
+    vmudlog(BRF, "%s [%s] has connected.", GET_NAME(d->character), d->host);
+
+    if (GET_LEVEL(d->character) >= LEVEL_IMMORT)
+        SEND_TO_Q(imotd, d);
+    else
+        SEND_TO_Q(motd, d);
+
+    if (load_result) {
+        sprintf(buf, "\n\r\n\r%s%d LOGIN FAILURE%s SINCE LAST SUCCESSFUL LOGIN.%s\n\r",
+            CC_FIX(d->character, CRED), load_result, (load_result > 1) ? "S" : "", CC_NORM(d->character));
+        SEND_TO_Q(buf, d);
+    }
+
+    show_character_menu_impl(d);
+    STATE(d) = CON_SLCT;
+}
+
+void show_account_character_prompt(struct descriptor_data* d, const account::AccountData& account_data)
+{
+    const std::string prompt = account::format_account_character_prompt(kAccountStorageRoot, account_data);
+    SEND_TO_Q(prompt.c_str(), d);
+}
+
+void handle_account_authenticated(struct descriptor_data* d, const account::AccountData& account_data)
+{
+    set_account_login_name(d, account_data.account_name);
+    set_account_login_email(d, account_data.normalized_email);
+    d->bad_pws = 0;
+    mudlog_account_event(d, "Account login", account_data.normalized_email.c_str());
+    show_account_menu(d, account_data);
+    STATE(d) = CON_ACCTMENU;
+}
+
+void start_account_login(struct descriptor_data* d, const char* email)
+{
+    std::string error_message;
+    if (!account::is_valid_email(email, &error_message)) {
+        SEND_TO_Q((error_message + "\n\rAccount email: ").c_str(), d);
+        clear_account_login_state(d);
+        STATE(d) = CON_NME;
+        return;
+    }
+
+    set_account_login_email(d, account::normalize_email(email));
+    SEND_TO_Q("Account password: ", d);
+    echo_off(d->descriptor);
+    STATE(d) = CON_ACCTPWD;
+}
+
+} // namespace
+
+bool account_has_restricting_active_linked_session(const account::AccountData& account_data)
+{
+    return first_restricting_active_account_session_for_account(
+               account_data, active_account_character_sessions(nullptr, account_data))
+        != nullptr;
+}
+
+bool grant_account_character_selection_unlock(
+    const account::AccountData& account_data, std::string* error_message)
+{
+    const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(nullptr, account_data);
+    const std::string unlock_key = account_character_selection_unlock_key(account_data);
+    if (first_restricting_active_account_session_for_account(account_data, active_sessions) == nullptr) {
+        if (error_message != nullptr)
+            *error_message = "That account does not currently have a restricting active linked character session.";
+        return false;
+    }
+
+    if (active_sessions_have_ambiguous_ownership(active_sessions)) {
+        g_account_character_selection_unlocks.erase(unlock_key);
+        if (error_message != nullptr)
+            *error_message = "That account has an active linked character with ambiguous account ownership.";
+        return false;
+    }
+
+    if (g_account_character_selection_unlocks.find(unlock_key) != g_account_character_selection_unlocks.end()) {
+        if (!account_has_usable_character_selection_unlock(account_data, active_sessions)) {
+            g_account_character_selection_unlocks[unlock_key] = build_account_character_selection_unlock(active_sessions);
+            return true;
+        }
+
+        if (error_message != nullptr)
+            *error_message = "That account already has a pending linked-character selection unlock.";
+        return false;
+    }
+
+    g_account_character_selection_unlocks[unlock_key] = build_account_character_selection_unlock(active_sessions);
+    return true;
+}
+
+void show_character_menu(struct descriptor_data* d)
+{
+    show_character_menu_impl(d);
+}
+
+static bool ensure_descriptor_character_for_account_selection(struct descriptor_data* d)
+{
+    if (d->character) {
+        clear_account_backed_object_bytes_for_character(d->character);
+        d->character->desc = nullptr;
+        free_char(d->character);
+        d->character = nullptr;
+        d->pos = -1;
+    }
+
+    CREATE(d->character, struct char_data, 1);
+    clear_char(d->character, MOB_VOID);
+    register_pc_char(d->character);
+    d->character->desc = d;
+    SET_BIT(PRF_FLAGS(d->character), PRF_LATIN1);
+    return true;
+}
+
 void nanny(struct descriptor_data* d, char* arg)
 /* deal with newcomers and other non-playing sockets */
 {
@@ -2290,63 +2948,26 @@ void nanny(struct descriptor_data* d, char* arg)
         if (!*arg)
             close_socket(d);
 
-        if ((_parse_name(arg, tmp_name))) {
-            SEND_TO_Q("Invalid name, please try another.\n\r", d);
-            SEND_TO_Q("Name: ", d);
-            return;
-        }
-
-        if ((player_i = load_char(tmp_name, &tmp_store)) > -1) {
-            d->pos = player_i;
-            store_to_char(&tmp_store, d->character);
-
-            if (isbanned(d->host) > 0 && !PLR_FLAGGED(d->character, PLR_SITEOK)) {
-                SEND_TO_Q("Sorry, your site has been banned.\r\n", d);
-                close_socket(d);
-                log("(Siteban)");
+        {
+            account::AccountData account_data;
+            std::string error_message;
+            if (account::read_account_file_by_email(kAccountStorageRoot, arg, &account_data, &error_message)) {
+                start_account_login(d, arg);
                 return;
             }
 
-            if (PLR_FLAGGED(d->character, PLR_DELETED)) {
-                free_char(d->character);
-                CREATE(d->character, struct char_data, 1);
-                clear_char(d->character, MOB_VOID);
-                register_pc_char(d->character);
-                d->character->desc = d;
-                CREATE(d->character->player.name, char, strlen(tmp_name) + 1);
-                CAP(tmp_name);
-                strcpy(d->character->player.name, tmp_name);
-                sprintf(buf, "\n\rNot found in the player database.\n\r"
-                             "A new character will be created if you enter 'Y'.\n\r"
-                             "Is %s a suitable name for roleplay in Middle-earth (Y/N)? ",
-                    tmp_name);
-                SEND_TO_Q(buf, d);
-                STATE(d) = CON_NMECNF;
-            } else {
-                strncpy(d->pwd, tmp_store.pwd, MAX_PWD_LENGTH);
-                d->pwd[MAX_PWD_LENGTH] = 0;
-
-                /* undo it just in case they are set */
-                REMOVE_BIT(PLR_FLAGS(d->character), PLR_WRITING | PLR_MAILING);
-
-                SEND_TO_Q("Password: ", d);
-                echo_off(d->descriptor);
-
-                STATE(d) = CON_PWDNRM;
+            if (error_message == "No account exists for that email address.") {
+                std::string normalized_email = account::normalize_email(arg);
+                set_account_login_email(d, normalized_email);
+                SEND_TO_Q("No account exists for that email address.\n\rCreate one? (Y/N): ", d);
+                STATE(d) = CON_ACCTNEWCNF;
+                return;
             }
-        } else {
-            /* player unknown gotta make a new */
-            d->pos = -1;
 
-            CREATE(d->character->player.name, char, strlen(tmp_name) + 1);
-            CAP(tmp_name);
-            strcpy(d->character->player.name, tmp_name);
-            sprintf(buf, "\n\rNot found in the player database.\n\r"
-                         "A new character will be created if you enter 'Y'.\n\r"
-                         "Is %s a suitable name for roleplay in Middle-earth (Y/N)? ",
-                tmp_name);
-            SEND_TO_Q(buf, d);
-            STATE(d) = CON_NMECNF;
+            SEND_TO_Q((error_message + "\n\rAccount email: ").c_str(), d);
+            clear_account_login_state(d);
+            STATE(d) = CON_NME;
+            return;
         }
         break;
     case CON_NMECNF: /* wait for conf. of new name */
@@ -2385,15 +3006,33 @@ void nanny(struct descriptor_data* d, char* arg)
             }
 
             SEND_TO_Q("New character.\n\r", d);
-            sprintf(buf, "Please enter a password for %s: ",
-                GET_NAME(d->character));
-            SEND_TO_Q(buf, d);
-            echo_off(d->descriptor);
-            STATE(d) = CON_PWDGET;
+            if (*d->account_name) {
+                set_account_only_character_password(d);
+                SEND_TO_Q("What is your sex (M/F)? ", d);
+                STATE(d) = CON_QSEX;
+            } else {
+                sprintf(buf, "Please enter a password for %s: ",
+                    GET_NAME(d->character));
+                SEND_TO_Q(buf, d);
+                echo_off(d->descriptor);
+                STATE(d) = CON_PWDGET;
+            }
 
             vmudlog(BRF, "%s [%s] has connected (new character).",
                 GET_NAME(d->character), d->host);
         } else if (is_abbrev(arg, "no")) {
+            if (*d->account_name) {
+                account::AccountData account_data;
+                if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
+                    show_account_menu(d, account_data);
+                else
+                    show_account_email_prompt(d);
+                RELEASE(GET_NAME(d->character));
+                d->character->player.name = 0;
+                STATE(d) = *d->account_name ? CON_ACCTMENU : CON_NME;
+                break;
+            }
+
             SEND_TO_Q("\n\rOk, what name would you like to use, then? ", d);
             RELEASE(GET_NAME(d->character));
             d->character->player.name = 0;
@@ -2431,105 +3070,661 @@ void nanny(struct descriptor_data* d, char* arg)
             d->character->specials2.bad_pws = 0;
             save_char(d->character, d->character->specials2.load_room, 0);
 
-            if (isbanned(d->host) == BAN_SELECT && !PLR_FLAGGED(d->character, PLR_SITEOK)) {
-                SEND_TO_Q("Sorry, this character has not been "
-                          "cleared for login from your site!\n\r",
-                    d);
-                STATE(d) = CON_CLOSE;
-                vmudlog(NRM, "Connection attempt for %s denied from %s",
-                    GET_NAME(d->character), d->host);
-                return;
-            }
+            complete_existing_character_login(d, load_result);
+        }
+        break;
+    case CON_ACCTPWD: /* get password for account login */
+        echo_on(d->descriptor);
 
-            if (GET_LEVEL(d->character) < restrict) {
-                SEND_TO_Q("The game is temporarily restricted.\r\n"
-                          "Try again later.",
-                    d);
-                SEND_TO_Q(wizlock_msg, d);
-                SEND_TO_Q("\n\r", d);
-                STATE(d) = CON_CLOSE;
-                vmudlog(NRM, "Request for login denied for %s [%s] (wizlock)",
-                    GET_NAME(d->character), d->host);
-                return;
-            }
+        for (; isspace(*arg); arg++)
+            continue;
 
-            /* first, check for switched characters */
-            for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next)
-                if (IS_NPC(tmp_ch) && tmp_ch->desc && tmp_ch->desc->original && GET_IDNUM(tmp_ch->desc->original) == GET_IDNUM(d->character)) {
-                    SEND_TO_Q("Disconnecting.", tmp_ch->desc);
-                    free_char(d->character);
-                    d->character = tmp_ch->desc->original;
-                    d->character->desc = d;
-                    tmp_ch->desc->character = 0;
-                    tmp_ch->desc->original = 0;
-                    STATE(tmp_ch->desc) = CON_CLOSE;
-                    d->character->specials.timer = 0;
-                    SEND_TO_Q("Reconnecting to unswitched char.", d);
-                    REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
-                    STATE(d) = CON_PLYNG;
-                    vmudlog(NRM, "%s [%s] has reconnected.",
-                        GET_NAME(d->character), d->host);
-                    return;
-                }
+        if (!*arg) {
+            close_socket(d);
+            return;
+        } else {
+            account::AccountData account_data;
+            std::string error_message;
 
-            /* now check for linkless and usurpable */
-            for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next)
-                if (!IS_NPC(tmp_ch) && GET_IDNUM(d->character) == GET_IDNUM(tmp_ch)) {
-                    if (!tmp_ch->desc || (!tmp_ch->desc->descriptor)) {
-                        SEND_TO_Q("Reconnecting.\n\r", d);
-                        act("$n has reconnected.", TRUE, tmp_ch, 0, 0, TO_ROOM);
-                        vmudlog(NRM, "%s [%s] has reconnected.",
-                            GET_NAME(d->character), d->host);
-
-                        if (tmp_ch->desc) {
-                            tmp_ch->desc->character = 0;
-                            close_socket(tmp_ch->desc, TRUE);
-                        }
-                    } else {
-                        vmudlog(NRM, "%s [%s] has re-logged in; disconnecting old socket.",
-                            GET_NAME(tmp_ch), d->host);
-                        SEND_TO_Q("This body has been usurped!\n\r", tmp_ch->desc);
-                        STATE(tmp_ch->desc) = CON_CLOSE;
-                        tmp_ch->desc->character = 0;
-                        tmp_ch->desc = 0;
-                        SEND_TO_Q("You take over your own body, already in use!\n\r", d);
-                        act("$n has reconnected.\n\r"
-                            "$n's body has been taken over by a new spirit!",
-                            TRUE, tmp_ch, 0, 0, TO_ROOM);
+            if (!account::authenticate_account_by_email(kAccountStorageRoot, d->account_email, arg, &account_data, &error_message)) {
+                if (error_message == "Account email verification is still pending.") {
+                    if (!account::start_email_verification(kAccountStorageRoot, account_data.account_name, time(0), &account_data, &error_message)) {
+                        SEND_TO_Q((error_message + "\n\rAccount email: ").c_str(), d);
+                        clear_account_login_state(d);
+                        STATE(d) = CON_NME;
+                        return;
                     }
 
-                    free_char(d->character);
-                    tmp_ch->desc = d;
-                    d->character = tmp_ch;
-                    tmp_ch->specials.timer = 0;
-                    REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
-                    STATE(d) = CON_PLYNG;
-                    d->pProtocol = ProtocolCreate();
-                    ProtocolNegotiate(d);
-                    extern void msdp_room_update(char_data* ch);
-                    msdp_room_update(d->character);
+                    if (account_data.email_verified) {
+                        SEND_TO_Q("Your account was verified while you were logging in.\n\r", d);
+                        handle_account_authenticated(d, account_data);
+                        return;
+                    }
+
+                    set_account_login_name(d, account_data.account_name);
+                    set_account_login_email(d, account_data.normalized_email);
+                    *d->account_password = '\0';
+                    d->bad_pws = 0;
+                    SEND_TO_Q("Your account exists but its email address is still pending verification.\n\rA verification code has been emailed to you and is valid for 15 minutes.\n\r", d);
+                    show_account_verification_prompt(d);
+                    STATE(d) = CON_ACCTVERIFY;
                     return;
                 }
 
-            vmudlog(BRF, "%s [%s] has connected.",
-                GET_NAME(d->character), d->host);
-
-            if (GET_LEVEL(d->character) >= LEVEL_IMMORT)
-                SEND_TO_Q(imotd, d);
-            else
-                SEND_TO_Q(motd, d);
-
-            if (load_result) {
-                sprintf(buf, "\n\r\n\r"
-                             "%s%d LOGIN FAILURE%s SINCE LAST SUCCESSFUL LOGIN.%s\n\r",
-                    CC_FIX(d->character, CRED), load_result,
-                    (load_result > 1) ? "S" : "", CC_NORM(d->character));
-                SEND_TO_Q(buf, d);
+                mudlog_account_event(d, "Bad account password");
+                if (++(d->bad_pws) >= 5) {
+                    SEND_TO_Q("Invalid account credentials... disconnecting.\n\r", d);
+                    STATE(d) = CON_CLOSE;
+                } else {
+                    SEND_TO_Q("Invalid account credentials.\n\rAccount password: ", d);
+                    echo_off(d->descriptor);
+                }
+                return;
             }
 
-            SEND_TO_Q(MENU, d);
-            STATE(d) = CON_SLCT;
+            handle_account_authenticated(d, account_data);
         }
+        break;
+    case CON_ACCTVERIFY:
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg || is_abbrev(arg, "cancel")) {
+            clear_account_login_state(d);
+            d->bad_pws = 0;
+            show_account_email_prompt(d);
+            STATE(d) = CON_NME;
+            return;
+        }
+
+        if (is_abbrev(arg, "resend")) {
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::start_email_verification(kAccountStorageRoot, d->account_name, time(0), &account_data, &error_message)) {
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+            } else {
+                if (account_data.email_verified) {
+                    SEND_TO_Q("Your account is already verified.\n\r", d);
+                    handle_account_authenticated(d, account_data);
+                    return;
+                }
+
+                set_account_login_name(d, account_data.account_name);
+                set_account_login_email(d, account_data.normalized_email);
+                SEND_TO_Q("A new verification code has been emailed to you. It is valid for 15 minutes.\n\r", d);
+            }
+
+            show_account_verification_prompt(d);
+            STATE(d) = CON_ACCTVERIFY;
+            return;
+        }
+
+        {
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::complete_email_verification(kAccountStorageRoot, d->account_name, arg, "email-code", time(0), &account_data, &error_message)) {
+                if (++(d->bad_pws) >= 5) {
+                    SEND_TO_Q("Too many invalid verification attempts... disconnecting.\n\r", d);
+                    STATE(d) = CON_CLOSE;
+                    return;
+                }
+
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                show_account_verification_prompt(d);
+                STATE(d) = CON_ACCTVERIFY;
+                return;
+            }
+
+            d->bad_pws = 0;
+            SEND_TO_Q("Email address verified.\n\r", d);
+            handle_account_authenticated(d, account_data);
+        }
+        break;
+    case CON_ACCTSLCT: /* get linked character for authenticated account */
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg) {
+            account::AccountData account_data;
+            if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
+                show_account_character_prompt(d, account_data);
+            else {
+                SEND_TO_Q("The account could not be reloaded. Returning to the account email prompt.\n\rAccount email: ", d);
+                clear_account_login_state(d);
+                STATE(d) = CON_NME;
+            }
+            return;
+        } else {
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, &error_message)) {
+                SEND_TO_Q("The account could not be reloaded. Returning to the account email prompt.\n\rAccount email: ", d);
+                clear_account_login_state(d);
+                STATE(d) = CON_NME;
+                return;
+            }
+
+            if (!strcmp(arg, "0")) {
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
+            std::string selected_character_name;
+            if (!account::select_linked_character(account_data, arg, &selected_character_name, &error_message)) {
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                show_account_character_prompt(d, account_data);
+                return;
+            }
+
+            const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(d, account_data);
+            if (!account_session_allows_character_selection_with_unlock(account_data, active_sessions, selected_character_name)) {
+                SEND_TO_Q(active_account_session_restriction_message(account_data, active_sessions).c_str(), d);
+                show_account_character_prompt(d, account_data);
+                return;
+            }
+
+            std::string object_file_bytes;
+            char selected_name[MAX_INPUT_LENGTH];
+            strncpy(selected_name, selected_character_name.c_str(), sizeof(selected_name) - 1);
+            selected_name[sizeof(selected_name) - 1] = '\0';
+            if (account::read_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &tmp_store, &error_message)) {
+                if (!load_object_save_bytes_for_character(kAccountStorageRoot, selected_character_name, &object_file_bytes, &error_message)) {
+                    SEND_TO_Q("That linked character is missing required object-save data in account storage.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+                const std::string character_path = account::account_character_player_path(kAccountStorageRoot, d->account_name, selected_character_name);
+                if (!update_player_index_entry_from_store(&tmp_store, character_path.c_str(), &error_message)) {
+                    SEND_TO_Q("That linked character cannot be loaded from account storage.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+                player_i = tmp_store.player_index;
+            } else {
+                const std::string read_error = error_message;
+                bool account_character_exists = false;
+                std::string inspect_error;
+                if (!account::inspect_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &account_character_exists, &inspect_error)) {
+                    SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
+                    SEND_TO_Q((inspect_error + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+                if (account_character_exists) {
+                    SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
+                    SEND_TO_Q((read_error + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+
+                account::CharacterMigrationData migration;
+                if (!account::ensure_character_migration(kAccountStorageRoot, d->account_name, selected_character_name, time(0), &migration, &error_message)) {
+                    SEND_TO_Q("That linked character is not ready for account-backed play yet.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+
+                if (!account::read_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &tmp_store, &error_message)) {
+                    SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+                const std::string character_path = account::account_character_player_path(kAccountStorageRoot, d->account_name, selected_character_name);
+                if (!update_player_index_entry_from_store(&tmp_store, character_path.c_str(), &error_message)) {
+                    SEND_TO_Q("That linked character cannot be loaded from account storage.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+                player_i = tmp_store.player_index;
+
+                if (!load_object_save_bytes_for_character(kAccountStorageRoot, selected_character_name, &object_file_bytes, &error_message)) {
+                    SEND_TO_Q("That linked character is missing required object-save data in account storage.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+            }
+
+            if (IS_SET(tmp_store.specials2.act, PLR_DELETED)) {
+                SEND_TO_Q("That linked character is deleted and cannot be selected.\n\r", d);
+                show_account_character_prompt(d, account_data);
+                return;
+            }
+
+            d->pos = player_i;
+            const bool created_selection_character = ensure_descriptor_character_for_account_selection(d);
+            store_to_char(&tmp_store, d->character);
+            strncpy(d->pwd, tmp_store.pwd, MAX_PWD_LENGTH);
+            d->pwd[MAX_PWD_LENGTH] = '\0';
+
+            load_result = d->character->specials2.bad_pws;
+            d->character->specials2.bad_pws = 0;
+            save_char(d->character, d->character->specials2.load_room, 0);
+            stage_account_backed_object_bytes_for_character(d->character, object_file_bytes.data(), object_file_bytes.size());
+            if (!account::clear_account_character_runtime_support_files(kAccountStorageRoot, selected_character_name, &error_message)) {
+                clear_account_backed_object_bytes_for_character(d->character);
+                if (created_selection_character) {
+                    d->character->desc = nullptr;
+                    free_char(d->character);
+                    d->character = nullptr;
+                    d->pos = -1;
+                }
+                SEND_TO_Q("That linked character could not prepare its runtime support files for account-backed play.\n\r", d);
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                show_account_character_prompt(d, account_data);
+                return;
+            }
+
+            complete_existing_character_login(d, load_result);
+        }
+        break;
+    case CON_ACCTLINKPWD: /* get password for in-game account linking */
+        echo_on(d->descriptor);
+
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg) {
+            SEND_TO_Q("Account linking cancelled.\n\r", d);
+            clear_account_login_state(d);
+            STATE(d) = CON_PLYNG;
+            return;
+        } else {
+            account::AccountData account_data;
+            account::CharacterMigrationData migration;
+            std::string error_message;
+
+            if (!account::link_and_migrate_character(kAccountStorageRoot, d->account_name, arg, GET_NAME(d->character), time(0), &account_data, &migration, &error_message)) {
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                clear_account_login_state(d);
+                STATE(d) = CON_PLYNG;
+                return;
+            }
+
+            vmudlog(BRF, "%s linked character %s to account %s", GET_NAME(d->character), GET_NAME(d->character), account_data.account_name.c_str());
+            const std::string success_message = "Successfully added "
+                + format_account_character_name_for_display(GET_NAME(d->character))
+                + " to your account.\n\r";
+            SEND_TO_Q(success_message.c_str(), d);
+            clear_account_login_state(d);
+            STATE(d) = CON_PLYNG;
+        }
+        break;
+    case CON_ACCTNEWCNF:
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (is_abbrev(arg, "yes")) {
+            SEND_TO_Q("Create account.\n\rPlease enter a password: ", d);
+            echo_off(d->descriptor);
+            STATE(d) = CON_ACCTNEWPWD;
+        } else if (is_abbrev(arg, "no")) {
+            clear_account_login_state(d);
+            show_account_email_prompt(d);
+            STATE(d) = CON_NME;
+        } else
+            SEND_TO_Q("Please type yes or no: ", d);
+        break;
+    case CON_ACCTNEWPWD:
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg || strlen(arg) > MAX_ACCOUNT_PASSWORD_LENGTH) {
+            SEND_TO_Q("\n\rIllegal password.\n\rPlease enter a password: ", d);
+            *d->account_password = '\0';
+            return;
+        }
+
+        {
+            std::string error_message;
+            if (!account::is_valid_password(arg, &error_message)) {
+                SEND_TO_Q(("\n\r" + error_message + "\n\rPlease enter a password: ").c_str(), d);
+                *d->account_password = '\0';
+                return;
+            }
+        }
+
+        strncpy(d->account_password, arg, MAX_ACCOUNT_PASSWORD_LENGTH);
+        d->account_password[MAX_ACCOUNT_PASSWORD_LENGTH] = '\0';
+        SEND_TO_Q("Please retype your password: ", d);
+        STATE(d) = CON_ACCTNEWPWDCNF;
+        break;
+    case CON_ACCTNEWPWDCNF:
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (strcmp(arg, d->account_password)) {
+            SEND_TO_Q("\n\rPasswords don't match... start over.\n\rPlease enter a password: ", d);
+            *d->account_password = '\0';
+            STATE(d) = CON_ACCTNEWPWD;
+            return;
+        }
+
+        echo_on(d->descriptor);
+        {
+            account::AccountData account_data;
+            std::string error_message;
+            const std::string account_password = d->account_password;
+            *d->account_password = '\0';
+            if (!account::create_account_for_email(kAccountStorageRoot, d->account_email,
+                    account_password.c_str(), time(0), &account_data, &error_message)) {
+                SEND_TO_Q((error_message + "\n\rAccount email: ").c_str(), d);
+                clear_account_login_state(d);
+                STATE(d) = CON_NME;
+                return;
+            }
+
+            if (!account::start_email_verification(kAccountStorageRoot, account_data.account_name, time(0), &account_data, &error_message)) {
+                SEND_TO_Q((error_message + "\n\rAccount email: ").c_str(), d);
+                clear_account_login_state(d);
+                STATE(d) = CON_NME;
+                return;
+            }
+
+            if (account_data.email_verified) {
+                SEND_TO_Q("Account created.\n\rYour account was verified while it was being created.\n\r", d);
+                handle_account_authenticated(d, account_data);
+                return;
+            }
+
+            set_account_login_name(d, account_data.account_name);
+            set_account_login_email(d, account_data.normalized_email);
+            SEND_TO_Q("Account created.\n\rA verification code has been emailed to you and is valid for 15 minutes.\n\r", d);
+            show_account_verification_prompt(d);
+            STATE(d) = CON_ACCTVERIFY;
+        }
+        break;
+    case CON_ACCTMENU:
+        for (; isspace(*arg); arg++)
+            continue;
+
+        {
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, &error_message)) {
+                SEND_TO_Q("The account could not be reloaded. Returning to the account email prompt.\n\rAccount email: ", d);
+                clear_account_login_state(d);
+                STATE(d) = CON_NME;
+                return;
+            }
+
+            switch (*arg) {
+            case '0':
+                mudlog_account_event(d, "Account logout");
+                clear_account_login_state(d);
+                show_account_email_prompt(d);
+                STATE(d) = CON_NME;
+                break;
+            case '1':
+                show_account_character_list(d, account_data);
+                show_account_menu(d, account_data);
+                break;
+            case '2':
+                if (account_data.characters.empty()) {
+                    SEND_TO_Q("\n\rNo linked characters are available to play.\n\r", d);
+                    show_account_menu(d, account_data);
+                } else {
+                    show_account_character_prompt(d, account_data);
+                    STATE(d) = CON_ACCTSLCT;
+                }
+                break;
+            case '3':
+                SEND_TO_Q("Legacy character name: ", d);
+                STATE(d) = CON_ACCTLINKNAME;
+                break;
+            case '4': {
+                const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(d, account_data);
+                if (first_restricting_active_account_session_for_account(account_data, active_sessions) != nullptr) {
+                    SEND_TO_Q(active_account_session_restriction_message(account_data, active_sessions).c_str(), d);
+                    show_account_menu(d, account_data);
+                    break;
+                }
+            }
+                SEND_TO_Q("New character name: ", d);
+                STATE(d) = CON_ACCTNEWCHAR;
+                break;
+            case '5':
+                SEND_TO_Q("Current account password: ", d);
+                echo_off(d->descriptor);
+                STATE(d) = CON_ACCTRESETOLD;
+                break;
+            default:
+                show_account_menu(d, account_data);
+                break;
+            }
+        }
+        break;
+    case CON_ACCTLINKNAME:
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!_parse_name(arg, tmp_name)) {
+            if ((player_i = load_char(tmp_name, &tmp_store)) < 0) {
+                SEND_TO_Q("That legacy character could not be found.\n\r", d);
+                account::AccountData account_data;
+                if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
+                    show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
+            set_account_character_name(d, tmp_name);
+            SEND_TO_Q("Legacy character password: ", d);
+            echo_off(d->descriptor);
+            STATE(d) = CON_ACCTLEGPWD;
+        } else {
+            SEND_TO_Q("Invalid character name.\n\rLegacy character name: ", d);
+        }
+        break;
+    case CON_ACCTLEGPWD: /* add existing character via account menu */
+        echo_on(d->descriptor);
+
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg) {
+            SEND_TO_Q("Character linking cancelled.\n\r", d);
+            *d->account_character_name = '\0';
+            account::AccountData account_data;
+            if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
+                show_account_menu(d, account_data);
+            STATE(d) = CON_ACCTMENU;
+            return;
+        } else {
+            char legacy_name[MAX_INPUT_LENGTH];
+            strncpy(legacy_name, d->account_character_name, sizeof(legacy_name) - 1);
+            legacy_name[sizeof(legacy_name) - 1] = '\0';
+
+            if ((player_i = load_char(legacy_name, &tmp_store)) < 0) {
+                SEND_TO_Q("That legacy character could not be found.\n\r", d);
+                *d->account_character_name = '\0';
+                account::AccountData account_data;
+                if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
+                    show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
+            if (strncmp(CRYPT(arg, tmp_store.pwd), tmp_store.pwd, MAX_PWD_LENGTH)) {
+                SEND_TO_Q("Incorrect legacy character password.\n\r", d);
+                *d->account_character_name = '\0';
+                account::AccountData account_data;
+                if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
+                    show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
+            account::AccountData account_data;
+            account::CharacterMigrationData migration;
+            std::string error_message;
+            if (!account::admin_link_and_migrate_character(kAccountStorageRoot, d->account_name, legacy_name, time(0), &account_data, &migration, &error_message)) {
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                *d->account_character_name = '\0';
+                if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
+                    show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
+            const std::string success_message = "Successfully added "
+                + format_account_character_name_for_display(legacy_name)
+                + " to your account.\n\r";
+            SEND_TO_Q(success_message.c_str(), d);
+            *d->account_character_name = '\0';
+            show_account_menu(d, account_data);
+            STATE(d) = CON_ACCTMENU;
+        }
+        break;
+    case CON_ACCTRESETOLD:
+        echo_on(d->descriptor);
+
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg) {
+            SEND_TO_Q("Password reset cancelled.\n\r", d);
+            *d->account_password = '\0';
+            account::AccountData account_data;
+            if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
+                show_account_menu(d, account_data);
+            STATE(d) = CON_ACCTMENU;
+            return;
+        } else {
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::authenticate_account(kAccountStorageRoot, d->account_name, arg, &account_data, &error_message)) {
+                mudlog_account_event(d, "Bad account password");
+                SEND_TO_Q("Incorrect account password.\n\r", d);
+                if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
+                    show_account_menu(d, account_data);
+                else {
+                    clear_account_login_state(d);
+                    show_account_email_prompt(d);
+                    STATE(d) = CON_NME;
+                    return;
+                }
+
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
+            SEND_TO_Q("New account password: ", d);
+            echo_off(d->descriptor);
+            STATE(d) = CON_ACCTRESETNEW;
+        }
+        break;
+    case CON_ACCTRESETNEW:
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg || strlen(arg) > MAX_ACCOUNT_PASSWORD_LENGTH) {
+            SEND_TO_Q("\n\rIllegal password.\n\rNew account password: ", d);
+            *d->account_password = '\0';
+            return;
+        }
+
+        {
+            std::string error_message;
+            if (!account::is_valid_password(arg, &error_message)) {
+                SEND_TO_Q(("\n\r" + error_message + "\n\rNew account password: ").c_str(), d);
+                *d->account_password = '\0';
+                return;
+            }
+        }
+
+        strncpy(d->account_password, arg, MAX_ACCOUNT_PASSWORD_LENGTH);
+        d->account_password[MAX_ACCOUNT_PASSWORD_LENGTH] = '\0';
+        SEND_TO_Q("Please retype the new password: ", d);
+        STATE(d) = CON_ACCTRESETCNF;
+        break;
+    case CON_ACCTRESETCNF:
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (strcmp(arg, d->account_password)) {
+            SEND_TO_Q("\n\rPasswords don't match... start over.\n\rNew account password: ", d);
+            *d->account_password = '\0';
+            STATE(d) = CON_ACCTRESETNEW;
+            return;
+        }
+
+        echo_on(d->descriptor);
+        {
+            account::AccountData account_data;
+            std::string error_message;
+            const std::string account_password = d->account_password;
+            *d->account_password = '\0';
+            if (!account::admin_reset_password(kAccountStorageRoot, d->account_name,
+                    account_password.c_str(), d->account_name, time(0), &account_data,
+                    &error_message)) {
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr)) {
+                    show_account_menu(d, account_data);
+                    STATE(d) = CON_ACCTMENU;
+                } else {
+                    clear_account_login_state(d);
+                    show_account_email_prompt(d);
+                    STATE(d) = CON_NME;
+                }
+            } else {
+                mudlog_account_event(d, "Account password reset", account_data.normalized_email.c_str());
+                SEND_TO_Q("Account password updated.\n\r", d);
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+            }
+        }
+        break;
+    case CON_ACCTNEWCHAR:
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (_parse_name(arg, tmp_name)) {
+            SEND_TO_Q("Invalid character name.\n\rNew character name: ", d);
+            return;
+        }
+
+        {
+            std::string owner_account_name;
+            std::string error_message;
+            if (!account::find_linked_character_owner_account(kAccountStorageRoot, tmp_name, &owner_account_name, &error_message)) {
+                SEND_TO_Q((error_message + "\n\rNew character name: ").c_str(), d);
+                return;
+            }
+
+            if (!owner_account_name.empty()) {
+                SEND_TO_Q("That character name is already linked to an account.\n\rNew character name: ", d);
+                return;
+            }
+        }
+
+        if ((player_i = load_char(tmp_name, &tmp_store)) > -1 && !IS_SET(tmp_store.specials2.act, PLR_DELETED)) {
+            SEND_TO_Q("That character name is already in use.\n\rNew character name: ", d);
+            return;
+        }
+
+        if (d->character)
+            free_char(d->character);
+        CREATE(d->character, struct char_data, 1);
+        clear_char(d->character, MOB_VOID);
+        register_pc_char(d->character);
+        d->character->desc = d;
+        SET_BIT(PRF_FLAGS(d->character), PRF_LATIN1);
+        d->pos = -1;
+        CREATE(d->character->player.name, char, strlen(tmp_name) + 1);
+        CAP(tmp_name);
+        strcpy(d->character->player.name, tmp_name);
+        sprintf(buf, "\n\rA new character will be created if you enter 'Y'.\n\r"
+                     "Is %s a suitable name for roleplay in Middle-earth (Y/N)? ",
+            tmp_name);
+        SEND_TO_Q(buf, d);
+        STATE(d) = CON_NMECNF;
         break;
     case CON_PWDGET: /* get pwd for new player */
         for (; isspace(*arg); arg++)
@@ -2774,7 +3969,7 @@ void nanny(struct descriptor_data* d, char* arg)
         /* Give them an autowimpy of 10 */
         WIMP_LEVEL(d->character) = 10;
         introduce_char(d);
-        SEND_TO_Q(MENU, d);
+        show_character_menu(d);
         STATE(d) = CON_SLCT;
         vmudlog(NRM, "%s [%s] new player.",
             GET_NAME(d->character), d->host);
@@ -2784,7 +3979,7 @@ void nanny(struct descriptor_data* d, char* arg)
     case CON_QOWN2:
         break;
     case CON_RMOTD: /* read CR after printing motd	*/
-        SEND_TO_Q(MENU, d);
+        show_character_menu(d);
         STATE(d) = CON_SLCT;
         break;
     case CON_SLCT: /* get selection from main menu */
@@ -2793,9 +3988,44 @@ void nanny(struct descriptor_data* d, char* arg)
 
         switch (*arg) {
         case '0':
-            close_socket(d);
+            if (*d->account_name) {
+                account::AccountData account_data;
+                std::string error_message;
+                if (!account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, &error_message)) {
+                    SEND_TO_Q("The account could not be reloaded. Returning to the account email prompt.\n\rAccount email: ", d);
+                    clear_account_login_state(d);
+                    STATE(d) = CON_NME;
+                    return;
+                }
+
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+            } else {
+                close_socket(d);
+            }
             break;
         case '1':
+            if (*d->account_name && d->character != nullptr) {
+                account::AccountData account_data;
+                std::string error_message;
+                if (!account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, &error_message)) {
+                    discard_descriptor_character_selection(d);
+                    SEND_TO_Q("The account could not be reloaded. Returning to the account email prompt.\n\rAccount email: ", d);
+                    clear_account_login_state(d);
+                    STATE(d) = CON_NME;
+                    return;
+                }
+
+                const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(d, account_data);
+                if (!consume_account_character_selection_unlock(account_data, active_sessions, GET_NAME(d->character))) {
+                    SEND_TO_Q(active_account_session_restriction_message(account_data, active_sessions).c_str(), d);
+                    discard_descriptor_character_selection(d);
+                    show_account_menu(d, account_data);
+                    STATE(d) = CON_ACCTMENU;
+                    return;
+                }
+            }
+
             // new
             for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next) {
                 if (!IS_NPC(tmp_ch) && GET_IDNUM(d->character) == GET_IDNUM(tmp_ch)) {
@@ -2837,7 +4067,6 @@ void nanny(struct descriptor_data* d, char* arg)
             report_mail(d->character);
             send_to_char(WELC_MESSG, d->character);
 
-            
             send_to_char("\n\r", d->character);
 
             /* if level 0, start out the new character */
@@ -2853,9 +4082,10 @@ void nanny(struct descriptor_data* d, char* arg)
             d->character->update_available_practice_sessions();
 
             /* update msdp room information */
-            d->pProtocol = ProtocolCreate();
+            if (!d->pProtocol)
+                d->pProtocol = ProtocolCreate();
             ProtocolNegotiate(d);
-            extern void msdp_room_update(char_data* ch);
+            extern void msdp_room_update(char_data * ch);
             msdp_room_update(d->character);
 
             do_look(d->character, "", 0, 0, 0);
@@ -2893,9 +4123,15 @@ void nanny(struct descriptor_data* d, char* arg)
             STATE(d) = CON_RMOTD;
             break;
         case '4':
-            SEND_TO_Q("Enter your old password: ", d);
-            echo_off(d->descriptor);
-            STATE(d) = CON_PWDNQO;
+            if (*d->account_name) {
+                SEND_TO_Q("Current account password: ", d);
+                echo_off(d->descriptor);
+                STATE(d) = CON_ACCTRESETOLD;
+            } else {
+                SEND_TO_Q("Enter your old password: ", d);
+                echo_off(d->descriptor);
+                STATE(d) = CON_PWDNQO;
+            }
             break;
         case '5':
             if (GET_LEVEL(d->character) >= LEVEL_GOD) {
@@ -2903,6 +4139,11 @@ void nanny(struct descriptor_data* d, char* arg)
                 break;
             } else if (GET_LEVEL(d->character) > 20) {
                 SEND_TO_Q("\n\rPlease ask an Arata or higher to delete you.\n\r", d);
+                break;
+            } else if (*d->account_name) {
+                SEND_TO_Q("\n\rEnter your account password for verification: ", d);
+                echo_off(d->descriptor);
+                STATE(d) = CON_ACCTDELCNF1;
                 break;
             }
             SEND_TO_Q("\n\rEnter your password for verification: ", d);
@@ -2917,7 +4158,7 @@ void nanny(struct descriptor_data* d, char* arg)
             break;
         default:
             SEND_TO_Q("\n\rThat's not a menu choice!\n\r", d);
-            SEND_TO_Q(MENU, d);
+            show_character_menu(d);
             break;
         }
         break;
@@ -2927,7 +4168,7 @@ void nanny(struct descriptor_data* d, char* arg)
 
         if (strncmp(CRYPT(arg, d->pwd), d->pwd, MAX_PWD_LENGTH)) {
             SEND_TO_Q("\n\rIncorrect password.\n\r", d);
-            SEND_TO_Q(MENU, d);
+            show_character_menu(d);
             STATE(d) = CON_SLCT;
             echo_on(d->descriptor);
             return;
@@ -2966,7 +4207,7 @@ void nanny(struct descriptor_data* d, char* arg)
         SEND_TO_Q("\n\rDone.\r\n"
                   "You must enter the game to make the change final.\n\r",
             d);
-        SEND_TO_Q(MENU, d);
+        show_character_menu(d);
         echo_on(d->descriptor);
         STATE(d) = CON_SLCT;
         break;
@@ -2977,7 +4218,7 @@ void nanny(struct descriptor_data* d, char* arg)
 
         if (strncmp(CRYPT(arg, d->pwd), d->pwd, MAX_PWD_LENGTH)) {
             SEND_TO_Q("\n\rIncorrect password.\n\r", d);
-            SEND_TO_Q(MENU, d);
+            show_character_menu(d);
             STATE(d) = CON_SLCT;
         } else {
             SEND_TO_Q("\n\rYOU ARE ABOUT TO DELETE THIS CHARACTER PERMANENTLY.\n\r"
@@ -2986,6 +4227,35 @@ void nanny(struct descriptor_data* d, char* arg)
                 d);
             STATE(d) = CON_DELCNF2;
         }
+        break;
+    case CON_ACCTDELCNF1:
+        echo_on(d->descriptor);
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg) {
+            SEND_TO_Q("\n\rIncorrect account password.\n\r", d);
+            show_character_menu(d);
+            STATE(d) = CON_SLCT;
+            return;
+        }
+
+        {
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::authenticate_account(kAccountStorageRoot, d->account_name, arg, &account_data, &error_message)) {
+                SEND_TO_Q("\n\rIncorrect account password.\n\r", d);
+                show_character_menu(d);
+                STATE(d) = CON_SLCT;
+                return;
+            }
+        }
+
+        SEND_TO_Q("\n\rYOU ARE ABOUT TO DELETE THIS CHARACTER PERMANENTLY.\n\r"
+                  "ARE YOU ABSOLUTELY SURE?\n\r\n\r"
+                  "Please type \"yes\" to confirm: ",
+            d);
+        STATE(d) = CON_DELCNF2;
         break;
     case CON_DELCNF2:
         if (!strcmp(arg, "yes") || !strcmp(arg, "YES")) {
@@ -3000,20 +4270,52 @@ void nanny(struct descriptor_data* d, char* arg)
 
             pkill_unref_character(d->character);
 
-            save_char(d->character, NOWHERE, 0);
-            Crash_delete_file(GET_NAME(d->character));
-            delete_exploits_file(GET_NAME(d->character));
-            delete_character_file(d->character);
-            sprintf(buf, "Character '%s' deleted!\n\rGoodbye.\n\r",
-                GET_NAME(d->character));
+            account::AccountData account_data;
+            if (*d->account_name) {
+                std::string error_message;
+                if (!account::admin_delete_linked_character(kAccountStorageRoot, d->account_name, GET_NAME(d->character), time(0), &account_data, &error_message)) {
+                    REMOVE_BIT(PLR_FLAGS(d->character), PLR_DELETED);
+                    SEND_TO_Q("Character not deleted.\n\r", d);
+                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                    show_character_menu(d);
+                    STATE(d) = CON_SLCT;
+                    return;
+                }
+
+                if (d->pos >= 0 && d->pos <= top_of_p_table) {
+                    player_table[d->pos].flags |= PLR_DELETED;
+                    player_table[d->pos].ch_file[0] = '\0';
+                }
+            } else {
+                save_char(d->character, NOWHERE, 0);
+                Crash_delete_file(GET_NAME(d->character));
+                delete_exploits_file(GET_NAME(d->character));
+                delete_character_file(d->character);
+            }
+            char deleted_character_name[MAX_NAME_LENGTH + 1];
+            std::snprintf(deleted_character_name, sizeof(deleted_character_name), "%s", GET_NAME(d->character));
+            const int deleted_character_level = GET_LEVEL(d->character);
+
+            sprintf(buf, "Character '%s' deleted!\n\r",
+                deleted_character_name);
             SEND_TO_Q(buf, d);
             vmudlog(NRM, "%s (lev %d) has self-deleted.",
-                GET_NAME(d->character), GET_LEVEL(d->character));
+                deleted_character_name, deleted_character_level);
+            if (*d->account_name) {
+                d->character->desc = nullptr;
+                free_char(d->character);
+                d->character = nullptr;
+                d->pos = -1;
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
             STATE(d) = CON_CLOSE;
             return;
         } else {
             SEND_TO_Q("Character not deleted.\n\r\n\r", d);
-            SEND_TO_Q(MENU, d);
+            show_character_menu(d);
             STATE(d) = CON_SLCT;
         }
         break;
@@ -3161,6 +4463,66 @@ int new_player_select(struct descriptor_data* d, char* arg)
 void introduce_char(struct descriptor_data* d)
 {
     FILE* fp;
+    char_file_u stored_character {};
+    const bool account_backed_character = *d->account_name != '\0';
+    if (account_backed_character) {
+        account::AccountData account_data;
+        std::string error_message;
+        if (!account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, &error_message)) {
+            discard_descriptor_character_selection(d);
+            SEND_TO_Q("The account could not be reloaded. Returning to the account email prompt.\n\rAccount email: ", d);
+            clear_account_login_state(d);
+            STATE(d) = CON_NME;
+            return;
+        }
+
+        const char* new_character_name = d->character != nullptr ? GET_NAME(d->character) : nullptr;
+        if (new_character_name != nullptr && *new_character_name) {
+            std::string owner_account_name;
+            if (!account::find_linked_character_owner_account(kAccountStorageRoot, new_character_name, &owner_account_name, &error_message)) {
+                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+                SEND_TO_Q("New character creation cancelled.\n\r", d);
+                discard_descriptor_character_selection(d);
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
+            if (!owner_account_name.empty()) {
+                SEND_TO_Q("That character name is already linked to an account.\n\r", d);
+                SEND_TO_Q("New character creation cancelled.\n\r", d);
+                discard_descriptor_character_selection(d);
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+
+            char existing_name[MAX_INPUT_LENGTH];
+            strncpy(existing_name, new_character_name, sizeof(existing_name) - 1);
+            existing_name[sizeof(existing_name) - 1] = '\0';
+            char_file_u existing_character {};
+            if (load_char(existing_name, &existing_character) > -1 && !IS_SET(existing_character.specials2.act, PLR_DELETED)) {
+                SEND_TO_Q("That character already exists.\n\r", d);
+                SEND_TO_Q("New character creation cancelled.\n\r", d);
+                discard_descriptor_character_selection(d);
+                show_account_menu(d, account_data);
+                STATE(d) = CON_ACCTMENU;
+                return;
+            }
+        }
+
+        const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(d, account_data);
+        if (new_character_name != nullptr
+            && first_restricting_active_account_session_for_account(account_data, active_sessions) != nullptr) {
+            SEND_TO_Q(active_account_session_restriction_message(account_data, active_sessions).c_str(), d);
+            SEND_TO_Q("New character creation cancelled.\n\r", d);
+            discard_descriptor_character_selection(d);
+            show_account_menu(d, account_data);
+            STATE(d) = CON_ACCTMENU;
+            return;
+        }
+    }
+
     init_char(d->character);
 
     if (d->pos < 0)
@@ -3172,10 +4534,58 @@ void introduce_char(struct descriptor_data* d)
     SET_SHOOTING(d->character, SHOOTING_NORMAL);
     utils::set_specialization(*d->character, game_types::PS_None);
     utils::set_casting(*d->character, CASTING_NORMAL);
+    finalize_new_character_start_state(d->character);
 
-    if ((fp = Crash_get_file_by_name(GET_NAME(d->character), "wb")))
-        fclose(fp);
-    save_char(d->character, NOWHERE, 0);
+    if (!account_backed_character) {
+        if ((fp = Crash_get_file_by_name(GET_NAME(d->character), "wb")))
+            fclose(fp);
+    }
+
+    if (account_backed_character) {
+        account::AccountData account_data;
+        std::string error_message;
+        char_to_store(d->character, &stored_character);
+        const int initial_load_room = d->character->specials2.load_room;
+        stored_character.specials2.load_room = initial_load_room;
+        const std::string account_character_path = account::account_character_player_path(kAccountStorageRoot, d->account_name, GET_NAME(d->character));
+
+        if (!update_player_index_entry_from_store(&stored_character, account_character_path.c_str(), &error_message)) {
+            SET_BIT(PLR_FLAGS(d->character), PLR_DELETED);
+            if (d->pos >= 0 && d->pos <= top_of_p_table) {
+                player_table[d->pos].flags |= PLR_DELETED;
+                player_table[d->pos].ch_file[0] = '\0';
+            }
+            SEND_TO_Q("Account linking failed, so the new character was rolled back. Please reconnect and try again.\n\r", d);
+            vmudlog(NRM, "Rolled back new character %s after account link failure for account %s: %s",
+                GET_NAME(d->character), d->account_name, error_message.c_str());
+            STATE(d) = CON_CLOSE;
+            return;
+        }
+        d->pos = stored_character.player_index;
+
+        if (!account::write_account_character_file(kAccountStorageRoot, d->account_name, stored_character, &error_message)
+            || !account::write_default_account_object_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), &error_message)
+            || !account::write_default_account_exploit_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), &error_message)
+            || !account::admin_link_character(kAccountStorageRoot, d->account_name, GET_NAME(d->character), time(0), &account_data, &error_message)) {
+            account::remove_account_character_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), nullptr);
+            account::remove_account_object_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), nullptr);
+            account::remove_account_exploit_file(kAccountStorageRoot, d->account_name, GET_NAME(d->character), nullptr);
+            SET_BIT(PLR_FLAGS(d->character), PLR_DELETED);
+            if (d->pos >= 0 && d->pos <= top_of_p_table) {
+                player_table[d->pos].flags |= PLR_DELETED;
+                player_table[d->pos].ch_file[0] = '\0';
+            }
+            SEND_TO_Q("Account linking failed, so the new character was rolled back. Please reconnect and try again.\n\r", d);
+            vmudlog(NRM, "Rolled back new character %s after account link failure for account %s: %s",
+                GET_NAME(d->character), d->account_name, error_message.c_str());
+            STATE(d) = CON_CLOSE;
+            return;
+        }
+        if (GET_LEVEL(d->character) == 1)
+            add_exploit_record(EXPLOIT_BIRTH, d->character, 0, NULL);
+        save_char(d->character, initial_load_room, 0);
+    } else
+        save_char(d->character, NOWHERE, 0);
 
     SEND_TO_Q(motd, d);
 }

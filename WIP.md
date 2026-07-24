@@ -1,0 +1,1056 @@
+# Work In Progress
+
+## Current Feature Planning Task - MSDP Unit Test Coverage
+- Active implementation slice complete: `msdp_update()` game-state emitter coverage now includes descriptor safety, broad character stat emission, weather branches, and opponent branches.
+- User requirement:
+  - add as much unit-test coverage for the game's MSDP features as practical
+  - keep the work unit-test focused instead of relying on live telnet/proxy smoke tests
+- Current implementation surface to cover:
+  - `src/protocol.cpp` / `src/protocol.h`: protocol creation/destruction, telnet MSDP negotiation, MSDP subnegotiation parsing, `SEND`, `REPORT`, `UNREPORT`, `RESET`, `LIST`, configurable variables, dirty/report state, send/update/flush functions, arrays, tables, sanitization, and ATCP fallback
+  - `src/comm.cpp`: `msdp_update()` periodic character/opponent/weather/stat updates
+  - `src/act_move.cpp`: `msdp_room_update()` room name/vnum/exits/terrain table and room-exit array updates
+  - existing test home: `src/tests/protocol_tests.cpp`, which currently covers protocol input fragmentation but not MSDP behavior
+- Work items:
+  - [x] Add test helpers for protocol descriptors:
+    - create/destroy a descriptor with `ProtocolCreate()`
+    - attach a minimal player character where `MSDPSend()` needs `PRF_MSDP`
+    - capture `write_to_descriptor(...)` output without a live network server/client
+    - provide helpers to build MSDP subnegotiation bytes and parse emitted MSDP variable/value packets
+  - [x] Add protocol table/default-state tests:
+    - every enum-backed MSDP variable initializes with the expected type/default/report/dirty state
+    - GUI variables initialize to the expected button/gauge payloads
+    - configurable variables start from documented defaults or `Unknown`
+  - [x] Add MSDP negotiation tests:
+    - `IAC DO MSDP` negotiates MSDP support and emits the server id when re-enabling a previously disabled MSDP session
+    - rejection/disable paths clear negotiated state
+    - fragmented MSDP negotiation and subnegotiation still parse correctly through `ProtocolInput`
+  - [x] Add MSDP output-format tests:
+    - `MSDPSend()` emits correct MSDP bytes for string and numeric variables when MSDP is enabled
+    - `MSDPSendPair()` emits ad hoc variable/value pairs
+    - `MSDPSendList()` emits an MSDP array and converts spaces to `MSDP_VAL`
+    - `MSDPSetTable()` / `MSDPSendTable()` wrap payloads in table markers
+    - `MSDPSetArray()` wraps payloads in array markers
+    - ATCP fallback emits `MSDP.<variable> <value>` when MSDP is unavailable but ATCP is active
+  - [x] Add dirty/report-state tests:
+    - `MSDPSetNumber()` and `MSDPSetString()` mark variables dirty only when values change
+    - `MSDPUpdate()` sends only dirty reported variables and clears dirty flags
+    - `MSDPFlush()` sends a single dirty reported variable and leaves unrelated dirty state alone
+    - unreported variables remain dirty but unsent until reported again
+  - [x] Add command parser tests through MSDP subnegotiation:
+    - `SEND <variable>` sends a single known variable
+    - `REPORT <variable>` enables reporting and marks that variable dirty
+    - `UNREPORT <variable>` disables reporting and clears dirty state
+    - `RESET REPORTABLE_VARIABLES`, `RESET REPORTED_VARIABLES`, and `RESET VARIABLES` clear all reporting state
+    - `LIST COMMANDS`, `LIST LISTS`, `LIST SENDABLE_VARIABLES`, `LIST REPORTABLE_VARIABLES`, `LIST REPORTED_VARIABLES`, `LIST CONFIGURABLE_VARIABLES`, and `LIST GUI_VARIABLES` return the expected arrays
+    - unknown commands and unknown variables are ignored without corrupting protocol state
+  - [x] Add configurable-variable tests:
+    - boolean variables accept only values in range
+    - string variables reject too-short values, trim non-printable characters, and clamp to max length
+    - write-once variables such as `CLIENT_ID` and `CLIENT_VERSION` can be set while `Unknown` and cannot be overwritten afterward
+    - invalid numeric strings and out-of-range numbers are ignored
+  - [x] Add escaping and malformed-input tests:
+    - `MSDPSanitizeValue()` escapes quotes, backslashes, newlines, carriage returns, tabs, and low control characters
+    - string setters store sanitized values
+    - malformed/truncated MSDP payloads do not crash, overrun buffers, or leak control bytes into normal player input
+    - oversized variable names/values are rejected or logged without writing partial protocol data
+  - [ ] Add `msdp_update()` game-state tests:
+    - [x] skips descriptors without characters, NPCs, missing protocol state, and characters in `NOWHERE`
+    - [x] skips corrupted out-of-range negative and high room indexes without emitting stale updates or stopping later descriptors
+    - [x] emits character name, level, race, alignment, experience-to-next-level, health, mana, movement, money, abilities, permanent abilities, wimpy, spirit, tactic, spell save/pen/power, armor absorption, offense/parry/dodge, attack speed, perception/willpower, encumbrance, regeneration, room name/vnum, and weather
+    - [x] emits NPC opponent name/level/health, PC opponent star-name/hidden level, and blank opponent fields when not fighting
+    - [x] validates division-by-zero or invalid max-health guard behavior for health percentage if tests expose a gap
+  - [ ] Add `msdp_room_update()` tests:
+    - skips NPCs and descriptors without protocol state
+    - emits room name/vnum, `ROOM_EXITS`, and `ROOM` table with `VNUM`, sanitized `NAME`, `EXITS`, and `TERRAIN`
+    - includes only valid exits and excludes null, hidden, or `NOWHERE` exits
+    - catches the current suspicious early-return path where normal non-negative rooms appear to skip room updates
+  - [ ] Refactor seams only if needed:
+    - expose a small protocol output sink or test hook instead of using real sockets
+    - keep production behavior unchanged unless tests reveal a clear bug
+    - prefer local helpers over broad rewrites of the KaVir protocol snippet
+  - [ ] Validation targets:
+    - focused `Protocol*` / MSDP test filters
+    - `make test`
+    - `make smoke-account` only if production MSDP behavior or telnet negotiation is changed
+- Notes:
+  - `Bazarat` should be used during test design because this will be a broad non-trivial unit-test feature.
+  - `Magus` and `Vincent` review is required before finalizing the eventual implementation change set.
+- Completed in current implementation slice:
+  - added socketpair-backed MSDP output capture in `src/tests/protocol_tests.cpp`
+  - added core MSDP tests for string sanitization, dirty state, exact MSDP packet output, ATCP fallback, list/table/array markers, update/flush behavior, `SEND` / `REPORT` / `UNREPORT` / `RESET` / `LIST` command parsing, configurable variables, write-once client identity, and unknown command safety
+  - fixed MSDP variable-table metadata macros so configurable string min/max values and GUI-variable flags match the `variable_name_t` field order
+  - fixed configurable string minimum-length validation so a payload containing only filtered control bytes cannot become an accepted empty string
+  - hardened public MSDP send helpers so pre-login or partially initialized descriptors without protocol/character state do not crash when clients send `SEND` or helper calls occur early
+  - hardened client-controlled configurable string filtering to use explicit printable ASCII checks instead of signed-`char` `isprint()` behavior
+  - added protocol default-state coverage for negotiated flags, feature booleans, configurable defaults, and GUI payload defaults
+  - added telnet MSDP/TTYPE negotiation coverage for exact negotiation bytes, disable/re-enable behavior, and server-id emission on MSDP re-enable
+  - added malformed/truncated/oversized MSDP coverage for empty values, oversized values, malformed marker order, oversized outgoing ad hoc payloads, and split subnegotiation across `ProtocolInput()` calls
+  - fixed split MSDP subnegotiation handling by moving the in-progress IAC/subnegotiation buffer onto `protocol_t`, so bytes received before `IAC SE` survive across network reads
+  - fixed the exact split between a subnegotiation terminator's `IAC` and `SE`, so the terminal `IAC` is buffered as control state instead of becoming part of the MSDP value
+  - hardened oversized unterminated subnegotiation recovery so a descriptor leaves IAC mode and accepts later normal input instead of repeatedly logging and returning
+  - hardened public MSDP string/table/array helpers with shared enum bounds checks
+  - added `msdp_update()` tests for descriptor skip behavior, minimal player state, blank opponent state, NPC opponent detail emission, PC opponent masking, and invalid opponent max-health handling
+  - strengthened `msdp_update()` coverage to assert exact emitted MSDP packets, dirty-flag clearing, and empty output from skipped NPC/`NOWHERE` descriptors
+  - tightened `msdp_update()` test fixture isolation by restoring the previous `top_of_world` value after each scoped room test
+  - fixed `msdp_update()` so a character in `NOWHERE` skips only that descriptor instead of returning from the full descriptor update loop
+  - hardened `msdp_update()` so corrupted negative or above-`top_of_world` room indexes skip only that descriptor before `world[...]` is indexed
+  - hardened `get_health_percent()` so invalid or zero max health returns 0 instead of producing an invalid percentage
+  - added broad `msdp_update()` stat coverage for alignment, experience math, mana, movement, money, current/permanent abilities, wimpy, spell values, armor/combat values, attack speed, perception/willpower, encumbrance, and regeneration
+  - added indoor and outdoor weather coverage, including newline-stripped outdoor weather text
+  - tightened weather global test isolation with a scoped weather guard
+  - added assertions that skipped invalid-room descriptors do not mutate stale weather or character-name state before being skipped
+- Validation so far:
+  - `clang-format -i -style=WebKit src/comm.cpp src/protocol.cpp src/protocol.h src/tests/protocol_tests.cpp` passed
+  - focused `./bin/tests '--gtest_filter=MSDPProtocol.MsdpUpdate*'` passed at `9/9` tests after bounds, broad-stat, and weather coverage were added
+  - focused `./bin/tests '--gtest_filter=MSDPProtocol.*:ProtocolInput.*'` passed at `39/39` tests
+  - `make test` passed at `588/588` tests
+  - `make smoke-account` passed the full proxy-backed account flow after the protocol metadata, pre-login hardening, split-subnegotiation, and `msdp_update()` fixes
+- Reviewer status:
+  - `Bazarat`: requested actual packet-output assertions for `msdp_update()` plus skip-output checks; addressed with exact `expected_msdp_pair(...)` assertions and stale opponent state setup for clear-to-empty branches
+  - `Bazarat`: requested room-bounds tests before broad stat expansion, broad character stat coverage, and indoor/outdoor weather coverage; addressed in the follow-up `msdp_update()` slice
+  - `Magus`: requested `top_of_world` fixture restoration; addressed in `ScopedMSDPTestRoom`
+  - `Magus`: requested scoped restoration for weather mutations; addressed with `ScopedSectorWeather`
+  - `Bazarat`: requested stale weather and skipped character-name assertions for invalid-room descriptors; addressed in the bounds regression test
+  - `Vincent`: clear; earlier out-of-range non-`NOWHERE` room-index hardening note has been addressed; longer-term `sprintf` replacement in MSDP packet builders remains a follow-up
+  - `Vincent`: noted future hardening for invalid room `sector_type` / weather index values before indexing `weather_info.sky` and `weather_messages`
+
+## Current Bug Task - Legacy Specialization Smoke Coverage
+- Active slice complete: the proxy-backed legacy-link smoke flow now catches lost specializations with a non-zero legacy fixture and live `info` output assertion.
+- Scope:
+  - add smoke-fixture coverage for a non-zero legacy specialization
+  - assert account-native `character.json` preserves that specialization after live account-menu legacy linking
+  - run the smoke harness with the new failing-first coverage and fix any production gap it exposes
+- Validation:
+  - `python3 tools/account_smoke_tests.py` passed at `54/54` tests
+  - focused `AccountManagement`/`CharacterJson` specialization filters passed
+  - `make test` passed at `554/554` tests
+  - `make smoke-account` first failed on the new live specialization assertion, then passed after the harness waited for the specialization line itself
+  - final `make smoke-account` passed with post-save account JSON and post-save live reload assertions for the migrated legacy specialization
+- Reviewer status:
+  - `Bazarat`: requested post-save and reload coverage; addressed with account-native identity checks after quit and a second account-backed live reload of the migrated legacy character
+  - `Magus`: requested write-side validation and fixture drift clarification; addressed with account-native write validation, malformed-specialization regression coverage, and fixture comments/tests
+  - `Vincent`: requested fail-closed handling for malformed legacy/runtime specializations; addressed before account-native serialization so invalid data cannot create or replace character JSON
+
+## Current Bug Task - Specialization Persistence
+- Active slice complete: specializations now persist in account-native `character.json` and are preserved during legacy account conversion.
+- Scope:
+  - reproduce the missing `char_file_u.profs.specialization` round trip in `character_json`
+  - add focused regression coverage with `Bazarat` pressure on malformed and unknown specialization cases
+  - persist the active specialization through account-native character JSON so legacy migration and account saves keep it
+- Validation:
+  - focused `CharacterJson` specialization and account-native/migration filters passed
+  - `make test` passed at `553/553` tests
+  - `make smoke-account` passed the full proxy-backed account flow, including account-backed legacy play
+  - `git diff --check -- src/character_json.cpp src/character_json.h src/tests/character_json_tests.cpp src/tests/account_management_tests.cpp WIP.md` passed
+- Reviewer status:
+  - `Bazarat`: requested non-zero round-trip, account-native wrapper, legacy migration, missing-field, and malformed-value coverage
+  - `Magus`: clear after review; requested explicit deserialize-time invalid specialization coverage
+  - `Vincent`: clear after review; requested enum-derived JSON fragments and explicit hostile account-file coverage
+
+## Current Bug Task
+- Active slice complete: fixed linked-character selection and new-character creation still being blocked when the account has a level-92+ linked character in its roster.
+- Scope:
+  - reproduce the mismatch between active-session-only level checks and roster-level exception expectations
+  - let a high-level linked character in account storage unlock linked-character selection and new-character creation even when the currently active linked character is lower level
+  - keep the active-session display and same-character reconnect behavior intact
+- Validation:
+  - `clang-format -i -style=WebKit src/interpre.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - `cmake --build build --target ageland_tests -j16` passed
+  - focused active-session/linked-roster `InterpreAccountMenu` filter passed at `28` tests after duplicate-owner, ambiguous-active-session, and corrupt-file hardening
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `88` tests
+  - `make test` passed at `550/550` tests
+  - `make smoke-account` passed the full proxy-backed account flow
+- Reviewer status:
+  - `Magus`: clear after ambiguous active-session precedence and pending-unlock cleanup
+  - `Vincent`: clear after ambiguous ownership and unlockselect trust-boundary review
+  - `Bazarat`: clear after duplicate-active-low, new-character name-confirmation, and unlockselect stale-state coverage
+
+## Current Build Task
+- Active slice complete: fixed the raw `src/Makefile` link failure from `make all`.
+- Scope:
+  - reproduce the raw Makefile build failure
+  - align the raw `src/Makefile` object list with source files already included by CMake when they provide linked server symbols
+- Validation:
+  - `cd src && make all` passed
+  - follow-up `cd src && make all` passed after tightening new Makefile header dependencies
+  - manual CMake-vs-Makefile source/object comparison returned no differences after whitespace normalization
+  - `git diff --check -- src/Makefile WIP.md` passed
+- Reviewer status:
+  - `Magus`: clear; noted pre-existing duplication risk between the raw Makefile and CMake source lists
+  - `Vincent`: clear after direct local headers were listed for the new save benchmark Makefile rules
+  - `Bazarat`: clear after the stale-object fix and the recorded source-list alignment validation
+
+## Current Documentation Task
+- Active slice complete: documented production verification-email setup for operators.
+- Scope:
+  - capture Gmail/Google Workspace app-password setup requirements
+  - document an Ubuntu `msmtp` sendmail-compatible bridge for the game's existing `/usr/sbin/sendmail -t -oi` integration
+  - include validation and troubleshooting steps without storing secrets in the repository
+- Follow-up:
+  - clarify that `msmtp` must be configured for the same user that runs `/usr/sbin/sendmail`, otherwise it reports `account default not found: no configuration file available`
+- Validation:
+  - `git diff --check` passed
+
+## Current Behavior Task
+- Active slice complete: lowered the active account-session alternate-character exception threshold.
+- Scope:
+  - accounts with an active linked character above level 91 can select a different linked character
+  - level 91 and below remain restricted to reconnecting/resuming the active character
+  - update active-session guard tests and planning docs from the old level 95/96 boundary to the new level 91/92 boundary
+- Follow-up:
+  - if any active linked character on the account is above level 91, do not block linked-character selection for that account, even when another active linked character is level 91 or below
+  - this keeps builders and implementors able to test builds and scripting from alternate linked characters
+  - `first_restricting_active_account_session(...)` now treats any active level-92+ linked character as an account-wide selection override
+  - `InterpreAccountMenu.MultipleActiveSessionsAllowSelectionWhenAnyActiveCharacterIsOverLevelNinetyOne` proves a mixed active-session account can select a third linked character
+- Validation:
+  - `clang-format -i -style=WebKit src/interpre.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - `git diff --check` passed
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*Active*:*SelectingSameActive*:*SelectingSameLinkless*'` passed at `14` tests
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `69` tests
+  - sandboxed `make test` passed `493/497` and failed only the local-socket `AcceptPathTest.*` cases with `Operation not permitted`
+  - unsandboxed `make test` passed at `497/497`
+  - sandboxed `make smoke-account` failed with local-socket `Operation not permitted`
+  - unsandboxed `make smoke-account` passed the full proxy-backed account flow, including the second-login active-character guard
+  - follow-up `clang-format -i -style=WebKit src/interpre.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - follow-up `git diff --check` passed
+  - follow-up `cmake --build build --target ageland_tests -j16` passed
+  - follow-up `./bin/tests '--gtest_filter=InterpreAccountMenu.*Active*:*SelectingSameActive*:*SelectingSameLinkless*'` passed at `14` tests
+  - follow-up `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `69` tests
+  - follow-up sandboxed `make test` passed `493/497` and failed only the local-socket `AcceptPathTest.*` cases with `Operation not permitted`
+  - follow-up unsandboxed `make test` passed at `497/497`
+  - follow-up unsandboxed `make smoke-account` passed the full proxy-backed account flow, including the second-login active-character guard
+  - reviewer follow-up added all-low plural restriction coverage, linkless level-92 override coverage, stale `CON_SLCT` final guard coverage, and quoted the README systemd environment example
+  - post-review `git diff --check` passed
+  - post-review focused active/stale `InterpreAccountMenu` filter passed at `17` tests
+  - post-review full `InterpreAccountMenu.*` passed at `72` tests
+  - post-review `make test` passed at `500/500`
+  - post-review `make smoke-account` passed the full proxy-backed account flow
+  - `Magus`: clear after all-low plural restriction regression and final re-check
+  - `Vincent`: clear after README systemd quoting fix; audit-log suggestion is non-blocking
+  - `Bazarat`: clear after all-low, linkless high-level, and stale final-guard regressions
+
+## Current Help Documentation Task
+- Active slice complete: updated immortal help for account-management arguments.
+- Scope:
+  - inspect the live `do_account` command surface
+  - update `lib/text/wizh_tbl` so `ACCOUNT` documents all implemented account-management subcommands and argument forms
+- Validation:
+  - `git diff --check` passed
+  - reviewer pass requested from `Magus`, `Vincent`, and `Bazarat`
+  - addressed `Magus` feedback by documenting block reasons as `<reason...>`
+  - addressed `Vincent` feedback by using a neutral block example, warning against PII/payment/private notes in persisted block reasons, and documenting inline passwords as temporary
+  - `Magus`: clear after re-check
+  - `Vincent`: clear after re-check
+  - `Bazarat`: clear after re-check
+
+## Current Release Notes Task
+- Active slice complete: generated end-user patch notes for `release-notes/1.5.9/README.md`.
+- Scope:
+  - compare `origin/release-frodo` to the current working tree
+  - match the sectioned release-note format of `release-notes/1.5.7/README.md`
+  - focus on end-user visible changes, not internal test/build churn
+- Validation:
+  - `git diff --check -- release-notes/1.5.9/README.md WIP.md` passed
+  - reformatted `release-notes/1.5.9/README.md` from the 1.5.8 flat bullet style to the 1.5.7 sectioned style
+  - reviewer pass requested from `Magus`, `Vincent`, and `Bazarat`
+  - addressed `Magus` feedback by documenting still-unverified account verification, new-character blocking under active-session restrictions, and the staff account command as a real management feature
+  - addressed `Vincent` feedback by replacing broad staff wording with eligible account administrators and removing builder/implementor rationale from the active-session bullet
+  - addressed `Bazarat` feedback by documenting legacy character migration explicitly and narrowing account-backed persistence wording to migration/storage preservation
+  - `Magus`: clear after re-check
+  - `Vincent`: no blocking security/trust-boundary findings remain; exact 91/92 active-session boundary retained for behavior clarity
+  - `Bazarat`: clear after re-check
+  - sectioned-format re-check addressed reviewer wording feedback by softening mail-delivery phrasing, tightening account-backed preservation wording, and making account-administration text public-note appropriate
+
+## Current Status
+- Active slice complete: added an immortal account command to unlock linked-character selection for a stuck active account session.
+- Planned command behavior:
+  - add `account unlockselect <email-or-account>` to the existing `LEVEL_GRGOD` account-management command surface
+  - grant a runtime-only, account-scoped, one-shot linked-character selection unlock
+  - require the account to currently have a restricting active linked character session before granting the unlock
+  - let linked-character selection and the final account-backed character-menu entry guard honor the unlock
+  - keep new-character creation and stale account-backed birth blocked even when an unlock is pending
+  - consume the unlock when it is used to pass the final character-entry guard
+- Completed in this slice:
+  - added `account unlockselect <email-or-account>` to `do_account`
+  - reused the active-session helper boundary for grant eligibility instead of duplicating descriptor checks in the command handler
+  - stored unlocks in runtime-only normalized account-name state
+  - let pending unlocks pass the linked-character selection prompt without consuming early
+  - consumed unlocks at the final account-backed character-menu entry guard and logged consumption
+  - discarded stale pending unlocks if the restricting active session is gone before use
+  - tied pending unlocks to the restricting character names present at grant time so they cannot apply to a later unrelated stuck session
+  - allowed a fresh admin grant to replace a stale pending unlock once the original restricting session is gone
+  - kept account-menu new-character creation and stale account-backed birth on the strict restriction path
+  - updated `lib/text/wizh_tbl` with usage, subcommand description, example, and runtime-only/one-use selection-only warning
+- Validation so far:
+  - `clang-format -i -style=WebKit src/interpre.cpp src/interpre.h src/act_wiz.cpp src/tests/act_wiz_tests.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=ActWiz.AccountUnlockSelect*:InterpreAccountMenu.UnlockSelect*'` passed at `8` tests
+  - `./bin/tests '--gtest_filter=ActWiz.*:InterpreAccountMenu.*'` passed at `89` tests
+  - `git diff --check` passed
+  - `make test` passed at `508/508` tests
+  - `make smoke-account` passed the full proxy-backed account flow after the stale-unlock lifecycle fixes
+- Reviewer status:
+  - `Magus`: clear after stale-pending unlock replacement fix
+  - `Vincent`: clear; richer grant audit context is non-blocking and deferred
+  - `Bazarat`: clear after stale-use and stale-grant lifecycle regressions
+- Follow-up complete: suppress the account-menu level-91 lock hint while keeping active-character display and blocked-action enforcement intact.
+- Current follow-up changes:
+  - removed the "Different character selection is locked until ... is over level 91" line from the account menu active-session status
+  - kept the blocked-selection message shown when a player actually tries to enter as a different restricted character
+  - updated focused unit and smoke expectations to assert the menu only shows the active character, not the lock hint
+- Current follow-up validation:
+  - `clang-format -i -style=WebKit src/interpre.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `69` tests
+  - `python3 -m py_compile tools/account_smoke.py tools/account_smoke_tests.py` passed
+  - `python3 tools/account_smoke_tests.py` passed at `51` tests
+  - `git diff --check` passed
+  - `make test` passed unsandboxed at `497/497` tests
+  - `make smoke-account` passed with the menu hint removed and blocked-selection enforcement intact
+- Current follow-up reviewer status:
+  - `Magus`: clear; residual risk is only that smoke does not explicitly assert absence of the removed hint, while unit tests do
+  - `Vincent`: clear; the removal is UI-only and blocked paths still send the enforcement message
+  - `Bazarat`: clear; menu omission and active-character display are unit-covered, and smoke still covers second-login enforcement
+- Active slice complete: active account-session/reconnect guard is implemented for account-backed character selection.
+- Completed in this slice:
+  - reviewed the current account menu, linked-character selection, reconnect, linkless descriptor, and `whoacct` account-session code paths
+  - added the requested active account-session behavior and implementation checklist to `FEATURES.md`
+  - added an account-scoped active-session helper that scans `descriptor_list` for same-account linked characters in `CON_PLYNG` and `CON_LINKLS`
+  - updated the account menu to show the active linked character and whether it is playing or linkless
+  - blocked selecting a different linked character and blocked new-character creation while the active account character is level 91 or below
+  - kept same-character reconnect/usurp behavior intact, including the second-session takeover path
+  - addressed review findings by adding guard rechecks for descriptors already sitting at the account-backed character menu or the final account-backed character birth path
+  - tightened active-session discovery so a character must point back to the descriptor that claims it
+  - preserved the over-level-91 exception so a different linked character can still be selected when the active character is level 92 or higher
+  - made the restricted-linking decision explicit: account-menu legacy linking remains allowed because it changes the roster but does not enter the game as another character
+  - expanded `InterpreAccountMenu` coverage for active playing/linkless display, false-positive descriptor filtering, descriptor/character back-pointer mismatches, level 91 vs 92 behavior, plural active-session display/restriction, side-effect-free blocking, same-character usurp, linkless reconnect/descriptor cleanup, stale character-menu and stale creation-wizard races, new-character blocking, and list/reset/link/logout allowance
+  - updated the duplicate-owner account-backed birth regression to assert the new fail-early behavior, so an already-linked name is rejected before player-index or account-native asset writes
+  - expanded `make smoke-account` so the proxy-backed flow opens a second account connection while the low-level account-born character is active, proves the different linked character is blocked, and then reconnects the same active character
+- Validation for this slice:
+  - `clang-format -i -style=WebKit src/interpre.cpp src/tests/interpre_account_menu_tests.cpp`
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `69` tests
+  - `python3 -m py_compile tools/account_smoke.py tools/account_smoke_tests.py` passed
+  - `python3 tools/account_smoke_tests.py` passed at `51` tests
+  - `git diff --check` passed
+  - `make test` passed unsandboxed at `497/497` tests
+  - `make smoke-account` passed with the new second-login active-character guard flow
+- Reviewer status:
+  - `Magus`: clear; noted that live smoke covers second-connection usurp while linkless reconnect is unit-covered
+  - `Vincent`: clear; duplicate-owner stale birth, descriptor filtering, staged cleanup, and same-character reconnect boundaries are acceptable
+  - `Bazarat`: clear; unit coverage covers the linkless path, with residual risk limited to no full socket-drop e2e for `CON_LINKLS`
+- Active slice complete: legacy account-link object conversion accepts older save files without follower sections.
+- Completed in this slice:
+  - `maga` legacy linking reaches object migration and fails with `Truncated objects data while reading follower record.`
+  - local inspection shows `lib/plrobjs/K-O/maga.obj` has a valid rent header, object section, board points, and aliases, then ends immediately after the alias terminator with no follower section
+  - kept `objects_json::object_save_data_from_binary(...)` strict by default so current object-save writes still reject missing follower sentinels
+  - added an explicit legacy object parser entry point for migration that accepts EOF immediately after the alias terminator as an older no-follower save shape
+  - logged when migration takes that compatibility path, including the account and character being migrated
+  - added parser coverage proving strict parsing rejects the old shape, legacy parsing accepts it, and partial follower sentinels still fail
+  - added migration coverage proving old no-follower object saves become account-owned `objects.json`, while partial follower data fails closed, preserves legacy files, and cleans up account-native outputs
+  - reviewed with `Magus`, `Vincent`, and `Bazarat`; addressed Vincent's scoped-parser and migration-negative-coverage findings plus Bazarat's follow-up tests for missing final follower sentinels, account-native write strictness, and legacy exploit preservation
+- Validation for this slice:
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=ObjectsJson.*'` passed at `14` tests
+  - `./bin/tests '--gtest_filter=AccountManagement.*Object*:AccountManagement.Migration*'` passed at `19` tests
+  - `git diff --check` passed
+  - `make test` passed unsandboxed at `483/483` tests
+  - `make smoke-account` passed the full proxy-backed account lifecycle, including legacy link and account-backed legacy play
+- Residual note:
+  - accepting EOF at the exact pre-follower boundary can still be indistinguishable from a modern save truncated at that same boundary, so the compatibility behavior is migration-only and logged instead of being enabled for ordinary object-save parsing
+- Active slice complete: removed the remaining legacy-shaped live-index dependency for new account-created characters.
+- Completed in this slice:
+  - updated account-backed character birth so the live `player_table` entry points at the authoritative account-owned `character.json` path immediately after link success
+  - updated account-backed selection and linked-character saves to refresh the live player index with the account-native character path
+  - tightened account-born character introduction coverage so it runs without `players/`, `plrobjs/`, or `exploits/` directories, asserts same-process `load_char()` reads account-native JSON, checks account link metadata, and decodes default account-owned object/exploit assets
+  - added rollback coverage for the later failure case where account-native assets are written but account linking fails because another account already owns the character
+  - addressed review feedback by making the account-native player-index path update a declared `db.h` API, rejecting overlong account-native paths instead of truncating `player_table[].ch_file`, and covering birth/selection fail-closed behavior for long account email storage paths
+  - closed the remaining boot-time truncation path by routing account-native index population through the checked API, added startup fail-closed coverage, covered linked `save_char()` refreshing a stale live index to the account-native path, and strengthened rollback/selection tests to prove existing account-owned assets survive
+- Validation for this slice:
+  - `clang-format -i -style=WebKit src/comm.cpp src/db.cpp src/db.h src/interpre.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - `git diff --check` passed
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `55` tests
+  - `./bin/tests '--gtest_filter=DbLoader.*:InterpreAccountMenu.*'` passed at `91` tests
+  - `make test` passed unsandboxed at `478/478` tests
+  - `make smoke-account` passed the full proxy-backed account lifecycle smoke flow
+- Active slice complete: extended descriptor-state unit coverage for stale staged password rejection paths and legacy-link migration failure cleanup.
+- Completed in this slice:
+  - added blank and weak-password account creation tests that clear stale staged `account_password` while staying in `CON_ACCTNEWPWD`
+  - added blank and weak-password reset tests that clear stale staged `account_password` while staying in `CON_ACCTRESETNEW` and preserve the stored password hash
+  - added a correct-password malformed-object legacy-link migration failure test that clears `account_character_name` without creating a link or account-native character assets
+  - ran the repo formatter after refreshing CMake so the `format` target detected installed `clang-format`, then scoped formatter churn back to the touched files
+- Validation for this slice:
+  - `make format` passed after regenerating the CMake build tree
+  - `clang-format -i -style=WebKit src/comm.cpp src/interpre.cpp src/tests/interpre_account_menu_tests.cpp` passed
+  - `git diff --check` passed
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `52` tests
+  - `make test` passed unsandboxed at `473/473` tests
+  - `make smoke-account` passed the full proxy-backed account lifecycle smoke flow
+- Active slice complete: added focused descriptor-state unit coverage for account login, verification, account creation, reset, legacy-link cancellation, and delete secret-input behavior.
+- Completed in this slice:
+  - pinned pending-verification login, verification cancel, invalid-code threshold, account creation mismatch/success, reset cancel/success, and legacy-link cancel/wrong-password descriptor transitions
+  - fixed stale transient descriptor state discovered by those tests (`account_password`, `account_character_name`, and verification `bad_pws`)
+  - added regressions around account-backed and legacy delete password input being treated as secret descriptor input, hidden from snoopers, and excluded from `last_input` replay
+- Validation for this slice:
+  - `cmake --build build --target ageland_tests -j16` passed
+  - `./bin/tests '--gtest_filter=InterpreAccountMenu.*'` passed at `47` tests
+  - `git diff --check` passed
+  - sandboxed `make test` hit local socket `Operation not permitted` failures in `AcceptPathTest`; rerun unsandboxed passed at `468/468` tests
+  - `make smoke-account` passed the full proxy-backed account lifecycle smoke flow
+- Active slice complete; expanded smoke e2e coverage and repeated validation are green.
+- Active slice: expanding proxy-backed e2e coverage beyond the current account lifecycle smoke.
+- Planned e2e additions:
+  - account-backed persistence flow: create a character, enter the game, change a persisted player-facing setting, quit through the normal save path, reconnect through the account menu, and prove the setting survived in account-native `character.json` plus the live command surface
+  - legacy link/migration flow: seed a real legacy player/object/exploit fixture, link it through account option `3`, verify account-native `character.json` / `objects.json` / `exploits.json` assets, verify legacy runtime files are retired, and prove the linked character can enter the game through the account menu
+  - keep both flows in the existing proxy-backed smoke harness unless runtime or readability forces a split
+- Completed in this slice:
+  - added account-native `character.json` true-color foreground assertions to the smoke harness
+  - expanded `make smoke-account` so account-backed play now turns colours on, sets `magic` foreground to `#0C2238`, quits through the normal mortal save path, verifies the account-native character JSON, reconnects through the account menu, and verifies the live `color` listing still reports the persisted setting
+  - avoided the immortal-only `save` command after the first live attempt proved it is not available to mortal smoke characters
+  - added a live legacy-character fixture writer that seeds a versioned legacy player file before server boot using the old fixed-width password encoding and sentinel level/race/title/load-room/id values
+  - added legacy object and exploit fixture writers so migration verifies real object/exploit conversion immediately after successful link
+  - expanded `make smoke-account` so it first proves a wrong legacy password does not partially link or migrate assets, then links the legacy character through account option `3`, verifies account-native assets, verifies legacy player/object/exploit files are retired after migration, and enters the game with the migrated character through account-backed selection
+  - limited exact migrated object/exploit fixture assertions to the immediate post-link point because normal account-backed gameplay can rewrite object rent data on quit
+  - added expired verification-code resend handling to the smoke harness after repeated smoke validation exposed a time-window failure mode
+  - hardened smoke cleanup/name selection so generated names skip existing legacy and account-native artifacts, account lookup only scans `account.json`, retry is limited to the initial account-email prompt, child processes get an allowlisted environment, and cleanup removes only exact smoke-created fixture/account paths
+  - added live migrated-character `info` assertions so the e2e proves the account-backed loader uses the migrated sentinel title and level, not just that migration wrote the right JSON file
+  - updated `README.md` to document that `make smoke-account` creates and removes ignored runtime data under `lib/`
+- Validation for this slice:
+  - `python3 -m py_compile tools/account_smoke.py tools/account_smoke_tests.py` passed
+  - `python3 tools/account_smoke_tests.py` passed at `51` tests
+  - `git diff --check` passed
+  - `make smoke-account` passed once with the expanded color-persistence and legacy link/migration/play flow before the expired-code resend patch
+  - a repeated `make smoke-account` run then exposed the expired verification-code path; the resend fix and focused Python regression are in place
+  - post-fix repeated `make smoke-account` passed `3/3` runs with the expanded color-persistence, legacy link/migration/play, and delete lifecycle flow
+  - Cargo still emits the existing workspace resolver warning during proxy builds; it did not affect the smoke result
+- Next in this slice:
+  - no remaining implementation step for this slice
+  - optional cleanup remains for preserved debug artifacts under `/tmp/rots-account-smoke-*` and the kept debug account under `lib/accounts/P-T/smkb393ca001a76@example.com/`
+- Active slice: repeated proxy-backed account smoke validation after the local world files were restored.
+- Completed in this slice:
+  - ran `make smoke-account` three times after world data was present locally
+  - all three runs completed the full create -> verify -> login -> list -> reset password -> re-login -> create play character -> account-backed play -> create delete character -> delete back to account menu -> relogin-roster-check flow successfully
+- Validation for this slice:
+  - `make smoke-account` passed `3/3` repeated runs
+  - Cargo still emits the existing workspace resolver warning during the proxy build; it did not affect the smoke result
+- Active slice: documenting local development prerequisites that blocked setup in this environment.
+- Completed in this slice:
+  - updated `README.md` prerequisites with the concrete applications/packages needed for CMake builds, C++ tests, 32-bit linking, the Rust proxy smoke flow, and the Python smoke harness
+  - documented Debian/Ubuntu package names for CMake, GTest, 32-bit multilib headers, 32-bit libcrypt support, and Python
+  - documented that Rust/Cargo must be installed
+- Validation for this slice:
+  - reviewed the updated `README.md` prerequisite section
+- Active slice: stabilizing the proxy-backed account smoke/e2e harness so prompt waits and startup failures produce deterministic results instead of intermittent `Account email:` / marker timeouts.
+- Completed in this slice:
+  - switched the smoke harness to allocate distinct loopback ports by default instead of sharing fixed ports across runs
+  - kept dynamic game ports in the legacy-safe `20000..32767` range so the 32-bit game does not log/use wrapped negative port values
+  - added process-aware startup waits that fail immediately with game/proxy log tails when a child exits before readiness
+  - changed proxy readiness to wait for the proxy listening log marker instead of opening a throwaway proxied game session
+  - limited automatic retries to prompt-marker timeouts; startup/process exits now fail once with preserved artifacts
+  - cleaned generated repo account/character files, including current flat account-native character assets beside `account.json`, after failed runs by default while preserving `/tmp` logs for debugging
+  - added focused Python regressions for process-death diagnostics, refused-connect diagnostics, proxy log-marker readiness, dynamic port selection, mixed explicit/dynamic ports, flat account-native cleanup, non-retryable startup failures, and per-attempt dynamic port resolution
+- Validation for this slice:
+  - `python3 tools/account_smoke_tests.py` passed at `33` tests
+  - `make test` passed at `459/459`
+  - `python3 tools/account_smoke.py --attempts 2 --startup-timeout 20` now fails fast locally with the real boot blocker, `Error opening index file 'world/scr/index': No such file or directory`, and preserves artifacts under `/tmp/rots-account-smoke-*`
+- Remaining local validation gap resolved:
+  - after the separate world data was restored under `lib/world/`, repeated full `make smoke-account` runs pass locally
+- Active slice completed: the first true-color groundwork pass is now green, with the richer foreground/background color model compiling cleanly and round-tripping through runtime rendering, account-native `character.json`, and legacy text player saves.
+- Completed in this slice:
+  - added focused `Color` renderer regressions covering legacy ANSI foreground rendering, true-color foreground rendering, true-color background rendering, background clearing, and nearest-ANSI fallback mapping
+  - expanded `CharacterJson` coverage so structured color settings, legacy integer color compatibility, and out-of-range structured color validation are pinned directly
+  - expanded `AccountManagement` character-file coverage so account-native character JSON preserves structured color settings and rejects malformed color data
+  - expanded `DbLoader` legacy text-save coverage so `colorfg` / `colorbg` round-trip into live character rendering correctly
+  - preserved explicit ANSI fallback values for true-color entries in account-native JSON instead of always recomputing them from RGB
+- Validation for this slice:
+  - `cmake --build build --target ageland_tests -j16`
+  - `./bin/tests '--gtest_filter=Color.*'`
+  - `./bin/tests '--gtest_filter=CharacterJson.*'`
+  - `./bin/tests '--gtest_filter=AccountManagement.*CharacterFile*'`
+  - `./bin/tests '--gtest_filter=DbLoader.LegacyPlayerTextRoundTripPreservesStructuredColorSettings'`
+  - `make test` passed at `452/452`
+- Next recommended true-color step:
+  - add client-capability / downgrade behavior before exposing player-facing `color ... fg/bg rgb|hex` command syntax, so true-color selections do not become a user-facing footgun for non-truecolor terminals
+- Active slice completed: the player-facing `color` command now supports explicit foreground/background true-color selection, and the player help entry documents the new syntax.
+- Completed in this slice:
+  - kept the legacy shorthand `color <slot> <ansi colour>` syntax working
+  - added explicit command forms for:
+    - `color <slot> fg ansi <ansi colour>`
+    - `color <slot> fg rgb <red> <green> <blue>`
+    - `color <slot> fg hex #RRGGBB`
+    - `color <slot> fg default`
+    - `color <slot> bg ansi <ansi colour>`
+    - `color <slot> bg rgb <red> <green> <blue>`
+    - `color <slot> bg hex #RRGGBB`
+    - `color <slot> bg default`
+  - updated bare `color` output so it shows each slot as structured `fg ... bg ...` state instead of only the old single ANSI value
+  - added a new player help entry in `lib/text/help_tbl` covering the old shorthand, the new fg/bg forms, RGB/hex rules, and example commands
+- Added focused `Color` regressions proving:
+  - legacy ANSI syntax still works
+  - RGB foreground selection works
+  - hex background selection works
+  - background reset works
+  - the bare `color` listing shows structured foreground/background state
+  - invalid RGB input is rejected without changing the slot
+- Validation for this slice:
+  - `./bin/tests '--gtest_filter=Color.*'`
+  - `make test` passed at `458/458`
+- Follow-up fix completed: the interpreter command table now accepts `color` as a real alias for `colour`, so the documented American spelling and the implemented command surface match again.
+- Added a focused `Color.InterpreterAcceptsColorAsAliasForColour` regression to pin the command-table alias directly.
+- Active slice: beginning the true-color upgrade by replacing the legacy “single ANSI index per slot” assumption with a richer runtime/account-native color model that can carry foreground/background true-color values while still keeping ANSI fallback data.
+- Plan for this slice:
+  - expand the stored/runtime color representation so each slot can hold mode plus foreground/background values instead of only a single ANSI index
+  - keep legacy save/load and older account-native `character.json` color data backward compatible by treating existing numeric values as ANSI foreground selections
+  - add focused regressions for the new color model and compatibility paths before wiring it into `do_color`
+- Active slice: wiring the new `magic` color slot onto live spellcasting messages so incantations and pre-cast room announcements actually use the configurable magic color.
+- Plan for this slice:
+  - add focused `spell_pa` regressions for room-visible spellcasting text with and without `PRF_COLOR`
+  - route `say_spell(...)` and the delayed-cast muttering line through a shared magic-room-message helper
+  - keep the scope limited to spellcasting announcements, not every spell effect line
+- Spellcasting announcements now use the `magic` color slot in the two main room-visible paths:
+  - `say_spell(...)` incantation lines
+  - the delayed-cast `begins quietly muttering...` room announcement before the spell resolves
+- Added focused `SpellParser` regressions that prove:
+  - color-enabled observers receive magic-colored spell incantation output
+  - observers without `PRF_COLOR` still receive the same spellcasting text without ANSI color codes
+- Validation for this slice:
+  - `./bin/tests '--gtest_filter=SpellParser.*'`
+  - `make test` passed at `445/445`
+- Active slice: adding `magic` and `weather` as the next two configurable player color categories while leaving the final spare persisted color slot unused.
+- Implementation plan for this slice:
+  - add dedicated `COLOR_MAGIC` and `COLOR_WEATHER` indices in the persisted color-slot layout
+  - update `do_color` so player-visible color categories only list real configurable fields instead of conflating the spare persisted slots with `off` / `on` / `default`
+  - persist the new categories cleanly through account-native `character.json` and account character file read/write coverage
+- `magic` and `weather` are now added as real configurable color categories in the runtime color table, with the final sixteenth persisted color slot still left unused/reserved.
+- `do_color` now treats the configurable color list as the real player-facing categories only, so `magic` and `weather` appear alongside the existing categories while `off` / `on` / `default` remain command words instead of being conflated with persisted color slots.
+- Account-native `character.json` color persistence now uses named `magic` and `weather` keys, and the focused account-character read/write regressions now pin those two new categories in addition to the older custom color coverage.
+- Validation for this slice:
+  - `cmake --build build --target ageland_tests -j16`
+  - focused `CharacterJson` and `AccountManagement` color regressions passed
+  - `make test` passed at `443/443`
+- Active slice: fixing the account-backed persistence bug where combat tactics and two-handed weapon stance were lost after renting, returning to the account menu, and selecting the character again.
+- Root cause: those states were runtime-only. `tactics`, `shooting`, `casting`, and two-handed stance were not persisted through the legacy text player save or the account-native `character.json` path, so rent/menu/replay reconstructed the character with default combat state.
+- `src/db.cpp` now persists and restores:
+  - `tactics`
+  - `shooting`
+  - `casting`
+  - `twohanded`
+  through both the legacy text player-file parser/writer and `store_to_char(...)` / `char_to_store(...)`.
+- `src/character_json.cpp` and `src/character_json.h` now carry the same combat-state fields in `character.json`, and older JSON files that omit them still load safely with normal/default values.
+- Legacy/account-native hardening in this slice:
+  - malformed positive combat-state values from legacy saves are normalized back to safe defaults instead of being allowed to poison later account-native reads
+  - account-native export now normalizes unset or out-of-range combat-state values before writing `character.json`
+  - malformed account-native `character.json` combat-state values still fail closed on read by design; normalization is applied to legacy/runtime inputs, not to already-authored JSON files
+  - `Crash_load(...)` now clears persisted two-handed stance if the restored equipment does not actually support it (no wielded weapon or a shield is present)
+- Added focused regressions proving:
+  - legacy text player-file round-trip preserves tactics, shooting, casting, and two-handed state
+  - account-native `character.json` write/read preserves those same values
+  - older `character.json` files that lack the new fields default back to normal tactics/shooting/casting and no two-handed stance
+  - out-of-range combat-state values in legacy text saves and stored characters are normalized back to safe defaults
+- Validation for this slice so far:
+  - focused `CharacterJson`, `AccountManagement`, `DbLoader`, and affected `InterpreAccountMenu` regressions pass after a fresh rebuild
+  - `make test` is not a clean pass in this sandbox because the pre-existing `AcceptPathTest.*` listener tests cannot bind sockets here (`Operation not permitted`), so the full CTest wrapper still fails on those environment-restricted startup tests
+- Broader test note:
+  - a manual run of `./bin/tests --gtest_filter=-AcceptPathTest.*` also exposed unrelated pre-existing `OlogHaiHelpers.*` failures in the current worktree; those are outside this tactics/two-handed persistence slice
+- Follow-up discovered and fixed during this slice:
+  - older fixtures/account-native character records with unset combat-state fields were being serialized as invalid zeroes; `character_data_from_store(...)` now normalizes unset values to the normal tactics/shooting/casting defaults before writing JSON
+- The immediate plan is:
+  - finish the reviewer pass for the tactics/two-handed persistence fix
+  - decide whether to extend manual smoke coverage specifically for this rent/menu/combat-state scenario
+- `whoacct` is now wired into the command table as an immortal command. It lists authenticated account sessions by email, shows the currently played character when the session is in game, and shows account-side session labels like `Account Menu` when the account is connected but not yet playing a character.
+- `whoacct` now renders with `Num / Account / Character / State / Site` columns similar to `users`, and account-side states are displayed as plain labels like `Account Menu` and `Character Select`.
+- `whoacct` is now gated to the same higher-trust staff tier as `account`, and it only reports live post-auth account states instead of exposing pending-verification sessions.
+- Added focused `ActWiz` regressions proving `whoacct`:
+  - lists only authenticated account sessions
+  - shows the live character name for account-backed in-game sessions
+  - shows `Account Menu` for authenticated account-menu sessions
+  - shows `Character Menu` for authenticated character-menu sessions without mislabeling them as `Playing`
+  - lists duplicate live sessions for the same account separately
+  - skips stale `CON_CLOSE` descriptors even if they still have account state set
+  - shows `Character Select` for authenticated character-selection sessions
+  - skips pending-verification sessions that have not reached the authenticated account menu/character flow yet
+  - sanitizes hostile email/host values before rendering them in the immortal-visible table
+  - keeps the rendered table stable for long email/host values and exact mixed-state output
+  - reports the no-sessions case cleanly
+- Updated `lib/text/wizh_tbl` with a new `WHOACCT` immortal help entry and refreshed the `ACCOUNT` entry so both account-management commands are documented in the same table.
+- `account show` now renders human-readable UTC timestamps instead of raw epoch values, including verification, verification-window, blocked, created, updated, and password-reset metadata where applicable.
+- Added focused `AccountManagement` regressions proving the account summary:
+  - renders fixed UTC timestamps for the normal verified/blocked/reset happy path
+  - renders human-readable verification-window timestamps for pending-verification accounts
+  - omits unset blocked/password-reset metadata cleanly
+  - reports out-of-range persisted timestamps as `Invalid`
+- Updated `lib/text/wizh_tbl` so the immortal `account show` help notes that timestamps are shown in UTC.
+- Validation for this slice: focused `ActWiz` and `AccountManagement` regressions pass and `make test` passes at `436/436`.
+- Recent completed slice:
+  - account-authentication observability in `nanny()` now mudlogs successful login, logout, invalid password attempts, and self-service password resets with focused regression coverage
+- Added mudlogs for:
+  - successful account login
+  - account logout from the authenticated account menu
+  - invalid account password attempts
+  - self-service account password reset
+- The immediate follow-up is account logout observability from the authenticated account menu.
+- Added focused `InterpreAccountMenu` regressions that capture stderr and prove:
+  - login and reset logs include the account email plus host
+  - logout logs include the account email plus host exactly once
+  - invalid-password logs do not leak the attempted password
+  - pending-verification accounts are not mislabeled as bad-password attempts
+  - bad current-password attempts in the self-service reset flow log exactly once, leak no secret, and do not emit a reset-success event
+- Validation for this slice:
+  - focused `InterpreAccountMenu` logging regressions pass
+  - `make test` passes at `427/427`
+  - `make smoke-account` still hit the known early prompt-detection flake before reaching the account menu, so there is no clean smoke confirmation for this observability-only change yet
+- Durable repo state:
+  - successful migration no longer writes a routine `.migration.json` file, and normal account-native play/save paths no longer depend on that artifact
+  - account-native `character.json`, `objects.json`, and `exploits.json` are the intended authorities for linked characters
+  - the recent `Crash_load()` bugfix keeps missing legacy `plrobjs/...` files quiet on account-backed fallback while still logging real open failures
+- `make test` now suppresses compiler warnings by default through the CMake test-target flags, so the build output stays focused on actual test failures instead of warning noise.
+- The oversized `account_management` module is being split into smaller responsibility-based headers and implementation fragments so future account/auth/storage work is easier to navigate without changing the compiled entry point layout.
+- `src/account_management.cpp` now keeps the shared helper/private logic while the public surface is broken out into focused identity, storage, assets, migration, and presentation fragments.
+- Added compile-only test translation units so each new public `account_management_*` header has to compile on its own instead of only through the umbrella header.
+- The transitional on-disk `.migration.json` artifact is now sanitized: it no longer persists raw legacy player-file bytes, so legacy password/host data is not carried forward at rest in migration metadata. In-memory migration data still keeps the player bytes long enough for the current rollback/restore helpers.
+- Added focused regressions in `src/tests/account_management_tests.cpp` proving the persisted migration file omits legacy player password/host content while still preserving in-memory rollback data and the object/exploit migration payloads that remain in the transitional artifact.
+- The account-backed play selector no longer exposes the generated internal account name in player-facing copy; it now says `Linked characters for your account:` instead.
+- The immortal `account` command now accepts either an email address or the internal account name for lookup, so admins no longer need to know the generated internal name just to inspect or manage an account.
+- Added a shared `read_account_file_by_identifier(...)` helper in `account_management` and wired `show`, `verify`, `unverify`, `block`, `unblock`, `passwd`, `addchar`, and `migratechar` in `src/act_wiz.cpp` through it.
+- Account summaries now lead with the player-facing email and label the generated value as `Internal name:` instead of presenting it as the primary account identity.
+- Added focused regressions in `src/tests/account_management_tests.cpp` for identifier-based lookup by email or internal name, mixed-case email normalization, and exact account-summary formatting.
+- Added real command-level regressions in `src/tests/act_wiz_tests.cpp` that drive `do_account` through `show`, `verify`, `unverify`, `block`, `unblock`, `passwd`, and `addchar` using both email and internal-name identifiers, proving the immortal command path resolves through the new identifier lookup instead of only the helper layer.
+- Added the missing command-level `migratechar` regression in `src/tests/act_wiz_tests.cpp`, including a boot-like fixture with a real player-table entry plus legacy object/exploit files so the admin email-lookup path is exercised through the full migration command.
+- Validation is green for this slice: focused `AccountManagement` and `ActWiz` regressions pass, and `make test` passes at `417/417`.
+- Fixed the account-backed crash reported after deleting one linked character and then selecting another to play on the same descriptor.
+- Added a focused regression in `src/tests/interpre_account_menu_tests.cpp` that exercises the real flow: delete one linked character, return to the account menu, reopen the numbered selector, and successfully load the surviving linked character on the same connection.
+- Tightened the follow-up lifecycle handling in `src/interpre.cpp` so the replacement `char_data` shell is only created when needed for account-backed selection, selection rejection before login leaves the descriptor shell null, and post-delete account-menu new-character creation now tolerates a null `d->character` instead of crashing on `free_char(...)`.
+- Added two more focused regressions in `src/tests/interpre_account_menu_tests.cpp`: one proves a failed post-delete selection does not leave behind a replacement descriptor shell, and another proves delete -> account menu -> create new character recreates the shell cleanly on the same descriptor.
+- Validation is green for this bugfix slice: focused `InterpreAccountMenu` regressions pass, `make test` passes at `413/413`, and `make smoke-account` passes on the live proxy-backed account flow after one bounded retry on the early telnet prompt wait.
+- Account-menu character play selection is now numbered instead of name-based.
+- The play prompt now lists linked characters as `1)`, `2)`, and so on, with `0) Back to Account Menu.` and a `Character number:` prompt.
+- The manual smoke harness has been updated to drive the numbered selector and now passes again after fixing one remaining buffered-reader edge case where a prompt marker arriving in the final recv chunk could still time out.
+- The selector is now truly number-only and bounded to the displayed roster range, so hidden entries and raw character-name input are both rejected in the account-backed play selector.
+- The smoke harness now requires full account-menu and character-menu marker sets instead of accepting any one matching prompt fragment, and it now also checks `character_links` plus deleted account-native file cleanup on disk.
+- The manual smoke harness is now materially more robust: `tools/account_smoke.py` uses a buffered prompt reader that preserves unread sanitized output across sequential prompt waits instead of dropping coalesced server output after the first matched marker. That fixes the intermittent account-menu / password-prompt flakes caused by multiple prompts arriving in a single recv.
+- The smoke flow is also now split more cleanly by concern: one generated character is used to prove account-backed play, while a second generated character is created and then deleted directly from the character menu to prove the post-delete return-to-account-menu behavior without depending on the unrelated in-world `quit` / linkdead path.
+- New focused Python regressions in `tools/account_smoke_tests.py` now cover buffered prompt consumption across coalesced prompts and the case where a delete success line and the returned account-menu text arrive in the same recv.
+- Validation is green for this smoke-harness slice: `python3 tools/account_smoke_tests.py` now passes at `15` tests, and `make smoke-account` passes with the expanded create -> verify -> reset -> create play character -> play -> create delete character -> delete -> relogin roster flow.
+- Account-backed character deletion now returns the player to the account menu instead of disconnecting the socket after a successful confirmed delete.
+- The focused regression in `src/tests/interpre_account_menu_tests.cpp` now pins that successful account-backed delete both removes the account-native `character` / `objects` / `exploits` files and immediately renders the zero-character account menu again, instead of leaving the descriptor in `CON_CLOSE`.
+- Validation is green on the unit side for this slice: focused account-delete regressions pass, and `make test` still passes at `407/407`.
+- Manual smoke is now green on the broader account flow after the buffered prompt-reader fix; the earlier intermittent prompt-detection flake was a harness read-boundary bug rather than an account-menu behavior regression.
+- The proxy-backed manual smoke flow is now broader and green locally: `tools/account_smoke.py` covers account creation, email verification, character listing, account-password reset, re-login with old-password rejection and new-password acceptance, new-character creation, account-backed play, returning from the character menu to the account menu with option `0`, account-password-backed character deletion, and a final re-login proving the roster is empty afterward.
+- The smoke harness now uses account-specific and character-specific prompt waits (`0) Log out`, `5) Reset account password`, `0) Back to Account Menu.`, `5) Delete this character.`) instead of relying only on generic `Choice:` / `Make your choice:` markers, which makes the lifecycle assertions much less prone to stale-menu false positives.
+- New focused Python regressions in `tools/account_smoke_tests.py` now cover split CR-NUL handling across recv boundaries in addition to the earlier split-IAC/subnegotiation cases, and helper-level assertions now verify the on-disk account character list matches expected linked-character state.
+- Validation is green for this slice: `python3 tools/account_smoke_tests.py` now passes at `11` tests, `make test` passes at `407/407`, and `make smoke-account` passes with the expanded create -> verify -> reset -> create character -> play -> back to account -> delete -> relogin-empty-roster lifecycle.
+- The proxy-backed smoke harness flake is now fixed locally: `tools/account_smoke.py` uses a stateful telnet stream sanitizer before marker matching, keeps both sanitized and raw timeout diagnostics, and now survives telnet negotiation noise and split `IAC` / `CR NUL` sequences that previously hid prompts like `Account email:` and `Verification code`.
+- New focused Python regressions in `tools/account_smoke_tests.py` cover CR-NUL cleanup, split telnet negotiation across chunks, escaped `IAC IAC`, split subnegotiation, the negative case that incomplete negotiation noise does not fabricate prompt markers, and `recv_until(...)` timeout diagnostics that preserve both sanitized and raw output tails.
+- Validation is green for this slice: `python3 tools/account_smoke_tests.py` passes at `8` tests, `make test` stays green at `407/407`, and `make smoke-account` now passes on the live proxy-backed flow.
+- Account-backed character deletion now requires the account password instead of the legacy character-password path, and the confirmed delete flow is now account-aware all the way through: linked character JSON/object/exploit assets are staged, the account file is unlinked, and the staged assets are only removed after the unlink commits successfully.
+- New focused regressions in `src/tests/interpre_account_menu_tests.cpp` cover the account-backed delete menu prompt, incorrect account-password rejection, correct account-password advancement to the permanent delete confirmation, and the full confirmed-delete cleanup of account-native files plus account linkage.
+- Validation is green for this slice: focused account-backed delete regressions pass, and `make test` now passes at `407/407`.
+- The live exploit-history regression reported from `print_exploits()` is now fixed locally: account-native `exploits.json` loads no longer hard-fail just because an older stored `victim_name` is longer than the legacy fixed-width field, and the compatibility truncation now emits a `SYSERR` warning so repaired audit data is visible in logs.
+- New focused regressions in `src/tests/exploits_json_tests.cpp` cover the reported overlong-name compatibility case plus the exact fixed-buffer fenceposts: an exact-fit `victim_name` remains unchanged, and a one-byte-too-long `victim_name` truncates cleanly to a NUL-terminated legacy-width value.
+- Validation is green for this slice: focused `ExploitsJson` now passes at `7` tests, and `make test` now passes at `401/401`.
+- Legacy-character linking now uses player-facing success copy in both link flows instead of exposing account-storage internals: the account-menu path and the in-game `linkaccount` password-confirmation path both now say `Successfully added <Character> to your account.`.
+- New focused regressions cover both success paths in `src/tests/interpre_account_menu_tests.cpp`, verify the account file really gains the linked character, and pin that the account-menu variant still immediately renders the follow-up menu after the success line.
+- The display-name capitalization logic for those success lines now reuses a shared helper in `src/account_management.cpp`, and a new helper-level regression in `src/tests/account_management_tests.cpp` pins empty, lowercase, and mixed-case behavior.
+- Validation is green for this slice: focused legacy-link message regressions pass, and `make test` now passes at `400/400`.
+- Manual smoke is still flaky in the known telnet/proxy prompt-detection path: `make smoke-account` retried and then timed out in the verification/menu markers again, so this slice is unit-validated but the separate smoke harness issue is still unresolved.
+- The account-backed character-menu label bug is now fixed in the live return-to-menu path: `extract_char(...)` in `src/handler.cpp` now routes back through the shared account-aware character-menu helper instead of sending the legacy raw `MENU` string directly, so account-backed sessions no longer fall back to `0) Exit from the MUD.` in that branch.
+- New focused regressions now cover the previously missed branches in `src/tests/interpre_account_menu_tests.cpp`: the `extract_char(...)` return-to-menu path for account-backed characters, the real `CON_ACCTSLCT -> CON_SLCT` rerender path after an invalid menu choice, and an explicit legacy-session control proving non-account characters still see `0) Exit from the MUD.`.
+- Validation is green for this label-fix slice: focused `InterpreAccountMenu` now passes at `19` tests, and full `make test` now passes at `395/395`.
+- Review status for this slice: `Bazarat`, `Magus`, and `Vincent` all agreed the menu-label fix itself is covered, but `Magus` and `Vincent` also surfaced a separate high-risk follow-up that is not fixed yet: account-backed character self-delete still goes through the legacy character-password / legacy-file cleanup path, which can authenticate against the `*ACCOUNT*` sentinel and leave account-native artifacts behind. That needs its own bugfix slice with tests before the account-backed delete option is safe.
+- Follow-up on the latest `Magus` / `Vincent` / `Bazarat` findings is now in locally: the real `CON_ACCTSLCT -> CON_SLCT` path keeps the authenticated account session through the character menu, account-backed rollback no longer recreates legacy files through `save_char(...)`, and the account-birth persistence deferral is now scoped to the actual character-creation states instead of broader account-session behavior.
+- Focused regressions now pin those reviewer findings directly in `src/tests/interpre_account_menu_tests.cpp`: real account-backed character selection keeps the account session for menu options, account-backed rollback leaves no legacy or partial account-native files behind, legacy sessions still render the old disconnect wording, and `advance_level(...)` still persists outside the account-backed creation flow.
+- Validation is green on the unit side after the follow-up: focused `InterpreAccountMenu` now passes at `16` tests, and the current full `make test` pass is green at `394/394`.
+- Current smoke status is still red on the known harness flake: `make smoke-account` was rerun twice in this slice and both attempts timed out waiting for the initial `Account email:` marker even though the unit/regression coverage is green.
+- The newly created account-character birth path is now fixed locally: account-backed new characters no longer create or clean up legacy player/object/exploit files during creation, and their first account-native save now preserves the real start room instead of overwriting it with `NOWHERE`.
+- The new regression `InterpreAccountMenu.IntroduceCharForAccountBackedCharactersAvoidsLegacyFilesAndKeepsFirstLoginState` now exercises the real `introduce_char(...)` path and pins the behavior you reported: no legacy birth files, no shell `rm ...*` cleanup noise, valid account-backed object bytes on first login, correct start room, and correct naked perception/vision state after the first `Crash_load()`.
+- Empty account-native object births now use a canonical crash-style rent code instead of `0`, so first login no longer reports the old “undefined rent code” warning just because the new character has no equipment yet.
+- Validation is green on the unit side for this slice: the focused birth-path regressions pass, and `make test` now passes at `390/390`.
+- The account-backed main character menu now labels option `0` as `Back to Account Menu.` instead of `Exit from the MUD.`, while legacy/non-account sessions still keep the old disconnect wording.
+- Validation is green for that menu-copy fix too: focused `InterpreAccountMenu` coverage passes, and `make test` now passes at `391/391`.
+- Manual smoke is still flaky in the known banner/prompt-detection path: `make smoke-account` timed out twice waiting for `Account email:` even though the focused direct-account birth regression is green, so the smoke harness still needs separate attention.
+- The reported new-character start-state bug is now fixed locally: account-backed new characters now finalize their level-1 start state before the first account-native save, so they get the correct starting room and naked perception/vision state instead of being born with pre-start values in `character.json`.
+- The regression for that bug is now covered in `InterpreAccountMenu.AccountBackedNewCharactersAreBornWithStartRoomAndNakedPerception`, which directly exercises the new start-state finalization helper and pins the expected load-room and perception values.
+- Validation is green for this slice: focused `InterpreAccountMenu` coverage passes, `make test` passes at `387/387`, and `make smoke-account` passes through account creation, verification, login, new-character creation, and account-backed play.
+- The account-menu linked-character list and play-selection prompt now both render in compact `who -s` style, so the two views stay visually aligned and use the same level/race/name layout.
+- Validation is green for the who-style list slice too: focused `InterpreAccountMenu` and `AccountManagement` formatting regressions pass, `make test` passes at `388/388`, and `make smoke-account` passes after one bounded retry against the known telnet/proxy handshake flake.
+- The account-backed rent/main-character menu now treats option `0` as “back to account menu” instead of disconnecting, so players can rent out one character and immediately switch to another linked character without reconnecting.
+- Validation is green for that menu-flow fix: focused `InterpreAccountMenu` passes with `11` tests, `make test` passes at `389/389`, and `make smoke-account` passes.
+- The manual account smoke harness is green again after updating it to match the current account-menu create-character flow that no longer asks for a separate legacy character password.
+- The account character-list display now includes `who`-style level/race tags from account-native character storage, so linked characters render like `[ 50 WdE ] Aragorn` in the account menu instead of showing only the bare name.
+- The account character-list display bug is now being fixed with a focused unit regression so linked character names from account storage display with a capitalized first letter in the account menu list instead of echoing raw lowercase storage values.
+- The reported color-persistence bug is now fixed locally: account-native `character.json` files now preserve the actual custom color palette and legacy `color_mask` instead of silently dropping them during JSON serialization.
+- The migrated-character login crash reported against `act_info.cpp` is now fixed locally: account-native `character.json` loads no longer apply onto uninitialized `char_file_u` memory, so omitted legacy-only fields like `profs.colors` cannot leak stack garbage into `store_to_char(...)` and blow up the first `do_look()` room render.
+- The direct-launch login-display regression is now fixed locally: running `./bin/ageland -p 3791` no longer accidentally enables proxy-header mode, so direct telnet clients see the greeting and `Account email:` prompt immediately on connect instead of waiting for ENTER.
+- The telnet login-display regression after the account rewrite is now fixed locally: telnet clients see the greeting and `Account email:` prompt immediately on connect instead of only after sending input.
+- The emailed verification-code slice is implemented and hardened, and the account-authoritative cutover now reaches object saves as well as exploit history.
+- The latest object-file cutover slice is implemented and validated, including the reviewer-reported empty-object-envelope ordering fix and the account-backed save-order fix that prevents linked object snapshots from being wiped on first save after login.
+- Local proxy-backed smoke coverage now reaches account creation, emailed verification, verified-account login, character listing, password reset, logout, and re-login with the new password.
+- The create-character smoke gap is now fixed: account migration resolves versioned legacy player-save filenames, and the proxy-backed smoke flow now reaches account-menu new-character creation, reconnect, and account-backed play successfully.
+- Scope update: new account-created characters should ultimately live directly in account-owned JSON storage for character data, objects, and exploits, instead of being born in legacy files and migrated immediately afterward.
+- Scope update: once a legacy character has been migrated successfully into account-owned JSON storage, its old legacy player/object/exploit files should be deleted.
+- Scope update: character data should live in `character.json`, and object data plus exploit history should each live in their own JSON files, with account-owned references pointing at those files so the account file remains easy to inspect.
+- Scope update: those JSON assets should be per character, not combined into any shared multi-character player/object/exploit JSON files.
+- Scope update: the older single-file character snapshot layout is no longer the target design and should be replaced by separate per-character JSON assets plus account-owned references to them.
+- Scope update: keep account-owned files directly under `lib/accounts/<bucket>/<normalized_email>/`, and prefix each character-owned asset filename with the character slug instead of using a per-character subdirectory.
+- Scope update: `character.json` should be modeled from the post-load runtime character/player structs instead of the raw legacy save text so new and migrated characters converge on one canonical schema.
+- Scope update: profession/class points and coeffs are important persisted gameplay data and must be included in `character.json`.
+- Scope update: use `mystic` terminology in the new JSON schema/docs even where the legacy code still uses `cleric` identifiers internally.
+- Scope update: `pretitle` and `prompt` are not needed in the new `character.json` schema and should be left out of the account-native character persistence format.
+- Progress update: the first storage-helper pass for that flat account-directory layout is now in place, including slug-prefixed per-character asset filenames in account link metadata.
+- Progress update: the reusable JSON reader/string-escaping code has now been split out of `account_management.cpp` into a shared `json_utils` module with its own focused unit-test coverage.
+- Progress update: the shared JSON reader now rejects raw control characters inside JSON strings, and that malformed-input rule is covered directly in the new `JsonUtils` tests.
+- Progress update: the shared JSON serializer now escapes any remaining low control bytes safely, and the reader understands the ASCII `\\u00XX` escapes it emits so the shared module round-trips its own output.
+- Progress update: the first shared `character_json` module pass is now in place, covering profession points/coeffs, symbolic player/preference/affected flag arrays, structured affect state, and conversion helpers to/from `char_file_u`.
+- Progress update: the shared `character_json` module now also covers persisted identity/physical fields, temporary and rolled abilities, point-state fields, conditions, timers, talks, skills, hide flags, and the related round-trip/apply validation against `char_file_u`.
+- Progress update: account-native `character.json` helpers now read and write per-character JSON files under the flat account directory layout, and account-backed selection now prefers those files directly with migration fallback only when the authoritative character file is missing.
+- Progress update: newly account-created characters now write their first `character.json` before linking completes, stale legacy object/exploit runtime files are cleared for account-backed play even for account-born characters, and focused regression coverage now exercises account-native character-file read/write/remove behavior.
+- Scope update: boot-time `player_table` indexing must include both legacy characters and account-native characters, and duplicate names across those stores should fail closed because character identities should stay globally unique.
+- Progress update: boot-time `player_table` indexing now scans both legacy player files and account-owned `character.json` files, name-based account-native loads resolve through that shared index, and duplicate names fail closed during startup instead of being silently preferred.
+- Progress update: the first shared `objects_json` module is now in place, account-owned `<character_slug>.objects.json` files can be written/read from the account layer, object-load lookup now prefers those files for linked characters, and crash/rent/idle object saves now refresh the account-native object file after writing the legacy crashsave stream.
+- Progress update: account-owned object-path handling now accepts safe legacy relative paths only when they still resolve to the expected `<character_slug>.objects.json` basename, rewrites those safe legacy paths back to the canonical basename on save, and still rejects traversal or mismatched paths.
+- Progress update: focused runtime coverage now includes a staged account-backed `Crash_load()` path that exercises alias-tail loading from account-owned object bytes instead of only read/write helpers.
+- Progress update: new account-created characters now lay down a canonical empty account-owned `objects.json` during their initial account-link flow instead of waiting for a later crashsave refresh.
+- Progress update: legacy migration now writes account-owned `objects.json` immediately when the legacy object payload is valid, and falls back to an empty account-owned object file when the legacy character has no object payload yet.
+- Progress update: focused loader coverage now proves an account-backed staged `Crash_load()` can equip a real wearable item and preserve carried inventory from account-owned object bytes.
+- Progress update: focused migration-parity coverage now compares decoded legacy object payloads with the decoded account-owned `objects.json` result after migration so object-save structure matches through the cutover.
+- Progress update: the first shared `exploits_json` module is now in place, account-owned `<character_slug>.exploits.json` files can be written/read from the account layer, exploit-load lookup now prefers those files for linked characters, and linked-character exploit writes now refresh the account-native exploit file directly instead of appending to legacy runtime files first.
+- Progress update: new account-created characters now lay down a canonical empty account-owned `exploits.json` during their initial account-link flow, and legacy migration now writes account-owned `exploits.json` immediately when the legacy exploit payload is valid or absent.
+- Progress update: focused loader coverage now proves corrupt authoritative account-owned `exploits.json` fails closed even when a stale legacy runtime exploit file exists, and linked-character exploit writes/readback now stay on the account-owned JSON path.
+- Progress update: legacy-character migration now hydrates and backfills authoritative account-owned `character.json` from legacy player data during migration instead of relying on direct runtime decode of `migration.player_file`.
+- Progress update: account-backed character selection now re-reads authoritative `character.json` after migration/backfill instead of decoding `migration.player_file` directly in `interpre.cpp`.
+- Progress update: migration-focused test fixtures now generate real legacy player save text instead of placeholder blobs, so the new `character.json` backfill path is exercised through the actual legacy parser.
+- Progress update: account-backed selection now also loads authoritative account-owned object-save bytes on the direct `character.json` fast path, so already-account-native characters no longer risk entering the world with an empty staged object envelope.
+- Progress update: legacy-player migration now prefers a valid versioned player-save file over a stale flat player file when both exist, retires that stale flat artifact during successful migration, cleans up account-native outputs if stale-flat retirement fails, and keeps the boot-time player index from tripping duplicate-name failures by ignoring flat artifacts when a valid versioned sibling exists.
+
+## Current Task
+- Close out the indexed account-character selection slice cleanly with reviewer follow-up.
+- Keep the smoke harness stable now that the numbered selection flow is wired into the live proxy-backed account path; one first-attempt retry still showed up on the reset-password branch even though the second attempt passed.
+
+## Recent Progress
+- Followed up on `Bazarat`, `Magus`, and `Vincent` by making `select_linked_character(...)` reject raw name input entirely and reject numeric selections beyond the displayed roster range, so the backend now matches the numbered UI exactly.
+- Added focused regressions in `src/tests/account_management_tests.cpp` for name rejection and for rejecting selection `101` when only the first `100` linked characters are displayed.
+- Added a focused interpreter regression in `src/tests/interpre_account_menu_tests.cpp` that drives `CON_ACCTSLCT` with `2` and proves the second linked character is the one loaded into the character-menu path.
+- Fixed the stale `Character: ` rerender fallback in `CON_ACCTSLCT`; if the account cannot be reloaded on an empty submission, the flow now returns to the account email prompt instead of showing the old name-based selector copy.
+- Tightened `tools/account_smoke.py` so `wait_for_account_menu(...)` and `wait_for_character_menu(...)` require the full intended menu markers instead of any single matching fragment, and added focused Python regressions for those stricter helpers plus account `character_links` expectations.
+- Extended the live smoke flow to assert the account file’s `character_links` metadata matches the visible roster and to verify the deleted character’s account-native `character` / `objects` / `exploits` files are actually removed after account-backed delete.
+- Tightened the final relogin roster assertion so it now requires the surviving numbered entry, the singular `1 character displayed.` footer, and the absence of the deleted character name from the visible roster.
+- Fixed the smoke harness failure message so it no longer incorrectly claims artifacts were preserved when the default cleanup path was used.
+- Re-ran `python3 tools/account_smoke_tests.py` successfully at `21` passing tests, re-ran `make test` successfully at `410/410`, and re-ran `make smoke-account` successfully after one bounded retry.
+- Changed account-menu play selection to use numbered entries instead of typed character names, and updated the shared roster/prompt formatter so the same numbered `who -s`-style list is used for both “List linked characters” and “Play a linked character.”
+- Updated `CON_ACCTSLCT` so input `0` returns directly to the account menu, while positive numeric input selects the corresponding linked character by roster order.
+- Added focused regressions in `src/tests/interpre_account_menu_tests.cpp` and `src/tests/account_management_tests.cpp` for numbered roster rendering, `0` returning to the account menu, and numeric linked-character selection.
+- Updated `tools/account_smoke.py` to use numbered character selection for both the play path and the delete-character path.
+- Fixed the remaining smoke-reader bug where a marker could arrive in the final recv chunk just before the timeout boundary and still be reported as missing; added a focused Python regression for that case in `tools/account_smoke_tests.py`.
+- Re-ran `python3 tools/account_smoke_tests.py` successfully at `16` passing tests and re-ran `make smoke-account` successfully with the numbered character-selection flow.
+- Added the focused regression `InterpreAccountMenu.IntroduceCharForAccountBackedCharactersAvoidsLegacyFilesAndKeepsFirstLoginState`, which exercises the real account-backed new-character birth path end to end and proves first login uses account-native object bytes without creating legacy player/object/exploit files.
+- Added the focused regression `InterpreAccountMenu.AccountBackedCharacterMenuUsesBackToAccountMenuLabel`, which proves the account-backed character menu renders the new `0) Back to Account Menu.` label instead of the old disconnect wording.
+- Added an account-aware `show_character_menu(...)` helper in `interpre.cpp` so account sessions and legacy sessions can render the same main character menu with the correct `0` label for each flow.
+- Updated `introduce_char(...)` so account-backed new characters skip the legacy `Crash_get_file_by_name(..., "wb")` birth write entirely, preserve the real start-room vnum in the first account-native `character.json`, and write their first `save_char(...)` using that real load room instead of `NOWHERE`.
+- Updated `advance_level(...)` to defer level-1 exploit persistence and autosave for pre-linked account-backed births, which removes the last accidental legacy exploit/player writes during account-based character creation.
+- Moved the birth exploit write to after the account-native link completes, so the first exploit record now lands in account-owned `exploits.json` instead of trying to go through the legacy runtime path.
+- Normalized default empty account-owned object data so new characters get a valid crash-style empty object payload rather than a zero-rent placeholder.
+- Updated `AccountManagement.WritesDefaultAccountNativeObjectFile` to pin that canonical empty-object default, and re-ran the full unit suite successfully at `390/390`.
+- Re-ran `make smoke-account` twice for the follow-up and hit the existing `Account email:` prompt-detection timeout both times, so the new birth-path fix is unit-covered and green but the separate smoke harness is still flaky.
+- Updated the shared `CON_SLCT` menu branch so account-backed characters return to `CON_ACCTMENU` on choice `0`, while non-account characters still follow the old disconnect path.
+- Added the focused regression `InterpreAccountMenu.AccountBackedCharacterMenuChoiceZeroReturnsToAccountMenu`, which proves the post-login character menu now bounces back to the account menu for authenticated account sessions instead of closing the socket.
+- Re-ran focused `InterpreAccountMenu`, re-ran the full unit-test path successfully at `389/389`, and re-ran `make smoke-account` successfully for the menu-flow follow-up.
+- Updated the account-menu linked-character list and play-selection prompt to share a single compact `who -s`-style formatter, so both paths now display `[lvl race] name` entries with the same spacing, row wrapping, and displayed-count footer.
+- Added focused regressions in `interpre_account_menu_tests.cpp` for exact who-style list rendering, unknown-file fallback rendering, truncation/count output, and the real `CON_ACCTMENU -> 2` play-selection prompt output.
+- Tightened `account_management_tests.cpp` so the account-side prompt formatter is now pinned to the exact who-style roster shape instead of only checking for substrings.
+- Re-ran focused `InterpreAccountMenu` and `AccountManagement` coverage, re-ran the full unit test path successfully at `388/388`, and re-ran `make smoke-account` successfully after one bounded retry.
+- Moved new-character start-state finalization into `introduce_char(...)` after `init_char(...)`, so freshly created account-backed characters now persist their real post-start state instead of being saved before level/start-room/perception initialization is complete.
+- Added `finalize_new_character_start_state(...)` in `limits.cpp` / `limits.h` so the start-state logic is centralized and testable instead of being an unpinned side effect in the create-character flow.
+- Added the focused regression `InterpreAccountMenu.AccountBackedNewCharactersAreBornWithStartRoomAndNakedPerception`, which proves new account-backed characters get a valid level, the expected start-room vnum, and naked perception state before the first account-native save.
+- Updated `tools/account_smoke.py` to match the current account-menu create-character flow that no longer prompts for a separate legacy character password, then re-ran the smoke path successfully.
+- Cleaned up the `InterpreAccountMenu` fixture warning in `ScopedWorkingDirectory` and re-ran the focused test binary plus the full unit suite successfully.
+- Used the reported symptom to trace the bug to a schema omission in `character_json`: `PRF_COLOR` survived in preference flags, but the actual persisted palette (`profs.colors[]`) and `profs.color_mask` were not represented in `CharacterData` at all.
+- Added focused regressions in `character_json_tests.cpp` that prove custom color settings round-trip through `serialize_character_to_json(...)`, apply back into `char_file_u`, and remain backward-compatible with older `character.json` files that do not yet contain a color section.
+- Added focused account-native regressions in `account_management_tests.cpp` that prove `write_account_character_file(...)` emits the new color section into `<character>.character.json` and `read_account_character_file(...)` restores the exact custom color slots and legacy `color_mask`.
+- Extended `character_json` so account-native character persistence now carries a top-level `color_mask` plus a named `colors` object keyed by color-setting names like `narrate`, `chat`, `roomname`, and `object`.
+- Followed up on `Magus`' review by tightening color-value validation to the real supported runtime range (`CNRM..CBWHT`) and adding regressions that reject out-of-range named colors during direct deserialization and account-file reads.
+- Rebuilt the test binary and passed the full unit-test path successfully at `378/378` after the color-persistence and color-range regressions.
+- Used the provided gdb backtrace to narrow the crash to `do_look()` in `act_info.cpp` immediately after migrated-character selection, then traced the bad state back to account-native `character.json` loads writing onto an uninitialized `char_file_u`.
+- Fixed `character_json::apply_character_data_to_store(...)` so it resets the destination store before populating JSON-backed fields, which prevents omitted legacy-only state like `profs.color_mask` / `profs.colors[]` from retaining garbage values.
+- Added focused regressions in `character_json_tests.cpp`, `account_management_tests.cpp`, and `db_loader_tests.cpp` that poison legacy color fields first, then prove account-native loads clear them and no longer propagate bad color state into a live `char_data`.
+- Rebuilt the test binary, passed the focused poisoned-store regressions, and re-ran `make test` successfully at `374/374`.
+- Added a shared `parse_startup_options(...)` seam in `src/comm.cpp` / `src/comm.h` so startup-argument behavior can be unit tested directly instead of only through live process launches.
+- Changed startup parsing so `-p <port>` now means the game port, plain positional ports still work, and explicit proxy mode now uses `-x`.
+- Updated `main()` to consume `StartupOptions`, log the parsed launch mode cleanly, and keep `./bin/ageland -p 3791` on the direct telnet path instead of the proxy-header path.
+- Added focused `StartupOptions` coverage for default launch mode, `-p <port>`, explicit `-x` proxy mode with positional and `-p` ports, and rejection of stray extra arguments after a parsed port.
+- Expanded `StartupOptions` coverage to reject stray arguments after positional ports, to pin the explicit mixed `-p ... -x` proxy contract, to accept the compact `-p3791` form explicitly, and to exercise the accept path itself with real loopback sockets so direct connections prove they receive the banner plus `Account email:` prompt immediately without sending ENTER.
+- Hardened the proxy-header accept path so partial proxy headers are now buffered through the normal nonblocking descriptor input flow instead of stalling the accept loop, `pnew_descriptor()` still sends the direct banner immediately, and focused loopback coverage now proves no banner is sent before a partial proxy header completes.
+- Added focused accept-path coverage proving a banned proxied IP is rejected before any greeting is sent once the proxy header resolves the real peer host.
+- Updated the proxy-backed smoke harness to launch the game with `-x` so smoke runs still exercise the explicit proxy-header path after the CLI fix.
+- Re-ran focused `StartupOptions` and accept-path coverage successfully, and re-ran the full unit test path successfully at `371/371`.
+- Manually re-verified the reported reproduction path: direct `./bin/ageland -p 3791` plus telnet now shows the greeting and `Account email:` prompt immediately before any input, while `make smoke-account` still passes through the explicit proxy path.
+- Enabled telnet protocol setup at descriptor creation in `src/comm.cpp`, started protocol negotiation before queuing the initial login output, and added protocol cleanup in `close_socket(...)`.
+- Updated the two play-entry paths in `src/interpre.cpp` to reuse an existing descriptor protocol object instead of recreating it later.
+- Followed up on Rawls' parser-boundary finding by hardening `ProtocolInput(...)` against short telnet/MXP fragments before any multi-byte lookahead, then followed up on Maxwell's packet-boundary findings by buffering incomplete telnet/MXP prefixes across calls so split negotiations still complete correctly, including the lone-`ESC` boundary.
+- Added focused `ProtocolInput` regressions in `src/tests/protocol_tests.cpp` for lone IAC input, truncated handshake verbs, split handshake completion across two calls, truncated MXP-prefix buffering, and split MXP-prefix continuation after a lone `ESC`.
+- Rebuilt the server, re-ran focused `ProtocolInput` coverage plus the full `make test` path at `359/359`, and manually validated with `telnet 127.0.0.1 4101` against the proxy-backed path that the welcome banner and `Account email:` prompt now display immediately before any input.
+- Read `FEATURES.md`.
+- Broke the feature request into smaller implementation slices.
+- Added administrator account-management requirements to the feature plan.
+- Mapped the current login flow in `src/interpre.cpp`.
+- Confirmed existing player/exploit/object save directory layout under `lib/`.
+- Confirmed there is no existing JSON library already wired into the repo.
+- Added a standalone `account_management` module.
+- Added bucketed account-path helpers, JSON serialization/deserialization, and file persistence helpers.
+- Added secure account password hashing/verification using `libcrypt`.
+- Built the test binary and passed the focused `AccountManagement` unit-test suite.
+- Added admin-friendly helpers for blocking/unblocking accounts, password resets, and character linking.
+- Expanded the focused unit-test suite to cover admin helper behavior.
+- Added file-backed account creation, authentication, and admin workflows.
+- Added account-linked character snapshot storage and default legacy path helpers for `players`, `plrobjs`, and `exploits`.
+- Expanded the focused unit-test suite to cover migration snapshot behavior and default legacy path migration.
+- Addressed review feedback around safer account creation, least-privilege file permissions, generic auth failures, and optional legacy object/exploit files.
+- Added the immortal `account` command for account lookup, block/unblock, password reset, character linking, and character migration.
+- Added the player `linkaccount <account>` command with a masked password prompt so account credentials do not travel through normal command logging.
+- Added login-state support for `account <name>` at the name prompt, account password authentication, and linked-character selection before entering the normal game menu.
+- Added account-selection helper coverage so linked-character selection rules and prompt formatting are unit tested.
+- Added identifier validation before account-file access, cross-account character ownership checks, and migration-first linking so failed migrations do not leave stale account links behind.
+- Rebuilt the test binary and passed the focused `AccountManagement` unit-test suite with 33 tests.
+- Captured the new target workflow in `FEATURES.md`: email-first login, create-account-on-miss, authenticated account menu, legacy-character password verification during linking, menu-driven password reset, and play/create-character entry points.
+- Added account-layer email validation, email-based account lookup, email-based authentication, and account creation from an email address so the login flow can move off the transitional account-name prompt.
+- Tightened email lookup to fail closed if duplicate account files claim the same normalized email address.
+- Rebuilt the test binary and passed the focused `AccountManagement` unit-test suite with 39 tests.
+- Switched the live login prompt from character-name-first to account-email-first.
+- Added login states for create-account confirmation, account password creation/confirmation, account menu, legacy-character linking, account password reset, and account-backed new-character entry.
+- Wired `nanny()` so an email can authenticate an existing account or create a new one directly from the login prompt.
+- Added the authenticated account menu flow for listing linked characters, playing a linked character, linking an existing legacy character via legacy password verification, creating a new character, resetting the account password, and logging out.
+- Kept automatic post-creation linking in place so a character created from the account menu is associated back to the authenticated account.
+- Split account-password entry off from the legacy 10-character player-password buffer so account creation and resets can accept longer passwords without inheriting the old character limit.
+- Added linked-character owner lookup plus account-menu preflight checks so account-created characters cannot reuse names already claimed in account storage.
+- Added rollback behavior so if post-creation account linking fails, the newly created character is immediately marked deleted instead of being left behind as an orphaned legacy character.
+- Removed the hidden `legacy <character>` login bypass so the public login surface now follows the email-first account workflow instead of offering a parallel legacy path.
+- Added account email-verification metadata to the JSON account schema plus admin verify/unverify helpers and commands.
+- Changed newly created email-first accounts to remain pending until an administrator verifies the email address.
+- Gated account authentication so unverified accounts cannot enter the account menu, and added player-facing messaging that the account is awaiting verification.
+- Expanded the focused account suite to cover verification metadata, pending-verification auth failures, admin verify/unverify flows, and the verified-account migration path.
+- Replaced the admin-only verification stopgap with emailed verification codes delivered through the local `sendmail` interface.
+- Added verification-code hashing, persistence, resend support, and a 15-minute expiry window.
+- Updated `nanny()` so new and pending accounts transition into a verification-code prompt, support `RESEND` and `CANCEL`, and only enter the account menu after successful code confirmation.
+- Marked verification-code entry as secret input so snoops do not see emailed codes.
+- Added persistent verification-attempt tracking, invalidated emailed codes after too many bad tries, and added resend cooldown protection.
+- Fixed the account-creation handoff so a newly created account that becomes verified immediately routes into the account menu instead of getting stuck at the code prompt.
+- Hardened create-on-miss to fail closed if existing account records are unreadable, preventing email uniqueness bypass through corrupt storage.
+- Expanded the focused account suite to 49 passing tests, then 50 with the unreadable-record regression coverage folded into the full test suite.
+- Re-ran `make test` and confirmed the full C++ unit test suite passes locally at 224/224.
+- Added helpers to ensure a linked character has an account snapshot and to refresh linked snapshots from current legacy files.
+- Updated account-character selection so linked characters must be account-snapshot-ready before play and will self-heal a missing snapshot by migrating current legacy files when possible.
+- Updated new account-created characters to link and migrate immediately instead of only linking.
+- Hooked normal player saves to refresh linked account snapshots so account storage tracks ongoing character changes.
+- Added helpers to restore legacy player/object/exploit files back out of account snapshots.
+- Updated account-backed play so the selected linked character is restored from account storage before the legacy runtime loader runs.
+- Expanded the focused account suite to 55 passing tests.
+- Added direct player-text loading from account snapshots, so account-backed play no longer has to recreate the legacy player file before character load.
+- Narrowed runtime restoration during account-backed play to the still-legacy support files.
+- Expanded the focused account suite to 57 passing tests.
+- Hardened linked-character owner lookup to fail closed when multiple accounts claim the same character.
+- Updated snapshot readiness so a corrupt existing migration snapshot is rebuilt from current legacy files instead of blocking account-backed play.
+- Added snapshot-identity validation before restoring runtime support files out of account storage.
+- Hardened direct player-text loading so malformed snapshot data is rejected safely instead of walking past buffer boundaries.
+- Added regression coverage for duplicate ownership, corrupt-snapshot rebuilds, snapshot-identity mismatches, and malformed player-text decoding.
+- Changed account-backed play so it no longer restores the legacy exploit file during login; stale runtime exploit files are removed instead.
+- Added exploit-history helpers that read from account snapshots when the legacy exploit file is missing and seed new runtime exploit files from snapshot history when gameplay appends new records.
+- Preserved existing exploit history during linked-character snapshot refreshes when the runtime exploit file is intentionally absent, so ordinary saves no longer erase account-backed history.
+- Hardened exploit-history loading so malformed runtime exploit files are removed and rebuilt from account snapshots instead of poisoning later reads/appends.
+- Hardened exploit writes to fail closed on pre-existing temp paths using secure temp-file creation.
+- Updated `print_exploits()` and runtime exploit writes to use the new fallback path, and fixed runtime account-snapshot refresh calls to use the live data-directory root.
+- Added focused regression coverage for exploit-history snapshot fallback, snapshot-seeded append behavior, corrupt runtime exploit-file fallback, temp-file conflict failure, and preserving snapshot exploit history across refreshes.
+- Rebuilt the server and passed the focused account suite at 61 tests, focused db-loader coverage at 5 tests, and the full unit suite at 240/240.
+- Sent the exploit-history cutover slice through `Magus` and `Vincent`, addressed their findings, and got a clean final reviewer pass from both.
+- Replaced login-time runtime support-file restoration with account-play preparation that clears stale legacy object and exploit files after validating snapshot identity.
+- Added `load_object_save_bytes_for_character(...)` so linked characters can read object-save bytes from the runtime file when present or fall back to the linked account snapshot when it is absent.
+- Updated `Crash_load()` so account-backed play can stage snapshot-backed object bytes into an anonymous temporary stream and continue using the legacy object/alias/follower parser unchanged.
+- Followed up on reviewer findings by staging account-backed object bytes from the authenticated selection context instead of re-resolving ownership by character name at load time.
+- Hardened the legacy object/alias/follower parser so truncated crashsave streams fail closed instead of reading partial data, and added cleanup for staged object bytes on denied/reconnect login paths.
+- Fixed the synthetic empty staged object payload so its alias/follower layout now matches the real crash-save serialization order for no-object account-backed logins.
+- Fixed the account-backed linked-character login order so `save_char()` refreshes the account snapshot before stale legacy object/exploit files are cleared, preventing the first post-login save from rewriting the object snapshot as empty.
+- Added focused regression coverage for clearing runtime support files during account-backed play and for loading object-save bytes from account snapshots when the legacy `plrobjs/...` file is missing.
+- Added a configurable `ROTS_SENDMAIL_COMMAND` override and replaced the live verification mail path with an explicit pipe/fork/exec wait flow after the proxy-backed smoke uncovered live delivery failures in the old `popen`/`pclose` approach.
+- Added unit coverage for the configurable verification-mail command and a reusable `tools/account_smoke.py` harness plus `make smoke-account` / `smoke_account` targets.
+- Tightened the configurable mailer override so it is parsed into argv and executed with `execvp(...)` instead of shell parsing, then updated the smoke harness to use a fixed helper script path and UUID-based account ids with cleanup by `normalized_email`.
+- Folded the Python proxy-backed account smoke flow into the default `make test` command so the standard test entry point now covers both the C++ suite and the create/verify/login/reset smoke path.
+- Rebuilt the test binary and passed the focused account suite, the full unit suite at 243/243, the full server build, and the broader proxy-backed smoke flow.
+- Smoke tested the live account flow through the Rust proxy with temporary accounts: created an account, captured and entered the emailed verification code locally, logged in, listed linked characters, reset the password, logged out, verified the old password was rejected, and re-logged in with the new password.
+- Investigated the deeper smoke failure where account-menu new-character creation produced an unlinked character on reconnect.
+- Confirmed from preserved live-server logs that fresh character creation writes versioned player-save filenames like `name.level.race.idnum.logtime.flags`, while account migration was still looking only for the old unsuffixed `players/<bucket>/<name>` path.
+- Updated account migration to resolve the real versioned player-save filename when the old canonical path is absent, and to fail closed if multiple versioned player files match the same character name.
+- Added regression coverage for migrating a fresh versioned player save and for rejecting ambiguous multiple versioned player-save matches.
+- Updated the smoke harness cleanup to remove versioned player-save artifacts and added persistent game/proxy log capture to the smoke temp directory for easier live-flow debugging.
+- Expanded the proxy-backed smoke harness to cover creating a new character from the account menu, reconnecting, selecting the linked character, and entering the world through the account-backed play path.
+- Re-ran the full validation path and passed `make test` with `245/245` C++ tests plus the expanded Python smoke flow.
+- Updated account discovery and persistence helpers so account records now live under `lib/accounts/<bucket>/<normalized_email>/account.json` while account lookup by internal account name still works through directory scans.
+- Flattened linked-character asset references so account metadata now defaults to `<character_slug>.character.json`, `<character_slug>.objects.json`, and `<character_slug>.exploits.json` in the same account directory.
+- Moved the transitional migration-file path into that same account directory as `<character_slug>.migration.json` while the broader account-native JSON cutover is still in progress.
+- Added focused regression coverage for the new account path layout and default character-link filenames, then re-ran the focused `AccountManagement` and `DbLoader` suites successfully.
+- Hardened account-file rewrites so a different account cannot overwrite an occupied email-rooted path, legacy flat account files are retired after successful rewrites, and duplicate old/new account records now prefer the rooted `account.json` record instead of failing closed when both describe the same account.
+- Tightened account-directory scans so empty or non-account bucket subdirectories are ignored unless they actually contain a broken `account.json`, which fixed the live smoke regression caused by leftover empty account directories.
+- Added focused regression coverage for malicious stored character names, legacy flat-account rewrite migration, and overwrite-prevention behavior, then re-ran `make test` successfully with the updated suite count and live smoke flow.
+- Added a first shared `character_json` module plus focused tests for profession points/coeffs, symbolic player/preference/affected flag arrays, structured affect serialization, `mystic` profession naming, and `char_file_u` conversion helpers.
+- Expanded the shared `character_json` module to cover persisted identity/physical fields, temporary and rolled abilities, point data, conditions, timers, talks, skills, hide flags, and stricter array-capacity validation when applying JSON back to `char_file_u`.
+- Rebuilt the test binary and passed the focused `CharacterJson` and `JsonUtils` suites plus the full `make test` path with the expanded `character_json` coverage in place.
+- Addressed reviewer follow-up on malformed `character.json` input by rejecting out-of-range narrowed numeric fields, truncated fixed-width arrays, and overlong fixed-buffer strings before applying JSON back into `char_file_u`.
+- Added focused regression tests for narrowed numeric overflow, truncated fixed-width arrays, and overlong `character_name` rejection in the shared `character_json` suite.
+- Tightened the shared parser boundary further so `parse_integer()` now rejects out-of-range integers before narrowing, fixed-width arrays are capped while parsing instead of only after materialization, embedded NUL bytes are rejected for fixed-buffer strings, and oversized `affects` arrays fail immediately.
+- Added focused regression tests for out-of-range parsed integers, embedded-NUL fixed-buffer strings, and oversized `affects` arrays in the shared JSON/character suites.
+- Updated the `character_json` schema surface so `skills` and `talks` now serialize as named key/value objects in JSON instead of positional arrays, while still mapping back into the fixed runtime arrays internally.
+- Added account-layer helpers to write, read, check, and remove account-native `character.json` files using the shared `character_json` module.
+- Added `ensure_player_index_entry(...)` and `update_player_index_entry_from_store(...)` so account-backed selection can hydrate runtime player-index state after loading a character directly from JSON.
+- Updated account-backed character selection to prefer direct `character.json` load and only fall back to migration when that authoritative file is genuinely absent.
+- Updated account-backed login prep to clear stale runtime object/exploit files even for account-born characters that never had a migration snapshot.
+- Updated new-character introduction so account-created characters write an account-native `character.json` as part of initial account linking instead of relying solely on the legacy player file birth path.
+- Added focused regression coverage for account-native character-file write/read/remove behavior and re-ran the full test path successfully.
+- Updated boot-time `build_player_index()` to scan account-owned `account.json` records directly, add account-native characters to `player_table`, and fail closed on duplicate names across legacy/account-native storage.
+- Updated `load_player(...)` so name-based loads can resolve an account-native `character.json` path from `player_table` without falling back to legacy player text.
+- Added `DbLoader.BuildPlayerIndexIncludesLegacyAndAccountNativeCharacters` to prove unified indexing and name-based account-native loads work together.
+- Investigated the smoke regression after the indexing change, confirmed the first failure was a stale `bin/ageland` build rather than a loader bug, rebuilt the server binary, and re-ran the smoke flow successfully.
+- Added a shared `objects_json` module that round-trips the current crashsave payload into JSON with explicit sections for rent data, top-level objects, board points, aliases, and followers.
+- Added focused `ObjectsJson` unit coverage for binary round-trip, JSON round-trip, truncated-binary rejection, and alias-keyword validation.
+- Added account-layer helpers to write/read/check per-character `objects.json` files using that shared module.
+- Updated account-backed object-save lookup to prefer account-owned `objects.json` for linked characters before falling back to the runtime legacy file or migration snapshot.
+- Updated crash/rent/idle object saves to refresh account-owned `objects.json` after writing the legacy crashsave stream.
+- Added regression coverage proving the loader can read object-save bytes back from account-owned `objects.json`.
+- Addressed security review feedback by rejecting stored `object_path` values that do not match the expected per-character basename and by validating narrowed `objects.json` fields before converting them back into crashsave storage types.
+- Followed up on Maxwell's compatibility note by allowing safe legacy relative `object_path` values that still resolve to the expected object basename, then normalizing them back to the canonical basename on account-file/object-file rewrites.
+- Added `DbLoader.CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail` so the real staged `Crash_load()` path now has focused regression coverage instead of only helper-level object-load tests.
+- Re-ran the full validation path successfully after the object-path compatibility follow-up and the new staged `Crash_load()` coverage.
+- Added shared account-layer helpers to write a default empty account-owned object file and to remove an account-owned object file during rollback cleanup.
+- Updated new-character introduction so account-created characters now create `objects.json` during the initial account-link transaction and clean it up if account linking rolls back.
+- Updated legacy migration so successful migrations now seed canonical account-owned `objects.json` immediately when legacy object data is valid, or write an empty default `objects.json` when no legacy object file exists yet.
+- Added focused regression coverage for default object-file writes plus migration-time account-owned object-file creation from valid and missing legacy object payloads.
+- Re-ran the full validation path successfully after the object-birth and migration-authority follow-up.
+- Added a scoped object-prototype test helper in `db_loader_tests.cpp` so the staged account-backed `Crash_load()` path can instantiate and equip real wearable objects during unit coverage.
+- Added focused `DbLoader` coverage proving staged account-backed object bytes can enter the game with worn equipment and carried inventory intact.
+- Added focused `DbLoader` migration-parity coverage proving decoded legacy object bytes and the resulting decoded account-owned `objects.json` payload stay structurally equivalent after migration.
+- Followed up on reviewer findings by failing migration closed when legacy object bytes are malformed instead of silently downgrading them to an empty `objects.json`.
+- Tightened account-owned character-file resolution so persisted `character_path` metadata must match the canonical per-character filename and gets normalized back to that basename on save.
+- Updated the successful migration fixtures to use valid crashsave object bytes so the new malformed-payload guard is exercised only where intended.
+- Hardened the staged account-backed object cache so it keys by normalized character identity instead of raw `char_data*`, and stale staged bytes are now cleared on socket close and `free_char()`.
+- Reordered account-owned object-path normalization so `account.json` only rewrites a safe legacy `object_path` to the canonical basename after the new canonical object file write succeeds.
+- Added regression coverage for the stale staged-object isolation path and for preserving a legacy-safe `object_path` when the canonical object-file write fails.
+- Hardened `tools/account_smoke.py` with a bounded retry loop so the proxy-backed smoke path stays reliable under `make test` even when the first connect/prompt handshake flakes.
+- Added a shared `exploits_json` module that round-trips legacy exploit-history records into JSON and back, with focused coverage for malformed binary length and fixed-width string validation.
+- Added account-layer helpers to write/read/check/remove per-character `exploits.json` files using that shared module.
+- Updated new-character introduction so account-created characters now create `exploits.json` during the initial account-link transaction and clean it up if account linking rolls back.
+- Updated legacy migration so successful migrations now seed canonical account-owned `exploits.json` immediately when legacy exploit data is valid, write an empty default `exploits.json` when the legacy exploit file is missing, and fail closed when legacy exploit bytes are malformed.
+- Updated exploit-history runtime flows so linked characters now prefer account-owned `exploits.json`, remove stale legacy runtime exploit files after successful account-native reads/writes, and fail closed when the authoritative account-owned exploit file is corrupt instead of silently falling back to stale runtime data.
+- Added focused regression coverage for account-owned exploit-file read/write/default-empty behavior, migration-time exploit-file creation from valid and missing legacy payloads, malformed legacy exploit rejection, direct account-native exploit read/write preference, and corrupt-authoritative-JSON fail-closed behavior.
+- Re-ran the full validation path successfully after the `exploits.json` authority follow-up.
+- Had `Bazarat` adversarially review the `AccountManagement` suite and added targeted edge-case coverage for stale verification-code rejection after resend, verified-account re-verification safety, conflicting legacy-flat plus rooted duplicate email records, duplicate-email account creation rejection when a legacy-flat record already exists, and absolute-path rejection for stored object-path metadata.
+- Re-ran focused `AccountManagement` coverage at 91 passing tests and the full `make test` path successfully after the new edge-case regressions.
+- Had `Bazarat` adversarially review the `objects_json_tests` suite and added targeted edge-case coverage for empty object-save round-trip, alias/follower/object ordering fidelity, truncation inside alias and follower sections, wrong-typed nested JSON sections, and missing required top-level JSON sections.
+- Tightened `deserialize_objects_from_json(...)` so account-owned `objects.json` now fails closed when required top-level sections like `rent`, `objects`, `board_points`, `aliases`, or `followers` are missing instead of silently defaulting them.
+- Followed up on Maxwell's review by tightening nested object/alias/follower record parsing so missing required fields now fail closed instead of silently defaulting missing scalars or strings.
+- Followed up on Rawls' review by tightening nested object-affect parsing so missing `location` or `modifier` fields now fail closed instead of defaulting silently to zero.
+- Added focused `ObjectsJson` regressions for missing alias `command`, missing object `item_number`, and followers missing required numeric/object fields.
+- Added focused `ObjectsJson` regressions for affect entries missing `location` or `modifier`.
+- Re-ran focused `ObjectsJson` coverage at 12 passing tests, re-ran the full C++ test path at `320/320`, and re-ran the Python smoke harness successfully after the nested-record hardening follow-up.
+- Had `Bazarat` adversarially review the `character_json_tests` suite and added targeted edge-case coverage for missing required top-level sections, legacy `cleric` schema drift, unknown affected/hide flags, duplicate named `talks`, and missing required structured-affect fields.
+- Tightened `character_json` deserialization so required top-level sections must be present, `cleric` is rejected in favor of `mystic`, `flags`/`professions` objects must be complete, and structured affects now fail closed when required fields are missing.
+- Re-ran focused `CharacterJson` coverage at 19 passing tests, re-ran the full C++ test path at `325/325`, and re-ran the Python smoke harness successfully after the `character_json` hardening follow-up.
+- Tightened the nested `character_json` parsers so `identity`, `progression`, `abilities`, `points`, `conditions`, `timers`, `perception`, and `state` now fail closed when required scalar fields are missing instead of silently defaulting them to zero.
+- Added focused `CharacterJson` regressions for missing required `identity`, `points`, and `state` fields during deserialization.
+- Followed up on Maxwell's low test-coverage finding by adding the missing required-field regressions for `progression`, `abilities`, `conditions`, `timers`, and `perception`.
+- Re-ran focused `CharacterJson` coverage at 27 passing tests, re-ran the full C++ test path at `333/333`, and re-ran the Python smoke harness successfully after the nested-field hardening follow-up.
+- Updated legacy-character migration so successful migration now retires the old legacy player/object/exploit files immediately after the account-owned object/exploit files and migration record are written.
+- Added focused `AccountManagement` regressions proving successful migration removes the legacy files, that object-retirement failures restore earlier retired files before returning failure, and that exploit-retirement failures restore both earlier retired legacy files before returning failure.
+- Updated the affected `DbLoader` regressions so their fixtures now expect migration to have already retired the legacy object/exploit files before fallback reads occur.
+- Re-ran focused `AccountManagement` coverage at 94 passing tests, re-ran the targeted `DbLoader` regressions for account-backed object/exploit fallback, and re-ran the full `make test` path successfully at `336/336` C++ tests plus the Python smoke flow.
+- Removed the remaining `migration.object_file` / `migration.exploits_file` runtime fallback in `db.cpp`, so linked-character object/exploit loads now use account-native JSON first, then any still-present runtime legacy files, and otherwise return empty results instead of decoding the transitional migration snapshot.
+- Removed the redundant object-snapshot decode in `interpre.cpp`, since account-backed selection already reloads object-save bytes through the authoritative loader path.
+- Renamed the affected `DbLoader` cases to reflect account-native JSON authority and added focused regressions proving linked characters with neither account-native nor runtime object/exploit files now load as empty instead of reaching back into the migration snapshot.
+- Had `Bazarat` adversarially review the loader cleanup and added the extra authority-order regressions he called out: linked-character runtime legacy fallback when account JSON is absent, preference for account-native object/exploit JSON over conflicting runtime legacy data, and fail-closed malformed-object-JSON behavior that preserves the stale runtime file.
+- Replaced the remaining string-based `"Failed to open file"` fallback checks with structured account-owned file inspection in `account_management`, so unreadable authoritative account-native character/object/exploit files fail closed instead of being treated like missing files.
+- Added a focused `DbLoader` regression proving unreadable authoritative account-native object/exploit JSON does not fall back to stale runtime legacy data.
+- Re-ran focused `DbLoader` coverage at 22 passing tests and re-ran the full `make test` path successfully at `342/342` C++ tests plus the Python smoke flow.
+- Updated migration/backfill helpers so legacy-character migration now writes authoritative account-owned `character.json` immediately from decoded legacy player data, and existing migration snapshots backfill missing `character.json` files the next time migration is ensured.
+- Updated account-backed login in `interpre.cpp` so it re-reads authoritative `character.json` after migration/backfill instead of decoding `migration.player_file` directly at runtime.
+- Reworked migration-heavy test fixtures in `AccountManagement` and `DbLoader` to generate real legacy player saves via `save_player(...)` instead of placeholder text, which exercises the actual legacy loader path during `character.json` backfill.
+- Fixed the new fixture helper so it does not accidentally mark generated characters as NPCs, does not hand stack memory to `free_char()`, and leaves `player_table` in a clean state for `ensure_player_index_entry(...)`.
+- Added regression expectations proving migration-created/backfilled `character.json` is readable after ensure/rebuild paths, and updated migration-retirement expectations so tests no longer expect retired legacy player files to remain on disk after successful migration.
+- Re-ran focused migration regressions and the full C++ suite successfully at `342/342`.
+- Re-ran the direct proxy-backed smoke harness successfully after the migration-backfill changes.
+- Fixed Maxwell's review finding in `interpre.cpp` by loading account-owned object-save bytes on the direct `character.json` fast path instead of only after migration fallback.
+- Added a new `DbLoader` regression proving an existing account-native `character.json` plus `objects.json` path can still equip staged objects through `Crash_load()` without forcing migration first.
+- Re-ran focused `DbLoader` coverage successfully after the fast-path object fix.
+- Re-ran the direct proxy-backed smoke harness successfully after the fast-path object fix.
+- Fixed Maxwell's follow-up save-path finding in `save_char(...)` so already account-native linked characters no longer attempt `refresh_linked_character_snapshot(...)` after ordinary saves once their legacy player/object/exploit files have been retired.
+- Added a focused `DbLoader` regression proving ordinary saves for an already account-native linked character do not emit the old `failed to refresh account snapshot` log noise after migration retirement.
+- Re-ran focused `DbLoader` coverage successfully after the save-path fix at `24` passing tests.
+- Re-ran `make test`; the C++ suite passed cleanly at `344/344`, and the Python smoke step still showed the known intermittent prompt-marker timeout in the combined target.
+- Followed up on Bazarat's migration-test review by changing legacy player-path resolution so a valid versioned player save now wins over a stale flat file.
+- Added focused `AccountManagement` regressions proving migration prefers the versioned player save, hydrates account-native `character.json` from that winning save, and rejects mismatched restore requests without overwriting stale runtime legacy files.
+- Strengthened the corrupt-snapshot rebuild test so it now explicitly re-reads the backfilled account-native `character.json` and checks representative stored fields after rebuild.
+- Followed up on Rawls' migration-integrity review by retiring the ignored stale flat player file during successful versioned-player migration and by adding a `DbLoader` regression proving boot-time `player_table` indexing stays consistent after that migration path.
+- Followed up on Rawls' failure-path review by making stale-flat cleanup retirement-only instead of a second migration input, rolling back account-native migration outputs if stale-flat retirement fails, and teaching boot-time `build_directory()` to skip flat artifacts when a valid versioned sibling exists before any login-driven migration has run.
+- Added focused `AccountManagement` coverage proving a valid versioned migration succeeds even when the stale flat file is unreadable and proving stale-flat retirement failure cleans up account-native outputs instead of leaving half-migrated duplicates behind.
+- Added focused `DbLoader` coverage proving boot-time `player_table` indexing prefers the versioned legacy save over a flat artifact even before migration has run.
+- Re-ran focused `AccountManagement` coverage successfully at `98` tests and focused `DbLoader` coverage successfully at `26` tests after fixing the stale-flat and pre-migration boot-index regressions.
+- Re-ran the full `make test` path successfully at `350/350` C++ tests, and re-ran the Python smoke flow separately via `make smoke-account`.
+- Workflow update: `make test` is back to C++ unit tests only; run the proxy-backed smoke harness manually from here on out via `make smoke-account`.
+- Validation rule update: for account/login/authentication work, `make smoke-account` is now a required separate validation step rather than something implied by `make test`.
+- Added a new GitHub Actions workflow at `.github/workflows/ci.yml` that runs on pushes to `master` and pull requests targeting `master`, installs the Ubuntu build dependencies, builds the game, runs `make test`, and then runs `make smoke-account`.
+- Updated `README.md` to document the manual smoke-test workflow plus the GitHub Actions / branch-protection requirement for making CI a mandatory merge gate.
+- Removed the remaining runtime player-data dependency on the transitional migration snapshot in the account-backed play path: once `character.json` has been read, runtime support-file cleanup now clears stale legacy object/exploit files directly by character name instead of re-reading the snapshot just to validate and clear them.
+- Tightened `ensure_character_migration(...)` so an existing migration snapshot no longer backfills a missing authoritative `character.json`; it now only succeeds from the snapshot if `character.json` already exists, otherwise it falls back to real legacy migration and fails closed if only the snapshot remains.
+- Tightened `ensure_character_migration(...)` again so a corrupt transitional snapshot no longer blocks a valid authoritative `character.json`; if the account-owned character file already exists, migration now succeeds without consulting the corrupt snapshot at all.
+- Added an explicit fail-closed error message for the snapshot-only path so live account-play/login failures now explain that the authoritative `character.json` is missing and the transitional snapshot alone is insufficient.
+- Updated `save_char(...)` so linked characters repair a missing account-native `character.json` directly from the current in-memory store state instead of writing a legacy player file and refreshing the migration snapshot.
+- Added focused regressions proving snapshot-only state no longer repairs missing `character.json`, that a corrupt transitional snapshot does not block an existing authoritative `character.json`, that linked saves recreate `character.json` directly without reviving the snapshot-refresh path or legacy player-file writes, and that unreadable account records do not let account-native saves fall back to legacy player files.
+- Re-ran focused `AccountManagement` coverage at `100` passing tests, focused `DbLoader` coverage at `28` passing tests, and the full `make test` path at `354/354` after the player-data authority cleanup.
+- Manual `make smoke-account` is currently still blocked by the known telnet prompt-detection flake in `tools/account_smoke.py`; two reruns in this slice timed out during the handshake and kept artifacts under `/tmp/rots-account-smoke-*`.
+- Investigated the new report that the first login menu/prompt only appears after typing input and traced the most suspicious change point to `pnew_descriptor(...)` in `src/comm.cpp`, where the account greeting/email prompt was queued but not flushed immediately on a newly accepted descriptor.
+- Updated `pnew_descriptor(...)` to flush queued greeting/login output immediately after `SEND_TO_Q(GREETINGS, ...)` and the initial `Account email:` prompt are queued, so the first account/login screen is written as part of the accept path instead of waiting for a later loop pass.
+- Re-ran `make test` successfully at `354/354` after the connection-path flush change.
+- Re-ran `make smoke-account`, but this pass still did not produce a trustworthy login-flow verdict because the harness timed out waiting for `127.0.0.1:4001` to accept connections and kept artifacts under `/tmp/rots-account-smoke-*`.
+
+## Next Step
+- No remaining implementation step for this slice.
+- Optional cleanup remains for preserved debug artifacts under `/tmp/rots-account-smoke-*` and the kept debug account under `lib/accounts/P-T/smkb393ca001a76@example.com/`.
+
+## Last Validation
+- `python3 -m py_compile tools/account_smoke.py tools/account_smoke_tests.py`
+- `python3 tools/account_smoke_tests.py`
+- `git diff --check`
+- `make smoke-account` repeated three times
+- Result: Python smoke-harness coverage passes at `51/51`, syntax compilation is clean, the diff has no whitespace errors, and the post-fix proxy-backed account smoke passed `3/3` full runs. Cargo still emits the existing workspace resolver warning during proxy builds.
+
+## Reviewer Status
+- `Magus`: final blocker-only review is clear after retry narrowing, WIP refresh, Python checks, and `3/3` full smoke validation.
+- `Vincent`: final blocker-only review is clear after exact cleanup scoping, account lookup hardening, child-process environment allowlisting, retry scoping, and `3/3` full smoke validation.
+- `Bazarat`: final test-design review is clear after the live migrated-character assertion, pre-delete asset existence check, exploit field assertions, artifact-collision coverage, and `51/51` Python smoke-harness tests.
+- `Magus`: found broad retry behavior could hide late e2e regressions and stale WIP footer content. Follow-up narrowed retries to an explicit initial-account-prompt `RetryableSmokeError` and refreshed the WIP status sections.
+- `Vincent`: found cleanup still used name/glob deletion and child processes inherited the ambient environment. Follow-up changed smoke cleanup to exact fixture/account paths and added an allowlisted child-process environment helper.
+- `Bazarat`: found the migrated play path did not prove the live loader used migrated sentinel data, delete checks did not prove assets existed before delete, and collision coverage missed several artifact classes. Follow-up added live `info` assertions, pre-delete asset existence checks, direct exploit-field assertions, and additional collision tests.
+- `Bazarat`: clear on the current migration-sanitization direction and regression coverage; no test-design blockers on the new “do not persist raw legacy player payloads” contract.
+- `Magus`: clear on the current migration-sanitization slice; no findings.
+- `Vincent`: clear on the current migration-sanitization slice after the backward-compatible read-time scrub for older persisted player payloads.
+- `Bazarat`: clear on the follow-up migration-policy direction; no test-design blockers on removing routine `.migration.json` writes while keeping in-memory migration data for active rollback helpers.
+- `Magus`: clear on the latest migration-policy cleanup; no findings.
+- `Vincent`: clear on the latest migration-policy cleanup; no findings.
+- `Maxwell`: clear on the shared `json_utils` extraction after follow-up hardening for raw control characters and `\u00XX` serializer/parser round-trip coverage.
+- `Rawls`: clear on the shared `json_utils` extraction; no new trust-boundary or parser-safety findings after the control-character follow-up.
+- `Maxwell`: clear on the current `character_json` expansion after follow-up fixes for numeric range validation, exact-size array validation, and fixed-width string-length guards.
+- `Rawls`: clear on the current `character_json` expansion after the final parser-boundary fixes for out-of-range integers, fixed-width array caps, embedded-NUL rejection, and `MAX_AFFECT` enforcement during parse.
+- `Rawls`: clear on the latest `objects_json` follow-up; no new trust-boundary or data-exposure findings after the staged-object cache lifetime fix, the post-write object-path normalization change, and the new regressions.
+- `Maxwell`: no blocking findings remain on the latest `objects_json` follow-up. He left three low notes to keep in mind for the next testing pass: the scoped object-prototype fixture in `db_loader_tests.cpp` is still brittle, the migration-parity test is still structural parity rather than true live-crashsave compatibility, and the smoke retry in `tools/account_smoke.py` is broad enough that we should make first-attempt failures more visible if it stays.
+- `Maxwell` and `Rawls`: the newest follow-up covered equipped-login object coverage, migration parity, malformed-payload fail-closed behavior, canonical `character_path` enforcement, staged-object lifetime hardening, post-write `object_path` normalization, and the stabilized smoke harness. Both review gates are now satisfied for this slice.
+- `Bazarat`: reviewed the first `exploits.json` cutover coverage and pushed on fail-closed authority boundaries plus stale-runtime precedence. The new corrupt-authoritative-JSON regression was added in response.
+- `Bazarat`: also reviewed the `AccountManagement` suite and directly drove the new resend-invalidation, verified-account lifecycle, duplicate-record authority, legacy-flat duplicate-email, and stricter absolute-path guard regressions.
+- `Bazarat`: also reviewed the `objects_json_tests` suite and directly drove the new empty-payload, required-sections, mid-stream truncation, nested-shape, and ordering-fidelity regressions.
+- `Bazarat`: also reviewed the `character_json_tests` suite and directly drove the new required-sections, legacy-`cleric` rejection, unknown affected/hide flag, duplicate named-value, and missing structured-affect-field regressions.
+- `Maxwell`: the first `character_json` nested-field hardening pass was internally consistent and had one low finding to add explicit regressions for the remaining required-field parser branches. That follow-up is now implemented and awaiting re-check.
+- `Rawls`: clear on the latest `character_json` nested-field hardening follow-up; no new trust-boundary, parser-safety, or data-integrity findings.
+- `Maxwell`: clear on the latest legacy-file-retirement migration follow-up after the exploit-rollback regression and rollback-helper readability cleanup.
+- `Rawls`: clear on the latest legacy-file-retirement migration follow-up after the partial-migration rollback restoration fix.
+- `Maxwell`: latest stale-flat-player retirement and boot-index follow-up review pending.
+- `Rawls`: latest stale-flat-player retirement and boot-index follow-up review pending.
+- `Bazarat`: reviewed the loader-cleanup tests and directly pushed the new runtime-legacy fallback, authoritative-preference, and malformed-object-JSON fail-closed regressions.
+- `Bazarat`: also pushed the new unreadable-authoritative-object/exploit regression while Maxwell's follow-up was being addressed.
+- `Maxwell`: exploit-cutover review pending.
+- `Rawls`: exploit-cutover review pending.
