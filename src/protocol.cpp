@@ -571,7 +571,7 @@ const char* ProtocolOutput(descriptor_t* apDescriptor, const char* apData, int* 
         bUseMSP = true;
 
     for (; i < MAX_OUTPUT_BUFFER && apData[j] != '\0' && !bTerminate && (*apLength <= 0 || j < *apLength);
-        ++j) {
+         ++j) {
         if (apData[j] == '\t') {
             const char* pCopyFrom = NULL;
 
@@ -1231,6 +1231,9 @@ void MSDPSendPair(descriptor_t* apDescriptor, const char* apVariable, const char
         if (pProtocol == NULL)
             return;
 
+        std::string SanitizedValue = MSDPSanitizeValue(apValue);
+        apValue = SanitizedValue.c_str();
+
         /* Should really be replaced with a dynamic buffer */
         int RequiredBuffer = strlen(apVariable) + strlen(apValue) + 12;
 
@@ -1271,6 +1274,9 @@ void MSDPSendList(descriptor_t* apDescriptor, const char* apVariable, const char
         protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
         if (pProtocol == NULL)
             return;
+
+        std::string SanitizedValue = MSDPSanitizeValue(apValue);
+        apValue = SanitizedValue.c_str();
 
         /* Should really be replaced with a dynamic buffer */
         int RequiredBuffer = strlen(apVariable) + strlen(apValue) + 12;
@@ -2315,7 +2321,7 @@ static void ExecuteMSDPPair(descriptor_t* apDescriptor, const char* apVariable,
                                 int j; /* Loop counter */
 
                                 for (j = 0; j < VariableNameTable[i].Max && *apValue != '\0';
-                                    ++apValue) {
+                                     ++apValue) {
                                     const unsigned char value_byte = static_cast<unsigned char>(*apValue);
                                     if (value_byte >= 0x20 && value_byte <= 0x7e)
                                         pBuffer[j++] = *apValue;

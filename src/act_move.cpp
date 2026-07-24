@@ -631,7 +631,7 @@ void msdp_room_update(char_data* ch)
     msdp_room += (char)MSDP_VAL;
 
     extern char* sector_types[];
-    msdp_room += sector_types[world[ch->in_room].sector_type];
+    msdp_room += MSDPSanitizeValue(sector_types[world[ch->in_room].sector_type]);
 
     // Room exits need to be sent first before anything else
     MSDPSetArray(ch->desc, eMSDP_ROOM_EXITS, exits_names.c_str());
