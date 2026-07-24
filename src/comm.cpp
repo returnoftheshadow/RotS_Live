@@ -1632,6 +1632,17 @@ int write_to_descriptor(int desc, char* txt)
         do {
             thisround = write(desc, txt + sofar, total - sofar);
             if (thisround < 0) {
+                if ((errno == EAGAIN || errno == EWOULDBLOCK) && sofar == 0) {
+                    /* Kernel send buffer is momentarily full and nothing from this
+                       call has gone out yet, so the caller's output buffer (still
+                       fully intact -- process_output() only clears it after a
+                       successful write) can simply be retried whole next pulse
+                       instead of disconnecting the player. A mid-flight EAGAIN
+                       after a partial write is not handled here (would risk
+                       resending already-sent bytes) and still falls through to
+                       the existing fatal-disconnect path below. */
+                    return 0;
+                }
                 perror("Write to socket");
                 return (-1);
             }
