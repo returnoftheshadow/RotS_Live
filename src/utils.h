@@ -535,7 +535,7 @@ extern struct race_bodypart_data bodyparts[MAX_BODYTYPES];
                 complete_delay(ch);                                                                 \
                 if (ch->delay.wait_value != 0) {                                                    \
                     send_to_char("Possible bug - double delay. Please notify Imps.\n", ch);         \
-                    printf("double delay (reentrant queue during complete_delay)?\n");              \
+                    log("double delay (reentrant queue during complete_delay)?\n");                 \
                     break;                                                                          \
                 }                                                                                   \
                 abort_delay(ch);                                                                    \

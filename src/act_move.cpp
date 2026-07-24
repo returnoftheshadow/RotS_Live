@@ -590,6 +590,10 @@ void msdp_room_update(char_data* ch)
         return;
     }
 
+    if (!ch->desc) {
+        return;
+    }
+
     if (!ch->desc->pProtocol) {
         return;
     }
@@ -598,8 +602,8 @@ void msdp_room_update(char_data* ch)
         return;
     }
 
-    MSDPSetString(ch->desc, eMSDP_ROOM_NAME, world[ch->desc->character->in_room].name);
-    MSDPSetNumber(ch->desc, eMSDP_ROOM_VNUM, world[ch->desc->character->in_room].number);
+    MSDPSetString(ch->desc, eMSDP_ROOM_NAME, world[ch->in_room].name);
+    MSDPSetNumber(ch->desc, eMSDP_ROOM_VNUM, world[ch->in_room].number);
 
     std::string msdp_room = {};
     msdp_room += (char)MSDP_VAR;
