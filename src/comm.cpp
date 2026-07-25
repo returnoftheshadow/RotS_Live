@@ -908,17 +908,39 @@ void game_loop(SocketType s)
         for (point = descriptor_list; point; point = next_point) {
             next_point = point->next;
             if (point->descriptor) {
-                if (FD_ISSET(point->descriptor, &output_set) && *(point->output)) {
-                    int output_result = process_output(point);
-                    if (output_result < 0) {
-                        close_socket(point, FALSE);
-                    } else if (output_result > 0) {
-                        point->prompt_mode = 1;
+                if (*(point->output)) {
+                    if (FD_ISSET(point->descriptor, &output_set)) {
+                        int output_result = process_output(point);
+                        if (output_result < 0) {
+                            close_socket(point, FALSE);
+                        } else if (output_result > 0) {
+                            point->prompt_mode = 1;
+                        } else {
+                            /* output_result == 0: EAGAIN deferral -- t->output is still
+                               full of the unflushed text. The command-processing block
+                               earlier this same pulse may have already set prompt_mode
+                               when it queued that text (comm.cpp, "process_commands"
+                               loop) -- if we left that alone, the immediate,
+                               unbuffered prompt write below would fire ahead of the
+                               still-undelivered buffered text, and the client would
+                               see its prompt jump in front of a game message (or the
+                               room-name line, etc.) that hasn't arrived yet. Clear it
+                               so the prompt is held until a later pulse actually
+                               flushes this text successfully (which re-sets
+                               prompt_mode via the branch above). */
+                            point->prompt_mode = 0;
+                        }
+                    } else {
+                        /* Socket wasn't reported writable by select() this pulse (kernel
+                           send buffer transiently full -- more likely under bursty/rapid
+                           output), so process_output() wasn't even attempted: t->output
+                           is still sitting there unflushed. Same reasoning as the EAGAIN
+                           branch above -- don't let an already-set prompt_mode fire the
+                           prompt ahead of this still-buffered text. This path needs no
+                           new code from this bundle to trigger; it's existed as long as
+                           this select()-based loop has, independent of the EAGAIN case. */
+                        point->prompt_mode = 0;
                     }
-                    /* output_result == 0: EAGAIN deferral -- t->output is still
-                       full of the unflushed text, so don't set prompt_mode (that
-                       would try to also queue a prompt write on top of buffered
-                       output that hasn't gone out yet); just retry next pulse. */
                 }
             }
         }
@@ -943,11 +965,13 @@ void game_loop(SocketType s)
                 }
                 if (tmp) {
                     write_to_descriptor(point->descriptor, "] ");
+                    point->bare_prompt_pending = true;
                 } else if (!point->connected) {
-                    if (point->showstr_point)
+                    if (point->showstr_point) {
                         write_to_descriptor(point->descriptor,
                             "*** Press return to continue, q to quit ***");
-                    else { /*if point->showstr_point */
+                        point->bare_prompt_pending = true;
+                    } else { /*if point->showstr_point */
                         struct char_data* opponent;
                         struct char_data* tank;
 
@@ -1038,8 +1062,10 @@ void game_loop(SocketType s)
                             tmpflag = !IS_AFFECTED(point->character, AFF_WAITWHEEL);
                         else
                             tmpflag = 1;
-                        if (tmpflag)
+                        if (tmpflag) {
                             write_to_descriptor(point->descriptor, pptr);
+                            point->bare_prompt_pending = true;
+                        }
                     }
                 }
                 point->prompt_mode = 0;
@@ -1495,6 +1521,7 @@ SocketType pnew_descriptor(SocketType s)
     pnewd->pos = -1;
     //   pnewd->wait = 1;
     pnewd->prompt_mode = 0;
+    pnewd->bare_prompt_pending = false;
     *pnewd->buf = '\0';
     pnewd->str = 0;
     pnewd->showstr_head = 0;
@@ -1568,9 +1595,19 @@ int process_output(struct descriptor_data* t)
     int wid_count, i_shift;
     /* start writing at the 2nd space so we can prepend "% " for snoop */
     wid_count = 0;
-    if (!t->prompt_mode && !t->connected) {
+    /* bare_prompt_pending (not prompt_mode -- see structs.h) tracks whether the
+       last thing written to this socket was a bare prompt with no trailing
+       newline. Using prompt_mode here was wrong: prompt_mode gets set to 1 as
+       soon as a new command is processed (to print a fresh prompt after THIS
+       flush), which happens before this check runs whenever a player sends a
+       new command in the same pulse a previous prompt is still unbroken on the
+       wire -- masking the fact that a real, still-dangling prompt from a prior
+       pulse needed a leading break. That's the root cause of prompts appearing
+       glued to the front of the next line. */
+    if (t->bare_prompt_pending) {
         strcpy(i + 2, "\n\r");
         i_shift = 2;
+        t->bare_prompt_pending = false;
     } else
         i_shift = 0;
     if ((t->character) && (IS_SET(PRF_FLAGS(t->character), PRF_WRAP)))
