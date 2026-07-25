@@ -649,7 +649,7 @@ void msdp_room_update(char_data* ch)
 
     // Room exits need to be sent first before anything else
     MSDPSetArray(ch->desc, eMSDP_ROOM_EXITS, exits_names.c_str());
-    MSDPSend(ch->desc, eMSDP_ROOM_EXITS);
+    MSDPFlush(ch->desc, eMSDP_ROOM_EXITS);
     MSDPSetTable(ch->desc, eMSDP_ROOM, msdp_room.c_str());
 
     MSDPUpdate(ch->desc);
