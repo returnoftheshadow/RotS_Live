@@ -62,5 +62,16 @@ jobs:
       - name: Run C++ unit tests
         run: make test
 
+      - name: Check account smoke world data
+        id: smoke-world
+        run: |
+          if [ -f lib/world/scr/index ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping account smoke flow because lib/world/scr/index is not present. Runtime world files are git-ignored and required for server boot."
+          fi
+
       - name: Run account smoke flow
+        if: steps.smoke-world.outputs.available == 'true'
         run: make smoke-account

@@ -1,6 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
+- Latest CI follow-up: Parent GitHub Actions now keeps the account smoke flow behind an explicit runtime-world-data preflight. Clean GitHub runners skip `make smoke-account` with a notice when `lib/world/scr/index` is absent, because `lib/world/` is git-ignored/private runtime data and the game cannot boot without it.
+- Latest CI follow-up validation: `.github/workflows/ci.yml` parsed with `python3`/PyYAML, `git diff --check -- .github/workflows/ci.yml WIP.md` passed, the clean-checkout preflight emitted `available=false` with the skip notice, the local world-data-present preflight emitted `available=true`, and local `make smoke-account` passed.
 - Latest CI follow-up: Parent GitHub Actions now enables the `i386` apt architecture and installs `libcrypt-dev:i386` so the forced `-m32` CMake build can link against a compatible 32-bit `libcrypt` instead of seeing only the incompatible amd64 library.
 - Latest CI follow-up validation: `.github/workflows/ci.yml` parsed with `python3`/PyYAML, `apt-cache policy` resolved `libcrypt-dev:i386`, local `make build` passed, `git diff --check -- .github/workflows/ci.yml WIP.md` passed, and Dirac/Hubble reported no blockers.
 - Latest CI follow-up: Parent GitHub Actions checkout now has an explicit `.gitmodules` entry for the tracked `BuilderClient` gitlink, so `actions/checkout@v4` can run its submodule cleanup without failing on a missing submodule URL. The parent workflow still ignores BuilderClient-only path changes.
