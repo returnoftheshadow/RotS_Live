@@ -3,10 +3,14 @@ name: CI
 on:
   push:
     branches:
+      - main
       - master
+      - scripting-engine
   pull_request:
     branches:
+      - main
       - master
+      - scripting-engine
 
 permissions:
   contents: read
@@ -43,6 +47,9 @@ jobs:
 
       - name: Configure build tree
         run: make configure
+
+      - name: Build C++ server
+        run: make build
 
       - name: Run C++ unit tests
         run: make test
