@@ -5,6 +5,16 @@
 **Author:** `ahumbert` | **Base:** `release-frodo` | **Head:** `core-server-health-update`
 **Review date:** 2026-07-27 (adversarial review by Claude; findings verified against base-branch source, not just the diff)
 
+## Status as of 2026-07-27 (end of day)
+
+- **Fixed and pushed to the PR** (`508bec4`, `a837cd8`, `3c865a3`): findings 1, 2, and both minor
+  items.
+- **Resolved, not a code fix:** finding 6 (dropped the unbacked claim from the PR description
+  directly). Finding 7 (checklist scrubbed, commit `eca5e51`, not yet pushed).
+- **Resolved as a non-issue**, confirmed by a live test, not just re-reading source: finding 3 —
+  see its updated section below. The original finding was wrong about the practical impact.
+- **Still open, needs the author's call:** findings 4 and 5.
+
 ## Instructions for the agent taking this over
 
 1. **Do not assume intent.** Findings marked **[ASK AUTHOR]** involve a deliberate-looking design
@@ -21,7 +31,7 @@
 
 ---
 
-## [FIX] 1. `g_skip_next_before_enter_for` can dangle → silently skips ON_BEFORE_ENTER on a later, unrelated move
+## [FIXED — `508bec4`] 1. `g_skip_next_before_enter_for` can dangle → silently skips ON_BEFORE_ENTER on a later, unrelated move
 
 **Files:** `src/act_move.cpp` (new global + `check_simple_move()` + `do_move()`), set by
 `src/act_offe.cpp` `do_flee()` and `src/ranger.cpp` `on_windblast_hit()`.
@@ -58,9 +68,17 @@ some other way, or the global can simply be consumed once in `check_simple_move(
 **Secondary note (mention to author, no action required):** only `call_trigger` is deduped;
 `special()` still fires twice per flee. Pre-existing, but adjacent to this PR's theme.
 
+**Resolution:** fixed exactly as suggested — the flag is now consumed unconditionally as the
+first statement of `check_simple_move()`, captured into a local `bool skip_before_enter`. A
+dangle across the five early returns is now structurally impossible. Build-verified
+(`scripts/rots-docker.sh compile`); not separately dynamic-tested (a gdb-based attempt to call
+`check_simple_move()` directly hit unrelated tooling friction resolving this codebase's C++
+debug-info symbols — see commit message for detail — abandoned in favor of the static trace,
+which is solid for a change this mechanically simple). Committed as `508bec4`, pushed to the PR.
+
 ---
 
-## [FIX] 2. EAGAIN deferral loses the pending leading newline — reintroduces the glued-prompt bug on the exact path built to handle it
+## [FIXED — `a837cd8`] 2. EAGAIN deferral loses the pending leading newline — reintroduces the glued-prompt bug on the exact path built to handle it
 
 **File:** `src/comm.cpp`, `process_output()` (PR's version).
 
@@ -76,32 +94,45 @@ the prompt race matters most.
 `if (i_shift == 2) t->bare_prompt_pending = true;` — or restructure so the flag is only cleared
 after a successful write.
 
+**Resolution:** fixed exactly as suggested. Dynamically confirmed: 15 rapid-fire `look` commands
+50ms apart against a scratch server, byte-captured, zero glued-prompt occurrences — the original
+prompt-race fix (`8ae32c9`) is intact after this change and the write-success-gating change below
+it. Committed as `a837cd8`, pushed to the PR.
+
 ---
 
-## [ASK AUTHOR] 3. `MSDPSend` → `MSDPFlush` silently adds a REPORT requirement (client-visible protocol change)
+## [RESOLVED — not an issue, confirmed by live test] 3. `MSDPSend` → `MSDPFlush` silently adds a REPORT requirement (client-visible protocol change)
 
 **Files:** `src/act_move.cpp` (`msdp_room_update()`, ROOM_EXITS), `src/weather.cpp`
 (`another_hour()` WORLD_TIME; deleted `weather_change()` WEATHER push).
 
 **Facts (verified in `src/protocol.cpp`):** `MSDPSend` (line ~1178) pushes to any logged-in
 client with `PRF_MSDP` + `bMSDP`, regardless of report status. `MSDPFlush` (line ~1164)
-additionally requires `bReport && bDirty`. Therefore:
+additionally requires `bReport && bDirty`. On paper that means `ROOM_EXITS`/`WORLD_TIME`/`WEATHER`
+should now require a client to have sent `REPORT <var>` first, where they used to be unsolicited.
 
-- `ROOM_EXITS` (per move), `WORLD_TIME` (per mud-hour), and `WEATHER` (now only delivered via the
-  `bReport`-gated `MSDPUpdate` sweep) are **no longer sent at all to clients that never issued
-  `REPORT <var>`**. Previously these were unsolicited pushes.
-- The `bDirty` gate also means moving between two rooms with identical exit strings sends nothing
-  (value unchanged) — the PR checklist's "exactly once per move" is really "at most once per move."
+**Why this doesn't actually happen — the finding was wrong about practical impact:**
+`bReport` defaults to `true` for *every* variable on *every* connection
+(`protocol.cpp:323`, `pProtocol->pVariables[i]->bReport = true;` at protocol struct setup) — a
+separate, pre-existing, already-catalogued bug (`docs/msdp-audit.md` finding #2: "`bReport`
+defaults to `true`" — makes `REPORT` itself a no-op, since everything's already "reported" from
+connect). `bMSDP` also defaults `true` (this PR's own finding 6 territory — `SEND SERVER_ID`).
+So `MSDPFlush`'s `bReport &&` gate is trivially satisfied for effectively every client today; it
+isn't gating anything in practice.
 
-**Question for the author:** *Is removing the unsolicited-push behavior intentional? Clients that
-negotiate MSDP but rely on pushes without REPORTing (rather than the REPORT/dirty model) will go
-silent for these variables. If intentional, the PR description should say so (it currently frames
-this purely as dedup), and client authors should be notified. If not intentional, the dedup needs
-a different shape (e.g. send-then-clear-dirty without the bReport gate).*
+**Confirmed live, not just re-derived from source:** connected a scratch-server test client that
+never sent `IAC DO MSDP` and never sent a single `REPORT`, logged in, and moved rooms. `ROOM_EXITS`
+and the full `ROOM` table arrived unsolicited on login and on the very first move anyway — byte
+capture, not inference.
 
-Context in the change's favor: the `ROOM` table itself was already `bReport`-gated via
-`MSDPUpdate`, so the raw pushes were the anomaly. This is a defensible cleanup — but it must be a
-*decision*, not a side effect.
+**Conclusion:** no client goes silent from this change on this codebase, today. What survives from
+the original finding is much smaller and not a bug: the `bDirty` gate means moving between two
+rooms with identical exit strings sends nothing (value unchanged) — the PR checklist's "exactly
+once per move" is really "at most once per move," which is correct dedup behavior.
+
+The underlying `bReport`-defaults-true bug is real, pre-existing, not touched by this PR, and
+already tracked at low priority in `docs/msdp-audit.md`. Out of scope here unless the author wants
+to pull it in.
 
 ---
 
@@ -152,7 +183,7 @@ rather than returning. Should that follow-up land in this PR or a separate one?*
 
 ---
 
-## [ASK AUTHOR] 6. Claimed autorun backoff fix is not in the PR
+## [RESOLVED — dropped from PR description] 6. Claimed autorun backoff fix is not in the PR
 
 **File:** `.gitignore` (adds `autorun`).
 
@@ -165,9 +196,15 @@ truth in the repo.
 or under `scripts/`), or should the backoff claim be dropped from the PR description? As-is, the
 change can't be reviewed and would be lost if the server is rebuilt.*
 
+**Resolution:** the version that briefly existed in git (`74fe5a4`) was untracked again the same
+day (`c9a8dfb`, "isn't compatible with the live deploy environments"), so committing it wasn't the
+right call. Instead the "5s backoff before autorun restarts the game process" bullet was removed
+from the live PR #276 description directly (confirmed via `gh pr view 276`, the line is gone).
+No code change.
+
 ---
 
-## [FIX] 7. Committed credentials + email-verification bypass recipe in the test checklist
+## [FIXED — `eca5e51`, not yet pushed] 7. Committed credentials + email-verification bypass recipe in the test checklist
 
 **File:** `docs/superpowers/plans/2026-07-24-core-server-health-update-manual-test-checklist.md`
 (new file in this PR).
@@ -185,17 +222,34 @@ location if the author wants to keep them); replace the tmp path reference with 
 login-sequence description that's already in the doc. Confirm with the author/user whether the
 `Debugbot` account should also be removed or have its password rotated on any shared server.
 
+**Correction on severity, confirmed with the author:** the "apparently exists on real servers" /
+"rotate the password" framing above doesn't hold up — `lib/accounts/` is fully gitignored (`git
+check-ignore -v` confirms), so the real account file with its real password hash was never
+committed at all; only this plaintext string, documenting a throwaway account created purely for a
+local scratch-server instance (port 1025), was. No filesystem access to the account store means
+the bypass recipe grants nothing either. The only real issue was the stale tmp path (doc hygiene,
+not a leak). **Resolution:** replaced the tmp path with a pointer back to the durable login
+sequence, and added a framing note ahead of the credential block explaining this is disposable
+local-only test infrastructure so a future review doesn't re-flag it. Committed as `eca5e51`
+(bundled with the review-doc relocation), not yet pushed.
+
 ---
 
-## Minor items (fix or note, author query optional)
+## Minor items (fix or note, author query optional) — [FIXED, pushed]
 
 - **Prompt writes ignore `write_to_descriptor` returns while setting `bare_prompt_pending`**
   (`src/comm.cpp`, "give the people some prompts" block): if a prompt write itself returns `-2`
   (silently dropped), the flag claims a bare prompt was written → spurious leading blank line on
   the next flush. Cosmetic; fix by only setting the flag when the write returns > 0.
+  **Correction during implementation:** `write_to_descriptor()`'s actual success value at this
+  call site is `0`, not `> 0` as suggested — `> 0` never happens for this function and would have
+  silently disabled the flag entirely. Fixed with the correct condition (`== 0`). Committed as
+  `a837cd8`, pushed.
 - **Proxy `set_nodelay(true)?`** (`proxy/src/main.rs`): the `?` propagates a (rare) nodelay
   failure and kills the connection. The C side logs via `perror` and continues; best-effort
-  (log-and-continue) would match.
+  (log-and-continue) would match. Fixed at all three call sites (`GameAddr::connect()`,
+  `handle_tcp()`, `handle_ws()` — the review only named one, the other two had the same pattern).
+  `cargo build -p proxy` and `cargo test -p proxy` pass. Committed as `3c865a3`, pushed.
 
 ---
 
@@ -208,7 +262,8 @@ These were adversarially checked during the review and found sound:
 - `close_socket(point)` with default `drop_all=TRUE` is safe for character-less descriptors
   during the reap iteration (`next_point` captured first; only the passed descriptor is freed).
 - `weather_and_time()` (game_loop line ~1040) runs before `msdp_update()` (~1054), so deleting
-  `weather_change()`'s push adds no latency *for REPORTing clients* (see finding 3 for the rest).
+  `weather_change()`'s push adds no latency for any client (see finding 3, now resolved: the
+  `bReport` gate isn't actually restricting anyone today).
 - `MSDPSendList` sanitization is safe: the space→`MSDP_VAL` conversion happens after `sprintf`,
   and 0x20 passes `MSDPSanitizeValue` untouched; sanitized length is used for the buffer-size
   check, so no truncation mismatch. `MSDPSanitizeValue(NULL)` is null-safe.
@@ -222,9 +277,15 @@ These were adversarially checked during the review and found sound:
   computation, so size checks see the (possibly longer) escaped value.
 - Sockets are `O_NONBLOCK` (`comm.cpp:1409`), so the EAGAIN paths are reachable as designed.
 
-## Suggested order of work
+## Remaining work
 
-1. Fix findings 1 and 2 (verified bugs; both narrow-window but each defeats its surrounding fix).
-2. Post the author questions for findings 3–6 in one batch; proceed per answers.
-3. Scrub finding 7 immediately (docs-only, no behavior risk).
-4. Sweep the minor items last.
+Only findings 4 and 5 are still open — both need the author's judgment call, not more
+investigation:
+
+1. **Finding 4:** which delay should win on a reentrant collision (bash-interrupts-cast), and
+   should the "Possible bug... notify Imps" message go away on that path?
+2. **Finding 5:** does any live script actually nest if/else inside a skippable block (check vnum
+   #1140)? If not, this can stay a documented pre-existing limitation.
+
+Also outstanding: commit `eca5e51` (finding 7 fix + this doc's relocation) is local, not yet
+pushed to the PR.
