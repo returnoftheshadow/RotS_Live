@@ -136,6 +136,14 @@ completely decoupled from `prompt_mode` now. Plus the two narrower fixes for ite
       immediately after your own command's output, same as always)
 
 **Debug account/character (for reuse in future testing):**
+
+This is throwaway local test infrastructure, not a real credential: a disposable account/character
+on a scratch server instance (port 1025) that only exists on this machine, spun up specifically so
+manual testing didn't have to touch the dev live session on port 1024. `lib/accounts/` is
+gitignored, so the account itself was never committed — only this login recipe is. Recreate it
+(or one like it) on any machine by booting a scratch instance and creating a fresh account/
+character; there's nothing here that needs rotating or protecting.
+
 - Email: `clauded3bugbot@example.com`, password: `TestPass123!`, character: `Debugbot` (Human
   Warrior, male). Account JSON at `lib/accounts/A-E/clauded3bugbot@example.com/account.json` —
   **email_verified gets reset to false by the server on next login if the account cache is stale**
@@ -146,9 +154,9 @@ completely decoupled from `prompt_mode` now. Plus the two narrower fixes for ite
 - Login sequence: `Account email:` → email → `Account password:` → password → account menu
   (`2` = play a linked character) → character list (`1` = pick first/only character) → character
   welcome menu (`1` = enter the game).
-- A scratch python client for this flow lives at
-  `/tmp/claude-1000/-home-ahumbert-u-games-rots-wip/0b9b7cd4-8903-4207-a300-7f10cbcab20c/scratchpad/verify_fix.py`
-  (session-scoped tmp dir, may not survive — the login sequence above is the durable reference).
+- A scratch Python client scripts this same login sequence against the scratch server for
+  automated before/after byte captures — rebuild it from the login sequence above rather than
+  relying on a tmp-dir path, since scratch/session tmp directories don't survive between sessions.
 
 **Committed** 2026-07-24 as `8ae32c9` on `release-frodo` (`src/comm.cpp`, `src/structs.h`), after
 the user confirmed the fix against their live session. Still not pushed anywhere.
@@ -266,5 +274,8 @@ already-merged fix, not a new fix.
 ## Reference
 
 - Full plan with exact diffs per task: `2026-07-24-core-server-health-update.md`
-- Branch: merged into local `release-frodo` (14 commits, `f26d314..5708b22`), **not pushed**
-- Standing rule: no push/PR until this checklist is worked through and you explicitly ask
+- Branch: merged into local `release-frodo` (18 commits, `f26d314..3027ab3`)
+- **Pushed to `ahumbert/RotS_Live_ah:core-server-health-update` and opened as
+  [PR #276](https://github.com/returnoftheshadow/RotS_Live/pull/276) against
+  `returnoftheshadow/RotS_Live:release-frodo` on 2026-07-25.**
+- Standing rule: no further push/PR without an explicit ask each time
