@@ -46,6 +46,44 @@ jobs:
           mkdir -p lib/world
           cp -a .ci/rots-world/lib/world/. lib/world/
 
+      - name: Normalize empty smoke script catalog
+        run: |
+          if [ ! -f lib/world/scr/index ]; then
+            echo "::notice::Skipping smoke script catalog normalization because lib/world/scr/index is not present."
+            exit 0
+          fi
+
+          filtered_index="$(mktemp)"
+          while IFS= read -r script_entry; do
+            if [ "$script_entry" = "$" ]; then
+              break
+            fi
+            script_path="lib/world/scr/$script_entry"
+            if [ ! -f "$script_path" ]; then
+              echo "::error::Smoke script index references missing file $script_entry."
+              exit 1
+            fi
+            if awk '/^#[0-9]/ && ! /^#99999([[:space:]].*)?$/ { found=1 } END { exit found ? 0 : 1 }' "$script_path"; then
+              printf '%s\n' "$script_entry" >> "$filtered_index"
+            else
+              echo "::notice::Removed empty smoke script placeholder $script_entry from lib/world/scr/index."
+            fi
+          done < lib/world/scr/index
+
+          if [ -s "$filtered_index" ]; then
+            printf '$\n' >> "$filtered_index"
+            mv "$filtered_index" lib/world/scr/index
+          else
+            cat > lib/world/scr/ci-empty.scr <<'EOF'
+          #0 CI empty script catalog placeholder~
+          ~
+          999 0 0 0 0 0 0 0
+          #99999
+          EOF
+            printf 'ci-empty.scr\n$\n' > lib/world/scr/index
+            echo "::notice::Installed inert script catalog because the smoke world repo has only empty legacy script placeholders."
+          fi
+
       - name: Install system dependencies
         run: |
           sudo dpkg --add-architecture i386
