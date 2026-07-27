@@ -246,9 +246,9 @@ fixture runner while using command helpers accepted by the live JavaScript
 runtime:
 
 - [`gate-greeter.ts`](../BuilderClient/examples/shape-script/gate-greeter.ts)
-  covers `do_say`, `send_to_char`, `send_to_room`, and `do_wait`.
+  covers `doSay`, `sendToChar`, `sendToRoom`, and `doWait`.
 - [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
-  covers `load_obj`, `do_give`, and `send_to_char`.
+  covers `loadObj`, `doGive`, and `sendToChar`.
 - [Legacy script corpus plan](../BuilderClient/docs/legacy-script-corpus.md)
   tracks the active `lib/world/scr` scan and the JavaScript example slices
   derived from current game scripts.
@@ -278,13 +278,16 @@ Builder-facing client docs are maintained with the client:
   troubleshooting.
 
 These helpers currently queue or reserve validated JavaScript command intents.
-For `do_give`, `load_obj`, `do_wait`, `do_say`, `send_to_char`, and
-`send_to_room`, live dispatch now returns inline `MutationResult` codes for the
-failures it can classify before queuing the command, so builders do not need a
-separate preflight helper for normal capacity, ownership, wait-state, audit, or
-output-recipient branches. A successful `ok` result means the command was
-accepted into the current mutation transaction; it does not mean the live game
-mutation or descriptor write has already completed inside the running script.
+For `doGive`, `loadObj`, `doWait`, `doSay`, `sendToChar`, and `sendToRoom`,
+live dispatch now returns inline `MutationResult` codes for the failures it can
+classify before queuing the command, so builders do not need a separate
+preflight helper for normal capacity, ownership, wait-state, audit, or
+output-recipient branches. Snake-case helper names remain compatibility aliases
+for migrated scripts, and the internal command log operation labels still use
+the existing snake-case transaction names. A successful `ok` result means the
+command was accepted into the current mutation transaction; it does not mean the
+live game mutation or descriptor write has already completed inside the running
+script.
 After the handler returns successfully, live dispatch prepares all
 setter, room-flag helper, object-helper, wait, and output intents, including
 setter target validation; rejects malformed targets, failed command-helper
@@ -315,14 +318,14 @@ still point at a loaded world room; detached rooms are rejected before output,
 object loading, audit, or mixed-batch side effects. Mutating command helpers
 require server command audit when persistent authority is present. If an object
 helper batch or a later room-flag apply step fails after object apply begins,
-loaded objects are extracted and `do_give` transfers are reversed when the
-expected recipient still carries the object. JavaScript `load_obj(vnum,
+loaded objects are extracted and `doGive` transfers are reversed when the
+expected recipient still carries the object. JavaScript `loadObj(vnum,
 character)` prechecks the recipient's count and carried-weight capacity before
-creating the object. JavaScript `do_give` uses a silent transaction transfer,
+creating the object. JavaScript `doGive` uses a silent transaction transfer,
 not the legacy player-command `perform_give()` path, so it does not emit
 give-command messages, write legacy give logs, or fire `ON_RECEIVE` while the
 outer transaction is only partially applied.
-JavaScript `do_wait(pulses)` returns inline `not-authorized`, `invalid-target`,
+JavaScript `doWait(pulses)` returns inline `not-authorized`, `invalid-target`,
 `already-waiting`, or `audit-rejected` failures before queuing when the live
 server can classify them. `already-waiting` means no new wait was scheduled; a
 successful `ok` wait still applies only after the transaction rechecks the live
@@ -356,7 +359,7 @@ one-argument form also returns an inline result, but currently represents a
 validated no-placement intent and does not create an object until local object
 variables are designed. BuilderClient offline fixtures can include a
 non-script-visible `objectPrototypes` catalog. When that catalog is present,
-`load_obj`/`loadObj` returns `not-found` for absent vnums and uses the matched
+`loadObj`/`load_obj` returns `not-found` for absent vnums and uses the matched
 prototype's `flags.weight` for carried-weight capacity checks. When the catalog
 is omitted, offline fixtures keep the lightweight optimistic behavior so concise
 fixtures do not need to model every object prototype. An empty catalog is still
@@ -381,7 +384,7 @@ BuilderClient offline fixtures currently record command-helper events in source
 call order for diagnostics. They compile and validate the same helper API, but
 they do not emulate live server category ordering as the final commit order.
 Offline object-helper state is private, per-run diagnostic state: accepted
-`load_obj(vnum, character)` and `do_give(giver, recipient, object)` calls update
+`loadObj(vnum, character)` and `doGive(giver, recipient, object)` calls update
 hidden count, weight, and ownership facts so later helper calls in the same run
 can branch on realistic `inventory-full`, `too-heavy`, or `not-carried`
 results. Failed object helpers do not update that hidden state, repeated fixture

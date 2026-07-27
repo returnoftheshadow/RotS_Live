@@ -1125,20 +1125,20 @@ constexpr JsApiMember InventoryObjectSnapshotMembers[] = {
 };
 
 constexpr JsApiMember ScriptMembers[] = {
-    {"do_wait", JsApiMemberKind::Method, "(pulses: number) => MutationResult", "MutationResult",
+    {"doWait", JsApiMemberKind::Method, "(pulses: number) => MutationResult", "MutationResult",
      false, false, JsApiSideEffect::Mutation, JsApiMemberStatus::ImplementedSideEffectHelper,
      "builder-zone",
      "Request a bounded legacy-style wait state on the current live character host. Live dispatch "
      "returns inline authority, audit, invalid target, and already-waiting failures before queuing "
      "when possible. V1 does not resume JavaScript continuations after the wait expires."},
-    {"do_say", JsApiMemberKind::Method, "(speaker: Character, text: string) => MutationResult",
+    {"doSay", JsApiMemberKind::Method, "(speaker: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
      "Queue a bounded say action for a live character handle. Live dispatch returns inline target, "
      "recipient, and audit failures before queuing when possible. Text is single-line, length "
      "bounded, and emitted through the command-helper transaction path rather than command text "
      "passthrough."},
-    {"do_give", JsApiMemberKind::Method,
+    {"doGive", JsApiMemberKind::Method,
      "(giver: Character, recipient: Character, object: GameObject) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::WorldMutation,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
@@ -1146,51 +1146,51 @@ constexpr JsApiMember ScriptMembers[] = {
      "requires invocation-local live handles, direct carried-object ownership, target-zone "
      "authority, and transfers through the existing give path. Command-helper audit is still a "
      "follow-up hardening item."},
-    {"load_obj", JsApiMemberKind::Method,
+    {"loadObj", JsApiMemberKind::Method,
      "(vnum: number, target?: Character | Room) => MutationResult", "MutationResult", false, false,
      JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
      "Request a bounded object load by prototype vnum. Live dispatch returns inline failure codes "
      "before queuing when possible. Successful `ok` means transaction accepted; apply creates the "
      "object once after recheck. The one-argument form returns an inline result but remains a "
      "no-placement intent until local object variables are designed."},
-    {"send_to_char", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
+    {"sendToChar", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
      "Queue bounded text output to a character handle without exposing descriptor or account "
      "objects to builder scripts. Audited live dispatch can expose the coarse `no-recipient` "
      "reachability result, plus target and audit failures, before queuing when possible."},
-    {"send_to_room", JsApiMemberKind::Method, "(room: Room, text: string) => MutationResult",
+    {"sendToRoom", JsApiMemberKind::Method, "(room: Room, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
      "Queue bounded room output for a live room handle. Live dispatch returns inline target, "
      "recipient, and audit failures before queuing when possible."},
-    {"doWait", JsApiMemberKind::Method, "(pulses: number) => MutationResult", "MutationResult",
+    {"do_wait", JsApiMemberKind::Method, "(pulses: number) => MutationResult", "MutationResult",
      false, false, JsApiSideEffect::Mutation, JsApiMemberStatus::ImplementedSideEffectHelper,
-     "builder-zone", "CamelCase alias for `do_wait`."},
-    {"doSay", JsApiMemberKind::Method, "(speaker: Character, text: string) => MutationResult",
+     "builder-zone", "Migration alias for `doWait`; prefer `doWait` in new TypeScript scripts."},
+    {"do_say", JsApiMemberKind::Method, "(speaker: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "CamelCase alias for `do_say`."},
-    {"doGive", JsApiMemberKind::Method,
+     "Migration alias for `doSay`; prefer `doSay` in new TypeScript scripts."},
+    {"do_give", JsApiMemberKind::Method,
      "(giver: Character, recipient: Character, object: GameObject) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::WorldMutation,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "CamelCase alias for `do_give`."},
-    {"loadObj", JsApiMemberKind::Method,
+     "Migration alias for `doGive`; prefer `doGive` in new TypeScript scripts."},
+    {"load_obj", JsApiMemberKind::Method,
      "(vnum: number, target?: Character | Room) => MutationResult", "MutationResult", false, false,
      JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "CamelCase alias for `load_obj`."},
-    {"sendToChar", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
+     "Migration alias for `loadObj`; prefer `loadObj` in new TypeScript scripts."},
+    {"send_to_char", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
      "MutationResult", false, true, JsApiSideEffect::Output,
      JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "CamelCase alias for `send_to_char`."},
+     "Migration alias for `sendToChar`; prefer `sendToChar` in new TypeScript scripts."},
+    {"send_to_room", JsApiMemberKind::Method, "(room: Room, text: string) => MutationResult",
+     "MutationResult", false, true, JsApiSideEffect::Output,
+     JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
+     "Migration alias for `sendToRoom`; prefer `sendToRoom` in new TypeScript scripts."},
     {"sendToCharacter", JsApiMemberKind::Method, "(target: Character, text: string) => void",
      "void", false, true, JsApiSideEffect::Output, JsApiMemberStatus::Deferred, "deferred",
      "Output helper candidate; deferred until permission, recursion, and audit rules exist."},
-    {"sendToRoom", JsApiMemberKind::Method, "(room: Room, text: string) => MutationResult",
-     "MutationResult", false, true, JsApiSideEffect::Output,
-     JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
-     "CamelCase alias for `send_to_room`."},
     {"loadMob", JsApiMemberKind::Method, "(vnum: number) => never", "never", false, false,
      JsApiSideEffect::WorldMutation, JsApiMemberStatus::Unsupported, "unsupported",
      "World creation is not exposed to builder JavaScript in v1."},
@@ -1289,8 +1289,9 @@ constexpr JsApiType ApiTypes[] = {
     {"ScriptResult", JsApiTypeKind::Namespace, "", "Pure return-value helpers.",
      ScriptResultMembers, sizeof(ScriptResultMembers) / sizeof(ScriptResultMembers[0])},
     {"Script", JsApiTypeKind::Namespace, "",
-     "Deferred or unsupported side-effect helpers. Nothing here is callable in v1.", ScriptMembers,
-     sizeof(ScriptMembers) / sizeof(ScriptMembers[0])},
+     "Validated side-effect helper namespace. CamelCase helpers are the primary TypeScript API; "
+     "snake-case names are migration aliases for legacy-derived scripts.",
+     ScriptMembers, sizeof(ScriptMembers) / sizeof(ScriptMembers[0])},
 };
 
 } // namespace

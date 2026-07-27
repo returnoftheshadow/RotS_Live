@@ -18,6 +18,14 @@ void expect_contains(const std::string &text, const std::string &needle) {
     EXPECT_NE(text.find(needle), std::string::npos) << needle;
 }
 
+void expect_before(const std::string &text, const std::string &first, const std::string &second) {
+    const std::size_t first_index = text.find(first);
+    const std::size_t second_index = text.find(second);
+    ASSERT_NE(first_index, std::string::npos) << first;
+    ASSERT_NE(second_index, std::string::npos) << second;
+    EXPECT_LT(first_index, second_index) << first << " should appear before " << second;
+}
+
 bool contains_raw_cpp_type_text(const std::string &text) {
     std::string lower_text;
     lower_text.reserve(text.size());
@@ -364,6 +372,17 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     EXPECT_EQ(declarations.find("sendToCharacter"), std::string::npos);
     EXPECT_EQ(declarations.find("loadMob"), std::string::npos);
     EXPECT_EQ(declarations.find("extractCharacter"), std::string::npos);
+    expect_contains(declarations, "export function doWait(pulses: number): MutationResult;");
+    expect_contains(declarations,
+                    "export function doSay(speaker: Character, text: string): MutationResult;");
+    expect_contains(
+        declarations,
+        "export function loadObj(vnum: number, target?: Character | Room): MutationResult;");
+    expect_contains(declarations, "export function sendToChar(target: Character, text: string): "
+                                  "MutationResult;");
+    expect_contains(declarations, "export function sendToRoom(room: Room, text: string): "
+                                  "MutationResult;");
+    expect_contains(declarations, "Migration alias for `doWait`");
     expect_contains(declarations, "export function do_wait(pulses: number): MutationResult;");
     expect_contains(declarations,
                     "export function do_say(speaker: Character, text: string): MutationResult;");
@@ -372,8 +391,12 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         "export function load_obj(vnum: number, target?: Character | Room): MutationResult;");
     expect_contains(declarations, "export function send_to_char(target: Character, text: string): "
                                   "MutationResult;");
-    expect_contains(declarations, "export function sendToRoom(room: Room, text: string): "
-                                  "MutationResult;");
+    expect_before(declarations, "export function doWait(", "export function do_wait(");
+    expect_before(declarations, "export function doSay(", "export function do_say(");
+    expect_before(declarations, "export function doGive(", "export function do_give(");
+    expect_before(declarations, "export function loadObj(", "export function load_obj(");
+    expect_before(declarations, "export function sendToChar(", "export function send_to_char(");
+    expect_before(declarations, "export function sendToRoom(", "export function send_to_room(");
     EXPECT_EQ(declarations.find("runtimeSafety:"), std::string::npos);
     EXPECT_EQ(declarations.find("namespace MutationResult"), std::string::npos);
     EXPECT_EQ(declarations.find("export const MutationResult"), std::string::npos);
