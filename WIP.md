@@ -1,6 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
+- Latest CI follow-up: Parent GitHub Actions now checks out `Noobinabox/rots-world` from `main` into `.ci/rots-world` and copies its tracked `lib/world` data into the runtime `lib/world` path before build/test/smoke, so clean runners have the basic world files needed for `make smoke-account`.
+- Latest CI follow-up validation: `Noobinabox/rots-world` `main` resolved with `git ls-remote`, a shallow clone confirmed the repo stores world data under `lib/world`, all required top-level world indexes were present after simulating the checkout/copy into a clean temp workspace, `.github/workflows/ci.yml` parsed with `python3`/PyYAML, `git diff --check -- .github/workflows/ci.yml WIP.md` passed, and local `make smoke-account` passed.
 - Latest CI follow-up: Parent GitHub Actions now keeps the account smoke flow behind an explicit runtime-world-data preflight. Clean GitHub runners skip `make smoke-account` with a notice when `lib/world/scr/index` is absent, because `lib/world/` is git-ignored/private runtime data and the game cannot boot without it.
 - Latest CI follow-up validation: `.github/workflows/ci.yml` parsed with `python3`/PyYAML, `git diff --check -- .github/workflows/ci.yml WIP.md` passed, the clean-checkout preflight emitted `available=false` with the skip notice, the local world-data-present preflight emitted `available=true`, and local `make smoke-account` passed.
 - Latest CI follow-up: Parent GitHub Actions now enables the `i386` apt architecture and installs `libcrypt-dev:i386` so the forced `-m32` CMake build can link against a compatible 32-bit `libcrypt` instead of seeing only the incompatible amd64 library.

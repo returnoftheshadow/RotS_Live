@@ -33,6 +33,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check out smoke world files
+        uses: actions/checkout@v4
+        with:
+          repository: Noobinabox/rots-world
+          ref: main
+          path: .ci/rots-world
+          persist-credentials: false
+
+      - name: Install smoke world files
+        run: |
+          mkdir -p lib/world
+          cp -a .ci/rots-world/lib/world/. lib/world/
+
       - name: Install system dependencies
         run: |
           sudo dpkg --add-architecture i386
