@@ -964,13 +964,18 @@ void game_loop(SocketType s)
                     tmp = !(point->connected);
                 }
                 if (tmp) {
-                    write_to_descriptor(point->descriptor, "] ");
-                    point->bare_prompt_pending = true;
+                    /* write_to_descriptor() returns 0 on a full successful
+                       write, -2 on EAGAIN (nothing written), -1 fatal --
+                       only a real 0 leaves a bare prompt dangling on the
+                       wire that later needs its leading break. */
+                    if (write_to_descriptor(point->descriptor, "] ") == 0)
+                        point->bare_prompt_pending = true;
                 } else if (!point->connected) {
                     if (point->showstr_point) {
-                        write_to_descriptor(point->descriptor,
-                            "*** Press return to continue, q to quit ***");
-                        point->bare_prompt_pending = true;
+                        if (write_to_descriptor(point->descriptor,
+                                "*** Press return to continue, q to quit ***")
+                            == 0)
+                            point->bare_prompt_pending = true;
                     } else { /*if point->showstr_point */
                         struct char_data* opponent;
                         struct char_data* tank;
@@ -1063,8 +1068,8 @@ void game_loop(SocketType s)
                         else
                             tmpflag = 1;
                         if (tmpflag) {
-                            write_to_descriptor(point->descriptor, pptr);
-                            point->bare_prompt_pending = true;
+                            if (write_to_descriptor(point->descriptor, pptr) == 0)
+                                point->bare_prompt_pending = true;
                         }
                     }
                 }
@@ -1638,6 +1643,12 @@ int process_output(struct descriptor_data* t)
            caller neither disconnects (that's the < 0 case) nor sets
            prompt_mode (that's the > 0 case) -- we didn't actually flush
            anything this pulse. */
+        if (i_shift == 2)
+            /* The leading break was only written into the local output
+               buffer above, which is being discarded on this retry path --
+               restore the flag so the retried flush still carries it, or the
+               still-dangling prompt gets glued to the next line. */
+            t->bare_prompt_pending = true;
         return 0;
     }
 
