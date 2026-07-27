@@ -258,8 +258,9 @@ runtime:
 - [`1101-training-reward.ts`](../BuilderClient/examples/legacy-script/1101-training-reward.ts)
   is a supported-subset translation of `lib/world/scr/11.scr` script `#1101`
   and covers `ON_ENTER`, race branching, `loadObj`, and `MutationResult`
-  fallback messaging. Legacy local object variables plus mob-inventory custody
-  before giving remain a future helper slice.
+  fallback messaging. Legacy local object variables plus NPC custody before
+  giving are captured by the modern reward/custody helper design rather than
+  exposed as pointer-like script slots.
 - [`1130-yell-social-output.ts`](../BuilderClient/examples/legacy-script/1130-yell-social-output.ts)
   is derived from `lib/world/scr/11.scr` script `#1130` and covers `ON_ENTER`,
   `sendToRoomExcept`, `yell`, `emote`, `social`, and `pageZoneMap`.
@@ -438,7 +439,16 @@ DO_SAY `Please accept this gift.` (ch1)(null)
 ```
 
 This script greets entrants, creates a scimitar, gives it to the owner so it
-exists in-world, then gifts it to the visitor.
+exists in-world, then gifts it to the visitor. The current JavaScript surface
+can model the simple direct-target path with `loadObj(vnum, character)`, but the
+legacy custody sequence is intentionally being designed as higher-level helpers:
+`giveReward(...)` for atomic load/give reward handoffs, `exchangeReceivedObject(...)`
+for ON_RECEIVE exchange tables, typed `findInventoryObject`/`findEquippedObject`/
+`findRoomObject` lookups instead of object slots, `stashObject`/`moveObjectToRoom`
+for workshop custody, and `extractObject` for audited destructive cleanup.
+Those helpers must preflight multi-reward capacity and weight as a batch, keep
+default item-return paths branchable, and roll back without consuming accepted
+input objects when later reward creation or transfer fails.
 
 ### Blocking entry by race
 

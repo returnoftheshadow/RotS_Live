@@ -484,7 +484,7 @@ TEST(JsApiStructMapping, DeferredHelperPlanPrioritizesHighImpactBuilderAuthoring
         {"affects", 50, "char_data.affected", "stat/flag recomputation",
          "room flag synchronization"},
         {"inventory-equipment-object-movement", 60, "obj_data.contains",
-         "reciprocal list validation", "trigger blocks"},
+         "batch preflight", "multi-reward no-partial rollback"},
         {"character-movement-relationships", 70, "char_data.in_room",
          "loop prevention", "trigger-blocked movement"},
         {"zone-reset-authoring", 80, "zone_data.cmd", "stale base checksum checks",
@@ -511,6 +511,32 @@ TEST(JsApiStructMapping, DeferredHelperPlanPrioritizesHighImpactBuilderAuthoring
                   std::string::npos);
         EXPECT_NE(std::string(plan.test_focus).find(expected_plan.required_test_text),
                   std::string::npos);
+    }
+}
+
+TEST(JsApiStructMapping, RewardCustodyHelperPlanUsesModernTypedHelpers) {
+    const JsApiDeferredHelperPlan *plan =
+        find_deferred_helper_plan("inventory-equipment-object-movement");
+    ASSERT_NE(plan, nullptr);
+
+    const std::string plan_text = std::string(plan->title) + " " + plan->helper_shape + " " +
+                                  plan->authority_policy + " " + plan->offline_parity + " " +
+                                  plan->test_focus + " " + plan->notes;
+
+    for (const char *required : {"giveReward", "exchangeReceivedObject", "findInventoryObject",
+             "findEquippedObject", "findRoomObject", "stashObject", "moveObjectToRoom",
+             "extractObject", "wearObject", "removeObject", "container helpers",
+             "actor/target authority", "zone ownership", "reciprocal list validation",
+             "crash-save policy", "nested-container cycle prevention", "ON_WEAR/receive trigger ordering",
+             "audit-before-mutation", "default item return", "typed inventory/equipment/room lookup",
+             "hidden accepted custody state", "batch preflight", "multi-reward no-partial rollback",
+             "legacy temp object slots should become local TypeScript variables"}) {
+        EXPECT_NE(plan_text.find(required), std::string::npos) << required;
+    }
+
+    for (const char *forbidden : {"ob1", "ob2", "ch1", "ch2", "temporary pointer",
+             "pointer slot", "direct setter"}) {
+        EXPECT_EQ(plan_text.find(forbidden), std::string::npos) << forbidden;
     }
 }
 

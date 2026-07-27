@@ -768,17 +768,27 @@ constexpr JsApiDeferredHelperPlan DeferredHelperPlans[] = {
      "Cover unknown apply locations, invalid durations, duplicate affects, recalculation hooks, "
      "room flag synchronization, stale targets, and batch rollback.",
      "Affects touch derived stats and flags, so helpers must own recalculation before mutation."},
-    {"inventory-equipment-object-movement", 60, "Inventory, equipment, and object movement helpers",
+    {"inventory-equipment-object-movement", 60,
+     "Reward, custody, inventory, equipment, and object movement helpers",
      "char_data.equipment|char_data.carrying|obj_data.in_room|obj_data.carried_by|obj_data.in_obj|obj_data.contains|room_data.contents",
-     "Load/extract/move/give/take/wear/remove/container helpers that own list transfer, object "
-     "liveness, capacity, weight, light, equipment, and trigger semantics.",
+     "Modern helpers such as giveReward, exchangeReceivedObject, findInventoryObject, "
+     "findEquippedObject, findRoomObject, stashObject, moveObjectToRoom, extractObject, "
+     "wearObject, removeObject, and container helpers that own reward issuance, custody transfer, "
+     "lookup, list transfer, object liveness, capacity, weight, light, equipment, and trigger "
+     "semantics.",
      "Requires actor/target authority, zone ownership, reciprocal list validation, crash-save "
-     "policy, nested-container cycle prevention, and ON_WEAR/receive trigger ordering.",
-     "Offline fixtures must model list membership, shallow snapshots, wear slots, container "
-     "capacity, and trigger side effects without recursive mutable handles.",
-     "Cover stale objects, duplicate list membership, cycles, weight/capacity limits, wear "
-     "restriction failures, trigger blocks, and atomic extraction rollback.",
-     "Groups the linked object surfaces that would corrupt live lists if exposed as raw setters."},
+     "policy, nested-container cycle prevention, ON_WEAR/receive trigger ordering, and batch "
+     "preflight plus audit-before-mutation ordering for multi-reward or exchange-table flows "
+     "before any input object is consumed.",
+     "Offline fixtures must model list membership, shallow snapshots, typed inventory/equipment/"
+     "room lookup results, hidden accepted custody state, reward capacity and weight preflight, wear "
+     "slots, container capacity, and trigger side effects without recursive mutable handles.",
+     "Cover reward handoff, default item return, multi-reward no-partial rollback, stale objects, "
+     "duplicate list membership, cycles, wrong owner, absent or multiple lookup matches, nested "
+     "container exclusions, weight/capacity limits, wear restriction failures, trigger blocks, and "
+     "atomic extraction rollback.",
+     "Groups the linked object surfaces that would corrupt live lists if exposed as field assignment; "
+     "legacy temp object slots should become local TypeScript variables plus named helper results."},
     {"character-movement-relationships", 70, "Character movement and relationship helpers",
      "char_data.in_room|char_data.followers|char_data.master|char_data.mount_data|char_data.group",
      "Move/teleport/follow/unfollow/mount/dismount/group helpers with explicit relationship and "
