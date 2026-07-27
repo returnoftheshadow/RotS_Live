@@ -129,6 +129,8 @@ struct PendingObjectCommand {
 enum class AppliedObjectCommandKind {
     LoadedObject,
     GaveObject,
+    MovedObject,
+    ExtractedObject,
 };
 
 struct AppliedObjectCommand {
@@ -136,6 +138,8 @@ struct AppliedObjectCommand {
     obj_data* object = nullptr;
     char_data* giver = nullptr;
     char_data* recipient = nullptr;
+    char_data* previous_carrier = nullptr;
+    int previous_room = NOWHERE;
 };
 
 struct PendingWaitCommand {
@@ -153,6 +157,7 @@ struct ScriptCommandArguments {
     std::string recipient_id;
     std::string object_id;
     std::string load_target_id;
+    std::string move_target_id;
     std::string zone_id;
     int vnum = -1;
     int zone_vnum = -1;
@@ -166,6 +171,7 @@ struct ScriptCommandArguments {
     bool saw_recipient_id = false;
     bool saw_object_id = false;
     bool saw_load_target_id = false;
+    bool saw_move_target_id = false;
     bool saw_zone_id = false;
     bool saw_vnum = false;
     bool saw_zone_vnum = false;
@@ -575,6 +581,10 @@ bool parse_script_command_arguments(const JsRuntimeMutation& mutation,
                     local.saw_load_target_id = true;
                     return nested_reader->parse_string(&local.load_target_id, nested_error);
                 }
+                if (name == "moveTargetId" && !local.saw_move_target_id) {
+                    local.saw_move_target_id = true;
+                    return nested_reader->parse_string(&local.move_target_id, nested_error);
+                }
                 if (name == "zoneId" && !local.saw_zone_id) {
                     local.saw_zone_id = true;
                     return nested_reader->parse_string(&local.zone_id, nested_error);
@@ -617,6 +627,12 @@ bool parse_script_command_arguments(const JsRuntimeMutation& mutation,
         valid = local.saw_target_id && local.saw_zone_id && command_id_is_valid(local.target_id, "character:") && command_id_is_valid(local.zone_id, "zone:");
     else if (mutation.operation == "script.do_give")
         valid = local.saw_giver_id && local.saw_recipient_id && local.saw_object_id && command_id_is_valid(local.giver_id, "character:") && command_id_is_valid(local.recipient_id, "character:") && command_id_is_valid(local.object_id, "object:");
+    else if (mutation.operation == "script.move_object")
+        valid = local.saw_object_id && local.saw_move_target_id && command_id_is_valid(local.object_id, "object:") && (command_id_is_valid(local.move_target_id, "character:") || command_id_is_valid(local.move_target_id, "room:"));
+    else if (mutation.operation == "script.extract_obj")
+        valid = local.saw_object_id && command_id_is_valid(local.object_id, "object:");
+    else if (mutation.operation == "script.do_drop")
+        valid = local.saw_giver_id && local.saw_object_id && command_id_is_valid(local.giver_id, "character:") && command_id_is_valid(local.object_id, "object:");
     if (parsed != nullptr)
         *parsed = local;
     return valid;
@@ -671,6 +687,10 @@ bool can_transfer_object_for_script(const obj_data* object, const char_data* giv
 bool can_load_object_to_character_for_script(int real_object_index,
     const JsGameAdapterOptions& options,
     char_data* recipient);
+JsTriggerCommandResultCode classify_move_object_to_character_result(const obj_data* object,
+    const char_data* recipient);
+JsTriggerCommandResultCode classify_drop_object_result(const obj_data* object,
+    const char_data* giver);
 bool audit_command_mutations(const std::vector<JsRuntimeMutation>& command_mutations,
     const JsTriggerDispatchRequest& request,
     const JsTriggerMutationAuthorityContext& authority,
@@ -1307,6 +1327,24 @@ bool object_is_directly_carried_by(const obj_data* object, const char_data* char
     return false;
 }
 
+bool object_is_directly_in_room(const obj_data* object, const JsGameAdapterOptions& options)
+{
+    if (object == nullptr || !js_game_adapter_room_is_valid(object->in_room, options))
+        return false;
+    for (const obj_data* node = options.world[object->in_room].contents; node != nullptr;
+        node = node->next_content) {
+        if (node == object)
+            return true;
+    }
+    return false;
+}
+
+bool object_has_supported_direct_location(const obj_data* object, const JsGameAdapterOptions& options)
+{
+    return object_is_directly_in_room(object, options) ||
+        object_is_directly_carried_by(object, object != nullptr ? object->carried_by : nullptr);
+}
+
 std::string output_command_line(const std::string& text) { return text + "\n\r"; }
 
 std::string say_command_line(const char_data* speaker, const std::string& text)
@@ -1570,6 +1608,113 @@ std::string command_bridge_result(const JsGameCommandResultRequest& bridge_reque
         return js_command_result_json(true, true, "ok", bridge_request.operation.c_str());
     }
 
+    if (bridge_request.operation == "script.move_object") {
+        obj_data* object = live_object_role_for_command_id(arguments.object_id, *context->request,
+            *context->adapter_options);
+        if (object == nullptr)
+            return js_command_result_json(true, false, "invalid-target", "target");
+        if (!has_persistent_setter_authority(*context->authority))
+            return js_command_result_json(true, false, "not-authorized", "target");
+        if (!object_matches_mutation_authority(*object, *context->adapter_options,
+                *context->authority)) {
+            return js_command_result_json(true, false, "not-authorized", "target");
+        }
+        if (!object_has_supported_direct_location(object, *context->adapter_options))
+            return js_command_result_json(true, false, "invalid-target", "target");
+        if (IS_SET(object->obj_flags.extra_flags, ITEM_NODROP))
+            return js_command_result_json(
+                true, false, js_trigger_command_result_code_name(JsTriggerCommandResultCode::NoDrop),
+                "target");
+
+        char_data* target_character = live_character_role_for_command_id(
+            arguments.move_target_id, *context->request, *context->adapter_options);
+        if (target_character != nullptr) {
+            if (!command_target_matches_authority(target_character, *context->adapter_options,
+                    *context->authority)) {
+                return js_command_result_json(true, false, "not-authorized", "target");
+            }
+            const JsTriggerCommandResultCode code =
+                classify_move_object_to_character_result(object, target_character);
+            if (code != JsTriggerCommandResultCode::Ok) {
+                return js_command_result_json(
+                    true, false, js_trigger_command_result_code_name(code), "target");
+            }
+        } else {
+            const int target_room = live_room_role_for_command_id(
+                arguments.move_target_id, *context->request, *context->adapter_options);
+            if (target_room == NOWHERE)
+                return js_command_result_json(true, false, "invalid-target", "target");
+            if (!command_target_matches_authority(target_room, *context->adapter_options,
+                    *context->authority)) {
+                return js_command_result_json(true, false, "not-authorized", "target");
+            }
+        }
+
+        std::vector<JsRuntimeMutation> command_mutations;
+        command_mutations.push_back(mutation);
+        std::string diagnostic;
+        if (!audit_command_mutations(command_mutations, *context->request, *context->authority,
+                *context->helper_options, &diagnostic)) {
+            return js_command_result_json(true, false, "audit-rejected", nullptr);
+        }
+        return js_command_result_json(true, true, "ok", "script.move_object");
+    }
+
+    if (bridge_request.operation == "script.extract_obj") {
+        obj_data* object = live_object_role_for_command_id(arguments.object_id, *context->request,
+            *context->adapter_options);
+        if (object == nullptr)
+            return js_command_result_json(true, false, "invalid-target", "target");
+        if (!has_persistent_setter_authority(*context->authority))
+            return js_command_result_json(true, false, "not-authorized", "target");
+        if (!object_matches_mutation_authority(*object, *context->adapter_options,
+                *context->authority)) {
+            return js_command_result_json(true, false, "not-authorized", "target");
+        }
+        if (!object_has_supported_direct_location(object, *context->adapter_options))
+            return js_command_result_json(true, false, "invalid-target", "target");
+
+        std::vector<JsRuntimeMutation> command_mutations;
+        command_mutations.push_back(mutation);
+        std::string diagnostic;
+        if (!audit_command_mutations(command_mutations, *context->request, *context->authority,
+                *context->helper_options, &diagnostic)) {
+            return js_command_result_json(true, false, "audit-rejected", nullptr);
+        }
+        return js_command_result_json(true, true, "ok", "script.extract_obj");
+    }
+
+    if (bridge_request.operation == "script.do_drop") {
+        char_data* giver = live_character_role_for_command_id(arguments.giver_id, *context->request,
+            *context->adapter_options);
+        obj_data* object = live_object_role_for_command_id(arguments.object_id, *context->request,
+            *context->adapter_options);
+        if (giver == nullptr || object == nullptr)
+            return js_command_result_json(true, false, "invalid-target", "target");
+        if (!has_persistent_setter_authority(*context->authority))
+            return js_command_result_json(true, false, "not-authorized", "target");
+        if (!command_target_matches_authority(giver, *context->adapter_options,
+                *context->authority) ||
+            !object_matches_mutation_authority(*object, *context->adapter_options,
+                *context->authority)) {
+            return js_command_result_json(true, false, "not-authorized", "target");
+        }
+        const JsTriggerCommandResultCode code = classify_drop_object_result(object, giver);
+        if (code != JsTriggerCommandResultCode::Ok) {
+            return js_command_result_json(true, false, js_trigger_command_result_code_name(code),
+                "target");
+        }
+
+        std::vector<JsRuntimeMutation> command_mutations;
+        command_mutations.push_back(mutation);
+        std::string diagnostic;
+        if (!audit_command_mutations(command_mutations, *context->request, *context->authority,
+                *context->helper_options, &diagnostic)) {
+            return js_command_result_json(true, false, "audit-rejected", nullptr);
+        }
+        return js_command_result_json(true, true, "ok", "script.do_drop");
+    }
+
     if (bridge_request.operation != "script.do_give")
         return js_command_result_json(false, false, "unsupported", nullptr);
 
@@ -1709,6 +1854,49 @@ bool prepare_object_command_mutations(const std::vector<JsRuntimeMutation>& muta
             if (pending.giver == nullptr || pending.recipient == nullptr || pending.object == nullptr || !can_transfer_object_for_script(pending.object, pending.giver, pending.recipient))
                 return false;
             if (!command_target_matches_authority(pending.giver, options, authority) || !command_target_matches_authority(pending.recipient, options, authority) || !object_matches_mutation_authority(*pending.object, options, authority))
+                return false;
+        } else if (mutation.operation == "script.move_object") {
+            pending.object = live_object_role_for_command_id(arguments.object_id, request, options);
+            if (pending.object == nullptr ||
+                !object_matches_mutation_authority(*pending.object, options, authority))
+                return false;
+            if (!object_has_supported_direct_location(pending.object, options))
+                return false;
+            pending.target_character =
+                live_character_role_for_command_id(arguments.move_target_id, request, options);
+            if (pending.target_character != nullptr) {
+                if (!command_target_matches_authority(pending.target_character, options,
+                        authority))
+                    return false;
+                if (classify_move_object_to_character_result(
+                        pending.object, pending.target_character) != JsTriggerCommandResultCode::Ok)
+                    return false;
+                pending.target = PendingObjectCommandTarget::Character;
+            } else {
+                pending.target_room =
+                    live_room_role_for_command_id(arguments.move_target_id, request, options);
+                if (!command_target_matches_authority(pending.target_room, options, authority))
+                    return false;
+                if (IS_SET(pending.object->obj_flags.extra_flags, ITEM_NODROP))
+                    return false;
+                pending.target = PendingObjectCommandTarget::Room;
+            }
+        } else if (mutation.operation == "script.extract_obj") {
+            pending.object = live_object_role_for_command_id(arguments.object_id, request, options);
+            if (pending.object == nullptr ||
+                !object_matches_mutation_authority(*pending.object, options, authority))
+                return false;
+            if (!object_has_supported_direct_location(pending.object, options))
+                return false;
+        } else if (mutation.operation == "script.do_drop") {
+            pending.giver = live_character_role_for_command_id(arguments.giver_id, request, options);
+            pending.object = live_object_role_for_command_id(arguments.object_id, request, options);
+            if (pending.giver == nullptr || pending.object == nullptr ||
+                classify_drop_object_result(pending.object, pending.giver) !=
+                    JsTriggerCommandResultCode::Ok)
+                return false;
+            if (!command_target_matches_authority(pending.giver, options, authority) ||
+                !object_matches_mutation_authority(*pending.object, options, authority))
                 return false;
         } else {
             return false;
@@ -2437,6 +2625,16 @@ void rollback_applied_object_commands(const std::vector<AppliedObjectCommand>& a
             obj_from_char(command.object);
             obj_to_char(command.object, command.giver);
         }
+        if (command.kind == AppliedObjectCommandKind::MovedObject) {
+            if (command.object->carried_by != nullptr)
+                obj_from_char(command.object);
+            else if (command.object->in_room != NOWHERE)
+                obj_from_room(command.object);
+            if (command.previous_carrier != nullptr)
+                obj_to_char(command.object, command.previous_carrier);
+            else if (command.previous_room != NOWHERE)
+                obj_to_room(command.object, command.previous_room);
+        }
     }
 }
 
@@ -2460,6 +2658,34 @@ bool can_transfer_object_for_script(const obj_data* object, const char_data* giv
     const char_data* recipient)
 {
     return classify_do_give_result(object, giver, recipient) == JsTriggerCommandResultCode::Ok;
+}
+
+JsTriggerCommandResultCode classify_move_object_to_character_result(const obj_data* object,
+    const char_data* recipient)
+{
+    if (object == nullptr || recipient == nullptr)
+        return JsTriggerCommandResultCode::InvalidTarget;
+    if (IS_SET(object->obj_flags.extra_flags, ITEM_NODROP))
+        return JsTriggerCommandResultCode::NoDrop;
+    if (IS_CARRYING_N(recipient) >= CAN_CARRY_N(recipient))
+        return JsTriggerCommandResultCode::InventoryFull;
+    if (GET_OBJ_WEIGHT(object) + IS_CARRYING_W(recipient) > CAN_CARRY_W(recipient))
+        return JsTriggerCommandResultCode::TooHeavy;
+    return JsTriggerCommandResultCode::Ok;
+}
+
+JsTriggerCommandResultCode classify_drop_object_result(const obj_data* object,
+    const char_data* giver)
+{
+    if (object == nullptr || giver == nullptr)
+        return JsTriggerCommandResultCode::InvalidTarget;
+    if (!object_is_directly_carried_by(object, giver))
+        return JsTriggerCommandResultCode::NotCarried;
+    if (IS_SET(object->obj_flags.extra_flags, ITEM_NODROP))
+        return JsTriggerCommandResultCode::NoDrop;
+    if (giver->in_room == NOWHERE)
+        return JsTriggerCommandResultCode::InvalidTarget;
+    return JsTriggerCommandResultCode::Ok;
 }
 
 bool can_load_object_to_character_for_script(int real_object_index,
@@ -2489,6 +2715,16 @@ void transfer_object_for_script(obj_data* object, char_data* giver, char_data* r
 {
     obj_from_char(object);
     obj_to_char(object, recipient);
+}
+
+void remove_direct_object_for_script(obj_data* object)
+{
+    if (object == nullptr)
+        return;
+    if (object->carried_by != nullptr)
+        obj_from_char(object);
+    else if (object->in_room != NOWHERE)
+        obj_from_room(object);
 }
 
 bool apply_object_commands(const std::vector<PendingObjectCommand>& commands,
@@ -2537,6 +2773,57 @@ bool apply_object_commands(const std::vector<PendingObjectCommand>& commands,
                 command.recipient });
             continue;
         }
+        if (command.operation == "script.move_object") {
+            if (!object_has_supported_direct_location(command.object, options))
+                return fail();
+            AppliedObjectCommand applied_command;
+            applied_command.kind = AppliedObjectCommandKind::MovedObject;
+            applied_command.object = command.object;
+            applied_command.previous_carrier = command.object->carried_by;
+            applied_command.previous_room = command.object->in_room;
+            if (command.target == PendingObjectCommandTarget::Character &&
+                command.target_character != nullptr) {
+                if (classify_move_object_to_character_result(
+                        command.object, command.target_character) != JsTriggerCommandResultCode::Ok)
+                    return fail();
+                remove_direct_object_for_script(command.object);
+                obj_to_char(command.object, command.target_character);
+                applied->push_back(applied_command);
+                continue;
+            }
+            if (command.target == PendingObjectCommandTarget::Room &&
+                command.target_room != NOWHERE) {
+                if (IS_SET(command.object->obj_flags.extra_flags, ITEM_NODROP))
+                    return fail();
+                remove_direct_object_for_script(command.object);
+                obj_to_room(command.object, command.target_room);
+                applied->push_back(applied_command);
+                continue;
+            }
+            return fail();
+        }
+        if (command.operation == "script.do_drop") {
+            if (classify_drop_object_result(command.object, command.giver) !=
+                JsTriggerCommandResultCode::Ok)
+                return fail();
+            AppliedObjectCommand applied_command;
+            applied_command.kind = AppliedObjectCommandKind::MovedObject;
+            applied_command.object = command.object;
+            applied_command.previous_carrier = command.object->carried_by;
+            applied_command.previous_room = command.object->in_room;
+            obj_from_char(command.object);
+            obj_to_room(command.object, command.giver->in_room);
+            applied->push_back(applied_command);
+            continue;
+        }
+        if (command.operation == "script.extract_obj") {
+            if (!object_has_supported_direct_location(command.object, options))
+                return fail();
+            extract_obj(command.object);
+            applied->push_back(
+                { AppliedObjectCommandKind::ExtractedObject, nullptr, nullptr, nullptr });
+            continue;
+        }
         return fail();
     }
     return true;
@@ -2571,6 +2858,43 @@ bool object_commands_still_applicable(const std::vector<PendingObjectCommand>& c
             if (command.giver == nullptr || command.recipient == nullptr || command.object == nullptr || !can_transfer_object_for_script(command.object, command.giver, command.recipient))
                 return false;
             if (!command_target_matches_authority(command.giver, options, authority) || !command_target_matches_authority(command.recipient, options, authority) || !object_matches_mutation_authority(*command.object, options, authority))
+                return false;
+            continue;
+        }
+        if (command.operation == "script.move_object") {
+            if (command.object == nullptr ||
+                !object_matches_mutation_authority(*command.object, options, authority) ||
+                !object_has_supported_direct_location(command.object, options))
+                return false;
+            if (command.target == PendingObjectCommandTarget::Character) {
+                if (!command_target_matches_authority(command.target_character, options, authority))
+                    return false;
+                if (classify_move_object_to_character_result(
+                        command.object, command.target_character) != JsTriggerCommandResultCode::Ok)
+                    return false;
+                continue;
+            }
+            if (command.target == PendingObjectCommandTarget::Room) {
+                if (!command_target_matches_authority(command.target_room, options, authority))
+                    return false;
+                continue;
+            }
+            return false;
+        }
+        if (command.operation == "script.extract_obj") {
+            if (command.object == nullptr ||
+                !object_matches_mutation_authority(*command.object, options, authority) ||
+                !object_has_supported_direct_location(command.object, options))
+                return false;
+            continue;
+        }
+        if (command.operation == "script.do_drop") {
+            if (command.giver == nullptr || command.object == nullptr ||
+                classify_drop_object_result(command.object, command.giver) !=
+                    JsTriggerCommandResultCode::Ok)
+                return false;
+            if (!command_target_matches_authority(command.giver, options, authority) ||
+                !object_matches_mutation_authority(*command.object, options, authority))
                 return false;
             continue;
         }
@@ -2630,6 +2954,16 @@ std::size_t runtime_object_command_mutation_count(const std::vector<JsRuntimeMut
             ++count;
     }
     return count;
+}
+
+bool pending_object_commands_include_extract(
+    const std::vector<PendingObjectCommand>& pending_object_commands)
+{
+    for (const PendingObjectCommand& command : pending_object_commands) {
+        if (command.operation == "script.extract_obj")
+            return true;
+    }
+    return false;
 }
 
 std::size_t runtime_wait_command_mutation_count(const std::vector<JsRuntimeMutation>& mutations)
@@ -3018,6 +3352,17 @@ js_trigger_dispatch_apply_runtime_mutation_transaction(
     }
 
     if (!object_commands_still_applicable(pending_object_commands, adapter_options, authority)) {
+        result.ok = false;
+        result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
+        result.applied_setter_count = 0;
+        result.applied_helper_count = 0;
+        result.diagnostic = "JavaScript trigger object command apply rejected";
+        return result;
+    }
+
+    if (pending_object_commands_include_extract(pending_object_commands) &&
+        (!pending_mutations.empty() || pending_object_commands.size() > 1 ||
+            !pending_room_flag_mutations.empty() || !pending_wait_commands.empty())) {
         result.ok = false;
         result.helper_status = JsTriggerHelperMutationTransactionStatus::ApplyRejected;
         result.applied_setter_count = 0;

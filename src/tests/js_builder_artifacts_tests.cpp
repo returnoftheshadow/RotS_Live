@@ -378,6 +378,12 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     expect_contains(
         declarations,
         "export function loadObj(vnum: number, target?: Character | Room): MutationResult;");
+    expect_contains(declarations, "export function moveObject(object: GameObject, target: "
+                                  "Character | Room): MutationResult;");
+    expect_contains(declarations,
+                    "export function extractObject(object: GameObject): MutationResult;");
+    expect_contains(declarations, "export function dropObject(character: Character, object: "
+                                  "GameObject): MutationResult;");
     expect_contains(declarations, "export function sendToChar(target: Character, text: string): "
                                   "MutationResult;");
     expect_contains(declarations, "export function sendToRoom(room: Room, text: string): "
@@ -399,6 +405,12 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     expect_contains(
         declarations,
         "export function load_obj(vnum: number, target?: Character | Room): MutationResult;");
+    expect_contains(declarations, "export function move_object(object: GameObject, target: "
+                                  "Character | Room): MutationResult;");
+    expect_contains(declarations,
+                    "export function extract_obj(object: GameObject): MutationResult;");
+    expect_contains(declarations, "export function do_drop(character: Character, object: "
+                                  "GameObject): MutationResult;");
     expect_contains(declarations, "export function send_to_char(target: Character, text: string): "
                                   "MutationResult;");
     expect_contains(declarations, "export function send_to_room_x(room: Room, except: Character, "
@@ -415,6 +427,9 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     expect_before(declarations, "export function doSay(", "export function do_say(");
     expect_before(declarations, "export function doGive(", "export function do_give(");
     expect_before(declarations, "export function loadObj(", "export function load_obj(");
+    expect_before(declarations, "export function moveObject(", "export function move_object(");
+    expect_before(declarations, "export function extractObject(", "export function extract_obj(");
+    expect_before(declarations, "export function dropObject(", "export function do_drop(");
     expect_before(declarations, "export function sendToChar(", "export function send_to_char(");
     expect_before(declarations, "export function sendToRoom(", "export function send_to_room(");
     expect_before(declarations, "export function sendToRoomExcept(",

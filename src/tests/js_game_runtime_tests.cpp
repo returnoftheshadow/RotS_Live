@@ -2554,14 +2554,18 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
         "const map = RotS.Script.page_zone_map(ctx.actor, ctx.room.zone);\n"
         "const load = RotS.Script.load_obj(4201);\n"
         "const give = RotS.Script.do_give(ctx.self, ctx.actor, ctx.object);\n"
+        "const move = RotS.Script.move_object(ctx.object, ctx.room);\n"
+        "const extract = RotS.Script.extract_obj(ctx.object);\n"
+        "const drop = RotS.Script.do_drop(ctx.self, ctx.object);\n"
         "const wait = RotS.Script.do_wait(4);\n"
         "return say.ok && tell.ok && room.ok && roomExcept.ok && yell.ok && emote.ok && "
-        "social.ok && map.ok && load.ok && give.ok && wait.ok;\n",
+        "social.ok && map.ok && load.ok && give.ok && move.ok && extract.ok && drop.ok && "
+        "wait.ok;\n",
         context);
 
     ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
     EXPECT_EQ(result.value, JsRuntimeValue::Allow);
-    ASSERT_EQ(result.mutations.size(), 11U);
+    ASSERT_EQ(result.mutations.size(), 14U);
     EXPECT_EQ(result.mutations[0].kind, "command");
     EXPECT_EQ(result.mutations[0].operation, "script.do_say");
     EXPECT_EQ(result.mutations[0].arguments_json,
@@ -2593,8 +2597,16 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
     EXPECT_EQ(
         result.mutations[9].arguments_json,
         "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
-    EXPECT_EQ(result.mutations[10].operation, "script.do_wait");
-    EXPECT_EQ(result.mutations[10].arguments_json, "{\"pulses\":4}");
+    EXPECT_EQ(result.mutations[10].operation, "script.move_object");
+    EXPECT_EQ(result.mutations[10].arguments_json,
+              "{\"objectId\":\"object:301\",\"moveTargetId\":\"room:1204\"}");
+    EXPECT_EQ(result.mutations[11].operation, "script.extract_obj");
+    EXPECT_EQ(result.mutations[11].arguments_json, "{\"objectId\":\"object:301\"}");
+    EXPECT_EQ(result.mutations[12].operation, "script.do_drop");
+    EXPECT_EQ(result.mutations[12].arguments_json,
+              "{\"giverId\":\"char:1001\",\"objectId\":\"object:301\"}");
+    EXPECT_EQ(result.mutations[13].operation, "script.do_wait");
+    EXPECT_EQ(result.mutations[13].arguments_json, "{\"pulses\":4}");
 }
 
 struct CommandBridgeProbe {
@@ -2853,12 +2865,13 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughPolymorphicTargetsByKind) {
         "const room = RotS.Script.send_to_room(ctx.targ1, 'Room notice.');\n"
         "const load = RotS.Script.load_obj(4201, ctx.targ1);\n"
         "const give = RotS.Script.do_give(ctx.actor, ctx.self, ctx.targ2);\n"
-        "return tell.ok && room.ok && load.ok && give.ok;\n",
+        "const move = RotS.Script.move_object(ctx.targ2, ctx.targ1);\n"
+        "return tell.ok && room.ok && load.ok && give.ok && move.ok;\n",
         context);
 
     ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
     EXPECT_EQ(result.value, JsRuntimeValue::Allow);
-    ASSERT_EQ(result.mutations.size(), 4U);
+    ASSERT_EQ(result.mutations.size(), 5U);
     EXPECT_EQ(result.mutations[0].arguments_json,
               "{\"targetId\":\"target\",\"text\":\"Target notice.\"}");
     EXPECT_EQ(result.mutations[1].arguments_json,
@@ -2866,6 +2879,8 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughPolymorphicTargetsByKind) {
     EXPECT_EQ(result.mutations[2].arguments_json, "{\"vnum\":4201,\"loadTargetId\":\"targ1\"}");
     EXPECT_EQ(result.mutations[3].arguments_json,
               "{\"giverId\":\"actor\",\"recipientId\":\"char:1001\",\"objectId\":\"targ2\"}");
+    EXPECT_EQ(result.mutations[4].arguments_json,
+              "{\"objectId\":\"targ2\",\"moveTargetId\":\"targ1\"}");
 }
 
 TEST(JsGameRuntime, RejectsWrongKindPolymorphicCommandHelperHandles) {

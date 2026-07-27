@@ -394,21 +394,26 @@ BuilderClient offline fixtures currently record command-helper events in source
 call order for diagnostics. They compile and validate the same helper API, but
 they do not emulate live server category ordering as the final commit order.
 Offline object-helper state is private, per-run diagnostic state: accepted
-`loadObj(vnum, character)` and `doGive(giver, recipient, object)` calls update
-hidden count, weight, and ownership facts so later helper calls in the same run
-can branch on realistic `inventory-full`, `too-heavy`, or `not-carried`
-results. Failed object helpers do not update that hidden state, repeated fixture
-runs start from the original fixture, and script-visible frozen snapshots such
-as `ctx.actor.inventory` and `ctx.object.carriedBy` do not change. Room object
-placement is also covered by a non-script-visible BuilderClient probe and
-private per-run execution state that clone fixture room contents and apply
-accepted `loadObj(vnum, room)` commands with deterministic offline ids while
-leaving `ctx.room.contents` frozen and unchanged for the running script.
-Missing-prototype and wrong-room failures leave placement state unchanged, and
-each fixture run starts from the original room contents. Offline `doGive`
-treats room-contained objects as `not-carried` unless an accepted transfer has
-explicitly moved them into character ownership. Remaining fixture parity gaps
-include source-order diagnostic behavior versus server category commit order. A
+`loadObj(vnum, character)`, `doGive(giver, recipient, object)`,
+`moveObject(object, target)`, `dropObject(character, object)`, and
+`extractObject(object)` calls update hidden count, weight, room placement,
+ownership, and extracted-object facts so later helper calls in the same run can
+branch on realistic `inventory-full`, `too-heavy`, `not-carried`,
+`no-drop`, or `stale-handle` results. Failed object helpers do not update that
+hidden state, repeated fixture runs start from the original fixture, and
+script-visible frozen snapshots such as `ctx.actor.inventory` and
+`ctx.object.carriedBy` do not change. Room object placement is also covered by a
+non-script-visible BuilderClient probe and private per-run execution state that
+clones fixture room contents and applies accepted `loadObj(vnum, room)`,
+`moveObject(object, room)`, and `dropObject(character, object)` commands with
+deterministic offline ids while leaving `ctx.room.contents` frozen and
+unchanged for the running script. Missing-prototype, wrong-room, and failed
+movement/drop/extract branches leave placement state unchanged, and each fixture
+run starts from the original room contents. Offline `doGive` treats
+room-contained objects as `not-carried` unless an accepted movement or transfer
+has explicitly moved them into character ownership. Remaining fixture parity
+gaps include source-order diagnostic behavior versus server category commit
+order. A
 non-script-visible BuilderClient probe can inspect queued output intents
 separately from committed descriptor
 output events. Normal offline fixture runs expose only committed descriptor
@@ -441,12 +446,13 @@ DO_SAY `Please accept this gift.` (ch1)(null)
 This script greets entrants, creates a scimitar, gives it to the owner so it
 exists in-world, then gifts it to the visitor. The current JavaScript surface
 can model the simple direct-target path with `loadObj(vnum, character)`, but the
-legacy custody sequence is intentionally being designed as higher-level helpers:
+legacy custody sequence should usually use higher-level helpers once they are
+promoted:
 `giveReward(...)` for atomic load/give reward handoffs, `exchangeReceivedObject(...)`
 for ON_RECEIVE exchange tables, typed `findInventoryObject`/`findEquippedObject`/
 `findRoomObject` lookups instead of object slots, `stashObject`/`moveObjectToRoom`
-for workshop custody, and `extractObject` for audited destructive cleanup.
-Those helpers must preflight multi-reward capacity and weight as a batch, keep
+for workshop custody, and audited destructive cleanup built on
+`extractObject`. Those higher-level helpers must preflight multi-reward capacity and weight as a batch, keep
 default item-return paths branchable, and roll back without consuming accepted
 input objects when later reward creation or transfer fails.
 

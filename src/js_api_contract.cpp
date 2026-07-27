@@ -1144,8 +1144,7 @@ constexpr JsApiMember ScriptMembers[] = {
         JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
         "Queue a bounded object-give request between live character and object handles. Live dispatch "
         "requires invocation-local live handles, direct carried-object ownership, target-zone "
-        "authority, and transfers through the existing give path. Command-helper audit is still a "
-        "follow-up hardening item." },
+        "authority, command audit, and transfers through the existing give path." },
     { "loadObj", JsApiMemberKind::Method,
         "(vnum: number, target?: Character | Room) => MutationResult", "MutationResult", false, false,
         JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
@@ -1153,6 +1152,27 @@ constexpr JsApiMember ScriptMembers[] = {
         "before queuing when possible. Successful `ok` means transaction accepted; apply creates the "
         "object once after recheck. The one-argument form returns an inline result but remains a "
         "no-placement intent until local object variables are designed." },
+    { "moveObject", JsApiMemberKind::Method,
+        "(object: GameObject, target: Character | Room) => MutationResult", "MutationResult", false,
+        true, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+        "builder-zone",
+        "Move a directly carried or room-contained live object handle to a character or room handle. "
+        "Live dispatch requires invocation-local handles, target-zone authority, command audit, "
+        "direct object placement, no-drop/capacity checks for character targets, and rollback for "
+        "reversible placement changes." },
+    { "extractObject", JsApiMemberKind::Method, "(object: GameObject) => MutationResult",
+        "MutationResult", false, true, JsApiSideEffect::WorldMutation,
+        JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
+        "Extract a directly carried or room-contained live object handle after target-zone authority "
+        "and command audit. Because extraction is destructive, mixed helper/wait batches that could "
+        "fail after extraction are rejected until staged extraction semantics are designed." },
+    { "dropObject", JsApiMemberKind::Method,
+        "(character: Character, object: GameObject) => MutationResult", "MutationResult", false,
+        true, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+        "builder-zone",
+        "Drop a directly carried object from a character handle into the character's current room. "
+        "Live dispatch requires invocation-local handles, target-zone authority, command audit, "
+        "direct carried ownership, no-drop checks, and rollback for reversible placement changes." },
     { "sendToChar", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
         "MutationResult", false, true, JsApiSideEffect::Output,
         JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
@@ -1208,6 +1228,18 @@ constexpr JsApiMember ScriptMembers[] = {
         "(vnum: number, target?: Character | Room) => MutationResult", "MutationResult", false, false,
         JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
         "Migration alias for `loadObj`; prefer `loadObj` in new TypeScript scripts." },
+    { "move_object", JsApiMemberKind::Method,
+        "(object: GameObject, target: Character | Room) => MutationResult", "MutationResult", false,
+        true, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+        "builder-zone", "Migration alias for `moveObject`; prefer `moveObject` in new TypeScript scripts." },
+    { "extract_obj", JsApiMemberKind::Method, "(object: GameObject) => MutationResult",
+        "MutationResult", false, true, JsApiSideEffect::WorldMutation,
+        JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
+        "Migration alias for `extractObject`; prefer `extractObject` in new TypeScript scripts." },
+    { "do_drop", JsApiMemberKind::Method,
+        "(character: Character, object: GameObject) => MutationResult", "MutationResult", false,
+        true, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+        "builder-zone", "Migration alias for `dropObject`; prefer `dropObject` in new TypeScript scripts." },
     { "send_to_char", JsApiMemberKind::Method, "(target: Character, text: string) => MutationResult",
         "MutationResult", false, true, JsApiSideEffect::Output,
         JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",

@@ -463,6 +463,26 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlySupportedCommandH
         "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(give));
 
+    const JsRuntimeMutation move = make_script_command_mutation(
+        "script.move_object", "{\"objectId\":\"object:301\",\"moveTargetId\":\"room:100\"}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(move));
+
+    const JsRuntimeMutation extract =
+        make_script_command_mutation("script.extract_obj", "{\"objectId\":\"object:301\"}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(extract));
+
+    const JsRuntimeMutation drop = make_script_command_mutation(
+        "script.do_drop", "{\"giverId\":\"char:1001\",\"objectId\":\"object:301\"}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(drop));
+
+    const JsRuntimeMutation stale_move_shape = make_script_command_mutation(
+        "script.move_object", "{\"objectId\":\"object:301\",\"targetId\":\"room:100\"}");
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(stale_move_shape));
+
+    const JsRuntimeMutation stale_drop_shape = make_script_command_mutation(
+        "script.do_drop", "{\"characterId\":\"char:1001\",\"objectId\":\"object:301\"}");
+    EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(stale_drop_shape));
+
     const JsRuntimeMutation wait = make_script_command_mutation("script.do_wait", "{\"pulses\":4}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(wait));
 
@@ -1644,6 +1664,192 @@ TEST(JsTriggerDispatch, BridgeAcceptedDoGiveStillTransfersExactlyOnceAtApply) {
     EXPECT_EQ(actor.specials.carry_weight, 0);
     EXPECT_EQ(self.specials.carry_items, 1);
     EXPECT_EQ(self.specials.carry_weight, 2);
+}
+
+TEST(JsTriggerDispatch, MoveObjectCommandHelperMovesLiveCarriedObjectToRoomAtCommit) {
+    ObjectPrototypeGuard object_guard(5104);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5891, "function onEnter(ctx) {\n"
+              "  const move = RotS.Script.moveObject(ctx.object, ctx.room);\n"
+              "  return move.ok && move.code === 'ok'\n"
+              "    && ctx.object.carriedBy.id === ctx.actor.id\n"
+              "    && ctx.room.contents.length === 0;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    token.obj_flags.weight = 2;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 2;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(actor.specials.carry_items, 0);
+    EXPECT_EQ(actor.specials.carry_weight, 0);
+    EXPECT_EQ(world[0].contents, &token);
+    EXPECT_EQ(token.in_room, 0);
+    EXPECT_EQ(token.carried_by, nullptr);
+}
+
+TEST(JsTriggerDispatch, MoveObjectCommandHelperRejectsNoDropRoomMoveBeforeApply) {
+    ObjectPrototypeGuard object_guard(5104);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5894, "function onEnter(ctx) {\n"
+              "  const move = RotS.Script.moveObject(ctx.object, ctx.room);\n"
+              "  return !move.ok && move.code === 'no-drop';\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    token.obj_flags.extra_flags = ITEM_NODROP;
+    token.obj_flags.weight = 2;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 2;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 0);
+    EXPECT_EQ(actor.carrying, &token);
+    EXPECT_EQ(actor.specials.carry_items, 1);
+    EXPECT_EQ(actor.specials.carry_weight, 2);
+    EXPECT_EQ(world[0].contents, nullptr);
+    EXPECT_EQ(token.in_room, NOWHERE);
+    EXPECT_EQ(token.carried_by, &actor);
+}
+
+TEST(JsTriggerDispatch, DropObjectCommandHelperDropsLiveCarriedObjectAtCommit) {
+    ObjectPrototypeGuard object_guard(5104);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5892, "function onEnter(ctx) {\n"
+              "  const drop = RotS.Script.dropObject(ctx.actor, ctx.object);\n"
+              "  return drop.ok && drop.code === 'ok'\n"
+              "    && ctx.object.carriedBy.id === ctx.actor.id\n"
+              "    && ctx.actor.inventory.length === 1;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    token.obj_flags.weight = 3;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 3;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(actor.specials.carry_items, 0);
+    EXPECT_EQ(actor.specials.carry_weight, 0);
+    EXPECT_EQ(world[0].contents, &token);
+    EXPECT_EQ(token.in_room, 0);
+    EXPECT_EQ(token.carried_by, nullptr);
+}
+
+TEST(JsTriggerDispatch, ExtractObjectCommandHelperExtractsLiveCarriedObjectAtCommit) {
+    ObjectPrototypeGuard object_guard(5104);
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5893, "function onEnter(ctx) {\n"
+              "  const extracted = RotS.Script.extractObject(ctx.object);\n"
+              "  return extracted.ok && extracted.code === 'ok';\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data *token = read_object(0, REAL);
+    ASSERT_NE(token, nullptr);
+    token->obj_flags.weight = 1;
+    obj_to_char(token, &actor);
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 1;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = token;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    add_accepting_command_audit(dispatch_options, &audit_calls);
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_EQ(actor.carrying, nullptr);
+    EXPECT_EQ(actor.specials.carry_items, 0);
+    EXPECT_EQ(actor.specials.carry_weight, 0);
+    EXPECT_EQ(object_list, nullptr);
 }
 
 TEST(JsTriggerDispatch, BridgeAcceptedLoadObjFailsClosedWhenCapacityChangesBeforeApply) {
@@ -3178,6 +3384,115 @@ TEST(JsTriggerDispatch, MixedCommandHelperBatchRollsBackLoadedObjectsWhenRoomFla
     EXPECT_EQ(obj_index[0].number, 0);
     EXPECT_EQ(world[0].room_flags, 0);
     EXPECT_EQ(world[0].number, 101);
+}
+
+TEST(JsTriggerDispatch, MixedObjectCommandBatchRejectsExtractWithoutPartialWrites) {
+    ObjectPrototypeGuard object_guard(6215);
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    token.obj_flags.weight = 1;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 1;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+
+    int command_audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    add_accepting_command_audit(helper_options, &command_audit_calls);
+
+    JsRuntimeMutation extract = make_script_command_mutation(
+        "script.extract_obj", "{\"objectId\":\"object\"}");
+    extract.command_result_bridge_accepted = true;
+    JsRuntimeMutation load = make_script_command_mutation(
+        "script.load_obj", "{\"vnum\":6215,\"loadTargetId\":\"actor\"}");
+    load.command_result_bridge_accepted = true;
+
+    const JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {extract, load}, request, adapter_options, test_mutation_authority(), helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::ApplyRejected);
+    EXPECT_EQ(result.applied_setter_count, 0U);
+    EXPECT_EQ(result.applied_helper_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger object command apply rejected");
+    EXPECT_EQ(command_audit_calls, 0);
+    EXPECT_EQ(actor.carrying, &token);
+    EXPECT_EQ(actor.specials.carry_items, 1);
+    EXPECT_EQ(actor.specials.carry_weight, 1);
+    EXPECT_EQ(token.carried_by, &actor);
+    EXPECT_EQ(token.in_room, NOWHERE);
+    EXPECT_EQ(object_list, nullptr);
+    EXPECT_EQ(obj_index[0].number, 0);
+}
+
+TEST(JsTriggerDispatch, MixedObjectCommandBatchRejectsExtractWithSetterWithoutPartialWrites) {
+    ObjectPrototypeGuard object_guard(6216);
+    char_data self = make_character("Self");
+    char_data actor = make_character("Actor");
+    obj_data token = make_object("quest token", 0);
+    token.in_room = NOWHERE;
+    token.carried_by = &actor;
+    token.short_description = str_dup("a quest token");
+    token.obj_flags.weight = 1;
+    actor.carrying = &token;
+    actor.specials.carry_items = 1;
+    actor.specials.carry_weight = 1;
+    const char_data *live_characters[] = {&self, &actor};
+    const obj_data *live_objects[] = {&token};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, live_objects, 1, world, 0, obj_index, 1, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    request.context_input.actor = &actor;
+    request.context_input.object = &token;
+
+    int command_audit_calls = 0;
+    JsTriggerHelperMutationTransactionOptions helper_options;
+    add_accepting_command_audit(helper_options, &command_audit_calls);
+
+    JsRuntimeMutation setter;
+    setter.kind = "setter";
+    setter.target_type = "object";
+    setter.target_id = "object";
+    setter.property = "shortDescription";
+    setter.value_kind = "string";
+    setter.has_value = true;
+    setter.value = "a renamed quest token";
+    JsRuntimeMutation extract =
+        make_script_command_mutation("script.extract_obj", "{\"objectId\":\"object\"}");
+    extract.command_result_bridge_accepted = true;
+
+    const JsTriggerRuntimeMutationTransactionApplyResult result =
+        js_trigger_dispatch_apply_runtime_mutation_transaction(
+            {setter, extract}, request, adapter_options, test_mutation_authority(), helper_options);
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::ApplyRejected);
+    EXPECT_EQ(result.applied_setter_count, 0U);
+    EXPECT_EQ(result.applied_helper_count, 0U);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger object command apply rejected");
+    EXPECT_EQ(command_audit_calls, 0);
+    EXPECT_STREQ(token.short_description, "a quest token");
+    EXPECT_EQ(actor.carrying, &token);
+    EXPECT_EQ(actor.specials.carry_items, 1);
+    EXPECT_EQ(actor.specials.carry_weight, 1);
+    EXPECT_EQ(token.carried_by, &actor);
+    EXPECT_EQ(token.in_room, NOWHERE);
+    free(token.short_description);
+    token.short_description = nullptr;
 }
 
 TEST(JsTriggerDispatch, HelperTransactionRejectsUnsupportedEnvelopesBeforeAudit) {

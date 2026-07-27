@@ -6,11 +6,17 @@ on:
       - main
       - master
       - scripting-engine
+    paths-ignore:
+      - BuilderClient
+      - BuilderClient/**
   pull_request:
     branches:
       - main
       - master
       - scripting-engine
+    paths-ignore:
+      - BuilderClient
+      - BuilderClient/**
 
 permissions:
   contents: read
