@@ -35,6 +35,7 @@ jobs:
 
       - name: Install system dependencies
         run: |
+          sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -45,6 +46,7 @@ jobs:
             g++-multilib \
             libc6-dev-i386 \
             libcrypt-dev \
+            libcrypt-dev:i386 \
             libgtest-dev \
             make \
             pkg-config \

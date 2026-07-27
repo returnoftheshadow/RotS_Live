@@ -1,6 +1,8 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
+- Latest CI follow-up: Parent GitHub Actions now enables the `i386` apt architecture and installs `libcrypt-dev:i386` so the forced `-m32` CMake build can link against a compatible 32-bit `libcrypt` instead of seeing only the incompatible amd64 library.
+- Latest CI follow-up validation: `.github/workflows/ci.yml` parsed with `python3`/PyYAML, `apt-cache policy` resolved `libcrypt-dev:i386`, local `make build` passed, `git diff --check -- .github/workflows/ci.yml WIP.md` passed, and Dirac/Hubble reported no blockers.
 - Latest CI follow-up: Parent GitHub Actions checkout now has an explicit `.gitmodules` entry for the tracked `BuilderClient` gitlink, so `actions/checkout@v4` can run its submodule cleanup without failing on a missing submodule URL. The parent workflow still ignores BuilderClient-only path changes.
 - Latest CI follow-up validation: `.github/workflows/ci.yml` parsed with `python3`/PyYAML, `.gitmodules` parsed with `git config --file`, the exact failing `git submodule foreach --recursive ... core.sshCommand ...` cleanup command passed locally, `BuilderClient` commit `3a8ba5f` was pushed and confirmed reachable on `origin/main`, and `git diff --check -- .gitmodules WIP.md .github/workflows/ci.yml` passed. Godel reported no blockers; Tesla's remote-reachability and untracked-file findings were addressed.
 - Latest completed slice: Parent GitHub Actions BuilderClient exclusion. The parent `.github/workflows/ci.yml` now ignores push and pull-request changes whose only changed path is the `BuilderClient` gitlink or nested `BuilderClient/**` paths, leaving BuilderClient packaging CI to the nested client repo workflow.
