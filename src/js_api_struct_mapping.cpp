@@ -989,6 +989,153 @@ constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
 static_assert(BFS_MARK != 0, "BFS_MARK must stay an explicit room flag helper exclusion.");
 static_assert(PERMAFFECT != 0, "PERMAFFECT must stay an explicit room flag helper exclusion.");
 
+constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperations[] = {
+    {"character.load_mob", "RotS.Script.loadMob(vnum: number, room: Room): MutationResult",
+     "LOAD_MOB",
+     "Creates a new mobile from a server-owned prototype vnum and places it only into a loaded "
+     "authorized room handle. The helper must not return a mutable local character variable until "
+     "local live-character handles have a separate lifetime-token design.",
+     "Requires target-scoped zone authority for the room, mobile prototype visibility in that zone "
+     "or an explicit admin override, per-script load limits, and a fresh dispatch authority token.",
+     "Allocates one NPC, inserts it into the room people list, initializes mobile runtime state, and "
+     "may affect room scripts, tracking, followers, combat targeting, and reset balance once callable.",
+     "Audit before allocation with operation, mobile vnum, target room vnum, target zone, builder "
+     "account id, eligible immortal character id, package id, request id, authority class, and "
+     "prototype decision evidence.",
+     "Stable categories include unsupported-envelope, unknown-operation, invalid-target, "
+     "invalid-arguments, not-found, authority-rejected, stale-room, wrong-zone, mutation-limit, "
+     "audit-rejected, and apply-rejected without exposing token secrets, player emails, or raw room "
+     "indexes.",
+     "Rollback must either link the new mobile completely or extract the allocated mobile if any "
+     "later helper in the same batch fails before descriptor output commits.",
+     "Offline fixtures must model a hidden mobilePrototypes catalog, deterministic temporary mobile "
+     "ids, room character membership, per-run load limits, not-found branches, and no visible ctx "
+     "snapshot mutation.",
+     "Cover missing prototype, wrong-zone room, stale room, load limit, audit rejection, later batch "
+     "rollback, no returned mutable handle, and absence of raw character list writes."},
+    {"character.teleport", "RotS.Script.teleportChar(character: Character, room: Room): MutationResult",
+     "TELEPORT_CHAR",
+     "Moves a live character handle to a loaded room handle and carries eligible NPC followers or "
+     "mount/rider relationships according to the selected helper variant. Raw room vnums and copied "
+     "ids are not accepted.",
+     "Requires authority over the moved character and destination zone, live room/character target "
+     "tokens, death/private/security/noTeleport policy checks, and explicit override evidence for "
+     "admin-only destination bypasses.",
+     "Updates room people lists, stops or preserves combat according to the movement policy, moves "
+     "eligible followers/mounts for follower-preserving variants, emits no legacy movement text by "
+     "default, and can affect room entry triggers, visibility, tracking, and wait state.",
+     "Audit before movement with operation, moved character id/vnum/name class, source room, "
+     "destination room, target zone, follower mode, builder account id, eligible immortal character "
+     "id, package id, request id, and override evidence.",
+     "Stable categories include unsupported-envelope, unknown-operation, invalid-target, "
+     "invalid-arguments, not-authorized, blocked-room, no-teleport, stale-character, stale-room, "
+     "trigger-blocked, audit-rejected, and apply-rejected without exposing raw descriptor or account "
+     "data.",
+     "Rollback must record each moved character's previous room and relationship state, then restore "
+     "in reverse order if a later helper fails before output commits.",
+     "Offline fixtures must model room membership, follower/mount links, combat state, blocked room "
+     "flags, trigger-blocked outcomes, accepted hidden movement state, and frozen visible snapshots.",
+     "Cover teleport without followers, teleport with NPC followers, teleport-to-target-room, "
+     "private/security/death/noTeleport rooms, stale handles, trigger block, combat cleanup, and "
+     "mixed-batch rollback."},
+    {"character.teleport_only",
+     "RotS.Script.teleportCharOnly(character: Character, room: Room): MutationResult",
+     "TELEPORT_CHAR_X",
+     "Moves only the selected live character handle to a loaded room handle; followers, group "
+     "members, and mount riders are not implicitly moved.",
+     "Requires the same character and destination-zone authority as teleportChar, but additionally "
+     "records that follower propagation is deliberately disabled.",
+     "Updates only the selected character's room membership and combat/movement bookkeeping while "
+     "leaving follower/master lists intact unless live safety policy requires breaking them.",
+     "Audit before movement with operation, source room, destination room, target zone, builder "
+     "account id, eligible immortal character id, package id, request id, and follower propagation "
+     "set to none.",
+     "Stable categories include invalid-target, not-authorized, blocked-room, no-teleport, "
+     "stale-character, stale-room, trigger-blocked, audit-rejected, and apply-rejected.",
+     "Rollback restores the moved character to its previous room before any output commits.",
+     "Offline fixtures must preserve follower room membership when only the leader moves and expose "
+     "that accepted hidden movement state to later character helpers in the same run.",
+     "Cover leader-only movement, follower non-movement, stale leader, wrong-zone destination, and "
+     "rollback after a later helper failure."},
+    {"character.teleport_to_target_room",
+     "RotS.Script.teleportCharToTargetRoom(character: Character, target: Character): "
+     "MutationResult",
+     "TELEPORT_CHAR_XL",
+     "Moves a live character handle to the current room of another live character handle after "
+     "resolving the target's room at preflight/apply time. Raw target room ids are not accepted.",
+     "Requires authority over the moved character plus destination authority derived from the target "
+     "character's loaded room and zone at the time of validation.",
+     "Uses the same movement, combat, room-entry, visibility, and no-teleport policy as teleportChar "
+     "after destination resolution.",
+     "Audit records the source character, target character, resolved destination room/zone, package "
+     "id, request id, builder account id, and eligible immortal evidence before movement.",
+     "Stable categories include invalid-target, target-not-in-room, not-authorized, blocked-room, "
+     "no-teleport, stale-character, stale-room, trigger-blocked, audit-rejected, and apply-rejected.",
+     "Rollback restores all moved characters to their prior rooms if target resolution or a later "
+     "helper fails before output commits.",
+     "Offline fixtures must model target-room resolution, stale target rooms, target movement between "
+     "helper calls through hidden state, and frozen script-visible snapshots.",
+     "Cover valid target-room movement, target in NOWHERE, stale target, target moved by an earlier "
+     "accepted helper, wrong-zone target room, and rollback."},
+    {"character.extract", "RotS.Script.extractChar(character: Character): MutationResult",
+     "EXTRACT_CHAR",
+     "Extracts only an authorized NPC/helper character handle. Player characters and account-backed "
+     "characters are not valid targets for builder scripts.",
+     "Requires target authority, NPC-only policy unless an explicit future admin path is designed, "
+     "no protected special-procedure state, and fresh liveness validation immediately before apply.",
+     "Removes the character from room, combat, follower/master, mount, and descriptor-adjacent "
+     "runtime structures using the same stale-handle policy as live extraction.",
+     "Audit before extraction with operation, target character class, mobile vnum when available, "
+     "source room, target zone, builder account id, eligible immortal character id, package id, and "
+     "request id.",
+     "Stable categories include invalid-target, protected-character, not-authorized, "
+     "stale-character, in-combat-blocked, audit-rejected, and apply-rejected without exposing raw "
+     "player data or descriptor state.",
+     "Rollback batches must record enough state to fail before partial extraction where possible; if "
+     "extraction cannot be rolled back for a future case, that case must be rejected at preflight.",
+     "Offline fixtures must mark extracted NPC handles stale for later helper calls while leaving "
+     "visible snapshots frozen and rejecting player extraction.",
+     "Cover NPC success, player rejection, stale handle, combat-protected target, follower cleanup, "
+     "later stale-handle branch, and no partial extraction in mixed helper batches."},
+    {"character.follow", "RotS.Script.doFollow(follower: Character, leader: Character): MutationResult",
+     "DO_FOLLOW",
+     "Makes one live character follow another live character through the existing reciprocal follow "
+     "relationship model; raw follower-list replacement remains unavailable.",
+     "Requires authority over the follower, live target tokens for both characters, follower-cap "
+     "policy, charm/tame/ownership policy when NPCs are involved, and loop-prevention checks before "
+     "audit.",
+     "Updates follower.master and leader.followers reciprocally, may break a previous follow link, "
+     "and can affect group, mount, movement propagation, combat XP sharing, and room movement.",
+     "Audit before relationship mutation with operation, follower identity class, leader identity "
+     "class, previous master, follower count, builder account id, eligible immortal character id, "
+     "package id, request id, and authority evidence.",
+     "Stable categories include invalid-target, not-authorized, self-follow, follow-loop, "
+     "follower-cap, stale-character, audit-rejected, and apply-rejected.",
+     "Rollback restores the previous master/follower-list links in reverse order before output "
+     "commits if a later helper fails.",
+     "Offline fixtures must model master/follower reciprocal links, follow loops, follower caps, "
+     "accepted hidden relationship state, and frozen visible snapshots.",
+     "Cover valid follow, replacing an existing master, self-follow, looped graph rejection, stale "
+     "leader/follower, cap rejection, movement propagation expectations, and rollback."},
+    {"character.flee", "RotS.Script.doFlee(character: Character): MutationResult", "DO_FLEE",
+     "Requests a bounded flee action for a live character handle without exposing generic command "
+     "execution or arbitrary direction selection.",
+     "Requires authority over the character, live room state with at least one eligible exit, combat "
+     "or fear-policy eligibility, no-flee door/room checks, and per-script action-loop limits.",
+     "May stop or alter combat, move the character through one valid exit, affect followers/mounts "
+     "according to the flee policy, and can trigger movement/room-entry side effects once callable.",
+     "Audit before movement with operation, source room, selected exit policy, destination room, "
+     "combat state, builder account id, eligible immortal character id, package id, and request id.",
+     "Stable categories include invalid-target, not-authorized, not-in-room, no-exit, no-flee, "
+     "stale-character, stale-room, trigger-blocked, audit-rejected, and apply-rejected.",
+     "Rollback restores room and combat bookkeeping if a later helper in the same batch fails before "
+     "descriptor output commits.",
+     "Offline fixtures must model room exits, blocked/no-flee exits, combat state, deterministic "
+     "exit selection, follower/mount behavior, accepted hidden movement state, and frozen snapshots.",
+     "Cover no-exit rooms, no-flee exits, stale handles, not-in-combat policy, deterministic exit "
+     "choice, trigger block, combat cleanup, follower behavior, and rollback."},
+};
+
 constexpr JsApiRawSetterGuardrail RawSetterGuardrails[] = {
     {JsApiStructOwner::CharData, "in_room", "setRoom", "character-movement-relationships",
      "Character movement must use movement/teleport helpers, not raw room assignment."},
@@ -1147,4 +1294,14 @@ const JsApiRoomFlagHelperOperation *js_api_room_flag_helper_operations()
 std::size_t js_api_room_flag_helper_operation_count()
 {
     return sizeof(RoomFlagHelperOperations) / sizeof(RoomFlagHelperOperations[0]);
+}
+
+const JsApiCharacterMovementHelperOperation *js_api_character_movement_helper_operations()
+{
+    return CharacterMovementHelperOperations;
+}
+
+std::size_t js_api_character_movement_helper_operation_count()
+{
+    return sizeof(CharacterMovementHelperOperations) / sizeof(CharacterMovementHelperOperations[0]);
 }

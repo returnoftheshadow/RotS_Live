@@ -782,6 +782,111 @@ TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) 
     EXPECT_NE(plan_text.find("atomic mixed batches"), std::string::npos);
 }
 
+TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineNonCallableInternalCatalog) {
+    ASSERT_EQ(js_api_character_movement_helper_operation_count(), 7U);
+
+    const JsApiDeferredHelperPlan *plan =
+        find_deferred_helper_plan("character-movement-relationships");
+    ASSERT_NE(plan, nullptr);
+    const std::string plan_text = std::string(plan->helper_shape) + " " + plan->authority_policy +
+                                  " " + plan->offline_parity + " " + plan->test_focus;
+    EXPECT_NE(plan_text.find("Move/teleport/follow"), std::string::npos);
+    EXPECT_NE(plan_text.find("loop prevention"), std::string::npos);
+    EXPECT_NE(plan_text.find("trigger-blocked movement"), std::string::npos);
+
+    struct ExpectedOperation {
+        const char *operation_name;
+        const char *helper_name;
+        const char *legacy_commands;
+        const char *target_text;
+        const char *side_effect_text;
+        const char *diagnostic_text;
+        const char *offline_text;
+        const char *test_text;
+    };
+
+    const ExpectedOperation expected[] = {
+        {"character.load_mob",
+         "RotS.Script.loadMob(vnum: number, room: Room): MutationResult", "LOAD_MOB",
+         "server-owned prototype vnum", "Allocates one NPC", "not-found",
+         "hidden mobilePrototypes catalog", "no returned mutable handle"},
+        {"character.teleport",
+         "RotS.Script.teleportChar(character: Character, room: Room): MutationResult",
+         "TELEPORT_CHAR", "Raw room vnums", "room people lists", "trigger-blocked",
+         "follower/mount links", "teleport with NPC followers"},
+        {"character.teleport_only",
+         "RotS.Script.teleportCharOnly(character: Character, room: Room): MutationResult",
+         "TELEPORT_CHAR_X", "followers, group", "only the selected character",
+         "no-teleport", "follower room membership", "follower non-movement"},
+        {"character.teleport_to_target_room",
+         "RotS.Script.teleportCharToTargetRoom(character: Character, target: Character): "
+         "MutationResult",
+         "TELEPORT_CHAR_XL", "current room of another live character", "destination resolution",
+         "target-not-in-room", "target-room resolution", "target moved by an earlier"},
+        {"character.extract", "RotS.Script.extractChar(character: Character): MutationResult",
+         "EXTRACT_CHAR", "Player characters", "follower/master", "protected-character",
+         "mark extracted NPC handles stale", "player rejection"},
+        {"character.follow",
+         "RotS.Script.doFollow(follower: Character, leader: Character): MutationResult",
+         "DO_FOLLOW", "existing reciprocal follow", "leader.followers", "follow-loop",
+         "master/follower reciprocal links", "replacing an existing master"},
+        {"character.flee", "RotS.Script.doFlee(character: Character): MutationResult", "DO_FLEE",
+         "without exposing generic command", "stop or alter combat", "no-flee",
+         "deterministic exit selection", "no-exit rooms"},
+    };
+
+    std::set<std::string> operation_names;
+    std::set<std::string> helper_names;
+    for (std::size_t index = 0; index < js_api_character_movement_helper_operation_count();
+         ++index) {
+        const JsApiCharacterMovementHelperOperation &operation =
+            js_api_character_movement_helper_operations()[index];
+        const ExpectedOperation &expected_operation = expected[index];
+        SCOPED_TRACE(operation.operation_name);
+
+        EXPECT_TRUE(operation_names.insert(operation.operation_name).second);
+        EXPECT_TRUE(helper_names.insert(operation.helper_name).second);
+        EXPECT_STREQ(operation.operation_name, expected_operation.operation_name);
+        EXPECT_STREQ(operation.helper_name, expected_operation.helper_name);
+        EXPECT_STREQ(operation.legacy_commands, expected_operation.legacy_commands);
+        EXPECT_NE(std::string(operation.target_policy).find(expected_operation.target_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.side_effect_policy).find(expected_operation.side_effect_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.diagnostic_policy).find(expected_operation.diagnostic_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.offline_policy).find(expected_operation.offline_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.test_focus).find(expected_operation.test_text),
+                  std::string::npos);
+
+        EXPECT_NE(std::string(operation.authority_policy).find("authority"), std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("Audit"), std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("builder account id"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("eligible immortal"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("package id"), std::string::npos);
+        EXPECT_NE(std::string(operation.rollback_policy).find("Rollback"), std::string::npos);
+        EXPECT_NE(std::string(operation.offline_policy).find("Offline fixtures"),
+                  std::string::npos);
+
+        for (const char *forbidden : {"setRoom", "setFollowers", "setMaster", "setMount",
+                 "setGroup", "raw pointer", "descriptor"}) {
+            EXPECT_EQ(std::string(operation.helper_name).find(forbidden), std::string::npos)
+                << forbidden;
+        }
+    }
+
+    EXPECT_TRUE(operation_names.count("character.load_mob") > 0);
+    EXPECT_TRUE(operation_names.count("character.teleport") > 0);
+    EXPECT_TRUE(operation_names.count("character.teleport_only") > 0);
+    EXPECT_TRUE(operation_names.count("character.teleport_to_target_room") > 0);
+    EXPECT_TRUE(operation_names.count("character.extract") > 0);
+    EXPECT_TRUE(operation_names.count("character.follow") > 0);
+    EXPECT_TRUE(operation_names.count("character.flee") > 0);
+}
+
 TEST(JsApiStructMapping, RawSetterGuardrailsReferenceNonCallableMappedFields) {
     EXPECT_GT(js_api_raw_setter_guardrail_count(), 30U);
 

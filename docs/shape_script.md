@@ -432,6 +432,24 @@ handles remain reachable by default when descriptor state is omitted, so
 existing examples stay concise while branch tests can still model disconnected
 recipients.
 
+Character movement helpers are planned but not callable yet. The documented
+modern mappings are `LOAD_MOB` to `RotS.Script.loadMob(vnum, room)`,
+`TELEPORT_CHAR` to `RotS.Script.teleportChar(character, room)`,
+`TELEPORT_CHAR_X` to `RotS.Script.teleportCharOnly(character, room)`,
+`TELEPORT_CHAR_XL` to
+`RotS.Script.teleportCharToTargetRoom(character, target)`, `EXTRACT_CHAR` to
+`RotS.Script.extractChar(character)`, `DO_FOLLOW` to
+`RotS.Script.doFollow(follower, leader)`, and `DO_FLEE` to
+`RotS.Script.doFlee(character)`, but they stay
+absent from generated typings, fallback typings, live QuickJS handles, and
+offline fixtures until the live and offline implementations both have audited
+room, follower, combat, liveness, rollback, and result-code parity. Do not use
+raw `Character.setRoom`, `Character.setFollowers`, `Character.setMaster`,
+`Character.setMount`, `Character.setGroup`, or `Room.setCharacters`; those raw
+relationship writes are intentionally unavailable because they would bypass
+movement triggers, room people lists, follow/master links, mount propagation,
+combat cleanup, and account/admin audit.
+
 ### Greeter with gift
 
 ```

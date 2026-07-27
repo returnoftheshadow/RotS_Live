@@ -370,8 +370,12 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
 
     EXPECT_EQ(declarations.find("accountName"), std::string::npos);
     EXPECT_EQ(declarations.find("sendToCharacter"), std::string::npos);
-    EXPECT_EQ(declarations.find("loadMob"), std::string::npos);
-    EXPECT_EQ(declarations.find("extractCharacter"), std::string::npos);
+    for (const char *unsupported_movement_helper : {"flee", "loadMob", "teleportCharacter",
+             "teleportCharacterOnly", "teleportCharacterToRoomHandle", "extractCharacter"}) {
+        EXPECT_EQ(declarations.find(std::string(unsupported_movement_helper) + "("),
+                  std::string::npos)
+            << unsupported_movement_helper;
+    }
     expect_contains(declarations, "export function doWait(pulses: number): MutationResult;");
     expect_contains(declarations,
                     "export function doSay(speaker: Character, text: string): MutationResult;");
@@ -715,6 +719,13 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     for (const char *setter_name : character_relationship_setters) {
         EXPECT_EQ(character_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
+    }
+    for (const char *helper_name : {"loadMob", "teleportChar", "teleportCharOnly",
+             "teleportCharToTargetRoom", "extractChar", "doFollow", "doFlee", "flee",
+             "teleportCharacter", "teleportCharacterOnly", "teleportCharacterToRoomHandle",
+             "extractCharacter"}) {
+        EXPECT_EQ(declarations.find(std::string(helper_name) + "("), std::string::npos)
+            << helper_name;
     }
     const char *raw_character_members[] = {
         "internalIndex",

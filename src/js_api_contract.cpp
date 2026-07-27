@@ -1273,12 +1273,6 @@ constexpr JsApiMember ScriptMembers[] = {
     { "sendToCharacter", JsApiMemberKind::Method, "(target: Character, text: string) => void",
         "void", false, true, JsApiSideEffect::Output, JsApiMemberStatus::Deferred, "deferred",
         "Output helper candidate; deferred until permission, recursion, and audit rules exist." },
-    { "loadMob", JsApiMemberKind::Method, "(vnum: number) => never", "never", false, false,
-        JsApiSideEffect::WorldMutation, JsApiMemberStatus::Unsupported, "unsupported",
-        "World creation is not exposed to builder JavaScript in v1." },
-    { "extractCharacter", JsApiMemberKind::Method, "(target: Character) => never", "never", false,
-        true, JsApiSideEffect::WorldMutation, JsApiMemberStatus::Unsupported, "unsupported",
-        "Entity extraction is not exposed to builder JavaScript in v1." },
 };
 
 constexpr JsApiType ApiTypes[] = {
