@@ -260,6 +260,9 @@ runtime:
   and covers `ON_ENTER`, race branching, `loadObj`, and `MutationResult`
   fallback messaging. Legacy local object variables plus mob-inventory custody
   before giving remain a future helper slice.
+- [`1130-yell-social-output.ts`](../BuilderClient/examples/legacy-script/1130-yell-social-output.ts)
+  is derived from `lib/world/scr/11.scr` script `#1130` and covers `ON_ENTER`,
+  `sendToRoomExcept`, `yell`, `emote`, `social`, and `pageZoneMap`.
 - [`27500-gate-watch.ts`](../BuilderClient/examples/legacy-script/27500-gate-watch.ts)
   is derived from `lib/world/scr/275.scr` script `#27500` and covers race
   branching, output, and `doWait`; repeated door-state commands remain a future
@@ -278,10 +281,11 @@ Builder-facing client docs are maintained with the client:
   troubleshooting.
 
 These helpers currently queue or reserve validated JavaScript command intents.
-For `doGive`, `loadObj`, `doWait`, `doSay`, `sendToChar`, and `sendToRoom`,
-live dispatch now returns inline `MutationResult` codes for the failures it can
-classify before queuing the command, so builders do not need a separate
-preflight helper for normal capacity, ownership, wait-state, audit, or
+For `doGive`, `loadObj`, `doWait`, `doSay`, `sendToChar`, `sendToRoom`,
+`sendToRoomExcept`, `yell`, `emote`, `social`, and `pageZoneMap`, live dispatch
+now returns inline `MutationResult` codes for the failures it can classify
+before queuing the command, so builders do not need a separate preflight helper
+for normal capacity, ownership, wait-state, audit, map lookup, or
 output-recipient branches. Snake-case helper names remain compatibility aliases
 for migrated scripts, and the internal command log operation labels still use
 the existing snake-case transaction names. A successful `ok` result means the
@@ -370,15 +374,20 @@ state with `ctx.hostAlreadyWaiting`. When `hostAlreadyWaiting` is `true`, the
 first offline `doWait()` returns `already-waiting` without logging a command
 event. When it is omitted or `false`, the first valid wait logs a command event
 and later waits in the same fixture run return `already-waiting`.
-`RotS.Script.doSay(speaker, text)`, `RotS.Script.sendToChar(target, text)`, and
-`RotS.Script.sendToRoom(room, text)` return inline `invalid-target`,
-`audit-rejected`, or `no-recipient` failures before queuing when the live server
-can classify them. The live server audits output helpers before exposing
-recipient reachability, so an audit denial returns `audit-rejected` before the
-script can observe `no-recipient`. `no-recipient` means the character or room
-target exists but no connected playing descriptor would receive the text.
-Successful `ok` output still writes only after the transaction reaches the
-descriptor-output category, where script output again filters recipients to
+`RotS.Script.doSay(speaker, text)`, `RotS.Script.sendToChar(target, text)`,
+`RotS.Script.sendToRoom(room, text)`, `RotS.Script.sendToRoomExcept(room,
+except, text)`, `RotS.Script.yell(speaker, text)`, `RotS.Script.emote(actor,
+text)`, `RotS.Script.social(actor, command, target?)`, and
+`RotS.Script.pageZoneMap(target, zone)` return inline `invalid-target`,
+`audit-rejected`, `not-found`, or `no-recipient` failures before queuing when
+the live server can classify them. The live server audits output helpers before
+exposing recipient reachability, so an audit denial returns `audit-rejected`
+before the script can observe `no-recipient`. `no-recipient` means the character
+or room target exists but no connected playing descriptor would receive the
+text. `pageZoneMap` accepts a live `Zone` handle from the current context, such
+as `ctx.room.zone`, and returns `not-found` when that zone's map text is not
+loaded. Successful `ok` output still writes only after the transaction reaches
+the descriptor-output category, where script output again filters recipients to
 connected playing descriptors.
 BuilderClient offline fixtures currently record command-helper events in source
 call order for diagnostics. They compile and validate the same helper API, but
@@ -398,20 +407,24 @@ Missing-prototype and wrong-room failures leave placement state unchanged, and
 each fixture run starts from the original room contents. Offline `doGive`
 treats room-contained objects as `not-carried` unless an accepted transfer has
 explicitly moved them into character ownership. Remaining fixture parity gaps
-include source-order diagnostic behavior versus server category commit order. A non-script-visible BuilderClient
-probe can inspect queued output intents separately from committed descriptor
+include source-order diagnostic behavior versus server category commit order. A
+non-script-visible BuilderClient probe can inspect queued output intents
+separately from committed descriptor
 output events. Normal offline fixture runs expose only committed descriptor
 output after helper validation succeeds, while preserving existing source-order
 command logs; failed output helpers do not add committed descriptor output, and
 committed output is bounded for result rendering. Builders can inspect committed
 descriptor output in fixture results, the Output panel, CLI fixture JSON, and
-fixture expectations through `descriptorOutputContain`. For
-output helpers, offline fixtures can emulate
-`no-recipient` by setting a character fixture handle's `canReceiveOutput` to
-`false`, or by giving a room fixture a `characters` array with no reachable
-character entries. Fixture handles remain reachable by default when this
-descriptor state is omitted, so existing examples stay concise while branch
-tests can still model disconnected recipients.
+fixture expectations through `descriptorOutputContain`. For output helpers,
+offline fixtures can emulate `no-recipient` by setting a character fixture
+handle's `canReceiveOutput` to `false`, or by giving a room fixture a
+`characters` array with no reachable character entries. `sendToRoomExcept` also
+uses the room `characters` list when present so tests can cover the branch where
+excluding the actor leaves no recipient. `pageZoneMap` uses the passed fixture
+zone handle's `map` text; missing or empty map text returns `not-found`. Fixture
+handles remain reachable by default when descriptor state is omitted, so
+existing examples stay concise while branch tests can still model disconnected
+recipients.
 
 ### Greeter with gift
 

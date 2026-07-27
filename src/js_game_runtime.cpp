@@ -17,11 +17,11 @@ constexpr std::size_t CharacterBodypartHitCount = 11;
 
 JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result);
 
-std::string game_command_result_callback_bridge(const std::string &operation,
-                                                const std::string &arguments_json,
-                                                void *user_data) {
-    const JsGameRuntimeEvaluationOptions *options =
-        static_cast<const JsGameRuntimeEvaluationOptions *>(user_data);
+std::string game_command_result_callback_bridge(const std::string& operation,
+    const std::string& arguments_json,
+    void* user_data)
+{
+    const JsGameRuntimeEvaluationOptions* options = static_cast<const JsGameRuntimeEvaluationOptions*>(user_data);
     if (options == nullptr || options->command_result_callback == nullptr)
         return "{\"handled\":false}";
     JsGameCommandResultRequest request;
@@ -30,7 +30,8 @@ std::string game_command_result_callback_bridge(const std::string &operation,
     return options->command_result_callback(request, options->command_result_user_data);
 }
 
-std::string js_quote(const std::string &value) {
+std::string js_quote(const std::string& value)
+{
     std::ostringstream out;
     out << '"';
     for (unsigned char ch : value) {
@@ -58,7 +59,7 @@ std::string js_quote(const std::string &value) {
             break;
         default:
             if (ch < 0x20 || ch >= 0x80) {
-                static const char *hex = "0123456789abcdef";
+                static const char* hex = "0123456789abcdef";
                 out << "\\x" << hex[(ch >> 4) & 0x0f] << hex[ch & 0x0f];
             } else {
                 out << ch;
@@ -70,17 +71,20 @@ std::string js_quote(const std::string &value) {
     return out.str();
 }
 
-const char *js_bool(bool value) { return value ? "true" : "false"; }
+const char* js_bool(bool value) { return value ? "true" : "false"; }
 
-std::string nullable_literal(bool present, const std::string &literal) {
+std::string nullable_literal(bool present, const std::string& literal)
+{
     return present ? literal : "null";
 }
 
-std::string nullable_number_literal(bool present, int value) {
+std::string nullable_number_literal(bool present, int value)
+{
     return present ? std::to_string(value) : "null";
 }
 
-std::string string_array_literal(const std::vector<std::string> &values) {
+std::string string_array_literal(const std::vector<std::string>& values)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < values.size(); ++index) {
@@ -92,13 +96,14 @@ std::string string_array_literal(const std::vector<std::string> &values) {
     return out.str();
 }
 
-std::string object_flags_literal(const JsGameObjectFlagsFixture &flags);
-std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture> &affects);
+std::string object_flags_literal(const JsGameObjectFlagsFixture& flags);
+std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture>& affects);
 std::string
-character_references_literal(const std::vector<JsGameCharacterReferenceFixture> &characters);
-std::string affects_literal(const std::vector<JsGameAffectFixture> &affects);
+character_references_literal(const std::vector<JsGameCharacterReferenceFixture>& characters);
+std::string affects_literal(const std::vector<JsGameAffectFixture>& affects);
 
-std::string int_array_literal(const std::vector<int> &values) {
+std::string int_array_literal(const std::vector<int>& values)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < values.size(); ++index) {
@@ -110,7 +115,8 @@ std::string int_array_literal(const std::vector<int> &values) {
     return out.str();
 }
 
-std::string ability_scores_literal(const JsGameAbilityScoresFixture &abilities) {
+std::string ability_scores_literal(const JsGameAbilityScoresFixture& abilities)
+{
     std::ostringstream out;
     out << "{"
         << "\"strength\":" << abilities.strength << ","
@@ -122,7 +128,8 @@ std::string ability_scores_literal(const JsGameAbilityScoresFixture &abilities) 
     return out.str();
 }
 
-std::string character_points_literal(const JsGameCharacterPointsFixture &points) {
+std::string character_points_literal(const JsGameCharacterPointsFixture& points)
+{
     std::ostringstream out;
     out << "{"
         << "\"bodypartHits\":";
@@ -151,11 +158,13 @@ std::string character_points_literal(const JsGameCharacterPointsFixture &points)
     return out.str();
 }
 
-std::string nullable_string_literal(const std::string &value) {
+std::string nullable_string_literal(const std::string& value)
+{
     return value.empty() ? "null" : js_quote(value);
 }
 
-std::string character_specials_literal(const JsGameCharacterSpecialsFixture &specials) {
+std::string character_specials_literal(const JsGameCharacterSpecialsFixture& specials)
+{
     std::ostringstream out;
     out << "{"
         << "\"isFighting\":" << js_bool(specials.is_fighting) << ","
@@ -183,7 +192,8 @@ std::string character_specials_literal(const JsGameCharacterSpecialsFixture &spe
     return out.str();
 }
 
-std::string character_conditions_literal(const JsGameCharacterConditionsFixture &conditions) {
+std::string character_conditions_literal(const JsGameCharacterConditionsFixture& conditions)
+{
     std::ostringstream out;
     out << "{"
         << "\"drunk\":" << conditions.drunk << ","
@@ -192,7 +202,8 @@ std::string character_conditions_literal(const JsGameCharacterConditionsFixture 
     return out.str();
 }
 
-std::string character_specials2_literal(const JsGameCharacterSpecials2Fixture &specials2) {
+std::string character_specials2_literal(const JsGameCharacterSpecials2Fixture& specials2)
+{
     std::ostringstream out;
     out << "{"
         << "\"loadRoom\":" << specials2.load_room << ","
@@ -220,7 +231,8 @@ std::string character_specials2_literal(const JsGameCharacterSpecials2Fixture &s
     return out.str();
 }
 
-std::string zone_literal(const JsGameZoneFixture &zone) {
+std::string zone_literal(const JsGameZoneFixture& zone)
+{
     std::ostringstream out;
     out << "{"
         << "\"id\":" << js_quote(zone.id) << ","
@@ -228,6 +240,7 @@ std::string zone_literal(const JsGameZoneFixture &zone) {
         << "\"description\":" << nullable_literal(zone.has_description, js_quote(zone.description))
         << ","
         << "\"map\":" << nullable_literal(zone.has_map, js_quote(zone.map)) << ","
+        << "\"__rotsHandleType\":\"zone\","
         << "\"vnum\":" << zone.vnum << ","
         << "\"level\":" << zone.level << ","
         << "\"lifespan\":" << zone.lifespan << ","
@@ -240,11 +253,14 @@ std::string zone_literal(const JsGameZoneFixture &zone) {
         << "\"darkPower\":" << zone.dark_power << ","
         << "\"magiPower\":" << zone.magi_power << ","
         << "\"minimumLookLevel\":" << zone.minimum_look_level << ","
-        << "\"resetMode\":" << zone.reset_mode << "}";
+        << "\"resetMode\":" << zone.reset_mode << ","
+        << "\"isValid\":function() { return true; }"
+        << "}";
     return out.str();
 }
 
-std::string extra_description_literal(const JsGameExtraDescriptionFixture &extra_description) {
+std::string extra_description_literal(const JsGameExtraDescriptionFixture& extra_description)
+{
     std::ostringstream out;
     out << "{"
         << "\"keyword\":" << js_quote(extra_description.keyword) << ","
@@ -253,7 +269,8 @@ std::string extra_description_literal(const JsGameExtraDescriptionFixture &extra
 }
 
 std::string
-extra_descriptions_literal(const std::vector<JsGameExtraDescriptionFixture> &extra_descriptions) {
+extra_descriptions_literal(const std::vector<JsGameExtraDescriptionFixture>& extra_descriptions)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < extra_descriptions.size(); ++index) {
@@ -265,7 +282,8 @@ extra_descriptions_literal(const std::vector<JsGameExtraDescriptionFixture> &ext
     return out.str();
 }
 
-std::string room_exit_literal(const JsGameRoomExitFixture &exit) {
+std::string room_exit_literal(const JsGameRoomExitFixture& exit)
+{
     std::ostringstream out;
     out << "{"
         << "\"directionIndex\":" << exit.direction_index << ","
@@ -280,7 +298,8 @@ std::string room_exit_literal(const JsGameRoomExitFixture &exit) {
     return out.str();
 }
 
-std::string room_exits_literal(const std::vector<JsGameRoomExitFixture> &exits) {
+std::string room_exits_literal(const std::vector<JsGameRoomExitFixture>& exits)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < exits.size(); ++index) {
@@ -292,7 +311,8 @@ std::string room_exits_literal(const std::vector<JsGameRoomExitFixture> &exits) 
     return out.str();
 }
 
-std::string room_content_object_literal(const JsGameRoomContentObjectFixture &object) {
+std::string room_content_object_literal(const JsGameRoomContentObjectFixture& object)
+{
     std::ostringstream out;
     out << "{"
         << "\"id\":" << js_quote(object.id) << ","
@@ -320,7 +340,8 @@ std::string room_content_object_literal(const JsGameRoomContentObjectFixture &ob
 }
 
 std::string
-room_content_objects_literal(const std::vector<JsGameRoomContentObjectFixture> &objects) {
+room_content_objects_literal(const std::vector<JsGameRoomContentObjectFixture>& objects)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < objects.size(); ++index) {
@@ -332,7 +353,8 @@ room_content_objects_literal(const std::vector<JsGameRoomContentObjectFixture> &
     return out.str();
 }
 
-std::string room_literal(const JsGameRoomFixture &room) {
+std::string room_literal(const JsGameRoomFixture& room)
+{
     std::ostringstream out;
     out << "{"
         << "\"id\":" << js_quote(room.id) << ","
@@ -357,7 +379,8 @@ std::string room_literal(const JsGameRoomFixture &room) {
     return out.str();
 }
 
-std::string profession_literal(const JsGameProfessionFixture &profession) {
+std::string profession_literal(const JsGameProfessionFixture& profession)
+{
     std::ostringstream out;
     out << "{"
         << "\"key\":" << js_quote(profession.key) << ","
@@ -369,7 +392,8 @@ std::string profession_literal(const JsGameProfessionFixture &profession) {
     return out.str();
 }
 
-std::string professions_literal(const std::vector<JsGameProfessionFixture> &professions) {
+std::string professions_literal(const std::vector<JsGameProfessionFixture>& professions)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < professions.size(); ++index) {
@@ -381,7 +405,8 @@ std::string professions_literal(const std::vector<JsGameProfessionFixture> &prof
     return out.str();
 }
 
-std::string specializations_literal(const JsGameSpecializationFixture &specializations) {
+std::string specializations_literal(const JsGameSpecializationFixture& specializations)
+{
     std::ostringstream out;
     out << "{"
         << "\"selectedId\":" << specializations.selected_id << ","
@@ -395,7 +420,8 @@ std::string specializations_literal(const JsGameSpecializationFixture &specializ
     return out.str();
 }
 
-std::string damage_entry_literal(const JsGameDamageEntryFixture &entry) {
+std::string damage_entry_literal(const JsGameDamageEntryFixture& entry)
+{
     std::ostringstream out;
     out << "{"
         << "\"sourceId\":" << entry.source_id << ","
@@ -409,7 +435,8 @@ std::string damage_entry_literal(const JsGameDamageEntryFixture &entry) {
     return out.str();
 }
 
-std::string damage_details_literal(const JsGameDamageDetailsFixture &damage_details) {
+std::string damage_details_literal(const JsGameDamageDetailsFixture& damage_details)
+{
     std::ostringstream out;
     out << "{"
         << "\"elapsedCombatSeconds\":" << damage_details.elapsed_combat_seconds << ","
@@ -425,7 +452,8 @@ std::string damage_details_literal(const JsGameDamageDetailsFixture &damage_deta
     return out.str();
 }
 
-std::string skill_value_literal(const JsGameSkillValueFixture &skill) {
+std::string skill_value_literal(const JsGameSkillValueFixture& skill)
+{
     std::ostringstream out;
     out << "{"
         << "\"id\":" << skill.id << ","
@@ -444,7 +472,8 @@ std::string skill_value_literal(const JsGameSkillValueFixture &skill) {
     return out.str();
 }
 
-std::string skill_values_literal(const std::vector<JsGameSkillValueFixture> &skills) {
+std::string skill_values_literal(const std::vector<JsGameSkillValueFixture>& skills)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < skills.size(); ++index) {
@@ -456,7 +485,8 @@ std::string skill_values_literal(const std::vector<JsGameSkillValueFixture> &ski
     return out.str();
 }
 
-std::string knowledge_value_literal(const JsGameKnowledgeValueFixture &knowledge) {
+std::string knowledge_value_literal(const JsGameKnowledgeValueFixture& knowledge)
+{
     std::ostringstream out;
     out << "{"
         << "\"id\":" << knowledge.id << ","
@@ -475,7 +505,8 @@ std::string knowledge_value_literal(const JsGameKnowledgeValueFixture &knowledge
     return out.str();
 }
 
-std::string knowledge_values_literal(const std::vector<JsGameKnowledgeValueFixture> &knowledge) {
+std::string knowledge_values_literal(const std::vector<JsGameKnowledgeValueFixture>& knowledge)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < knowledge.size(); ++index) {
@@ -487,7 +518,8 @@ std::string knowledge_values_literal(const std::vector<JsGameKnowledgeValueFixtu
     return out.str();
 }
 
-std::string affect_literal(const JsGameAffectFixture &affect) {
+std::string affect_literal(const JsGameAffectFixture& affect)
+{
     std::ostringstream out;
     out << "{"
         << "\"type\":" << affect.type << ","
@@ -503,7 +535,8 @@ std::string affect_literal(const JsGameAffectFixture &affect) {
     return out.str();
 }
 
-std::string affects_literal(const std::vector<JsGameAffectFixture> &affects) {
+std::string affects_literal(const std::vector<JsGameAffectFixture>& affects)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < affects.size(); ++index) {
@@ -515,7 +548,8 @@ std::string affects_literal(const std::vector<JsGameAffectFixture> &affects) {
     return out.str();
 }
 
-std::string object_affect_literal(const JsGameObjectAffectFixture &affect) {
+std::string object_affect_literal(const JsGameObjectAffectFixture& affect)
+{
     std::ostringstream out;
     out << "{"
         << "\"slotIndex\":" << affect.slot_index << ","
@@ -525,7 +559,8 @@ std::string object_affect_literal(const JsGameObjectAffectFixture &affect) {
     return out.str();
 }
 
-std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture> &affects) {
+std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture>& affects)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < affects.size(); ++index) {
@@ -537,13 +572,14 @@ std::string object_affects_literal(const std::vector<JsGameObjectAffectFixture> 
     return out.str();
 }
 
-std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture> &equipment);
-std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFixture> &inventory);
-std::string character_reference_literal(const JsGameCharacterReferenceFixture &character);
+std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture>& equipment);
+std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFixture>& inventory);
+std::string character_reference_literal(const JsGameCharacterReferenceFixture& character);
 std::string
-character_references_literal(const std::vector<JsGameCharacterReferenceFixture> &characters);
+character_references_literal(const std::vector<JsGameCharacterReferenceFixture>& characters);
 
-std::string mount_literal(const JsGameMountFixture &mount) {
+std::string mount_literal(const JsGameMountFixture& mount)
+{
     std::ostringstream out;
     out << "{"
         << "\"mount\":"
@@ -560,7 +596,8 @@ std::string mount_literal(const JsGameMountFixture &mount) {
     return out.str();
 }
 
-std::string character_profile_literal(const JsGameCharacterProfileFixture &profile) {
+std::string character_profile_literal(const JsGameCharacterProfileFixture& profile)
+{
     std::ostringstream out;
     out << "{"
         << "\"name\":" << js_quote(profile.name) << ","
@@ -592,7 +629,8 @@ std::string character_profile_literal(const JsGameCharacterProfileFixture &profi
     return out.str();
 }
 
-std::string character_literal(const JsGameCharacterFixture &character) {
+std::string character_literal(const JsGameCharacterFixture& character)
+{
     std::ostringstream out;
     out << "{"
         << "\"id\":" << js_quote(character.id) << ","
@@ -648,7 +686,8 @@ std::string character_literal(const JsGameCharacterFixture &character) {
     return out.str();
 }
 
-std::string object_flags_literal(const JsGameObjectFlagsFixture &flags) {
+std::string object_flags_literal(const JsGameObjectFlagsFixture& flags)
+{
     std::ostringstream out;
     out << "{"
         << "\"itemType\":" << js_quote(flags.item_type) << ","
@@ -664,7 +703,8 @@ std::string object_flags_literal(const JsGameObjectFlagsFixture &flags) {
     return out.str();
 }
 
-std::string equipment_object_literal(const JsGameEquipmentObjectFixture &object) {
+std::string equipment_object_literal(const JsGameEquipmentObjectFixture& object)
+{
     std::ostringstream out;
     out << "{"
         << "\"id\":" << js_quote(object.id) << ","
@@ -693,7 +733,8 @@ std::string equipment_object_literal(const JsGameEquipmentObjectFixture &object)
     return out.str();
 }
 
-std::string equipment_slot_literal(const JsGameEquipmentSlotFixture &slot) {
+std::string equipment_slot_literal(const JsGameEquipmentSlotFixture& slot)
+{
     std::ostringstream out;
     out << "{"
         << "\"slotIndex\":" << slot.slot_index << ","
@@ -703,16 +744,17 @@ std::string equipment_slot_literal(const JsGameEquipmentSlotFixture &slot) {
     return out.str();
 }
 
-std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture> &equipment) {
-    constexpr const char *WearSlotNames[] = {
-        "light",     "fingerRight", "fingerLeft", "neck1",     "neck2", "body",
-        "head",      "legs",        "feet",       "hands",     "arms",  "shield",
-        "aboutBody", "waist",       "wristRight", "wristLeft", "wield", "hold",
-        "back",      "belt1",       "belt2",      "belt3"};
+std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture>& equipment)
+{
+    constexpr const char* WearSlotNames[] = {
+        "light", "fingerRight", "fingerLeft", "neck1", "neck2", "body",
+        "head", "legs", "feet", "hands", "arms", "shield",
+        "aboutBody", "waist", "wristRight", "wristLeft", "wield", "hold",
+        "back", "belt1", "belt2", "belt3"
+    };
     std::ostringstream out;
     out << "[";
-    const std::size_t slot_count =
-        equipment.empty() ? sizeof(WearSlotNames) / sizeof(WearSlotNames[0]) : equipment.size();
+    const std::size_t slot_count = equipment.empty() ? sizeof(WearSlotNames) / sizeof(WearSlotNames[0]) : equipment.size();
     for (std::size_t index = 0; index < slot_count; ++index) {
         if (index > 0)
             out << ",";
@@ -729,7 +771,8 @@ std::string equipment_slots_literal(const std::vector<JsGameEquipmentSlotFixture
     return out.str();
 }
 
-std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFixture> &inventory) {
+std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFixture>& inventory)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < inventory.size(); ++index) {
@@ -741,7 +784,8 @@ std::string inventory_objects_literal(const std::vector<JsGameEquipmentObjectFix
     return out.str();
 }
 
-std::string character_reference_literal(const JsGameCharacterReferenceFixture &character) {
+std::string character_reference_literal(const JsGameCharacterReferenceFixture& character)
+{
     std::ostringstream out;
     out << "{"
         << "\"id\":" << js_quote(character.id) << ","
@@ -769,7 +813,8 @@ std::string character_reference_literal(const JsGameCharacterReferenceFixture &c
 }
 
 std::string
-character_references_literal(const std::vector<JsGameCharacterReferenceFixture> &characters) {
+character_references_literal(const std::vector<JsGameCharacterReferenceFixture>& characters)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < characters.size(); ++index) {
@@ -781,7 +826,8 @@ character_references_literal(const std::vector<JsGameCharacterReferenceFixture> 
     return out.str();
 }
 
-std::string object_literal(const JsGameObjectFixture &object) {
+std::string object_literal(const JsGameObjectFixture& object)
+{
     std::ostringstream out;
     out << "{"
         << "\"id\":" << js_quote(object.id) << ","
@@ -815,8 +861,9 @@ std::string object_literal(const JsGameObjectFixture &object) {
     return out.str();
 }
 
-std::string trigger_literal(const JsGameTriggerFixture &trigger) {
-    const char *trigger_kind = trigger.legacy_name.rfind("SPECIAL_", 0) == 0 ? "mudlle" : "legacy";
+std::string trigger_literal(const JsGameTriggerFixture& trigger)
+{
+    const char* trigger_kind = trigger.legacy_name.rfind("SPECIAL_", 0) == 0 ? "mudlle" : "legacy";
     std::ostringstream out;
     out << "{"
         << "\"kind\":" << js_quote(trigger_kind) << ","
@@ -829,7 +876,8 @@ std::string trigger_literal(const JsGameTriggerFixture &trigger) {
     return out.str();
 }
 
-std::string target_literal(const JsGameTargetFixture &target) {
+std::string target_literal(const JsGameTargetFixture& target)
+{
     if (target.has_character)
         return character_literal(target.character);
     if (target.has_object)
@@ -839,7 +887,8 @@ std::string target_literal(const JsGameTargetFixture &target) {
     return "null";
 }
 
-std::string target_types_literal(const std::vector<std::string> &target_types) {
+std::string target_types_literal(const std::vector<std::string>& target_types)
+{
     std::ostringstream out;
     out << "[";
     for (std::size_t index = 0; index < target_types.size(); ++index) {
@@ -851,7 +900,8 @@ std::string target_types_literal(const std::vector<std::string> &target_types) {
     return out.str();
 }
 
-bool source_has_unsafe_wrapper_boundary(const std::string &source) {
+bool source_has_unsafe_wrapper_boundary(const std::string& source)
+{
     int brace_depth = 0;
     int paren_depth = 0;
     int bracket_depth = 0;
@@ -927,17 +977,18 @@ bool source_has_unsafe_wrapper_boundary(const std::string &source) {
         }
     }
 
-    return string_quote != '\0' || in_block_comment || brace_depth != 0 || paren_depth != 0 ||
-           bracket_depth != 0;
+    return string_quote != '\0' || in_block_comment || brace_depth != 0 || paren_depth != 0 || bracket_depth != 0;
 }
 
 bool is_identifier_start(unsigned char ch) { return std::isalpha(ch) || ch == '_' || ch == '$'; }
 
-bool is_identifier_continue(unsigned char ch) {
+bool is_identifier_continue(unsigned char ch)
+{
     return is_identifier_start(ch) || std::isdigit(ch);
 }
 
-bool is_safe_handler_identifier(const std::string &handler_name) {
+bool is_safe_handler_identifier(const std::string& handler_name)
+{
     if (handler_name.empty())
         return false;
     if (!is_identifier_start(static_cast<unsigned char>(handler_name[0])))
@@ -949,14 +1000,15 @@ bool is_safe_handler_identifier(const std::string &handler_name) {
     return true;
 }
 
-bool parse_mutation(JsonReader *reader, JsRuntimeMutation *mutation, std::string *error_message) {
+bool parse_mutation(JsonReader* reader, JsRuntimeMutation* mutation, std::string* error_message)
+{
     if (reader == nullptr || mutation == nullptr)
         return false;
 
     std::string value_kind;
     std::string kind;
     return reader->parse_object(
-               [&](const std::string &name, JsonReader *nested_reader, std::string *nested_error) {
+               [&](const std::string& name, JsonReader* nested_reader, std::string* nested_error) {
                    if (name == "kind")
                        return nested_reader->parse_string(&kind, nested_error);
                    if (name == "targetType")
@@ -977,18 +1029,15 @@ bool parse_mutation(JsonReader *reader, JsRuntimeMutation *mutation, std::string
                        return nested_reader->parse_string(&mutation->arguments_json, nested_error);
                    if (name == "commandResultBridgeAccepted")
                        return nested_reader->parse_bool(&mutation->command_result_bridge_accepted,
-                                                        nested_error);
+                           nested_error);
                    return nested_reader->skip_value(nested_error);
                },
-               error_message) &&
-           (kind == "setter" || kind == "helper" || kind == "command") &&
-           (kind == "helper" || kind == "command" || value_kind == "string" ||
-            value_kind == "null" || value_kind == "number") &&
-           (mutation->kind = kind, mutation->value_kind = value_kind,
-            mutation->has_value = kind == "setter" && value_kind != "null", true);
+               error_message)
+        && (kind == "setter" || kind == "helper" || kind == "command") && (kind == "helper" || kind == "command" || value_kind == "string" || value_kind == "null" || value_kind == "number") && (mutation->kind = kind, mutation->value_kind = value_kind, mutation->has_value = kind == "setter" && value_kind != "null", true);
 }
 
-bool parse_game_envelope(const std::string &envelope, JsRuntimeEvalResult *result) {
+bool parse_game_envelope(const std::string& envelope, JsRuntimeEvalResult* result)
+{
     if (result == nullptr)
         return false;
 
@@ -997,7 +1046,7 @@ bool parse_game_envelope(const std::string &envelope, JsRuntimeEvalResult *resul
     std::string parse_error;
     JsonReader reader(envelope);
     const bool parsed = reader.parse_root_object(
-        [&](const std::string &name, JsonReader *nested_reader, std::string *error_message) {
+        [&](const std::string& name, JsonReader* nested_reader, std::string* error_message) {
             if (name == "allow") {
                 bool allow = true;
                 if (!nested_reader->parse_bool(&allow, error_message))
@@ -1009,7 +1058,7 @@ bool parse_game_envelope(const std::string &envelope, JsRuntimeEvalResult *resul
             if (name == "mutations") {
                 saw_mutations = true;
                 return nested_reader->parse_array(
-                    [&](JsonReader *mutation_reader, std::string *mutation_error) {
+                    [&](JsonReader* mutation_reader, std::string* mutation_error) {
                         if (result->mutations.size() >= MaxGameMutationCount) {
                             if (mutation_error)
                                 *mutation_error = "JavaScript game mutation limit exceeded.";
@@ -1037,15 +1086,16 @@ bool parse_game_envelope(const std::string &envelope, JsRuntimeEvalResult *resul
     return true;
 }
 
-JsRuntimeEvalResult evaluate_game_source(const std::string &source, const JsRuntimeLimits &limits,
-                                         const JsGameRuntimeEvaluationOptions &evaluation_options,
-                                         const char *filename) {
+JsRuntimeEvalResult evaluate_game_source(const std::string& source, const JsRuntimeLimits& limits,
+    const JsGameRuntimeEvaluationOptions& evaluation_options,
+    const char* filename)
+{
     JsRuntime runtime(limits);
     JsRuntimeNativeCommandResultOptions native_options;
     native_options.callback = evaluation_options.command_result_callback == nullptr
-                                  ? nullptr
-                                  : game_command_result_callback_bridge;
-    native_options.user_data = const_cast<JsGameRuntimeEvaluationOptions *>(&evaluation_options);
+        ? nullptr
+        : game_command_result_callback_bridge;
+    native_options.user_data = const_cast<JsGameRuntimeEvaluationOptions*>(&evaluation_options);
     JsRuntimeEvalResult result = sanitize_game_result(
         runtime.evaluate_trusted_wrapped_source(source, filename, native_options));
     if (result.status != JsRuntimeStatus::Ok)
@@ -1061,7 +1111,8 @@ JsRuntimeEvalResult evaluate_game_source(const std::string &source, const JsRunt
     return sanitize_game_result(std::move(result));
 }
 
-JsRuntimeEvalResult validate_builder_source_policy(const std::string &source) {
+JsRuntimeEvalResult validate_builder_source_policy(const std::string& source)
+{
     const std::vector<JsSourcePolicyViolation> violations = js_source_policy_validate(source);
     JsRuntimeEvalResult result;
     if (!violations.empty()) {
@@ -1073,7 +1124,8 @@ JsRuntimeEvalResult validate_builder_source_policy(const std::string &source) {
     return result;
 }
 
-std::string trigger_context_preamble(const JsGameTriggerContextFixture &context) {
+std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
+{
     std::ostringstream wrapped;
     wrapped
         << "'use strict';\n"
@@ -1120,7 +1172,8 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "    if (typeof value === 'object' && !__rotsWasReadOnly && "
            "typeof value.id === 'string' && typeof value.isValid === 'function' && "
            "value.isValid() === true && (__rotsHandleType === 'character' || "
-           "__rotsHandleType === 'object' || __rotsHandleType === 'room')) "
+           "__rotsHandleType === 'object' || __rotsHandleType === 'room' || "
+           "__rotsHandleType === 'zone')) "
            "__rotsLiveHandleTypes.set(value, __rotsHandleType);\n"
         << "    if (value.__rotsReadOnlySnapshot === true) delete value.__rotsReadOnlySnapshot;\n"
         << "    if (value.__rotsHandleType !== undefined) delete value.__rotsHandleType;\n"
@@ -1587,6 +1640,69 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "  return bridged === null ? __rotsCommandMutationResult('script.send_to_room', args) : "
            "bridged;\n"
         << "}\n"
+        << "function __rotsSendToRoomExcept(room, except, text) {\n"
+        << "  const roomId = __rotsHandleId(room, 'room', 'room');\n"
+        << "  const exceptId = __rotsHandleId(except, 'character', 'except');\n"
+        << "  if (roomId === null || exceptId === null) return __rotsMutationResult(false, "
+           "'invalid-target', 'Expected live room and character handles.', 'target');\n"
+        << "  const result = __rotsValidateCommandText(text, 'text');\n"
+        << "  if (!result.ok) return result;\n"
+        << "  const args = { roomId: roomId, exceptId: exceptId, text: text };\n"
+        << "  const bridged = __rotsCommandBridgeMutationResult('script.send_to_room_x', args);\n"
+        << "  return bridged === null ? __rotsCommandMutationResult('script.send_to_room_x', args) "
+           ": bridged;\n"
+        << "}\n"
+        << "function __rotsYell(speaker, text) {\n"
+        << "  const speakerId = __rotsHandleId(speaker, 'character', 'speaker');\n"
+        << "  if (speakerId === null) return __rotsMutationResult(false, 'invalid-value', "
+           "'Expected a live character handle.', 'speaker');\n"
+        << "  const result = __rotsValidateCommandText(text, 'text');\n"
+        << "  if (!result.ok) return result;\n"
+        << "  const args = { speakerId: speakerId, text: text };\n"
+        << "  const bridged = __rotsCommandBridgeMutationResult('script.do_yell', args);\n"
+        << "  return bridged === null ? __rotsCommandMutationResult('script.do_yell', args) : "
+           "bridged;\n"
+        << "}\n"
+        << "function __rotsEmote(actor, text) {\n"
+        << "  const speakerId = __rotsHandleId(actor, 'character', 'actor');\n"
+        << "  if (speakerId === null) return __rotsMutationResult(false, 'invalid-value', "
+           "'Expected a live character handle.', 'actor');\n"
+        << "  const result = __rotsValidateCommandText(text, 'text');\n"
+        << "  if (!result.ok) return result;\n"
+        << "  const args = { speakerId: speakerId, text: text };\n"
+        << "  const bridged = __rotsCommandBridgeMutationResult('script.do_emote', args);\n"
+        << "  return bridged === null ? __rotsCommandMutationResult('script.do_emote', args) : "
+           "bridged;\n"
+        << "}\n"
+        << "function __rotsSocial(actor, command, target) {\n"
+        << "  const speakerId = __rotsHandleId(actor, 'character', 'actor');\n"
+        << "  if (speakerId === null) return __rotsMutationResult(false, 'invalid-value', "
+           "'Expected a live character handle.', 'actor');\n"
+        << "  const result = __rotsValidateCommandText(command, 'command');\n"
+        << "  if (!result.ok) return result;\n"
+        << "  const args = { speakerId: speakerId, text: command };\n"
+        << "  if (arguments.length >= 3 && target !== undefined && target !== null) {\n"
+        << "    const targetId = __rotsHandleId(target, 'character', 'target');\n"
+        << "    if (targetId === null) return __rotsMutationResult(false, 'invalid-target', "
+           "'Expected a live character handle.', 'target');\n"
+        << "    args.targetId = targetId;\n"
+        << "  }\n"
+        << "  const bridged = __rotsCommandBridgeMutationResult('script.do_social', args);\n"
+        << "  return bridged === null ? __rotsCommandMutationResult('script.do_social', args) : "
+           "bridged;\n"
+        << "}\n"
+        << "function __rotsPageZoneMap(target, zone) {\n"
+        << "  const targetId = __rotsHandleId(target, 'character', 'target');\n"
+        << "  const zoneId = __rotsHandleId(zone, 'zone', 'zone');\n"
+        << "  if (targetId === null) return __rotsMutationResult(false, 'invalid-value', "
+           "'Expected a live character handle.', 'target');\n"
+        << "  if (zoneId === null) return __rotsMutationResult(false, 'invalid-target', "
+           "'Expected a live zone handle.', 'zone');\n"
+        << "  const args = { targetId: targetId, zoneId: zoneId };\n"
+        << "  const bridged = __rotsCommandBridgeMutationResult('script.page_zone_map', args);\n"
+        << "  return bridged === null ? __rotsCommandMutationResult('script.page_zone_map', args) : "
+           "bridged;\n"
+        << "}\n"
         << "function __rotsLoadObj(vnum, target) {\n"
         << "  const result = __rotsValidateCommandInteger(vnum, 'vnum', 0, 999999);\n"
         << "  if (!result.ok) return result;\n"
@@ -1632,12 +1748,22 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
         << "    loadObj: __rotsLoadObj,\n"
         << "    sendToChar: __rotsSendToChar,\n"
         << "    sendToRoom: __rotsSendToRoom,\n"
+        << "    sendToRoomExcept: __rotsSendToRoomExcept,\n"
+        << "    yell: __rotsYell,\n"
+        << "    emote: __rotsEmote,\n"
+        << "    social: __rotsSocial,\n"
+        << "    pageZoneMap: __rotsPageZoneMap,\n"
         << "    do_wait: __rotsDoWait,\n"
         << "    do_say: __rotsDoSay,\n"
         << "    do_give: __rotsDoGive,\n"
         << "    load_obj: __rotsLoadObj,\n"
         << "    send_to_char: __rotsSendToChar,\n"
-        << "    send_to_room: __rotsSendToRoom\n"
+        << "    send_to_room: __rotsSendToRoom,\n"
+        << "    send_to_room_x: __rotsSendToRoomExcept,\n"
+        << "    do_yell: __rotsYell,\n"
+        << "    do_emote: __rotsEmote,\n"
+        << "    do_social: __rotsSocial,\n"
+        << "    page_zone_map: __rotsPageZoneMap\n"
         << "  }\n"
         << "});\n"
         << "const ctx = " << js_game_trigger_context_literal(context) << ";\n"
@@ -1646,13 +1772,11 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture &context)
     return wrapped.str();
 }
 
-JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result) {
-    if (result.status == JsRuntimeStatus::Error &&
-        result.diagnostic.size() > MaxGameDiagnosticLength)
+JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result)
+{
+    if (result.status == JsRuntimeStatus::Error && result.diagnostic.size() > MaxGameDiagnosticLength)
         result.diagnostic.resize(MaxGameDiagnosticLength);
-    if (result.status == JsRuntimeStatus::Error && result.diagnostic.find("TypeError:") != 0 &&
-        result.diagnostic.find("SyntaxError:") != 0 &&
-        result.diagnostic.find("compiled JavaScript ") != 0) {
+    if (result.status == JsRuntimeStatus::Error && result.diagnostic.find("TypeError:") != 0 && result.diagnostic.find("SyntaxError:") != 0 && result.diagnostic.find("compiled JavaScript ") != 0) {
         result.diagnostic = "JavaScript game script failed";
     }
     return result;
@@ -1660,11 +1784,15 @@ JsRuntimeEvalResult sanitize_game_result(JsRuntimeEvalResult result) {
 
 } // namespace
 
-JsGameRuntime::JsGameRuntime(const JsRuntimeLimits &limits) : m_limits(limits) {}
+JsGameRuntime::JsGameRuntime(const JsRuntimeLimits& limits)
+    : m_limits(limits)
+{
+}
 
-JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string &source,
-                                                         const JsGameTriggerContextFixture &context,
-                                                         const char *filename) {
+JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string& source,
+    const JsGameTriggerContextFixture& context,
+    const char* filename)
+{
     if (source_has_unsafe_wrapper_boundary(source)) {
         JsRuntimeEvalResult result;
         result.status = JsRuntimeStatus::Error;
@@ -1705,8 +1833,9 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(const std::string &sour
 }
 
 JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(
-    const std::string &source, const JsGameTriggerContextFixture &context,
-    const JsGameRuntimeEvaluationOptions &evaluation_options, const char *filename) {
+    const std::string& source, const JsGameTriggerContextFixture& context,
+    const JsGameRuntimeEvaluationOptions& evaluation_options, const char* filename)
+{
     if (source_has_unsafe_wrapper_boundary(source)) {
         JsRuntimeEvalResult result;
         result.status = JsRuntimeStatus::Error;
@@ -1747,8 +1876,9 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_body(
 }
 
 JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
-    const std::string &package_source, const std::string &handler_name,
-    const JsGameTriggerContextFixture &context, const char *filename) {
+    const std::string& package_source, const std::string& handler_name,
+    const JsGameTriggerContextFixture& context, const char* filename)
+{
     if (!is_safe_handler_identifier(handler_name)) {
         JsRuntimeEvalResult result;
         result.status = JsRuntimeStatus::Error;
@@ -1798,9 +1928,10 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
 }
 
 JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
-    const std::string &package_source, const std::string &handler_name,
-    const JsGameTriggerContextFixture &context,
-    const JsGameRuntimeEvaluationOptions &evaluation_options, const char *filename) {
+    const std::string& package_source, const std::string& handler_name,
+    const JsGameTriggerContextFixture& context,
+    const JsGameRuntimeEvaluationOptions& evaluation_options, const char* filename)
+{
     if (!is_safe_handler_identifier(handler_name)) {
         JsRuntimeEvalResult result;
         result.status = JsRuntimeStatus::Error;
@@ -1849,7 +1980,8 @@ JsRuntimeEvalResult JsGameRuntime::evaluate_trigger_package_handler(
     return evaluate_game_source(wrapped.str(), m_limits, evaluation_options, filename);
 }
 
-std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture &context) {
+std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& context)
+{
     std::ostringstream out;
     out << "{"
         << "\"self\":" << nullable_literal(context.has_self, character_literal(context.self)) << ","

@@ -599,34 +599,60 @@ TEST(JsTriggerDispatch, OutputCommandHelpersApplyToLiveDescriptorsWithoutPersist
         5851, "function onEnter(ctx) {\n"
               "  const tell = RotS.Script.send_to_char(ctx.actor, 'Private notice.');\n"
               "  const room = RotS.Script.send_to_room(ctx.room, 'Room notice.');\n"
+              "  const roomExcept = RotS.Script.sendToRoomExcept(ctx.room, ctx.actor, 'Hidden "
+              "notice.');\n"
               "  const say = RotS.Script.do_say(ctx.self, 'Gate opens.');\n"
-              "  return tell.ok && room.ok && say.ok;\n"
+              "  const yell = RotS.Script.yell(ctx.self, 'To arms!');\n"
+              "  const emote = RotS.Script.emote(ctx.self, 'checks the chain.');\n"
+              "  const social = RotS.Script.social(ctx.self, 'salute', ctx.actor);\n"
+              "  const map = RotS.Script.pageZoneMap(ctx.actor, ctx.room.zone);\n"
+              "  return tell.ok && room.ok && roomExcept.ok && say.ok && yell.ok && emote.ok && "
+              "social.ok && map.ok;\n"
               "}");
     ASSERT_TRUE(registry.replace_all({package}, internal_options()));
 
     char_data self = make_character("Self");
     char_data actor = make_character("Actor");
     char_data observer = make_character("Observer");
+    char_data zone_observer = make_character("ZoneObserver");
+    char_data far_observer = make_character("FarObserver");
+    zone_observer.in_room = 1;
+    far_observer.in_room = 2;
     self.next_in_room = &actor;
     actor.next_in_room = &observer;
     observer.next_in_room = nullptr;
+    zone_observer.next_in_room = nullptr;
+    far_observer.next_in_room = nullptr;
     descriptor_data self_descriptor{};
     descriptor_data actor_descriptor{};
     descriptor_data observer_descriptor{};
+    descriptor_data zone_observer_descriptor{};
+    descriptor_data far_observer_descriptor{};
     attach_descriptor(self_descriptor, self);
     attach_descriptor(actor_descriptor, actor);
     attach_descriptor(observer_descriptor, observer);
+    attach_descriptor(zone_observer_descriptor, zone_observer);
+    attach_descriptor(far_observer_descriptor, far_observer);
     self_descriptor.next = &actor_descriptor;
     actor_descriptor.next = &observer_descriptor;
-    observer_descriptor.next = nullptr;
+    observer_descriptor.next = &zone_observer_descriptor;
+    zone_observer_descriptor.next = &far_observer_descriptor;
+    far_observer_descriptor.next = nullptr;
     descriptor_list = &self_descriptor;
 
-    const char_data *live_characters[] = {&self, &actor, &observer};
-    room_data world[1] = {make_room("Gate", 100, 0)};
+    const char_data *live_characters[] = {&self, &actor, &observer, &zone_observer, &far_observer};
+    room_data world[3] = {
+        make_room("Gate", 100, 0),
+        make_room("Signal Tower", 101, 0),
+        make_room("Far Field", 200, 1),
+    };
     world[0].people = &self;
-    zone_data zones[1] = {make_zone("Zone", 30)};
+    world[1].people = &zone_observer;
+    world[2].people = &far_observer;
+    zone_data zones[2] = {make_zone("Zone", 30), make_zone("Other Zone", 31)};
+    zones[0].map = const_cast<char *>("Gate map\n\r");
     JsGameAdapterOptions adapter_options =
-        make_options(live_characters, 3, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+        make_options(live_characters, 5, nullptr, 0, world, 2, nullptr, 0, zones, 2);
     JsTriggerDispatchRequest request = character_request(&self);
     request.context_input.actor = &actor;
 
@@ -651,16 +677,89 @@ TEST(JsTriggerDispatch, OutputCommandHelpersApplyToLiveDescriptorsWithoutPersist
         js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
 
     EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
-    EXPECT_EQ(audit_operations, (std::vector<std::string>{"script.send_to_char",
-                                                          "script.send_to_room", "script.do_say"}));
+    EXPECT_EQ(audit_operations,
+              (std::vector<std::string>{"script.send_to_char", "script.send_to_room",
+                                        "script.send_to_room_x", "script.do_say",
+                                        "script.do_yell", "script.do_emote", "script.do_social",
+                                        "script.page_zone_map"}));
     EXPECT_TRUE(contains(self_descriptor.output, "Room notice.\n\r"));
+    EXPECT_TRUE(contains(self_descriptor.output, "Hidden notice.\n\r"));
     EXPECT_TRUE(contains(self_descriptor.output, "Self says 'Gate opens.'\n\r"));
+    EXPECT_TRUE(contains(self_descriptor.output, "Self yells 'To arms!'\n\r"));
+    EXPECT_TRUE(contains(self_descriptor.output, "Self checks the chain.\n\r"));
+    EXPECT_TRUE(contains(self_descriptor.output, "Self salute Actor\n\r"));
     EXPECT_FALSE(contains(self_descriptor.output, "Private notice."));
     EXPECT_TRUE(contains(actor_descriptor.output, "Private notice.\n\r"));
     EXPECT_TRUE(contains(actor_descriptor.output, "Room notice.\n\r"));
+    EXPECT_FALSE(contains(actor_descriptor.output, "Hidden notice."));
     EXPECT_TRUE(contains(actor_descriptor.output, "Self says 'Gate opens.'\n\r"));
+    EXPECT_TRUE(contains(actor_descriptor.output, "Self yells 'To arms!'\n\r"));
+    EXPECT_TRUE(contains(actor_descriptor.output, "Self checks the chain.\n\r"));
+    EXPECT_TRUE(contains(actor_descriptor.output, "Self salute Actor\n\r"));
+    EXPECT_TRUE(contains(actor_descriptor.output, "Gate map\n\r"));
     EXPECT_TRUE(contains(observer_descriptor.output, "Room notice.\n\r"));
+    EXPECT_TRUE(contains(observer_descriptor.output, "Hidden notice.\n\r"));
     EXPECT_TRUE(contains(observer_descriptor.output, "Self says 'Gate opens.'\n\r"));
+    EXPECT_TRUE(contains(observer_descriptor.output, "Self yells 'To arms!'\n\r"));
+    EXPECT_TRUE(contains(observer_descriptor.output, "Self checks the chain.\n\r"));
+    EXPECT_TRUE(contains(observer_descriptor.output, "Self salute Actor\n\r"));
+    EXPECT_TRUE(contains(zone_observer_descriptor.output, "Self yells 'To arms!'\n\r"));
+    EXPECT_FALSE(contains(zone_observer_descriptor.output, "Room notice."));
+    EXPECT_FALSE(contains(zone_observer_descriptor.output, "Hidden notice."));
+    EXPECT_FALSE(contains(zone_observer_descriptor.output, "Self says 'Gate opens.'"));
+    EXPECT_FALSE(contains(zone_observer_descriptor.output, "Self checks the chain."));
+    EXPECT_FALSE(contains(zone_observer_descriptor.output, "Self salute Actor"));
+    EXPECT_FALSE(contains(far_observer_descriptor.output, "Self yells 'To arms!'"));
+}
+
+TEST(JsTriggerDispatch, DoYellAcceptsSameZoneRecipientsOutsideSpeakerRoom) {
+    DescriptorListGuard descriptor_guard;
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5852, "function onEnter(ctx) {\n"
+              "  const yell = RotS.Script.yell(ctx.self, 'Signal from the gate!');\n"
+              "  return yell.ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    char_data listener = make_character("Listener");
+    listener.in_room = 1;
+    self.next_in_room = nullptr;
+    listener.next_in_room = nullptr;
+    descriptor_data listener_descriptor{};
+    attach_descriptor(listener_descriptor, listener);
+    listener_descriptor.next = nullptr;
+    descriptor_list = &listener_descriptor;
+
+    const char_data *live_characters[] = {&self, &listener};
+    room_data world[2] = {
+        make_room("Gate", 100, 0),
+        make_room("Signal Tower", 101, 0),
+    };
+    world[0].people = &self;
+    world[1].people = &listener;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 2, nullptr, 0, world, 1, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+
+    std::vector<std::string> audit_operations;
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.helper_mutation_options.command_audit_user_data = &audit_operations;
+    dispatch_options.helper_mutation_options.command_audit_callback =
+        [](const JsTriggerCommandMutationAuditRequest &request, std::string *, void *user_data) {
+            auto *operations = static_cast<std::vector<std::string> *>(user_data);
+            operations->push_back(request.operations_summary);
+            return true;
+        };
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_operations, (std::vector<std::string>{"script.do_yell"}));
+    EXPECT_TRUE(contains(listener_descriptor.output, "Self yells 'Signal from the gate!'\n\r"));
 }
 
 TEST(JsTriggerDispatch, OutputInlineNoRecipientResultDoesNotQueueDescriptorOutput) {

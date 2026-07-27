@@ -382,6 +382,16 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
                                   "MutationResult;");
     expect_contains(declarations, "export function sendToRoom(room: Room, text: string): "
                                   "MutationResult;");
+    expect_contains(declarations, "export function sendToRoomExcept(room: Room, except: "
+                                  "Character, text: string): MutationResult;");
+    expect_contains(declarations,
+                    "export function yell(speaker: Character, text: string): MutationResult;");
+    expect_contains(declarations,
+                    "export function emote(actor: Character, text: string): MutationResult;");
+    expect_contains(declarations, "export function social(actor: Character, command: string, "
+                                  "target?: Character): MutationResult;");
+    expect_contains(declarations, "export function pageZoneMap(target: Character, zone: Zone): "
+                                  "MutationResult;");
     expect_contains(declarations, "Migration alias for `doWait`");
     expect_contains(declarations, "export function do_wait(pulses: number): MutationResult;");
     expect_contains(declarations,
@@ -391,12 +401,29 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         "export function load_obj(vnum: number, target?: Character | Room): MutationResult;");
     expect_contains(declarations, "export function send_to_char(target: Character, text: string): "
                                   "MutationResult;");
+    expect_contains(declarations, "export function send_to_room_x(room: Room, except: Character, "
+                                  "text: string): MutationResult;");
+    expect_contains(declarations,
+                    "export function do_yell(speaker: Character, text: string): MutationResult;");
+    expect_contains(declarations,
+                    "export function do_emote(actor: Character, text: string): MutationResult;");
+    expect_contains(declarations, "export function do_social(actor: Character, command: string, "
+                                  "target?: Character): MutationResult;");
+    expect_contains(declarations, "export function page_zone_map(target: Character, zone: Zone): "
+                                  "MutationResult;");
     expect_before(declarations, "export function doWait(", "export function do_wait(");
     expect_before(declarations, "export function doSay(", "export function do_say(");
     expect_before(declarations, "export function doGive(", "export function do_give(");
     expect_before(declarations, "export function loadObj(", "export function load_obj(");
     expect_before(declarations, "export function sendToChar(", "export function send_to_char(");
     expect_before(declarations, "export function sendToRoom(", "export function send_to_room(");
+    expect_before(declarations, "export function sendToRoomExcept(",
+                  "export function send_to_room_x(");
+    expect_before(declarations, "export function yell(", "export function do_yell(");
+    expect_before(declarations, "export function emote(", "export function do_emote(");
+    expect_before(declarations, "export function social(", "export function do_social(");
+    expect_before(declarations, "export function pageZoneMap(",
+                  "export function page_zone_map(");
     EXPECT_EQ(declarations.find("runtimeSafety:"), std::string::npos);
     EXPECT_EQ(declarations.find("namespace MutationResult"), std::string::npos);
     EXPECT_EQ(declarations.find("export const MutationResult"), std::string::npos);

@@ -2546,15 +2546,22 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
         "const say = RotS.Script.do_say(ctx.self, 'The gate opens.');\n"
         "const tell = RotS.Script.send_to_char(ctx.actor, 'You hear a click.');\n"
         "const room = RotS.Script.send_to_room(ctx.room, 'Stone grinds nearby.');\n"
+        "const roomExcept = RotS.Script.send_to_room_x(ctx.room, ctx.actor, 'Everyone else hears "
+        "a click.');\n"
+        "const yell = RotS.Script.do_yell(ctx.self, 'To arms!');\n"
+        "const emote = RotS.Script.do_emote(ctx.self, 'checks the gate chain.');\n"
+        "const social = RotS.Script.do_social(ctx.self, 'salute', ctx.actor);\n"
+        "const map = RotS.Script.page_zone_map(ctx.actor, ctx.room.zone);\n"
         "const load = RotS.Script.load_obj(4201);\n"
         "const give = RotS.Script.do_give(ctx.self, ctx.actor, ctx.object);\n"
         "const wait = RotS.Script.do_wait(4);\n"
-        "return say.ok && tell.ok && room.ok && load.ok && give.ok && wait.ok;\n",
+        "return say.ok && tell.ok && room.ok && roomExcept.ok && yell.ok && emote.ok && "
+        "social.ok && map.ok && load.ok && give.ok && wait.ok;\n",
         context);
 
     ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
     EXPECT_EQ(result.value, JsRuntimeValue::Allow);
-    ASSERT_EQ(result.mutations.size(), 6U);
+    ASSERT_EQ(result.mutations.size(), 11U);
     EXPECT_EQ(result.mutations[0].kind, "command");
     EXPECT_EQ(result.mutations[0].operation, "script.do_say");
     EXPECT_EQ(result.mutations[0].arguments_json,
@@ -2565,14 +2572,29 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
     EXPECT_EQ(result.mutations[2].operation, "script.send_to_room");
     EXPECT_EQ(result.mutations[2].arguments_json,
               "{\"roomId\":\"room:1204\",\"text\":\"Stone grinds nearby.\"}");
-    EXPECT_EQ(result.mutations[3].operation, "script.load_obj");
-    EXPECT_EQ(result.mutations[3].arguments_json, "{\"vnum\":4201}");
-    EXPECT_EQ(result.mutations[4].operation, "script.do_give");
+    EXPECT_EQ(result.mutations[3].operation, "script.send_to_room_x");
+    EXPECT_EQ(result.mutations[3].arguments_json,
+              "{\"roomId\":\"room:1204\",\"exceptId\":\"player:7\",\"text\":\"Everyone else "
+              "hears a click.\"}");
+    EXPECT_EQ(result.mutations[4].operation, "script.do_yell");
+    EXPECT_EQ(result.mutations[4].arguments_json,
+              "{\"speakerId\":\"char:1001\",\"text\":\"To arms!\"}");
+    EXPECT_EQ(result.mutations[5].operation, "script.do_emote");
+    EXPECT_EQ(result.mutations[5].arguments_json,
+              "{\"speakerId\":\"char:1001\",\"text\":\"checks the gate chain.\"}");
+    EXPECT_EQ(result.mutations[6].operation, "script.do_social");
+    EXPECT_EQ(result.mutations[6].arguments_json,
+              "{\"speakerId\":\"char:1001\",\"text\":\"salute\",\"targetId\":\"player:7\"}");
+    EXPECT_EQ(result.mutations[7].operation, "script.page_zone_map");
+    EXPECT_EQ(result.mutations[7].arguments_json, "{\"targetId\":\"player:7\",\"zoneId\":\"zone:12\"}");
+    EXPECT_EQ(result.mutations[8].operation, "script.load_obj");
+    EXPECT_EQ(result.mutations[8].arguments_json, "{\"vnum\":4201}");
+    EXPECT_EQ(result.mutations[9].operation, "script.do_give");
     EXPECT_EQ(
-        result.mutations[4].arguments_json,
+        result.mutations[9].arguments_json,
         "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
-    EXPECT_EQ(result.mutations[5].operation, "script.do_wait");
-    EXPECT_EQ(result.mutations[5].arguments_json, "{\"pulses\":4}");
+    EXPECT_EQ(result.mutations[10].operation, "script.do_wait");
+    EXPECT_EQ(result.mutations[10].arguments_json, "{\"pulses\":4}");
 }
 
 struct CommandBridgeProbe {
