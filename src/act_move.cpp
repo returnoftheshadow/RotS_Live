@@ -159,6 +159,14 @@ int check_simple_move(struct char_data* ch, int cmd, int* mv_cost, int mode)
     struct char_data* tmpch;
     struct room_data *room_to, *room_from;
 
+    /* Consume the caller's skip-trigger request unconditionally, as the very
+       first thing this function does, so it can never dangle past one of the
+       early returns below and wrongly suppress ON_BEFORE_ENTER on a later,
+       unrelated move for this character. */
+    bool skip_before_enter = (g_skip_next_before_enter_for == ch);
+    if (skip_before_enter)
+        g_skip_next_before_enter_for = nullptr;
+
     if (mode != SCMD_MOVING)
         /* check for special routines (north = 1) */
         if (special(ch, cmd + 1, "", SPECIAL_COMMAND, 0))
@@ -179,9 +187,7 @@ int check_simple_move(struct char_data* ch, int cmd, int* mv_cost, int mode)
     if (!room_to)
         return 1;
 
-    if (g_skip_next_before_enter_for == ch) {
-        g_skip_next_before_enter_for = nullptr;
-    } else if (call_trigger(ON_BEFORE_ENTER, room_to, ch, 0) == FALSE) {
+    if (!skip_before_enter && call_trigger(ON_BEFORE_ENTER, room_to, ch, 0) == FALSE) {
         return 1; //  Trigger doesn't allow them to enter the new room
     }
     if (IS_SET(EXIT(ch, cmd)->exit_info, EX_NOWALK))
