@@ -1355,20 +1355,22 @@ constexpr JsApiEquipmentHelperOperation EquipmentHelperOperations[] = {
      "Preflight policy for wearing one direct carried object on one live character without exposing "
      "generic command text, all-dot wear loops, or direct equipment slot assignment.",
      "Requires authority over the character and direct carried object, live reciprocal "
-     "object.carried_by membership, optional canonical wear-slot validation, item wear-flag "
-     "compatibility, pet/tamed-mobile restrictions, Beorning/Olog-hai body restrictions, "
-     "anti-alignment and item race-flag zap restrictions, two-handed/shield conflict policy, belt "
-     "prerequisite policy, and available destination slot state before audit.",
+     "object.carried_by membership before slot resolution, optional canonical wear-slot "
+     "validation, item wear-flag compatibility, Beorning/Olog-hai body restrictions, current-room "
+     "validation before equip_char zap checks, anti-alignment and item race-flag "
+     "zap-to-inventory restrictions, two-handed/shield conflict policy, belt prerequisite policy, "
+     "and available destination slot state before audit.",
      "Legacy perform_wear checks ON_WEAR before final alternate finger/neck/wrist/belt fallback, "
      "may perform_remove an occupied slot into inventory, transfers the object from carrying to "
      "equipment, emits wear messages, calls equip_char, updates light counters, carried/worn/"
      "encumbrance weights, dodge/offense/parry, object affects, affect totals, crash-save state, "
      "two-handed and shield interactions, poison damage/death side effects, and descriptor output.",
      "Audit before equipment mutation with operation, character, object, requested slot, resolved "
-     "slot, replaced object if any, ON_WEAR result, restriction decisions, builder account id, "
-     "eligible immortal character id, package id, and request id.",
+     "slot, resolved alternate slot, replaced object if any, ON_WEAR requested-slot result, "
+     "restriction decisions, builder account id, eligible immortal character id, package id, and "
+     "request id.",
      "Stable categories include invalid-target, not-authorized, not-carried, invalid-slot, "
-     "cannot-wear-slot, restricted-body, restricted-item, pet-restricted, missing-belt, "
+     "cannot-wear-slot, restricted-body, restricted-item, no-current-room, missing-belt, "
      "two-handed-conflict, slot-occupied, inventory-full, blocked-by-trigger, stale-character, "
      "stale-object, audit-rejected, and apply-rejected.",
      "Rollback restores inventory membership, equipment slots, any forced removed item, light "
@@ -1376,13 +1378,14 @@ constexpr JsApiEquipmentHelperOperation EquipmentHelperOperations[] = {
      "side effects, crash-save flags, and descriptor output if a later helper fails before output "
      "commits.",
      "Offline fixtures must model canonical wear slots, item wear flags, direct carried ownership, "
-     "race/body and item anti-alignment/race-flag restrictions, belt occupancy, two-handed/shield "
-     "state, ON_WEAR block outcomes, accepted hidden equipment state, forced remove behavior, light "
-     "and affect recalculation summaries, poison/death diagnostics, and frozen visible snapshots.",
+     "race/body and item anti-alignment/race-flag zap-to-inventory restrictions, current-room "
+     "availability, belt occupancy, two-handed/shield state, ON_WEAR block outcomes, accepted "
+     "hidden equipment state, forced remove behavior, light and affect recalculation summaries, "
+     "poison/death diagnostics, and frozen visible snapshots.",
      "Cover valid wear, explicit slot validation, alternate slot fallback, trigger-blocked wear, "
-     "wrong owner, stale handles, pet and race/body rejection, missing belt, shield/two-handed "
-     "conflict, forced remove rollback, poison death isolation, and mixed-batch no-partial "
-     "behavior."},
+     "wrong owner, stale handles, no-current-room zap rejection, race/body rejection, missing belt, "
+     "shield/two-handed conflict, forced remove rollback, poison death isolation, and mixed-batch "
+     "no-partial behavior."},
     {"equipment.remove",
      "RotS.Script.doRemove(character: Character, slotOrObject: WearSlotName | GameObject): "
      "MutationResult",
@@ -1390,9 +1393,9 @@ constexpr JsApiEquipmentHelperOperation EquipmentHelperOperations[] = {
      "Preflight policy for removing one equipped object from one live character without exposing "
      "generic remove text, all-dot loops, or raw equipment array writes.",
      "Requires authority over the character and equipped object, live reciprocal equipment-slot "
-     "membership, canonical slot or equipped-object resolution, carry-count capacity for the "
-     "removed item, belt cascade policy, room placement authority when belt items must fall, and "
-     "audit before mutation.",
+     "membership, canonical bounded slot or equipped-object resolution before any equipment array "
+     "read, carry-count capacity for the removed item, belt cascade policy, room placement "
+     "authority when belt items must fall, and audit before mutation.",
      "Legacy perform_remove moves the selected equipment item into inventory, emits remove "
      "messages, may cascade WEAR_BELT_1/2/3 removal when the waist belt is removed, may drop "
      "belt-carried items into the room when inventory is full, decrements light counters, updates "
@@ -1402,8 +1405,8 @@ constexpr JsApiEquipmentHelperOperation EquipmentHelperOperations[] = {
      "slot, cascaded belt slots, capacity/drop decisions, builder account id, eligible immortal "
      "character id, package id, and request id.",
      "Stable categories include invalid-target, not-authorized, not-equipped, invalid-slot, "
-     "inventory-full, belt-cascade-drop, stale-character, stale-object, stale-room, "
-     "audit-rejected, and apply-rejected.",
+     "inventory-full, belt-cascade-drop, invalid-legacy-slot, stale-character, stale-object, "
+     "stale-room, audit-rejected, and apply-rejected.",
      "Rollback restores equipment slots, inventory membership, room drops, light counters, "
      "carried/worn/encumbrance weights, combat stats, object affects, poison/death side effects, "
      "crash-save flags, and descriptor output if a later helper fails before output commits.",
@@ -1420,8 +1423,10 @@ constexpr JsApiEquipmentHelperOperation EquipmentHelperOperations[] = {
      "requesting wear-all behavior without exposing mutable temporary object slots.",
      "Requires authority over the character, object prototype catalog authority, bounded prototype "
      "list size, deterministic load identity policy, direct inventory placement, wear-all ordering, "
-     "item anti-alignment/race-flag restrictions, capacity and weight preflight, ON_WEAR block "
-     "policy for each loaded object, and audit before any prototype is consumed.",
+     "pet/tamed-mobile restrictions from do_wear(\"all\"), current-room validation before "
+     "equip_char zap checks, item anti-alignment/race-flag zap-to-inventory restrictions, capacity "
+     "and weight preflight, ON_WEAR block policy for each loaded object, and audit before any "
+     "prototype is consumed.",
      "Legacy SCRIPT_EQUIP_CHAR loads up to five object vnums into the character inventory, then "
      "calls do_wear(\"all\"), which walks the current carrying list and can partially wear, leave in "
      "inventory, or trigger every wear/equip/remove/light/affect/poison side effect from the normal "
@@ -1432,15 +1437,16 @@ constexpr JsApiEquipmentHelperOperation EquipmentHelperOperations[] = {
      "package id, and request id.",
      "Stable categories include invalid-target, not-authorized, invalid-prototype, not-found, "
      "too-many-prototypes, inventory-full, too-heavy, blocked-by-trigger, partial-wear-blocked, "
-     "stale-character, audit-rejected, and apply-rejected.",
+     "pet-restricted, no-current-room, stale-character, audit-rejected, and apply-rejected.",
      "Rollback extracts or restores every loaded object, restores inventory/equipment slots, light "
      "counters, carried/worn/encumbrance weights, combat stats, object affects, poison/death side "
      "effects, crash-save flags, and descriptor output if any item fails or a later helper fails; "
      "this no-partial behavior is an intentional JavaScript V1 improvement over legacy partial "
      "wear-all.",
      "Offline fixtures must model objectPrototypes, deterministic generated object ids, capacity "
-     "and weight preflight, wear-all source order, anti-alignment/race-flag zap branches, accepted "
-     "hidden inventory/equipment state, per-object ON_WEAR outcomes, and frozen visible snapshots.",
+     "and weight preflight, wear-all source order, anti-alignment/race-flag zap-to-inventory "
+     "branches, accepted hidden inventory/equipment state, per-object ON_WEAR outcomes, and frozen "
+     "visible snapshots.",
      "Cover successful multi-item equip, missing prototype, sixth prototype rejection, capacity/"
      "weight preflight, trigger-blocked item without consuming earlier loads, partial-wear "
      "rollback, deterministic ordering, stale character, and no returned mutable object handles."},

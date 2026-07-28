@@ -1174,7 +1174,7 @@ TEST(JsApiStructMapping, EquipmentHelperOperationsDefineInternalCatalog) {
          "RotS.Script.equipChar(character: Character, prototypes: readonly number[]): "
          "MutationResult",
          "EQUIP_CHAR", "bounded set of object prototypes", "no-partial preflight/rollback",
-         "too-many-prototypes", "anti-alignment/race-flag zap branches",
+         "too-many-prototypes", "anti-alignment/race-flag zap-to-inventory branches",
          "no returned mutable object handles"},
     };
 
@@ -1211,6 +1211,47 @@ TEST(JsApiStructMapping, EquipmentHelperOperationsDefineInternalCatalog) {
         EXPECT_NE(std::string(operation.rollback_policy).find("Rollback"), std::string::npos);
         EXPECT_NE(std::string(operation.offline_policy).find("Offline fixtures"),
                   std::string::npos);
+
+        if (operation.operation_name == std::string("equipment.wear")) {
+            EXPECT_NE(std::string(operation.authority_policy).find(
+                          "object.carried_by membership before slot resolution"),
+                      std::string::npos);
+            EXPECT_EQ(std::string(operation.authority_policy).find("pet/tamed-mobile"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("current-room validation"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("zap-to-inventory"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.diagnostic_policy).find("no-current-room"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.audit_policy).find("resolved alternate slot"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.audit_policy).find("ON_WEAR requested-slot result"),
+                      std::string::npos);
+        }
+
+        if (operation.operation_name == std::string("equipment.remove")) {
+            EXPECT_NE(std::string(operation.authority_policy).find(
+                          "before any equipment array read"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.diagnostic_policy).find("invalid-legacy-slot"),
+                      std::string::npos);
+        }
+
+        if (operation.operation_name == std::string("equipment.equip_character")) {
+            EXPECT_NE(std::string(operation.authority_policy).find("pet/tamed-mobile"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("current-room validation"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("zap-to-inventory"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.diagnostic_policy).find("pet-restricted"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.diagnostic_policy).find("no-current-room"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.offline_policy).find("zap-to-inventory branches"),
+                      std::string::npos);
+        }
 
         for (const char *forbidden : {"setEquipmentSlot", "setInventory", "raw pointer",
                  "descriptor"}) {

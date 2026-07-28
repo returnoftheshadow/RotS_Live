@@ -566,16 +566,23 @@ modern mappings are `DO_WEAR` to `RotS.Script.doWear(character, object, slot?)`,
 `EQUIP_CHAR` to `RotS.Script.equipChar(character, prototypes)`, but they stay
 absent from generated typings, fallback typings, live QuickJS handles, and
 offline fixtures until live/offline implementations can preserve direct
-carried-object ownership, equipped-slot membership, canonical wear-slot
-validation, race/body restrictions, anti-alignment and item race-flag zap
-restrictions, pet restrictions, belt prerequisites, shield/two-handed conflicts,
-`ON_WEAR` blocking before alternate finger/neck/wrist/belt slot fallback, forced
-remove of occupied slots, waist-belt cascade removal, inventory-full room drops,
-light counters, object affects, poison damage/death side effects, crash-save
-state, deterministic prototype loads, audit, branchable result codes, and
-rollback or no-partial behavior. The future `equipChar` helper should
-deliberately tighten legacy `EQUIP_CHAR` partial wear-all behavior into
-JavaScript V1 no-partial preflight/rollback semantics. Do not use
+carried-object ownership before any slot lookup, equipped-slot membership,
+bounded remove-slot validation before any equipment array read, canonical
+wear-slot validation, race/body restrictions, anti-alignment and item race-flag
+zap-to-inventory restrictions only when the character has a current room,
+pet restrictions for `equipChar` wear-all, belt prerequisites, shield/two-handed
+conflicts, `ON_WEAR` blocking on the requested slot before alternate
+finger/neck/wrist/belt slot fallback, forced remove of occupied slots,
+waist-belt cascade removal, inventory-full room drops, light counters, object
+affects, poison damage/death side effects, crash-save state, deterministic
+prototype loads, audit, branchable result codes, and rollback or no-partial
+behavior. JavaScript V1 should deliberately reject no-current-room zap cases
+instead of preserving the legacy `equip_char` `NOWHERE` SYSERR path. The future
+`doRemove` helper must deliberately reject the legacy `SCRIPT_DO_REMOVE`
+chained-comparison hazard before reading `equipment[pos]`. The future
+`equipChar` helper should deliberately tighten legacy `EQUIP_CHAR` partial
+wear-all behavior into JavaScript V1 no-partial preflight/rollback semantics.
+Do not use
 `Character.setEquipmentSlot` or raw inventory setters; equipment mutation must
 go through audited helpers once promoted.
 
