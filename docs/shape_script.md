@@ -271,6 +271,18 @@ runtime:
 - [`6300-climb-before-enter.ts`](../BuilderClient/examples/legacy-script/6300-climb-before-enter.ts)
   is derived from `lib/world/scr/63.scr` script `#6300` and covers
   `ON_BEFORE_ENTER`, allow/block returns, and fall messaging.
+- [`1800-honeycake-eat.ts`](../BuilderClient/examples/legacy-script/1800-honeycake-eat.ts)
+  covers `ON_EAT` object-host fixtures, actor/NPC guards, object-vnum
+  branching, and actor/room output.
+- [`1810-moonwell-drink.ts`](../BuilderClient/examples/legacy-script/1810-moonwell-drink.ts)
+  covers `ON_DRINK` object-host fixtures, object-name branching, and
+  no-mutation warning output.
+- [`1820-rune-examine.ts`](../BuilderClient/examples/legacy-script/1820-rune-examine.ts)
+  covers `ON_EXAMINE_OBJECT` examiner-only output and ordinary-object fallback
+  branches.
+- [`1830-locked-lever-pull.ts`](../BuilderClient/examples/legacy-script/1830-locked-lever-pull.ts)
+  covers `ON_PULL` allow/block returns, level gating, and pull-cancel
+  explanation output.
 
 Builder-facing client docs are maintained with the client:
 
