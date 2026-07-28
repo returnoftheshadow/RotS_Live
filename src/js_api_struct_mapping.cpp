@@ -1111,24 +1111,31 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "and no partial extraction in mixed helper batches."},
     {"character.follow", "RotS.Script.doFollow(follower: Character, leader: Character): MutationResult",
      "DO_FOLLOW",
-     "Makes one live character follow another live character through the existing reciprocal follow "
-     "relationship model; raw follower-list replacement remains unavailable.",
-     "Requires authority over the follower, live target tokens for both characters, follower-cap "
-     "policy, charm/tame/ownership policy when NPCs are involved, and loop-prevention checks before "
-     "audit.",
-     "Updates follower.master and leader.followers reciprocally, may break a previous follow link, "
-     "and can affect group, mount, movement propagation, combat XP sharing, and room movement.",
+     "Preflight policy for making one live character follow another live character through the "
+     "existing reciprocal follow relationship model; raw follower-list replacement remains "
+     "unavailable, and JavaScript must not inherit legacy DO_FOLLOW's surprising loop branch that "
+     "stops the would-be leader's own master before adding the new follower.",
+     "Requires authority over the follower, live target tokens for both characters, explicit "
+     "self-follow and loop rejection, follower-cap policy, charm/tame/recruit/pet ownership policy "
+     "when NPCs are involved, and same-room/message policy before audit.",
+     "Updates follower.master and leader.followers reciprocally, may break the follower's previous "
+     "follow link, may clear charm/tame/recruit/pet/group state through stop_follower semantics, "
+     "emits follow/stop-follow messages unless V1 deliberately suppresses them, and can affect "
+     "mount, movement propagation, combat XP sharing, and room movement.",
      "Audit before relationship mutation with operation, follower identity class, leader identity "
      "class, previous master, follower count, builder account id, eligible immortal character id, "
      "package id, request id, and authority evidence.",
      "Stable categories include invalid-target, not-authorized, self-follow, follow-loop, "
-     "follower-cap, stale-character, audit-rejected, and apply-rejected.",
+     "follower-cap, protected-follower, stale-character, audit-rejected, and apply-rejected.",
      "Rollback restores the previous master/follower-list links in reverse order before output "
-     "commits if a later helper fails.",
-     "Offline fixtures must model master/follower reciprocal links, follow loops, follower caps, "
-     "accepted hidden relationship state, and frozen visible snapshots.",
-     "Cover valid follow, replacing an existing master, self-follow, looped graph rejection, stale "
-     "leader/follower, cap rejection, movement propagation expectations, and rollback."},
+     "commits if a later helper fails, including any follower-side stop_follower cleanup that V1 "
+     "chooses to allow.",
+     "Offline fixtures must model master/follower reciprocal links, loop rejection, follower caps, "
+     "previous-master replacement, protected charm/tame/recruit branches, accepted hidden "
+     "relationship state, and frozen visible snapshots.",
+     "Cover valid follow, replacing the follower's existing master, self-follow, looped graph "
+     "rejection without altering the leader's master, stale leader/follower, cap rejection, "
+     "movement propagation expectations, message/audit ordering, and rollback."},
     {"character.flee", "RotS.Script.doFlee(character: Character): MutationResult", "DO_FLEE",
      "Requests a bounded flee action for a live character handle without exposing generic command "
      "execution or arbitrary direction selection.",

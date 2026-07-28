@@ -496,6 +496,20 @@ ids, room membership, load limits, and `not-found` branches without mutating the
 visible `ctx` snapshot. Until that parity exists, builders should not spawn
 characters from JavaScript.
 
+`DO_FOLLOW` remains a preflight-only JavaScript design. The legacy command makes
+one character follow another, but if the requested relationship would create a
+follow loop it first stops the would-be leader from following their own master
+and then adds the new follower. A future `RotS.Script.doFollow(follower, leader)`
+helper should reject self-follow and looped graphs instead of silently rewriting
+the leader's relationship, audit both live character handles, model follower
+caps and protected charm/tame/recruit/pet state, preserve reciprocal
+`master`/`followers` links, and define whether follow/stop-follow messages are
+emitted or suppressed. BuilderClient offline fixtures must model hidden
+relationship state for previous-master replacement, loop rejection, stale
+handles, follower caps, and rollback while leaving visible relationship snapshots
+frozen. Until that parity exists, builders should use output and movement helpers
+instead of changing follow relationships from JavaScript.
+
 `EXTRACT_CHAR` remains a preflight-only JavaScript design. The legacy command
 extracts only NPC targets and then clears the legacy character variable; player
 characters are ignored by that script branch, while the underlying
