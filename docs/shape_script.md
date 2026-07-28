@@ -674,12 +674,19 @@ can model the simple direct-target path with `loadObj(vnum, character)`, but the
 legacy custody sequence should usually use higher-level helpers once they are
 promoted:
 `giveReward(...)` for atomic load/give reward handoffs, `exchangeReceivedObject(...)`
-for ON_RECEIVE exchange tables, typed `findInventoryObject`/`findEquippedObject`/
-`findRoomObject` lookups instead of object slots, `stashObject`/`moveObjectToRoom`
-for workshop custody, and audited destructive cleanup built on
-`extractObject`. Those higher-level helpers must preflight multi-reward capacity and weight as a batch, keep
-default item-return paths branchable, and roll back without consuming accepted
-input objects when later reward creation or transfer fails.
+for ON_RECEIVE exchange tables, `cloneObjectFrom(source, destination?)` for
+future `LOAD_OBJ_X` clone flows, typed `findInventoryObject`/
+`findEquippedObject`/`findRoomObject` lookups instead of object slots,
+`stashObject`/`moveObjectToRoom` for workshop custody, and audited destructive
+cleanup built on `extractObject`. The future clone helper must take an explicit
+source object handle instead of inheriting the legacy `ob1` temp slot, reject
+stale or prototype-less source objects before `read_object`, choose whether the
+clone copies only prototype defaults or any live-instance state, place the clone
+only through audited custody helpers, and model hidden offline clone state for
+later helper calls. Those higher-level helpers must preflight multi-reward
+capacity and weight as a batch, keep default item-return paths branchable, and
+roll back without consuming accepted input objects or committed clones when
+later reward creation or transfer fails.
 
 ### Blocking entry by race
 

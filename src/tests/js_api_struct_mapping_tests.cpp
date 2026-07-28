@@ -524,12 +524,17 @@ TEST(JsApiStructMapping, RewardCustodyHelperPlanUsesModernTypedHelpers) {
                                   plan->test_focus + " " + plan->notes;
 
     for (const char *required : {"giveReward", "exchangeReceivedObject", "findInventoryObject",
-             "findEquippedObject", "findRoomObject", "stashObject", "moveObjectToRoom",
-             "extractObject", "wearObject", "removeObject", "container helpers",
-             "actor/target authority", "zone ownership", "reciprocal list validation",
-             "crash-save policy", "nested-container cycle prevention", "ON_WEAR/receive trigger ordering",
+             "findEquippedObject", "findRoomObject", "cloneObjectFrom", "stashObject",
+             "moveObjectToRoom", "extractObject", "wearObject", "removeObject",
+             "container helpers", "actor/target authority", "zone ownership",
+             "reciprocal list validation", "crash-save policy",
+             "prototype-backed source-object liveness",
+             "explicit prototype versus live-instance copy policy",
+             "nested-container cycle prevention", "ON_WEAR/receive trigger ordering",
              "audit-before-mutation", "default item return", "typed inventory/equipment/room lookup",
-             "hidden accepted custody state", "batch preflight", "multi-reward no-partial rollback",
+             "hidden accepted custody and clone state", "batch preflight",
+             "multi-reward no-partial rollback",
+             "LOAD_OBJ_X explicit-source clone rejection",
              "legacy temp object slots should become local TypeScript variables"}) {
         EXPECT_NE(plan_text.find(required), std::string::npos) << required;
     }

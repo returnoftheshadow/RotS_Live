@@ -772,21 +772,24 @@ constexpr JsApiDeferredHelperPlan DeferredHelperPlans[] = {
      "Reward, custody, inventory, equipment, and object movement helpers",
      "char_data.equipment|char_data.carrying|obj_data.in_room|obj_data.carried_by|obj_data.in_obj|obj_data.contains|room_data.contents",
      "Modern helpers such as giveReward, exchangeReceivedObject, findInventoryObject, "
-     "findEquippedObject, findRoomObject, stashObject, moveObjectToRoom, extractObject, "
-     "wearObject, removeObject, and container helpers that own reward issuance, custody transfer, "
-     "lookup, list transfer, object liveness, capacity, weight, light, equipment, and trigger "
-     "semantics.",
+     "findEquippedObject, findRoomObject, cloneObjectFrom, stashObject, moveObjectToRoom, "
+     "extractObject, wearObject, removeObject, and container helpers that own reward issuance, "
+     "clone-from-handle flows, custody transfer, lookup, list transfer, object liveness, capacity, "
+     "weight, light, equipment, and trigger semantics.",
      "Requires actor/target authority, zone ownership, reciprocal list validation, crash-save "
-     "policy, nested-container cycle prevention, ON_WEAR/receive trigger ordering, and batch "
-     "preflight plus audit-before-mutation ordering for multi-reward or exchange-table flows "
-     "before any input object is consumed.",
+     "policy, prototype-backed source-object liveness, explicit prototype versus live-instance copy "
+     "policy for LOAD_OBJ_X-style clones, nested-container cycle prevention, ON_WEAR/receive "
+     "trigger ordering, and batch preflight plus audit-before-mutation ordering for multi-reward, "
+     "clone, or exchange-table flows before any input object is consumed.",
      "Offline fixtures must model list membership, shallow snapshots, typed inventory/equipment/"
-     "room lookup results, hidden accepted custody state, reward capacity and weight preflight, wear "
-     "slots, container capacity, and trigger side effects without recursive mutable handles.",
+     "room lookup results, hidden accepted custody and clone state, reward capacity and weight "
+     "preflight, wear slots, container capacity, and trigger side effects without recursive mutable "
+     "handles.",
      "Cover reward handoff, default item return, multi-reward no-partial rollback, stale objects, "
-     "duplicate list membership, cycles, wrong owner, absent or multiple lookup matches, nested "
-     "container exclusions, weight/capacity limits, wear restriction failures, trigger blocks, and "
-     "atomic extraction rollback.",
+     "LOAD_OBJ_X explicit-source clone rejection for stale or prototype-less objects, duplicate "
+     "list membership, cycles, wrong owner, absent or multiple lookup matches, nested container "
+     "exclusions, weight/capacity limits, wear restriction failures, trigger blocks, and atomic "
+     "extraction rollback.",
      "Groups the linked object surfaces that would corrupt live lists if exposed as field assignment; "
      "legacy temp object slots should become local TypeScript variables plus named helper results."},
     {"character-movement-relationships", 70, "Character movement and relationship helpers",
