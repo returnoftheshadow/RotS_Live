@@ -525,7 +525,7 @@ TEST(JsApiStructMapping, RewardCustodyHelperPlanUsesModernTypedHelpers) {
 
     for (const char *required : {"giveReward", "exchangeReceivedObject", "findInventoryObject",
              "findEquippedObject", "findRoomObject", "cloneObjectFrom", "stashObject",
-             "moveObjectToRoom", "extractObject", "wearObject", "removeObject",
+             "moveObjectToRoomCustody", "extractObject", "wearObject", "removeObject",
              "container helpers", "actor/target authority", "zone ownership",
              "reciprocal list validation", "crash-save policy",
              "prototype-backed source-object liveness",
@@ -535,11 +535,17 @@ TEST(JsApiStructMapping, RewardCustodyHelperPlanUsesModernTypedHelpers) {
              "direct-room-content ownership",
              "rejected unknown vnums",
              "absent and multiple-match result codes",
-             "nested-container cycle prevention", "ON_WEAR/receive trigger ordering",
+             "nested-container cycle prevention",
+             "direct room custody authority",
+             "no-room-membership rejection before OBJ_FROM_ROOM-style removal",
+             "container capacity/counting",
+             "nested weight propagation",
+             "room light-counter and crash-save side effects",
+             "ON_WEAR/receive trigger ordering",
              "default item-return branch policy", "received-item preservation until exchange acceptance",
              "not-found reward prototype result codes", "audit-before-mutation",
              "default item return", "typed inventory/equipment/room lookup",
-             "hidden lookup catalogs", "hidden accepted custody, exchange, and clone state",
+             "hidden lookup catalogs", "hidden accepted custody, exchange, clone, room, and container state",
              "default-return outcomes", "batch preflight",
              "multi-reward no-partial rollback",
              "LOAD_OBJ_X explicit-source clone rejection",
@@ -547,6 +553,9 @@ TEST(JsApiStructMapping, RewardCustodyHelperPlanUsesModernTypedHelpers) {
              "ASSIGN_EQ slot bounds before equipment reads",
              "ASSIGN_ROOM direct-content lookup",
              "received-item preservation on failed exchange",
+             "no-room-membership rejection",
+             "container cycle/capacity failures",
+             "room light counter rollback",
              "legacy temp object slots should become local TypeScript variables"}) {
         EXPECT_NE(plan_text.find(required), std::string::npos) << required;
     }

@@ -677,7 +677,7 @@ promoted:
 for ON_RECEIVE exchange tables, `cloneObjectFrom(source, destination?)` for
 future `LOAD_OBJ_X` clone flows, typed `findInventoryObject`/
 `findEquippedObject`/`findRoomObject` lookups instead of object slots,
-`stashObject`/`moveObjectToRoom` for workshop custody, and audited destructive
+`stashObject`/`moveObjectToRoomCustody` for workshop custody, and audited destructive
 cleanup built on `extractObject`. The future clone helper must take an explicit
 source object handle instead of inheriting the legacy `ob1` temp slot, reject
 stale or prototype-less source objects before `read_object`, choose whether the
@@ -696,6 +696,15 @@ received input items until an exchange is accepted, model hidden offline
 exchange state, audit the reward/source/package context, and roll back without
 consuming accepted input objects or committed clones when later reward creation
 or transfer fails.
+Future room-stash and container helpers must also deliberately tighten legacy
+`OBJ_FROM_ROOM`, `OBJ_TO_ROOM`, and container custody behavior: require direct
+room or container ownership before removal, reject no-room-membership cases
+instead of inheriting the legacy ternary comparison hazard, validate room custody
+authority, prevent nested container cycles, preflight container capacity and
+nested weight propagation, preserve room light counters and crash-save side
+effects, model hidden offline room/container state, and roll back no-partial
+custody batches. This future custody helper is separate from the existing
+callable `moveObject(object, room)` direct room-placement helper.
 
 ### Blocking entry by race
 
