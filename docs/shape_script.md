@@ -599,16 +599,19 @@ destination-zone authority, reset-command impact checks, room-message
 reachability, audit, branchable result codes, and rollback or no-partial
 behavior. JavaScript V1 should deliberately tighten legacy exit behavior:
 `SET_EXIT_STATE` should accept north/direction 0 even though the legacy script
-branch skips falsey direction 0, reject invalid states instead of defaulting them
-to open, and still preserve the legacy door-state side effects where valid.
+branch skips falsey direction 0, accept open/state 0 deliberately, bound the
+direction before any exit-array or reverse-direction lookup, reject invalid
+states instead of defaulting them to open, and still preserve the legacy
+door-state side effects where valid.
 Legacy `SET_EXIT_STATE` changes only `EX_CLOSED` and `EX_LOCKED` while
 preserving other exit flags, clears broken-door state with output, and mirrors
 only a reciprocal reverse exit. Future `changeExitTo` should reject invalid
-directions and missing source exits instead of preserving the legacy
-chained-comparison and unchecked `dir_option` dereference hazards. Legacy
-`CHANGE_EXIT_TO` changes only the source exit destination and does not create or
-repair reverse links. Do not use `Room.setExit` or raw exit arrays; exit
-mutation must go through audited helpers once promoted.
+directions before any exit-array or reverse-direction lookup, reject missing
+source exits and invalid or `NOWHERE` destinations, and avoid preserving the
+legacy chained-comparison and unchecked `dir_option` dereference hazards. Legacy
+`CHANGE_EXIT_TO` changes only the source exit destination and does not create,
+repair, or mirror reverse links. Do not use `Room.setExit` or raw exit arrays;
+exit mutation must go through audited helpers once promoted.
 
 `EXTRACT_CHAR` remains a preflight-only JavaScript design. The legacy command
 extracts only NPC targets and then clears the legacy character variable; player

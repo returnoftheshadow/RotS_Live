@@ -808,13 +808,15 @@ TEST(JsApiStructMapping, RoomExitHelperOperationsDefineInternalCatalog) {
         {"room.exit.state",
          "RotS.Script.setExitState(room: Room, direction: DirectionName, state: "
          "ExitStateName): MutationResult",
-         "SET_EXIT_STATE", "raw dir_option pointers", "preserves all exit_info bits",
-         "not-door", "accepted hidden exit state", "non-reciprocal reverse non-mirroring"},
+         "SET_EXIT_STATE", "bounds direction before any dir_option or rev_dir access",
+         "preserves all exit_info bits", "not-door", "accepted hidden exit state",
+         "non-reciprocal reverse non-mirroring"},
         {"room.exit.destination",
          "RotS.Script.changeExitTo(room: Room, direction: DirectionName, destination: Room): "
          "MutationResult",
-         "CHANGE_EXIT_TO", "direct room_data.dir_option writes", "does not update a reverse exit",
-         "bidirectional-conflict", "one-way versus reciprocal-link decisions",
+         "CHANGE_EXIT_TO", "non-NOWHERE destination liveness",
+         "does not update a reverse exit", "bidirectional-conflict",
+         "one-way versus reciprocal-link decisions",
          "valid one-way destination change"},
     };
 

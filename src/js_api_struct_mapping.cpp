@@ -1000,7 +1000,8 @@ constexpr JsApiRoomExitHelperOperation RoomExitHelperOperations[] = {
      "with a destination room, door-only validation matching EX_ISDOOR, state validation limited "
      "to open/closed/locked, reciprocal reverse-exit policy, reset-command impact review, and "
      "audit before mutation. JavaScript V1 deliberately fixes the legacy truthy-direction bug so "
-     "north/direction 0 is valid, and rejects invalid states instead of preserving legacy "
+     "north/direction 0 is valid, deliberately accepts open/state 0, bounds direction before any "
+     "dir_option or rev_dir access, and rejects invalid states instead of preserving legacy "
      "default-to-open behavior.",
      "Legacy set_exit_state preserves all exit_info bits except EX_CLOSED and EX_LOCKED, maps "
      "state 0 to open, 1 to closed, 2 to closed+locked, clears EX_ISBROKEN while emitting a blur "
@@ -1029,10 +1030,11 @@ constexpr JsApiRoomExitHelperOperation RoomExitHelperOperations[] = {
      "Preflight policy for changing one loaded room exit destination to another loaded room handle "
      "without accepting raw room vnums or exposing direct room_data.dir_option writes.",
      "Requires source-room authority, destination-zone authority, canonical direction validation, "
-     "existing source exit validation, destination liveness, bidirectional-link policy, "
-     "reset-command impact review, topology/audit authority, and no raw integer room lookup from "
-     "builder code. JavaScript V1 deliberately rejects invalid directions and missing source exits "
-     "instead of preserving legacy chained-comparison and unchecked dir_option dereference hazards.",
+     "existing source exit validation before any dir_option access, non-NOWHERE destination "
+     "liveness, bidirectional-link policy, reset-command impact review, topology/audit authority, "
+     "and no raw integer room lookup from builder code. JavaScript V1 deliberately rejects invalid "
+     "directions and missing source exits instead of preserving legacy chained-comparison and "
+     "unchecked dir_option dereference hazards.",
      "Legacy SCRIPT_CHANGE_EXIT_TO resolves the destination vnum with real_room() and assigns only "
      "source.dir_option[direction].to_room; it does not create missing exits, does not update a "
      "reverse exit, does not validate reset command consistency, and does not emit messages. "
