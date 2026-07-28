@@ -720,14 +720,18 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         EXPECT_EQ(character_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
     }
-    for (const char *helper_name : {"loadMob", "teleportChar",
-             "teleportCharToTargetRoom", "extractChar", "doFollow", "doFlee", "flee",
-             "teleportCharacter", "teleportCharacterOnly", "teleportCharacterToRoomHandle",
-             "extractCharacter"}) {
+    for (const char *helper_name : {"loadMob", "teleportCharToTargetRoom", "extractChar",
+             "doFollow", "doFlee", "flee", "load_mob", "teleport_char_xl",
+             "extract_char", "do_follow", "do_flee", "teleportCharacter",
+             "teleportCharacterOnly", "teleportCharacterToRoomHandle", "extractCharacter"}) {
         EXPECT_EQ(declarations.find(std::string(helper_name) + "("), std::string::npos)
             << helper_name;
     }
+    EXPECT_NE(declarations.find("teleportChar(character: Character, room: Room)"),
+        std::string::npos);
     EXPECT_NE(declarations.find("teleportCharOnly(character: Character, room: Room)"),
+        std::string::npos);
+    EXPECT_NE(declarations.find("teleport_char(character: Character, room: Room)"),
         std::string::npos);
     EXPECT_NE(declarations.find("teleport_char_x(character: Character, room: Room)"),
         std::string::npos);

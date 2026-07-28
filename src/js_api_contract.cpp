@@ -1160,6 +1160,13 @@ constexpr JsApiMember ScriptMembers[] = {
         "Live dispatch requires invocation-local handles, target-zone authority, command audit, "
         "direct object placement, no-drop/capacity checks for character targets, and rollback for "
         "reversible placement changes." },
+    { "teleportChar", JsApiMemberKind::Method, "(character: Character, room: Room) => MutationResult",
+        "MutationResult", false, true, JsApiSideEffect::WorldMutation,
+        JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
+        "Move a live character handle to a room handle through legacy `TELEPORT_CHAR` semantics. "
+        "The helper stops riding, carries NPC followers that are currently in the same source room, "
+        "leaves player followers behind, does not run movement triggers, requires target-zone "
+        "authority and command audit, and rejects blocked/no-teleport rooms." },
     { "teleportCharOnly", JsApiMemberKind::Method,
         "(character: Character, room: Room) => MutationResult", "MutationResult", false, true,
         JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
@@ -1240,6 +1247,11 @@ constexpr JsApiMember ScriptMembers[] = {
         "(object: GameObject, target: Character | Room) => MutationResult", "MutationResult", false,
         true, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
         "builder-zone", "Migration alias for `moveObject`; prefer `moveObject` in new TypeScript scripts." },
+    { "teleport_char", JsApiMemberKind::Method,
+        "(character: Character, room: Room) => MutationResult", "MutationResult", false, true,
+        JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+        "builder-zone",
+        "Migration alias for `teleportChar`; prefer `teleportChar` in new TypeScript scripts." },
     { "teleport_char_x", JsApiMemberKind::Method,
         "(character: Character, room: Room) => MutationResult", "MutationResult", false, true,
         JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,

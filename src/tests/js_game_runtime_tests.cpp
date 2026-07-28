@@ -2555,17 +2555,19 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
         "const load = RotS.Script.load_obj(4201);\n"
         "const give = RotS.Script.do_give(ctx.self, ctx.actor, ctx.object);\n"
         "const move = RotS.Script.move_object(ctx.object, ctx.room);\n"
+        "const teleport = RotS.Script.teleport_char(ctx.actor, ctx.room);\n"
+        "const teleportOnly = RotS.Script.teleport_char_x(ctx.actor, ctx.room);\n"
         "const extract = RotS.Script.extract_obj(ctx.object);\n"
         "const drop = RotS.Script.do_drop(ctx.self, ctx.object);\n"
         "const wait = RotS.Script.do_wait(4);\n"
         "return say.ok && tell.ok && room.ok && roomExcept.ok && yell.ok && emote.ok && "
-        "social.ok && map.ok && load.ok && give.ok && move.ok && extract.ok && drop.ok && "
-        "wait.ok;\n",
+        "social.ok && map.ok && load.ok && give.ok && move.ok && teleport.ok && "
+        "teleportOnly.ok && extract.ok && drop.ok && wait.ok;\n",
         context);
 
     ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
     EXPECT_EQ(result.value, JsRuntimeValue::Allow);
-    ASSERT_EQ(result.mutations.size(), 14U);
+    ASSERT_EQ(result.mutations.size(), 16U);
     EXPECT_EQ(result.mutations[0].kind, "command");
     EXPECT_EQ(result.mutations[0].operation, "script.do_say");
     EXPECT_EQ(result.mutations[0].arguments_json,
@@ -2600,13 +2602,19 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
     EXPECT_EQ(result.mutations[10].operation, "script.move_object");
     EXPECT_EQ(result.mutations[10].arguments_json,
               "{\"objectId\":\"object:301\",\"moveTargetId\":\"room:1204\"}");
-    EXPECT_EQ(result.mutations[11].operation, "script.extract_obj");
-    EXPECT_EQ(result.mutations[11].arguments_json, "{\"objectId\":\"object:301\"}");
-    EXPECT_EQ(result.mutations[12].operation, "script.do_drop");
+    EXPECT_EQ(result.mutations[11].operation, "script.teleport_char");
+    EXPECT_EQ(result.mutations[11].arguments_json,
+              "{\"characterId\":\"player:7\",\"roomId\":\"room:1204\"}");
+    EXPECT_EQ(result.mutations[12].operation, "script.teleport_char_x");
     EXPECT_EQ(result.mutations[12].arguments_json,
+              "{\"characterId\":\"player:7\",\"roomId\":\"room:1204\"}");
+    EXPECT_EQ(result.mutations[13].operation, "script.extract_obj");
+    EXPECT_EQ(result.mutations[13].arguments_json, "{\"objectId\":\"object:301\"}");
+    EXPECT_EQ(result.mutations[14].operation, "script.do_drop");
+    EXPECT_EQ(result.mutations[14].arguments_json,
               "{\"giverId\":\"char:1001\",\"objectId\":\"object:301\"}");
-    EXPECT_EQ(result.mutations[13].operation, "script.do_wait");
-    EXPECT_EQ(result.mutations[13].arguments_json, "{\"pulses\":4}");
+    EXPECT_EQ(result.mutations[15].operation, "script.do_wait");
+    EXPECT_EQ(result.mutations[15].arguments_json, "{\"pulses\":4}");
 }
 
 struct CommandBridgeProbe {

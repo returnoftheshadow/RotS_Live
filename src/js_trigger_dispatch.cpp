@@ -644,7 +644,8 @@ bool parse_script_command_arguments(const JsRuntimeMutation& mutation,
         valid = local.saw_target_id && local.saw_zone_id && command_id_is_valid(local.target_id, "character:") && command_id_is_valid(local.zone_id, "zone:");
     else if (mutation.operation == "script.do_give")
         valid = local.saw_giver_id && local.saw_recipient_id && local.saw_object_id && command_id_is_valid(local.giver_id, "character:") && command_id_is_valid(local.recipient_id, "character:") && command_id_is_valid(local.object_id, "object:");
-    else if (mutation.operation == "script.teleport_char_x")
+    else if (mutation.operation == "script.teleport_char" ||
+        mutation.operation == "script.teleport_char_x")
         valid = local.saw_character_id && local.saw_room_id && command_id_is_valid(local.character_id, "character:") && command_id_is_valid(local.room_id, "room:");
     else if (mutation.operation == "script.move_object")
         valid = local.saw_object_id && local.saw_move_target_id && command_id_is_valid(local.object_id, "object:") && (command_id_is_valid(local.move_target_id, "character:") || command_id_is_valid(local.move_target_id, "room:"));
@@ -1532,7 +1533,8 @@ std::string command_bridge_result(const JsGameCommandResultRequest& bridge_reque
         return js_command_result_json(true, true, "ok", "script.do_wait");
     }
 
-    if (bridge_request.operation == "script.teleport_char_x") {
+    if (bridge_request.operation == "script.teleport_char" ||
+        bridge_request.operation == "script.teleport_char_x") {
         if (!has_persistent_setter_authority(*context->authority))
             return js_command_result_json(true, false, "not-authorized", "target");
 
@@ -1565,7 +1567,7 @@ std::string command_bridge_result(const JsGameCommandResultRequest& bridge_reque
             return js_command_result_json(true, false, "audit-rejected", nullptr);
         }
 
-        return js_command_result_json(true, true, "ok", "script.teleport_char_x");
+        return js_command_result_json(true, true, "ok", bridge_request.operation.c_str());
     }
 
     if (script_command_mutation_is_output(mutation)) {
@@ -1875,7 +1877,7 @@ bool prepare_object_command_mutations(const std::vector<JsRuntimeMutation>& muta
         return false;
     pending_object_commands->clear();
     for (const JsRuntimeMutation& mutation : mutations) {
-        if (!runtime_mutation_kind_is_command(mutation) || script_command_mutation_is_output(mutation) || mutation.operation == "script.do_wait" || mutation.operation == "script.teleport_char_x")
+        if (!runtime_mutation_kind_is_command(mutation) || script_command_mutation_is_output(mutation) || mutation.operation == "script.do_wait" || mutation.operation == "script.teleport_char" || mutation.operation == "script.teleport_char_x")
             continue;
         ScriptCommandArguments arguments;
         if (!parse_script_command_arguments(mutation, &arguments))
@@ -1975,7 +1977,8 @@ bool prepare_character_movement_command_mutations(const std::vector<JsRuntimeMut
     bool movement_command_seen = false;
     for (const JsRuntimeMutation& mutation : mutations) {
         if (!runtime_mutation_kind_is_command(mutation) ||
-            mutation.operation != "script.teleport_char_x") {
+            (mutation.operation != "script.teleport_char" &&
+                mutation.operation != "script.teleport_char_x")) {
             continue;
         }
         if (movement_command_seen)
@@ -3101,7 +3104,8 @@ bool character_movement_commands_still_applicable(
     const JsGameAdapterOptions& options, const JsTriggerMutationAuthorityContext& authority)
 {
     for (const PendingCharacterMovementCommand& command : commands) {
-        if (command.operation != "script.teleport_char_x")
+        if (command.operation != "script.teleport_char" &&
+            command.operation != "script.teleport_char_x")
             return false;
         if (!command_target_matches_authority(command.character, options, authority) ||
             !command_target_matches_authority(command.target_room, options, authority))
@@ -3126,7 +3130,8 @@ bool apply_character_movement_commands(
         return false;
     };
     for (const PendingCharacterMovementCommand& command : commands) {
-        if (command.operation != "script.teleport_char_x")
+        if (command.operation != "script.teleport_char" &&
+            command.operation != "script.teleport_char_x")
             return fail();
         if (classify_teleport_char_only_result(command.character, command.target_room, options) !=
             JsTriggerCommandResultCode::Ok)
@@ -3134,8 +3139,25 @@ bool apply_character_movement_commands(
         AppliedCharacterMovementCommand applied_command;
         applied_command.character = command.character;
         applied_command.previous_room = command.character->in_room;
+        const int source_room = command.character->in_room;
         if (IS_RIDING(command.character))
             stop_riding(command.character);
+        if (command.operation == "script.teleport_char") {
+            for (follow_type* follower = command.character->followers; follower != nullptr;
+                 follower = follower->next) {
+                char_data* follower_character = follower->follower;
+                if (follower_character == nullptr ||
+                    !js_game_adapter_is_live_character(follower_character, options) ||
+                    !IS_NPC(follower_character) || follower_character->in_room != source_room)
+                    continue;
+                AppliedCharacterMovementCommand follower_applied;
+                follower_applied.character = follower_character;
+                follower_applied.previous_room = follower_character->in_room;
+                char_from_room(follower_character);
+                char_to_room(follower_character, command.target_room);
+                applied->push_back(follower_applied);
+            }
+        }
         char_from_room(command.character);
         char_to_room(command.character, command.target_room);
         applied->push_back(applied_command);
@@ -3190,7 +3212,7 @@ std::size_t runtime_object_command_mutation_count(const std::vector<JsRuntimeMut
 {
     std::size_t count = 0;
     for (const JsRuntimeMutation& mutation : mutations) {
-        if (runtime_mutation_kind_is_command(mutation) && !script_command_mutation_is_output(mutation) && mutation.operation != "script.do_wait" && mutation.operation != "script.teleport_char_x")
+        if (runtime_mutation_kind_is_command(mutation) && !script_command_mutation_is_output(mutation) && mutation.operation != "script.do_wait" && mutation.operation != "script.teleport_char" && mutation.operation != "script.teleport_char_x")
             ++count;
     }
     return count;
@@ -3212,7 +3234,8 @@ std::size_t runtime_character_movement_command_mutation_count(
     std::size_t count = 0;
     for (const JsRuntimeMutation& mutation : mutations) {
         if (runtime_mutation_kind_is_command(mutation) &&
-            mutation.operation == "script.teleport_char_x")
+            (mutation.operation == "script.teleport_char" ||
+                mutation.operation == "script.teleport_char_x"))
             ++count;
     }
     return count;

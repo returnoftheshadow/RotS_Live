@@ -433,14 +433,22 @@ handles remain reachable by default when descriptor state is omitted, so
 existing examples stay concise while branch tests can still model disconnected
 recipients.
 
-`RotS.Script.teleportCharOnly(character, room)` is the callable
+`RotS.Script.teleportChar(character, room)` is the callable `TELEPORT_CHAR`
+migration path for moving a live character handle to a live room handle while
+also carrying NPC followers that are currently in the same source room. Player
+followers stay behind. Successful `ok` means the movement command is accepted
+into the current transaction; the live server rechecks liveness,
+target-zone authority, blocked-room policy, `NO_TELEPORT`, and audit before
+applying. Apply uses legacy `TELEPORT_CHAR` semantics: stop riding, move eligible
+NPC followers first, move the selected character, emit no movement text, and do
+not run movement-trigger propagation. The migration alias is
+`RotS.Script.teleport_char(character, room)`; prefer camelCase in new scripts.
+
+`RotS.Script.teleportCharOnly(character, room)` remains the callable
 `TELEPORT_CHAR_X` migration path for moving exactly one live character handle to
-a live room handle. Successful `ok` means the movement command is accepted into
-the current transaction; the live server rechecks liveness, target-zone
-authority, blocked-room policy, `NO_TELEPORT`, and audit before applying. Apply
-uses legacy `TELEPORT_CHAR_X` semantics: stop riding, move only that character,
-leave followers behind, and do not run movement-trigger propagation. Offline
-fixtures mirror the accepted command result while keeping object/drop helper
+a live room handle. It uses the same validation and result codes as
+`teleportChar`, but deliberately leaves all followers behind. Offline fixtures
+mirror accepted movement in hidden per-run state while keeping object/drop helper
 effects aligned to live category order: object helpers still commit before
 character movement, and `ctx.actor.room` stays frozen. Failure codes include
 `invalid-target`, `not-authorized`, `blocked-room`, `no-teleport`, and
@@ -449,7 +457,6 @@ room)`; prefer camelCase in new scripts.
 
 Other character movement helpers remain planned but not callable yet. The
 documented modern mappings are `LOAD_MOB` to `RotS.Script.loadMob(vnum, room)`,
-`TELEPORT_CHAR` to `RotS.Script.teleportChar(character, room)`,
 `TELEPORT_CHAR_XL` to
 `RotS.Script.teleportCharToTargetRoom(character, target)`, `EXTRACT_CHAR` to
 `RotS.Script.extractChar(character)`, `DO_FOLLOW` to
