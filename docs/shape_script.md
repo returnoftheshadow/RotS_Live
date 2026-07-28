@@ -297,9 +297,10 @@ After the handler returns successfully, live dispatch prepares all
 setter, room-flag helper, object-helper, wait, and output intents, including
 setter target validation; rejects malformed targets, failed command-helper
 audit, and failed room-flag-helper audit before writing; rechecks room-flag,
-object-helper, and wait liveness plus zone authority; applies object commands;
-applies room-flag helpers; applies scalar setters; applies wait state; then
-applies descriptor output last. That category order means output cannot leak
+object-helper, wait, and character movement liveness plus zone authority; applies
+object commands; applies room-flag helpers; applies scalar setters; applies wait
+state; applies character movement; then applies descriptor output last. That
+category order means output cannot leak
 from a script whose earlier mutation validation fails, but it also means live
 side effects are not replayed strictly in JavaScript source order.
 
@@ -432,23 +433,36 @@ handles remain reachable by default when descriptor state is omitted, so
 existing examples stay concise while branch tests can still model disconnected
 recipients.
 
-Character movement helpers are planned but not callable yet. The documented
-modern mappings are `LOAD_MOB` to `RotS.Script.loadMob(vnum, room)`,
+`RotS.Script.teleportCharOnly(character, room)` is the callable
+`TELEPORT_CHAR_X` migration path for moving exactly one live character handle to
+a live room handle. Successful `ok` means the movement command is accepted into
+the current transaction; the live server rechecks liveness, target-zone
+authority, blocked-room policy, `NO_TELEPORT`, and audit before applying. Apply
+uses legacy `TELEPORT_CHAR_X` semantics: stop riding, move only that character,
+leave followers behind, and do not run movement-trigger propagation. Offline
+fixtures mirror the accepted command result while keeping object/drop helper
+effects aligned to live category order: object helpers still commit before
+character movement, and `ctx.actor.room` stays frozen. Failure codes include
+`invalid-target`, `not-authorized`, `blocked-room`, `no-teleport`, and
+`audit-rejected`. The migration alias is `RotS.Script.teleport_char_x(character,
+room)`; prefer camelCase in new scripts.
+
+Other character movement helpers remain planned but not callable yet. The
+documented modern mappings are `LOAD_MOB` to `RotS.Script.loadMob(vnum, room)`,
 `TELEPORT_CHAR` to `RotS.Script.teleportChar(character, room)`,
-`TELEPORT_CHAR_X` to `RotS.Script.teleportCharOnly(character, room)`,
 `TELEPORT_CHAR_XL` to
 `RotS.Script.teleportCharToTargetRoom(character, target)`, `EXTRACT_CHAR` to
 `RotS.Script.extractChar(character)`, `DO_FOLLOW` to
 `RotS.Script.doFollow(follower, leader)`, and `DO_FLEE` to
-`RotS.Script.doFlee(character)`, but they stay
-absent from generated typings, fallback typings, live QuickJS handles, and
-offline fixtures until the live and offline implementations both have audited
-room, follower, combat, liveness, rollback, and result-code parity. Do not use
-raw `Character.setRoom`, `Character.setFollowers`, `Character.setMaster`,
-`Character.setMount`, `Character.setGroup`, or `Room.setCharacters`; those raw
-relationship writes are intentionally unavailable because they would bypass
-movement triggers, room people lists, follow/master links, mount propagation,
-combat cleanup, and account/admin audit.
+`RotS.Script.doFlee(character)`, but they stay absent from generated typings,
+fallback typings, live QuickJS handles, and offline fixtures until the live and
+offline implementations both have audited room, follower, combat, liveness,
+rollback, and result-code parity. Do not use raw `Character.setRoom`,
+`Character.setFollowers`, `Character.setMaster`, `Character.setMount`,
+`Character.setGroup`, or `Room.setCharacters`; those raw relationship writes are
+intentionally unavailable because they would bypass movement triggers, room
+people lists, follow/master links, mount propagation, combat cleanup, and
+account/admin audit.
 
 ### Greeter with gift
 

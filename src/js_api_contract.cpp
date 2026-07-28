@@ -749,7 +749,7 @@ constexpr JsApiMember MutationResultMembers[] = {
         "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
         "'unsupported' | 'deferred' | 'invalid-target' | 'not-carried' | 'no-drop' | "
         "'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found' | 'already-waiting' | "
-        "'no-recipient'",
+        "'no-recipient' | 'blocked-room' | 'no-teleport'",
         "", false, false, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
         "Stable machine-readable result code. Detailed authorization and audit diagnostics stay in "
         "server logs, not script-visible result values." },
@@ -1160,6 +1160,14 @@ constexpr JsApiMember ScriptMembers[] = {
         "Live dispatch requires invocation-local handles, target-zone authority, command audit, "
         "direct object placement, no-drop/capacity checks for character targets, and rollback for "
         "reversible placement changes." },
+    { "teleportCharOnly", JsApiMemberKind::Method,
+        "(character: Character, room: Room) => MutationResult", "MutationResult", false, true,
+        JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+        "builder-zone",
+        "Move one live character handle to a room handle through legacy `TELEPORT_CHAR_X` semantics. "
+        "The helper stops riding, leaves followers behind, does not run movement triggers, requires "
+        "target-zone authority and command audit, rejects blocked/no-teleport rooms, and rolls back "
+        "if a later reversible transaction phase fails." },
     { "extractObject", JsApiMemberKind::Method, "(object: GameObject) => MutationResult",
         "MutationResult", false, true, JsApiSideEffect::WorldMutation,
         JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
@@ -1232,6 +1240,11 @@ constexpr JsApiMember ScriptMembers[] = {
         "(object: GameObject, target: Character | Room) => MutationResult", "MutationResult", false,
         true, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
         "builder-zone", "Migration alias for `moveObject`; prefer `moveObject` in new TypeScript scripts." },
+    { "teleport_char_x", JsApiMemberKind::Method,
+        "(character: Character, room: Room) => MutationResult", "MutationResult", false, true,
+        JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+        "builder-zone",
+        "Migration alias for `teleportCharOnly`; prefer `teleportCharOnly` in new TypeScript scripts." },
     { "extract_obj", JsApiMemberKind::Method, "(object: GameObject) => MutationResult",
         "MutationResult", false, true, JsApiSideEffect::WorldMutation,
         JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",

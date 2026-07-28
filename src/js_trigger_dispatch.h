@@ -90,6 +90,8 @@ enum class JsTriggerCommandResultCode {
     NotFound,
     AlreadyWaiting,
     NoRecipient,
+    BlockedRoom,
+    NoTeleport,
 };
 
 struct JsTriggerHelperMutationOperationRegistry {

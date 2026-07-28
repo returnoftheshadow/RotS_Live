@@ -720,13 +720,17 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         EXPECT_EQ(character_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
     }
-    for (const char *helper_name : {"loadMob", "teleportChar", "teleportCharOnly",
+    for (const char *helper_name : {"loadMob", "teleportChar",
              "teleportCharToTargetRoom", "extractChar", "doFollow", "doFlee", "flee",
              "teleportCharacter", "teleportCharacterOnly", "teleportCharacterToRoomHandle",
              "extractCharacter"}) {
         EXPECT_EQ(declarations.find(std::string(helper_name) + "("), std::string::npos)
             << helper_name;
     }
+    EXPECT_NE(declarations.find("teleportCharOnly(character: Character, room: Room)"),
+        std::string::npos);
+    EXPECT_NE(declarations.find("teleport_char_x(character: Character, room: Room)"),
+        std::string::npos);
     const char *raw_character_members[] = {
         "internalIndex",
         "playerIndex",
