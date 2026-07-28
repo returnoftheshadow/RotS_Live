@@ -1137,22 +1137,36 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "rejection without altering the leader's master, stale leader/follower, cap rejection, "
      "movement propagation expectations, message/audit ordering, and rollback."},
     {"character.flee", "RotS.Script.doFlee(character: Character): MutationResult", "DO_FLEE",
-     "Requests a bounded flee action for a live character handle without exposing generic command "
-     "execution or arbitrary direction selection.",
-     "Requires authority over the character, live room state with at least one eligible exit, combat "
-     "or fear-policy eligibility, no-flee door/room checks, and per-script action-loop limits.",
-     "May stop or alter combat, move the character through one valid exit, affect followers/mounts "
-     "according to the flee policy, and can trigger movement/room-entry side effects once callable.",
-     "Audit before movement with operation, source room, selected exit policy, destination room, "
-     "combat state, builder account id, eligible immortal character id, package id, and request id.",
-     "Stable categories include invalid-target, not-authorized, not-in-room, no-exit, no-flee, "
-     "stale-character, stale-room, trigger-blocked, audit-rejected, and apply-rejected.",
-     "Rollback restores room and combat bookkeeping if a later helper in the same batch fails before "
-     "descriptor output commits.",
-     "Offline fixtures must model room exits, blocked/no-flee exits, combat state, deterministic "
-     "exit selection, follower/mount behavior, accepted hidden movement state, and frozen snapshots.",
-     "Cover no-exit rooms, no-flee exits, stale handles, not-in-combat policy, deterministic exit "
-     "choice, trigger block, combat cleanup, follower behavior, and rollback."},
+     "Preflight policy for a bounded flee action on one live character handle without exposing "
+     "generic command execution or arbitrary builder-selected directions.",
+     "Requires authority over the character, live source-room state, flee-eligible position/tactics, "
+     "at least one eligible non-death exit, EX_NOFLEE/EX_NOWALK filtering, MOB_STAY_ZONE and "
+     "MOB_STAY_TYPE rules for NPCs, and per-script action-loop limits.",
+     "Legacy do_flee tries up to six random directions, calls check_simple_move before do_move with "
+     "SCMD_FLEE, may stand the character, may stop riding on mount failures, removes AFF_HUNT on "
+     "success, stops combat for the fleeing character and room opponents, charges player flee XP, "
+     "moves through do_move side effects, and can propagate AFF_HAZE direction redirection, "
+     "followers/mounts, duplicate command/pre-enter checks, entry triggers, movement cost, "
+     "stay-zone drops, death-room kills, and descriptor output.",
+     "Audit before movement with operation, source room, deterministic selected exit, any explicit "
+     "AFF_HAZE redirection policy, destination room, combat state, tactics/position, "
+     "follower/mount policy, builder account id, eligible immortal character id, package id, and "
+     "request id.",
+     "Stable categories include invalid-target, not-authorized, not-in-room, not-eligible, no-exit, "
+     "no-flee, blocked-exit, too-exhausted, stale-character, stale-room, trigger-blocked, "
+     "audit-rejected, and apply-rejected.",
+     "Rollback restores room membership, movement points, riding/follower propagation, combat "
+     "bookkeeping, AFF_HUNT, stay-zone drops, XP loss, and descriptor output if a later helper in "
+     "the same batch fails before descriptor output commits.",
+     "Offline fixtures must model room exits, EX_NOFLEE/EX_NOWALK/death-room filtering, "
+     "MOB_STAY_ZONE/MOB_STAY_TYPE, position/tactics eligibility, deterministic exit selection, "
+     "AFF_HAZE policy, duplicate command/pre-enter check policy, follower/mount behavior, combat "
+     "cleanup, accepted hidden movement state, and frozen snapshots.",
+     "Cover berserk and non-standing eligibility, no-exit rooms, all exits blocked by no-flee/no-walk "
+     "or death rooms, NPC stay-zone/stay-type rejection, stale handles, deterministic exit choice "
+     "replacing legacy randomness, haze redirection suppression or modeling, duplicate "
+     "command/pre-enter check collapse or preservation, special/trigger blocks, combat cleanup, "
+     "follower/mount behavior, death-room avoidance, and rollback."},
 };
 
 constexpr JsApiRawSetterGuardrail RawSetterGuardrails[] = {

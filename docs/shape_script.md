@@ -507,8 +507,31 @@ caps and protected charm/tame/recruit/pet state, preserve reciprocal
 emitted or suppressed. BuilderClient offline fixtures must model hidden
 relationship state for previous-master replacement, loop rejection, stale
 handles, follower caps, and rollback while leaving visible relationship snapshots
-frozen. Until that parity exists, builders should use output and movement helpers
-instead of changing follow relationships from JavaScript.
+frozen. Until that parity exists, builders should use explicit teleport helpers
+or script-visible branch outcomes instead of rewriting follow links directly.
+
+`DO_FLEE` remains a preflight-only JavaScript design. The legacy `do_flee`
+command rejects berserk characters, stands lower-position characters when
+possible, tries up to six random exits, filters `EX_NOFLEE`, `EX_NOWALK`, death
+rooms, and NPC stay-zone/stay-type constraints, calls `check_simple_move`, then
+uses `do_move(..., SCMD_FLEE)` for successful movement. Success can remove
+`AFF_HUNT`, stop combat for the fleeing character and room opponents, charge
+player flee XP, move same-room followers and mounts through the normal movement
+path, fire movement/entry triggers, drop stay-zone objects, and avoid death-room
+exits before movement. The legacy path also inherits `AFF_HAZE` direction
+redirection inside `do_move`, and it can run command/before-enter checks once in
+`do_flee` and again in `do_move` before the final entry triggers. A future
+`RotS.Script.doFlee(character)` helper should replace legacy random attempts
+with deterministic eligible-exit selection, explicitly suppress or model haze
+redirection, define whether duplicate command/before-enter checks are collapsed
+or preserved, audit the selected source/destination rooms plus combat and
+follower/mount policy, return branchable results such as `not-eligible`,
+`no-exit`, `no-flee`, `blocked-exit`, and `too-exhausted`, and roll back combat,
+room membership, movement points, follower/mount propagation, XP loss,
+`AFF_HUNT`, and descriptor output if the batch fails. BuilderClient offline
+fixtures must model hidden movement/combat state while keeping visible snapshots
+frozen. Until that parity exists, builders should use explicit teleport helpers
+or return branch outcomes instead of forcing characters to flee from JavaScript.
 
 `EXTRACT_CHAR` remains a preflight-only JavaScript design. The legacy command
 extracts only NPC targets and then clears the legacy character variable; player

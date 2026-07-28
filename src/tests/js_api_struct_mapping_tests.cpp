@@ -833,8 +833,8 @@ TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog)
          "protected-follower", "previous-master replacement",
          "looped graph rejection without altering the leader's master"},
         {"character.flee", "RotS.Script.doFlee(character: Character): MutationResult", "DO_FLEE",
-         "without exposing generic command", "stop or alter combat", "no-flee",
-         "deterministic exit selection", "no-exit rooms"},
+         "without exposing generic command", "tries up to six random directions", "not-eligible",
+         "AFF_HAZE policy", "duplicate command/pre-enter check"},
     };
 
     std::set<std::string> operation_names;
