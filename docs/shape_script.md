@@ -455,11 +455,22 @@ character movement, and `ctx.actor.room` stays frozen. Failure codes include
 `audit-rejected`. The migration alias is `RotS.Script.teleport_char_x(character,
 room)`; prefer camelCase in new scripts.
 
+`RotS.Script.teleportCharToTargetRoom(character, target)` is the callable
+`TELEPORT_CHAR_XL` migration path for moving exactly one live character handle to
+the current room of another live character handle. It deliberately leaves all
+followers behind. Live dispatch resolves the destination from the target
+character's current room during inline preflight and rechecks it during
+transaction apply, so a stale target or target without a current room returns
+`invalid-target`. The destination room uses the same blocked-room and
+`NO_TELEPORT` policy as the other teleport helpers. Offline fixtures resolve the
+target character's hidden per-run current room and keep visible `ctx` snapshots
+frozen. The migration alias is
+`RotS.Script.teleport_char_xl(character, target)`; prefer camelCase in new
+scripts.
+
 Other character movement helpers remain planned but not callable yet. The
 documented modern mappings are `LOAD_MOB` to `RotS.Script.loadMob(vnum, room)`,
-`TELEPORT_CHAR_XL` to
-`RotS.Script.teleportCharToTargetRoom(character, target)`, `EXTRACT_CHAR` to
-`RotS.Script.extractChar(character)`, `DO_FOLLOW` to
+`EXTRACT_CHAR` to `RotS.Script.extractChar(character)`, `DO_FOLLOW` to
 `RotS.Script.doFollow(follower, leader)`, and `DO_FLEE` to
 `RotS.Script.doFlee(character)`, but they stay absent from generated typings,
 fallback typings, live QuickJS handles, and offline fixtures until the live and

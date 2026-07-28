@@ -720,8 +720,8 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         EXPECT_EQ(character_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
     }
-    for (const char *helper_name : {"loadMob", "teleportCharToTargetRoom", "extractChar",
-             "doFollow", "doFlee", "flee", "load_mob", "teleport_char_xl",
+    for (const char *helper_name : {"loadMob", "extractChar",
+             "doFollow", "doFlee", "flee", "load_mob",
              "extract_char", "do_follow", "do_flee", "teleportCharacter",
              "teleportCharacterOnly", "teleportCharacterToRoomHandle", "extractCharacter"}) {
         EXPECT_EQ(declarations.find(std::string(helper_name) + "("), std::string::npos)
@@ -731,9 +731,13 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         std::string::npos);
     EXPECT_NE(declarations.find("teleportCharOnly(character: Character, room: Room)"),
         std::string::npos);
+    EXPECT_NE(declarations.find("teleportCharToTargetRoom(character: Character, target: Character)"),
+        std::string::npos);
     EXPECT_NE(declarations.find("teleport_char(character: Character, room: Room)"),
         std::string::npos);
     EXPECT_NE(declarations.find("teleport_char_x(character: Character, room: Room)"),
+        std::string::npos);
+    EXPECT_NE(declarations.find("teleport_char_xl(character: Character, target: Character)"),
         std::string::npos);
     const char *raw_character_members[] = {
         "internalIndex",

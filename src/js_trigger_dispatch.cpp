@@ -150,6 +150,7 @@ struct PendingWaitCommand {
 struct PendingCharacterMovementCommand {
     std::string operation;
     char_data* character = nullptr;
+    char_data* target_character = nullptr;
     int target_room = NOWHERE;
 };
 
@@ -647,6 +648,8 @@ bool parse_script_command_arguments(const JsRuntimeMutation& mutation,
     else if (mutation.operation == "script.teleport_char" ||
         mutation.operation == "script.teleport_char_x")
         valid = local.saw_character_id && local.saw_room_id && command_id_is_valid(local.character_id, "character:") && command_id_is_valid(local.room_id, "room:");
+    else if (mutation.operation == "script.teleport_char_xl")
+        valid = local.saw_character_id && local.saw_target_id && command_id_is_valid(local.character_id, "character:") && command_id_is_valid(local.target_id, "character:");
     else if (mutation.operation == "script.move_object")
         valid = local.saw_object_id && local.saw_move_target_id && command_id_is_valid(local.object_id, "object:") && (command_id_is_valid(local.move_target_id, "character:") || command_id_is_valid(local.move_target_id, "room:"));
     else if (mutation.operation == "script.extract_obj")
@@ -1441,6 +1444,7 @@ struct CommandBridgeContext {
     const JsTriggerMutationAuthorityContext* authority = nullptr;
     const JsTriggerHelperMutationTransactionOptions* helper_options = nullptr;
     bool wait_command_accepted = false;
+    bool character_movement_command_accepted = false;
 };
 
 std::string command_bridge_result(const JsGameCommandResultRequest& bridge_request,
@@ -1534,7 +1538,10 @@ std::string command_bridge_result(const JsGameCommandResultRequest& bridge_reque
     }
 
     if (bridge_request.operation == "script.teleport_char" ||
-        bridge_request.operation == "script.teleport_char_x") {
+        bridge_request.operation == "script.teleport_char_x" ||
+        bridge_request.operation == "script.teleport_char_xl") {
+        if (context->character_movement_command_accepted)
+            return js_command_result_json(true, false, "invalid-target", "target");
         if (!has_persistent_setter_authority(*context->authority))
             return js_command_result_json(true, false, "not-authorized", "target");
 
@@ -1542,12 +1549,25 @@ std::string command_bridge_result(const JsGameCommandResultRequest& bridge_reque
             arguments.character_id, *context->request, *context->adapter_options);
         if (character == nullptr)
             return js_command_result_json(true, false, "invalid-target", "character");
-        const int target_room = live_room_role_for_command_id(
-            arguments.room_id, *context->request, *context->adapter_options);
+        char_data* target_character = nullptr;
+        int target_room = NOWHERE;
+        if (bridge_request.operation == "script.teleport_char_xl") {
+            target_character = live_character_role_for_command_id(
+                arguments.target_id, *context->request, *context->adapter_options);
+            if (target_character == nullptr)
+                return js_command_result_json(true, false, "invalid-target", "target");
+            target_room = target_character->in_room;
+        } else {
+            target_room = live_room_role_for_command_id(
+                arguments.room_id, *context->request, *context->adapter_options);
+        }
         if (target_room == NOWHERE)
             return js_command_result_json(true, false, "invalid-target", "room");
         if (!command_target_matches_authority(character, *context->adapter_options,
                 *context->authority) ||
+            (target_character != nullptr &&
+                !command_target_matches_authority(target_character, *context->adapter_options,
+                    *context->authority)) ||
             !command_target_matches_authority(target_room, *context->adapter_options,
                 *context->authority))
             return js_command_result_json(true, false, "not-authorized", "target");
@@ -1567,6 +1587,7 @@ std::string command_bridge_result(const JsGameCommandResultRequest& bridge_reque
             return js_command_result_json(true, false, "audit-rejected", nullptr);
         }
 
+        context->character_movement_command_accepted = true;
         return js_command_result_json(true, true, "ok", bridge_request.operation.c_str());
     }
 
@@ -1877,7 +1898,7 @@ bool prepare_object_command_mutations(const std::vector<JsRuntimeMutation>& muta
         return false;
     pending_object_commands->clear();
     for (const JsRuntimeMutation& mutation : mutations) {
-        if (!runtime_mutation_kind_is_command(mutation) || script_command_mutation_is_output(mutation) || mutation.operation == "script.do_wait" || mutation.operation == "script.teleport_char" || mutation.operation == "script.teleport_char_x")
+        if (!runtime_mutation_kind_is_command(mutation) || script_command_mutation_is_output(mutation) || mutation.operation == "script.do_wait" || mutation.operation == "script.teleport_char" || mutation.operation == "script.teleport_char_x" || mutation.operation == "script.teleport_char_xl")
             continue;
         ScriptCommandArguments arguments;
         if (!parse_script_command_arguments(mutation, &arguments))
@@ -1978,7 +1999,8 @@ bool prepare_character_movement_command_mutations(const std::vector<JsRuntimeMut
     for (const JsRuntimeMutation& mutation : mutations) {
         if (!runtime_mutation_kind_is_command(mutation) ||
             (mutation.operation != "script.teleport_char" &&
-                mutation.operation != "script.teleport_char_x")) {
+                mutation.operation != "script.teleport_char_x" &&
+                mutation.operation != "script.teleport_char_xl")) {
             continue;
         }
         if (movement_command_seen)
@@ -1990,10 +2012,19 @@ bool prepare_character_movement_command_mutations(const std::vector<JsRuntimeMut
         pending.operation = mutation.operation;
         pending.character =
             live_character_role_for_command_id(arguments.character_id, request, options);
-        pending.target_room = live_room_role_for_command_id(arguments.room_id, request, options);
+        char_data* target_character = nullptr;
+        if (mutation.operation == "script.teleport_char_xl") {
+            target_character = live_character_role_for_command_id(arguments.target_id, request, options);
+            pending.target_character = target_character;
+            pending.target_room = target_character == nullptr ? NOWHERE : target_character->in_room;
+        } else {
+            pending.target_room = live_room_role_for_command_id(arguments.room_id, request, options);
+        }
         if (pending.character == nullptr || pending.target_room == NOWHERE)
             return false;
         if (!command_target_matches_authority(pending.character, options, authority) ||
+            (target_character != nullptr &&
+                !command_target_matches_authority(target_character, options, authority)) ||
             !command_target_matches_authority(pending.target_room, options, authority))
             return false;
         if (classify_teleport_char_only_result(pending.character, pending.target_room, options) !=
@@ -3105,12 +3136,24 @@ bool character_movement_commands_still_applicable(
 {
     for (const PendingCharacterMovementCommand& command : commands) {
         if (command.operation != "script.teleport_char" &&
-            command.operation != "script.teleport_char_x")
+            command.operation != "script.teleport_char_x" &&
+            command.operation != "script.teleport_char_xl")
             return false;
         if (!command_target_matches_authority(command.character, options, authority) ||
+            (command.target_character != nullptr &&
+                !command_target_matches_authority(command.target_character, options, authority)) ||
             !command_target_matches_authority(command.target_room, options, authority))
             return false;
-        if (classify_teleport_char_only_result(command.character, command.target_room, options) !=
+        int target_room = command.target_room;
+        if (command.operation == "script.teleport_char_xl") {
+            if (command.target_character == nullptr)
+                return false;
+            target_room = command.target_character->in_room;
+            if (target_room == NOWHERE ||
+                !command_target_matches_authority(target_room, options, authority))
+                return false;
+        }
+        if (classify_teleport_char_only_result(command.character, target_room, options) !=
             JsTriggerCommandResultCode::Ok)
             return false;
     }
@@ -3131,9 +3174,16 @@ bool apply_character_movement_commands(
     };
     for (const PendingCharacterMovementCommand& command : commands) {
         if (command.operation != "script.teleport_char" &&
-            command.operation != "script.teleport_char_x")
+            command.operation != "script.teleport_char_x" &&
+            command.operation != "script.teleport_char_xl")
             return fail();
-        if (classify_teleport_char_only_result(command.character, command.target_room, options) !=
+        int target_room = command.target_room;
+        if (command.operation == "script.teleport_char_xl") {
+            if (command.target_character == nullptr)
+                return fail();
+            target_room = command.target_character->in_room;
+        }
+        if (classify_teleport_char_only_result(command.character, target_room, options) !=
             JsTriggerCommandResultCode::Ok)
             return fail();
         AppliedCharacterMovementCommand applied_command;
@@ -3154,12 +3204,12 @@ bool apply_character_movement_commands(
                 follower_applied.character = follower_character;
                 follower_applied.previous_room = follower_character->in_room;
                 char_from_room(follower_character);
-                char_to_room(follower_character, command.target_room);
+                char_to_room(follower_character, target_room);
                 applied->push_back(follower_applied);
             }
         }
         char_from_room(command.character);
-        char_to_room(command.character, command.target_room);
+        char_to_room(command.character, target_room);
         applied->push_back(applied_command);
     }
     return true;
@@ -3212,7 +3262,7 @@ std::size_t runtime_object_command_mutation_count(const std::vector<JsRuntimeMut
 {
     std::size_t count = 0;
     for (const JsRuntimeMutation& mutation : mutations) {
-        if (runtime_mutation_kind_is_command(mutation) && !script_command_mutation_is_output(mutation) && mutation.operation != "script.do_wait" && mutation.operation != "script.teleport_char" && mutation.operation != "script.teleport_char_x")
+        if (runtime_mutation_kind_is_command(mutation) && !script_command_mutation_is_output(mutation) && mutation.operation != "script.do_wait" && mutation.operation != "script.teleport_char" && mutation.operation != "script.teleport_char_x" && mutation.operation != "script.teleport_char_xl")
             ++count;
     }
     return count;
@@ -3235,7 +3285,8 @@ std::size_t runtime_character_movement_command_mutation_count(
     for (const JsRuntimeMutation& mutation : mutations) {
         if (runtime_mutation_kind_is_command(mutation) &&
             (mutation.operation == "script.teleport_char" ||
-                mutation.operation == "script.teleport_char_x"))
+                mutation.operation == "script.teleport_char_x" ||
+                mutation.operation == "script.teleport_char_xl"))
             ++count;
     }
     return count;

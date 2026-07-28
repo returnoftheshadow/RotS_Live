@@ -1175,6 +1175,15 @@ constexpr JsApiMember ScriptMembers[] = {
         "The helper stops riding, leaves followers behind, does not run movement triggers, requires "
         "target-zone authority and command audit, rejects blocked/no-teleport rooms, and rolls back "
         "if a later reversible transaction phase fails." },
+    { "teleportCharToTargetRoom", JsApiMemberKind::Method,
+        "(character: Character, target: Character) => MutationResult", "MutationResult", false,
+        true, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+        "builder-zone",
+        "Move one live character handle to another character handle's current room through legacy "
+        "`TELEPORT_CHAR_XL` semantics. The helper stops riding, leaves followers behind, does not "
+        "run movement triggers, requires both character handles and the destination room to stay "
+        "live and authorized, rejects blocked/no-teleport rooms, and rolls back if a later "
+        "reversible transaction phase fails." },
     { "extractObject", JsApiMemberKind::Method, "(object: GameObject) => MutationResult",
         "MutationResult", false, true, JsApiSideEffect::WorldMutation,
         JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
@@ -1257,6 +1266,11 @@ constexpr JsApiMember ScriptMembers[] = {
         JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
         "builder-zone",
         "Migration alias for `teleportCharOnly`; prefer `teleportCharOnly` in new TypeScript scripts." },
+    { "teleport_char_xl", JsApiMemberKind::Method,
+        "(character: Character, target: Character) => MutationResult", "MutationResult", false,
+        true, JsApiSideEffect::WorldMutation, JsApiMemberStatus::ImplementedSideEffectHelper,
+        "builder-zone",
+        "Migration alias for `teleportCharToTargetRoom`; prefer `teleportCharToTargetRoom` in new TypeScript scripts." },
     { "extract_obj", JsApiMemberKind::Method, "(object: GameObject) => MutationResult",
         "MutationResult", false, true, JsApiSideEffect::WorldMutation,
         JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",

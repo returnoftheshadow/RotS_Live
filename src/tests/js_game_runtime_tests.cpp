@@ -2557,17 +2557,18 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
         "const move = RotS.Script.move_object(ctx.object, ctx.room);\n"
         "const teleport = RotS.Script.teleport_char(ctx.actor, ctx.room);\n"
         "const teleportOnly = RotS.Script.teleport_char_x(ctx.actor, ctx.room);\n"
+        "const teleportToTarget = RotS.Script.teleport_char_xl(ctx.actor, ctx.self);\n"
         "const extract = RotS.Script.extract_obj(ctx.object);\n"
         "const drop = RotS.Script.do_drop(ctx.self, ctx.object);\n"
         "const wait = RotS.Script.do_wait(4);\n"
         "return say.ok && tell.ok && room.ok && roomExcept.ok && yell.ok && emote.ok && "
         "social.ok && map.ok && load.ok && give.ok && move.ok && teleport.ok && "
-        "teleportOnly.ok && extract.ok && drop.ok && wait.ok;\n",
+        "teleportOnly.ok && teleportToTarget.ok && extract.ok && drop.ok && wait.ok;\n",
         context);
 
     ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
     EXPECT_EQ(result.value, JsRuntimeValue::Allow);
-    ASSERT_EQ(result.mutations.size(), 16U);
+    ASSERT_EQ(result.mutations.size(), 17U);
     EXPECT_EQ(result.mutations[0].kind, "command");
     EXPECT_EQ(result.mutations[0].operation, "script.do_say");
     EXPECT_EQ(result.mutations[0].arguments_json,
@@ -2608,13 +2609,16 @@ TEST(JsGameRuntime, QueuesLegacyCommandHelpersThroughScriptNamespace) {
     EXPECT_EQ(result.mutations[12].operation, "script.teleport_char_x");
     EXPECT_EQ(result.mutations[12].arguments_json,
               "{\"characterId\":\"player:7\",\"roomId\":\"room:1204\"}");
-    EXPECT_EQ(result.mutations[13].operation, "script.extract_obj");
-    EXPECT_EQ(result.mutations[13].arguments_json, "{\"objectId\":\"object:301\"}");
-    EXPECT_EQ(result.mutations[14].operation, "script.do_drop");
-    EXPECT_EQ(result.mutations[14].arguments_json,
+    EXPECT_EQ(result.mutations[13].operation, "script.teleport_char_xl");
+    EXPECT_EQ(result.mutations[13].arguments_json,
+              "{\"characterId\":\"player:7\",\"targetId\":\"char:1001\"}");
+    EXPECT_EQ(result.mutations[14].operation, "script.extract_obj");
+    EXPECT_EQ(result.mutations[14].arguments_json, "{\"objectId\":\"object:301\"}");
+    EXPECT_EQ(result.mutations[15].operation, "script.do_drop");
+    EXPECT_EQ(result.mutations[15].arguments_json,
               "{\"giverId\":\"char:1001\",\"objectId\":\"object:301\"}");
-    EXPECT_EQ(result.mutations[15].operation, "script.do_wait");
-    EXPECT_EQ(result.mutations[15].arguments_json, "{\"pulses\":4}");
+    EXPECT_EQ(result.mutations[16].operation, "script.do_wait");
+    EXPECT_EQ(result.mutations[16].arguments_json, "{\"pulses\":4}");
 }
 
 struct CommandBridgeProbe {
@@ -2754,6 +2758,54 @@ TEST(JsGameRuntime, DoWaitBridgeAcceptedResultQueuesSingleMarkedMutation) {
     EXPECT_EQ(result.mutations[0].arguments_json, "{\"pulses\":4}");
     EXPECT_TRUE(result.mutations[0].command_result_bridge_accepted);
     EXPECT_EQ(probe.calls, 1);
+}
+
+TEST(JsGameRuntime, CharacterMovementBridgeRejectsSecondAcceptedMovementInline) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_actor = true;
+    context.actor.id = "player:7";
+    context.actor.name = "Builder";
+
+    struct MovementBridgeProbe {
+        int calls = 0;
+        std::vector<std::string> operations;
+    };
+    MovementBridgeProbe probe;
+    JsGameRuntimeEvaluationOptions options;
+    options.command_result_user_data = &probe;
+    options.command_result_callback = [](const JsGameCommandResultRequest &request,
+                                          void *user_data) {
+        MovementBridgeProbe *probe = static_cast<MovementBridgeProbe *>(user_data);
+        if (probe == nullptr)
+            return std::string("{\"handled\":false}");
+        ++probe->calls;
+        probe->operations.push_back(request.operation);
+        if (probe->calls == 1) {
+            return std::string("{\"handled\":true,\"ok\":true,\"code\":\"ok\","
+                               "\"message\":null,\"field\":\"script.teleport_char_xl\"}");
+        }
+        return std::string("{\"handled\":true,\"ok\":false,\"code\":\"invalid-target\","
+                           "\"message\":null,\"field\":\"target\"}");
+    };
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const first = RotS.Script.teleportCharToTargetRoom(ctx.actor, ctx.self);\n"
+        "const second = RotS.Script.teleportCharOnly(ctx.actor, ctx.room);\n"
+        "return first.ok && first.code === 'ok' && !second.ok && second.code === "
+        "'invalid-target';\n",
+        context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    ASSERT_EQ(result.mutations.size(), 1U);
+    EXPECT_EQ(result.mutations[0].operation, "script.teleport_char_xl");
+    EXPECT_EQ(result.mutations[0].arguments_json,
+              "{\"characterId\":\"player:7\",\"targetId\":\"char:1001\"}");
+    EXPECT_TRUE(result.mutations[0].command_result_bridge_accepted);
+    EXPECT_EQ(probe.calls, 2);
+    ASSERT_EQ(probe.operations.size(), 2U);
+    EXPECT_EQ(probe.operations[0], "script.teleport_char_xl");
+    EXPECT_EQ(probe.operations[1], "script.teleport_char_x");
 }
 
 TEST(JsGameRuntime, OutputHelpersUseNativeResultBridgeForNoRecipient) {

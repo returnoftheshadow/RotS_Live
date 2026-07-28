@@ -483,6 +483,10 @@ TEST(JsTriggerDispatch, RuntimeMutationDiscriminatorAcceptsOnlySupportedCommandH
         "script.teleport_char_x", "{\"characterId\":\"char:1001\",\"roomId\":\"room:100\"}");
     EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(teleport_only));
 
+    const JsRuntimeMutation teleport_target_room = make_script_command_mutation(
+        "script.teleport_char_xl", "{\"characterId\":\"char:1001\",\"targetId\":\"actor\"}");
+    EXPECT_TRUE(js_trigger_dispatch_supports_runtime_mutation(teleport_target_room));
+
     const JsRuntimeMutation stale_move_shape = make_script_command_mutation(
         "script.move_object", "{\"objectId\":\"object:301\",\"targetId\":\"room:100\"}");
     EXPECT_FALSE(js_trigger_dispatch_supports_runtime_mutation(stale_move_shape));
@@ -557,6 +561,10 @@ TEST(JsTriggerDispatch, CommandHelpersRejectMalformedTargetIdsBeforeAudit) {
          "{\"characterId\":\"char:2147483648\",\"roomId\":\"room:100\"}"},
         {"teleport room sign", "script.teleport_char",
          "{\"characterId\":\"actor\",\"roomId\":\"room:-1\"}"},
+        {"target-room teleport bad target", "script.teleport_char_xl",
+         "{\"characterId\":\"actor\",\"targetId\":\"room:100\"}"},
+        {"target-room teleport overflow", "script.teleport_char_xl",
+         "{\"characterId\":\"actor\",\"targetId\":\"char:2147483648\"}"},
         {"duplicate target key", "script.send_to_char",
          "{\"targetId\":\"actor\",\"targetId\":\"player:7\",\"text\":\"No.\"}"},
     };
