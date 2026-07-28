@@ -683,10 +683,16 @@ source object handle instead of inheriting the legacy `ob1` temp slot, reject
 stale or prototype-less source objects before `read_object`, choose whether the
 clone copies only prototype defaults or any live-instance state, place the clone
 only through audited custody helpers, and model hidden offline clone state for
-later helper calls. Those higher-level helpers must preflight multi-reward
-capacity and weight as a batch, keep default item-return paths branchable, and
-roll back without consuming accepted input objects or committed clones when
-later reward creation or transfer fails.
+later helper calls. The future lookup helpers must deliberately tighten legacy
+`ASSIGN_INV`, `ASSIGN_EQ`, and `ASSIGN_ROOM`: reject unknown object vnums before
+search, define direct versus recursive inventory search instead of inheriting the
+legacy first-container traversal quirk, bound equipment slots before reading the
+equipment array, search only direct room contents for room lookups, return stable
+absent or multiple-match result codes, and model hidden offline lookup catalogs
+without mutating visible snapshots. Those higher-level helpers must preflight
+multi-reward capacity and weight as a batch, keep default item-return paths
+branchable, and roll back without consuming accepted input objects or committed
+clones when later reward creation or transfer fails.
 
 ### Blocking entry by race
 

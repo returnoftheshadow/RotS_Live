@@ -530,11 +530,19 @@ TEST(JsApiStructMapping, RewardCustodyHelperPlanUsesModernTypedHelpers) {
              "reciprocal list validation", "crash-save policy",
              "prototype-backed source-object liveness",
              "explicit prototype versus live-instance copy policy",
+             "explicit inventory/equipment/room lookup domains",
+             "bounded equipment-slot validation before equipment array reads",
+             "direct-room-content ownership",
+             "rejected unknown vnums",
+             "absent and multiple-match result codes",
              "nested-container cycle prevention", "ON_WEAR/receive trigger ordering",
              "audit-before-mutation", "default item return", "typed inventory/equipment/room lookup",
-             "hidden accepted custody and clone state", "batch preflight",
+             "hidden lookup catalogs", "hidden accepted custody and clone state", "batch preflight",
              "multi-reward no-partial rollback",
              "LOAD_OBJ_X explicit-source clone rejection",
+             "ASSIGN_INV direct versus recursive inventory lookup policy",
+             "ASSIGN_EQ slot bounds before equipment reads",
+             "ASSIGN_ROOM direct-content lookup",
              "legacy temp object slots should become local TypeScript variables"}) {
         EXPECT_NE(plan_text.find(required), std::string::npos) << required;
     }
