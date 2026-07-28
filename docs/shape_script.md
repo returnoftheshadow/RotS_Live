@@ -691,8 +691,11 @@ equipment array, search only direct room contents for room lookups, return stabl
 absent or multiple-match result codes, and model hidden offline lookup catalogs
 without mutating visible snapshots. Those higher-level helpers must preflight
 multi-reward capacity and weight as a batch, keep default item-return paths
-branchable, and roll back without consuming accepted input objects or committed
-clones when later reward creation or transfer fails.
+branchable, reject missing reward prototypes with stable result codes, preserve
+received input items until an exchange is accepted, model hidden offline
+exchange state, audit the reward/source/package context, and roll back without
+consuming accepted input objects or committed clones when later reward creation
+or transfer fails.
 
 ### Blocking entry by race
 
