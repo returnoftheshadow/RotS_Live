@@ -722,7 +722,9 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
     }
     for (const char *helper_name : {"loadMob", "extractChar",
              "doFollow", "doFlee", "flee", "load_mob",
-             "extract_char", "do_follow", "do_flee", "teleportCharacter",
+             "extract_char", "do_follow", "do_flee", "doHit", "do_hit",
+             "applyDamage", "apply_damage", "rawKill", "raw_kill",
+             "gainExperience", "gain_experience", "teleportCharacter",
              "teleportCharacterOnly", "teleportCharacterToRoomHandle", "extractCharacter"}) {
         EXPECT_EQ(declarations.find(std::string(helper_name) + "("), std::string::npos)
             << helper_name;

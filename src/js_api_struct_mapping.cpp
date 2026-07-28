@@ -1169,6 +1169,106 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "follower/mount behavior, death-room avoidance, and rollback."},
 };
 
+constexpr JsApiCombatEffectHelperOperation CombatEffectHelperOperations[] = {
+    {"combat.attack", "RotS.Script.doHit(attacker: Character, victim: Character): MutationResult",
+     "DO_HIT",
+     "Preflight policy for starting or redirecting one live attacker toward one same-room live "
+     "victim without exposing generic command execution or text target lookup.",
+     "Requires authority over the attacker, same-room victim liveness, visibility or explicit "
+     "script-target allowance, peace-room denial, self-hit rejection, charm/master protection, "
+     "big-brother target validation, sanctuary checks, combat recursion limits, and action-loop "
+     "guards before audit.",
+     "Legacy do_hit may delegate mental attackers to do_mental, start combat with hit(), emit "
+     "attack messages, set WAIT_STATE, or redirect an existing fight target. Promotion must define "
+     "whether builder scripts can start combat, retarget combat, or only request an attack intent.",
+     "Audit before combat mutation with operation, attacker, victim, source room, existing fight "
+     "targets, peace-room/charm/sanctuary decisions, builder account id, eligible immortal "
+     "character id, package id, and request id.",
+     "Stable categories include invalid-target, not-authorized, not-in-room, self-target, "
+     "peace-room, protected-target, cannot-see, already-fighting, sanctuary-blocked, "
+     "audit-rejected, and apply-rejected.",
+     "Rollback restores attacker/victim fighting pointers, wait state, emitted descriptor output, "
+     "and any hit-side effects if a later helper in the same batch fails before descriptor output "
+     "commits; V1 may instead reject mixed batches containing accepted attacks.",
+     "Offline fixtures must model same-room checks, visibility/protected target branches, existing "
+     "combat state, accepted hidden combat state, wait-state intent, and frozen visible snapshots.",
+     "Cover valid attack, self-target, peace-room, charm/master protection, sanctuary block, "
+     "already-fighting retarget policy, stale handles, combat recursion guards, and rollback or "
+     "mixed-batch rejection."},
+    {"combat.damage",
+     "RotS.Script.applyDamage(victim: Character, amount: number, options?: DamageOptions): "
+     "MutationResult",
+     "SET_INT_VALUE ch.hit|ON_DAMAGE",
+     "Preflight policy for bounded, audited damage or healing deltas through explicit helpers "
+     "instead of direct Character.points/current hit mutation; this deliberately replaces unsafe "
+     "legacy SET_INT_VALUE ch.hit writes with a trigger-aware damage/healing path.",
+     "Requires target authority, integer bounded amount, target liveness, death-threshold policy, "
+     "blocking ON_DAMAGE trigger ordering, weapon/source attribution rules, no recursive "
+     "damage-trigger loops, and package-level action limits.",
+     "Damage may update hit points, invoke victim and weapon ON_DAMAGE blockers before apply, enter "
+     "or alter combat state, update damage-details accounting, trigger death flow, emit descriptor "
+     "output, and interact with affects, sanctuary, armor, and proc handlers. Healing must define "
+     "max-hit caps, undead/negative branches, output, and audit without bypassing combat state.",
+     "Audit before hit-point mutation with operation, target, amount, source kind/id, attacker when "
+     "present, weapon when present, trigger-block result, previous/current hit points, builder "
+     "account id, eligible immortal character id, package id, and request id.",
+     "Stable categories include invalid-target, not-authorized, invalid-amount, blocked-by-trigger, "
+     "recursive-damage, would-kill, already-dead, audit-rejected, and apply-rejected.",
+     "Rollback restores hit points, damage-details accounting, combat/death bookkeeping, affected "
+     "descriptor output, and any queued death side effects if a later helper fails before output "
+     "commits; V1 kill-capable damage may be isolated from mixed batches.",
+     "Offline fixtures must model hit/max-hit values, blocking trigger outcomes, attacker/weapon "
+     "metadata, death threshold policy, accepted hidden hit-point state, and frozen snapshots.",
+     "Cover bounded damage, bounded healing, trigger-blocked damage, recursive damage rejection, "
+     "would-kill policy, stale victim/attacker/weapon, max-hit caps, and rollback."},
+    {"combat.kill", "RotS.Script.rawKill(character: Character): MutationResult", "RAW_KILL",
+     "Preflight policy for destructive death processing on one live character handle; raw silent "
+     "kill remains unavailable to normal builder scripts.",
+     "Requires admin-grade or explicitly delegated zone authority, target liveness, NPC/player "
+     "policy, SPECIAL_DEATH terminal-hook policy, killer/source attribution policy, no pending mixed "
+     "mutations, and crash-save/account safety review before audit.",
+     "Legacy raw_kill completes and aborts delays, stops fighting, runs SPECIAL_DEATH, stops riding, "
+     "removes bash and all affects, sends death cries, creates corpses, records big-brother/death "
+     "state, saves/crash-saves players, restores player abilities, moves corpses/characters, and "
+     "can recurse through normal death processing.",
+     "Audit before death processing with operation, target identity class, killer/source when "
+     "present, room, corpse policy, player/account policy, builder account id, eligible immortal "
+     "character id, package id, and request id.",
+     "Stable categories include invalid-target, not-authorized, protected-character, "
+     "special-death-blocked, player-target-blocked, already-dead, audit-rejected, and "
+     "apply-rejected.",
+     "Rollback is not assumed for rawKill because death processing creates corpses, saves player "
+     "state, clears affects, and mutates account-adjacent lifecycle state; V1 promotion must reject "
+     "mixed batches or prove full compensation before descriptor output commits.",
+     "Offline fixtures must model protected/player target branches, SPECIAL_DEATH block outcomes, "
+     "stale handles after accepted death, corpse/output diagnostics, and frozen visible snapshots.",
+     "Cover NPC kill, player rejection or admin-only path, SPECIAL_DEATH block, stale target, "
+     "delay/fighting/riding cleanup policy, corpse side effects, and mixed-batch rejection."},
+    {"combat.experience",
+     "RotS.Script.gainExperience(character: Character, amount: number): MutationResult",
+     "GAIN_EXP",
+     "Preflight policy for explicit player progression changes; raw experience mutation and "
+     "generic stat writes remain unavailable.",
+     "Requires player-only target validation matching legacy SCRIPT_GAIN_EXP, account/admin or "
+     "reward-source authority, bounded signed amount, high-level scaling policy, level-up/down "
+     "side-effect policy, persistence/crash-save policy, and audit before mutation.",
+     "Legacy SCRIPT_GAIN_EXP ignores NPCs, scales positive or negative amounts for characters above "
+     "level 30, then calls gain_exp(), which can alter level, practices, points, messages, and "
+     "persistence-related progression state.",
+     "Audit before progression mutation with operation, target player, raw amount, scaled amount, "
+     "level before/after policy, reward/source reason, builder account id, eligible immortal "
+     "character id, package id, and request id.",
+     "Stable categories include invalid-target, npc-target, not-authorized, invalid-amount, "
+     "level-boundary-blocked, audit-rejected, and apply-rejected.",
+     "Rollback restores experience, level-derived state, practice/progression counters, descriptor "
+     "output, and persistence marks if a later helper fails; V1 may require experience helpers to "
+     "be terminal or isolated from mixed batches.",
+     "Offline fixtures must model player/NPC distinction, bounded signed amounts, level-scaling "
+     "branches, accepted hidden experience state, level-boundary diagnostics, and frozen snapshots.",
+     "Cover player gain/loss, NPC no-op rejection, high-level scaling, level-up/down policy, stale "
+     "target, audit rejection, and rollback or terminal-helper isolation."},
+};
+
 constexpr JsApiRawSetterGuardrail RawSetterGuardrails[] = {
     {JsApiStructOwner::CharData, "in_room", "setRoom", "character-movement-relationships",
      "Character movement must use movement/teleport helpers, not raw room assignment."},
@@ -1337,4 +1437,14 @@ const JsApiCharacterMovementHelperOperation *js_api_character_movement_helper_op
 std::size_t js_api_character_movement_helper_operation_count()
 {
     return sizeof(CharacterMovementHelperOperations) / sizeof(CharacterMovementHelperOperations[0]);
+}
+
+const JsApiCombatEffectHelperOperation *js_api_combat_effect_helper_operations()
+{
+    return CombatEffectHelperOperations;
+}
+
+std::size_t js_api_combat_effect_helper_operation_count()
+{
+    return sizeof(CombatEffectHelperOperations) / sizeof(CombatEffectHelperOperations[0]);
 }

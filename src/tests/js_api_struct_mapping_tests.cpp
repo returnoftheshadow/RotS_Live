@@ -889,6 +889,88 @@ TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog)
     EXPECT_TRUE(operation_names.count("character.flee") > 0);
 }
 
+TEST(JsApiStructMapping, CombatEffectHelperOperationsDefineInternalCatalog) {
+    ASSERT_EQ(js_api_combat_effect_helper_operation_count(), 4U);
+
+    struct ExpectedOperation {
+        const char *operation_name;
+        const char *helper_name;
+        const char *legacy_commands;
+        const char *target_text;
+        const char *side_effect_text;
+        const char *diagnostic_text;
+        const char *offline_text;
+        const char *test_text;
+    };
+
+    const ExpectedOperation expected[] = {
+        {"combat.attack",
+         "RotS.Script.doHit(attacker: Character, victim: Character): MutationResult", "DO_HIT",
+         "without exposing generic command", "Legacy do_hit", "peace-room",
+         "accepted hidden combat state", "charm/master protection"},
+        {"combat.damage",
+         "RotS.Script.applyDamage(victim: Character, amount: number, options?: DamageOptions): "
+         "MutationResult",
+         "SET_INT_VALUE ch.hit|ON_DAMAGE", "bounded, audited damage or healing",
+         "victim and weapon ON_DAMAGE", "recursive-damage", "accepted hidden hit-point state",
+         "trigger-blocked damage"},
+        {"combat.kill", "RotS.Script.rawKill(character: Character): MutationResult", "RAW_KILL",
+         "destructive death processing", "Legacy raw_kill", "special-death-blocked",
+         "SPECIAL_DEATH block outcomes", "mixed-batch rejection"},
+        {"combat.experience",
+         "RotS.Script.gainExperience(character: Character, amount: number): MutationResult",
+         "GAIN_EXP", "player progression", "Legacy SCRIPT_GAIN_EXP", "npc-target",
+         "level-scaling branches", "high-level scaling"},
+    };
+
+    std::set<std::string> operation_names;
+    std::set<std::string> helper_names;
+    for (std::size_t index = 0; index < js_api_combat_effect_helper_operation_count(); ++index) {
+        const JsApiCombatEffectHelperOperation &operation =
+            js_api_combat_effect_helper_operations()[index];
+        const ExpectedOperation &expected_operation = expected[index];
+        SCOPED_TRACE(operation.operation_name);
+
+        EXPECT_TRUE(operation_names.insert(operation.operation_name).second);
+        EXPECT_TRUE(helper_names.insert(operation.helper_name).second);
+        EXPECT_STREQ(operation.operation_name, expected_operation.operation_name);
+        EXPECT_STREQ(operation.helper_name, expected_operation.helper_name);
+        EXPECT_STREQ(operation.legacy_commands, expected_operation.legacy_commands);
+        EXPECT_NE(std::string(operation.target_policy).find(expected_operation.target_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.side_effect_policy).find(expected_operation.side_effect_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.diagnostic_policy).find(expected_operation.diagnostic_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.offline_policy).find(expected_operation.offline_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.test_focus).find(expected_operation.test_text),
+                  std::string::npos);
+
+        EXPECT_NE(std::string(operation.authority_policy).find("authority"), std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("Audit"), std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("builder account id"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("eligible immortal"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("package id"), std::string::npos);
+        EXPECT_NE(std::string(operation.rollback_policy).find("Rollback"), std::string::npos);
+        EXPECT_NE(std::string(operation.offline_policy).find("Offline fixtures"),
+                  std::string::npos);
+
+        for (const char *forbidden : {"doCommand", "Character.setPoints", "setDamageDetails",
+                 "raw pointer", "generic command"}) {
+            EXPECT_EQ(std::string(operation.helper_name).find(forbidden), std::string::npos)
+                << forbidden;
+        }
+    }
+
+    EXPECT_TRUE(operation_names.count("combat.attack") > 0);
+    EXPECT_TRUE(operation_names.count("combat.damage") > 0);
+    EXPECT_TRUE(operation_names.count("combat.kill") > 0);
+    EXPECT_TRUE(operation_names.count("combat.experience") > 0);
+}
+
 TEST(JsApiStructMapping, RawSetterGuardrailsReferenceNonCallableMappedFields) {
     EXPECT_GT(js_api_raw_setter_guardrail_count(), 30U);
 

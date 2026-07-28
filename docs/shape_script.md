@@ -547,6 +547,32 @@ BuilderClient offline fixtures, use builder-authored control flow and output
 helpers to block or narrate a path instead of removing characters from
 JavaScript.
 
+Combat and proc effect helpers remain preflight-only JavaScript designs. The
+documented modern mappings are `DO_HIT` to
+`RotS.Script.doHit(attacker, victim)`, direct damage/healing to
+`RotS.Script.applyDamage(victim, amount, options)`, `RAW_KILL` to
+`RotS.Script.rawKill(character)`, and `GAIN_EXP` to
+`RotS.Script.gainExperience(character, amount)`, but all stay absent from
+generated typings, fallback typings, live QuickJS handles, and offline fixtures
+until live/offline parity exists. `applyDamage` is intentionally not a direct
+port of unsafe legacy `SET_INT_VALUE ch.hit`; it should replace raw hit-point
+writes with an audited trigger-aware damage/healing path. `doHit` must preserve peace-room,
+same-room/visibility, self-target, charm/master protection, big-brother target,
+sanctuary, existing-fight, wait-state, and recursion policies before it can
+start or redirect combat. `applyDamage` must preserve victim and weapon
+`ON_DAMAGE` blocking order, recursive-damage guards, bounded hit-point deltas,
+death-threshold policy, damage-details accounting, source attribution, and
+healing caps. `rawKill` is destructive: it owns delay cleanup, fighting/riding
+cleanup, the terminal `SPECIAL_DEATH` hook, affect removal, death cries, corpse creation,
+big-brother records, player save/crash-save, ability restore, and stale-handle
+state, so any first promotion should be admin-grade or batch-isolated.
+`gainExperience` must remain player-only like legacy `SCRIPT_GAIN_EXP`, apply
+the legacy high-level scaling policy deliberately, audit reward/source context,
+and define level-up/down, practice/progression, output, persistence, and
+rollback behavior. Until those contracts exist, builders should use blocking
+trigger returns plus output helpers to narrate combat outcomes instead of
+mutating combat, death, or progression state directly.
+
 ### Greeter with gift
 
 ```
