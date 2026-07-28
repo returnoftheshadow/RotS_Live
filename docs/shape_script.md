@@ -533,6 +533,25 @@ fixtures must model hidden movement/combat state while keeping visible snapshots
 frozen. Until that parity exists, builders should use explicit teleport helpers
 or return branch outcomes instead of forcing characters to flee from JavaScript.
 
+Equipment helpers remain preflight-only JavaScript designs. The documented
+modern mappings are `DO_WEAR` to `RotS.Script.doWear(character, object, slot?)`,
+`DO_REMOVE` to `RotS.Script.doRemove(character, slotOrObject)`, and
+`EQUIP_CHAR` to `RotS.Script.equipChar(character, prototypes)`, but they stay
+absent from generated typings, fallback typings, live QuickJS handles, and
+offline fixtures until live/offline implementations can preserve direct
+carried-object ownership, equipped-slot membership, canonical wear-slot
+validation, race/body restrictions, anti-alignment and item race-flag zap
+restrictions, pet restrictions, belt prerequisites, shield/two-handed conflicts,
+`ON_WEAR` blocking before alternate finger/neck/wrist/belt slot fallback, forced
+remove of occupied slots, waist-belt cascade removal, inventory-full room drops,
+light counters, object affects, poison damage/death side effects, crash-save
+state, deterministic prototype loads, audit, branchable result codes, and
+rollback or no-partial behavior. The future `equipChar` helper should
+deliberately tighten legacy `EQUIP_CHAR` partial wear-all behavior into
+JavaScript V1 no-partial preflight/rollback semantics. Do not use
+`Character.setEquipmentSlot` or raw inventory setters; equipment mutation must
+go through audited helpers once promoted.
+
 `EXTRACT_CHAR` remains a preflight-only JavaScript design. The legacy command
 extracts only NPC targets and then clears the legacy character variable; player
 characters are ignored by that script branch, while the underlying

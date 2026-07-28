@@ -720,13 +720,17 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         EXPECT_EQ(character_block.find(std::string(setter_name) + "("), std::string::npos)
             << setter_name;
     }
+    const std::string script_block = declaration_block(declarations, "namespace Script");
+    ASSERT_FALSE(script_block.empty());
     for (const char *helper_name : {"loadMob", "extractChar",
              "doFollow", "doFlee", "flee", "load_mob",
              "extract_char", "do_follow", "do_flee", "doHit", "do_hit",
              "applyDamage", "apply_damage", "rawKill", "raw_kill",
-             "gainExperience", "gain_experience", "teleportCharacter",
+             "gainExperience", "gain_experience", "doWear", "do_wear",
+             "doRemove", "do_remove", "equipChar", "equip_char", "wear",
+             "remove", "equipCharacter", "teleportCharacter",
              "teleportCharacterOnly", "teleportCharacterToRoomHandle", "extractCharacter"}) {
-        EXPECT_EQ(declarations.find(std::string(helper_name) + "("), std::string::npos)
+        EXPECT_EQ(script_block.find(std::string(helper_name) + "("), std::string::npos)
             << helper_name;
     }
     EXPECT_NE(declarations.find("teleportChar(character: Character, room: Room)"),
