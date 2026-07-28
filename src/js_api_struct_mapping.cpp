@@ -1219,14 +1219,15 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "request id.",
      "Stable categories include invalid-target, not-authorized, not-in-room, not-eligible, no-exit, "
      "no-flee, blocked-exit, too-exhausted, stale-character, stale-room, trigger-blocked, "
-     "audit-rejected, and apply-rejected.",
+     "audit-rejected, and apply-rejected. V1 must return branchable MutationResult codes instead "
+     "of calling the generic flee command path from builder scripts.",
      "Rollback restores room membership, movement points, riding/follower propagation, combat "
      "bookkeeping, AFF_HUNT, stay-zone drops, XP loss, and descriptor output if a later helper in "
      "the same batch fails before descriptor output commits.",
-     "Offline fixtures must model room exits, EX_NOFLEE/EX_NOWALK/death-room filtering, "
-     "MOB_STAY_ZONE/MOB_STAY_TYPE, position/tactics eligibility, deterministic exit selection, "
-     "AFF_HAZE policy, duplicate command/pre-enter check policy, follower/mount behavior, combat "
-     "cleanup, accepted hidden movement state, and frozen snapshots.",
+     "Offline fixtures must model an ordered eligible-exit catalog, EX_NOFLEE/EX_NOWALK/death-room "
+     "filtering, MOB_STAY_ZONE/MOB_STAY_TYPE, position/tactics eligibility, deterministic exit "
+     "selection, AFF_HAZE policy, duplicate command/pre-enter check policy, follower/mount "
+     "behavior, combat cleanup, accepted hidden movement state, and frozen snapshots.",
      "Cover berserk and non-standing eligibility, no-exit rooms, all exits blocked by no-flee/no-walk "
      "or death rooms, NPC stay-zone/stay-type rejection, stale handles, deterministic exit choice "
      "replacing legacy randomness, haze redirection suppression or modeling, duplicate "

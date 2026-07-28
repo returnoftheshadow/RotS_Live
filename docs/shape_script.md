@@ -539,16 +539,20 @@ exits before movement. The legacy path also inherits `AFF_HAZE` direction
 redirection inside `do_move`, and it can run command/before-enter checks once in
 `do_flee` and again in `do_move` before the final entry triggers. A future
 `RotS.Script.doFlee(character)` helper should replace legacy random attempts
-with deterministic eligible-exit selection, explicitly suppress or model haze
-redirection, define whether duplicate command/before-enter checks are collapsed
-or preserved, audit the selected source/destination rooms plus combat and
-follower/mount policy, return branchable results such as `not-eligible`,
-`no-exit`, `no-flee`, `blocked-exit`, and `too-exhausted`, and roll back combat,
-room membership, movement points, follower/mount propagation, XP loss,
-`AFF_HUNT`, and descriptor output if the batch fails. BuilderClient offline
-fixtures must model hidden movement/combat state while keeping visible snapshots
-frozen. Until that parity exists, builders should use explicit teleport helpers
-or return branch outcomes instead of forcing characters to flee from JavaScript.
+with deterministic eligible-exit selection from a fixture-modeled ordered exit
+catalog, explicitly suppress or model haze redirection, define whether duplicate
+command/before-enter checks are collapsed or preserved, audit the selected
+source/destination rooms plus combat and follower/mount policy, return
+branchable results such as `invalid-target`, `not-authorized`, `not-in-room`,
+`not-eligible`, `no-exit`, `no-flee`, `blocked-exit`, `too-exhausted`,
+`stale-character`, `stale-room`, `trigger-blocked`, and `audit-rejected`, and
+roll back combat, room membership, movement points, follower/mount propagation,
+XP loss, `AFF_HUNT`, and descriptor output if the batch fails. BuilderClient
+offline fixtures must model hidden movement/combat state while keeping visible
+snapshots frozen, and the future helper must not call the generic player `flee`
+command path from builder scripts. Until that parity exists, builders should use
+explicit teleport helpers or return branch outcomes instead of forcing
+characters to flee from JavaScript.
 
 Equipment helpers remain preflight-only JavaScript designs. The documented
 modern mappings are `DO_WEAR` to `RotS.Script.doWear(character, object, slot?)`,

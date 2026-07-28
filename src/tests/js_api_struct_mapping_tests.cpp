@@ -914,7 +914,7 @@ TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog)
          "looped graph rejection without altering the leader's master"},
         {"character.flee", "RotS.Script.doFlee(character: Character): MutationResult", "DO_FLEE",
          "without exposing generic command", "tries up to six random directions", "not-eligible",
-         "AFF_HAZE policy", "duplicate command/pre-enter check"},
+         "ordered eligible-exit catalog", "duplicate command/pre-enter check"},
     };
 
     std::set<std::string> operation_names;
@@ -952,6 +952,38 @@ TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog)
         EXPECT_NE(std::string(operation.rollback_policy).find("Rollback"), std::string::npos);
         EXPECT_NE(std::string(operation.offline_policy).find("Offline fixtures"),
                   std::string::npos);
+
+        if (operation.operation_name == std::string("character.flee")) {
+            EXPECT_NE(std::string(operation.authority_policy).find("EX_NOFLEE"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("EX_NOWALK"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("MOB_STAY_ZONE"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("MOB_STAY_TYPE"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.audit_policy).find("source room"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.audit_policy).find("destination room"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.side_effect_policy).find("AFF_HAZE"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.side_effect_policy).find("followers/mounts"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.diagnostic_policy).find("MutationResult codes"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.diagnostic_policy).find("generic flee command"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.rollback_policy).find("AFF_HUNT"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.rollback_policy).find("XP loss"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.offline_policy).find("ordered eligible-exit catalog"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.test_focus).find("death rooms"), std::string::npos);
+            EXPECT_NE(std::string(operation.test_focus).find("NPC stay-zone/stay-type"),
+                      std::string::npos);
+        }
 
         for (const char *forbidden : {"setRoom", "setFollowers", "setMaster", "setMount",
                  "setGroup", "raw pointer", "descriptor"}) {
