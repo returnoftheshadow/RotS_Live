@@ -482,6 +482,20 @@ intentionally unavailable because they would bypass movement triggers, room
 people lists, follow/master links, mount propagation, combat cleanup, and
 account/admin audit.
 
+`LOAD_MOB` remains a preflight-only JavaScript design. The legacy command loads a
+mobile prototype into a temporary character variable without placing it; scripts
+then combine that pointer with teleport or room/object commands. A future
+`RotS.Script.loadMob(vnum, room)` helper should use an explicit room argument
+instead, reject unknown or unauthorized mobile prototypes through a server-owned
+prototype catalog, audit the target room and package context, initialize mobile
+procedure and Mudlle state through the normal server loader, update room
+membership and mobile live counts atomically, and avoid returning a mutable live
+character handle until handle lifetime tokens exist. BuilderClient offline
+fixtures must model hidden `mobilePrototypes`, deterministic generated mobile
+ids, room membership, load limits, and `not-found` branches without mutating the
+visible `ctx` snapshot. Until that parity exists, builders should not spawn
+characters from JavaScript.
+
 `EXTRACT_CHAR` remains a preflight-only JavaScript design. The legacy command
 extracts only NPC targets and then clears the legacy character variable; player
 characters are ignored by that script branch, while the underlying

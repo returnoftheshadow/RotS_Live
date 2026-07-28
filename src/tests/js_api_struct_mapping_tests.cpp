@@ -808,8 +808,8 @@ TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog)
     const ExpectedOperation expected[] = {
         {"character.load_mob",
          "RotS.Script.loadMob(vnum: number, room: Room): MutationResult", "LOAD_MOB",
-         "server-owned prototype vnum", "Allocates one NPC", "not-found",
-         "hidden mobilePrototypes catalog", "no returned mutable handle"},
+         "mutable temporary character variable", "Mudlle/mobile-procedure call stacks", "not-found",
+         "hidden mobilePrototypes catalog", "deterministic generated ids"},
         {"character.teleport",
          "RotS.Script.teleportChar(character: Character, room: Room): MutationResult",
          "TELEPORT_CHAR", "Raw room vnums", "room people lists", "trigger-blocked",

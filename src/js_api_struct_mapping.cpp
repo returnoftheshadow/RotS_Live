@@ -992,13 +992,18 @@ static_assert(PERMAFFECT != 0, "PERMAFFECT must stay an explicit room flag helpe
 constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperations[] = {
     {"character.load_mob", "RotS.Script.loadMob(vnum: number, room: Room): MutationResult",
      "LOAD_MOB",
-     "Creates a new mobile from a server-owned prototype vnum and places it only into a loaded "
-     "authorized room handle. The helper must not return a mutable local character variable until "
+     "Preflight policy for creating a new mobile from a server-owned prototype vnum and placing it "
+     "only into a loaded authorized room handle. Unlike legacy LOAD_MOB, the JavaScript helper must "
+     "not expose a mutable temporary character variable or return a live character handle until "
      "local live-character handles have a separate lifetime-token design.",
-     "Requires target-scoped zone authority for the room, mobile prototype visibility in that zone "
-     "or an explicit admin override, per-script load limits, and a fresh dispatch authority token.",
-     "Allocates one NPC, inserts it into the room people list, initializes mobile runtime state, and "
-     "may affect room scripts, tracking, followers, combat targeting, and reset balance once callable.",
+     "Requires target-scoped zone authority for the room, mobile prototype visibility through a "
+     "server-owned catalog or an explicit admin override, per-script load limits, and a fresh "
+     "dispatch authority token.",
+     "Allocates one NPC, inserts it into the global character list and target room people list, "
+     "initializes mobile runtime state, Mudlle/mobile-procedure call stacks, fast-mob affects, and "
+     "mob-index live counts, and may affect tracking, followers, and combat targeting once "
+     "callable; any zone reset-line accounting policy must be explicit rather than inherited from "
+     "legacy script LOAD_MOB.",
      "Audit before allocation with operation, mobile vnum, target room vnum, target zone, builder "
      "account id, eligible immortal character id, package id, request id, authority class, and "
      "prototype decision evidence.",
@@ -1009,10 +1014,11 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "Rollback must either link the new mobile completely or extract the allocated mobile if any "
      "later helper in the same batch fails before descriptor output commits.",
      "Offline fixtures must model a hidden mobilePrototypes catalog, deterministic temporary mobile "
-     "ids, room character membership, per-run load limits, not-found branches, and no visible ctx "
-     "snapshot mutation.",
+     "ids, room character membership, per-run load limits, not-found branches, fixture-only "
+     "prototype visibility, and no visible ctx snapshot mutation.",
      "Cover missing prototype, wrong-zone room, stale room, load limit, audit rejection, later batch "
-     "rollback, no returned mutable handle, and absence of raw character list writes."},
+     "rollback, deterministic generated ids, no returned mutable handle, and absence of raw "
+     "character list writes."},
     {"character.teleport", "RotS.Script.teleportChar(character: Character, room: Room): MutationResult",
      "TELEPORT_CHAR",
      "Moves a live character handle to a loaded room handle and carries eligible NPC followers or "
