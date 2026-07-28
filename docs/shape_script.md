@@ -516,14 +516,20 @@ characters from JavaScript.
 `DO_FOLLOW` remains a preflight-only JavaScript design. The legacy command makes
 one character follow another, but if the requested relationship would create a
 follow loop it first stops the would-be leader from following their own master
-and then adds the new follower. A future `RotS.Script.doFollow(follower, leader)`
-helper should reject self-follow and looped graphs instead of silently rewriting
-the leader's relationship, audit both live character handles, model follower
-caps and protected charm/tame/recruit/pet state, preserve reciprocal
-`master`/`followers` links, and define whether follow/stop-follow messages are
-emitted or suppressed. BuilderClient offline fixtures must model hidden
-relationship state for previous-master replacement, loop rejection, stale
-handles, follower caps, and rollback while leaving visible relationship snapshots
+and then adds the new follower. The lower-level `add_follower` path also stops
+the follower's previous master before linking the new leader, which can clear
+hunting memory for the previous master, charm/tame/recruit/pet state, and
+pet/group membership relationships through `stop_follower`. A future
+`RotS.Script.doFollow(follower, leader)` helper should reject self-follow,
+already-following, and looped graphs instead of silently rewriting the leader's
+relationship, audit both live character handles, model follower caps and
+protected charm/tame/recruit/pet state, preserve reciprocal `master`/`followers`
+links, explicitly choose the follow/stop-follow message policy, and roll back
+previous-master replacement plus hunting-memory and pet/group cleanup before any
+output commits. BuilderClient offline fixtures must model hidden relationship
+state for previous-master replacement, loop rejection without altering the
+leader's master, stale handles, follower caps, protected followers, accepted
+relationship updates, and rollback while leaving visible relationship snapshots
 frozen. Until that parity exists, builders should use explicit teleport helpers
 or script-visible branch outcomes instead of rewriting follow links directly.
 

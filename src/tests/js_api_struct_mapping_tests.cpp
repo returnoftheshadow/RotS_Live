@@ -953,6 +953,32 @@ TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog)
         EXPECT_NE(std::string(operation.offline_policy).find("Offline fixtures"),
                   std::string::npos);
 
+        if (operation.operation_name == std::string("character.follow")) {
+            EXPECT_NE(std::string(operation.authority_policy).find("already-following"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("previous-master"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.side_effect_policy).find("hunting memory"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.side_effect_policy).find("pet/group"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.side_effect_policy).find("follow/stop-follow messages"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.audit_policy).find("leader current master"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.diagnostic_policy).find("already-following"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.rollback_policy).find("leader's master untouched"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.offline_policy).find("accepted hidden relationship state"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.rollback_policy).find("hunting memory policy"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.test_focus).find(
+                          "hunting-memory and pet/group cleanup/restoration"),
+                      std::string::npos);
+        }
+
         if (operation.operation_name == std::string("character.flee")) {
             EXPECT_NE(std::string(operation.authority_policy).find("EX_NOFLEE"),
                       std::string::npos);

@@ -1185,26 +1185,34 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "unavailable, and JavaScript must not inherit legacy DO_FOLLOW's surprising loop branch that "
      "stops the would-be leader's own master before adding the new follower.",
      "Requires authority over the follower, live target tokens for both characters, explicit "
-     "self-follow and loop rejection, follower-cap policy, charm/tame/recruit/pet ownership policy "
-     "when NPCs are involved, and same-room/message policy before audit.",
+     "self-follow, already-following, and loop rejection without mutating either relationship, "
+     "follower-cap policy, charm/tame/recruit/pet ownership policy when NPCs are involved, "
+     "previous-master replacement policy, and same-room/message policy before audit.",
      "Updates follower.master and leader.followers reciprocally, may break the follower's previous "
-     "follow link, may clear charm/tame/recruit/pet/group state through stop_follower semantics, "
-     "emits follow/stop-follow messages unless V1 deliberately suppresses them, and can affect "
-     "mount, movement propagation, combat XP sharing, and room movement.",
+     "follow link only through explicit stop_follower-compatible semantics, may clear "
+     "hunting memory for the previous master, charm/tame/recruit/pet state, and pet/group "
+     "membership relationships, emits follow/stop-follow messages unless V1 deliberately "
+     "suppresses or defers them, and can affect mount, movement propagation, combat XP sharing, "
+     "and room movement.",
      "Audit before relationship mutation with operation, follower identity class, leader identity "
-     "class, previous master, follower count, builder account id, eligible immortal character id, "
-     "package id, request id, and authority evidence.",
-     "Stable categories include invalid-target, not-authorized, self-follow, follow-loop, "
+     "class, previous master, leader current master, follower count, protected-state source, "
+     "builder account id, eligible immortal character id, package id, request id, and authority "
+     "evidence.",
+     "Stable categories include invalid-target, not-authorized, already-following, self-follow, "
+     "follow-loop, "
      "follower-cap, protected-follower, stale-character, audit-rejected, and apply-rejected.",
      "Rollback restores the previous master/follower-list links in reverse order before output "
-     "commits if a later helper fails, including any follower-side stop_follower cleanup that V1 "
-     "chooses to allow.",
+     "commits if a later helper fails, including follower-side stop_follower cleanup, hunting "
+     "memory policy, pet/group membership restoration, and any message suppression/deferment state "
+     "that V1 chooses to allow; loop rejection must leave the would-be leader's master untouched "
+     "instead of reproducing legacy SCRIPT_DO_FOLLOW cleanup.",
      "Offline fixtures must model master/follower reciprocal links, loop rejection, follower caps, "
-     "previous-master replacement, protected charm/tame/recruit branches, accepted hidden "
-     "relationship state, and frozen visible snapshots.",
+     "previous-master replacement, protected charm/tame/recruit/pet branches, already-following "
+     "branches, accepted hidden relationship state, and frozen visible snapshots.",
      "Cover valid follow, replacing the follower's existing master, self-follow, looped graph "
      "rejection without altering the leader's master, stale leader/follower, cap rejection, "
-     "movement propagation expectations, message/audit ordering, and rollback."},
+     "protected follower rejection, hunting-memory and pet/group cleanup/restoration, movement "
+     "propagation expectations, message/audit ordering, and rollback."},
     {"character.flee", "RotS.Script.doFlee(character: Character): MutationResult", "DO_FLEE",
      "Preflight policy for a bounded flee action on one live character handle without exposing "
      "generic command execution or arbitrary builder-selected directions.",
