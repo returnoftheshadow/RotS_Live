@@ -782,7 +782,7 @@ TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) 
     EXPECT_NE(plan_text.find("atomic mixed batches"), std::string::npos);
 }
 
-TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineNonCallableInternalCatalog) {
+TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog) {
     ASSERT_EQ(js_api_character_movement_helper_operation_count(), 7U);
 
     const JsApiDeferredHelperPlan *plan =
@@ -824,8 +824,9 @@ TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineNonCallableInter
          "TELEPORT_CHAR_XL", "current room of another live character", "destination resolution",
          "target-not-in-room", "target-room resolution", "target moved by an earlier"},
         {"character.extract", "RotS.Script.extractChar(character: Character): MutationResult",
-         "EXTRACT_CHAR", "Player characters", "follower/master", "protected-character",
-         "mark extracted NPC handles stale", "player rejection"},
+         "EXTRACT_CHAR", "authorized NPC/helper character", "carried and worn objects",
+         "protected-character", "remove them from hidden room membership",
+         "player/account-backed rejection"},
         {"character.follow",
          "RotS.Script.doFollow(follower: Character, leader: Character): MutationResult",
          "DO_FOLLOW", "existing reciprocal follow", "leader.followers", "follow-loop",
