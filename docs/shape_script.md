@@ -552,6 +552,30 @@ JavaScript V1 no-partial preflight/rollback semantics. Do not use
 `Character.setEquipmentSlot` or raw inventory setters; equipment mutation must
 go through audited helpers once promoted.
 
+Room and exit mutation helpers remain preflight-only JavaScript designs. The
+documented modern mappings are `SET_EXIT_STATE` to
+`RotS.Script.setExitState(room, direction, state)` and `CHANGE_EXIT_TO` to
+`RotS.Script.changeExitTo(room, direction, destination)`, but they stay absent
+from generated typings, fallback typings, live QuickJS handles, and offline
+fixtures until live/offline implementations can preserve canonical direction
+validation, open/closed/locked state validation, existing-exit checks,
+`EX_ISDOOR`, `EX_ISBROKEN`, `NOWHERE` destination handling, conditional
+reverse-exit mirroring, source-only versus reciprocal destination policy,
+destination-zone authority, reset-command impact checks, room-message
+reachability, audit, branchable result codes, and rollback or no-partial
+behavior. JavaScript V1 should deliberately tighten legacy exit behavior:
+`SET_EXIT_STATE` should accept north/direction 0 even though the legacy script
+branch skips falsey direction 0, reject invalid states instead of defaulting them
+to open, and still preserve the legacy door-state side effects where valid.
+Legacy `SET_EXIT_STATE` changes only `EX_CLOSED` and `EX_LOCKED` while
+preserving other exit flags, clears broken-door state with output, and mirrors
+only a reciprocal reverse exit. Future `changeExitTo` should reject invalid
+directions and missing source exits instead of preserving the legacy
+chained-comparison and unchecked `dir_option` dereference hazards. Legacy
+`CHANGE_EXIT_TO` changes only the source exit destination and does not create or
+repair reverse links. Do not use `Room.setExit` or raw exit arrays; exit
+mutation must go through audited helpers once promoted.
+
 `EXTRACT_CHAR` remains a preflight-only JavaScript design. The legacy command
 extracts only NPC targets and then clears the legacy character variable; player
 characters are ignored by that script branch, while the underlying

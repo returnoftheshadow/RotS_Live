@@ -728,7 +728,9 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
              "applyDamage", "apply_damage", "rawKill", "raw_kill",
              "gainExperience", "gain_experience", "doWear", "do_wear",
              "doRemove", "do_remove", "equipChar", "equip_char", "wear",
-             "remove", "equipCharacter", "teleportCharacter",
+             "remove", "equipCharacter", "setExitState", "set_exit_state",
+             "changeExitTo", "change_exit_to", "setExit", "changeExit",
+             "teleportCharacter",
              "teleportCharacterOnly", "teleportCharacterToRoomHandle", "extractCharacter"}) {
         EXPECT_EQ(script_block.find(std::string(helper_name) + "("), std::string::npos)
             << helper_name;

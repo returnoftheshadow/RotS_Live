@@ -782,6 +782,86 @@ TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) 
     EXPECT_NE(plan_text.find("atomic mixed batches"), std::string::npos);
 }
 
+TEST(JsApiStructMapping, RoomExitHelperOperationsDefineInternalCatalog) {
+    ASSERT_EQ(js_api_room_exit_helper_operation_count(), 2U);
+
+    const JsApiDeferredHelperPlan *plan = find_deferred_helper_plan("room-exits");
+    ASSERT_NE(plan, nullptr);
+    const std::string plan_text = std::string(plan->helper_shape) + " " + plan->authority_policy +
+                                  " " + plan->offline_parity + " " + plan->test_focus;
+    EXPECT_NE(plan_text.find("destination-zone policy"), std::string::npos);
+    EXPECT_NE(plan_text.find("bidirectional-link diagnostics"), std::string::npos);
+    EXPECT_NE(plan_text.find("reset-command conflicts"), std::string::npos);
+
+    struct ExpectedOperation {
+        const char *operation_name;
+        const char *helper_name;
+        const char *legacy_commands;
+        const char *target_text;
+        const char *side_effect_text;
+        const char *diagnostic_text;
+        const char *offline_text;
+        const char *test_text;
+    };
+
+    const ExpectedOperation expected[] = {
+        {"room.exit.state",
+         "RotS.Script.setExitState(room: Room, direction: DirectionName, state: "
+         "ExitStateName): MutationResult",
+         "SET_EXIT_STATE", "raw dir_option pointers", "preserves all exit_info bits",
+         "not-door", "accepted hidden exit state", "non-reciprocal reverse non-mirroring"},
+        {"room.exit.destination",
+         "RotS.Script.changeExitTo(room: Room, direction: DirectionName, destination: Room): "
+         "MutationResult",
+         "CHANGE_EXIT_TO", "direct room_data.dir_option writes", "does not update a reverse exit",
+         "bidirectional-conflict", "one-way versus reciprocal-link decisions",
+         "valid one-way destination change"},
+    };
+
+    std::set<std::string> operation_names;
+    std::set<std::string> helper_names;
+    for (std::size_t index = 0; index < js_api_room_exit_helper_operation_count(); ++index) {
+        const JsApiRoomExitHelperOperation &operation = js_api_room_exit_helper_operations()[index];
+        const ExpectedOperation &expected_operation = expected[index];
+        SCOPED_TRACE(operation.operation_name);
+
+        EXPECT_TRUE(operation_names.insert(operation.operation_name).second);
+        EXPECT_TRUE(helper_names.insert(operation.helper_name).second);
+        EXPECT_STREQ(operation.operation_name, expected_operation.operation_name);
+        EXPECT_STREQ(operation.helper_name, expected_operation.helper_name);
+        EXPECT_STREQ(operation.legacy_commands, expected_operation.legacy_commands);
+        EXPECT_NE(std::string(operation.target_policy).find(expected_operation.target_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.side_effect_policy).find(expected_operation.side_effect_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.diagnostic_policy).find(expected_operation.diagnostic_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.offline_policy).find(expected_operation.offline_text),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.test_focus).find(expected_operation.test_text),
+                  std::string::npos);
+
+        EXPECT_NE(std::string(operation.authority_policy).find("authority"), std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("Audit"), std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("builder account id"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("eligible immortal"),
+                  std::string::npos);
+        EXPECT_NE(std::string(operation.audit_policy).find("package id"), std::string::npos);
+        EXPECT_NE(std::string(operation.rollback_policy).find("Rollback"), std::string::npos);
+        EXPECT_NE(std::string(operation.offline_policy).find("Offline fixtures"),
+                  std::string::npos);
+
+        for (const char *forbidden : {"setExit(", "raw pointer", "descriptor"}) {
+            EXPECT_EQ(std::string(operation.helper_name).find(forbidden), std::string::npos)
+                << forbidden;
+        }
+    }
+
+    EXPECT_TRUE(operation_names.count("room.exit.state") > 0);
+    EXPECT_TRUE(operation_names.count("room.exit.destination") > 0);
+}
+
 TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog) {
     ASSERT_EQ(js_api_character_movement_helper_operation_count(), 7U);
 

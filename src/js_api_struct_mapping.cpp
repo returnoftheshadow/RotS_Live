@@ -989,6 +989,71 @@ constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
 static_assert(BFS_MARK != 0, "BFS_MARK must stay an explicit room flag helper exclusion.");
 static_assert(PERMAFFECT != 0, "PERMAFFECT must stay an explicit room flag helper exclusion.");
 
+constexpr JsApiRoomExitHelperOperation RoomExitHelperOperations[] = {
+    {"room.exit.state",
+     "RotS.Script.setExitState(room: Room, direction: DirectionName, state: ExitStateName): "
+     "MutationResult",
+     "SET_EXIT_STATE",
+     "Preflight policy for changing one loaded room exit's door state among open, closed, and "
+     "locked without exposing raw dir_option pointers or numeric exit bitvectors.",
+     "Requires target-scoped room/zone authority, canonical direction validation, an existing exit "
+     "with a destination room, door-only validation matching EX_ISDOOR, state validation limited "
+     "to open/closed/locked, reciprocal reverse-exit policy, reset-command impact review, and "
+     "audit before mutation. JavaScript V1 deliberately fixes the legacy truthy-direction bug so "
+     "north/direction 0 is valid, and rejects invalid states instead of preserving legacy "
+     "default-to-open behavior.",
+     "Legacy set_exit_state preserves all exit_info bits except EX_CLOSED and EX_LOCKED, maps "
+     "state 0 to open, 1 to closed, 2 to closed+locked, clears EX_ISBROKEN while emitting a blur "
+     "message, emits close/lock/unlock/open room messages through the first room occupant, and "
+     "SCRIPT_SET_EXIT_STATE mirrors only a reciprocal reverse exit whose to_room points back to "
+     "the source room.",
+     "Audit before door mutation with operation, source room, direction, previous state bits, "
+     "requested state, reverse-exit decision, reset-command evidence, builder account id, eligible "
+     "immortal character id, package id, and request id.",
+     "Stable categories include invalid-target, not-authorized, invalid-direction, missing-exit, "
+     "nowhere-exit, not-door, invalid-state, stale-room, stale-destination, reset-conflict, "
+     "audit-rejected, and apply-rejected.",
+     "Rollback restores source and mirrored reverse exit_info values plus any EX_ISBROKEN bit "
+     "cleared by apply, and discards queued room messages if a later helper fails before descriptor "
+     "output commits.",
+     "Offline fixtures must model canonical directions, open/closed/locked state names, existing "
+     "exit records, EX_ISDOOR/EX_ISBROKEN, reciprocal reverse-exit mirroring, room-message "
+     "reachability, reset-conflict diagnostics, accepted hidden exit state, and frozen snapshots.",
+     "Cover valid open/close/lock, non-door rejection, NOWHERE and missing exits, broken-door clear "
+     "with rollback, reciprocal reverse mirroring, non-reciprocal reverse non-mirroring, reset "
+     "conflict, stale rooms, audit rejection, and absence of raw Room.setExit."},
+    {"room.exit.destination",
+     "RotS.Script.changeExitTo(room: Room, direction: DirectionName, destination: Room): "
+     "MutationResult",
+     "CHANGE_EXIT_TO",
+     "Preflight policy for changing one loaded room exit destination to another loaded room handle "
+     "without accepting raw room vnums or exposing direct room_data.dir_option writes.",
+     "Requires source-room authority, destination-zone authority, canonical direction validation, "
+     "existing source exit validation, destination liveness, bidirectional-link policy, "
+     "reset-command impact review, topology/audit authority, and no raw integer room lookup from "
+     "builder code. JavaScript V1 deliberately rejects invalid directions and missing source exits "
+     "instead of preserving legacy chained-comparison and unchecked dir_option dereference hazards.",
+     "Legacy SCRIPT_CHANGE_EXIT_TO resolves the destination vnum with real_room() and assigns only "
+     "source.dir_option[direction].to_room; it does not create missing exits, does not update a "
+     "reverse exit, does not validate reset command consistency, and does not emit messages. "
+     "JavaScript V1 should explicitly choose whether to preserve one-way behavior or require an "
+     "optional reciprocal-link helper instead of silently rewriting both rooms.",
+     "Audit before topology mutation with operation, source room, direction, previous destination, "
+     "new destination, bidirectional-link decision, reset-command evidence, builder account id, "
+     "eligible immortal character id, package id, and request id.",
+     "Stable categories include invalid-target, not-authorized, invalid-direction, missing-exit, "
+     "invalid-destination, stale-room, stale-destination, wrong-zone, reset-conflict, "
+     "bidirectional-conflict, audit-rejected, and apply-rejected.",
+     "Rollback restores the previous destination and any explicitly chosen reciprocal-link edits if "
+     "a later helper fails before descriptor output commits.",
+     "Offline fixtures must model source exits, destination rooms, NOWHERE/null destinations, "
+     "one-way versus reciprocal-link decisions, reset-conflict diagnostics, accepted hidden exit "
+     "destination state, and frozen read-only Room.exits snapshots.",
+     "Cover valid one-way destination change, missing source exit, stale destination, wrong-zone "
+     "destination, reciprocal-link conflict, reset-command conflict, rollback, and absence of raw "
+     "Room.setExit."},
+};
+
 constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperations[] = {
     {"character.load_mob", "RotS.Script.loadMob(vnum: number, room: Room): MutationResult",
      "LOAD_MOB",
@@ -1526,6 +1591,16 @@ const JsApiRoomFlagHelperOperation *js_api_room_flag_helper_operations()
 std::size_t js_api_room_flag_helper_operation_count()
 {
     return sizeof(RoomFlagHelperOperations) / sizeof(RoomFlagHelperOperations[0]);
+}
+
+const JsApiRoomExitHelperOperation *js_api_room_exit_helper_operations()
+{
+    return RoomExitHelperOperations;
+}
+
+std::size_t js_api_room_exit_helper_operation_count()
+{
+    return sizeof(RoomExitHelperOperations) / sizeof(RoomExitHelperOperations[0]);
 }
 
 const JsApiCharacterMovementHelperOperation *js_api_character_movement_helper_operations()

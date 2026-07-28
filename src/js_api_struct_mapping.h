@@ -72,6 +72,20 @@ struct JsApiRoomFlagHelperOperation {
     const char *test_focus;
 };
 
+struct JsApiRoomExitHelperOperation {
+    const char *operation_name;
+    const char *helper_name;
+    const char *legacy_commands;
+    const char *target_policy;
+    const char *authority_policy;
+    const char *side_effect_policy;
+    const char *audit_policy;
+    const char *diagnostic_policy;
+    const char *rollback_policy;
+    const char *offline_policy;
+    const char *test_focus;
+};
+
 struct JsApiCharacterMovementHelperOperation {
     const char *operation_name;
     const char *helper_name;
@@ -128,6 +142,8 @@ const JsApiHelperMutationGateRequirement *js_api_helper_mutation_gate_requiremen
 std::size_t js_api_helper_mutation_gate_requirement_count();
 const JsApiRoomFlagHelperOperation *js_api_room_flag_helper_operations();
 std::size_t js_api_room_flag_helper_operation_count();
+const JsApiRoomExitHelperOperation *js_api_room_exit_helper_operations();
+std::size_t js_api_room_exit_helper_operation_count();
 const JsApiCharacterMovementHelperOperation *js_api_character_movement_helper_operations();
 std::size_t js_api_character_movement_helper_operation_count();
 const JsApiCombatEffectHelperOperation *js_api_combat_effect_helper_operations();
