@@ -541,11 +541,15 @@ TEST(JsApiStructMapping, RewardCustodyHelperPlanUsesModernTypedHelpers) {
              "container capacity/counting",
              "nested weight propagation",
              "room light-counter and crash-save side effects",
+             "recursive contents extraction",
+             "stale-handle marking after accepted extraction",
+             "room/container/carrier/equipment cleanup",
+             "object index count compensation",
              "ON_WEAR/receive trigger ordering",
              "default item-return branch policy", "received-item preservation until exchange acceptance",
              "not-found reward prototype result codes", "audit-before-mutation",
              "default item return", "typed inventory/equipment/room lookup",
-             "hidden lookup catalogs", "hidden accepted custody, exchange, clone, room, and container state",
+             "hidden lookup catalogs", "hidden accepted custody, exchange, clone, room, container, and extraction state",
              "default-return outcomes", "batch preflight",
              "multi-reward no-partial rollback",
              "LOAD_OBJ_X explicit-source clone rejection",
@@ -555,7 +559,11 @@ TEST(JsApiStructMapping, RewardCustodyHelperPlanUsesModernTypedHelpers) {
              "received-item preservation on failed exchange",
              "no-room-membership rejection",
              "container cycle/capacity failures",
+             "recursive extraction of contained objects",
+             "stale-handle branches after accepted direct-location extraction",
+             "object index count compensation",
              "room light counter rollback",
+             "mixed extraction batch rejection unless staged rollback or compensation is implemented",
              "legacy temp object slots should become local TypeScript variables"}) {
         EXPECT_NE(plan_text.find(required), std::string::npos) << required;
     }

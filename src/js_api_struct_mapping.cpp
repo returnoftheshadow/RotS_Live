@@ -783,23 +783,28 @@ constexpr JsApiDeferredHelperPlan DeferredHelperPlans[] = {
      "ownership, rejected unknown vnums, absent and multiple-match result codes, nested-container "
      "cycle prevention, direct room custody authority, no-room-membership rejection before "
      "OBJ_FROM_ROOM-style removal, container capacity/counting, nested weight propagation, room "
-     "light-counter and crash-save side effects, ON_WEAR/receive trigger ordering, default "
-     "item-return branch policy, received-item preservation until exchange acceptance, not-found "
-     "reward prototype result codes, and batch capacity/weight preflight plus "
-     "audit-before-mutation ordering for multi-reward, room-stash, container, lookup-driven, "
-     "clone, or exchange-table flows before any input object is consumed.",
+     "light-counter and crash-save side effects, recursive contents extraction, stale-handle "
+     "marking after accepted extraction, room/container/carrier/equipment cleanup, object index "
+     "count compensation, ON_WEAR/receive trigger ordering, default item-return branch policy, "
+     "received-item preservation until exchange acceptance, not-found reward prototype result "
+     "codes, and batch capacity/weight preflight plus audit-before-mutation ordering for "
+     "multi-reward, destructive extraction, room-stash, container, lookup-driven, clone, or "
+     "exchange-table flows before any input object is consumed.",
      "Offline fixtures must model list membership, shallow snapshots, typed inventory/equipment/"
      "room lookup results, hidden lookup catalogs, hidden accepted custody, exchange, clone, room, "
-     "and container state, reward capacity and weight preflight, default-return outcomes, wear "
-     "slots, container capacity, and trigger side effects without recursive mutable handles.",
+     "container, and extraction state, reward capacity and weight preflight, default-return "
+     "outcomes, wear slots, container capacity, and trigger side effects without recursive mutable "
+     "handles.",
      "Cover reward handoff, default item return, multi-reward no-partial rollback, stale objects, "
      "LOAD_OBJ_X explicit-source clone rejection for stale or prototype-less objects, "
      "ASSIGN_INV direct versus recursive inventory lookup policy, ASSIGN_EQ slot bounds before "
      "equipment reads, ASSIGN_ROOM direct-content lookup, duplicate list membership, cycles, wrong "
      "owner, absent or multiple lookup matches, not-found reward prototypes, received-item "
      "preservation on failed exchange, no-room-membership rejection, nested container exclusions, "
-     "container cycle/capacity failures, room light counter rollback, weight/capacity limits, wear "
-     "restriction failures, trigger blocks, and atomic extraction rollback.",
+     "container cycle/capacity failures, recursive extraction of contained objects, stale-handle "
+     "branches after accepted direct-location extraction, object index count compensation, room "
+     "light counter rollback, weight/capacity limits, wear restriction failures, trigger blocks, "
+     "and mixed extraction batch rejection unless staged rollback or compensation is implemented.",
      "Groups the linked object surfaces that would corrupt live lists if exposed as field assignment; "
      "legacy temp object slots should become local TypeScript variables plus named helper results."},
     {"character-movement-relationships", 70, "Character movement and relationship helpers",

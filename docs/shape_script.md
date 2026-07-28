@@ -705,6 +705,20 @@ nested weight propagation, preserve room light counters and crash-save side
 effects, model hidden offline room/container state, and roll back no-partial
 custody batches. This future custody helper is separate from the existing
 callable `moveObject(object, room)` direct room-placement helper.
+`extractObject(object)` is callable, but builders should treat it as destructive
+cleanup rather than reversible movement. The JavaScript helper currently accepts
+direct room or directly carried object handles; contained object handles remain
+`invalid-target` until container custody helpers are designed. Once accepted,
+live extraction unlinks the object from its direct owner, recursively extracts
+any objects it contains, removes those objects from the global object list,
+compensates prototype object counts, and then frees the live objects. Offline
+fixtures therefore model accepted extraction as hidden per-run extracted-object
+state: later helpers against the extracted handle return `stale-handle` while
+visible snapshots remain frozen. Follow-up helper promotion must keep recursive
+contained-object stale parity, room/container/carrier/equipment cleanup, room
+light counters, crash-save policy, object index compensation, and mixed
+destructive batch rejection explicit unless a staged rollback design can prove
+no-partial compensation.
 
 ### Blocking entry by race
 
