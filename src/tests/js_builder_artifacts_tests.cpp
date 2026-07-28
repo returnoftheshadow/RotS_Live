@@ -897,6 +897,8 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsExposeTypedTargetContext) {
     expect_contains(block, "readonly targ1: Character | GameObject | Room | null;");
     expect_contains(block, "readonly targ2: Character | GameObject | Room | null;");
     expect_contains(block, "readonly targetTypes: readonly string[];");
+    expect_contains(block, "readonly randomRolls: readonly number[];");
+    expect_contains(block, "readonly warStatus: -1 | 0 | 1 | null;");
     expect_contains(block, "readonly dying: Character | null;");
 }
 

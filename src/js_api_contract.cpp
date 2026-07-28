@@ -732,6 +732,14 @@ constexpr JsApiMember ScriptContextMembers[] = {
         JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
         "Legacy Mudlle target type names in slot order. The array is always frozen, and unsupported "
         "target kinds are named without exposing raw union payloads." },
+    { "randomRolls", JsApiMemberKind::Property, "readonly number[]", "", false, false,
+        JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+        "Deterministic fixture-supplied random values for migrating legacy SET_INT_RANDOM branches; "
+        "live dispatchers leave this empty until a call site explicitly supplies roll data." },
+    { "warStatus", JsApiMemberKind::Property, "-1 | 0 | 1 | null", "", false, false,
+        JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
+        "Fixture-supplied fame-war status matching legacy SET_INT_WAR_STATUS: 1 means good leads, "
+        "-1 means evil leads, 0 means tied, and null means unavailable." },
     { "victim", JsApiMemberKind::Property, "Character | null", "", true, true, JsApiSideEffect::None,
         JsApiMemberStatus::PlannedReadOnly, "read-only",
         "Damage victim role snapshot for ON_DAMAGE triggers when the combat call site provides it." },

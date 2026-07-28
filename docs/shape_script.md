@@ -283,6 +283,10 @@ runtime:
 - [`1830-locked-lever-pull.ts`](../BuilderClient/examples/legacy-script/1830-locked-lever-pull.ts)
   covers `ON_PULL` allow/block returns, level gating, and pull-cancel
   explanation output.
+- [`1840-random-war-condition.ts`](../BuilderClient/examples/legacy-script/1840-random-war-condition.ts)
+  covers deterministic `ctx.randomRolls`, `ctx.warStatus`, and
+  `ctx.actor.specials2.conditions` fixture controls for migrated
+  `SET_INT_RANDOM`, `SET_INT_WAR_STATUS`, and condition-heavy branches.
 
 Builder-facing client docs are maintained with the client:
 

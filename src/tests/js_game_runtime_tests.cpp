@@ -3938,9 +3938,15 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull) {
         "  && ctx.targ2 === null\n"
         "  && Array.isArray(ctx.targetTypes)\n"
         "  && ctx.targetTypes.length === 0\n"
+        "  && Array.isArray(ctx.randomRolls)\n"
+        "  && ctx.randomRolls.length === 0\n"
+        "  && ctx.warStatus === null\n"
         "  && Object.isFrozen(ctx.targetTypes)\n"
+        "  && Object.isFrozen(ctx.randomRolls)\n"
         "  && Object.getPrototypeOf(ctx.targetTypes) === Array.prototype\n"
+        "  && Object.getPrototypeOf(ctx.randomRolls) === Array.prototype\n"
         "  && typeof ctx.targetTypes.constructor === 'undefined'\n"
+        "  && typeof ctx.randomRolls.constructor === 'undefined'\n"
         "  && ctx.dying === null;",
         context);
 
@@ -3949,10 +3955,41 @@ TEST(JsGameRuntime, ModelsMissingHandlesAsNull) {
     JsRuntimeEvalResult target_types_mutation_result =
         runtime.evaluate_trigger_body("ctx.targetTypes[0] = 'char'; return true;", context);
     EXPECT_EQ(target_types_mutation_result.status, JsRuntimeStatus::Error);
+    JsRuntimeEvalResult random_rolls_mutation_result =
+        runtime.evaluate_trigger_body("ctx.randomRolls[0] = 7; return true;", context);
+    EXPECT_EQ(random_rolls_mutation_result.status, JsRuntimeStatus::Error);
 
     JsRuntimeEvalResult dereference_result =
         runtime.evaluate_trigger_body("return ctx.self.name === 'Aldren';", context);
     EXPECT_EQ(dereference_result.status, JsRuntimeStatus::Error);
+}
+
+TEST(JsGameRuntime, ExposesDeterministicRandomAndWarStatusFixtureControls) {
+    JsGameTriggerContextFixture context = make_context();
+    context.random_rolls = {3, 17};
+    context.has_war_status = true;
+    context.war_status = -1;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result =
+        runtime.evaluate_trigger_body("return ctx.randomRolls[0] === 3\n"
+                                      "  && ctx.randomRolls[1] === 17\n"
+                                      "  && ctx.warStatus === -1\n"
+                                      "  && Object.isFrozen(ctx.randomRolls);",
+                                      context);
+
+    expect_ok_allows(result);
+}
+
+TEST(JsGameRuntime, InvalidWarStatusFixtureValueFallsBackToNull) {
+    JsGameTriggerContextFixture context = make_context();
+    context.has_war_status = true;
+    context.war_status = 2;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body("return ctx.warStatus === null;", context);
+
+    expect_ok_allows(result);
 }
 
 TEST(JsGameRuntime, ExposesWearSlotWhenPresent) {
@@ -4344,6 +4381,8 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
     EXPECT_NE(literal.find("\"targ1\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"targ2\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"targetTypes\":[]"), std::string::npos);
+    EXPECT_NE(literal.find("\"randomRolls\":[]"), std::string::npos);
+    EXPECT_NE(literal.find("\"warStatus\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"dying\":null"), std::string::npos);
     EXPECT_NE(literal.find("\"hostType\":\"object\""), std::string::npos);
     EXPECT_NE(literal.find("\"kind\":\"legacy\""), std::string::npos);
@@ -4359,6 +4398,8 @@ TEST(JsGameRuntime, BuildsStableContextLiteral) {
     EXPECT_EQ(count_occurrences(literal, "\"targ1\":"), 1);
     EXPECT_EQ(count_occurrences(literal, "\"targ2\":"), 1);
     EXPECT_EQ(count_occurrences(literal, "\"targetTypes\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"randomRolls\":"), 1);
+    EXPECT_EQ(count_occurrences(literal, "\"warStatus\":"), 1);
     EXPECT_EQ(count_occurrences(literal, "\"dying\":"), 1);
     EXPECT_EQ(literal.find("char_data"), std::string::npos);
     EXPECT_EQ(literal.find("obj_data"), std::string::npos);

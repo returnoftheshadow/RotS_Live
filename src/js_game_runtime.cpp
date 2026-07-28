@@ -2096,6 +2096,14 @@ std::string js_game_trigger_context_literal(const JsGameTriggerContextFixture& c
         << "\"targ1\":" << nullable_literal(context.has_targ1, target_literal(context.targ1)) << ","
         << "\"targ2\":" << nullable_literal(context.has_targ2, target_literal(context.targ2)) << ","
         << "\"targetTypes\":" << target_types_literal(context.target_types) << ","
+        << "\"randomRolls\":" << int_array_literal(context.random_rolls) << ","
+        << "\"warStatus\":";
+    if (context.has_war_status
+        && (context.war_status == -1 || context.war_status == 0 || context.war_status == 1))
+        out << context.war_status;
+    else
+        out << "null";
+    out << ","
         << "\"dying\":" << nullable_literal(context.has_dying, character_literal(context.dying))
         << ","
         << "\"hostType\":" << js_quote(context.trigger.host_type) << ","

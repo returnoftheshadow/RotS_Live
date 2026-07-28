@@ -492,6 +492,10 @@ struct JsGameTriggerContextFixture {
     JsGameTargetFixture targ2;
 
     std::vector<std::string> target_types;
+    std::vector<int> random_rolls;
+
+    bool has_war_status = false;
+    int war_status = 0;
 
     bool has_dying = false;
     JsGameCharacterFixture dying;
