@@ -1153,9 +1153,9 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "Preflight policy for extracting only an authorized NPC/helper character handle. Player "
      "characters and account-backed characters are not valid targets for builder scripts, matching "
      "legacy EXTRACT_CHAR's NPC-only branch while avoiding descriptor/account lifecycle paths.",
-     "Requires target authority, explicit NPC-only validation, source-room authority, no protected "
-     "special-procedure state, no player descriptor/account ownership, and fresh liveness "
-     "validation immediately before apply.",
+     "Requires target authority, explicit NPC-only validation, source-room authority with a "
+     "current room, no protected special-procedure state, no player descriptor/account ownership, "
+     "and fresh liveness validation immediately before apply.",
      "Removes the character from room, combat, follower/master, mount, and descriptor-adjacent "
      "runtime structures using the same stale-handle policy as live extraction; carried and worn "
      "objects become room contents or are rejected before promotion if that cannot be rolled back.",
@@ -1163,14 +1163,18 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "source room, target zone, builder account id, eligible immortal character id, package id, and "
      "request id.",
      "Stable categories include invalid-target, protected-character, not-authorized, "
-     "stale-character, in-combat-blocked, audit-rejected, and apply-rejected without exposing raw "
-     "player data or descriptor state.",
-     "Rollback is not assumed because extraction destroys a live character handle and mutates room "
-     "contents; V1 promotion must either reject mixed batches containing extractChar or prove "
-     "complete rollback before descriptor output commits.",
+     "stale-character, in-combat-blocked, mixed-batch-rejected, audit-rejected, and "
+     "apply-rejected without exposing raw player data or descriptor state.",
+     "Rollback is not assumed because extraction destroys a live character handle, moves carried "
+     "and worn objects to room contents only when the target has a current room, conditionally "
+     "decrements and clamps mob-index/load-line counts, and touches combat/wait/follower/riding "
+     "state; V1 promotion must reject no-current-room targets and mixed batches containing "
+     "extractChar unless a later staged-extraction design proves complete compensation before "
+     "descriptor output commits.",
      "Offline fixtures must mark extracted NPC handles stale for later helper calls, remove them "
-     "from hidden room membership, preserve visible snapshots, reject player extraction, and keep "
-     "failed extraction from mutating hidden state.",
+     "from hidden room membership, place carried and worn objects into hidden room contents, "
+     "preserve visible snapshots, reject player extraction, and keep failed extraction from "
+     "mutating hidden state.",
      "Cover NPC success, player/account-backed rejection, stale handle, combat-protected target, "
      "follower/master cleanup, carried/equipped object room placement, later stale-handle branch, "
      "and no partial extraction in mixed helper batches."},

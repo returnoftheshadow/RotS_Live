@@ -599,15 +599,19 @@ mutation must go through audited helpers once promoted.
 
 `EXTRACT_CHAR` remains a preflight-only JavaScript design. The legacy command
 extracts only NPC targets and then clears the legacy character variable; player
-characters are ignored by that script branch, while the underlying
+characters are not extracted but the legacy script variable is still cleared
+when it resolves to a player target, while the underlying
 `extract_char(...)` server function also owns descriptor, account menu, save,
 combat, riding, follower, equipment, carried-object, room-list, and mobile-index
 side effects. A future `RotS.Script.extractChar(character)` helper must reject
-player/account-backed targets, audit the NPC target and source room, mark
-extracted handles stale, model carried and worn object placement, and either
-reject mixed batches containing extraction or prove rollback before descriptor
-output commits. Until those branches are implemented in both live dispatch and
-BuilderClient offline fixtures, use builder-authored control flow and output
+player/account-backed targets and no-current-room NPC targets, audit the NPC
+target and source room, mark extracted handles stale, model carried and worn
+object placement into room contents only when a current room exists, model
+conditional clamped mob-index/load-line count changes, and reject mixed batches
+containing extraction unless a later staged-extraction design proves complete
+rollback before descriptor output commits. Until those branches are implemented
+in both live dispatch and BuilderClient offline fixtures, use builder-authored
+control flow and output
 helpers to block or narrate a path instead of removing characters from
 JavaScript.
 

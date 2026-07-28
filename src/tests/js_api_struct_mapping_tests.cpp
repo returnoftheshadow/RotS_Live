@@ -905,7 +905,7 @@ TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog)
          "target-not-in-room", "target-room resolution", "target moved by an earlier"},
         {"character.extract", "RotS.Script.extractChar(character: Character): MutationResult",
          "EXTRACT_CHAR", "authorized NPC/helper character", "carried and worn objects",
-         "protected-character", "remove them from hidden room membership",
+         "mixed-batch-rejected", "place carried and worn objects into hidden room contents",
          "player/account-backed rejection"},
         {"character.follow",
          "RotS.Script.doFollow(follower: Character, leader: Character): MutationResult",
@@ -982,6 +982,32 @@ TEST(JsApiStructMapping, CharacterMovementHelperOperationsDefineInternalCatalog)
                       std::string::npos);
             EXPECT_NE(std::string(operation.test_focus).find("death rooms"), std::string::npos);
             EXPECT_NE(std::string(operation.test_focus).find("NPC stay-zone/stay-type"),
+                      std::string::npos);
+        }
+
+        if (operation.operation_name == std::string("character.extract")) {
+            EXPECT_NE(std::string(operation.target_policy).find("Player characters"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("source-room authority"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.authority_policy).find("current room"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.side_effect_policy).find("descriptor-adjacent"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.side_effect_policy).find("carried and worn"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.diagnostic_policy).find("mixed-batch-rejected"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.rollback_policy).find("no-current-room"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.rollback_policy).find("conditionally"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.rollback_policy).find("clamps mob-index/load-line counts"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.rollback_policy).find("reject mixed batches"),
+                      std::string::npos);
+            EXPECT_NE(std::string(operation.offline_policy).find("stale"), std::string::npos);
+            EXPECT_NE(std::string(operation.offline_policy).find("hidden room contents"),
                       std::string::npos);
         }
 
