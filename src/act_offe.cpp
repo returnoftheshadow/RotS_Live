@@ -565,8 +565,21 @@ ACMD(do_bash)
         if (prob < 0)
             damage(ch, victim, 0, SKILL_BASH, 0);
         else {
-            WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
-                CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
+            player_spec::battle_mage_handler bash_victim_battle_mage(victim);
+            bool victim_resists_cast_interruption = IS_AFFECTED(victim, AFF_WAITWHEEL)
+                && GET_WAIT_PRIORITY(victim) <= 40
+                && !bash_victim_battle_mage.does_spell_get_interrupted();
+
+            /* Bash's priority-80 force-complete would otherwise always beat a
+               casting battle mage's spell (priority 30) regardless of tactics/
+               levels, since WAIT_STATE_FULL clears AFF_WAITWHEEL before damage()
+               ever reaches the does_spell_get_interrupted() roll that ordinary
+               weapon hits already respect (fight.cpp). Skip the clobber here the
+               same way, so a resisted roll leaves the cast running uninterrupted. */
+            if (!victim_resists_cast_interruption) {
+                WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
+                    CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
+            }
             damage(ch, victim, 1, SKILL_BASH, 0);
         }
         return;
