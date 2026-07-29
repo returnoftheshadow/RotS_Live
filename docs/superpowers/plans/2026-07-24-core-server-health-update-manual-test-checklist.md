@@ -59,20 +59,86 @@ inverted guard and was a no-op until this fix.
 
 ### 2. Scripts — nested if/begin/end (Task 11)
 
-- [ ] Visit vnum **#1140** (`lib/world/scr/11.scr.txt`) — implementer found this has the exact
-      nested shape the double-advance bug affected. Watch for script content that used to get
-      silently skipped.
-- [ ] Spot-check a couple of other scripted rooms/mobs you know well, confirm nothing regressed
+- [x] **Corrected 2026-07-28 — vnum #1140 is not actually attached to any mob.** Read it directly
+      (`lib/world/scr/11.scr.txt`, plain text): it genuinely has the risky nested shape (a wood-elf
+      check nested inside a broader elf-race check, ending in back-to-back `END`s), but a full scan
+      confirmed it's orphaned content — searched every `.zon` file for an `A 12` (assign-script)
+      reset command referencing 1140 (zero hits), then ran the immortal `mob2csv` command (dumps
+      every one of the then-3009 mob prototypes' `script` field) and grepped for `1140` — zero
+      matches. So this specific vnum can't be triggered through normal play. Also confirmed this
+      shape is far from a one-off: parsing every `.scr.txt` file for the same "two consecutive
+      `END`/`END_ELSE_BEGIN` opcodes" signature found **118** scripts with the shape across the
+      whole world, **459** distinct script vnums actually attached to a live mob, and a solid
+      overlap between the two sets — plenty of real test candidates exist.
+- [x] **Confirmed 2026-07-28 via script #1145 ("Orc Slave Aggro to Whitie Script")** — same nested
+      `if/begin...end` shape, live, attached to mob vnum 20335 ("an orc miner", room 17716).
+      Triggered via `say free` near it (an `ON_HEAR_SAY` trigger, not `ON_ENTER` — simpler to set
+      up than 1140's `ON_ENTER`/elf-race shape since it needed no darkness/locked-door workarounds).
+      Full nested sequence fired correctly in order: "an orc miner snarls angrily at the thought of
+      being indentured..." (first message inside the nested whitie-logic `BEGIN`), then an
+      orcish-garbled "I will not have you as a new master, filth!" (a *later* statement inside that
+      same nested block — proves execution didn't skip past it), then the orc attacked and combat
+      proceeded completely normally afterward (HP tracked correctly, no corruption, no stuck state,
+      no bleed into unrelated script/room content on subsequent `look`/`score`). This is a clean,
+      positive, in-order confirmation of the Task 11 fix on a real nested script, not just an
+      absence-of-crash check.
+- [x] Spot-checked along the way: normal room/mob interaction (movement, combat, dialogue) around
+      both test sites showed no regressions in non-nested or already-working script content.
 
 ### 3. Flee / windblast double-fire (Task 9 + two fix rounds)
 
-- [ ] Flee into a room with a real `ON_BEFORE_ENTER` trigger (message/counter/damage side effect)
-      — should fire **once**, not twice
-- [ ] Same test **while affected by AFF_HAZE** (dizzy-move effect) — this was the specific gap the
-      final review caught: haze re-rolling the flee direction should let the *actual* destination's
-      trigger fire normally, not get wrongly suppressed
-- [ ] If a ranger with windblast is available, blast someone into a triggered room too
-- [ ] Flee while riding a mount (or have a ridden mob flee) — confirm no crash, normal single-fire
+- [x] **Confirmed 2026-07-28** — used the Arena (room 1120, single W exit) as the test room per the
+      user's suggestion: opened the west door, loaded mob vnum 5716 ("Blent test", an otherwise-
+      unspawned mob whose baked-in script #2398 is a clean `ON_BEFORE_ENTER` test script — random
+      roll, prints "You successfully enter the room!" and allows entry, or "You fail to enter the
+      room." and blocks it via `RETURN_FALSE`) into the neighboring room (Creation Hall, 1101).
+      Set Bashtest's tactics off berserk (`do_flee` refuses while berserk) and issued `flee`
+      repeatedly — `do_flee()` picks a random direction each attempt, so only tries that land on the
+      Arena's one valid exit (west) actually reach the check. Across 6 attempts, 3 reached room 1101
+      and each showed the enter-room message **exactly once** (two "fail", one "success") — never
+      duplicated. Directly confirms the `g_skip_next_before_enter_for` fix
+      (`src/act_offe.cpp:405`/`src/act_move.cpp:687-690`) for the core case: `do_flee()`'s own
+      `check_simple_move()` call fires the trigger once, and the flag correctly suppresses the
+      redundant refire inside `do_move()`'s internal `check_simple_move()` call for the *same*
+      destination.
+- [x] **Confirmed 2026-07-28** — the Arena's single exit can't test this (a haze reroll there just
+      fails "no exit," never reaching a second valid room), so used Creation Hall (1101, 5 exits:
+      N/E/S/W/U) instead, with the same "Blent test" mob (vnum 5716, script #2398) loaded into all
+      5 neighboring rooms so *any* direction — original or haze-rerolled — has an observable
+      trigger. Set `AFF_HAZE` directly via `wizset Bashtest affected 1073741824` (confirmed active
+      via `stat Bashtest` → `AFF: HAZE.`), then fled repeatedly (haze's reroll is a 25% roll,
+      `src/act_move.cpp:693`, and only fires at all when `do_flee()`'s own initial direction-check
+      already succeeded — needed ~9-12 such successes per batch to expect one). Caught 3 reroll
+      events across 40 attempts. Clearest one (attempt 26): "You successfully enter the room!" /
+      "You flee head over heels." / "**You feel dizzy, and move randomly.**" / "**You successfully
+      enter the room!**" (a *second*, distinct occurrence) / lands in a *different* room (1140, "A
+      Brightly Lit Room") than whatever the original pre-haze direction was. Another (attempt 25)
+      showed the same pattern ending in "fail" instead of "success" for the rerolled destination.
+      This is the **correct** behavior, not a bug: two different rooms, each getting its trigger
+      fired exactly once for its own destination — directly confirms
+      `skip_before_enter_direction_intact` (`src/act_move.cpp:702`) correctly withholds the
+      suppression flag when haze changes the direction, so the *actual* final destination still
+      gets evaluated fresh instead of being silently let through unchecked.
+- [ ] **Attempted 2026-07-28, stopped short of a clean confirmation.** Windblast is Haradrim-only
+      (`can_harad_use_skill`, `src/ranger.cpp:3477`) — created a level-40 Haradrim ranger
+      ("Windtest") to test it. Discovered along the way: **no guild trainer in the entire game has
+      the Haradrim race bit set in `will_teach`** (checked all ~60 guild-assigned mobs via `vstat`)
+      — a real world-content gap, not a bug, that makes this race untrainable through normal play.
+      Worked around it by setting the skill directly in the character's JSON file (`"skills":
+      {"wind_blast": 20}`, picked up correctly by `recalc_skills()` on next load).
+      The cast itself fires correctly ("Vile black wind eminates from you, slamming into all!"),
+      but every target tried fought back once hit (opposing-faction PCs auto-attack on sight per
+      the game's faction design, and even a supposedly-inert test mob retaliated once damaged) —
+      got Windtest killed twice (once with a level loss) before the random direction-roll ever
+      landed on the test room's one valid exit. Per user decision, stopped here rather than keep
+      fighting the combat/RNG setup. **Reasoning for treating this as adequately covered anyway:**
+      `on_windblast_hit()` (`src/ranger.cpp:3607-3657`) is structurally identical to `do_flee()` —
+      same 6-attempt random-direction loop, same `g_skip_next_before_enter_for` flag, same
+      `do_move()` call — and that exact mechanism (including the AFF_HAZE edge case) was already
+      thoroughly confirmed via the flee tests above. Treat as high-confidence-by-code-identity, not
+      independently observed.
+- [ ] **Not attempted** — flee while riding a mount (or a ridden mob fleeing). Would need a mount
+      set up; deprioritized alongside windblast per the same "sufficiently tested for now" call.
 
 (Note: `ON_ENTER` is a *different*, unrelated trigger — fires once from inside `do_move()` after
 actually entering a room. It was never part of the double-fire bug; only `ON_BEFORE_ENTER`,
@@ -81,19 +147,91 @@ fired inside `check_simple_move()`, was affected.)
 ## Medium priority — latency/socket fixes, harder to trigger but worth a pass
 
 ### 4. Skill cooldowns (Task 8)
-- [ ] Use two skills with different cooldown lengths back-to-back; confirm neither takes one tick
-      longer than expected to come off cooldown
+- [x] **Confirmed 2026-07-28 (single-player baseline)** — `defend` (`src/act_offe.cpp:982-1011`) is
+      the only non-race-gated skill using `skill_timer`; set Bashtest up (specialized "defending",
+      shield equipped, `defend` mastered via a guild trainer) and used it mid-combat. `affections`
+      tracked the cooldown cleanly: still active at t=2s and t=6s post-use, cleared by t=10.3s —
+      consistent with the real 12s cooldown, no extra stuck tick observed.
+- [ ] **Not achieved — the actual bug-triggering shape needs two players' entries interleaved in
+      the shared vector, which a single player's own usage structurally cannot produce.**
+      `add_skill_timer()` (`src/skill_timer.cpp:12-25`) always pushes a skill-specific entry then
+      immediately pushes its own global-cooldown entry (`GLOBAL_COOLDOWN_COUNTER = 2`) right after
+      it. The global entry is always at a *later* vector index and always expires first (2s <<
+      most skill cooldowns), so erasing it can never cause the erase-skip bug to affect the
+      earlier-indexed skill entry — the bug only manifests when an *earlier*-indexed entry expires
+      while a *later* one (e.g. a second player's entry, pushed afterward) is still counting down.
+      Set up a second character (Windtest) to attempt exactly this cross-player interleaving, but
+      hit a chain of incidental setup friction (a JSON skill edit not taking effect because the
+      character was still memory-resident from an earlier session; a shield dropping to the floor
+      instead of equipping; landing in a different, unlit room than intended) that consumed the
+      available time without producing the paired-timing observation. **Stopped here per user
+      decision.** Confirmed instead via direct source read: the live code
+      (`src/skill_timer.cpp:41-52`) matches the documented fix exactly — `for (int i = 0; i <
+      m_skill_timer.size();)` with `++i` only in the `counter > 0` branch, erase-without-increment
+      otherwise — so this is high-confidence-by-code-match, not independently observed for the
+      actual interleaved-entry case.
 
 ### 5. Double-delay / bash-interrupts-cast (Task 10)
-- [ ] Cast something, get bashed mid-cast; confirm the stun applies correctly
-- [ ] If the interrupted spell would normally queue its own follow-up recovery delay, confirm it
-      isn't silently dropped — watch the log for a new "double delay (reentrant queue...)" message
+- [x] **Confirmed 2026-07-28** — instrumented `WAIT_STATE_BRIEF`/`FULL` (`src/utils.h`) and
+      `do_bash` (`src/act_offe.cpp`) with temporary diagnostic logging, then live-tested a level-40
+      warrior repeatedly bashing an NPC spellcaster (dark mage, vnum 12600) in an isolated arena
+      room (vnum 1120 — see below). Cast something, get bashed mid-cast; confirm the stun applies
+      correctly: **24/24 samples**, bash's stun applied cleanly every time it landed mid-cast, no
+      corruption observed.
+- [ ] **Still open — did not exercise this code path.** Task 10's fix specifically targets the case
+      where `complete_delay()` *reentrantly* queues a new delay while force-completing the old one.
+      In all 24 samples, the mage's cast priority was 30 vs. bash's 80 — comfortably within the
+      pre-existing "clean override" branch that predates this fix and was never buggy. Never
+      produced a scenario with the interrupted delay's priority ≥ 80, and this mob's specific
+      spells didn't queue a follow-up delay on early completion either way. **Decision (per user):
+      pause further synthetic repro — wait for a real player-reported occurrence before resuming.**
+      Diagnostic logging left in place (uncommitted, `src/utils.h`/`src/act_offe.cpp`) so a future
+      occurrence will already be captured in detail. Full writeup: see the `double_delay_bug`
+      memory (auto-memory system) for exact log evidence and reasoning.
+      New test infra discovered/built along the way, reusable for future live-combat testing:
+      room vnum 1120 ("The Arena" — lit, no weather, isolated, single exit) is the intended
+      immortal test-combat room; the default starting room is peaceful (combat no-ops there), and
+      the mage's own home room has no ambient light.
 
 ### 6. Connection behavior (Tasks 3, 4, 5, 6)
-- [ ] Normal play feels the same — login, movement, combat spam, a big `who`/`score` output
-- [ ] Idle at the name/password prompt (don't log in); confirm the connection eventually gets
-      reaped rather than hanging forever (Task 6 — real timeout is 15 min, slow to verify)
-- [ ] If testing through the Rust proxy, connect via both plain TCP and WebSocket
+- [x] **Confirmed 2026-07-28** — normal play feels the same: scripted login, `score`, movement
+      (north/south), `who`, `quit`, all responded correctly with no regressions.
+- [x] **Confirmed 2026-07-28 (Task 5, read-loop iteration cap)** — opened a second raw connection
+      and flooded it at max rate with no newline terminator (unthrottled `sendall()` loop) while
+      timing a normal connection's `score` command latency. Baseline (no flood) avg time-to-first-
+      byte 0.443s (n=15); during flood avg 0.449s (n=15) — no measurable difference, zero timeouts
+      either side. Server logs stayed clean (no errors/crashes) throughout. This is real load, not
+      just a code read — confirms the cap prevents one flooding connection from stalling others.
+- [ ] **Attempted, inconclusive (Task 4, EAGAIN-on-write)** — tried to force `write_to_descriptor()`
+      into `EWOULDBLOCK` by piling up 300 large-output commands on one connection without ever
+      reading the responses. Never got there: hit the pulse-rate command-processing bottleneck
+      first (one command consumed per ~250ms tick), not an output-buffer backpressure condition —
+      the command backlog took longer to drain than expected, but that's unrelated to Task 4's
+      fix. Genuinely needs artificial link throttling (`tc qdisc` on loopback, or a deliberately
+      slow-reading client) to trigger for real; didn't want to touch system network config without
+      asking first. Still only weak coverage (unchanged-success-path only) as originally noted.
+- [x] **Confirmed 2026-07-28 (Task 3, proxy TCP/WebSocket)** — built and ran the proxy
+      (`cargo run -p proxy -- --game 127.0.0.1:1024 --listen 0.0.0.0:3791 --websocket
+      0.0.0.0:8181`) in front of the game (relaunched with `-x`, see correction below). Tested
+      both connection modes end-to-end (full login, MSDP payloads, `score`/`who`/`quit`): plain
+      TCP through port 3791 with a raw socket client, and WebSocket through port 8181 with a
+      hand-rolled RFC6455 client (no `websockets` package available, no `pip` on this machine).
+      Both worked cleanly; server and proxy logs stayed clean (one benign proxy-log line from the
+      WS test client closing the raw socket instead of sending a proper Close frame — a test-
+      harness artifact, not a real finding). Note: port 8080 (the proxy's WebSocket default) was
+      already bound by an unrelated local Docker container — used 8181 instead for this test, not
+      a project-related conflict.
+
+      **Correction to this repo's `CLAUDE.md`:** it currently says to run `./bin/ageland -p` when
+      a proxy sits in front of the server. That's stale — in the current code, `-p <port>` is just
+      an alternate way to specify the listen port (`parse_startup_options`, `src/comm.cpp:275-291`);
+      the flag that actually makes the game expect the proxy's 4-byte client-IP header
+      (`has_proxy`) is **`-x`** (`src/comm.cpp:292-294`, `:1521`). Using `-p` for this purpose
+      doesn't error, it just silently fails to enable proxy-header mode. Worth fixing `CLAUDE.md`.
+- [x] **Confirmed 2026-07-28 (Task 6, pre-login idle reap)** — a connection sitting idle at the
+      login prompt with zero input got closed by the server after 953.5s (~15.9 min), matching the
+      15-minute `PRE_LOGIN_IDLE_TIMEOUT` (checked once per minute, so up to ~1 min of slop past the
+      nominal threshold is expected). Confirms `check_pre_login_idle()` fires and reaps correctly.
 
 ## Bonus fix — prompt racing ahead of buffered game text (found during manual testing, not part of original 11-task bundle)
 
@@ -262,6 +400,28 @@ problem.
 
 **No code change for this entry** — it documents a live-testing result and a hypothesis about an
 already-merged fix, not a new fix.
+
+## Bonus fix #5 — `wizset <victim> OB <value>` silently rejected lowercase `ob`
+
+Found while running Task 4 (skill cooldowns) testing on 2026-07-28: `wizset bashtest ob 200`
+failed with "Can't set that!" while `wizset bashtest OB 200` worked.
+
+**Root cause:** `do_wizset`'s field-lookup loop (`act_wiz.cpp:2762`) matched the typed field name
+against its `fields[]` table using the raw C `strncmp`, which is case-sensitive. Every other field
+in the table is lowercase, so this never surfaced — except `"OB"`, the one mixed-case entry. No
+match means the loop falls through to the table's terminating sentinel entry, which hits the
+`switch (l)` statement's `default` case and prints "Can't set that!" instead of setting anything.
+This is the same class of inconsistency as the rest of the file: the two lines just above already
+use this codebase's own case-insensitive `str_cmp` for the `file`/`player`/`mob` prefix check.
+
+**Fix:** swapped `strncmp` for `strn_cmp` (`utility.cpp:1027`, already used elsewhere in this same
+function), which lowercases both sides via the `LOWER` macro before comparing. This fixes the
+comparison generally rather than just special-casing the `"OB"` table entry, so it won't recur if
+another mixed-case field name is ever added to the table.
+
+- [x] **Confirmed 2026-07-28** — scratch server (port 1025), `wizset file bashtest ob 77`,
+      `OB 55`, and `Ob 33` all succeeded ("Bashtest's OB set to N. Saved in file.") and persisted
+      correctly to the character JSON, verified after each call.
 
 ## Low priority — basically unverifiable without special setup
 
