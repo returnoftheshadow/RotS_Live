@@ -972,7 +972,7 @@ struct Args {
     /// WebSocket address to listen
     websocket: SocketAddrV4,
 
-    #[arg(long, default_value = "127.0.0.1:8081")]
+    #[arg(long, default_value = "127.0.0.1:4803")]
     /// HTTP address to listen for BuilderClient API requests
     builder_api: SocketAddrV4,
 
@@ -1601,16 +1601,16 @@ mod tests {
     #[test]
     fn builder_api_listen_target_requires_loopback() {
         assert!(
-            builder_api_listen_target(&SocketAddrV4::new("127.0.0.1".parse().unwrap(), 8081,))
+            builder_api_listen_target(&SocketAddrV4::new("127.0.0.1".parse().unwrap(), 4803,))
                 .is_ok()
         );
         assert!(
-            builder_api_listen_target(&SocketAddrV4::new("0.0.0.0".parse().unwrap(), 8081,))
+            builder_api_listen_target(&SocketAddrV4::new("0.0.0.0".parse().unwrap(), 4803,))
                 .is_err()
         );
         assert!(builder_api_listen_target(&SocketAddrV4::new(
             "192.168.1.5".parse().unwrap(),
-            8081,
+            4803,
         ))
         .is_err());
     }

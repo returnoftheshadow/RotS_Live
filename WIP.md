@@ -1,6 +1,23 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
+- Latest completed slice: BuilderClient beginner publish flow. The Publish panel
+  now leads with a guided Login, Check, Stage, and Activate row for the current
+  script, while metadata edits, server/workspace settings, token override, raw
+  checksum fields, rollback, logout, and credential cleanup live under Advanced.
+  Review follow-up made guided operations require login, removed duplicate
+  advanced Login/Stage/Activate controls, kept checksum blockers visible in the
+  guided row, and moved the client-facing BuilderClient proxy API default and
+  allowlist to localhost port `4803` while leaving the game Builder HTTP backend
+  on port `4802`.
+- Latest validation: BuilderClient `npm run typecheck` passed, focused publish
+  settings/client/credentials/auth/renderer/CLI tests passed (`104` tests),
+  focused proxy Builder API tests passed (`31` tests), full BuilderClient
+  `npm test -- --run` passed (`54` files, `692` tests), and parent/client/proxy
+  `git diff --check` passed.
+- Next slice: BuilderClient beginner save flow. Add an obvious save/status path
+  after Create Script so generated source, metadata, and fixtures are persisted
+  together without requiring builders to know which advanced save actions matter.
 - Latest completed slice: BuilderClient beginner script wizard. Added a
   first-pass Create Script panel that asks for builder-facing host type, zone
   vnum, target vnum, recipe, and message fields, then derives TypeScript source,

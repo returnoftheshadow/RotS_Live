@@ -525,7 +525,7 @@ Builder/admin workflow:
 Electron TypeScript authoring client:
 - Build a companion Electron app for builders to author game scripts locally in TypeScript, test them offline, and publish approved compiled JavaScript artifacts to the server.
 - Treat TypeScript as an authoring language only. The game server should execute compiled JavaScript and should never require a TypeScript compiler at runtime.
-- BuilderClient must never connect directly to the live game listener on port `3791`. Server-backed builder testing and publishing must go through the Rust proxy to the configured test game instance on port `4802`.
+- BuilderClient must never connect directly to the live game listener on port `3791`. Server-backed builder testing and publishing must target the Rust proxy API on port `4803`, which forwards to the configured test game Builder HTTP instance on port `4802`.
 - The Rust proxy is the client-facing API boundary for BuilderClient. It runs on the same host as the game server, accepts BuilderClient API traffic, enforces request/upload limits and transport policy, and forwards only trusted local/private-host requests to the game engine.
 - The BuilderClient API listener must bind to loopback only by default and fail closed on non-loopback bind addresses unless a future explicit unsafe development override is designed and reviewed.
 - Proxy-to-game publish forwarding uses an internal trust marker header, `x-rots-builder-proxy-secret`, populated from the proxy environment variable `ROTS_BUILDER_PROXY_SECRET`. The marker must never be supplied by BuilderClient, exposed in CLI/process arguments, logged, or relayed back to the client.
@@ -567,7 +567,7 @@ Electron TypeScript authoring client:
   - keep command behavior deterministic and CI-friendly: every command must support machine-readable JSON output, stable diagnostic codes, non-interactive mode, bounded diagnostics, and no ANSI/progress noise unless explicitly requested
   - start with these commands: `init`, `manifest sync`, `typecheck`, `build`, `validate`, `fixture run`, `package`, `publish stage`, `publish activate`, `publish rollback`, `status`, `diff`, `docs`, and `doctor`
   - implemented initial CLI slices include `doctor`, read-only `docs`, `typecheck`, `build`, `fixture run`, no-write `package` metadata, explicit `package --write` artifact creation under `packages/`, no-network `publish stage` validation, explicit `publish stage --send`, `publish status`, `publish activate`, `publish rollback`, and `--bearer-token-stdin` safer token input for publish commands
-  - CLI publish workflow documentation must cover `package`, `publish stage`, `publish status`, `publish activate`, and `publish rollback`, including required package ids, staged digests, base-live checksums, rollback target checksums, audit reasons, bearer-token handling, conflict recovery, and the proxy/test-server boundary on port `4802`
+  - CLI publish workflow documentation must cover `package`, `publish stage`, `publish status`, `publish activate`, and `publish rollback`, including required package ids, staged digests, base-live checksums, rollback target checksums, audit reasons, bearer-token handling, conflict recovery, and the proxy API boundary on port `4803`
   - CLI credential hardening now includes `--bearer-token-stdin` for publish commands so examples and normal builder workflows do not require bearer tokens in argv or shell history; future credential work should add OS credential/session lookup or a dedicated login/logout command
   - BuilderClient publish workflow gap reassessment after the safer token slice:
     - keep the next immediate client slices offline-first unless a server/proxy defect blocks local testing
@@ -707,7 +707,7 @@ Electron TypeScript authoring client:
 - Publish protocol and server authority:
   - use a two-step stage/activate protocol over an authenticated server channel; generic file transfer to the live JavaScript package directory is not a valid publish path
   - BuilderClient sends publish requests to the Rust proxy API, not the game listener. The proxy then communicates with the test game instance over the same host/local trust channel.
-  - the proxy must be configured so BuilderClient workflows target the test server path on port `4802`, and must not provide a BuilderClient publish route to the live gameplay listener on port `3791`
+  - the proxy must be configured so BuilderClient workflows target the proxy API on port `4803`, forwarding only to the test server Builder HTTP path on port `4802`, and must not provide a BuilderClient publish route to the live gameplay listener on port `3791`
   - the proxy translates BuilderClient publish routes from `/api/builder/js/{status,stage,activate,rollback}` to the game-owned `/api/js-scripts/{status,stage,activate,rollback}` routes; account login/session, logout, and manifest routes forward to separate game-owned endpoint surfaces so session/manifest traffic cannot accidentally enter publish handlers
   - the proxy forwards BuilderClient login to `/api/builder/login`, logout to `/api/builder/logout`, and manifest sync to `GET /api/builder/js/manifest` with the same internal proxy trust marker, bounded response handling, test-server-only target policy, loopback-only Builder API listener policy, and response sanitization used by publish forwarding
   - login and manifest forwarding must strip any client-supplied `Authorization` header; status, stage, activate, rollback, and logout require a bearer token before forwarding, and sanitized backend responses must fail closed if they echo a forwarded bearer token
@@ -868,6 +868,10 @@ Electron TypeScript authoring client:
 - Define a versioned fixture schema generated from the same manifest, including fixture schema version, manifest checksum, world/build revision metadata, enum domains, and handle-liveness semantics.
 - The offline runner must not be the authority for production safety. Publishing must send a package to the server, and the server must revalidate before activation.
 - Publishing workflow:
+  - BuilderClient should show a guided publish path first: login, check status,
+    stage, and activate should be visible as the normal flow, while token
+    overrides, raw checksums, rollback inputs, and detailed metadata remain
+    available in an Advanced section.
   - authenticate the builder/admin against a server-side publishing endpoint or command using a dedicated publish credential/session with short-lived scoped tokens.
   - require TLS or equivalent channel security, server-side rate limits, replay protection, audit ids, explicit logout/revocation behavior, and CSRF/session-binding protections if HTTP is used.
   - upload compiled JavaScript, TypeScript source if desired for review, metadata, API version, manifest checksum, engine version, package manifest, and local validation report.
