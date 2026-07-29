@@ -787,7 +787,7 @@ constexpr JsApiDeferredHelperPlan DeferredHelperPlans[] = {
      "marking after accepted extraction, room/container/carrier/equipment cleanup, object index "
      "count compensation, ON_WEAR/receive trigger ordering, default item-return branch policy, "
      "received-item preservation until exchange acceptance, not-found reward prototype result "
-     "codes, and batch capacity/weight preflight plus audit-before-mutation ordering for "
+     "codes, and batch preflight including batch capacity/weight preflight plus audit-before-mutation ordering for "
      "multi-reward, destructive extraction, room-stash, container, lookup-driven, clone, or "
      "exchange-table flows before any input object is consumed.",
      "Offline fixtures must model list membership, shallow snapshots, typed inventory/equipment/"
@@ -1013,7 +1013,8 @@ constexpr JsApiRoomExitHelperOperation RoomExitHelperOperations[] = {
      "MutationResult",
      "SET_EXIT_STATE",
      "Preflight policy for changing one loaded room exit's door state among open, closed, and "
-     "locked without exposing raw dir_option pointers or numeric exit bitvectors.",
+     "locked without exposing raw dir_option pointers or numeric exit bitvectors; it bounds "
+     "direction before any dir_option or rev_dir access.",
      "Requires target-scoped room/zone authority, canonical direction validation, an existing exit "
      "with a destination room, door-only validation matching EX_ISDOOR, state validation limited "
      "to open/closed/locked, reciprocal reverse-exit policy, reset-command impact review, and "
@@ -1046,7 +1047,8 @@ constexpr JsApiRoomExitHelperOperation RoomExitHelperOperations[] = {
      "MutationResult",
      "CHANGE_EXIT_TO",
      "Preflight policy for changing one loaded room exit destination to another loaded room handle "
-     "without accepting raw room vnums or exposing direct room_data.dir_option writes.",
+     "without accepting raw room vnums or exposing direct room_data.dir_option writes; it requires "
+     "non-NOWHERE destination liveness before topology mutation.",
      "Requires source-room authority, destination-zone authority, canonical direction validation, "
      "existing source exit validation before any dir_option access, non-NOWHERE destination "
      "liveness, bidirectional-link policy, reset-command impact review, topology/audit authority, "
@@ -1188,8 +1190,8 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "Rollback is not assumed because extraction destroys a live character handle, moves carried "
      "and worn objects to room contents only when the target has a current room, conditionally "
      "decrements and clamps mob-index/load-line counts, and touches combat/wait/follower/riding "
-     "state; V1 promotion must reject no-current-room targets and mixed batches containing "
-     "extractChar unless a later staged-extraction design proves complete compensation before "
+     "state; V1 promotion must reject mixed batches, reject no-current-room targets, and keep "
+     "mixed helper batches containing extractChar rejected unless a later staged-extraction design proves complete compensation before "
      "descriptor output commits.",
      "Offline fixtures must mark extracted NPC handles stale for later helper calls, remove them "
      "from hidden room membership, place carried and worn objects into hidden room contents, "
@@ -1209,7 +1211,7 @@ constexpr JsApiCharacterMovementHelperOperation CharacterMovementHelperOperation
      "follower-cap policy, charm/tame/recruit/pet ownership policy when NPCs are involved, "
      "previous-master replacement policy, and same-room/message policy before audit.",
      "Updates follower.master and leader.followers reciprocally, may break the follower's previous "
-     "follow link only through explicit stop_follower-compatible semantics, may clear "
+     "follow link only through explicit stop_follower semantics using a stop_follower-compatible path, may clear "
      "hunting memory for the previous master, charm/tame/recruit/pet state, and pet/group "
      "membership relationships, emits follow/stop-follow messages unless V1 deliberately "
      "suppresses or defers them, and can affect mount, movement propagation, combat XP sharing, "
@@ -1398,7 +1400,7 @@ constexpr JsApiEquipmentHelperOperation EquipmentHelperOperations[] = {
      "side effects, crash-save flags, and descriptor output if a later helper fails before output "
      "commits.",
      "Offline fixtures must model canonical wear slots, item wear flags, direct carried ownership, "
-     "race/body and item anti-alignment/race-flag zap-to-inventory restrictions, current-room "
+     "race/body and item anti-alignment/race-flag restrictions including zap-to-inventory restrictions, current-room "
      "availability, belt occupancy, two-handed/shield state, ON_WEAR block outcomes, accepted "
      "hidden equipment state, forced remove behavior, light and affect recalculation summaries, "
      "poison/death diagnostics, and frozen visible snapshots.",
