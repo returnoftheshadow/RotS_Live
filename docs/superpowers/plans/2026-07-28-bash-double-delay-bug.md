@@ -89,6 +89,60 @@ land in A's clean path or A's nested reentrant path (B) depends entirely on whet
 *interrupted* action has a side effect of queuing a *new* delay for itself — a property of that
 specific skill/spell's implementation, unrelated to the interrupting action's priority.
 
+## Design intent, confirmed against code: casting is *supposed* to be interruptible
+
+Per the author (2026-07-28): casting is meant to be an interruptible state — any attack-like effect
+should break the caster's concentration, and the *only* thing that resists this is the Battle Mage
+specialization. This isn't just intent; it's already implemented, just not reachable from bash:
+
+- `does_spell_get_interrupted()` (`src/battle_mage_handler.cpp:40-55`): for a non-Battle-Mage,
+  **unconditionally returns `true`** (always interrupted). For a Battle Mage, it's a
+  tactics/level-scaled resist roll instead of a guarantee.
+- It's called from `damage()` (`src/fight.cpp:1731-1737`):
+  ```cpp
+  player_spec::battle_mage_handler battle_mage_handler(victim);
+  if (dam > 0) {
+      if (IS_AFFECTED(victim, AFF_WAITWHEEL) && GET_WAIT_PRIORITY(victim) <= 40)
+          if (battle_mage_handler.does_spell_get_interrupted())
+              break_spell(victim);
+  }
+  ```
+  (`GET_WAIT_PRIORITY(victim) <= 40` targets casting specifically — priority 30 — without touching
+  higher-priority delays like an existing stun.)
+- `break_spell()` (`src/comm.cpp:1756`) is a **clean cancel**, structurally different from
+  `complete_delay()`: it just sets `ch->delay.wait_value = 0` and `ch->delay.subcmd = -1`, with no
+  call to `command_interpreter()`. The spell never fires — `spell_pa.cpp:780`'s
+  `if (wtl->subcmd == -1) return;` makes the (now-immediate) delay expiration a silent no-op. This
+  is the same "concentration lost, nothing happens" shape as the pre-existing random-failure roll
+  at `spell_pa.cpp:915-923`.
+
+**This system exists and presumably works for ordinary weapon damage** (any hit that calls
+`damage()` with `dam > 0` against a casting, non-Battle-Mage victim breaks their spell). **It does
+not work for bash, or anything that applies its stun the same way bash does**, because of call
+order:
+
+```cpp
+// src/act_offe.cpp:575-577 (do_bash)
+WAIT_STATE_FULL(victim, ..., 80, ...);   // <-- runs FIRST
+damage(ch, victim, 1, SKILL_BASH, 0);    // <-- the AFF_WAITWHEEL/break_spell() check lives in here
+```
+
+Bash's priority (80) ≥ casting's priority (30), so `WAIT_STATE_FULL` immediately calls
+`complete_delay(victim)` — which **force-fires the spell right then**, via its reentrant
+`command_interpreter()` re-dispatch, and clears `AFF_WAITWHEEL` as a side effect of running. By the
+time `damage()` executes afterward and reaches its `IS_AFFECTED(victim, AFF_WAITWHEEL)` check,
+`AFF_WAITWHEEL` is already gone — so `break_spell()` never fires. **This is deterministic given the
+current code, not a probabilistic gap more testing would eventually catch**: every bash-vs-caster
+collision takes this exact path. The same ordering (`WAIT_STATE_FULL` before `damage()`) exists at
+every other CMD_BASH-applying site: `src/ranger.cpp:1305-1312` (trap/ambush) and
+`src/olog_hai.cpp:40-48` (`apply_victim_delay`, a shared helper).
+
+**Consequence for the "24/24 clean samples" result below:** those samples confirm the delay
+bookkeeping didn't corrupt (no double-delay warnings, stun applied), but per this design-intent
+read, the *outcome itself* was wrong in all 24 — the mage's spell was force-cast early instead of
+being interrupted/canceled. The tests checked for log-noise/state-corruption, not for "should this
+spell have fired at all," so they didn't surface this.
+
 ## What was actually tested (2026-07-28) vs. what wasn't
 
 Live-tested via a level-40 warrior (`Bashtest`) repeatedly bashing an NPC dark mage (vnum 12600,
@@ -129,20 +183,45 @@ concern) or branch C:**
   in favor of waiting for a real player-reported occurrence, now that the logging exists to catch
   one.
 
-## Open question for the author (unchanged from Finding 4)
+## Question 1, answered (2026-07-28, per author): the spell should break, not fire, and not win
 
-1. **When branch B fires, which delay should win?** Current behavior: the interrupted action's own
-   reentrant follow-up wins, the interrupting action's delay/effect is dropped entirely. For
-   PvP bash specifically, silently dropping the stun seems like the wrong outcome — but this is a
-   gameplay/design call, not something the code alone can answer.
-2. **Should the player-facing "Possible bug - double delay. Please notify Imps." message be
-   removed or made log-only on the branch-B path**, given it's arguably legitimate reentrant
-   behavior rather than an actual bug? (Branch C's use of the same message is less contentious —
-   that one really is just "your lower-priority action lost.")
+Per the design-intent section above, question 1 ("which delay should win?") has a concrete answer
+now: **neither, as currently coded.** The interrupted spell shouldn't get to fire early (what
+branch A does today) *or* silently win outright (what branch B does today) — it should be
+*canceled* via `break_spell()`, gated by `does_spell_get_interrupted()`'s Battle Mage resist roll,
+exactly like ordinary weapon damage already does via `damage()`/`fight.cpp:1731-1737`. Bash's new
+stun should then apply normally afterward, independent of whatever happened to the canceled spell.
 
-A real fix, once the intended behavior is decided, likely needs either: replacing the single
-`ch->delay` slot with an actual queue (bigger change), or adding explicit
-interrupt/cancel-and-replace semantics for branch B instead of the current "silently keep the old,
+**This reframes the fix target.** The actual defect isn't really "branch A vs. branch B in
+`WAIT_STATE_FULL`" — it's that `do_bash` (and `ranger.cpp`'s trap/ambush, and
+`olog_hai.cpp:apply_victim_delay`) call `WAIT_STATE_FULL` *before* `damage()`, so
+`complete_delay()`'s force-fire always wins the race against the interrupt check that lives inside
+`damage()`. A fix along these lines would look something like: run the interrupt check (or call
+`damage()`) *before* applying the new stun, so a casting victim's spell gets a chance to be
+`break_spell()`-canceled through the existing Battle-Mage-aware path instead of being force-run by
+`complete_delay()`. That would also make branch B mostly moot for this specific collision (bash vs.
+casting) — the reentrant case would no longer arise here, because the spell would either already be
+broken (clean cancel, no re-dispatch) or already resolved on its own before bash's stun is even
+applied.
+
+**Still open:**
+- Does this reordering fully replace the need for a general branch-B policy, or can *other*
+  priority-≥ collisions (not just bash-vs-casting) still reach the reentrant path some other way?
+  (E.g., anything else that stuns/interrupts via `WAIT_STATE_FULL` against a *different* kind of
+  pending delay that also reentrantly queues on force-completion — not just casting.) If so, branch
+  B still needs its own answer for those cases.
+- Should the player-facing "Possible bug - double delay. Please notify Imps." message be
+  removed/log-only for branch B, given at least the bash-vs-casting instance of it turns out to be
+  a real design gap rather than a bug, once fixed via reordering? Branch C's use of the same message
+  is less contentious — that one really is just "your lower-priority action lost."
+- Should mana/spirit already spent on the interrupted spell be refunded on interruption, matching
+  the partial-refund behavior of the existing random "lost concentration" roll (`spell_pa.cpp:916-923`,
+  half mana/spirit refunded)? `break_spell()` itself does no such refund today — need to check
+  whether that pattern belongs in `break_spell()` or is intentionally absent.
+
+A more general fix, if branch B turns out to still be reachable through some other collision after
+the reordering above, would need either replacing the single `ch->delay` slot with an actual queue,
+or explicit interrupt/cancel-and-replace semantics instead of the current "silently keep the old,
 discard the new" resolution.
 
 ## Reference
