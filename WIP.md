@@ -1,11 +1,29 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
+- Latest completed slice: BuilderClient beginner script wizard. Added a
+  first-pass Create Script panel that asks for builder-facing host type, zone
+  vnum, target vnum, recipe, and message fields, then derives TypeScript source,
+  canonical package metadata, and an offline fixture before advanced
+  editing/publishing. Review follow-up replaced stale fixtures with the selected
+  recipe fixture, corrected object-examine trigger metadata, added a room-enter
+  beginner recipe, aligned Trade Item receive custody with the live give path,
+  and clarified that builders still use workspace Save actions to persist
+  generated project files.
+- Latest validation: BuilderClient `npm run typecheck` passed, focused
+  beginner wizard/sidebar tests passed (`13` tests), full BuilderClient
+  `npm test -- --run` passed (`54` files, `690` tests), and parent/client
+  `git diff --check` passed.
+- Next slice: BuilderClient beginner publish flow. Collapse login/status/stage/
+  activate readiness into a guided local-test publish sequence with advanced
+  checksum/token fields hidden unless the builder opens them.
 - Latest completed slice: Legacy object extraction/stale-handle helper preflight hardening. The callable `extractObject(object)` policy now explicitly documents its destructive behavior for builders: accepted direct-location extraction recursively destroys contained objects, marks the extracted handle stale for later helper branches, keeps recursive contained-object stale parity as follow-up work, must clean up room/container/carrier/equipment ownership, compensate prototype object counts, preserve room light/crash-save side effects, model hidden offline extraction state, and reject mixed destructive batches unless rollback/no-partial compensation is complete.
 - Latest validation: focused `JsApiStructMapping` CTest filter passed (`32` tests), BuilderClient `npm run typecheck` passed, focused BuilderClient shape-script docs/examples test passed (`7` tests), root/BuilderClient `git diff --check` passed, and Meitner/Mill/Sagan review follow-up corrected rollback wording, direct-location extract scope, contained-object stale parity wording, and wrap-tolerant docs assertions.
 - Next slice: Legacy wear/remove helper preflight hardening. Tighten `wearObject` and `removeObject` follow-up policy around inventory ownership, equipment slot canonicalization, body/race restrictions, ON_WEAR trigger ordering, belt cascade/drop behavior, light counters, carried weight, crash-save flags, hidden offline equipment state, and no-partial rollback.
 - Latest CI follow-up: C++ helper-plan catalog wording now restores the policy markers required by `JsApiStructMapping` tests for inventory/equipment/object movement batch preflight, room-exit target validation, character extraction mixed-batch rejection, follow side effects, and offline equipment restriction parity.
 - Latest CI follow-up validation: focused `JsApiStructMapping` GoogleTest filter passed (`32` tests), and full root `make test -j16` passed (`1688/1688`).
+- Latest CI follow-up: BuilderClient shape-script example documentation tests now normalize CRLF markdown reads before exact wrapped-text assertions, fixing Windows checkout failures without changing builder docs.
+- Latest CI follow-up validation: focused BuilderClient shape-script and fixture output panel tests passed (`13` tests), BuilderClient `npm run typecheck` passed, full BuilderClient `npm test -- --run` passed (`53` files, `684` tests), and a temp-copy CRLF markdown simulation of `shapeScriptExamples.test.ts` passed (`7` tests). Docker client was installed, but container validation could not start because the Docker daemon was unavailable at `/var/run/docker.sock`.
 - Latest CI follow-up: BuilderClient renderer fixture output panel tests now expect the source-order `Order` tab and tooltip that were added with execution-order metadata.
 - Latest CI follow-up validation: focused BuilderClient renderer fixture output panel test passed (`6` tests), BuilderClient `npm run typecheck` passed, and full BuilderClient `npm test -- --run` passed (`53` files, `684` tests).
 - Latest CI follow-up: Parent GitHub Actions now removes legacy script placeholders without real non-terminator `#` records from the smoke world repo's copied `lib/world/scr/index`, then creates a single inert `ci-empty.scr` catalog only if no real script files remain. This avoids the clean-runner `CREATE(... -15 elements)` boot failure from empty indexed script files while preserving real script data if the world repo later fills those files.

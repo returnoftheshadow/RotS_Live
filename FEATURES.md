@@ -848,6 +848,14 @@ Electron TypeScript authoring client:
   - script metadata such as vnum, name, description, host type, zone, allowed triggers, engine version, and API version
   - local fixtures for player/mob/object/room/zone state
   - expected test assertions for output messages, return values, diagnostics, and allowed state changes
+- The client should provide a beginner script creation path before raw file,
+  metadata, and fixture editing:
+  - choose Mob, Object, or Room in builder-facing terms
+  - collect only zone vnum, target vnum, recipe, and recipe-specific text or
+    numeric values
+  - derive canonical package metadata, script path, TypeScript source, and the
+    first offline fixture from the recipe
+  - keep generated output editable as normal TypeScript for advanced builders
 - The client should include an offline runner that uses the same script facade contract as the server where practical:
   - compile TypeScript to JavaScript
   - execute compiled JavaScript through the same selected JavaScript runtime as the server, preferably via a shared native/wasm runner or the same validation binary used server-side
