@@ -13,7 +13,15 @@
   directly). Finding 7 (checklist scrubbed, commit `eca5e51`, not yet pushed).
 - **Resolved as a non-issue**, confirmed by a live test, not just re-reading source: finding 3 —
   see its updated section below. The original finding was wrong about the practical impact.
-- **Still open, needs the author's call:** findings 4 and 5.
+- **Resolved 2026-07-29:** finding 4, deferred by author decision (see its updated section — both
+  questions reduce to the same single-slot-delay redesign question, which is out of scope for
+  this PR). A related-but-distinct bug found the same day (battle mage bash bypass) was fixed and
+  pushed (`db1b89f`); the minor comment item was also fixed and pushed (`474831d`).
+- **Resolved 2026-07-29:** finding 5, marked out of scope for this PR (see its updated section —
+  fixing it risks changing behavior for live scripts, which isn't a fit for a PR that's now only
+  taking safe corrections, not new intended changes).
+
+**All findings resolved. Nothing left open in this review.**
 
 ## Instructions for the agent taking this over
 
@@ -136,7 +144,7 @@ to pull it in.
 
 ---
 
-## [ASK AUTHOR] 4. WAIT_STATE reentrancy guard drops the *new* action's delay and shows players a "Possible bug" message on a now-legitimate path
+## [DEFERRED, per author, 2026-07-29] 4. WAIT_STATE reentrancy guard drops the *new* action's delay and shows players a "Possible bug" message on a now-legitimate path
 
 **File:** `src/utils.h`, `WAIT_STATE_BRIEF` and `WAIT_STATE_FULL` macros (PR's version).
 
@@ -149,19 +157,25 @@ new_flag)` is also skipped. Meanwhile the player still sees
 `"Possible bug - double delay. Please notify Imps."` for what the PR's own comment describes as
 expected reentrant behavior.
 
-**Questions for the author:**
-1. *When a reentrant delay collides with a new action's delay, which should win? The current code
-   keeps the reentrant (spell-recovery) delay and drops the new one (bash stun) — is that the
-   intended gameplay outcome? For PvP bash specifically, dropping the stun seems wrong.*
-2. *Should the player-facing "Possible bug … notify Imps" message be removed/log-only on this
-   path, given it's now recognized-legitimate?*
+**Resolution (2026-07-29):** both questions reduce to the same underlying issue — `ch->delay` is a
+single slot, so there's no answer to "which delay should win" that isn't a workaround for that.
+Picking a winner (or changing the message) is exactly the judgment call that requires the real fix
+(a proper delay queue or explicit interrupt/cancel semantics), which is a bigger redesign than this
+PR's scope. **Decision: defer both questions along with the redesign itself** — see the
+`double_delay_bug` memory (auto-memory system, 2026-07-29 entry) for the full reasoning and the
+logged redesign idea. Current behavior (reentrant delay wins, message unchanged) stays as-is.
 
-**Minor (fix without asking):** `WAIT_STATE_FULL`'s copy of the guard lacks the explanatory
-comment that `WAIT_STATE_BRIEF`'s has — add it.
+A related-but-distinct bug *was* found and fixed the same day: bash bypassed battle mage's
+cast-interrupt-resistance roll entirely (unrelated to the reentrancy question above — it's a
+different code path, the priority-based force-complete itself, not the reentrant-collision guard).
+See the test checklist's "Bonus fix #6" for detail. Committed `db1b89f`, pushed.
+
+**Minor (fix without asking), done:** `WAIT_STATE_FULL`'s copy of the guard lacked the explanatory
+comment that `WAIT_STATE_BRIEF`'s has — added. Committed `474831d`, pushed.
 
 ---
 
-## [ASK AUTHOR] 5. `get_next_command()` still mis-skips nested if/**else** blocks (fix incomplete)
+## [OUT OF SCOPE FOR THIS PR, per author, 2026-07-29] 5. `get_next_command()` still mis-skips nested if/**else** blocks (fix incomplete)
 
 **File:** `src/script.cpp`, `get_next_command()` (~line 759).
 
@@ -175,11 +189,13 @@ execution **mid-block** — executing code that should have been skipped.
 
 This is **pre-existing** (the old code had the same stop condition), not introduced by the PR.
 
-**Question for the author:** *The PR claims to fix skipping past nested if/begin/end blocks — do
-any live scripts nest an if-with-else inside a skippable block (e.g. is vnum #1140's shape
-if-only or if/else)? If else-nesting occurs in the wild, the recursion needs a "skip both halves"
-mode: when the recursive call hits `END_ELSE_BEGIN`, continue scanning to the matching `END`
-rather than returning. Should that follow-up land in this PR or a separate one?*
+**Resolution (2026-07-29): out of scope for this PR.** Per the author: this PR already implements
+its intended changes, and is now only being corrected for what's needed to safely deploy — a
+behavioral change to the skip-recursion (the "skip both halves" fix suggested above) risks changing
+execution for any live script that happens to hit this shape, which is exactly the kind of new risk
+this PR shouldn't be taking on at this stage. Leave the pre-existing limitation as-is; if it's ever
+picked up, do it as its own separate, deliberately-scoped change (with its own testing pass against
+live scripts), not folded into this PR.
 
 ---
 
@@ -279,13 +295,12 @@ These were adversarially checked during the review and found sound:
 
 ## Remaining work
 
-Only findings 4 and 5 are still open — both need the author's judgment call, not more
-investigation:
+None. All findings resolved as of 2026-07-29:
 
-1. **Finding 4:** which delay should win on a reentrant collision (bash-interrupts-cast), and
-   should the "Possible bug... notify Imps" message go away on that path?
-2. **Finding 5:** does any live script actually nest if/else inside a skippable block (check vnum
-   #1140)? If not, this can stay a documented pre-existing limitation.
+- Finding 4 deferred by author decision (single-slot-delay redesign question, out of scope) — no
+  further action expected unless that redesign itself gets picked up later.
+- Finding 5 marked out of scope for this PR — a behavioral fix here risks changing execution for
+  live scripts, which doesn't fit a PR that's now only taking safe corrections, not new intended
+  changes. Pick up separately, with its own testing pass, if it's ever done.
 
-Also outstanding: commit `eca5e51` (finding 7 fix + this doc's relocation) is local, not yet
-pushed to the PR.
+All commits referenced in this doc, including `eca5e51`, have been pushed to the PR.
