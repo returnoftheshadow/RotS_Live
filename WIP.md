@@ -1,6 +1,39 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: BuilderClient beginner fixture presets and one-click run polish.
+  Hide raw fixture editing behind a beginner scenario selector and add obvious
+  Run Script guidance/results so first-time builders can test happy-path and
+  failure-path fixtures without understanding every fixture field.
+- Latest completed slice: BuilderClient beginner save flow. The Create Script
+  panel now exposes a Save Project action that stays disabled until a beginner
+  script is generated, saves that generated TypeScript file instead of whichever
+  Explorer file is currently selected, persists project metadata and fixtures
+  through the existing workspace APIs, and reports source/metadata/fixture save
+  failures with component-specific diagnostics. Review follow-up added generated
+  path tracking, fail-fast partial-save messaging, assistive-tech status roles,
+  docs wording that avoids implying an atomic multi-file transaction, and
+  regression coverage for the generated save path and App IPC wiring.
+- Latest validation: BuilderClient `npm run typecheck` passed, focused
+  beginner wizard/sidebar/core/App IPC tests passed (`28` tests), full
+  BuilderClient `npm test -- --run` passed (`55` files, `696` tests), Docker
+  Node 22 validation with the local dependency tree passed `npm run typecheck`,
+  `npm test -- --run`, and `npm run build`, and parent/BuilderClient
+  `git diff --check` passed. Docker `npm ci` against npmjs was attempted first
+  but failed before tests with npm registry/TLS setup errors inside the
+  container.
+- Next slice: BuilderClient beginner fixture presets and one-click run polish.
+  Hide raw fixture editing behind a beginner scenario selector and add obvious
+  Run Script guidance/results so first-time builders can test happy-path and
+  failure-path fixtures without understanding every fixture field.
+- Reviewers: Mill, Leibniz, and Poincare reviewed the slice using the Electron
+  application and C++ application review guidance; their save-path,
+  partial-save, test-coverage, and accessibility findings were addressed before
+  commit.
+- Earlier active slice: BuilderClient beginner save flow. Add an obvious Save
+  Project action and status path after Create Script so generated source,
+  metadata, and fixtures can be persisted with one beginner action without
+  requiring builders to know which advanced save actions matter.
 - Latest completed slice: BuilderClient beginner publish flow. The Publish panel
   now leads with a guided Login, Check, Stage, and Activate row for the current
   script, while metadata edits, server/workspace settings, token override, raw

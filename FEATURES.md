@@ -855,6 +855,8 @@ Electron TypeScript authoring client:
     numeric values
   - derive canonical package metadata, script path, TypeScript source, and the
     first offline fixture from the recipe
+  - provide a single beginner Save Project action that persists generated
+    source, metadata, and fixtures with component-specific failure messages
   - keep generated output editable as normal TypeScript for advanced builders
 - The client should include an offline runner that uses the same script facade contract as the server where practical:
   - compile TypeScript to JavaScript

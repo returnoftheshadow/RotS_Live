@@ -293,8 +293,8 @@ Builder-facing client docs are maintained with the client:
 - The BuilderClient **Create Script** panel is the beginner path: it asks for a
   host type, zone vnum, target vnum, recipe, and message text, then creates the
   in-project TypeScript file, canonical package metadata, and first offline
-  fixture. Builders still use the normal workspace Save actions to persist
-  generated source, metadata, and fixture files.
+  fixture. The same panel includes **Save Project** to persist generated source,
+  metadata, and fixture files with one beginner action.
 - [BuilderClient tutorial](../BuilderClient/docs/builder-tutorial.md) covers the
   end-to-end authoring workflow from Git workspace setup through offline
   fixtures, packaging, and test-server publishing.
