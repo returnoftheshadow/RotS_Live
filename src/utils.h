@@ -534,6 +534,9 @@ extern struct race_bodypart_data bodyparts[MAX_BODYTYPES];
                 ch->delay.subcmd = -1;                                                              \
                 complete_delay(ch);                                                                 \
                 if (ch->delay.wait_value != 0) {                                                    \
+                    /* complete_delay() reentrantly queued a new delay (e.g. a                      \
+                       follow-up recovery action) while running the just-finished                   \
+                       command -- don't silently clobber it with this action. */                    \
                     send_to_char("Possible bug - double delay. Please notify Imps.\n", ch);         \
                     log("double delay (reentrant queue during complete_delay)?\n");                 \
                     break;                                                                          \
