@@ -575,6 +575,7 @@ Electron TypeScript authoring client:
     - CLI auth still lacks a dedicated login/logout and OS-credential/session lookup path; until that lands, authenticated CLI publish uses externally obtained short-lived session tokens passed through `--bearer-token-stdin`
     - Electron publish UI should keep using shared core/IPC validation and must not fork package, fixture, status, or publish authority from the CLI/server path
     - beginner publish readiness should translate missing checksum/digest fields into next actions such as Check, Stage, or Apply Metadata while keeping exact server values in Advanced controls
+    - beginner project health should summarize the next useful action across Create Script, Save Project, Run Script, Package, and Publish so first-time builders do not need raw diagnostics to decide what to do next
     - server-backed publish smoke remains valuable after local/offline CLI gaps are closed, especially for first-publish status, stale live checksum, stale staged digest, logout/revocation, and rollback conflict flows
   - read-only `docs` command reports local generated API documentation/provenance through deterministic JSON without requiring auth, network, upload, or server state mutation; output is bounded and sanitized, keeps checksum provenance, normalizes manifest enum/list fields, and avoids project-root/path disclosure
   - next offline-first CLI slice should add local manifest/status or diff inspection so builders can understand generated artifact freshness and local-vs-package state before upload behavior expands

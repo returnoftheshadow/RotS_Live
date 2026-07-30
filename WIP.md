@@ -1,10 +1,63 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient beginner local project doctor/status polish.
+- Active slice: BuilderClient beginner command language cleanup.
+  Sweep button labels, status text, and help copy for remaining advanced-only
+  terms on the first-run path, keeping exact API/CLI/server terms in Advanced
+  and command reference sections.
+- Latest completed slice: BuilderClient beginner local project doctor/status
+  polish. The sidebar now includes a beginner Next Steps panel that summarizes
+  project health across Create Script, Save Project, Run Script, Package, and
+  Publish, with concrete next actions for unsaved generated scripts, metadata
+  problems, missing/failed fixtures, package readiness, and login-before-publish
+  state. Review follow-up clears the saved indicator after fixture edits or
+  fixture replacement and treats zero-fixture beginner projects as blocked
+  before Package.
+- Latest validation: BuilderClient `npm run typecheck` passed, focused
+  beginner health/sidebar/App IPC tests passed (`28` tests), full BuilderClient
+  `npx vitest run --testTimeout 60000 --run` passed (`57` files, `709` tests),
+  BuilderClient `npm run build` passed, and parent/BuilderClient
+  `git diff --check` passed. An earlier full-suite attempt failed only because
+  the long shape-script example test exceeded its default timeout while another
+  build was running concurrently. Docker validation is still intentionally
+  deferred until all beginner-friendly slices are complete per the current user
+  instruction.
+- Next slice: BuilderClient beginner command language cleanup. Sweep button
+  labels, status text, and help copy for remaining advanced-only terms on the
+  first-run path, keeping exact API/CLI/server terms in Advanced and command
+  reference sections.
+- Reviewers: Avicenna and Harvey reviewed the slice using the Electron
+  application and C++ application review guidance; their saved-state-after-
+  fixture-edit and zero-fixture package-readiness findings were addressed before
+  commit.
+- Earlier active slice: BuilderClient beginner local project doctor/status
+  polish. Add a beginner-facing project health summary that explains unsaved
+  script, missing metadata, unrun/failed fixtures, and publish-login gaps as
+  concrete next actions before builders package or publish.
+- Earlier completed slice: BuilderClient beginner publish readiness
+  wording/polish. The Publish panel now translates missing publish inputs into
+  beginner next actions such as Apply Metadata, Check, Stage, or Check then
+  Stage while keeping raw token/checksum/digest/rollback fields in Advanced.
+  First-publish `status.not-found` responses now seed the reviewed empty-slot
+  baseline `live:initial` so Stage can become ready without manual checksum
+  entry, and docs explain the guided path plus first-publish behavior.
+- Earlier validation: BuilderClient `npm run typecheck` passed, focused publish
+  readiness/field-state/renderer/App IPC tests passed (`47` tests), full
+  BuilderClient `npx vitest run --testTimeout 60000 --run` passed (`55` files,
+  `702` tests), BuilderClient `npm run build` passed, and parent/BuilderClient
+  `git diff --check` passed. The default `npm test -- --run` attempt failed
+  only because long existing integration tests exceeded the default per-test
+  timeout while concurrent validation was running. Docker validation was still
+  intentionally deferred until all beginner-friendly slices are complete per the
+  current user instruction.
+- Earlier next slice: BuilderClient beginner local project doctor/status polish.
   Add a beginner-facing project health summary that explains unsaved script,
   missing metadata, unrun/failed fixtures, and publish-login gaps as concrete
   next actions before builders package or publish.
+- Earlier reviewers: Huygens and Russell reviewed the publish-readiness slice
+  using the Electron application and C++ application review guidance; their
+  combined next-action docs mismatch and first-publish `status.not-found`
+  readiness-loop findings were addressed before commit.
 - Latest completed slice: BuilderClient beginner publish readiness
   wording/polish. The Publish panel now translates missing publish inputs into
   beginner next actions such as Apply Metadata, Check, Stage, or Check then
