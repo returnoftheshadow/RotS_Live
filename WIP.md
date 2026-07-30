@@ -1,10 +1,45 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient beginner final local validation and Docker pass.
-  Run the complete non-Docker validation one more time, then run the deferred
-  Docker validation at the end of the beginner-friendly pass, fix any remaining
-  environment-specific failures, and stop with the final status.
+- Active slice: No active beginner-friendly BuilderClient slice. The current
+  beginner-friendly pass is complete pending the next requested scripting-engine
+  feature slice.
+- Latest completed slice: BuilderClient beginner final local validation and
+  Docker pass. The completed beginner-friendly BuilderClient flow was validated
+  locally and in Docker at the end of the pass, as requested, without further
+  code changes.
+- Latest validation: local BuilderClient `npm run typecheck` passed, local full
+  BuilderClient `npx vitest run --testTimeout 60000 --run` passed (`57` files,
+  `711` tests), local BuilderClient `npm run build` passed, parent/BuilderClient
+  `git diff --check` passed, and Docker Node 24 validation passed with
+  `npm run typecheck`, `npx vitest run --testTimeout 60000 --run` (`56` files
+  passed, `1` skipped, `695` tests passed, `16` skipped), and `npm run build`.
+- Next slice: Pick the next JavaScript scripting-engine feature slice from
+  `FEATURES.md` when work resumes.
+- Earlier active slice: BuilderClient beginner final local validation and Docker
+  pass. Run the complete non-Docker validation one more time, then run the
+  deferred Docker validation at the end of the beginner-friendly pass, fix any
+  remaining environment-specific failures, and stop with the final status.
+- Earlier completed slice: BuilderClient beginner command language cleanup.
+  The first-run Create Script path now uses beginner labels such as Zone number,
+  Mob/Object/Room number, Given item number, Reward item number, project
+  details, and tests instead of leading with vnum, metadata, or fixture jargon.
+  Advanced metadata, CLI, checksum/digest, and server-authority docs retain the
+  exact operational terms where they are needed. Review follow-up tightened the
+  mob host tooltip and reward tooltip language.
+- Earlier validation: BuilderClient `npm run typecheck` passed, focused
+  beginner wizard/health/sidebar/App IPC tests passed (`33` tests), full
+  BuilderClient `npx vitest run --testTimeout 60000 --run` passed (`57` files,
+  `711` tests), BuilderClient `npm run build` passed, and parent/BuilderClient
+  `git diff --check` passed. Docker validation was intentionally deferred until
+  the final beginner-friendly validation slice per the current user instruction.
+- Earlier next slice: BuilderClient beginner final local validation and Docker
+  pass. Run the complete non-Docker validation one more time, then run the
+  deferred Docker validation at the end of the beginner-friendly pass, fix any
+  remaining environment-specific failures, and stop with the final status.
+- Earlier reviewers: Goodall and Nash reviewed the command-language cleanup
+  slice using the Electron application and C++ application review guidance;
+  Nash's low-risk tooltip wording findings were addressed before commit.
 - Latest completed slice: BuilderClient beginner command language cleanup.
   The first-run Create Script path now uses beginner labels such as Zone number,
   Mob/Object/Room number, Given item number, Reward item number, project
