@@ -1,10 +1,60 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient beginner command language cleanup.
-  Sweep button labels, status text, and help copy for remaining advanced-only
-  terms on the first-run path, keeping exact API/CLI/server terms in Advanced
-  and command reference sections.
+- Active slice: BuilderClient beginner final local validation and Docker pass.
+  Run the complete non-Docker validation one more time, then run the deferred
+  Docker validation at the end of the beginner-friendly pass, fix any remaining
+  environment-specific failures, and stop with the final status.
+- Latest completed slice: BuilderClient beginner command language cleanup.
+  The first-run Create Script path now uses beginner labels such as Zone number,
+  Mob/Object/Room number, Given item number, Reward item number, project
+  details, and tests instead of leading with vnum, metadata, or fixture jargon.
+  Advanced metadata, CLI, checksum/digest, and server-authority docs retain the
+  exact operational terms where they are needed. Review follow-up tightened the
+  mob host tooltip and reward tooltip language.
+- Latest validation: BuilderClient `npm run typecheck` passed, focused
+  beginner wizard/health/sidebar/App IPC tests passed (`33` tests), full
+  BuilderClient `npx vitest run --testTimeout 60000 --run` passed (`57` files,
+  `711` tests), BuilderClient `npm run build` passed, and parent/BuilderClient
+  `git diff --check` passed. Docker validation is still intentionally deferred
+  until the final beginner-friendly validation slice per the current user
+  instruction.
+- Next slice: BuilderClient beginner final local validation and Docker pass.
+  Run the complete non-Docker validation one more time, then run the deferred
+  Docker validation at the end of the beginner-friendly pass, fix any remaining
+  environment-specific failures, and stop with the final status.
+- Reviewers: Goodall and Nash reviewed the slice using the Electron application
+  and C++ application review guidance; Nash's low-risk tooltip wording findings
+  were addressed before commit.
+- Earlier active slice: BuilderClient beginner command language cleanup. Sweep
+  button labels, status text, and help copy for remaining advanced-only terms on
+  the first-run path, keeping exact API/CLI/server terms in Advanced and command
+  reference sections.
+- Earlier completed slice: BuilderClient beginner local project doctor/status
+  polish. The sidebar now includes a beginner Next Steps panel that summarizes
+  project health across Create Script, Save Project, Run Script, Package, and
+  Publish, with concrete next actions for unsaved generated scripts, metadata
+  problems, missing/failed fixtures, package readiness, and login-before-publish
+  state. Review follow-up clears the saved indicator after fixture edits or
+  fixture replacement and treats zero-fixture beginner projects as blocked
+  before Package.
+- Earlier validation: BuilderClient `npm run typecheck` passed, focused
+  beginner health/sidebar/App IPC tests passed (`28` tests), full BuilderClient
+  `npx vitest run --testTimeout 60000 --run` passed (`57` files, `709` tests),
+  BuilderClient `npm run build` passed, and parent/BuilderClient
+  `git diff --check` passed. An earlier full-suite attempt failed only because
+  the long shape-script example test exceeded its default timeout while another
+  build was running concurrently. Docker validation was intentionally deferred
+  until all beginner-friendly slices are complete per the current user
+  instruction.
+- Earlier next slice: BuilderClient beginner command language cleanup. Sweep
+  button labels, status text, and help copy for remaining advanced-only terms on
+  the first-run path, keeping exact API/CLI/server terms in Advanced and command
+  reference sections.
+- Earlier reviewers: Avicenna and Harvey reviewed the health/status slice using
+  the Electron application and C++ application review guidance; their
+  saved-state-after-fixture-edit and zero-fixture package-readiness findings
+  were addressed before commit.
 - Latest completed slice: BuilderClient beginner local project doctor/status
   polish. The sidebar now includes a beginner Next Steps panel that summarizes
   project health across Create Script, Save Project, Run Script, Package, and
