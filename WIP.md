@@ -1,11 +1,40 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient beginner publish readiness wording/polish.
-  Translate package/checksum/stage blockers into first-time-builder next
-  actions and keep raw checksum/token fields in Advanced so builders can move
-  from local test to server publish without knowing the publish internals.
-- Latest completed slice: BuilderClient beginner fixture presets and one-click
+- Active slice: BuilderClient beginner local project doctor/status polish.
+  Add a beginner-facing project health summary that explains unsaved script,
+  missing metadata, unrun/failed fixtures, and publish-login gaps as concrete
+  next actions before builders package or publish.
+- Latest completed slice: BuilderClient beginner publish readiness
+  wording/polish. The Publish panel now translates missing publish inputs into
+  beginner next actions such as Apply Metadata, Check, Stage, or Check then
+  Stage while keeping raw token/checksum/digest/rollback fields in Advanced.
+  First-publish `status.not-found` responses now seed the reviewed empty-slot
+  baseline `live:initial` so Stage can become ready without manual checksum
+  entry, and docs explain the guided path plus first-publish behavior.
+- Latest validation: BuilderClient `npm run typecheck` passed, focused publish
+  readiness/field-state/renderer/App IPC tests passed (`47` tests), full
+  BuilderClient `npx vitest run --testTimeout 60000 --run` passed (`55` files,
+  `702` tests), BuilderClient `npm run build` passed, and parent/BuilderClient
+  `git diff --check` passed. The default `npm test -- --run` attempt failed
+  only because long existing integration tests exceeded the default per-test
+  timeout while concurrent validation was running. Docker validation is still
+  intentionally deferred until all beginner-friendly slices are complete per the
+  current user instruction.
+- Next slice: BuilderClient beginner local project doctor/status polish.
+  Add a beginner-facing project health summary that explains unsaved script,
+  missing metadata, unrun/failed fixtures, and publish-login gaps as concrete
+  next actions before builders package or publish.
+- Reviewers: Huygens and Russell reviewed the slice using the Electron
+  application and C++ application review guidance; their combined next-action
+  docs mismatch and first-publish `status.not-found` readiness-loop findings
+  were addressed before commit.
+- Earlier active slice: BuilderClient beginner publish readiness
+  wording/polish. Translate package/checksum/stage blockers into
+  first-time-builder next actions and keep raw checksum/token fields in Advanced
+  so builders can move from local test to server publish without knowing the
+  publish internals.
+- Earlier completed slice: BuilderClient beginner fixture presets and one-click
   run polish. The Create Script panel now creates named happy-path and
   failure-path offline scenarios for each beginner recipe, shows a Test Scenario
   chooser, and runs the selected generated fixture directly from the beginner
@@ -13,20 +42,21 @@
   beginner quiet scenarios assert missing output with explicit omission
   expectations, and docs explain Create Script, Test Scenario, Run Script, Save
   Project, and when to open Advanced Fixture details.
-- Latest validation: BuilderClient `npm run typecheck` passed, focused
+- Earlier validation: BuilderClient `npm run typecheck` passed, focused
   beginner wizard/fixture expectation/IPC/renderer tests passed (`121` tests),
   full BuilderClient `npm test -- --run` passed (`55` files, `699` tests),
   BuilderClient `npm run build` passed, and parent/BuilderClient
-  `git diff --check` passed. Docker validation is intentionally deferred until
+  `git diff --check` passed. Docker validation was intentionally deferred until
   all beginner-friendly slices are complete per the current user instruction.
-- Next slice: BuilderClient beginner publish readiness wording/polish.
+- Earlier next slice: BuilderClient beginner publish readiness wording/polish.
   Translate package/checksum/stage blockers into first-time-builder next
   actions and keep raw checksum/token fields in Advanced so builders can move
   from local test to server publish without knowing the publish internals.
-- Reviewers: Fermat and Pasteur reviewed the slice using the Electron
-  application and C++ application review guidance; their generated-scenario
-  filtering, quiet-scenario assertion, trigger metadata, tooltip/doc wording,
-  and default-hidden Advanced Fixture findings were addressed before commit.
+- Earlier reviewers: Fermat and Pasteur reviewed the fixture scenario slice
+  using the Electron application and C++ application review guidance; their
+  generated-scenario filtering, quiet-scenario assertion, trigger metadata,
+  tooltip/doc wording, and default-hidden Advanced Fixture findings were
+  addressed before commit.
 - Earlier active slice: BuilderClient beginner save flow. Add an obvious Save
   Project action and status path after Create Script so generated source,
   metadata, and fixtures can be persisted with one beginner action without
