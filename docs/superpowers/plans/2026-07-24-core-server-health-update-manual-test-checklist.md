@@ -192,6 +192,17 @@ fired inside `check_simple_move()`, was affected.)
       room vnum 1120 ("The Arena" — lit, no weather, isolated, single exit) is the intended
       immortal test-combat room; the default starting room is peaceful (combat no-ops there), and
       the mage's own home room has no ambient light.
+- [x] **Re-investigated 2026-07-29, prompted by a concern this fix itself had regressed something.**
+      Root-caused: it hadn't. Traced `complete_delay()` (`comm.cpp:2457`) — it zeroes
+      `ch->delay.wait_value` as its very first statement, so the reentrant-check added by this
+      task's fix (`if (ch->delay.wait_value != 0)` after `complete_delay()`) can only go true on
+      genuine reentrancy, never spuriously on the ordinary path. Also confirmed PR #274 (Account
+      management) barely touched `utils.h` (two `char *`→`char*` formatting diffs only, nothing near
+      the delay macros), ruling out a cross-PR interaction. **999c167 is sound, not a regression.**
+- [x] **Separate, real bug found and fixed the same day: bash bypassed battle mage's cast-
+      interrupt-resistance entirely, unrelated to the reentrancy fix above.** See "Bonus fix #6"
+      below for full detail — root cause, live confirmation, and the fix itself
+      (`db1b89f`, not yet pushed).
 
 ### 6. Connection behavior (Tasks 3, 4, 5, 6)
 - [x] **Confirmed 2026-07-28** — normal play feels the same: scripted login, `score`, movement
@@ -423,6 +434,50 @@ another mixed-case field name is ever added to the table.
       `OB 55`, and `Ob 33` all succeeded ("Bashtest's OB set to N. Saved in file.") and persisted
       correctly to the character JSON, verified after each call.
 
+## Bonus fix #6 — bash always broke a battle mage's cast, ignoring their tactics/level resistance
+
+Found 2026-07-29 while re-investigating Task 10 after a concern (unfounded, see above) that the
+double-delay fix itself had regressed something. The re-investigation surfaced a separate, real,
+much older bug in the process.
+
+**Root cause:** `battle_mage_handler::does_spell_get_interrupted()` (`battle_mage_handler.cpp`,
+added 2019) is only ever consulted from `damage()` (`fight.cpp:1735`), guarded by
+`IS_AFFECTED(victim, AFF_WAITWHEEL) && GET_WAIT_PRIORITY(victim) <= 40`. `do_bash`
+(`act_offe.cpp`) calls `WAIT_STATE_FULL(victim, ..., 80, ...)` *before* calling `damage()`.
+Priority 80 always beats a cast's priority 30, so `WAIT_STATE_FULL` unconditionally force-completes
+the cast via `complete_delay()`, which clears `AFF_WAITWHEEL` as its first statement — by the time
+`damage()` runs right after and reaches the battle-mage check, the flag is already gone. Ordinary
+weapon hits go straight to `damage()` with `AFF_WAITWHEEL` still intact, so those correctly roll the
+resistance chance. Bash was the one attack type that bypassed the roll entirely, regardless of
+tactics stance or profession levels.
+
+**Fix:** before calling `WAIT_STATE_FULL`, `do_bash` now checks
+`does_spell_get_interrupted()` itself and skips the clobber if the roll says the cast should
+survive — mirroring the same silent-skip pattern already used at the melee-hit
+(`fight.cpp:1735`) and mental-attack (`clerics.cpp:229,409`) call sites. Bash still lands its own
+token damage either way; it just doesn't override a successfully-defended cast.
+
+- [x] **Regression safety confirmed live 2026-07-29** — re-ran the original dark-mage bash repro
+      (non-battle-mage victim) against the fix: `victim_resists_cast_interruption` computed `false`
+      on every sample including ones caught mid-cast, and the stun applied exactly as before. Zero
+      behavior change for the common (non-battle-mage) case.
+- [x] **Both branches confirmed live 2026-07-29 with a real battle mage.** Built a fresh test
+      character `Battlemage` (Wood Elf, Mage class, `specialize battle` → battle magic, `set tactics
+      aggressive`, `chill ray` practiced to 100%) on the shared debug account. Notable side-finding:
+      standard-class character creation auto-invests all classpoints into that one profession — a
+      single admin `advance Battlemage 40` alone scaled `Class levels: Mag:30`, no manual point
+      allocation or JSON editing needed. Ran Bashtest bashing Battlemage while it repeatedly cast
+      `chill ray` in the arena (room 1120): of 7 bash landings, 6 caught it mid-cast, and **4 of
+      those 6 resisted** — matching the transcript exactly (resisted casts completed normally,
+      "Ok. ... chill ray strikes him"; non-resisted ones showed "You could not concentrate
+      anymore!", the pre-existing correct interrupted path). ~67% observed resist rate lines up with
+      the ~63% predicted from the resistance formula (`base_chance 0.25 + mage_bonus 0.30 +
+      tactic_bonus 0.08`) for a 6-sample run.
+
+**Committed** 2026-07-29 as `db1b89f` on local `release-frodo` (`src/act_offe.cpp` only). **Not
+pushed** — not yet part of the open PR #276 branch (`core-server-health-update`); per standing
+rule, needs an explicit ask before pushing.
+
 ## Low priority — basically unverifiable without special setup
 
 ### 7. autorun backoff (Task 7)
@@ -438,4 +493,7 @@ another mixed-case field name is ever added to the table.
 - **Pushed to `ahumbert/RotS_Live_ah:core-server-health-update` and opened as
   [PR #276](https://github.com/returnoftheshadow/RotS_Live/pull/276) against
   `returnoftheshadow/RotS_Live:release-frodo` on 2026-07-25.**
+- **3 more commits exist locally on top of that, not yet pushed (2026-07-29):** two docs commits
+  (`2f5c27d`, `75f09ac`) root-causing the double-delay bug, plus the actual fix commit `db1b89f`
+  (bonus fix #6 above). Not part of the PR #276 branch yet.
 - Standing rule: no further push/PR without an explicit ask each time
