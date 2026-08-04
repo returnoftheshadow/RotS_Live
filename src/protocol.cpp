@@ -1731,11 +1731,28 @@ static void PerformHandshake(descriptor_t* apDescriptor, char aCmd, char aProtoc
         if (aCmd == (char)WILL) {
             ConfirmNegotiation(apDescriptor, eNEGOTIATED_CHARSET, true, true);
             if (!pProtocol->bCHARSET) {
-                char charset_utf8[] = {
-                    (char)IAC, (char)SB, TELOPT_CHARSET, 1, ' ', 'U', 'T', 'F',
-                    '-', '8', (char)IAC, (char)SE, '\0'
+                /* Advertise ISO-8859-1, not UTF-8: that is what we actually put
+                   on the wire. Nothing in the output path ever encodes to UTF-8
+                   -- ProtocolOutput() (the only function that would, via
+                   UnicodeGet()) has no callers anywhere in the server; text goes
+                   straight from process_output() to write_to_descriptor() as raw
+                   bytes. The one source of non-ASCII output is the Quenya month
+                   names in consts.cpp (month_name[0..11], e.g. "N\xE9nim\xEB"),
+                   reached through day_to_str() from `time` and the pkill log,
+                   and those are literal latin-1 bytes.
+
+                   Claiming UTF-8 here made conforming clients (Mudlet) decode
+                   those bytes as UTF-8, where a lone 0xEB is an invalid sequence
+                   -- so the month names rendered as replacement characters.
+
+                   Note this is only about what we *emit*. PRF_LATIN1 still
+                   controls whether process_output() folds those bytes down to
+                   7-bit ASCII via unaccent() for players who asked for that. */
+                char charset_latin1[] = {
+                    (char)IAC, (char)SB, TELOPT_CHARSET, 1, ' ', 'I', 'S', 'O',
+                    '-', '8', '8', '5', '9', '-', '1', (char)IAC, (char)SE, '\0'
                 };
-                Write(apDescriptor, charset_utf8);
+                Write(apDescriptor, charset_latin1);
                 pProtocol->bCHARSET = true;
             }
         } else if (aCmd == (char)WONT) {
@@ -2045,16 +2062,20 @@ static void PerformSubnegotiation(descriptor_t* apDescriptor, char aCmd, char* a
         break;
 
     case (char)TELOPT_CHARSET:
-        if (pProtocol->bCHARSET) {
-            /* Because we're only asking about UTF-8, we can just check the
-             * first character.  If you ask for more than one CHARSET you'll
-             * need to read through the results to see which are accepted.
-             *
-             * Note that the user must also use a unicode font!
-             */
-            if (apData[0] == ACCEPTED)
-                pProtocol->pVariables[eMSDP_UTF_8]->ValueInt = 1;
-        }
+        /* Nothing to record. We only ever offer one charset, ISO-8859-1 (see the
+         * REQUEST we send in PerformHandshake), and we emit latin-1 either way --
+         * so neither ACCEPTED nor REJECTED changes what we put on the wire. If you
+         * ever offer more than one, read the reply here to see which was picked.
+         *
+         * This deliberately no longer sets eMSDP_UTF_8. It did, back when the
+         * REQUEST above claimed UTF-8 -- but that flag means "UTF-8 is in play",
+         * and accepting latin-1 is the opposite of that. The server has no UTF-8
+         * output path at all (ProtocolOutput(), which would provide one, is
+         * uncalled), so asserting it here only misled clients. Genuine client-side
+         * UTF-8 capability is still recorded from the MTTS bitfield in the TTYPE
+         * handler, which is a statement about the client rather than about this
+         * negotiation.
+         */
         break;
 
     case (char)TELOPT_MSDP:
