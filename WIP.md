@@ -1,8 +1,33 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: None. Latest enum reference/catalog implementation is complete.
-- Latest completed slice: BuilderClient RotS enum reference/catalog slice. Added
+- Active slice: None. Continue with the next slice below when work resumes.
+- Started: 2026-08-05 15:37:15 CDT.
+- Latest completed slice: BuilderClient enum catalog parity hardening. Added a
+  checked-in structural snapshot of the server-owned enum catalog and a
+  BuilderClient parity test that always compares fallback enum catalogs against
+  that snapshot. In parent-repo checkouts, the same test also parses
+  `src/js_api_enum_catalog.cpp` and verifies the snapshot matches the live C++
+  catalog names, type names, value kinds, keys, string values, and numeric
+  values. Review follow-up made the parser fail closed when C++ value
+  initializer entries are not parsed, corrected the snapshot source-path
+  comment, and kept unrelated `BuilderClient/scripts/script-1.ts` out of the
+  slice.
+- Completed: 2026-08-05 15:46:16 CDT.
+- Latest validation: BuilderClient `npm run typecheck` passed, focused
+  BuilderClient enum/artifact/offline/reference tests passed (`172` tests), the
+  new BuilderClient enum catalog parity test passed (`2` tests), parent and
+  BuilderClient `git diff --check` passed, reviewer reruns of the focused
+  parity test plus typecheck passed, and the full BuilderClient suite passed
+  after review follow-up (`60` files, `755` tests). No Docker validation was run
+  for this test-only parity slice.
+- Next slice: Optional BuilderClient enum snapshot refresh tooling. Add a
+  documented command that regenerates
+  `src/core/apiEnumCatalog.serverSnapshot.ts` from the parent
+  `src/js_api_enum_catalog.cpp` catalog so future enum additions can refresh
+  the checked-in parity snapshot without hand-editing.
+- Previous completed slice: BuilderClient RotS enum reference/catalog slice.
+  Added
   a server-owned script-visible enum catalog for common comparison domains such
   as race, direction, room sector, object flags, room flags, exit flags, wear
   slots, target types, positions, tactics, professions, specializations, object
@@ -26,10 +51,6 @@
   Thranduil, Magus, and Sauron review findings were addressed; residual
   non-blocking hardening is a future direct parity test between the C++ enum
   catalog and BuilderClient fallback catalog.
-- Next slice: Optional BuilderClient enum catalog parity hardening. Add a
-  generated or test-only parity bridge so fallback `apiEnumCatalog.ts` cannot
-  drift from the server-owned C++ catalog names, type names, value kinds, keys,
-  string values, and numeric values.
 - Latest completed slice: BuilderClient right reference split-pane description
   layout. The right RotS Reference panel is now split into a top lookup/results
   region and a bottom description/details region. The bottom half always
