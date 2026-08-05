@@ -229,13 +229,51 @@ void expect_editor_config_structure(const std::string &json) {
                                std::string *tsconfig_error) {
                                if (tsconfig_key == "compilerOptions") {
                                    saw_compiler_options = true;
+                                   bool saw_module_preserve = false;
+                                   bool saw_no_emit = false;
+                                   bool saw_allow_umd_global_access = false;
+                                   bool saw_empty_types = false;
                                    return tsconfig_reader->parse_object(
-                                       [](const std::string &,
+                                       [&](const std::string &option_key,
                                           json_utils::JsonReader *option_reader,
                                           std::string *option_error) {
+                                           if (option_key == "module") {
+                                               std::string value;
+                                               const bool parsed =
+                                                   option_reader->parse_string(&value, option_error);
+                                               EXPECT_EQ(value, "preserve");
+                                               saw_module_preserve = true;
+                                               return parsed;
+                                           }
+                                           if (option_key == "noEmit") {
+                                               bool value = false;
+                                               const bool parsed =
+                                                   option_reader->parse_bool(&value, option_error);
+                                               EXPECT_TRUE(value);
+                                               saw_no_emit = true;
+                                               return parsed;
+                                           }
+                                           if (option_key == "allowUmdGlobalAccess") {
+                                               bool value = false;
+                                               const bool parsed =
+                                                   option_reader->parse_bool(&value, option_error);
+                                               EXPECT_TRUE(value);
+                                               saw_allow_umd_global_access = true;
+                                               return parsed;
+                                           }
+                                           if (option_key == "types") {
+                                               std::vector<std::string> values;
+                                               const bool parsed = option_reader->parse_string_array(
+                                                   &values, option_error);
+                                               EXPECT_TRUE(values.empty());
+                                               saw_empty_types = true;
+                                               return parsed;
+                                           }
                                            return option_reader->skip_value(option_error);
                                        },
-                                       tsconfig_error);
+                                       tsconfig_error) &&
+                                          saw_module_preserve && saw_no_emit &&
+                                          saw_allow_umd_global_access && saw_empty_types;
                                }
                                if (tsconfig_key == "files") {
                                    std::vector<std::string> values;
@@ -293,6 +331,9 @@ TEST(JsBuilderArtifacts, GeneratesTypescriptDeclarationsWithCompatibilityHeader)
     expect_contains(declarations, manifest.generated_typings_version);
     expect_contains(declarations, "export type HostType");
     expect_contains(declarations, "export type DispatchStatus");
+    const std::string namespace_block = declaration_block(declarations, "declare namespace RotS");
+    ASSERT_FALSE(namespace_block.empty());
+    expect_contains(namespace_block, "export type TriggerResult = boolean | void;");
     expect_contains(declarations, "export interface RuntimeSafetyPolicy");
     expect_contains(declarations, "export type MutationResult =");
     expect_contains(declarations, "does not make any setter or helper callable");
@@ -1050,6 +1091,7 @@ TEST(JsBuilderArtifacts, GeneratesValidVscodeStyleLspConfig) {
     expect_contains(json, "\"intelliSense\":true");
     expect_contains(json, "\"tsconfig\":{");
     expect_contains(json, "\"module\":\"preserve\"");
+    expect_contains(json, "\"allowUmdGlobalAccess\":true");
     expect_contains(json, "\"files\":[\"generated/rots.d.ts\"]");
     expect_contains(
         json, "\"include\":[\"scripts/**/*.ts\",\"fixtures/**/*.ts\",\"generated/**/*.d.ts\"]");

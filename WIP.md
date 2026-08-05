@@ -1,21 +1,24 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: No active beginner-friendly BuilderClient slice. The current
-  beginner-friendly pass is complete pending the next requested scripting-engine
-  feature slice.
-- Latest completed slice: BuilderClient beginner final local validation and
-  Docker pass. The completed beginner-friendly BuilderClient flow was validated
-  locally and in Docker at the end of the pass, as requested, without further
-  code changes.
-- Latest validation: local BuilderClient `npm run typecheck` passed, local full
-  BuilderClient `npx vitest run --testTimeout 60000 --run` passed (`57` files,
-  `711` tests), local BuilderClient `npm run build` passed, parent/BuilderClient
-  `git diff --check` passed, and Docker Node 24 validation passed with
-  `npm run typecheck`, `npx vitest run --testTimeout 60000 --run` (`56` files
-  passed, `1` skipped, `695` tests passed, `16` skipped), and `npm run build`.
-- Next slice: Pick the next JavaScript scripting-engine feature slice from
-  `FEATURES.md` when work resumes.
+- Active slice: BuilderClient RotS API reference model. Build a searchable
+  in-app reference index from generated artifacts so beginner builders can find
+  `RotS` namespace types, members, signatures, documentation, and availability
+  without reading raw declaration files.
+- Latest completed slice: BuilderClient editor RotS LSP fix. Monaco now receives
+  editor-only global RotS declarations without the UMD footer so exported module
+  scripts can use the runtime `RotS` global without TS2686, the real compiler
+  path accepts generated UMD declarations, generated typings expose
+  `RotS.TriggerResult`, and fallback/generated editor configs carry matching
+  `allowUmdGlobalAccess`/`noEmit` settings.
+- Latest validation: BuilderClient `npm run typecheck` passed, focused
+  BuilderClient compiler/Monaco tests passed (`35` tests), focused C++ builder
+  artifact CTest validation passed (`2` tests), and parent/BuilderClient
+  `git diff --check` passed. Magus and Vincent found no blockers; Bazarat's
+  namespace-placement, structured editor-config, and semantic editor-typings
+  test-coverage findings were addressed.
+- Next slice: BuilderClient RotS API reference model. Build a core searchable
+  model over generated artifacts before adding the right-side reference panel.
 - Earlier active slice: BuilderClient beginner final local validation and Docker
   pass. Run the complete non-Docker validation one more time, then run the
   deferred Docker validation at the end of the beginner-friendly pass, fix any

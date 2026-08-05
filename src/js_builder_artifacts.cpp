@@ -301,6 +301,7 @@ std::string js_generate_typescript_declarations() {
     out << "}\n\n";
     append_trigger_handler_union(out);
     out << "\n";
+    out << "export type TriggerResult = boolean | void;\n\n";
 
     for (std::size_t type_index = 0; type_index < js_api_contract_type_count(); ++type_index) {
         const JsApiType &type = js_api_contract_types()[type_index];
@@ -505,6 +506,7 @@ std::string js_generate_editor_lsp_config_json() {
     out << "\"module\":\"preserve\",";
     out << "\"strict\":true,";
     out << "\"noEmit\":true,";
+    out << "\"allowUmdGlobalAccess\":true,";
     out << "\"types\":[]";
     out << "},";
     out << "\"files\":[\"generated/rots.d.ts\"],";
