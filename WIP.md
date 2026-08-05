@@ -2,6 +2,27 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active slice: No active BuilderClient beginner reference slice.
+- Latest completed slice: BuilderClient reference pane spacing and side-panel
+  scroll polish. RotS Reference headings, controls, result rows, and selected
+  detail headers now use safer line heights, padding, and minimum heights to
+  avoid clipped text. Side panes now use scroll containment plus pane-only wheel
+  normalization with pixel/line/page delta handling and nested-scroll boundary
+  detection so left-panel scrolling is more responsive without stealing wheel
+  input from controls, nested scroll areas, the editor, or bottom panels.
+- Latest validation: BuilderClient focused WorkspaceShell/RotS Reference tests
+  passed (`27` tests), related client zoom/layout tests passed in broader
+  focused validation (`33` tests), BuilderClient `npm run typecheck` passed,
+  BuilderClient `npm run build` passed, and parent/BuilderClient
+  `git diff --check` passed. Magus, Vincent, and Bazarat found no remaining
+  blockers after review follow-up. A real Chromium visual clipping smoke was
+  not automated in this slice; the already running Electron client should show
+  the CSS changes through Vite hot reload.
+- Next slice: None identified for the beginner RotS Reference pass. Remaining
+  low-risk polish is optional: real Chromium screenshot/layout regression
+  coverage for clipped reference headers, full listbox keyboard behavior if
+  richer keyboard navigation is added later, stacked shortcut buttons for very
+  narrow panes, and debounced search if the generated API index grows
+  materially.
 - Latest completed slice: BuilderClient right-side RotS Reference pane. The
   reference now lives in a dedicated resizable right pane, selected entries show
   detailed API metadata plus guarded beginner-facing examples, read-only API
