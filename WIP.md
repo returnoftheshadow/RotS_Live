@@ -1,26 +1,25 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient RotS reference interaction polish. Tighten the
-  sidebar reference browser's selection semantics and add small affordances such
-  as copying selected signatures where they improve first-time builder workflow
-  without adding raw generated-file complexity.
-- Latest completed slice: BuilderClient contextual RotS reference polish. Added
-  reference shortcuts for the selected fixture trigger, all documented
-  attributes, and `RotS.Script` helpers. The fixture trigger shortcut now uses
-  the active fixture host type when available, the attributes shortcut is
-  correctly broad, missing-trigger shortcuts show the empty state cleanly, and
-  selected details do not show stale entries.
+- Active slice: BuilderClient beginner reference docs polish. Update builder-
+  facing docs so the new sidebar RotS Reference, shortcut buttons, filters, and
+  signature-copy behavior are discoverable without reading source or generated
+  declaration files.
+- Latest completed slice: BuilderClient RotS reference interaction polish.
+  Added a selected-signature copy button with success/failure/unavailable
+  feedback, cleared copy feedback on search/filter/selection changes, and
+  tightened result selection semantics with listbox/option metadata while
+  retaining native button focus behavior.
 - Latest validation: BuilderClient `npm run typecheck` passed, focused
-  BuilderClient contextual reference tests passed (`18` tests), and
-  parent/BuilderClient `git diff --check` passed. Magus's fixture-context and
-  attributes-label findings were addressed; Vincent found no blockers;
-  Bazarat's fixture-host propagation and missing-handler findings were
-  addressed. Shortcut layout and richer result-list ARIA semantics remain
-  low-risk follow-up polish.
-- Next slice: BuilderClient RotS reference interaction polish. Tighten selected
-  result semantics and add a copy-signature affordance if it fits the current
-  renderer constraints.
+  BuilderClient reference interaction tests passed (`22` tests), and
+  parent/BuilderClient `git diff --check` passed. Magus's stale-copy-status and
+  live-feedback findings were addressed; Vincent found no blockers; Bazarat's
+  stale-status and unavailable-clipboard findings were addressed. Full
+  listbox-style keyboard navigation remains low-risk follow-up polish before
+  adding richer keyboard behavior.
+- Next slice: BuilderClient beginner reference docs polish. Document the new
+  RotS Reference panel, contextual shortcuts, filters, and signature-copy
+  behavior for builders.
 - Earlier active slice: BuilderClient beginner final local validation and Docker
   pass. Run the complete non-Docker validation one more time, then run the
   deferred Docker validation at the end of the beginner-friendly pass, fix any
