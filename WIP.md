@@ -2,7 +2,24 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active slice: None. Continue with the next slice below when work resumes.
-- Started: 2026-08-05 16:09:26 CDT.
+- Started: 2026-08-05 16:15:18 CDT.
+- Latest completed slice: Beginner RotS Reference guided examples polish.
+  Expanded the right-side RotS Reference description pane with builder notes for
+  enum comparisons, enum fixture setup, read-only attributes, callable setters,
+  output/mutation helpers, blocking triggers, deferred entries, and bit-value
+  catalogs. Review follow-up fixed `ctx.wearSlot`/`ctx.direction` fixture hints,
+  made `Room.sectorType` setter examples use `RotS.RoomSector.Forest`, widened
+  enum fixture coverage for numeric, bit, flag, and trigger-context catalogs,
+  and kept unrelated `BuilderClient/scripts/script-1.ts` out of the slice.
+- Completed: 2026-08-05 16:20:43 CDT.
+- Latest validation: BuilderClient focused RotS Reference tests passed (`26`
+  tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient `npm test -- --run` passed (`61`
+  files, `763` tests), and parent/BuilderClient `git diff --check` passed.
+- Next slice: Beginner script walkthrough state polish. Improve the create/test
+  path so first-time builders get clearer next-step state in the sidebar after
+  they create a script, choose a fixture scenario, run it, and prepare to save
+  or publish.
 - Latest completed slice: BuilderClient enum snapshot refresh tooling. Added
   `refresh:enum-snapshot` and `check:enum-snapshot` package commands backed by
   `scripts/refresh-enum-snapshot.mjs` so maintainers can regenerate or verify
