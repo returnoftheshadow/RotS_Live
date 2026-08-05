@@ -1,7 +1,22 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: No active BuilderClient beginner reference bug-fix slice.
+- Active slice: No active BuilderClient compile validation bug-fix slice.
+- Latest completed slice: BuilderClient generated API metadata compile
+  validation bug fix. Compile IPC validation now accepts generated readonly
+  property API members that intentionally use empty `returnType` metadata,
+  while failing closed for callable API members without return metadata. This
+  fixes the example-script compile failure that reported `returnType is
+  required`.
+- Latest validation: BuilderClient focused compile-handler tests passed (`109`
+  tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, and parent/BuilderClient `git diff --check` passed.
+  Sauron's medium method-signature bypass finding and Thranduil's matching
+  method-detection finding were addressed by only allowing empty return metadata
+  on explicit `readonly` property signatures; Magus found no issues.
+- Next slice: None identified for the immediate example-script compile
+  validation issue. Continue watching the compile path for additional
+  generated-manifest shape mismatches as builders exercise real projects.
 - Latest completed slice: BuilderClient reference row clipping and runtime
   safety compile validation bug fix. RotS Reference result rows now give title
   and subtitle text their own stable line boxes with larger row height and
