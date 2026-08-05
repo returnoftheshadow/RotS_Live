@@ -2,7 +2,29 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active slice: None. Continue with the next slice below when work resumes.
-- Started: 2026-08-05 15:37:15 CDT.
+- Started: 2026-08-05 16:09:26 CDT.
+- Latest completed slice: BuilderClient enum snapshot refresh tooling. Added
+  `refresh:enum-snapshot` and `check:enum-snapshot` package commands backed by
+  `scripts/refresh-enum-snapshot.mjs` so maintainers can regenerate or verify
+  `src/core/apiEnumCatalog.serverSnapshot.ts` from the parent
+  `src/js_api_enum_catalog.cpp` catalog without hand-editing. The README now
+  documents the refresh/check workflow and custom `--server-root` forms. Review
+  follow-up made CLI option values fail closed, added child-process error
+  handling in tests, restricted catalog parsing to the authoritative
+  `Catalogs[]` initializer body, rejected unparsed catalog entries, covered
+  stale check mode, malformed option values, malformed real catalogs with
+  fake out-of-scope catalogs, and unparsed value initializers, and kept
+  unrelated `BuilderClient/scripts/script-1.ts` out of the slice.
+- Completed: 2026-08-05 16:12:55 CDT.
+- Latest validation: BuilderClient `npm run check:enum-snapshot` passed,
+  focused BuilderClient enum snapshot/parity tests passed (`7` tests),
+  BuilderClient `npm run typecheck` passed, and parent/BuilderClient
+  `git diff --check` passed. Full BuilderClient `npm test -- --run` passed
+  after review follow-up (`61` files, `760` tests).
+- Next slice: Beginner RotS Reference guided examples polish. Improve the
+  right-side reference details so first-time builders can see copy-ready
+  comparison examples and common fixture setup hints for enum-heavy attributes
+  without reading docs first.
 - Latest completed slice: BuilderClient enum catalog parity hardening. Added a
   checked-in structural snapshot of the server-owned enum catalog and a
   BuilderClient parity test that always compares fallback enum catalogs against
