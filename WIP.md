@@ -1,8 +1,27 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: No active BuilderClient beginner reference slice.
-- Latest completed slice: BuilderClient reference pane spacing and side-panel
+- Active slice: No active BuilderClient beginner reference bug-fix slice.
+- Latest completed slice: BuilderClient reference row clipping and runtime
+  safety compile validation bug fix. RotS Reference result rows now give title
+  and subtitle text their own stable line boxes with larger row height and
+  padding so titles do not clip. Compile IPC validation now accepts generated
+  runtime-safety policy text up to the artifact-loader 1024-character cap,
+  which fixes the example-script compile failure caused by the current
+  generated `failureLoggingPolicy` text exceeding the generic short-text limit.
+- Latest validation: BuilderClient focused compile-handler/reference tests
+  passed (`123` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, and parent/BuilderClient `git diff --check` passed.
+  Thranduil and Magus low findings were addressed with explicit 1024/1025
+  runtime-safety boundary coverage and whitespace-tolerant CSS selector
+  matching; Sauron found no remaining issues.
+- Next slice: None identified for the immediate reference clipping or compile
+  validation bugs. Remaining low-risk polish is optional: real Chromium
+  screenshot/layout regression coverage for clipped reference rows, full
+  listbox keyboard behavior if richer keyboard navigation is added later,
+  stacked shortcut buttons for very narrow panes, and debounced search if the
+  generated API index grows materially.
+- Previous completed slice: BuilderClient reference pane spacing and side-panel
   scroll polish. RotS Reference headings, controls, result rows, and selected
   detail headers now use safer line heights, padding, and minimum heights to
   avoid clipped text. Side panes now use scroll containment plus pane-only wheel
