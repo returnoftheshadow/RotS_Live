@@ -1,25 +1,26 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient contextual RotS reference polish. Add editor-
-  adjacent affordances that make it easier for builders to jump from the active
-  script context to the relevant reference entries without knowing exact API
-  names.
-- Latest completed slice: BuilderClient right-side RotS reference panel. Added
-  a beginner-friendly sidebar reference browser over the generated `RotS` API
-  model with search, availability/kind/script-type filters, compact result
-  rows, selected signatures/docs, labeled script/context metadata, empty-state
-  handling, and stable selected-detail behavior.
+- Active slice: BuilderClient RotS reference interaction polish. Tighten the
+  sidebar reference browser's selection semantics and add small affordances such
+  as copying selected signatures where they improve first-time builder workflow
+  without adding raw generated-file complexity.
+- Latest completed slice: BuilderClient contextual RotS reference polish. Added
+  reference shortcuts for the selected fixture trigger, all documented
+  attributes, and `RotS.Script` helpers. The fixture trigger shortcut now uses
+  the active fixture host type when available, the attributes shortcut is
+  correctly broad, missing-trigger shortcuts show the empty state cleanly, and
+  selected details do not show stale entries.
 - Latest validation: BuilderClient `npm run typecheck` passed, focused
-  BuilderClient RotS API reference/sidebar renderer tests passed (`20` tests),
-  and parent/BuilderClient `git diff --check` passed. Magus's default-filter
-  and metadata-label findings were addressed; Vincent found no blockers;
-  Bazarat's default read-only discovery, empty-state, and selected-detail
-  findings were addressed. Copy-button and ARIA-list semantics remain low-risk
-  follow-up polish.
-- Next slice: BuilderClient contextual RotS reference polish. Add a small
-  context-aware path from the active script/editor state into the reference
-  panel without requiring builders to memorize API names.
+  BuilderClient contextual reference tests passed (`18` tests), and
+  parent/BuilderClient `git diff --check` passed. Magus's fixture-context and
+  attributes-label findings were addressed; Vincent found no blockers;
+  Bazarat's fixture-host propagation and missing-handler findings were
+  addressed. Shortcut layout and richer result-list ARIA semantics remain
+  low-risk follow-up polish.
+- Next slice: BuilderClient RotS reference interaction polish. Tighten selected
+  result semantics and add a copy-signature affordance if it fits the current
+  renderer constraints.
 - Earlier active slice: BuilderClient beginner final local validation and Docker
   pass. Run the complete non-Docker validation one more time, then run the
   deferred Docker validation at the end of the beginner-friendly pass, fix any
