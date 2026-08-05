@@ -2,7 +2,26 @@
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
 - Active slice: None. Continue with the next slice below when work resumes.
-- Started: 2026-08-05 16:15:18 CDT.
+- Started: 2026-08-05 16:21:00 CDT.
+- Latest completed slice: Beginner script walkthrough state polish.
+  Added a compact four-step Create/Scenario/Run/Save walkthrough to the
+  beginner script panel so first-time builders can see what to do next after
+  creating scenarios, choosing a test case, running it, fixing failures, and
+  saving the project. Review follow-up tightened the state model so create-only
+  status messages do not falsely mark Save as done, stale scenario names do not
+  count as selected or run-passed, failed runs keep Save behind an "After fix"
+  state, and each walkthrough step has an accessible label in addition to its
+  visual tone. The unrelated `BuilderClient/scripts/script-1.ts` file remains
+  untracked and excluded from this slice.
+- Completed: 2026-08-05 16:28:26 CDT.
+- Latest validation: BuilderClient focused BeginnerScriptWizard tests passed
+  (`10` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient `npm test -- --run` passed (`61`
+  files, `768` tests), and parent/BuilderClient `git diff --check` passed.
+- Next slice: Beginner walkthrough persistence polish. Make the beginner
+  walkthrough state survive common sidebar refreshes by tying it to saved
+  project/fixture readiness metadata instead of only transient status strings,
+  while keeping stale run/save state invalidated after edits.
 - Latest completed slice: Beginner RotS Reference guided examples polish.
   Expanded the right-side RotS Reference description pane with builder notes for
   enum comparisons, enum fixture setup, read-only attributes, callable setters,
