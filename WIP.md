@@ -1,7 +1,20 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: No active BuilderClient compile validation bug-fix slice.
+- Active slice: No active BuilderClient right reference layout slice.
+- Latest completed slice: BuilderClient right reference split-pane description
+  layout. The right RotS Reference panel is now split into a top lookup/results
+  region and a bottom description/details region. The bottom half always
+  renders either the selected API entry description or an empty guidance state,
+  and both result and description regions have independent scroll containment.
+- Latest validation: BuilderClient focused RotS Reference tests passed (`17`
+  tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, and parent/BuilderClient `git diff --check` passed.
+  Thranduil, Magus, and Sauron found no blocking issues. Real Chromium
+  screenshot/pixel layout coverage remains a residual optional validation gap.
+- Next slice: None identified for the immediate split-pane request. Remaining
+  optional polish is real Chromium screenshot/layout regression coverage for
+  clipped reference rows and bottom-pane scroll behavior.
 - Latest completed slice: BuilderClient generated API metadata compile
   validation bug fix. Compile IPC validation now accepts generated readonly
   property API members that intentionally use empty `returnType` metadata,
