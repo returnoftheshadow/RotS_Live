@@ -1,23 +1,25 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient right-side RotS reference panel. Add a beginner
-  friendly in-app browser/search view over the generated `RotS` API reference
-  model so builders can inspect available namespace types, helpers, fields,
-  triggers, signatures, documentation, availability, and host/context filters
-  without opening raw declaration files.
-- Latest completed slice: BuilderClient RotS API reference model. Added a core
-  searchable reference index over generated manifest artifacts covering API
-  types, members, struct field mappings, and triggers with beginner-facing
-  availability, status, side-effect, host-type, and context-field metadata.
+- Active slice: BuilderClient contextual RotS reference polish. Add editor-
+  adjacent affordances that make it easier for builders to jump from the active
+  script context to the relevant reference entries without knowing exact API
+  names.
+- Latest completed slice: BuilderClient right-side RotS reference panel. Added
+  a beginner-friendly sidebar reference browser over the generated `RotS` API
+  model with search, availability/kind/script-type filters, compact result
+  rows, selected signatures/docs, labeled script/context metadata, empty-state
+  handling, and stable selected-detail behavior.
 - Latest validation: BuilderClient `npm run typecheck` passed, focused
-  BuilderClient RotS API reference tests passed (`5` tests), and
-  parent/BuilderClient `git diff --check` passed. Magus and Vincent found no
-  blockers; Bazarat's callable-field display, duplicate-ID preservation, empty
-  manifest, host-filter, and limit-boundary findings were addressed.
-- Next slice: BuilderClient right-side RotS reference panel. Wire the reference
-  model into the renderer so builders can search and browse the API beside the
-  script editor.
+  BuilderClient RotS API reference/sidebar renderer tests passed (`20` tests),
+  and parent/BuilderClient `git diff --check` passed. Magus's default-filter
+  and metadata-label findings were addressed; Vincent found no blockers;
+  Bazarat's default read-only discovery, empty-state, and selected-detail
+  findings were addressed. Copy-button and ARIA-list semantics remain low-risk
+  follow-up polish.
+- Next slice: BuilderClient contextual RotS reference polish. Add a small
+  context-aware path from the active script/editor state into the reference
+  panel without requiring builders to memorize API names.
 - Earlier active slice: BuilderClient beginner final local validation and Docker
   pass. Run the complete non-Docker validation one more time, then run the
   deferred Docker validation at the end of the beginner-friendly pass, fix any
