@@ -1,9 +1,25 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: No active BuilderClient beginner reference slice. The reference
-  model, sidebar panel, contextual shortcuts, interaction polish, docs, local
-  validation, and Docker Node 24 focused validation slices are complete.
+- Active slice: No active BuilderClient beginner reference slice.
+- Latest completed slice: BuilderClient right-side RotS Reference pane. The
+  reference now lives in a dedicated resizable right pane, selected entries show
+  detailed API metadata plus guarded beginner-facing examples, read-only API
+  members are treated as attributes even when generated side-effect metadata is
+  conservative, and the All attributes shortcut includes both mapped fields and
+  readonly type members.
+- Latest validation: BuilderClient `npm run typecheck` passed, focused
+  right-reference/layout tests passed (`40` tests), `npm run build` passed, the
+  slow `shapeScriptExamples` file passed when rerun with an explicit 120-second
+  timeout (`7` tests), Docker Node 24 typecheck plus focused right-reference/
+  layout tests passed (`40` tests), and parent/BuilderClient `git diff --check`
+  passed. A broad `npx vitest run --testTimeout=120000 --run` attempt still
+  failed only because `shapeScriptExamples.test.ts` contains an existing
+  per-test 30-second timeout and timed out in the full-suite run.
+- Next slice: None identified for the beginner RotS Reference pass. Remaining
+  low-risk polish is optional: full listbox keyboard behavior if richer keyboard
+  navigation is added later, stacked shortcut buttons for very narrow panes, and
+  debounced search if the generated API index grows materially.
 - Latest completed slice: BuilderClient beginner reference final validation.
   Ran broader local validation and Docker Node 24 focused validation for the
   RotS Reference work. The normal host `npm run build` remains unvalidated on
