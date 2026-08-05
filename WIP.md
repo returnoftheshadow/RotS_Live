@@ -1,24 +1,23 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient RotS API reference model. Build a searchable
-  in-app reference index from generated artifacts so beginner builders can find
-  `RotS` namespace types, members, signatures, documentation, and availability
-  without reading raw declaration files.
-- Latest completed slice: BuilderClient editor RotS LSP fix. Monaco now receives
-  editor-only global RotS declarations without the UMD footer so exported module
-  scripts can use the runtime `RotS` global without TS2686, the real compiler
-  path accepts generated UMD declarations, generated typings expose
-  `RotS.TriggerResult`, and fallback/generated editor configs carry matching
-  `allowUmdGlobalAccess`/`noEmit` settings.
+- Active slice: BuilderClient right-side RotS reference panel. Add a beginner
+  friendly in-app browser/search view over the generated `RotS` API reference
+  model so builders can inspect available namespace types, helpers, fields,
+  triggers, signatures, documentation, availability, and host/context filters
+  without opening raw declaration files.
+- Latest completed slice: BuilderClient RotS API reference model. Added a core
+  searchable reference index over generated manifest artifacts covering API
+  types, members, struct field mappings, and triggers with beginner-facing
+  availability, status, side-effect, host-type, and context-field metadata.
 - Latest validation: BuilderClient `npm run typecheck` passed, focused
-  BuilderClient compiler/Monaco tests passed (`35` tests), focused C++ builder
-  artifact CTest validation passed (`2` tests), and parent/BuilderClient
-  `git diff --check` passed. Magus and Vincent found no blockers; Bazarat's
-  namespace-placement, structured editor-config, and semantic editor-typings
-  test-coverage findings were addressed.
-- Next slice: BuilderClient RotS API reference model. Build a core searchable
-  model over generated artifacts before adding the right-side reference panel.
+  BuilderClient RotS API reference tests passed (`5` tests), and
+  parent/BuilderClient `git diff --check` passed. Magus and Vincent found no
+  blockers; Bazarat's callable-field display, duplicate-ID preservation, empty
+  manifest, host-filter, and limit-boundary findings were addressed.
+- Next slice: BuilderClient right-side RotS reference panel. Wire the reference
+  model into the renderer so builders can search and browse the API beside the
+  script editor.
 - Earlier active slice: BuilderClient beginner final local validation and Docker
   pass. Run the complete non-Docker validation one more time, then run the
   deferred Docker validation at the end of the beginner-friendly pass, fix any
