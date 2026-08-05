@@ -1259,6 +1259,23 @@ TEST(JsGameRuntime, ExecutesScriptsAgainstReadOnlyGameContext) {
     expect_ok_allows(result);
 }
 
+TEST(JsGameRuntime, ExposesFrozenRotSEnumConstants) {
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "try { RotS.Race.Human = 'Orc'; } catch (error) {}\n"
+        "return ctx.self.race === RotS.Race.Human\n"
+        "  && ctx.self.profile.raceId === RotS.RaceIds.Human\n"
+        "  && ctx.room.sectorType === RotS.RoomSector.City\n"
+        "  && ctx.object.flags.extraFlags.includes(RotS.ObjectExtraFlag.Magic)\n"
+        "  && RotS.ObjectExtraFlagBits.Magic === 64\n"
+        "  && Object.isFrozen(RotS.Race)\n"
+        "  && Object.isFrozen(RotS)\n"
+        "  && RotS.Race.Human === 'Human';",
+        make_context());
+
+    expect_ok_allows(result);
+}
+
 TEST(JsGameRuntime, SetterSurfaceMatchesStructMappingCatalog) {
     JsGameTriggerContextFixture context = make_context();
     context.actor.has_room = true;

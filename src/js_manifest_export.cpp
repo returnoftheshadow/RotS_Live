@@ -1,6 +1,7 @@
 #include "js_manifest_export.h"
 
 #include "js_api_contract.h"
+#include "js_api_enum_catalog.h"
 #include "js_api_struct_mapping.h"
 #include "js_scripting_manifest.h"
 #include "js_scripting_runtime_policy.h"
@@ -297,6 +298,48 @@ void append_struct_field_mappings(std::ostringstream &out, const JsManifestExpor
     out << ']';
 }
 
+void append_api_enum_catalogs(std::ostringstream &out, const JsManifestExportOptions &options) {
+    out << '[';
+    for (std::size_t catalog_index = 0; catalog_index < js_api_enum_catalog_count();
+         ++catalog_index) {
+        if (catalog_index > 0)
+            out << ',';
+        const JsApiEnumCatalog &catalog = js_api_enum_catalogs()[catalog_index];
+        out << '{';
+        append_string_field(out, "name", catalog.name);
+        out << ',';
+        append_string_field(out, "typeName", catalog.type_name);
+        out << ',';
+        append_string_field(out, "valueKind", js_api_enum_value_kind_name(catalog.value_kind));
+        out << ',';
+        append_documentation_field(out, "documentation", catalog.docs);
+        out << ',';
+        append_string_field(out, "comparableFields", catalog.comparable_fields);
+        out << ',';
+        append_key(out, "values");
+        out << '[';
+        for (std::size_t value_index = 0; value_index < catalog.value_count; ++value_index) {
+            if (value_index > 0)
+                out << ',';
+            const JsApiEnumValue &value = catalog.values[value_index];
+            out << '{';
+            append_string_field(out, "key", value.key);
+            out << ',';
+            append_string_field(out, "stringValue", value.string_value);
+            out << ',';
+            append_int_field(out, "numberValue", value.number_value);
+            if (options.include_documentation) {
+                out << ',';
+                append_documentation_field(out, "documentation", value.docs);
+            }
+            out << '}';
+        }
+        out << ']';
+        out << '}';
+    }
+    out << ']';
+}
+
 std::size_t public_struct_field_mapping_count() {
     std::size_t count = 0;
     for (std::size_t index = 0; index < js_api_struct_field_mapping_count(); ++index) {
@@ -410,6 +453,8 @@ std::string js_export_api_contract_json(const JsManifestExportOptions &options) 
     out << ',';
     append_size_field(out, "structFieldMappingCount", public_struct_field_mapping_count());
     out << ',';
+    append_size_field(out, "enumCatalogCount", js_api_enum_catalog_count());
+    out << ',';
     append_key(out, "types");
     out << '[';
     for (std::size_t type_index = 0; type_index < js_api_contract_type_count(); ++type_index) {
@@ -466,6 +511,9 @@ std::string js_export_api_contract_json(const JsManifestExportOptions &options) 
     out << ',';
     append_key(out, "structFieldMappings");
     append_struct_field_mappings(out, options);
+    out << ',';
+    append_key(out, "enums");
+    append_api_enum_catalogs(out, options);
     out << '}';
     return out.str();
 }

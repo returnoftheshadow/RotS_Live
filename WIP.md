@@ -1,7 +1,35 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: No active BuilderClient right reference layout slice.
+- Active slice: None. Latest enum reference/catalog implementation is complete.
+- Latest completed slice: BuilderClient RotS enum reference/catalog slice. Added
+  a server-owned script-visible enum catalog for common comparison domains such
+  as race, direction, room sector, object flags, room flags, exit flags, wear
+  slots, target types, positions, tactics, professions, specializations, object
+  types/materials, and apply locations. The catalog is exported through live
+  `RotS.*` runtime constants, generated TypeScript declarations, builder
+  manifest API metadata, fallback/offline BuilderClient artifacts, and the
+  right-side RotS Reference panel with enum filtering, comparison guidance,
+  value lists, and usage examples. Review follow-up made offline fixtures use
+  synced manifest enum catalogs, added diagnostics for missing/truncated server
+  enum exports, rejected unsafe enum identifier/prototype names, corrected
+  string-vs-numeric comparison guidance, and updated the legacy test Makefile.
+- Completed: 2026-08-05 14:56:27 CDT.
+- Latest validation: BuilderClient `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 60000 --run` passed (`59` files, `753` tests),
+  focused BuilderClient enum/artifact/IPC/offline/reference tests passed (`265`
+  tests), full root `make test -j16` passed (`1690/1690`), focused native enum
+  artifact/runtime tests passed, legacy `src/tests` Makefile dry-run includes
+  `js_api_enum_catalog.o`, Docker Node 24 BuilderClient typecheck plus focused
+  enum/reference tests passed (`261` passed, `4` skipped), and
+  parent/BuilderClient `git diff --check` passed.
+  Thranduil, Magus, and Sauron review findings were addressed; residual
+  non-blocking hardening is a future direct parity test between the C++ enum
+  catalog and BuilderClient fallback catalog.
+- Next slice: Optional BuilderClient enum catalog parity hardening. Add a
+  generated or test-only parity bridge so fallback `apiEnumCatalog.ts` cannot
+  drift from the server-owned C++ catalog names, type names, value kinds, keys,
+  string values, and numeric values.
 - Latest completed slice: BuilderClient right reference split-pane description
   layout. The right RotS Reference panel is now split into a top lookup/results
   region and a bottom description/details region. The bottom half always

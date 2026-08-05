@@ -2,6 +2,7 @@
 
 #include "js_api_contract.h"
 #include "js_api_struct_mapping.h"
+#include "js_manifest_export.h"
 #include "js_scripting_manifest.h"
 #include "js_scripting_runtime_policy.h"
 #include "json_utils.h"
@@ -16,6 +17,10 @@ namespace {
 
 void expect_contains(const std::string &text, const std::string &needle) {
     EXPECT_NE(text.find(needle), std::string::npos) << needle;
+}
+
+void expect_not_contains(const std::string &text, const std::string &needle) {
+    EXPECT_EQ(text.find(needle), std::string::npos) << needle;
 }
 
 void expect_before(const std::string &text, const std::string &first, const std::string &second) {
@@ -36,7 +41,7 @@ bool contains_raw_cpp_type_text(const std::string &text) {
                                "room_data",   "room_data*",  "zone_data", "zone_data*",
                                "script_data", "script_head", "room_rnum", "obj_rnum",
                                "std::",       "::",          "void*",     "char*",
-                               "struct ",     ".h",          ".cpp"};
+                               "struct ",     "#include",    ".cpp"};
 
     for (const char *value : forbidden) {
         if (lower_text.find(value) != std::string::npos)
@@ -1118,4 +1123,38 @@ TEST(JsBuilderArtifacts, GeneratesValidVscodeStyleLspConfig) {
     EXPECT_EQ(json.find("declarationRoots"), std::string::npos);
     EXPECT_EQ(json.find("\"module\":\"none\""), std::string::npos);
     EXPECT_FALSE(contains_raw_cpp_type_text(json));
+}
+
+TEST(JsBuilderArtifacts, GeneratesEnumCatalogsForBuilderComparisons) {
+    const std::string declarations = js_generate_typescript_declarations();
+    const std::string markdown = js_generate_api_markdown_reference();
+    const std::string manifest = js_export_builder_manifest_json();
+
+    expect_contains(declarations, "export type RaceName =");
+    expect_contains(declarations, "export const Race: Readonly<{");
+    expect_contains(declarations, "readonly Human: 'Human';");
+    expect_contains(declarations, "export type RoomSectorName =");
+    expect_contains(declarations, "readonly Forest: 'Forest';");
+    expect_contains(declarations, "export const ObjectExtraFlag: Readonly<{");
+    expect_contains(declarations, "readonly NoDrop: 'noDrop';");
+    expect_contains(declarations, "export const RaceIds: Readonly<{");
+    expect_contains(declarations, "readonly Human: 1;");
+
+    expect_contains(markdown, "## API Enums");
+    expect_contains(markdown, "### RotS.Race");
+    expect_contains(markdown, "ctx.actor.race === RotS.Race.Human");
+    expect_contains(markdown, "- Compare with: `Character.race, CharacterRelationshipSnapshot.race`");
+    expect_not_contains(markdown, "- Compare with: `Character.race, CharacterProfile.raceId");
+    expect_contains(markdown, "Prefer RotS.RoomSector with Room.sectorType");
+    expect_contains(markdown, "### RotS.ObjectExtraFlag");
+    expect_contains(markdown, "RotS.ObjectExtraFlag.NoDrop");
+    expect_contains(markdown, "Prefer RotS.ObjectExtraFlag with ObjectFlags.extraFlags");
+
+    expect_contains(manifest, "\"enumCatalogCount\":");
+    expect_contains(manifest, "\"enums\":[");
+    expect_contains(manifest, "\"name\":\"Race\"");
+    expect_contains(manifest, "\"key\":\"Human\"");
+    expect_contains(manifest, "\"stringValue\":\"Human\"");
+    expect_contains(manifest, "\"numberValue\":1");
+    expect_contains(manifest, "\"name\":\"ObjectExtraFlagBits\"");
 }

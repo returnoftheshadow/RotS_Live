@@ -18,7 +18,7 @@ struct JsBuilderManifestEndpointRequest {
 struct JsBuilderManifestEndpointOptions {
     std::string route_path = "/api/builder/js/manifest";
     JsManifestExportOptions export_options;
-    std::size_t maximum_response_bytes = 512 * 1024;
+    std::size_t maximum_response_bytes = 2 * 1024 * 1024;
 };
 
 struct JsBuilderManifestEndpointResult {

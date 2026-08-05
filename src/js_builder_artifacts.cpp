@@ -1,6 +1,7 @@
 #include "js_builder_artifacts.h"
 
 #include "js_api_contract.h"
+#include "js_api_enum_catalog.h"
 #include "js_api_struct_mapping.h"
 #include "js_manifest_export.h"
 #include "js_scripting_manifest.h"
@@ -45,6 +46,12 @@ std::string ts_string_literal(const char *value) {
         escaped += ch;
     }
     return escaped;
+}
+
+std::string ts_value_literal(const JsApiEnumCatalog &catalog, const JsApiEnumValue &value) {
+    if (catalog.value_kind == JsApiEnumValueKind::String)
+        return "'" + ts_string_literal(value.string_value) + "'";
+    return std::to_string(value.number_value);
 }
 
 std::string ts_doc_text(const char *value) {
@@ -162,6 +169,78 @@ std::string ts_member_signature(const JsApiMember &member) {
 
 void append_ts_doc_comment(std::ostringstream &out, const std::string &indent, const char *text) {
     out << indent << "/** " << ts_doc_text(text) << " */\n";
+}
+
+void append_enum_typescript_declarations(std::ostringstream &out) {
+    out << "/* Script-visible constants for common comparison domains. */\n";
+    for (std::size_t catalog_index = 0; catalog_index < js_api_enum_catalog_count();
+         ++catalog_index) {
+        const JsApiEnumCatalog &catalog = js_api_enum_catalogs()[catalog_index];
+        append_ts_doc_comment(out, "", catalog.docs);
+        out << "export type " << catalog.type_name << " =\n";
+        for (std::size_t value_index = 0; value_index < catalog.value_count; ++value_index) {
+            out << "    | " << ts_value_literal(catalog, catalog.values[value_index])
+                << (value_index + 1 == catalog.value_count ? ";\n" : "\n");
+        }
+        append_ts_doc_comment(out, "", catalog.docs);
+        out << "export const " << catalog.name << ": Readonly<{\n";
+        for (std::size_t value_index = 0; value_index < catalog.value_count; ++value_index) {
+            const JsApiEnumValue &value = catalog.values[value_index];
+            append_ts_doc_comment(out, "    ", value.docs);
+            out << "    readonly " << value.key << ": " << ts_value_literal(catalog, value)
+                << ";\n";
+        }
+        out << "}>;\n\n";
+    }
+}
+
+std::string enum_example(const JsApiEnumCatalog &catalog) {
+    const std::string name = catalog.name;
+    if (name == "Race")
+        return "if (ctx.actor && ctx.actor.race === RotS.Race.Human) { return RotS.ScriptResult.allow(); }";
+    if (name == "RaceIds")
+        return "if (ctx.actor && ctx.actor.profile.raceId === RotS.RaceIds.Human) { return RotS.ScriptResult.allow(); }";
+    if (name == "RoomSector")
+        return "if (ctx.room && ctx.room.sectorType === RotS.RoomSector.Forest) { return RotS.ScriptResult.allow(); }";
+    if (name == "ObjectExtraFlag")
+        return "if (ctx.object && ctx.object.flags.extraFlags.includes(RotS.ObjectExtraFlag.NoDrop)) { return RotS.ScriptResult.block(); }";
+    if (name == "RoomFlag")
+        return "if (ctx.room && ctx.room.flags.includes(RotS.RoomFlag.PeaceRoom)) { return RotS.ScriptResult.allow(); }";
+    if (name == "ExitFlag")
+        return "const locked = ctx.room?.exits.some((exit) => exit.flags.includes(RotS.ExitFlag.Locked));";
+    if (name == "Direction")
+        return "if (ctx.direction === RotS.Direction.North) { return RotS.ScriptResult.allow(); }";
+    return std::string("const value = RotS.") + catalog.name + "." + catalog.values[0].key + ";";
+}
+
+void append_enum_markdown_reference(std::ostringstream &out) {
+    out << "## API Enums\n\n";
+    out << "These frozen `RotS.*` constants are available in live scripts and offline fixtures. "
+           "Use the string constants for comparing snapshot fields such as `ctx.actor.race`, "
+           "`ctx.room.sectorType`, or flag-name arrays. Use the `Ids` or `Bits` catalogs only "
+           "when a field stores the numeric legacy id or bit value.\n\n";
+    for (std::size_t catalog_index = 0; catalog_index < js_api_enum_catalog_count();
+         ++catalog_index) {
+        const JsApiEnumCatalog &catalog = js_api_enum_catalogs()[catalog_index];
+        out << "### RotS." << catalog.name << "\n\n";
+        out << docs(catalog.docs) << "\n\n";
+        out << "- Type: `" << catalog.type_name << "`\n";
+        out << "- Value kind: `" << js_api_enum_value_kind_name(catalog.value_kind) << "`\n";
+        out << "- Compare with: `" << markdown_cell(catalog.comparable_fields) << "`\n";
+        out << "- Example: `" << markdown_cell(enum_example(catalog).c_str()) << "`\n\n";
+        out << "| Key | Value | Docs |\n";
+        out << "| --- | --- | --- |\n";
+        for (std::size_t value_index = 0; value_index < catalog.value_count; ++value_index) {
+            const JsApiEnumValue &value = catalog.values[value_index];
+            const std::string literal = catalog.value_kind == JsApiEnumValueKind::String
+                ? value.string_value
+                : std::to_string(value.number_value);
+            out << "| " << markdown_inline_code(value.key) << " | "
+                << markdown_inline_code(literal.c_str()) << " | " << markdown_cell(value.docs)
+                << " |\n";
+        }
+        out << "\n";
+    }
 }
 
 void append_mutation_result_type(std::ostringstream &out) {
@@ -302,6 +381,7 @@ std::string js_generate_typescript_declarations() {
     append_trigger_handler_union(out);
     out << "\n";
     out << "export type TriggerResult = boolean | void;\n\n";
+    append_enum_typescript_declarations(out);
 
     for (std::size_t type_index = 0; type_index < js_api_contract_type_count(); ++type_index) {
         const JsApiType &type = js_api_contract_types()[type_index];
@@ -384,6 +464,7 @@ std::string js_generate_api_markdown_reference() {
            "handlers and active read-only or pure helper API members. Reserved, unsupported, "
            "and deferred side-effect APIs are documented here for compatibility planning but are "
            "not callable from builder scripts.\n\n";
+    append_enum_markdown_reference(out);
     const JsScriptingRuntimeSafetyPolicy &policy = js_scripting_runtime_safety_policy();
     out << "## Runtime Safety\n\n";
     out << "| Limit | Value |\n";

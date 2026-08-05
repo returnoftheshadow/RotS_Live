@@ -42,6 +42,7 @@ set(ROTS_SERVER_SOURCES
     exploits_json.cpp
     json_utils.cpp
     js_api_contract.cpp
+    js_api_enum_catalog.cpp
     js_api_struct_mapping.cpp
     js_builder_http_ingress.cpp
     js_builder_http_server_transport.cpp

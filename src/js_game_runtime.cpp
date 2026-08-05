@@ -1,4 +1,5 @@
 #include "js_game_runtime.h"
+#include "js_api_enum_catalog.h"
 #include "js_source_policy.h"
 
 #include "json_utils.h"
@@ -1803,6 +1804,8 @@ std::string trigger_context_preamble(const JsGameTriggerContextFixture& context)
         << "    allow: function() { return true; },\n"
         << "    block: function() { return false; }\n"
         << "  },\n"
+        << js_api_enum_runtime_object_literal()
+        << ","
         << "  Script: {\n"
         << "    doWait: __rotsDoWait,\n"
         << "    doSay: __rotsDoSay,\n"
