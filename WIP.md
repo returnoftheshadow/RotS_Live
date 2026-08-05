@@ -1,25 +1,21 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient beginner reference docs polish. Update builder-
-  facing docs so the new sidebar RotS Reference, shortcut buttons, filters, and
-  signature-copy behavior are discoverable without reading source or generated
-  declaration files.
-- Latest completed slice: BuilderClient RotS reference interaction polish.
-  Added a selected-signature copy button with success/failure/unavailable
-  feedback, cleared copy feedback on search/filter/selection changes, and
-  tightened result selection semantics with listbox/option metadata while
-  retaining native button focus behavior.
+- Active slice: BuilderClient beginner reference final validation. Run a broader
+  local BuilderClient validation pass for the reference browser work, then stop
+  before Docker unless another requested slice requires it.
+- Latest completed slice: BuilderClient beginner reference docs polish. Updated
+  README, tutorial, and quick-help docs for the RotS Reference panel, shortcut
+  buttons, filters, signature-copy behavior, server-owned generated API
+  boundary, script-type filter scope, and the read-only snapshot versus callable
+  setter/helper mental model.
 - Latest validation: BuilderClient `npm run typecheck` passed, focused
-  BuilderClient reference interaction tests passed (`22` tests), and
-  parent/BuilderClient `git diff --check` passed. Magus's stale-copy-status and
-  live-feedback findings were addressed; Vincent found no blockers; Bazarat's
-  stale-status and unavailable-clipboard findings were addressed. Full
-  listbox-style keyboard navigation remains low-risk follow-up polish before
-  adding richer keyboard behavior.
-- Next slice: BuilderClient beginner reference docs polish. Document the new
-  RotS Reference panel, contextual shortcuts, filters, and signature-copy
-  behavior for builders.
+  BuilderClient docs checks passed, and parent/BuilderClient `git diff --check`
+  passed. Magus and Vincent found no blockers; Bazarat's writable-field,
+  copy-reference, and script-type filter wording findings were addressed.
+- Next slice: BuilderClient beginner reference final validation. Run a broader
+  local test pass across the touched reference/sidebar surfaces before deciding
+  whether more beginner-friendly slices remain.
 - Earlier active slice: BuilderClient beginner final local validation and Docker
   pass. Run the complete non-Docker validation one more time, then run the
   deferred Docker validation at the end of the beginner-friendly pass, fix any
