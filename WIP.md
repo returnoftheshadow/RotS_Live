@@ -1,21 +1,29 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: BuilderClient beginner reference final validation. Run a broader
-  local BuilderClient validation pass for the reference browser work, then stop
-  before Docker unless another requested slice requires it.
-- Latest completed slice: BuilderClient beginner reference docs polish. Updated
-  README, tutorial, and quick-help docs for the RotS Reference panel, shortcut
-  buttons, filters, signature-copy behavior, server-owned generated API
-  boundary, script-type filter scope, and the read-only snapshot versus callable
-  setter/helper mental model.
+- Active slice: No active BuilderClient beginner reference slice. The reference
+  model, sidebar panel, contextual shortcuts, interaction polish, docs, local
+  validation, and Docker Node 24 focused validation slices are complete.
+- Latest completed slice: BuilderClient beginner reference final validation.
+  Ran broader local validation and Docker Node 24 focused validation for the
+  RotS Reference work. The normal host `npm run build` remains unvalidated on
+  its default output path because it is blocked by pre-existing root-owned
+  ignored output directories under `BuilderClient/dist` and
+  `BuilderClient/dist-electron`; a temporary-output Vite build validates the
+  renderer production bundle, not the full normal host build path.
 - Latest validation: BuilderClient `npm run typecheck` passed, focused
-  BuilderClient docs checks passed, and parent/BuilderClient `git diff --check`
-  passed. Magus and Vincent found no blockers; Bazarat's writable-field,
-  copy-reference, and script-type filter wording findings were addressed.
-- Next slice: BuilderClient beginner reference final validation. Run a broader
-  local test pass across the touched reference/sidebar surfaces before deciding
-  whether more beginner-friendly slices remain.
+  reference/sidebar tests passed (`22` tests), default full BuilderClient
+  `npm test` did not complete successfully because four slow files timed out at
+  the default 15-second timeout, those four files passed when rerun with a
+  120-second timeout (`155` tests), `npx tsc -p tsconfig.node.json` passed,
+  `npx vite build --outDir /tmp/rots-builder-client-vite-check --emptyOutDir`
+  passed, Docker Node 24 typecheck plus focused reference/sidebar tests passed
+  (`22` tests), and parent/BuilderClient `git diff --check` passed. Docker did
+  not run the full BuilderClient suite or normal build.
+- Next slice: None identified for the beginner RotS Reference pass. Remaining
+  low-risk polish is optional: full listbox keyboard behavior if richer keyboard
+  navigation is added later, stacked shortcut buttons for very narrow sidebars,
+  and debounced search if the generated API index grows materially.
 - Earlier active slice: BuilderClient beginner final local validation and Docker
   pass. Run the complete non-Docker validation one more time, then run the
   deferred Docker validation at the end of the beginner-friendly pass, fix any
