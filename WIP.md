@@ -1,10 +1,35 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture expectation examples from latest run. Make
-  expectation field examples adapt from the latest matching run where safe so
-  first-time builders see project-specific value shapes before typing.
-- Started: 2026-08-06 02:44:12 CDT.
+- Active slice: Beginner fixture expectation copy assist. Add beginner-friendly
+  copy actions for safe expectation values so builders can move latest output
+  into checks without manual selection or JSON edits.
+- Started: 2026-08-06 05:26:38 CDT.
+- Latest completed slice: Beginner fixture expectation examples from latest
+  run. Empty positive expectation fields now show `Latest:` placeholders from
+  the latest matching run when the value is safe, single-line, and not
+  display-truncated. Runtime messages use Diagnostics, command events use Logs,
+  player text uses Descriptor, and return checks use Return. Forbidden
+  expectation fields intentionally keep static examples so produced output is
+  not framed as forbidden. Builder docs explain the `Latest:` behavior and the
+  static forbidden-field examples. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 05:26:38 CDT.
+- Latest validation: BuilderClient focused FixtureEditorPanel plus
+  fixtureExpectationSuggestions tests passed (`25` tests), BuilderClient
+  `npm run typecheck` passed, BuilderClient `npm run build` passed, constrained
+  full BuilderClient `npx vitest run --testTimeout 120000 --maxWorkers=2`
+  passed (`69` files, `830` tests), and parent/BuilderClient `git diff --check`
+  passed. Two unconstrained full Vitest runs failed with unrelated worker-pool
+  startup/timekeeping timeouts before the constrained full-suite rerun passed.
+  Thranduil reported no findings. Magus and Sauron's display-truncation
+  placeholder findings were resolved by falling back to static placeholders when
+  `displayValue` differs from the exact expectation value, and final follow-up
+  review reported no findings. All reviewer subagents were closed.
+- Next slice: Beginner fixture expectation copy assist. Add beginner-friendly
+  copy actions for safe expectation values so builders can move latest output
+  into checks without manual selection or JSON edits.
 - Latest completed slice: Beginner fixture expectation examples. Empty
   expectation text fields now show concise placeholder examples for runtime
   messages, command events seen/absent, player text sent/not sent, and expected
