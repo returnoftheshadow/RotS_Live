@@ -1,8 +1,32 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: None. Continue with the next slice below when work resumes.
-- Started: 2026-08-05 16:21:00 CDT.
+- Active slice: None.
+- Latest completed slice: Beginner walkthrough persistence polish.
+  Beginner walkthrough state now uses explicit script-created, scenario-result,
+  scenario-running, and project-saved metadata instead of parsing transient
+  status copy. The app only shows "Running" for the specific beginner scenario
+  launched from the walkthrough, clears that state after the run, keeps Save
+  from reporting done without a created beginner script, and keeps saved state
+  invalidated after source, fixture, draft, or metadata edits. The walkthrough
+  layout now uses two columns with wrapping text so beginner state labels are
+  less likely to be clipped in the left sidebar. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-05 22:38:43 CDT.
+- Latest validation: BuilderClient focused BeginnerScriptWizard/SidebarPanels
+  tests passed (`22` tests), focused App/sidebar/core beginner tests passed
+  (`30` tests), the IPC wiring guard passed (`12` tests), BuilderClient
+  `npm run typecheck` passed, BuilderClient `npm run build` passed, and
+  parent/BuilderClient `git diff --check` passed. Full BuilderClient
+  `npx vitest run --testTimeout 60000 --run --maxWorkers=1` reduced to three
+  unrelated `offlineRunner` timeout failures, and those exact three tests
+  passed immediately when rerun in isolation (`3` tests), indicating a local
+  full-suite timeout/resource issue rather than a renderer regression.
+- Next slice: Beginner walkthrough recovery actions. Add direct "Fix in
+  editor", "Run selected", and "Save project" next-action affordances tied to
+  the walkthrough step state so first-time builders can act from the guidance
+  instead of searching nearby controls.
 - Latest completed slice: Beginner script walkthrough state polish.
   Added a compact four-step Create/Scenario/Run/Save walkthrough to the
   beginner script panel so first-time builders can see what to do next after
