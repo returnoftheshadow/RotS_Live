@@ -4,6 +4,34 @@
 - Active slice: Paused after user request. Next candidate is Beginner scenario
   recovery output focus: when a recovered scenario has previous output, jump the
   output panel to that scenario after selection.
+- Started: 2026-08-06 11:34:31 CDT.
+- Latest completed slice: BuilderClient Monaco hover stack-overflow hotfix. The
+  script editor no longer passes `overflowWidgetsDomNode` through
+  `@monaco-editor/react` options or through `editor.updateOptions`, because that
+  DOM object path can recurse through Monaco option cloning and crash the
+  renderer. The editor now keeps Monaco's supported `fixedOverflowWidgets`
+  construction option and raises Monaco hover, suggest, parameter-hint, and
+  context widgets through CSS so zoomed hover text still stays above the shell
+  chrome.
+- Completed: 2026-08-06 11:34:31 CDT.
+- Latest validation: BuilderClient focused renderer tests passed
+  (`src/renderer/App.test.ts` and `src/renderer/WorkspaceShell.test.tsx`, `15`
+  tests), BuilderClient `npm run typecheck` passed, BuilderClient `npm run
+  build` passed, parent/BuilderClient `git diff --check` passed, and a fresh
+  `npm run electron:dev` session stayed running as session `13987`. The Electron
+  GPU process still logs the existing WebGL blocklist warning, but the client
+  remains running. Thranduil and Sauron found the first hotfix attempt still
+  used the construction-only DOM option through `updateOptions`; the final
+  follow-up removed that path, and both reviewers then reported no findings.
+  All reviewer subagents were closed.
+- Next slice: Beginner scenario recovery output focus. When a recovered
+  scenario has previous output, jump the output panel to that scenario after
+  selection. Do not start until the user asks to continue.
+
+## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: Paused after user request. Next candidate is Beginner scenario
+  recovery output focus: when a recovered scenario has previous output, jump the
+  output panel to that scenario after selection.
 - Started: 2026-08-06 09:09:47 CDT.
 - Latest completed slice: BuilderClient RotS Reference datatype view. The
   right-side RotS Reference description pane now replaces the old generated
