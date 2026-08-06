@@ -1,10 +1,33 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture field help text. Add concise inline help for
-  fixture outcome and expectation fields so first-time builders can understand
-  what to put in each field without hovering every tooltip.
-- Started: 2026-08-06 02:12:28 CDT.
+- Active slice: Beginner fixture expectation examples. Add concise placeholder
+  examples for expectation fields so first-time builders can see the expected
+  line-based value shape before typing.
+- Started: 2026-08-06 02:26:22 CDT.
+- Latest completed slice: Beginner fixture field help text. Advanced Fixture
+  Details now shows short inline help for **Allowed**, **Runtime OK**,
+  **Runtime messages**, **Command events seen**, **Command events absent**,
+  **Player text sent**, **Player text not sent**, and **Expected return**.
+  Help text names the matching output area, such as Diagnostics, Logs,
+  Descriptor, and Return, while remaining outside the label text and connected
+  with `aria-describedby` so accessible names stay stable. The label/help pairs
+  are wrapped as single grid fields so help text stays visually under the
+  matching control. Builder docs now explain the inline field-help mapping. The
+  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-06 02:26:22 CDT.
+- Latest validation: BuilderClient focused FixtureEditorPanel tests passed
+  (`15` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`69` files, `827` tests), and
+  parent/BuilderClient `git diff --check` passed. Initial Thranduil and Magus
+  reviewer passes reported no findings. Sauron's accessible-name and grid
+  placement findings were resolved, and final follow-up review reported no
+  findings. All reviewer subagents were closed.
+- Next slice: Beginner fixture expectation examples. Add concise placeholder
+  examples for expectation fields so first-time builders can see the expected
+  line-based value shape before typing.
 - Latest completed slice: Beginner fixture output expectation labels. Fixture
   expectation labels and tooltips now use builder-outcome language:
   **Runtime messages**, **Command events seen**, **Command events absent**,
