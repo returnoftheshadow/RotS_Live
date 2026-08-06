@@ -1,10 +1,30 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner publish settings setup checks. Add clearer validation
-  and next actions for server URL, workspace, account, and local package setup
-  before login/check/stage.
-- Started: 2026-08-05 23:34:35 CDT.
+- Active slice: Beginner fixture expectation setup. Make expected output checks
+  easier for first-time builders by suggesting useful expectations from the
+  latest fixture result instead of requiring manual substring knowledge.
+- Started: 2026-08-05 23:41:22 CDT.
+- Latest completed slice: Beginner publish settings setup checks. Added a
+  guided Publish setup checklist that explains Server, Workspace, Account, and
+  Package readiness before builders try Login, Check, Stage, or Activate. The
+  checklist catches missing values, unsaved server/workspace edits, the live
+  game port `3791`, account/token readiness, and missing local packages. The
+  suggested Builder proxy URL is derived from the shared proxy port constant,
+  and docs now describe the setup checklist and port `4803` requirement. The
+  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-05 23:41:22 CDT.
+- Latest validation: BuilderClient focused publish setup/panel tests passed
+  (`25` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient `npx vitest run --testTimeout
+  120000` passed (`64` files, `796` tests), and parent/BuilderClient
+  `git diff --check` passed. Thranduil, Magus, and Sauron reviewer findings
+  were addressed, their final follow-up checks reported no blockers, and all
+  reviewer subagents were closed.
+- Next slice: Beginner fixture expectation setup. Make expected output checks
+  easier for first-time builders by suggesting useful expectations from the
+  latest fixture result instead of requiring manual substring knowledge.
 - Latest completed slice: Beginner publish result simplification. Publish
   results now present a plain-language summary and short package summary in the
   default panel while exact checksums, staged digests, live checksums, reason
