@@ -1,31 +1,36 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner post-fix rerun guidance. Make it clearer after editing
-  script source or expectations that the selected scenario should be rerun
-  before save/package/publish.
-- Started: 2026-08-06 06:38:32 CDT.
-- Latest completed slice: Beginner scenario expectation shortcut. Failed
-  selected scenarios now show **Expectation Details** beside **Fix Script** in
-  the Test Scenario panel. The shortcut selects the active beginner scenario,
-  opens the controlled **Advanced Fixture Details** panel, scrolls the panel
-  into view, and focuses its summary so the action visibly lands where expected
-  checks can be edited. The failed-action row stacks at default sidebar width
-  and wraps long labels. Builder docs describe when to use source editing versus
-  expectation details. The unrelated `BuilderClient/scripts/script-1.ts` file
-  remains untracked and excluded from this slice.
-- Completed: 2026-08-06 06:38:32 CDT.
-- Latest validation: BuilderClient focused App, BeginnerScriptWizard, and
-  SidebarPanels tests passed (`33` tests), BuilderClient `npm run typecheck`
-  passed, BuilderClient `npm run build` passed, constrained full BuilderClient
-  `npx vitest run --testTimeout 120000 --maxWorkers=2` passed (`71` files,
-  `848` tests), and parent/BuilderClient `git diff --check` passed. Thranduil
-  reported no findings. Magus's narrow-layout and App wiring coverage findings
-  were resolved. Sauron's focus/scroll landing finding was resolved. Final
-  follow-up reviews reported no findings. All reviewer subagents were closed.
-- Next slice: Beginner post-fix rerun guidance. Make it clearer after editing
-  script source or expectations that the selected scenario should be rerun
-  before save/package/publish.
+- Active slice: Beginner save/package guard explanation. Explain blocked save,
+  package, and publish actions in beginner terms after scenario edits or failed
+  runs.
+- Started: 2026-08-06 06:57:56 CDT.
+- Latest completed slice: Beginner post-fix rerun guidance. Script source and
+  fixture/expectation edits now mark the active beginner scenario as needing a
+  rerun through explicit App/core state. The Test Scenario hint says **Run this
+  scenario again after your edits.** only when the active scenario was
+  invalidated and has no current result, and failed/null rerun attempts keep the
+  rerun guidance visible until a non-null result arrives. Builder docs explain
+  the rerun-before-save/package/publish workflow. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 06:57:56 CDT.
+- Latest validation: BuilderClient focused beginner walkthrough state,
+  BeginnerScriptWizard, and SidebarPanels tests passed (`39` tests),
+  BuilderClient `npm run typecheck` passed, BuilderClient `npm run build`
+  passed, isolated reruns of the earlier parallel-suite CLI/offline-runner
+  failures passed (`3` tests), constrained full BuilderClient
+  `npx vitest run --testTimeout 180000 --maxWorkers=1` passed (`71` files,
+  `851` tests), and parent/BuilderClient `git diff --check` passed. An earlier
+  constrained parallel full-suite attempt with `--maxWorkers=2` failed in
+  unrelated CLI/offline-runner tests, but every failing test passed in isolation
+  and the single-worker full suite passed. Thranduil, Magus, and Sauron's
+  unreachable rerun-guidance findings were resolved with explicit invalidation
+  state, and Sauron's null-rerun clearing finding was resolved. Final follow-up
+  review reported no findings. All reviewer subagents were closed.
+- Next slice: Beginner save/package guard explanation. Explain blocked save,
+  package, and publish actions in beginner terms after scenario edits or failed
+  runs.
 - Latest completed slice: Beginner fixture expectation copy assist. Latest-run
   suggestion cards now include **Copy value** buttons that copy the exact safe
   single-line expectation value without mutating fixture checks. Copy feedback
