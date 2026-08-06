@@ -1,10 +1,33 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture expectation copy assist. Add beginner-friendly
-  copy actions for safe expectation values so builders can move latest output
-  into checks without manual selection or JSON edits.
-- Started: 2026-08-06 05:26:38 CDT.
+- Active slice: Beginner fixture suggestion filtering. Make latest-run
+  suggestion controls easier to scan by separating addable suggestions from
+  already-expected values without hiding copy access.
+- Started: 2026-08-06 05:39:53 CDT.
+- Latest completed slice: Beginner fixture expectation copy assist. Latest-run
+  suggestion cards now include **Copy value** buttons that copy the exact safe
+  single-line expectation value without mutating fixture checks. Copy feedback
+  uses a live status region, handles unavailable and rejected clipboard paths,
+  clears when suggestions are added, the selected fixture changes, or a fresh
+  latest run arrives even with identical values, and keeps add/copy buttons as
+  siblings. Builder docs explain that add buttons disable for already-expected
+  values while copy remains available. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 05:39:53 CDT.
+- Latest validation: BuilderClient focused FixtureEditorPanel tests passed
+  (`23` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, constrained full BuilderClient
+  `npx vitest run --testTimeout 120000 --maxWorkers=2` passed (`69` files,
+  `835` tests), and parent/BuilderClient `git diff --check` passed. Thranduil,
+  Magus, and Sauron findings around live status semantics, rejected-copy
+  coverage, stale status clearing, and docs disabled wording were resolved, and
+  final follow-up review reported no findings. All reviewer subagents were
+  closed.
+- Next slice: Beginner fixture suggestion filtering. Make latest-run suggestion
+  controls easier to scan by separating addable suggestions from already-
+  expected values without hiding copy access.
 - Latest completed slice: Beginner fixture expectation examples from latest
   run. Empty positive expectation fields now show `Latest:` placeholders from
   the latest matching run when the value is safe, single-line, and not
