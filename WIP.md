@@ -1,32 +1,31 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: None.
-- Latest completed slice: Beginner walkthrough persistence polish.
-  Beginner walkthrough state now uses explicit script-created, scenario-result,
-  scenario-running, and project-saved metadata instead of parsing transient
-  status copy. The app only shows "Running" for the specific beginner scenario
-  launched from the walkthrough, clears that state after the run, keeps Save
-  from reporting done without a created beginner script, and keeps saved state
-  invalidated after source, fixture, draft, or metadata edits. The walkthrough
-  layout now uses two columns with wrapping text so beginner state labels are
-  less likely to be clipped in the left sidebar. The unrelated
-  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
-  this slice.
-- Completed: 2026-08-05 22:38:43 CDT.
-- Latest validation: BuilderClient focused BeginnerScriptWizard/SidebarPanels
-  tests passed (`22` tests), focused App/sidebar/core beginner tests passed
-  (`30` tests), the IPC wiring guard passed (`12` tests), BuilderClient
-  `npm run typecheck` passed, BuilderClient `npm run build` passed, and
-  parent/BuilderClient `git diff --check` passed. Full BuilderClient
-  `npx vitest run --testTimeout 60000 --run --maxWorkers=1` reduced to three
-  unrelated `offlineRunner` timeout failures, and those exact three tests
-  passed immediately when rerun in isolation (`3` tests), indicating a local
-  full-suite timeout/resource issue rather than a renderer regression.
-- Next slice: Beginner walkthrough recovery actions. Add direct "Fix in
-  editor", "Run selected", and "Save project" next-action affordances tied to
-  the walkthrough step state so first-time builders can act from the guidance
-  instead of searching nearby controls.
+- Active slice: Beginner publish-package invalidation. Invalidate or rebuild
+  cached local publish packages when the active script/file context changes so
+  staging cannot use a package built from an older script.
+- Started: Not started.
+- Latest completed slice: Beginner walkthrough recovery actions. Added direct
+  "Create", "Fix in editor", "Run selected", and "Save project" next-action
+  affordances to the beginner walkthrough. Beginner runs now compile the
+  generated beginner script path explicitly, fixture/package flows only reuse a
+  compiled artifact when its entry path matches the requested script, passed
+  scenario state survives Save Project clearing general fixture output, and
+  beginner Save Project is disabled until a selected scenario has passed. The
+  action grid now wraps narrow-sidebar labels, and the brittle renderer
+  source-string test was replaced with focused core state coverage. The
+  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-05 23:05:16 CDT.
+- Latest validation: BuilderClient focused IPC/beginner recovery tests passed
+  (`42` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient `npx vitest run --testTimeout
+  120000` passed (`62` files, `779` tests), and parent/BuilderClient
+  `git diff --check` passed. Thranduil, Magus, and Sauron reviewer findings
+  were addressed and their follow-up checks reported no blockers.
+- Next slice: Beginner publish-package invalidation. Invalidate or rebuild
+  cached local publish packages when the active script/file context changes so
+  staging cannot use a package built from an older script.
 - Latest completed slice: Beginner script walkthrough state polish.
   Added a compact four-step Create/Scenario/Run/Save walkthrough to the
   beginner script panel so first-time builders can see what to do next after
