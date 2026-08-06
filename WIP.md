@@ -1,29 +1,32 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner scenario output preview. Show a compact latest selected
-  scenario output preview near Test Scenario controls so beginners can see the
-  most important run detail before opening the full output panel.
-- Started: 2026-08-06 06:08:23 CDT.
-- Latest completed slice: Beginner scenario next-action hint. The beginner Test
-  Scenario panel now shows a one-line next-action hint under the state label,
-  covering choose, run, wait, fix, save, and saved states. The hint respects
-  stale selections and disabled run/save actions, so it does not name an
-  unavailable run or save step while another operation is busy. Builder docs
-  describe the hint. The unrelated `BuilderClient/scripts/script-1.ts` file
-  remains untracked and excluded from this slice.
-- Completed: 2026-08-06 06:08:23 CDT.
-- Latest validation: BuilderClient focused BeginnerScriptWizard tests passed
-  (`20` tests), BuilderClient `npm run typecheck` passed, BuilderClient
-  `npm run build` passed, constrained full BuilderClient
-  `npx vitest run --testTimeout 120000 --maxWorkers=2` passed (`69` files,
-  `839` tests), and parent/BuilderClient `git diff --check` passed. Thranduil
-  and Magus reported no findings. Sauron's disabled run/save hint findings were
-  resolved, including failed-scenario disabled rerun wording, and final
-  follow-up review reported no findings. All reviewer subagents were closed.
-- Next slice: Beginner scenario output preview. Show a compact latest selected
-  scenario output preview near Test Scenario controls so beginners can see the
-  most important run detail before opening the full output panel.
+- Active slice: Beginner scenario fix quick action. Make failed scenario output
+  easier to act on by routing first-time builders toward the script editor or
+  expectation details from the beginner scenario panel.
+- Started: 2026-08-06 06:20:52 CDT.
+- Latest completed slice: Beginner scenario output preview. The beginner Test
+  Scenario panel now shows a compact latest selected-scenario output preview
+  after a run. Preview priority is the first expectation failure, then committed
+  player-visible descriptor output, diagnostics, command logs, return value, or
+  an empty-output fallback. Preview text is bounded, hidden for stale selections
+  and active reruns, uses polite status semantics, and latest duplicate fixture
+  results win. Builder docs describe the preview. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 06:20:52 CDT.
+- Latest validation: BuilderClient focused beginner scenario preview, wizard,
+  and sidebar tests passed (`37` tests), BuilderClient `npm run typecheck`
+  passed, BuilderClient `npm run build` passed, constrained full BuilderClient
+  `npx vitest run --testTimeout 120000 --maxWorkers=2` passed (`70` files,
+  `846` tests), and parent/BuilderClient `git diff --check` passed. Thranduil's
+  latest-wins finding, Magus's stale-preview and untracked-helper findings, and
+  Sauron's stale-preview, uncommitted-output-label, and accessibility findings
+  were resolved. Final follow-up reviews reported no findings. All reviewer
+  subagents were closed.
+- Next slice: Beginner scenario fix quick action. Make failed scenario output
+  easier to act on by routing first-time builders toward the script editor or
+  expectation details from the beginner scenario panel.
 - Latest completed slice: Beginner fixture expectation copy assist. Latest-run
   suggestion cards now include **Copy value** buttons that copy the exact safe
   single-line expectation value without mutating fixture checks. Copy feedback
