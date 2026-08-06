@@ -1,10 +1,34 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture quick fixes. Add beginner-friendly controls
-  that apply common expectation fixes from failed fixture output without
-  requiring builders to edit raw expected fields by hand.
-- Started: 2026-08-06 00:26:34 CDT.
+- Active slice: Beginner fixture setup guidance polish. Reduce first-run fixture
+  confusion by making the setup, summary, suggestions, quick fixes, presets, and
+  raw advanced fields read as one clear workflow.
+- Started: 2026-08-06 00:44:28 CDT.
+- Latest completed slice: Beginner fixture quick fixes. Advanced Fixture Details
+  now shows **Fix failed expectations** when the latest matching run has actual
+  expectation failures. Quick fixes match observed `ok`/`allowed` values, remove
+  stale expected diagnostic/log/output checks, remove forbidden log/output omit
+  checks that the latest run intentionally produced, and match safe single-line
+  return values. The helper dedupes repeated fixes, suppresses truncated or
+  multiline return fixes, keeps generic latest-run suggestions separate, and the
+  app-level handler preserves the latest run result so builders can apply more
+  than one fix before rerunning. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 00:44:28 CDT.
+- Latest validation: BuilderClient focused fixture quick-fix/editor/panel tests
+  passed (`38` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`68` files, `819` tests), and
+  parent/BuilderClient `git diff --check` passed. Thranduil, Magus, and Sauron
+  reviewer findings were addressed, including failure-specific quick-fix
+  semantics, stale/forbidden expectation removal, truncated-return suppression,
+  duplicate-fix dedupe, accurate docs/test naming, and explicit staging of the
+  new helper files; all reviewer subagents were closed.
+- Next slice: Beginner fixture setup guidance polish. Reduce first-run fixture
+  confusion by making the setup, summary, suggestions, quick fixes, presets, and
+  raw advanced fields read as one clear workflow.
 - Latest completed slice: Beginner fixture failure explanations. Fixture
   Expectations output now uses a stable `{ failures, nextActions }` payload and
   turns failed expectation strings into concrete next actions for expected
