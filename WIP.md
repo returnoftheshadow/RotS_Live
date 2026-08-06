@@ -1,10 +1,31 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture failure explanations. Turn failed fixture
-  expectation messages into clearer next-action guidance so builders know which
-  expectation or script branch to fix first.
-- Started: 2026-08-06 00:17:44 CDT.
+- Active slice: Beginner fixture quick fixes. Add beginner-friendly controls
+  that apply common expectation fixes from failed fixture output without
+  requiring builders to edit raw expected fields by hand.
+- Started: 2026-08-06 00:26:34 CDT.
+- Latest completed slice: Beginner fixture failure explanations. Fixture
+  Expectations output now uses a stable `{ failures, nextActions }` payload and
+  turns failed expectation strings into concrete next actions for expected
+  ok/allowed mismatches, missing or unexpected descriptor output, missing or
+  unexpected command logs, missing diagnostics, missing return values, deleted
+  fixtures, and unknown failures. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 00:26:34 CDT.
+- Latest validation: BuilderClient focused fixture failure guidance/output
+  panel tests passed (`15` tests), BuilderClient `npm run typecheck` passed,
+  BuilderClient `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`67` files, `812` tests), and
+  parent/BuilderClient `git diff --check` passed. Thranduil, Magus, and Sauron
+  reviewer findings were addressed, including the stable expectations output
+  shape, explicit readonly helper typing, complete failure-phrase coverage, and
+  explicit staging of the new guidance files; all reviewer subagents were
+  closed.
+- Next slice: Beginner fixture quick fixes. Add beginner-friendly controls that
+  apply common expectation fixes from failed fixture output without requiring
+  builders to edit raw expected fields by hand.
 - Latest completed slice: Beginner fixture context summary. Advanced Fixture
   Details now shows a compact readable summary for the active fixture character
   role, room, object, and expected outcome before suggestions, presets, and raw
