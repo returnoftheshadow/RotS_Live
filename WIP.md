@@ -4,6 +4,39 @@
 - Active slice: Paused after user request. Next candidate is Beginner scenario
   recovery output focus: when a recovered scenario has previous output, jump the
   output panel to that scenario after selection.
+- Started: 2026-08-06 09:09:47 CDT.
+- Latest completed slice: BuilderClient RotS Reference datatype view. The
+  right-side RotS Reference description pane now replaces the old generated
+  usage snippet block with a datatype/class view for the selected entry. Helper
+  namespaces render under `namespace RotS` with `export function` declarations,
+  object/room/character entries render as `RotS` interfaces, enum entries render
+  as readonly enum objects under `RotS`, and trigger entries show handler type
+  shapes instead of copyable body-less function declarations. The reference
+  index now prefers struct field mapping entries over duplicate generated type
+  members so callable/read-only field information does not appear twice or with
+  contradictory statuses. Builder docs now describe the datatype view instead of
+  the removed example area.
+- Completed: 2026-08-06 09:09:47 CDT.
+- Latest validation: BuilderClient focused reference tests passed
+  (`src/core/rotsApiReference.test.ts` and
+  `src/renderer/RotsApiReferencePanel.test.tsx`, `27` tests), BuilderClient
+  `npm run typecheck` passed, BuilderClient `npm run build` passed, and
+  parent/BuilderClient `git diff --check` passed. Thranduil reported no
+  findings. Magus found invalid namespace and invented trigger grouping in the
+  first pass; Sauron found the same namespace issue plus duplicate manifest
+  member noise. Follow-up fixed those issues, added index/panel regressions, and
+  a final Magus pass was clear. Sauron's follow-up found the views needed an
+  explicit `RotS` wrapper and trigger type shapes that do not look like
+  copyable implementations; both were fixed and revalidated. All reviewer
+  subagents were closed.
+- Next slice: Beginner scenario recovery output focus. When a recovered
+  scenario has previous output, jump the output panel to that scenario after
+  selection. Do not start until the user asks to continue.
+
+## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: Paused after user request. Next candidate is Beginner scenario
+  recovery output focus: when a recovered scenario has previous output, jump the
+  output panel to that scenario after selection.
 - Started: 2026-08-06 08:56:59 CDT.
 - Latest completed slice: BuilderClient Monaco hover priority. The script editor
   now mounts Monaco overflow widgets into an app-owned fixed overlay layer above
