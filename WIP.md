@@ -1,10 +1,29 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture context presets. Reduce raw fixture handle
-  editing for first-time builders by surfacing simple actor/room/object context
-  presets before the advanced handle grid.
-- Started: 2026-08-05 23:55:03 CDT.
+- Active slice: Beginner fixture context summary. Add a compact readable summary
+  of the active fixture actor, room, object, and expected outcome so builders can
+  understand the test setup before opening raw fields.
+- Started: 2026-08-06 00:07:04 CDT.
+- Latest completed slice: Beginner fixture context presets. Advanced Fixture
+  Details now offers **Player in Room**, **NPC in Room**, and **Object in Room**
+  context presets before the raw handle grid. Presets preserve safe existing
+  room details, normalize room id/vnum consistency, update room membership,
+  merge object contents without duplicate growth, replace stale same-id preset
+  objects, invalidate stale run/package output, and are documented for builders.
+  The unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-06 00:07:04 CDT.
+- Latest validation: BuilderClient focused fixture editor state/panel tests
+  passed (`31` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient `npx vitest run --testTimeout
+  120000` passed (`65` files, `806` tests), and parent/BuilderClient
+  `git diff --check` passed. Thranduil, Magus, and Sauron reviewer findings
+  were addressed, their final follow-up checks reported no blockers, and all
+  reviewer subagents were closed.
+- Next slice: Beginner fixture context summary. Add a compact readable summary
+  of the active fixture actor, room, object, and expected outcome so builders
+  can understand the test setup before opening raw fields.
 - Latest completed slice: Beginner fixture expectation setup. Advanced Fixture
   Details now suggests exact single-line expectations from the latest matching
   fixture result so builders can add output, command-event, diagnostic, and
