@@ -1,10 +1,31 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture expectation omit controls. Surface negative
-  output and command expectations in the editor so builders can forbid text or
-  command events without editing fixture JSON manually.
-- Started: 2026-08-06 01:08:22 CDT.
+- Active slice: Beginner fixture ok expectation control. Expose expected
+  runtime success/failure in the fixture editor so builders do not need JSON or
+  quick fixes to model intentional compile/runtime failure cases.
+- Started: 2026-08-06 01:19:35 CDT.
+- Latest completed slice: Beginner fixture expectation omit controls. The
+  fixture editor now exposes **Forbidden command events** and **Forbidden
+  output** textareas for `logsOmit` and `descriptorOutputOmit`, with App wiring
+  and state helpers that preserve other expected assertions and clear omitted
+  fields cleanly when emptied. Docs explain when to use negative command/output
+  checks, and tests cover callback routing, clearing omit fields, disabled
+  controls, and preservation of existing expectation fields. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 01:19:35 CDT.
+- Latest validation: BuilderClient focused fixture editor state/panel tests
+  passed (`35` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`69` files, `826` tests), and
+  parent/BuilderClient `git diff --check` passed. Thranduil reported no
+  findings; Magus's docs checklist finding and Sauron's clearing/disabled-state
+  test findings were addressed, and final follow-up review reported no findings.
+  All reviewer subagents were closed.
+- Next slice: Beginner fixture ok expectation control. Expose expected runtime
+  success/failure in the fixture editor so builders do not need JSON or quick
+  fixes to model intentional compile/runtime failure cases.
 - Latest completed slice: Beginner fixture advanced-field collapse. The
   **Advanced fixture fields** section is now an expandable disclosure that stays
   closed by default, keeps the native summary marker visible, and preserves all
