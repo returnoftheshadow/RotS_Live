@@ -1,10 +1,35 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner save/package guard explanation. Explain blocked save,
-  package, and publish actions in beginner terms after scenario edits or failed
-  runs.
-- Started: 2026-08-06 06:57:56 CDT.
+- Active slice: Beginner scenario selection recovery. Make it easier for a new
+  builder to get back to the exact scenario that needs attention after edits,
+  saves, package attempts, or failed runs.
+- Started: 2026-08-06 07:12:26 CDT.
+- Latest completed slice: Beginner save/package guard explanation. Next Steps
+  now carries the active scenario rerun-required state into Save Project,
+  Run Script, Package, and Publish. When a script or scenario edit invalidates
+  the selected scenario, Run Script becomes the next ready action while Save
+  Project, Package, and Publish explain in beginner terms that the edited
+  scenario must be rerun first, even if stale fixture results, package output,
+  or login/auth state still exist. Builder docs explain the rerun-before-save,
+  package, and publish workflow. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 07:12:26 CDT.
+- Latest validation: BuilderClient focused beginner project health,
+  walkthrough state, and SidebarPanels tests passed (`24` tests),
+  BuilderClient `npm run typecheck` passed, BuilderClient `npm run build`
+  passed, constrained full BuilderClient
+  `npx vitest run --testTimeout 180000 --maxWorkers=1` passed (`71` files,
+  `852` tests), and parent/BuilderClient `git diff --check` passed.
+  Thranduil's missing health memo dependency finding was resolved, Magus's
+  scenario-switch health refresh finding was resolved, and Sauron's stale
+  package/publish readiness finding was resolved with regression coverage for
+  stale passed results, an existing package, and `authReady: true`. Final
+  follow-up review reported no findings. All reviewer subagents were closed.
+- Next slice: Beginner scenario selection recovery. Make it easier for a new
+  builder to get back to the exact scenario that needs attention after edits,
+  saves, package attempts, or failed runs.
 - Latest completed slice: Beginner post-fix rerun guidance. Script source and
   fixture/expectation edits now mark the active beginner scenario as needing a
   rerun through explicit App/core state. The Test Scenario hint says **Run this
