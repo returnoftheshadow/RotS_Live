@@ -1,11 +1,29 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner publish/status recovery guidance. Add beginner-facing
-  next actions and copy around package/stage/activate readiness so builders can
-  recover from missing checksum, stale package, or rejected publish states
-  without reading raw diagnostics first.
+- Active slice: Beginner publish result simplification. Reduce raw publish
+  output overload by surfacing plain-language summaries and hiding low-level
+  checksum rows until builders open advanced details.
 - Started: Not started.
+- Latest completed slice: Beginner publish/status recovery guidance. Added a
+  beginner-facing publish guidance card that turns auth, package, checksum,
+  staged digest, successful activation, failed publish, stale checksum, and
+  untrusted proxy states into a headline, short explanation, and concrete next
+  actions. Current prerequisites now take precedence over stale failed publish
+  results, `builder.ingress.untrusted` points builders toward proxy/test-server
+  trust setup instead of account login, and long guidance text wraps inside the
+  publish pane. The unrelated `BuilderClient/scripts/script-1.ts` file remains
+  untracked and excluded from this slice.
+- Completed: 2026-08-05 23:22:39 CDT.
+- Latest validation: BuilderClient focused publish guidance tests passed (`25`
+  tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient `npx vitest run --testTimeout
+  120000` passed (`63` files, `790` tests), and parent/BuilderClient
+  `git diff --check` passed. Thranduil, Magus, and Sauron reviewer findings
+  were addressed and their follow-up checks reported no blockers.
+- Next slice: Beginner publish result simplification. Reduce raw publish output
+  overload by surfacing plain-language summaries and hiding low-level checksum
+  rows until builders open advanced details.
 - Latest completed slice: Beginner publish-package invalidation. Workspace
   script selection now goes through a shared state helper that clears stale
   compile, run, fixture-output, local package, staged digest, live checksum, and
