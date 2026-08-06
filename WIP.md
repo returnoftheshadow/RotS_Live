@@ -1,10 +1,33 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture ok expectation control. Expose expected
-  runtime success/failure in the fixture editor so builders do not need JSON or
-  quick fixes to model intentional compile/runtime failure cases.
-- Started: 2026-08-06 01:19:35 CDT.
+- Active slice: Beginner fixture output expectation labels. Make expectation
+  field labels and tooltips more beginner-readable so builders can distinguish
+  runtime diagnostics, command-event logs, and player-visible output at a
+  glance.
+- Started: 2026-08-06 01:29:08 CDT.
+- Latest completed slice: Beginner fixture ok expectation control. The fixture
+  editor now exposes a **Runtime OK** checkbox for the `expected.ok` assertion,
+  placed beside **Allowed** so builders can model intentional compile/runtime
+  failure cases without editing JSON. The control uses the existing state helper,
+  defaults to checked when expected assertions are omitted, preserves other
+  expectations, invalidates stale run/package output through the shared update
+  path, and is explicitly disabled when mutations are disabled. Builder docs now
+  explain that Runtime OK is separate from trigger allow/block behavior. The
+  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-06 01:29:08 CDT.
+- Latest validation: BuilderClient focused fixture editor state/panel tests
+  passed (`35` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`69` files, `826` tests), and
+  parent/BuilderClient `git diff --check` passed. Thranduil and Magus reviewer
+  passes reported no findings; Sauron's Runtime OK disabled-state finding was
+  addressed and final follow-up review reported no findings. All reviewer
+  subagents were closed.
+- Next slice: Beginner fixture output expectation labels. Make expectation field
+  labels and tooltips more beginner-readable so builders can distinguish runtime
+  diagnostics, command-event logs, and player-visible output at a glance.
 - Latest completed slice: Beginner fixture expectation omit controls. The
   fixture editor now exposes **Forbidden command events** and **Forbidden
   output** textareas for `logsOmit` and `descriptorOutputOmit`, with App wiring
