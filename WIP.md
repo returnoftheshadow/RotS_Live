@@ -1,10 +1,30 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture context summary. Add a compact readable summary
-  of the active fixture actor, room, object, and expected outcome so builders can
-  understand the test setup before opening raw fields.
-- Started: 2026-08-06 00:07:04 CDT.
+- Active slice: Beginner fixture failure explanations. Turn failed fixture
+  expectation messages into clearer next-action guidance so builders know which
+  expectation or script branch to fix first.
+- Started: 2026-08-06 00:17:44 CDT.
+- Latest completed slice: Beginner fixture context summary. Advanced Fixture
+  Details now shows a compact readable summary for the active fixture character
+  role, room, object, and expected outcome before suggestions, presets, and raw
+  handle fields. The summary is role-aware for non-actor character triggers,
+  avoids labeling object/room polymorphic targets as characters, includes
+  negative expectation checks, formats check counts cleanly, and falls back to
+  ids when handle names are blank. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 00:17:44 CDT.
+- Latest validation: BuilderClient focused fixture context summary/panel tests
+  passed (`17` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient `npx vitest run --testTimeout
+  120000` passed (`66` files, `810` tests), and parent/BuilderClient
+  `git diff --check` passed. Thranduil, Magus, and Sauron reviewer findings
+  were addressed, their final follow-up checks reported no blockers, and all
+  reviewer subagents were closed.
+- Next slice: Beginner fixture failure explanations. Turn failed fixture
+  expectation messages into clearer next-action guidance so builders know which
+  expectation or script branch to fix first.
 - Latest completed slice: Beginner fixture context presets. Advanced Fixture
   Details now offers **Player in Room**, **NPC in Room**, and **Object in Room**
   context presets before the raw handle grid. Presets preserve safe existing
