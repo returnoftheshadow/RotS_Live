@@ -1,10 +1,39 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner scenario selection recovery. Make it easier for a new
-  builder to get back to the exact scenario that needs attention after edits,
-  saves, package attempts, or failed runs.
-- Started: 2026-08-06 07:12:26 CDT.
+- Active slice: Beginner scenario recovery from Next Steps. Let the beginner
+  Next Steps panel point directly at the scenario that needs attention, not only
+  the Test Scenario panel.
+- Started: 2026-08-06 07:25:39 CDT.
+- Latest completed slice: Beginner scenario selection recovery. The beginner
+  wizard now detects when another generated scenario needs attention because it
+  was edited and needs a rerun or because its latest non-stale result failed.
+  The Test Scenario panel shows a **Select scenario** recovery prompt that jumps
+  back to the exact scenario. Save guidance now tells the builder to select the
+  scenario needing attention instead of saving the currently selected passing
+  scenario, and Save Project remains disabled while another scenario needs work.
+  Rerun invalidation now clears only when that exact scenario produces a result,
+  and fresh non-stale pass/fail status overrides older invalidation wording.
+  Builder docs describe the recovery prompt. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 07:25:39 CDT.
+- Latest validation: BuilderClient focused beginner walkthrough state,
+  BeginnerScriptWizard, and SidebarPanels tests passed (`45` tests),
+  BuilderClient `npm run typecheck` passed, BuilderClient `npm run build`
+  passed, constrained full BuilderClient
+  `npx vitest run --testTimeout 180000 --maxWorkers=1` passed (`71` files,
+  `858` tests), and parent/BuilderClient `git diff --check` passed.
+  Thranduil initially reported no findings. Magus's conflicting save guidance
+  finding was resolved by making recovery state suppress save guidance/actions.
+  Sauron's invalidation-clearing and stale recovery precedence findings were
+  resolved with exact fixture-name clearing plus fresh status precedence tests.
+  Final follow-up review reported no findings. All reviewer subagents were
+  closed.
+- Next slice: Beginner scenario recovery from Next Steps. Let the beginner
+  Next Steps panel point directly at the scenario that needs attention, not only
+  the Test Scenario panel.
+- Latest completed slice: Beginner save/package guard explanation. Next Steps
 - Latest completed slice: Beginner save/package guard explanation. Next Steps
   now carries the active scenario rerun-required state into Save Project,
   Run Script, Package, and Publish. When a script or scenario edit invalidates
