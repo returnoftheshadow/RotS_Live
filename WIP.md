@@ -4,6 +4,36 @@
 - Active slice: Paused after user request. Next candidate is Beginner scenario
   recovery output focus: when a recovered scenario has previous output, jump the
   output panel to that scenario after selection.
+- Started: 2026-08-06 14:07 CDT.
+- Latest completed slice: BuilderClient persisted top-right panel controls.
+  The left workspace panel, bottom Problems/Output/Publish panel, and right
+  RotS Reference panel visibility controls now live at the far-right title-bar
+  actions instead of the activity bar. All three panels default to expanded for
+  first-time builders, expose hide/show labels with pressed state, preserve
+  mounted panel contents and size state when hidden, and persist visibility in
+  local storage through fail-open browser storage access so each builder keeps
+  their preferred working layout between client launches without making startup
+  depend on storage availability.
+- Completed: 2026-08-06 14:07 CDT.
+- Latest validation: BuilderClient focused storage/panel/title/app tests passed
+  (`src/core/browserStorage.test.ts`, `src/core/panelVisibility.test.ts`,
+  `src/renderer/TitleActions.test.tsx`, `src/renderer/WorkspaceShell.test.tsx`,
+  `src/renderer/App.test.ts`, and `src/main/ipcWiring.test.ts`, `43` tests),
+  BuilderClient `npm run typecheck` passed, BuilderClient `npm run build`
+  passed, full BuilderClient `npm test -- --run` passed (`73` files, `888`
+  tests), and parent/BuilderClient `git diff --check` passed. Thranduil and
+  Magus initially reported no findings. Sauron's unavailable-localStorage
+  startup finding was fixed with `safeLocalStorage` coverage, and the panel
+  controls were moved to the far-right end of the title actions. Follow-up
+  Thranduil, Magus, and Sauron reviews reported no remaining findings.
+- Next slice: Beginner scenario recovery output focus. When a recovered
+  scenario has previous output, jump the output panel to that scenario after
+  selection. Do not start until the user asks to continue.
+
+## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: Paused after user request. Next candidate is Beginner scenario
+  recovery output focus: when a recovered scenario has previous output, jump the
+  output panel to that scenario after selection.
 - Started: 2026-08-06 13:52:22 CDT.
 - Latest completed slice: BuilderClient VS Code-style panel visibility toggles.
   The activity bar now has icon buttons to hide or restore the left workspace
