@@ -1,10 +1,31 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner publish result simplification. Reduce raw publish
-  output overload by surfacing plain-language summaries and hiding low-level
-  checksum rows until builders open advanced details.
-- Started: Not started.
+- Active slice: Beginner publish settings setup checks. Add clearer validation
+  and next actions for server URL, workspace, account, and local package setup
+  before login/check/stage.
+- Started: 2026-08-05 23:34:35 CDT.
+- Latest completed slice: Beginner publish result simplification. Publish
+  results now present a plain-language summary and short package summary in the
+  default panel while exact checksums, staged digests, live checksums, reason
+  codes, audit ids, raw messages, and diagnostics stay in Advanced result
+  details. The guided publish hint and builder docs now distinguish Advanced
+  result details from Advanced publish controls, and advanced details render
+  from the new advanced-only row contract with legacy row fallback. The
+  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-05 23:34:35 CDT.
+- Latest validation: BuilderClient focused publish presenter/panel tests passed
+  (`22` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient `npx vitest run --testTimeout
+  120000` passed (`63` files, `790` tests), a final focused
+  `PublishPanel.test.tsx` rerun passed (`12` tests), and parent/BuilderClient
+  `git diff --check` passed. Thranduil, Magus, and Sauron reviewer findings
+  were addressed, their final follow-up checks reported no blockers, and all
+  reviewer subagents were closed.
+- Next slice: Beginner publish settings setup checks. Add clearer validation and
+  next actions for server URL, workspace, account, and local package setup
+  before login/check/stage.
 - Latest completed slice: Beginner publish/status recovery guidance. Added a
   beginner-facing publish guidance card that turns auth, package, checksum,
   staged digest, successful activation, failed publish, stale checksum, and
