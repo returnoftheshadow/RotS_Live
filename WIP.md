@@ -1,10 +1,32 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner publish-package invalidation. Invalidate or rebuild
-  cached local publish packages when the active script/file context changes so
-  staging cannot use a package built from an older script.
+- Active slice: Beginner publish/status recovery guidance. Add beginner-facing
+  next actions and copy around package/stage/activate readiness so builders can
+  recover from missing checksum, stale package, or rejected publish states
+  without reading raw diagnostics first.
 - Started: Not started.
+- Latest completed slice: Beginner publish-package invalidation. Workspace
+  script selection now goes through a shared state helper that clears stale
+  compile, run, fixture-output, local package, staged digest, live checksum, and
+  publish result state when the selected script changes. Same-script and
+  unknown-script selections preserve current state. Explorer file rows are
+  disabled during fixture/package/publish work so an in-flight package build
+  cannot repopulate stale package state after a user switches files. The
+  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-05 23:13:13 CDT.
+- Latest validation: BuilderClient focused workspace/IPС/sidebar/beginner tests
+  passed (`54` tests), BuilderClient `npm run typecheck` passed,
+  BuilderClient `npm run build` passed, full BuilderClient `npx vitest run
+  --testTimeout 120000` passed (`62` files, `783` tests), and
+  parent/BuilderClient `git diff --check` passed. Thranduil, Magus, and Sauron
+  reviewer findings were addressed and their follow-up checks reported no
+  blockers.
+- Next slice: Beginner publish/status recovery guidance. Add beginner-facing
+  next actions and copy around package/stage/activate readiness so builders can
+  recover from missing checksum, stale package, or rejected publish states
+  without reading raw diagnostics first.
 - Latest completed slice: Beginner walkthrough recovery actions. Added direct
   "Create", "Fix in editor", "Run selected", and "Save project" next-action
   affordances to the beginner walkthrough. Beginner runs now compile the
