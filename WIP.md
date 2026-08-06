@@ -4,6 +4,32 @@
 - Active slice: Paused after user request. Next candidate is Beginner scenario
   recovery output focus: when a recovered scenario has previous output, jump the
   output panel to that scenario after selection.
+- Started: 2026-08-06 13:33:55 CDT.
+- Latest completed slice: BuilderClient RotS Reference class-view navigation
+  cleanup. The right-side datatype/class view keeps the selected top-level
+  interface, namespace, or enum declaration syntax-highlighted but no longer
+  makes that current top-level item clickable. Nested RotS datatypes and enum
+  aliases remain clickable, mouse/browser Back and Forward restore prior
+  reference selections after class-view link navigation, stale history snapshots
+  are normalized when filters would hide the restored item, invalid history
+  snapshots are ignored, and class/script views no longer word-wrap so builders
+  can scan the TypeScript shape horizontally.
+- Completed: 2026-08-06 13:33:55 CDT.
+- Latest validation: BuilderClient focused reference tests passed
+  (`src/core/rotsApiReference.test.ts` and
+  `src/renderer/RotsApiReferencePanel.test.tsx`, `34` tests), and BuilderClient
+  `npm run typecheck` passed. Thranduil and Magus reported no findings.
+  Sauron's stale history and test-isolation findings were fixed with canonical
+  history restore fallback, invalid-state coverage, Back/Forward coverage across
+  two clicked links, after-test history reset, and listener cleanup coverage.
+- Next slice: Beginner scenario recovery output focus. When a recovered
+  scenario has previous output, jump the output panel to that scenario after
+  selection. Do not start until the user asks to continue.
+
+## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: Paused after user request. Next candidate is Beginner scenario
+  recovery output focus: when a recovered scenario has previous output, jump the
+  output panel to that scenario after selection.
 - Started: 2026-08-06 11:49:37 CDT.
 - Latest completed slice: BuilderClient RotS Reference highlighted datatype
   navigation. The right-side RotS Reference datatype/class view now renders as
