@@ -1,28 +1,29 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner scenario run summary. Surface compact latest pass/fail
-  state beside beginner Test Scenario controls so builders can understand the
-  selected scenario result before opening detailed output.
-- Started: 2026-08-06 05:44:58 CDT.
-- Latest completed slice: Beginner fixture suggestion filtering. Latest-run
-  expectation suggestions are now split into addable suggestions and a separate
-  **Already checked** group. Already-expected add buttons remain disabled while
-  **Copy value** stays available, keeping new checks easier to scan without
-  hiding exact-value copy access. Builder docs explain the grouping. The
-  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
-  excluded from this slice.
-- Completed: 2026-08-06 05:44:58 CDT.
-- Latest validation: BuilderClient focused FixtureEditorPanel tests passed
-  (`23` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+- Active slice: Beginner scenario next-action hint. Show a short selected
+  scenario next action so first-time builders know whether to run, fix, or save
+  after reading the compact run state.
+- Started: 2026-08-06 05:56:27 CDT.
+- Latest completed slice: Beginner scenario run summary. The beginner Test
+  Scenario header and selected scenario card now show compact run-state labels:
+  **Not run**, **Running**, **Passed**, **Needs fix**, or **Pick a scenario**
+  when the stored selection is stale. The header wraps cleanly in compact
+  sidebars, stale selections do not show a selected-card status, and builder
+  docs explain the labels. The unrelated `BuilderClient/scripts/script-1.ts`
+  file remains untracked and excluded from this slice.
+- Completed: 2026-08-06 05:56:27 CDT.
+- Latest validation: BuilderClient focused BeginnerScriptWizard tests passed
+  (`16` tests), BuilderClient `npm run typecheck` passed, BuilderClient
   `npm run build` passed, constrained full BuilderClient
   `npx vitest run --testTimeout 120000 --maxWorkers=2` passed (`69` files,
-  `835` tests), and parent/BuilderClient `git diff --check` passed. Thranduil,
-  Magus, and Sauron reviewer passes reported no findings. All reviewer subagents
-  were closed.
-- Next slice: Beginner scenario run summary. Surface compact latest pass/fail
-  state beside beginner Test Scenario controls so builders can understand the
-  selected scenario result before opening detailed output.
+  `835` tests), and parent/BuilderClient `git diff --check` passed. Thranduil
+  and Magus reported no findings. Sauron's compact-header overflow and stale
+  running-state coverage findings were resolved, and final follow-up review
+  reported no findings. All reviewer subagents were closed.
+- Next slice: Beginner scenario next-action hint. Show a short selected
+  scenario next action so first-time builders know whether to run, fix, or save
+  after reading the compact run state.
 - Latest completed slice: Beginner fixture expectation copy assist. Latest-run
   suggestion cards now include **Copy value** buttons that copy the exact safe
   single-line expectation value without mutating fixture checks. Copy feedback
