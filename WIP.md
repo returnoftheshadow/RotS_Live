@@ -1,10 +1,42 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner scenario action focus feedback. After selecting a
-  scenario from a recovery prompt, make the target scenario visibly focused and
-  explain what changed.
-- Started: 2026-08-06 07:40:39 CDT.
+- Active slice: Paused after user request. Next candidate is Beginner scenario
+  recovery output focus: when a recovered scenario has previous output, jump the
+  output panel to that scenario after selection.
+- Started: 2026-08-06 08:11:29 CDT.
+- Latest completed slice: Beginner scenario action focus feedback. Recovery
+  selection now has a dedicated callback separate from ordinary scenario list
+  selection. Selecting a recovery scenario from either Test Scenario or Next
+  Steps validates the target, selects that scenario, and posts a beginner-facing
+  confirmation in the Create Script panel explaining that **Run Script** checks
+  the selected scenario offline. Next Steps recovery actions now share the same
+  disabled state as the beginner workflow, so they cannot change selection while
+  fixture, workspace, or publish work is busy. Builder docs describe the
+  confirmation behavior. Final validation also uncovered Node 24 child-process
+  pipe capture losing async console output from `refresh-enum-snapshot.mjs`; the
+  enum snapshot CLI now uses synchronous stdout/stderr writes with explicit
+  `EPIPE` handling, and tests cover captured output plus early-closed help
+  output. The unrelated `BuilderClient/scripts/script-1.ts` file remains
+  untracked and excluded from this slice.
+- Completed: 2026-08-06 08:11:29 CDT.
+- Latest validation: BuilderClient focused enum snapshot, beginner project
+  health, walkthrough state, BeginnerProjectHealthPanel, BeginnerScriptWizard,
+  and SidebarPanels tests passed (`65` tests), BuilderClient `npm run
+  typecheck` passed, BuilderClient `npm run build` passed, constrained full
+  BuilderClient `npx vitest run --testTimeout 180000 --maxWorkers=1` passed
+  after the enum CLI sync-output fix (`71` files, `864` tests), parent and
+  BuilderClient `git diff --check` passed, and direct
+  `node scripts/refresh-enum-snapshot.mjs --help | head -n 0` exited cleanly.
+  Sauron's disabled Next Steps recovery finding was resolved with
+  `actionDisabled` panel wiring and tests. Sauron's enum CLI `EPIPE` finding was
+  resolved with explicit broken-pipe handling and regression coverage.
+  Thranduil and Magus follow-up reviews reported no findings. All reviewer
+  subagents were closed.
+- Next slice: Beginner scenario recovery output focus. When a recovered
+  scenario has previous output, jump the output panel to that scenario after
+  selection. Do not start until the user asks to continue.
+- Latest completed slice: Beginner scenario recovery from Next Steps. The
 - Latest completed slice: Beginner scenario recovery from Next Steps. The
   beginner Next Steps model now carries an optional scenario action, and the
   health panel renders a compact **Select scenario** button beside **Run
