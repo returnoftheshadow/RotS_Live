@@ -1,10 +1,36 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner scenario recovery from Next Steps. Let the beginner
-  Next Steps panel point directly at the scenario that needs attention, not only
-  the Test Scenario panel.
-- Started: 2026-08-06 07:25:39 CDT.
+- Active slice: Beginner scenario action focus feedback. After selecting a
+  scenario from a recovery prompt, make the target scenario visibly focused and
+  explain what changed.
+- Started: 2026-08-06 07:40:39 CDT.
+- Latest completed slice: Beginner scenario recovery from Next Steps. The
+  beginner Next Steps model now carries an optional scenario action, and the
+  health panel renders a compact **Select scenario** button beside **Run
+  Script** when a non-selected beginner scenario needs attention. App wiring
+  passes the current recovery scenario title and selection callback into the
+  health panel. Save Project, Package, and Publish all defer while scenario
+  recovery exists, even with stale local package/auth readiness, so Run Script
+  remains the first actionable row. Builder docs now mention that recovery can
+  appear in both Test Scenario and Next Steps. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 07:40:39 CDT.
+- Latest validation: BuilderClient focused beginner project health,
+  walkthrough state, BeginnerProjectHealthPanel, BeginnerScriptWizard, and
+  SidebarPanels tests passed (`56` tests), BuilderClient `npm run typecheck`
+  passed, BuilderClient `npm run build` passed, constrained full BuilderClient
+  `npx vitest run --testTimeout 180000 --maxWorkers=1` passed (`71` files,
+  `861` tests), and parent/BuilderClient `git diff --check` passed. Thranduil's
+  stale package/publish readiness finding was resolved by making Package and
+  Publish recovery-aware. Magus's Save Project ordering and failed-scenario
+  wording findings were resolved, and the tutorial publish wording was aligned.
+  Sauron reported no final findings. All reviewer subagents were closed.
+- Next slice: Beginner scenario action focus feedback. After selecting a
+  scenario from a recovery prompt, make the target scenario visibly focused and
+  explain what changed.
+- Latest completed slice: Beginner scenario selection recovery. The beginner
 - Latest completed slice: Beginner scenario selection recovery. The beginner
   wizard now detects when another generated scenario needs attention because it
   was edited and needs a rerun or because its latest non-stale result failed.
