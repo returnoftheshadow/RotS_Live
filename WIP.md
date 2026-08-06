@@ -1,10 +1,31 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture setup guidance polish. Reduce first-run fixture
-  confusion by making the setup, summary, suggestions, quick fixes, presets, and
-  raw advanced fields read as one clear workflow.
-- Started: 2026-08-06 00:44:28 CDT.
+- Active slice: Beginner fixture advanced-field grouping. Make the raw fixture
+  handles and scalar fields easier to scan after the beginner workflow by
+  grouping advanced fields with clearer labels and less visual overload.
+- Started: 2026-08-06 00:53:09 CDT.
+- Latest completed slice: Beginner fixture setup guidance polish. Advanced
+  Fixture Details now starts with a compact workflow strip that tells builders
+  to check setup, fix failed expectations, add useful checks, use context
+  presets, and edit raw advanced fields only when needed. The workflow uses the
+  same quick-fix and suggestion logic as the rendered controls, handles stale
+  run results, distinguishes clean matching runs from failures with no safe
+  one-click fix, and appears before the basic fixture fields so docs and UI
+  match. The unrelated `BuilderClient/scripts/script-1.ts` file remains
+  untracked and excluded from this slice.
+- Completed: 2026-08-06 00:53:09 CDT.
+- Latest validation: BuilderClient focused fixture setup/quick-fix/panel tests
+  passed (`24` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`69` files, `824` tests), and
+  parent/BuilderClient `git diff --check` passed. Thranduil, Magus, and Sauron
+  reviewer findings were addressed, including rendering the workflow first,
+  no-safe-fix wording, stale-run coverage, and explicit staging of the new setup
+  guidance helper files; all reviewer subagents were closed.
+- Next slice: Beginner fixture advanced-field grouping. Make the raw fixture
+  handles and scalar fields easier to scan after the beginner workflow by
+  grouping advanced fields with clearer labels and less visual overload.
 - Latest completed slice: Beginner fixture quick fixes. Advanced Fixture Details
   now shows **Fix failed expectations** when the latest matching run has actual
   expectation failures. Quick fixes match observed `ok`/`allowed` values, remove
