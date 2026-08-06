@@ -4,6 +4,34 @@
 - Active slice: Paused after user request. Next candidate is Beginner scenario
   recovery output focus: when a recovered scenario has previous output, jump the
   output panel to that scenario after selection.
+- Started: 2026-08-06 13:52:22 CDT.
+- Latest completed slice: BuilderClient VS Code-style panel visibility toggles.
+  The activity bar now has icon buttons to hide or restore the left workspace
+  panel, bottom Problems/Output/Publish panel, and right RotS Reference panel.
+  Hidden panels collapse their grid tracks to zero and remove their resize
+  handles from the active layout while keeping panel content mounted so lookup
+  and editor state are preserved when restored. The center editor remains pinned
+  in the main workspace column, and workspace rows are explicitly pinned so the
+  footer remains visible when the bottom panel is hidden. Panel sizes are
+  preserved in component state and restored when the panel is shown again.
+- Completed: 2026-08-06 13:52:22 CDT.
+- Latest validation: BuilderClient focused shell tests passed
+  (`src/renderer/WorkspaceShell.test.tsx` and `src/renderer/App.test.ts`, `18`
+  tests), BuilderClient `npm run typecheck` passed, BuilderClient `npm run
+  build` passed, and parent/BuilderClient `git diff --check` passed. Thranduil
+  reported no findings. Magus found hidden right-panel unmounting would reset
+  reference lookup state and the panel-toggle group needed stronger semantics;
+  both were fixed. Sauron found the bottom-hidden layout could place the footer
+  into a collapsed row; workspace rows are now explicit and covered by a
+  regression. Follow-up review reported no remaining findings.
+- Next slice: Beginner scenario recovery output focus. When a recovered
+  scenario has previous output, jump the output panel to that scenario after
+  selection. Do not start until the user asks to continue.
+
+## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: Paused after user request. Next candidate is Beginner scenario
+  recovery output focus: when a recovered scenario has previous output, jump the
+  output panel to that scenario after selection.
 - Started: 2026-08-06 13:41:05 CDT.
 - Latest completed slice: BuilderClient RotS Reference selected attribute
   datatype fix. Attribute selections now prefer the selected attribute's
