@@ -4,6 +4,30 @@
 - Active slice: Paused after user request. Next candidate is Beginner scenario
   recovery output focus: when a recovered scenario has previous output, jump the
   output panel to that scenario after selection.
+- Started: 2026-08-06 08:56:59 CDT.
+- Latest completed slice: BuilderClient Monaco hover priority. The script editor
+  now mounts Monaco overflow widgets into an app-owned fixed overlay layer above
+  the shell chrome, so hover text, suggestions, and parameter hints are not
+  clipped by the top navigation while zoomed in. The overlay passes pointer
+  events through except for real Monaco widgets, and the host includes Monaco's
+  editor class so externally mounted widgets keep Monaco styling.
+- Completed: 2026-08-06 08:56:59 CDT.
+- Latest validation: BuilderClient focused renderer tests passed
+  (`src/renderer/App.test.ts` and `src/renderer/WorkspaceShell.test.tsx`, `15`
+  tests), BuilderClient `npm run typecheck` passed, BuilderClient `npm run
+  build` passed, and parent/BuilderClient `git diff --check` passed.
+  Thranduil and Magus reported no findings. Sauron found the external overflow
+  host could lose Monaco styling without a Monaco host class; that high finding
+  was resolved by adding the `monaco-editor` class to the overflow host and
+  updating the rendered test coverage. All reviewer subagents were closed.
+- Next slice: Beginner scenario recovery output focus. When a recovered
+  scenario has previous output, jump the output panel to that scenario after
+  selection. Do not start until the user asks to continue.
+
+## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: Paused after user request. Next candidate is Beginner scenario
+  recovery output focus: when a recovered scenario has previous output, jump the
+  output panel to that scenario after selection.
 - Started: 2026-08-06 08:11:29 CDT.
 - Latest completed slice: Beginner scenario action focus feedback. Recovery
   selection now has a dedicated callback separate from ordinary scenario list
