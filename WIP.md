@@ -1,10 +1,30 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture advanced-field grouping. Make the raw fixture
-  handles and scalar fields easier to scan after the beginner workflow by
-  grouping advanced fields with clearer labels and less visual overload.
-- Started: 2026-08-06 00:53:09 CDT.
+- Active slice: Beginner fixture advanced-field collapse. Let first-time
+  builders keep raw advanced fixture fields out of the way until they explicitly
+  open them, while preserving all existing advanced editing controls.
+- Started: 2026-08-06 00:58:40 CDT.
+- Latest completed slice: Beginner fixture advanced-field grouping. Raw fixture
+  handles, trigger payload fields, and trigger text now live under a labeled
+  **Advanced fixture fields** section after the workflow, summary, suggestions,
+  quick fixes, and context presets. The section explains when to use raw fields,
+  separates handles from trigger payload and trigger text, preserves all
+  existing callbacks and disabled-fieldset behavior, and is documented in the
+  README, builder help, and tutorial. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 00:58:40 CDT.
+- Latest validation: BuilderClient focused FixtureEditorPanel/setup guidance
+  tests passed (`19` tests), BuilderClient `npm run typecheck` passed,
+  BuilderClient `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`69` files, `824` tests), and
+  parent/BuilderClient `git diff --check` passed. Thranduil, Magus, and Sauron
+  reviewer passes reported no findings or blockers, and all reviewer subagents
+  were closed.
+- Next slice: Beginner fixture advanced-field collapse. Let first-time builders
+  keep raw advanced fixture fields out of the way until they explicitly open
+  them, while preserving all existing advanced editing controls.
 - Latest completed slice: Beginner fixture setup guidance polish. Advanced
   Fixture Details now starts with a compact workflow strip that tells builders
   to check setup, fix failed expectations, add useful checks, use context
