@@ -1,10 +1,31 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture expectation examples. Add concise placeholder
-  examples for expectation fields so first-time builders can see the expected
-  line-based value shape before typing.
-- Started: 2026-08-06 02:26:22 CDT.
+- Active slice: Beginner fixture expectation examples from latest run. Make
+  expectation field examples adapt from the latest matching run where safe so
+  first-time builders see project-specific value shapes before typing.
+- Started: 2026-08-06 02:44:12 CDT.
+- Latest completed slice: Beginner fixture expectation examples. Empty
+  expectation text fields now show concise placeholder examples for runtime
+  messages, command events seen/absent, player text sent/not sent, and expected
+  return. Command placeholders use the real `command:script...` Logs shape, and
+  return placeholders/docs/tests use the boolean-style `true`/`false` return
+  strings instead of stale `allow`/`blocked` examples. Builder docs now clarify
+  that placeholders are formatting examples, not required values. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-06 02:44:12 CDT.
+- Latest validation: BuilderClient focused FixtureEditorPanel tests passed
+  (`16` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`69` files, `828` tests), stale
+  return/log example scan passed, and parent/BuilderClient `git diff --check`
+  passed. Thranduil reported no findings. Magus and Sauron's stale command-log
+  and return-shape findings were resolved, plus Sauron's stale test-fixture
+  follow-ups were resolved. All reviewer subagents were closed.
+- Next slice: Beginner fixture expectation examples from latest run. Make
+  expectation field examples adapt from the latest matching run where safe so
+  first-time builders see project-specific value shapes before typing.
 - Latest completed slice: Beginner fixture field help text. Advanced Fixture
   Details now shows short inline help for **Allowed**, **Runtime OK**,
   **Runtime messages**, **Command events seen**, **Command events absent**,
