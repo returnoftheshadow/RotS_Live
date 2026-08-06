@@ -1,11 +1,33 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture output expectation labels. Make expectation
-  field labels and tooltips more beginner-readable so builders can distinguish
-  runtime diagnostics, command-event logs, and player-visible output at a
-  glance.
-- Started: 2026-08-06 01:29:08 CDT.
+- Active slice: Beginner fixture field help text. Add concise inline help for
+  fixture outcome and expectation fields so first-time builders can understand
+  what to put in each field without hovering every tooltip.
+- Started: 2026-08-06 02:12:28 CDT.
+- Latest completed slice: Beginner fixture output expectation labels. Fixture
+  expectation labels and tooltips now use builder-outcome language:
+  **Runtime messages**, **Command events seen**, **Command events absent**,
+  **Player text sent**, and **Player text not sent**. The test helper now
+  matches exact label text to avoid substring collisions as labels become more
+  descriptive. Docs preserve the saved JSON field names while explaining command
+  helper events separately from committed player-visible output, avoiding
+  wording that implies fixture logs prove live side effects committed. The
+  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-06 02:12:28 CDT.
+- Latest validation: BuilderClient focused FixtureEditorPanel tests passed
+  (`14` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`69` files, `826` tests), and
+  parent/BuilderClient `git diff --check` passed. One earlier full Vitest runner
+  hung with unrelated multi-million-millisecond test durations, was stopped, and
+  a fresh rerun passed. Thranduil and Magus reviewer passes reported no
+  findings; Sauron's command-log wording finding was addressed and final
+  follow-up review reported no findings. All reviewer subagents were closed.
+- Next slice: Beginner fixture field help text. Add concise inline help for
+  fixture outcome and expectation fields so first-time builders can understand
+  what to put in each field without hovering every tooltip.
 - Latest completed slice: Beginner fixture ok expectation control. The fixture
   editor now exposes a **Runtime OK** checkbox for the `expected.ok` assertion,
   placed beside **Allowed** so builders can model intentional compile/runtime
