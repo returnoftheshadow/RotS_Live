@@ -1,32 +1,30 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner scenario fix quick action. Make failed scenario output
-  easier to act on by routing first-time builders toward the script editor or
-  expectation details from the beginner scenario panel.
-- Started: 2026-08-06 06:20:52 CDT.
-- Latest completed slice: Beginner scenario output preview. The beginner Test
-  Scenario panel now shows a compact latest selected-scenario output preview
-  after a run. Preview priority is the first expectation failure, then committed
-  player-visible descriptor output, diagnostics, command logs, return value, or
-  an empty-output fallback. Preview text is bounded, hidden for stale selections
-  and active reruns, uses polite status semantics, and latest duplicate fixture
-  results win. Builder docs describe the preview. The unrelated
-  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
-  this slice.
-- Completed: 2026-08-06 06:20:52 CDT.
-- Latest validation: BuilderClient focused beginner scenario preview, wizard,
-  and sidebar tests passed (`37` tests), BuilderClient `npm run typecheck`
+- Active slice: Beginner scenario expectation shortcut. Make failed scenario
+  expectation issues easier to reach without forcing first-time builders to
+  hunt through advanced fixture controls.
+- Started: 2026-08-06 06:27:55 CDT.
+- Latest completed slice: Beginner scenario fix quick action. Failed selected
+  scenarios now show a local **Fix Script** action in the Test Scenario panel
+  that opens the generated script through the existing editor callback. The
+  local action replaces the top walkthrough fix action when visible to avoid
+  duplicate focusable controls, inherits the dark beginner button styling, and
+  stays hidden for running, passed, or stale scenario states. Builder docs
+  describe the action. The unrelated `BuilderClient/scripts/script-1.ts` file
+  remains untracked and excluded from this slice.
+- Completed: 2026-08-06 06:27:55 CDT.
+- Latest validation: BuilderClient focused BeginnerScriptWizard and
+  SidebarPanels tests passed (`31` tests), BuilderClient `npm run typecheck`
   passed, BuilderClient `npm run build` passed, constrained full BuilderClient
   `npx vitest run --testTimeout 120000 --maxWorkers=2` passed (`70` files,
-  `846` tests), and parent/BuilderClient `git diff --check` passed. Thranduil's
-  latest-wins finding, Magus's stale-preview and untracked-helper findings, and
-  Sauron's stale-preview, uncommitted-output-label, and accessibility findings
-  were resolved. Final follow-up reviews reported no findings. All reviewer
-  subagents were closed.
-- Next slice: Beginner scenario fix quick action. Make failed scenario output
-  easier to act on by routing first-time builders toward the script editor or
-  expectation details from the beginner scenario panel.
+  `846` tests), and parent/BuilderClient `git diff --check` passed. Thranduil
+  and Magus reported no findings. Sauron's duplicate-fix-control and missing
+  dark-button-styling findings were resolved, and final follow-up review
+  reported no findings. All reviewer subagents were closed.
+- Next slice: Beginner scenario expectation shortcut. Make failed scenario
+  expectation issues easier to reach without forcing first-time builders to
+  hunt through advanced fixture controls.
 - Latest completed slice: Beginner fixture expectation copy assist. Latest-run
   suggestion cards now include **Copy value** buttons that copy the exact safe
   single-line expectation value without mutating fixture checks. Copy feedback
