@@ -1,10 +1,31 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture expectation setup. Make expected output checks
-  easier for first-time builders by suggesting useful expectations from the
-  latest fixture result instead of requiring manual substring knowledge.
-- Started: 2026-08-05 23:41:22 CDT.
+- Active slice: Beginner fixture context presets. Reduce raw fixture handle
+  editing for first-time builders by surfacing simple actor/room/object context
+  presets before the advanced handle grid.
+- Started: 2026-08-05 23:55:03 CDT.
+- Latest completed slice: Beginner fixture expectation setup. Advanced Fixture
+  Details now suggests exact single-line expectations from the latest matching
+  fixture result so builders can add output, command-event, diagnostic, and
+  return-value checks without copying substrings by hand. Suggestions preserve
+  meaningful single-line spacing in saved values, use compact display text only
+  on buttons, omit overlong or multiline values that cannot be represented
+  safely by the current expectation fields, and keep the latest run result
+  visible after applying one suggestion. The unrelated
+  `BuilderClient/scripts/script-1.ts` file remains untracked and excluded from
+  this slice.
+- Completed: 2026-08-05 23:55:03 CDT.
+- Latest validation: BuilderClient focused fixture suggestion/editor tests
+  passed (`26` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient `npx vitest run --testTimeout
+  120000` passed (`65` files, `804` tests), and parent/BuilderClient
+  `git diff --check` passed. Thranduil, Magus, and Sauron reviewer findings
+  were addressed, their final follow-up checks reported no blockers, and all
+  reviewer subagents were closed.
+- Next slice: Beginner fixture context presets. Reduce raw fixture handle
+  editing for first-time builders by surfacing simple actor/room/object context
+  presets before the advanced handle grid.
 - Latest completed slice: Beginner publish settings setup checks. Added a
   guided Publish setup checklist that explains Server, Workspace, Account, and
   Package readiness before builders try Login, Check, Stage, or Activate. The
