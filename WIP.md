@@ -1,29 +1,29 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner scenario next-action hint. Show a short selected
-  scenario next action so first-time builders know whether to run, fix, or save
-  after reading the compact run state.
-- Started: 2026-08-06 05:56:27 CDT.
-- Latest completed slice: Beginner scenario run summary. The beginner Test
-  Scenario header and selected scenario card now show compact run-state labels:
-  **Not run**, **Running**, **Passed**, **Needs fix**, or **Pick a scenario**
-  when the stored selection is stale. The header wraps cleanly in compact
-  sidebars, stale selections do not show a selected-card status, and builder
-  docs explain the labels. The unrelated `BuilderClient/scripts/script-1.ts`
-  file remains untracked and excluded from this slice.
-- Completed: 2026-08-06 05:56:27 CDT.
+- Active slice: Beginner scenario output preview. Show a compact latest selected
+  scenario output preview near Test Scenario controls so beginners can see the
+  most important run detail before opening the full output panel.
+- Started: 2026-08-06 06:08:23 CDT.
+- Latest completed slice: Beginner scenario next-action hint. The beginner Test
+  Scenario panel now shows a one-line next-action hint under the state label,
+  covering choose, run, wait, fix, save, and saved states. The hint respects
+  stale selections and disabled run/save actions, so it does not name an
+  unavailable run or save step while another operation is busy. Builder docs
+  describe the hint. The unrelated `BuilderClient/scripts/script-1.ts` file
+  remains untracked and excluded from this slice.
+- Completed: 2026-08-06 06:08:23 CDT.
 - Latest validation: BuilderClient focused BeginnerScriptWizard tests passed
-  (`16` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  (`20` tests), BuilderClient `npm run typecheck` passed, BuilderClient
   `npm run build` passed, constrained full BuilderClient
   `npx vitest run --testTimeout 120000 --maxWorkers=2` passed (`69` files,
-  `835` tests), and parent/BuilderClient `git diff --check` passed. Thranduil
-  and Magus reported no findings. Sauron's compact-header overflow and stale
-  running-state coverage findings were resolved, and final follow-up review
-  reported no findings. All reviewer subagents were closed.
-- Next slice: Beginner scenario next-action hint. Show a short selected
-  scenario next action so first-time builders know whether to run, fix, or save
-  after reading the compact run state.
+  `839` tests), and parent/BuilderClient `git diff --check` passed. Thranduil
+  and Magus reported no findings. Sauron's disabled run/save hint findings were
+  resolved, including failed-scenario disabled rerun wording, and final
+  follow-up review reported no findings. All reviewer subagents were closed.
+- Next slice: Beginner scenario output preview. Show a compact latest selected
+  scenario output preview near Test Scenario controls so beginners can see the
+  most important run detail before opening the full output panel.
 - Latest completed slice: Beginner fixture expectation copy assist. Latest-run
   suggestion cards now include **Copy value** buttons that copy the exact safe
   single-line expectation value without mutating fixture checks. Copy feedback
