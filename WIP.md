@@ -4,6 +4,34 @@
 - Active slice: Paused after user request. Next candidate is Beginner scenario
   recovery output focus: when a recovered scenario has previous output, jump the
   output panel to that scenario after selection.
+- Started: 2026-08-06 13:41:05 CDT.
+- Latest completed slice: BuilderClient RotS Reference selected attribute
+  datatype fix. Attribute selections now prefer the selected attribute's
+  resolvable RotS value type for the class view instead of always rendering the
+  owner interface. Relationship attributes such as `RotS.Character.master` and
+  `RotS.Character.followers` now show the `CharacterRelationshipSnapshot`
+  interface and its available fields/methods, while helper/function selections
+  such as `RotS.Script.doSay` continue to show the owning Script namespace.
+- Completed: 2026-08-06 13:41:05 CDT.
+- Latest validation: BuilderClient focused reference tests passed
+  (`src/core/rotsApiReference.test.ts` and
+  `src/renderer/RotsApiReferencePanel.test.tsx`, `36` tests), BuilderClient
+  `npm run typecheck` passed, BuilderClient `npm run build` passed, and
+  parent/BuilderClient `git diff --check` passed. Thranduil found and the
+  implementation removed a redundant enum/name branch. Sauron found ambiguous
+  union attributes could incorrectly choose the first referenced type; the
+  resolver now switches only when exactly one non-owner RotS datatype resolves,
+  with a `ScriptContext.target` regression. Magus and Sauron also found this
+  WIP validation count needed updating. Follow-up review reported no remaining
+  implementation findings.
+- Next slice: Beginner scenario recovery output focus. When a recovered
+  scenario has previous output, jump the output panel to that scenario after
+  selection. Do not start until the user asks to continue.
+
+## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: Paused after user request. Next candidate is Beginner scenario
+  recovery output focus: when a recovered scenario has previous output, jump the
+  output panel to that scenario after selection.
 - Started: 2026-08-06 13:33:55 CDT.
 - Latest completed slice: BuilderClient RotS Reference class-view navigation
   cleanup. The right-side datatype/class view keeps the selected top-level
