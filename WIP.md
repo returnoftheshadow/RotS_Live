@@ -1,10 +1,31 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture advanced-field collapse. Let first-time
-  builders keep raw advanced fixture fields out of the way until they explicitly
-  open them, while preserving all existing advanced editing controls.
-- Started: 2026-08-06 00:58:40 CDT.
+- Active slice: Beginner fixture expectation omit controls. Surface negative
+  output and command expectations in the editor so builders can forbid text or
+  command events without editing fixture JSON manually.
+- Started: 2026-08-06 01:08:22 CDT.
+- Latest completed slice: Beginner fixture advanced-field collapse. The
+  **Advanced fixture fields** section is now an expandable disclosure that stays
+  closed by default, keeps the native summary marker visible, and preserves all
+  existing handle, nested-handle, trigger-payload, and trigger-text editing
+  controls when opened. Advanced controls now receive explicit disabled state in
+  addition to the surrounding disabled fieldset, and tests cover opening the
+  collapsed section while disabled without firing mutation callbacks. The
+  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-06 01:08:22 CDT.
+- Latest validation: BuilderClient focused FixtureEditorPanel tests passed
+  (`14` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, full BuilderClient
+  `npx vitest run --testTimeout 120000` passed (`69` files, `824` tests), and
+  parent/BuilderClient `git diff --check` passed. Thranduil and Magus reviewer
+  passes reported no findings; Sauron's disclosure-marker and disabled-advanced
+  control findings were addressed and the final follow-up reported no findings.
+  All reviewer subagents were closed.
+- Next slice: Beginner fixture expectation omit controls. Surface negative
+  output and command expectations in the editor so builders can forbid text or
+  command events without editing fixture JSON manually.
 - Latest completed slice: Beginner fixture advanced-field grouping. Raw fixture
   handles, trigger payload fields, and trigger text now live under a labeled
   **Advanced fixture fields** section after the workflow, summary, suggestions,
