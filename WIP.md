@@ -1,10 +1,28 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Beginner fixture suggestion filtering. Make latest-run
-  suggestion controls easier to scan by separating addable suggestions from
-  already-expected values without hiding copy access.
-- Started: 2026-08-06 05:39:53 CDT.
+- Active slice: Beginner scenario run summary. Surface compact latest pass/fail
+  state beside beginner Test Scenario controls so builders can understand the
+  selected scenario result before opening detailed output.
+- Started: 2026-08-06 05:44:58 CDT.
+- Latest completed slice: Beginner fixture suggestion filtering. Latest-run
+  expectation suggestions are now split into addable suggestions and a separate
+  **Already checked** group. Already-expected add buttons remain disabled while
+  **Copy value** stays available, keeping new checks easier to scan without
+  hiding exact-value copy access. Builder docs explain the grouping. The
+  unrelated `BuilderClient/scripts/script-1.ts` file remains untracked and
+  excluded from this slice.
+- Completed: 2026-08-06 05:44:58 CDT.
+- Latest validation: BuilderClient focused FixtureEditorPanel tests passed
+  (`23` tests), BuilderClient `npm run typecheck` passed, BuilderClient
+  `npm run build` passed, constrained full BuilderClient
+  `npx vitest run --testTimeout 120000 --maxWorkers=2` passed (`69` files,
+  `835` tests), and parent/BuilderClient `git diff --check` passed. Thranduil,
+  Magus, and Sauron reviewer passes reported no findings. All reviewer subagents
+  were closed.
+- Next slice: Beginner scenario run summary. Surface compact latest pass/fail
+  state beside beginner Test Scenario controls so builders can understand the
+  selected scenario result before opening detailed output.
 - Latest completed slice: Beginner fixture expectation copy assist. Latest-run
   suggestion cards now include **Copy value** buttons that copy the exact safe
   single-line expectation value without mutating fixture checks. Copy feedback
