@@ -4,6 +4,33 @@
 - Active slice: Paused after user request. Next candidate is Beginner scenario
   recovery output focus: when a recovered scenario has previous output, jump the
   output panel to that scenario after selection.
+- Started: 2026-08-06 11:49:37 CDT.
+- Latest completed slice: BuilderClient RotS Reference highlighted datatype
+  navigation. The right-side RotS Reference datatype/class view now renders as
+  TypeScript-highlighted code instead of one plain text block. Known nested RotS
+  datatypes and enum alias types are clickable from the class view, so entries
+  such as `Affect[]` navigate to `RotS.Affect` and `DirectionName` navigates to
+  `RotS.Direction` while clearing filters that would hide the target. The
+  renderer uses React text nodes/buttons rather than raw HTML, and clickable
+  tokens now have visible keyboard focus styling. Builder docs now call out the
+  highlighted, clickable datatype view.
+- Completed: 2026-08-06 11:49:37 CDT.
+- Latest validation: BuilderClient focused reference tests passed
+  (`src/core/rotsApiReference.test.ts` and
+  `src/renderer/RotsApiReferencePanel.test.tsx`, `29` tests), BuilderClient
+  `npm run typecheck` passed, BuilderClient `npm run build` passed, and
+  parent/BuilderClient `git diff --check` passed. Thranduil and Magus reported
+  no findings. Sauron found enum alias navigation and focus visibility gaps;
+  both were fixed, then Thranduil and Sauron follow-up reviews reported no
+  findings. All reviewer subagents were closed.
+- Next slice: Beginner scenario recovery output focus. When a recovered
+  scenario has previous output, jump the output panel to that scenario after
+  selection. Do not start until the user asks to continue.
+
+## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: Paused after user request. Next candidate is Beginner scenario
+  recovery output focus: when a recovered scenario has previous output, jump the
+  output panel to that scenario after selection.
 - Started: 2026-08-06 11:34:31 CDT.
 - Latest completed slice: BuilderClient Monaco hover stack-overflow hotfix. The
   script editor no longer passes `overflowWidgetsDomNode` through
