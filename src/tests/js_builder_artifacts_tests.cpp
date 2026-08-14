@@ -167,6 +167,33 @@ std::string declaration_block(const std::string &declarations, const std::string
     return "";
 }
 
+std::string declaration_statement(const std::string &declarations, const std::string &start) {
+    const std::size_t start_index = declarations.find(start);
+    if (start_index == std::string::npos)
+        return "";
+    const std::size_t end_index = declarations.find(";\n", start_index);
+    if (end_index == std::string::npos)
+        return declarations.substr(start_index);
+    return declarations.substr(start_index, end_index - start_index + 1);
+}
+
+std::vector<std::string> split_pipe_list(const char *value) {
+    std::vector<std::string> parts;
+    std::string current;
+    for (char ch : std::string(value ? value : "")) {
+        if (ch == '|') {
+            if (!current.empty())
+                parts.push_back(current);
+            current.clear();
+        } else {
+            current += ch;
+        }
+    }
+    if (!current.empty())
+        parts.push_back(current);
+    return parts;
+}
+
 void expect_balanced_typescript_shape(const std::string &declarations) {
     int brace_depth = 0;
     bool in_block_comment = false;
@@ -548,12 +575,16 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
                 << interface_name;
             EXPECT_EQ(block.find("setAlignment("), std::string::npos) << interface_name;
             EXPECT_EQ(block.find("setFlags("), std::string::npos) << interface_name;
-            EXPECT_EQ(block.find("addFlag("), std::string::npos) << interface_name;
-            EXPECT_EQ(block.find("removeFlag("), std::string::npos) << interface_name;
+            EXPECT_NE(block.find("addFlag(name: MutableRoomFlagName): MutationResult;"),
+                std::string::npos)
+                << interface_name;
+            EXPECT_NE(block.find("removeFlag(name: MutableRoomFlagName): MutationResult;"),
+                std::string::npos)
+                << interface_name;
+            EXPECT_NE(block.find("Raw setFlags remains blocked"), std::string::npos)
+                << interface_name;
             EXPECT_EQ(block.find("setLight("), std::string::npos) << interface_name;
             const char *forbidden_room_members[] = {
-                "addFlag",
-                "removeFlag",
                 "setTracks",
                 "setBleedTracks",
                 "setBfsDirection",
@@ -866,8 +897,6 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         "setAffects",
         "setAlignment",
         "setFlags",
-        "addFlag",
-        "removeFlag",
         "setLight",
         "setTracks",
         "setBleedTracks",
@@ -908,6 +937,27 @@ TEST(JsBuilderArtifacts, TypescriptDeclarationsCoverEveryApiTypeAndMember) {
         EXPECT_EQ(object_flags_block.find(std::string(member_name) + "("), std::string::npos)
             << member_name;
     }
+}
+
+TEST(JsBuilderArtifacts, MutableRoomFlagNameMatchesServerBuilderZonePolicy) {
+    const std::string declarations = js_generate_typescript_declarations();
+    const std::string mutable_room_flag_type =
+        declaration_statement(declarations, "export type MutableRoomFlagName =");
+    ASSERT_FALSE(mutable_room_flag_type.empty());
+
+    ASSERT_GE(js_api_room_flag_helper_operation_count(), 2U);
+    const JsApiRoomFlagHelperOperation &add_operation = js_api_room_flag_helper_operations()[0];
+    const JsApiRoomFlagHelperOperation &remove_operation = js_api_room_flag_helper_operations()[1];
+    EXPECT_STREQ(add_operation.builder_zone_flags, remove_operation.builder_zone_flags);
+    EXPECT_STREQ(add_operation.admin_only_flags, remove_operation.admin_only_flags);
+    EXPECT_STREQ(add_operation.blocked_flags, remove_operation.blocked_flags);
+
+    for (const std::string &flag : split_pipe_list(add_operation.builder_zone_flags))
+        expect_contains(mutable_room_flag_type, "| '" + flag + "'");
+    for (const std::string &flag : split_pipe_list(add_operation.admin_only_flags))
+        expect_not_contains(mutable_room_flag_type, "| '" + flag + "'");
+    for (const std::string &flag : split_pipe_list(add_operation.blocked_flags))
+        expect_not_contains(mutable_room_flag_type, "| '" + flag + "'");
 }
 
 TEST(JsBuilderArtifacts, EmitsDiscriminatedMutationResultType) {

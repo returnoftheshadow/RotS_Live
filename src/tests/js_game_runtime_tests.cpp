@@ -98,6 +98,23 @@ JsGameObjectAffectFixture make_object_affect(int slot_index, int location,
     return affect;
 }
 
+std::vector<std::string> split_pipe_list(const char *value) {
+    std::vector<std::string> parts;
+    std::string current;
+    for (char ch : std::string(value ? value : "")) {
+        if (ch == '|') {
+            if (!current.empty())
+                parts.push_back(current);
+            current.clear();
+        } else {
+            current += ch;
+        }
+    }
+    if (!current.empty())
+        parts.push_back(current);
+    return parts;
+}
+
 JsGameEquipmentSlotFixture make_equipment_slot(int slot_index, const std::string &slot_name,
                                                bool has_object) {
     JsGameEquipmentSlotFixture slot;
@@ -1896,8 +1913,8 @@ TEST(JsGameRuntime, ExposesTriggerSpecificCharacterRoleSnapshots) {
         "      && typeof character.setInterruptTime === 'undefined'\n"
         "      && typeof character.setSpecialBusy === 'undefined'\n"
         "      && (character.room === null || (\n"
-        "        typeof character.room.addFlag === 'undefined'\n"
-        "        && typeof character.room.removeFlag === 'undefined'));\n"
+        "        typeof character.room.addFlag === 'function'\n"
+        "        && typeof character.room.removeFlag === 'function'));\n"
         "  })\n"
         "  && ctx.trigger.hostType === ctx.hostType;",
         context);
@@ -2137,7 +2154,7 @@ TEST(JsGameRuntime, ExecutesFirstTextSettersThroughMutationResults) {
         "try { badType.code = 'ok'; } catch (error) {}\n"
         "try { Object.defineProperty(badType, 'extra', { value: true }); } catch (error) {}\n"
         "const forbiddenRoomMembers = [\n"
-        "  'setExit', 'setFlags', 'addFlag', 'removeFlag', 'setAlignment', 'setLight', "
+        "  'setExit', 'setFlags', 'setAlignment', 'setLight', "
         "'setTracks',\n"
         "  'setBleedTracks', 'setBfsDirection', 'setBfsNext', 'setSpecialProcedure',\n"
         "  'tracks', 'bleedTracks', 'bfsDirection', 'bfsNext', 'specialProcedure',\n"
@@ -2690,6 +2707,157 @@ TEST(JsGameRuntime, DoGiveUsesNativeResultBridgeWithoutExposingCallbackSurface) 
     EXPECT_EQ(
         probe.arguments_json,
         "{\"giverId\":\"char:1001\",\"recipientId\":\"player:7\",\"objectId\":\"object:301\"}");
+}
+
+TEST(JsGameRuntime, RoomFlagHelpersQueueOpaqueHelperMutations) {
+    JsGameTriggerContextFixture context = make_context();
+    context.room.id = "room";
+    context.room.vnum = 1109;
+    context.room.flags = {"dark", "death", "permanentAffect"};
+
+    JsGameRuntimeEvaluationOptions options;
+    options.room_flag_target_zone_vnum = 11;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const add = ctx.room.addFlag('peaceRoom');\n"
+        "const remove = ctx.room.removeFlag('dark');\n"
+        "const invalid = ctx.room.addFlag('permanentAffect');\n"
+        "const admin = ctx.room.addFlag('death');\n"
+        "const malformed = ctx.room.addFlag('BFS_MARK');\n"
+        "return add.ok && remove.ok && !invalid.ok && invalid.code === 'invalid-value'\n"
+        "  && !admin.ok && admin.code === 'authority-rejected'\n"
+        "  && !malformed.ok && malformed.code === 'invalid-value'\n"
+        "  && ctx.room.flags.indexOf('peaceRoom') !== -1\n"
+        "  && ctx.room.flags.indexOf('dark') === -1\n"
+        "  && ctx.room.flags.indexOf('death') !== -1\n"
+        "  && ctx.room.flags.indexOf('permanentAffect') !== -1\n"
+        "  && Object.isFrozen(ctx.room.flags)\n"
+        "  && typeof ctx.room.setFlags === 'undefined'\n"
+        "  && typeof __rotsRoomFlagTargetToken === 'undefined';\n",
+        context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    ASSERT_EQ(result.mutations.size(), 2U);
+    EXPECT_EQ(result.mutations[0].kind, "helper");
+    EXPECT_EQ(result.mutations[0].operation, "room.flags.add");
+    EXPECT_EQ(result.mutations[0].target_token,
+        "room-token:v1:11:1109");
+    EXPECT_EQ(result.mutations[0].target_token.find("test-room-token-secret"), std::string::npos);
+    EXPECT_EQ(result.mutations[0].arguments_json, "{\"flag\":\"peaceRoom\"}");
+    EXPECT_TRUE(result.mutations[0].runtime_helper_bridge_accepted);
+    EXPECT_EQ(result.mutations[1].kind, "helper");
+    EXPECT_EQ(result.mutations[1].operation, "room.flags.remove");
+    EXPECT_EQ(result.mutations[1].target_token,
+        "room-token:v1:11:1109");
+    EXPECT_EQ(result.mutations[1].target_token.find("test-room-token-secret"), std::string::npos);
+    EXPECT_EQ(result.mutations[1].arguments_json, "{\"flag\":\"dark\"}");
+    EXPECT_TRUE(result.mutations[1].runtime_helper_bridge_accepted);
+}
+
+TEST(JsGameRuntime, RoomFlagHelpersMatchServerFlagPolicyCatalog) {
+    ASSERT_GE(js_api_room_flag_helper_operation_count(), 2U);
+    const JsApiRoomFlagHelperOperation &add_operation = js_api_room_flag_helper_operations()[0];
+    const std::vector<std::string> builder_zone_flags =
+        split_pipe_list(add_operation.builder_zone_flags);
+    const std::vector<std::string> admin_only_flags = split_pipe_list(add_operation.admin_only_flags);
+    const std::vector<std::string> blocked_flags = split_pipe_list(add_operation.blocked_flags);
+    ASSERT_FALSE(builder_zone_flags.empty());
+    ASSERT_FALSE(admin_only_flags.empty());
+    ASSERT_FALSE(blocked_flags.empty());
+
+    JsGameTriggerContextFixture context = make_context();
+    context.room.id = "room";
+    context.room.vnum = 1109;
+    JsGameRuntimeEvaluationOptions options;
+    options.room_flag_target_zone_vnum = 11;
+    JsGameRuntime runtime;
+
+    for (const std::string &flag : builder_zone_flags) {
+        const std::string source =
+            "const add = ctx.room.addFlag('" + flag + "');\n"
+            "const remove = ctx.room.removeFlag('" + flag + "');\n"
+            "return add.ok && add.code === 'ok' && remove.ok && remove.code === 'ok';\n";
+        JsRuntimeEvalResult result = runtime.evaluate_trigger_body(source, context, options);
+        ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << flag << ": " << result.diagnostic;
+        EXPECT_EQ(result.value, JsRuntimeValue::Allow) << flag;
+        ASSERT_EQ(result.mutations.size(), 2U) << flag;
+        EXPECT_TRUE(result.mutations[0].runtime_helper_bridge_accepted) << flag;
+        EXPECT_TRUE(result.mutations[1].runtime_helper_bridge_accepted) << flag;
+        EXPECT_EQ(result.mutations[0].arguments_json, "{\"flag\":\"" + flag + "\"}") << flag;
+        EXPECT_EQ(result.mutations[1].arguments_json, "{\"flag\":\"" + flag + "\"}") << flag;
+    }
+
+    for (const std::string &flag : admin_only_flags) {
+        const std::string source =
+            "const result = ctx.room.addFlag('" + flag + "');\n"
+            "return !result.ok && result.code === 'authority-rejected';\n";
+        JsRuntimeEvalResult result = runtime.evaluate_trigger_body(source, context, options);
+        ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << flag << ": " << result.diagnostic;
+        EXPECT_EQ(result.value, JsRuntimeValue::Allow) << flag;
+        EXPECT_TRUE(result.mutations.empty()) << flag;
+    }
+
+    for (const std::string &flag : blocked_flags) {
+        const std::string source =
+            "const result = ctx.room.addFlag('" + flag + "');\n"
+            "return !result.ok && result.code === 'invalid-value';\n";
+        JsRuntimeEvalResult result = runtime.evaluate_trigger_body(source, context, options);
+        ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << flag << ": " << result.diagnostic;
+        EXPECT_EQ(result.value, JsRuntimeValue::Allow) << flag;
+        EXPECT_TRUE(result.mutations.empty()) << flag;
+    }
+}
+
+TEST(JsGameRuntime, RoomFlagHelperTokenMaterialStaysOutOfScriptErrors) {
+    JsGameTriggerContextFixture context = make_context();
+    context.room.id = "room";
+    context.room.vnum = 1109;
+
+    JsGameRuntimeEvaluationOptions options;
+    options.room_flag_target_zone_vnum = 11;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const descriptor = Object.getOwnPropertyDescriptor(ctx.room, 'addFlag');\n"
+        "const reflected = String(ctx.room.addFlag) + JSON.stringify(descriptor);\n"
+        "if (reflected.indexOf('test-room-token-secret') !== -1) {\n"
+        "  throw new Error('reflected token leak');\n"
+        "}\n"
+        "ctx.room.addFlag('peaceRoom');\n"
+        "throw new Error('forced failure after helper attachment');\n",
+        context, options);
+
+    EXPECT_EQ(result.status, JsRuntimeStatus::Error);
+    EXPECT_EQ(result.diagnostic.find("test-room-token-secret"), std::string::npos);
+    EXPECT_EQ(result.diagnostic.find("room-token:v1"), std::string::npos);
+}
+
+TEST(JsGameRuntime, RoomFlagHelpersDoNotAttachToCopiedRoomShapes) {
+    JsGameTriggerContextFixture context = make_context();
+    context.room.id = "room";
+    context.room.vnum = 1109;
+    context.actor.has_room = true;
+    context.actor.room.id = "actor-room";
+    context.actor.room.vnum = 1109;
+
+    JsGameRuntimeEvaluationOptions options;
+    options.room_flag_target_zone_vnum = 11;
+
+    JsGameRuntime runtime;
+    JsRuntimeEvalResult result = runtime.evaluate_trigger_body(
+        "const copiedTopLevelRoom = { ...ctx.room };\n"
+        "const copiedNestedRoom = { ...ctx.actor.room };\n"
+        "return typeof ctx.room.addFlag === 'function'\n"
+        "  && typeof ctx.actor.room.addFlag === 'function'\n"
+        "  && typeof copiedTopLevelRoom.addFlag === 'undefined'\n"
+        "  && typeof copiedNestedRoom.addFlag === 'undefined';\n",
+        context, options);
+
+    ASSERT_EQ(result.status, JsRuntimeStatus::Ok) << result.diagnostic;
+    EXPECT_EQ(result.value, JsRuntimeValue::Allow);
+    EXPECT_TRUE(result.mutations.empty());
 }
 
 TEST(JsGameRuntime, DoGiveBridgeAcceptedResultQueuesSingleMarkedMutation) {
@@ -4086,7 +4254,7 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent) {
         "];\n"
         "const roomSetterNames = [\n"
         "  'setExtraDescriptions', 'setExit', 'setContents', 'setCharacters', 'setAffects',\n"
-        "  'setAlignment', 'setFlags', 'addFlag', 'removeFlag', 'setLight'\n"
+        "  'setAlignment', 'setFlags', 'setLight'\n"
         "];\n"
         "const roomInternalNames = [\n"
         "  'setTracks', 'setBleedTracks', 'setBfsDirection', 'setBfsNext',\n"
@@ -4151,7 +4319,7 @@ TEST(JsGameRuntime, ExposesTypedTargetsWhenPresent) {
     JsRuntimeEvalResult room_result = runtime.evaluate_trigger_body(
         "const roomSetterNames = [\n"
         "  'setExtraDescriptions', 'setExit', 'setContents', 'setCharacters', 'setAffects',\n"
-        "  'setAlignment', 'setFlags', 'addFlag', 'removeFlag', 'setLight'\n"
+        "  'setAlignment', 'setFlags', 'setLight'\n"
         "];\n"
         "const roomInternalNames = [\n"
         "  'setTracks', 'setBleedTracks', 'setBfsDirection', 'setBfsNext',\n"

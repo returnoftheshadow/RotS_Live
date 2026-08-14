@@ -609,10 +609,20 @@ TEST(JsApiContract, FindsTypesAndMembersByName) {
     ASSERT_NE(room_exits, nullptr);
     EXPECT_STREQ(room_exits->type_name, "readonly RoomExit[]");
     EXPECT_EQ(room_exits->status, JsApiMemberStatus::PlannedReadOnly);
+    const JsApiMember *room_add_flag = find_js_api_contract_member(*room, "addFlag");
+    ASSERT_NE(room_add_flag, nullptr);
+    EXPECT_STREQ(room_add_flag->type_name, "(name: MutableRoomFlagName) => MutationResult");
+    EXPECT_STREQ(room_add_flag->return_type, "MutationResult");
+    EXPECT_EQ(room_add_flag->side_effect, JsApiSideEffect::WorldMutation);
+    EXPECT_EQ(room_add_flag->status, JsApiMemberStatus::ImplementedSideEffectHelper);
+    const JsApiMember *room_remove_flag = find_js_api_contract_member(*room, "removeFlag");
+    ASSERT_NE(room_remove_flag, nullptr);
+    EXPECT_STREQ(room_remove_flag->type_name, "(name: MutableRoomFlagName) => MutationResult");
+    EXPECT_STREQ(room_remove_flag->return_type, "MutationResult");
+    EXPECT_EQ(room_remove_flag->side_effect, JsApiSideEffect::WorldMutation);
+    EXPECT_EQ(room_remove_flag->status, JsApiMemberStatus::ImplementedSideEffectHelper);
     for (const char *member_name : {"setExit",
                                     "setFlags",
-                                    "addFlag",
-                                    "removeFlag",
                                     "setAlignment",
                                     "setLight",
                                     "setTracks",
@@ -931,9 +941,10 @@ TEST(JsApiContract, DefinesSetterMutationResultContract) {
         {"ok", "boolean", false},
         {"code",
          "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
-         "'unsupported' | 'deferred' | 'invalid-target' | 'not-carried' | 'no-drop' | "
-         "'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found' | "
-         "'already-waiting' | 'no-recipient' | 'blocked-room' | 'no-teleport'",
+         "'authority-rejected' | 'unsupported' | 'deferred' | 'invalid-target' | "
+         "'not-carried' | 'no-drop' | 'inventory-full' | 'too-heavy' | 'audit-rejected' | "
+         "'not-found' | 'already-waiting' | 'no-recipient' | 'blocked-room' | "
+         "'no-teleport'",
          false},
         {"message", "string | null", true},
         {"field", "string | null", true},

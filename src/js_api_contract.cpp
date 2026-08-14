@@ -581,6 +581,18 @@ constexpr JsApiMember RoomMembers[] = {
     { "isValid", JsApiMemberKind::Method, "() => boolean", "boolean", false, false,
         JsApiSideEffect::None, JsApiMemberStatus::PlannedPureHelper, "pure",
         "Checks whether this invocation-local handle still points at a loaded room." },
+    { "addFlag", JsApiMemberKind::Method, "(name: MutableRoomFlagName) => MutationResult",
+        "MutationResult", false, true, JsApiSideEffect::WorldMutation,
+        JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
+        "Adds an ordinary builder-zone room flag to the invocation snapshot and queues an audited "
+        "room flag helper mutation for live dispatch. High-impact and internal room flags remain "
+        "outside this public helper." },
+    { "removeFlag", JsApiMemberKind::Method, "(name: MutableRoomFlagName) => MutationResult",
+        "MutationResult", false, true, JsApiSideEffect::WorldMutation,
+        JsApiMemberStatus::ImplementedSideEffectHelper, "builder-zone",
+        "Removes an ordinary builder-zone room flag from the invocation snapshot and queues an "
+        "audited room flag helper mutation for live dispatch. Raw Room.setFlags remains "
+        "unavailable." },
 };
 
 constexpr JsApiMember ZoneMembers[] = {
@@ -755,9 +767,9 @@ constexpr JsApiMember MutationResultMembers[] = {
         "True when a validated setter or command helper accepts the requested change." },
     { "code", JsApiMemberKind::Property,
         "'ok' | 'invalid-value' | 'out-of-range' | 'not-authorized' | 'stale-handle' | "
-        "'unsupported' | 'deferred' | 'invalid-target' | 'not-carried' | 'no-drop' | "
-        "'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found' | 'already-waiting' | "
-        "'no-recipient' | 'blocked-room' | 'no-teleport'",
+        "'authority-rejected' | 'unsupported' | 'deferred' | 'invalid-target' | 'not-carried' | "
+        "'no-drop' | 'inventory-full' | 'too-heavy' | 'audit-rejected' | 'not-found' | "
+        "'already-waiting' | 'no-recipient' | 'blocked-room' | 'no-teleport'",
         "", false, false, JsApiSideEffect::None, JsApiMemberStatus::PlannedReadOnly, "read-only",
         "Stable machine-readable result code. Detailed authorization and audit diagnostics stay in "
         "server logs, not script-visible result values." },

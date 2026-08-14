@@ -525,7 +525,6 @@ TEST(JsTriggerDispatch, CommandHelpersRejectMalformedTargetIdsBeforeAudit) {
     const char_data *live_characters[] = {&self, &actor};
     room_data world[1] = {make_room("Gate", 100, 0)};
     world[0].room_flags = 0;
-    world[0].room_flags = 0;
     zone_data zones[1] = {make_zone("Zone", 30)};
     zones[0].name = str_dup("Zone");
     JsGameAdapterOptions adapter_options =
@@ -1070,6 +1069,180 @@ TEST(JsTriggerDispatch, LoadObjCommandHelperPlacesObjectInLiveCharacterInventory
     EXPECT_EQ(actor.carrying->item_number, 0);
     EXPECT_EQ(actor.carrying->carried_by, &actor);
     EXPECT_EQ(obj_index[0].number, 1);
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelpersApplyThroughDefaultDispatchRegistry) {
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5890, "function onEnter(ctx) {\n"
+              "  const addPeace = ctx.room.addFlag(RotS.RoomFlag.PeaceRoom);\n"
+              "  const removeDark = ctx.room.removeFlag(RotS.RoomFlag.Dark);\n"
+              "  return addPeace.ok && removeDark.ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    world[0].room_flags = DARK;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    dispatch_options.helper_mutation_options.audit_user_data = &audit_calls;
+    dispatch_options.helper_mutation_options.audit_callback =
+        [](const JsTriggerHelperMutationAuditRequest &request, std::string *, void *user_data) {
+            ++*static_cast<int *>(user_data);
+            EXPECT_EQ(request.mutation_count, 2U);
+            EXPECT_EQ(request.operations_summary, "room.flags.add,room.flags.remove");
+            EXPECT_FALSE(request.requires_room_flag_admin_override);
+            EXPECT_EQ(request.room_flag_authority_summary, "builder-zone");
+            EXPECT_NE(request.room_flag_audit_summary.find("add:peaceRoom:builder-zone:room=100"),
+                std::string::npos);
+            EXPECT_NE(request.room_flag_audit_summary.find("remove:dark:builder-zone:room=100"),
+                std::string::npos);
+            return true;
+        };
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_FALSE(IS_SET(world[0].room_flags, DARK));
+    EXPECT_TRUE(IS_SET(world[0].room_flags, PEACEROOM));
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelpersApplyFromNestedCharacterRoomHandle) {
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5894, "function onEnter(ctx) {\n"
+              "  const addPeace = ctx.self.room.addFlag(RotS.RoomFlag.PeaceRoom);\n"
+              "  return addPeace.ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    world[0].room_flags = 0;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    int audit_calls = 0;
+    dispatch_options.helper_mutation_options.audit_user_data = &audit_calls;
+    dispatch_options.helper_mutation_options.audit_callback =
+        [](const JsTriggerHelperMutationAuditRequest &request, std::string *, void *user_data) {
+            ++*static_cast<int *>(user_data);
+            EXPECT_EQ(request.mutation_count, 1U);
+            EXPECT_EQ(request.operations_summary, "room.flags.add");
+            EXPECT_NE(request.room_flag_audit_summary.find("add:peaceRoom:builder-zone:room=100"),
+                std::string::npos);
+            return true;
+        };
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(audit_calls, 1);
+    EXPECT_TRUE(IS_SET(world[0].room_flags, PEACEROOM));
+}
+
+TEST(JsTriggerDispatch, RoomFlagHelpersRequireHelperAuditCallbackBeforeLiveApply) {
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5892, "function onEnter(ctx) {\n"
+              "  const addPeace = ctx.room.addFlag(RotS.RoomFlag.PeaceRoom);\n"
+              "  return addPeace.ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    world[0].room_flags = 0;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.diagnostic, "JavaScript helper mutation audit rejected");
+    EXPECT_EQ(world[0].room_flags, 0);
+}
+
+TEST(JsTriggerDispatch, PublicRoomFlagHelperApplyFailureLeavesRoomFlagsUnchanged) {
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5893, "function onEnter(ctx) {\n"
+              "  const addPeace = ctx.room.addFlag(RotS.RoomFlag.PeaceRoom);\n"
+              "  return addPeace.ok;\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    world[0].room_flags = DARK;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+    dispatch_options.helper_mutation_options.audit_callback =
+        [](const JsTriggerHelperMutationAuditRequest &, std::string *, void *) {
+            return true;
+        };
+    dispatch_options.helper_mutation_options.apply_precondition_callback =
+        [](std::size_t, void *) { return false; };
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Error);
+    EXPECT_EQ(result.diagnostic, "JavaScript trigger helper mutation apply rejected");
+    EXPECT_TRUE(IS_SET(world[0].room_flags, DARK));
+    EXPECT_FALSE(IS_SET(world[0].room_flags, PEACEROOM));
+}
+
+TEST(JsTriggerDispatch, PublicRoomFlagHelpersRejectAdminOnlyFlagsBeforeDispatchApply) {
+    JsScriptPackageRegistry registry;
+    JsScriptPackage package = make_character_enter_package(
+        5891, "function onEnter(ctx) {\n"
+              "  const result = ctx.room.addFlag('death');\n"
+              "  return !result.ok && result.code === 'authority-rejected';\n"
+              "}");
+    ASSERT_TRUE(registry.replace_all({package}, internal_options()));
+
+    char_data self = make_character("Self");
+    const char_data *live_characters[] = {&self};
+    room_data world[1] = {make_room("Gate", 100, 0)};
+    world[0].room_flags = 0;
+    zone_data zones[1] = {make_zone("Zone", 30)};
+    JsGameAdapterOptions adapter_options =
+        make_options(live_characters, 1, nullptr, 0, world, 0, nullptr, 0, zones, 1);
+    JsTriggerDispatchRequest request = character_request(&self);
+    JsTriggerDispatchOptions dispatch_options;
+    dispatch_options.mutation_authority = test_mutation_authority();
+
+    JsTriggerDispatchResult result =
+        js_trigger_dispatch_first_match(registry, request, adapter_options, dispatch_options);
+
+    EXPECT_EQ(result.status, JsTriggerDispatchStatus::Allow) << result.diagnostic;
+    EXPECT_EQ(world[0].room_flags, 0);
 }
 
 TEST(JsTriggerDispatch, LoadObjInlineNotFoundResultAllowsBuilderFallbackMessage) {
@@ -3968,7 +4141,7 @@ TEST(JsTriggerDispatch, RoomFlagHelperApplyKeepsSettersAndFlagsUnchangedWhenAudi
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::AuditRejected);
     EXPECT_EQ(result.applied_setter_count, 0U);
     EXPECT_EQ(result.applied_helper_count, 0U);
-    EXPECT_EQ(result.diagnostic, "JavaScript trigger helper mutation rejected");
+    EXPECT_EQ(result.diagnostic, "JavaScript helper mutation audit rejected");
     EXPECT_EQ(audit_calls, 1);
     EXPECT_STREQ(zones[0].name, "Zone");
     EXPECT_EQ(world[0].room_flags, DARK);
@@ -4926,7 +5099,7 @@ TEST(JsTriggerDispatch, MixedTransactionRejectsHelperAuditFailureWithoutKeepingP
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.helper_status, JsTriggerHelperMutationTransactionStatus::AuditRejected);
     EXPECT_EQ(result.prepared_setter_count, 0U);
-    EXPECT_EQ(result.diagnostic, "JavaScript trigger helper mutation rejected");
+    EXPECT_EQ(result.diagnostic, "JavaScript helper mutation audit rejected");
     EXPECT_EQ(audit_calls, 1);
 }
 

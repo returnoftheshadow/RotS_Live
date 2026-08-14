@@ -249,6 +249,9 @@ runtime:
   covers `doSay`, `sendToChar`, `sendToRoom`, and `doWait`.
 - [`quest-reward.ts`](../BuilderClient/examples/shape-script/quest-reward.ts)
   covers `loadObj`, `doGive`, and `sendToChar`.
+- [`room-flag-helper.ts`](../BuilderClient/examples/shape-script/room-flag-helper.ts)
+  covers `Room.addFlag`, `Room.removeFlag`, `RotS.RoomFlag`, and the blocked
+  raw `Room.setFlags` path.
 - [Legacy script corpus plan](../BuilderClient/docs/legacy-script-corpus.md)
   tracks the active `lib/world/scr` scan and the JavaScript example slices
   derived from current game scripts.
@@ -325,6 +328,34 @@ state; applies character movement; then applies descriptor output last. That
 category order means output cannot leak
 from a script whose earlier mutation validation fails, but it also means live
 side effects are not replayed strictly in JavaScript source order.
+
+Named room flag helpers are now the public path for ordinary room flag changes:
+
+```ts
+export function onEnter(ctx: RotS.ScriptContext): RotS.TriggerResult {
+  if (!ctx.room) return RotS.ScriptResult.allow();
+
+  const addPeace = ctx.room.addFlag(RotS.RoomFlag.PeaceRoom);
+  const removeDark = ctx.room.removeFlag(RotS.RoomFlag.Dark);
+
+  return addPeace.ok
+    && removeDark.ok
+    && ctx.room.flags.includes(RotS.RoomFlag.PeaceRoom);
+}
+```
+
+Open `BuilderClient/examples/shape-script/room-flag-helper.ts` for a runnable
+BuilderClient example. `Room.addFlag(name: MutableRoomFlagName)` and
+`Room.removeFlag(name: MutableRoomFlagName)` accept only ordinary builder-zone
+flags such as `RotS.RoomFlag.Dark`, `RotS.RoomFlag.NoMagic`, and
+`RotS.RoomFlag.PeaceRoom`. `Room.flags` still uses the broader `RoomFlagName`
+type for read-only comparisons, so scripts can see high-impact flags without
+being able to change them through the public helper. `Room.setFlags` remains
+unavailable so scripts cannot replace the whole bitvector, set `BFS_MARK`, set
+`PERMAFFECT`/`permanentAffect`, or smuggle unnamed room-flag bits. High-impact
+flags (`death`, `private`, `godRoom`, `securityRoom`, and `noTeleport`) return
+`authority-rejected` from the public helper and require reviewed server/admin
+override flows outside beginner scripts.
 
 Command helpers only accept real handles from the current `ctx`; fake objects,
 spread copies, prototype copies, copied ids, or borrowed `isValid` functions are

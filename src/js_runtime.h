@@ -29,6 +29,7 @@ struct JsRuntimeMutation {
     std::string operation;
     std::string target_token;
     std::string arguments_json;
+    bool runtime_helper_bridge_accepted = false;
     bool command_result_bridge_accepted = false;
 };
 

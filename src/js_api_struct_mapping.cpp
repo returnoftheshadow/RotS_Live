@@ -942,7 +942,7 @@ constexpr const char *RoomFlagHelperBlockedFlags =
     "BFS_MARK|PERMAFFECT|permanentAffect|unnamed-room-flag-bits";
 
 constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
-    {"room.flags.add", "Room.addFlag(name: RoomFlagName): MutationResult",
+    {"room.flags.add", "Room.addFlag(name: MutableRoomFlagName): MutationResult",
      RoomFlagHelperAllowedFlags, RoomFlagHelperExcludedFlags,
      RoomFlagHelperBuilderZoneFlags, RoomFlagHelperAdminOnlyFlags, RoomFlagHelperBlockedFlags,
      "Requires an opaque room target token resolved to a loaded room in the authenticated "
@@ -972,7 +972,7 @@ constexpr JsApiRoomFlagHelperOperation RoomFlagHelperOperations[] = {
      "Cover allowed add, duplicate add idempotence, forbidden BFS_MARK/PERMAFFECT, wrong-zone "
      "room, stale room token, admin-only denial without override, audit rejection, rollback "
      "after mixed failure, and absence of raw Room.setFlags."},
-    {"room.flags.remove", "Room.removeFlag(name: RoomFlagName): MutationResult",
+    {"room.flags.remove", "Room.removeFlag(name: MutableRoomFlagName): MutationResult",
      RoomFlagHelperAllowedFlags, RoomFlagHelperExcludedFlags,
      RoomFlagHelperBuilderZoneFlags, RoomFlagHelperAdminOnlyFlags, RoomFlagHelperBlockedFlags,
      "Requires an opaque room target token resolved to a loaded room in the authenticated "

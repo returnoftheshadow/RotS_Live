@@ -192,6 +192,22 @@ void append_enum_typescript_declarations(std::ostringstream &out) {
         }
         out << "}>;\n\n";
     }
+    append_ts_doc_comment(out, "",
+        "Room flag names accepted by Room.addFlag and Room.removeFlag from ordinary "
+        "builder-zone scripts. High-impact room flags are readable through RoomFlagName but "
+        "must use reviewed server/admin override flows, not the public helper.");
+    out << "export type MutableRoomFlagName =\n";
+    out << "    | 'dark'\n";
+    out << "    | 'noMob'\n";
+    out << "    | 'indoors'\n";
+    out << "    | 'noRide'\n";
+    out << "    | 'shadowy'\n";
+    out << "    | 'noMagic'\n";
+    out << "    | 'tunnel'\n";
+    out << "    | 'drinkWater'\n";
+    out << "    | 'drinkPoison'\n";
+    out << "    | 'peaceRoom'\n";
+    out << "    | 'hideVnum';\n\n";
 }
 
 std::string enum_example(const JsApiEnumCatalog &catalog) {
@@ -268,6 +284,7 @@ void append_mutation_result_type(std::ostringstream &out) {
     out << "          | 'invalid-value'\n";
     out << "          | 'out-of-range'\n";
     out << "          | 'not-authorized'\n";
+    out << "          | 'authority-rejected'\n";
     out << "          | 'stale-handle'\n";
     out << "          | 'unsupported'\n";
     out << "          | 'deferred'\n";
@@ -279,7 +296,9 @@ void append_mutation_result_type(std::ostringstream &out) {
     out << "          | 'audit-rejected'\n";
     out << "          | 'not-found'\n";
     out << "          | 'already-waiting'\n";
-    out << "          | 'no-recipient';\n";
+    out << "          | 'no-recipient'\n";
+    out << "          | 'blocked-room'\n";
+    out << "          | 'no-teleport';\n";
     out << "        /** Sanitized builder-facing detail text, or null when no safe detail is "
            "available. */\n";
     out << "        readonly message: string | null;\n";
@@ -430,6 +449,23 @@ std::string js_generate_typescript_declarations() {
             out << "    setLevel(value: number): MutationResult;\n";
             append_ts_doc_comment(out, "    ", GameObjectRaritySetterDocs);
             out << "    setRarity(value: number): MutationResult;\n";
+        }
+        if (std::string(type.name) == "Room") {
+            append_ts_doc_comment(out, "    ",
+                "Adds a supported named room flag to the invocation snapshot and queues an audited "
+                "room flag helper mutation when dispatch provides target-scoped room flag "
+                "authority. Only MutableRoomFlagName builder-zone flags are accepted by this "
+                "public helper; death, private, godRoom, securityRoom, noTeleport, "
+                "PERMAFFECT/permanentAffect, unnamed bits, and raw setFlags remain unavailable "
+                "without reviewed server/admin override flows.");
+            out << "    addFlag(name: MutableRoomFlagName): MutationResult;\n";
+            append_ts_doc_comment(out, "    ",
+                "Removes a supported named room flag from the invocation snapshot and queues an "
+                "audited room flag helper mutation when dispatch provides target-scoped room flag "
+                "authority. Only MutableRoomFlagName builder-zone flags are accepted by this "
+                "public helper; high-impact and internal room flags return rejected results or "
+                "stay unavailable through server/admin flows. Raw setFlags remains blocked.");
+            out << "    removeFlag(name: MutableRoomFlagName): MutationResult;\n";
         }
         out << "}\n\n";
     }

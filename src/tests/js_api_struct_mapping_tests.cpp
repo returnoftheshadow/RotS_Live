@@ -688,8 +688,8 @@ TEST(JsApiStructMapping, RoomFlagHelperOperationsDefineFilteredInternalCatalog) 
     const std::vector<std::string> expected_admin_only_flags = {
         "death", "private", "godRoom", "securityRoom", "noTeleport"};
     const char *expected_operations[] = {"room.flags.add", "room.flags.remove"};
-    const char *expected_helpers[] = {"Room.addFlag(name: RoomFlagName): MutationResult",
-        "Room.removeFlag(name: RoomFlagName): MutationResult"};
+    const char *expected_helpers[] = {"Room.addFlag(name: MutableRoomFlagName): MutationResult",
+        "Room.removeFlag(name: MutableRoomFlagName): MutationResult"};
 
     std::set<std::string> operation_names;
     for (std::size_t index = 0; index < js_api_room_flag_helper_operation_count(); ++index) {

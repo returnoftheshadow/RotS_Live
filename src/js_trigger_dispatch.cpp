@@ -825,9 +825,9 @@ bool parse_room_flag_helper_target_token(const std::string& token, int* zone_vnu
     if (first_separator == std::string::npos || first_separator == 0 || first_separator == suffix.size() - 1)
         return false;
     const std::size_t second_separator = suffix.find(':', first_separator + 1);
-    if (second_separator == std::string::npos || second_separator == first_separator + 1 || second_separator == suffix.size() - 1)
-        return false;
-    if (suffix.find(':', second_separator + 1) != std::string::npos)
+    if (second_separator != std::string::npos
+        && (second_separator == first_separator + 1 || second_separator == suffix.size() - 1
+            || suffix.find(':', second_separator + 1) != std::string::npos))
         return false;
 
     auto parse_nonnegative_int = [](const std::string& value, int* parsed_value) {
@@ -847,11 +847,14 @@ bool parse_room_flag_helper_target_token(const std::string& token, int* zone_vnu
     };
 
     const std::string zone_part = suffix.substr(0, first_separator);
-    const std::string room_part = suffix.substr(first_separator + 1, second_separator - first_separator - 1);
-    const std::string secret_part = suffix.substr(second_separator + 1);
+    const std::string room_part = second_separator == std::string::npos
+        ? suffix.substr(first_separator + 1)
+        : suffix.substr(first_separator + 1, second_separator - first_separator - 1);
+    const std::string secret_part =
+        second_separator == std::string::npos ? "" : suffix.substr(second_separator + 1);
     if (!parse_nonnegative_int(zone_part, zone_vnum) || !parse_nonnegative_int(room_part, room_vnum))
         return false;
-    if (secret_part.empty() || secret_part.size() > 128)
+    if (secret_part.size() > 128)
         return false;
 
     *secret = secret_part;
@@ -890,8 +893,13 @@ resolve_room_flag_helper_target(const JsRuntimeMutation& mutation,
         return nullptr;
     if (token_zone_vnum != context.authority->target_zone)
         return nullptr;
-    if (context.authority->target_token_secret.empty() || token_secret != context.authority->target_token_secret)
+    if (token_secret.empty()) {
+        if (!mutation.runtime_helper_bridge_accepted)
+            return nullptr;
+    } else if (context.authority->target_token_secret.empty()
+        || token_secret != context.authority->target_token_secret) {
         return nullptr;
+    }
 
     room_data* room = mutable_live_room_for_vnum(room_vnum, *context.adapter_options);
     if (room == nullptr || !room_matches_mutation_authority(*room, *context.adapter_options, *context.authority))
@@ -2662,8 +2670,12 @@ bool prepare_runtime_mutation_transaction(
             pending_wait_commands->clear();
         if (pending_output_commands != nullptr)
             pending_output_commands->clear();
-        if (diagnostic != nullptr)
-            *diagnostic = "JavaScript trigger helper mutation rejected";
+        if (diagnostic != nullptr) {
+            *diagnostic = helper_result.status == JsTriggerHelperMutationTransactionStatus::AuditRejected
+                && !helper_result.diagnostic.empty()
+                ? helper_result.diagnostic
+                : "JavaScript trigger helper mutation rejected";
+        }
         return false;
     }
     if (pending_character_movement_commands != nullptr &&
@@ -3506,6 +3518,11 @@ bool js_trigger_dispatch_supports_runtime_mutation(const JsRuntimeMutation& muta
 {
     if (runtime_mutation_kind_is_setter(mutation))
         return mutation.operation.empty() && mutation.target_token.empty() && mutation.arguments_json.empty();
+    if (runtime_mutation_kind_is_helper(mutation))
+        return mutation.target_type.empty() && mutation.target_id.empty() && mutation.property.empty()
+            && mutation.value_kind.empty() && !mutation.has_value && mutation.value.empty()
+            && !mutation.operation.empty() && !mutation.target_token.empty()
+            && !mutation.arguments_json.empty();
     if (runtime_mutation_kind_is_command(mutation))
         return mutation.target_type.empty() && mutation.target_id.empty() && mutation.property.empty() && mutation.value_kind.empty() && !mutation.has_value && mutation.value.empty() && mutation.target_token.empty() && parse_script_command_arguments(mutation);
     return false;
@@ -3549,13 +3566,21 @@ JsTriggerHelperMutationTransactionResult prepare_helper_mutation_transaction(
                 pending_room_flag_mutations->clear();
             return result;
         }
+        helper_mutations.push_back(mutation);
+        if (options.audit_callback == nullptr) {
+            result.status = JsTriggerHelperMutationTransactionStatus::AuditRejected;
+            result.diagnostic = "JavaScript helper mutation audit rejected";
+            result.mutation_count = helper_mutations.size();
+            if (pending_room_flag_mutations != nullptr)
+                pending_room_flag_mutations->clear();
+            return result;
+        }
         if (!validate_helper_mutation_with_context(mutation, options, pending_for_validation,
                 &result.status, &result.diagnostic)) {
             if (pending_room_flag_mutations != nullptr)
                 pending_room_flag_mutations->clear();
             return result;
         }
-        helper_mutations.push_back(mutation);
     }
 
     result.mutation_count = helper_mutations.size();
@@ -3612,6 +3637,19 @@ JsTriggerHelperMutationOperationRegistry js_trigger_dispatch_room_flag_helper_op
         return { nullptr, 0 };
     return { operation_names, sizeof(operation_names) / sizeof(operation_names[0]) };
 }
+
+namespace {
+
+JsTriggerHelperMutationTransactionOptions dispatch_helper_options_with_defaults(
+    const JsTriggerHelperMutationTransactionOptions& options)
+{
+    JsTriggerHelperMutationTransactionOptions effective = options;
+    if (effective.registry.operation_names == nullptr || effective.registry.operation_count == 0)
+        effective.registry = js_trigger_dispatch_room_flag_helper_operation_registry();
+    return effective;
+}
+
+} // namespace
 
 JsTriggerRuntimeMutationTransactionProbeResult
 js_trigger_dispatch_probe_runtime_mutation_transaction(
@@ -3919,10 +3957,13 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
     command_bridge_context.request = &command_bridge_request;
     command_bridge_context.adapter_options = &adapter_options;
     command_bridge_context.authority = &options.mutation_authority;
-    command_bridge_context.helper_options = &options.helper_mutation_options;
+    JsTriggerHelperMutationTransactionOptions effective_helper_options =
+        dispatch_helper_options_with_defaults(options.helper_mutation_options);
+    command_bridge_context.helper_options = &effective_helper_options;
     JsGameRuntimeEvaluationOptions evaluation_options;
     evaluation_options.command_result_callback = command_bridge_result;
     evaluation_options.command_result_user_data = &command_bridge_context;
+    evaluation_options.room_flag_target_zone_vnum = options.mutation_authority.target_zone;
     const JsRuntimeEvalResult evaluation = runtime.evaluate_trigger_package_handler(package.compiled_javascript, binding->handler_name,
         context, evaluation_options, filename.c_str());
 
@@ -3949,7 +3990,7 @@ JsTriggerDispatchResult js_trigger_dispatch_first_match(const JsScriptPackageReg
         mutation_request.handler_name = binding->handler_name;
         const JsTriggerRuntimeMutationTransactionApplyResult mutation_result = js_trigger_dispatch_apply_runtime_mutation_transaction(
             evaluation.mutations, mutation_request, adapter_options, options.mutation_authority,
-            options.helper_mutation_options);
+            effective_helper_options);
         if (!mutation_result.ok) {
             result.status = JsTriggerDispatchStatus::Error;
             result.runtime_status = JsRuntimeStatus::Error;

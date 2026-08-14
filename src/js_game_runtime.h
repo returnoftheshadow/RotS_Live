@@ -514,6 +514,7 @@ using JsGameCommandResultCallback = std::string (*)(const JsGameCommandResultReq
 struct JsGameRuntimeEvaluationOptions {
     JsGameCommandResultCallback command_result_callback = nullptr;
     void *command_result_user_data = nullptr;
+    int room_flag_target_zone_vnum = 0;
 };
 
 class JsGameRuntime {
