@@ -1,6 +1,44 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
+- Active slice: Ready to start next candidate: Room flag helper public binding.
+  Promote the already-designed `Room.addFlag(name: RoomFlagName)` and
+  `Room.removeFlag(name: RoomFlagName)` helpers through public generated
+  typings, live QuickJS handles, BuilderClient offline fixtures, runnable
+  examples, builder docs, and parity tests while preserving the existing
+  blocked raw `Room.setFlags` guardrails.
+- Started: 2026-08-14 10:32 CDT.
+- Latest completed slice: Beginner scenario recovery output focus. Selecting a
+  beginner recovery scenario now selects that scenario and, when previous
+  fixture output exists, moves the bottom Output panel to the latest result for
+  that scenario and reopens the bottom panel if it was hidden. Shared fixture
+  output presentation now keeps the active selected fixture visible even when
+  the output list exceeds the normal rendered cap, so advanced fixture-row
+  selection and beginner recovery use the same visible output index while
+  retaining the raw latest run result for state. Builder help/tutorial docs now
+  describe the recovery output jump.
+- Completed: 2026-08-14 10:32 CDT.
+- Latest validation: BuilderClient focused IPC/presenter/selection/beginner/App
+  tests passed (`src/main/ipcWiring.test.ts`,
+  `src/core/fixtureResultPresenter.test.ts`,
+  `src/core/fixtureSelectionState.test.ts`,
+  `src/core/beginnerWalkthroughState.test.ts`, and
+  `src/renderer/App.test.ts`, `65` tests), BuilderClient `npm run typecheck`
+  passed, BuilderClient `npm run build` passed, full BuilderClient
+  `npm test -- --run` passed (`73` files, `897` tests), and parent/BuilderClient
+  `git diff --check` passed. Magus found a presented-index cap mismatch and a
+  missing renderer guard; both were fixed with shared presented-index helpers,
+  selected-result presentation, cap regressions, and App-level reveal coverage.
+  Magus and Bazarat then found a stale source-wiring guard in
+  `src/main/ipcWiring.test.ts`; the guard was updated and follow-up reviews from
+  Magus, Vincent, and Bazarat reported no remaining findings. All reviewer
+  subagents were closed.
+- Next slice: Room flag helper public binding. Start from the internal room flag
+  helper catalog and authorization/apply/offline preflight already documented in
+  `FEATURES.md`, then expose only the vetted public helper shape with generated
+  docs/examples and live/offline parity.
+
+## Current Implementation Task - JavaScript Game Scripting Engine
 - Active slice: Paused after user request. Next candidate is Beginner scenario
   recovery output focus: when a recovered scenario has previous output, jump the
   output panel to that scenario after selection.
