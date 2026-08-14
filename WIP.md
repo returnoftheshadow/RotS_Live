@@ -1,13 +1,11 @@
 # Work In Progress
 
 ## Current Implementation Task - JavaScript Game Scripting Engine
-- Active slice: Ready for review: Room flag helper public binding.
-  `Room.addFlag(name: MutableRoomFlagName)` and
-  `Room.removeFlag(name: MutableRoomFlagName)` are promoted through public
-  generated typings, live QuickJS handles, BuilderClient offline fixtures,
-  runnable examples, builder docs, and parity tests while preserving blocked raw
-  `Room.setFlags` guardrails.
-- Started: 2026-08-14 10:32 CDT.
+- Active slice: In progress: BuilderClient importable legacy examples and unused
+  activity-rail removal. The beginner workflow should let builders select a
+  legacy example as a starting script, copy it into the workspace, import matching
+  offline scenarios, and reclaim the far-left shell width used by unlinked icons.
+- Started: 2026-08-14 11:59 CDT.
 - Latest completed slice: Room flag helper public binding. Generated and
   fallback typings now expose `Room.addFlag(name: MutableRoomFlagName)` and
   `Room.removeFlag(name: MutableRoomFlagName)`, live QuickJS room handles queue
@@ -15,19 +13,17 @@
   target tokens plus an internal runtime-origin marker, and BuilderClient
   offline fixtures mirror the helper result shape plus invocation-local
   `ctx.room.flags` updates.
-  High-impact room flags remain readable through `Room.flags` but the public
-  helper returns `authority-rejected` for them; raw `Room.setFlags`, `BFS_MARK`,
-  `PERMAFFECT`/`permanentAffect`, unnamed bits, malformed names, and unsupported
-  flags remain blocked. Added
-  `BuilderClient/examples/shape-script/room-flag-helper.ts` and builder docs.
-- Completed: Pending review.
-- Latest validation: BuilderClient focused shape-script/offline/compiler/IPC
-  tests passed (`261` tests), BuilderClient `npm run typecheck` passed,
-  BuilderClient `npm run build` passed, full BuilderClient `npm test -- --run`
-  passed (`73` files, `899` tests), focused C++
-  runtime/artifact/contract/mapping tests passed (`337` tests), full root
-  `make test -j16` passed (`1700/1700`), and parent/BuilderClient
-  `git diff --check` passed.
+- Completed: 2026-08-14 12:05 CDT.
+- Latest validation: BuilderClient focused legacy-example import/catalog,
+  beginner wizard, sidebar, and shell layout tests passed (`57` tests),
+  BuilderClient `npm run typecheck` passed, BuilderClient `npm run build`
+  passed, full BuilderClient `npm test -- --run` passed (`75` files, `906`
+  tests), and parent/BuilderClient `git diff --check` passed. Magus's fixture
+  preservation finding was fixed by appending imported legacy scenarios to
+  existing workspace fixtures, Sauron's catalog drift finding was fixed by
+  compiling and running every imported legacy example fixture against its real
+  source, and follow-up Thranduil/Magus/Sauron reviews reported no remaining
+  blockers.
 - Next slice: Pick the next high-impact beginner-friendly/API helper slice after
   reviewer feedback and final validation are clean.
 
