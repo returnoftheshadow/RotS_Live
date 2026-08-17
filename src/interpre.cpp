@@ -2761,6 +2761,10 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
             REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
             clear_account_backed_object_bytes_for_character(d->character);
             STATE(d) = CON_PLYNG;
+            if (!d->pProtocol)
+                d->pProtocol = ProtocolCreate();
+            ProtocolNegotiate(d);
+            msdp_room_update(d->character);
             vmudlog(NRM, "%s [%s] has reconnected.", GET_NAME(d->character), d->host);
             return;
         }
@@ -4054,6 +4058,10 @@ void nanny(struct descriptor_data* d, char* arg)
                     tmp_ch->specials.timer = 0;
                     REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
                     STATE(d) = CON_PLYNG;
+                    if (!d->pProtocol)
+                        d->pProtocol = ProtocolCreate();
+                    ProtocolNegotiate(d);
+                    msdp_room_update(d->character);
                     return;
                 }
             }
