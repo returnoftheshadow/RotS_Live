@@ -328,9 +328,7 @@ void set_int_value(struct info_script* info, int param, int val)
          * state (interpre.cpp), unrelated to dying, and shouldn't be
          * disturbed by a positive hit write. */
         if (affected_ch) {
-            bool already_dying = GET_POS(affected_ch) == POSITION_DEAD ||
-                GET_POS(affected_ch) == POSITION_INCAP ||
-                GET_POS(affected_ch) == POSITION_STUNNED;
+            bool already_dying = GET_POS(affected_ch) == POSITION_DEAD || GET_POS(affected_ch) == POSITION_INCAP || GET_POS(affected_ch) == POSITION_STUNNED;
             if (val <= 0 || already_dying)
                 update_pos(affected_ch);
         }
@@ -761,10 +759,13 @@ script_data* get_next_command(script_data* curr)
 {
 
     curr = curr->next;
-    for (; (curr) && ((curr->command_type != SCRIPT_END) && (curr->command_type != SCRIPT_END_ELSE_BEGIN));
-         curr = curr->next)
-        if (curr->command_type == SCRIPT_BEGIN)
+    while (curr && curr->command_type != SCRIPT_END && curr->command_type != SCRIPT_END_ELSE_BEGIN) {
+        if (curr->command_type == SCRIPT_BEGIN) {
             curr = get_next_command(curr);
+        } else {
+            curr = curr->next;
+        }
+    }
 
     if (curr)
         return curr->next;

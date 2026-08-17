@@ -2037,6 +2037,13 @@ struct descriptor_data {
     unsigned int len_str; /* present length of *str               */
     unsigned int cur_str; /* current pointer position in *str     */
     int prompt_mode; /* control of prompt-printing		*/
+    bool bare_prompt_pending; /* true if the last thing written to this socket was a bare
+                                  prompt/menu marker with no trailing newline, so the next
+                                  flush needs a leading break -- deliberately separate from
+                                  prompt_mode, which controls whether THIS pulse prints a
+                                  prompt after its own flush; conflating the two caused a
+                                  new command's prompt_mode=1 to suppress the leading break
+                                  needed for an still-unbroken PREVIOUS pulse's prompt */
     char buf[MAX_STRING_LENGTH]; /* buffer for raw input			*/
     char last_input[MAX_INPUT_LENGTH]; /* the last input			*/
     char small_outbuf[SMALL_BUFSIZE]; /* standard output bufer		*/

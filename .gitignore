@@ -58,6 +58,7 @@ lib/misc/xnames*
 tools/__pycache__/
 core/
 *~
+autorun
 autorun4000
 switchserver.sh
 crashes

@@ -571,7 +571,7 @@ const char* ProtocolOutput(descriptor_t* apDescriptor, const char* apData, int* 
         bUseMSP = true;
 
     for (; i < MAX_OUTPUT_BUFFER && apData[j] != '\0' && !bTerminate && (*apLength <= 0 || j < *apLength);
-        ++j) {
+         ++j) {
         if (apData[j] == '\t') {
             const char* pCopyFrom = NULL;
 
@@ -1231,6 +1231,9 @@ void MSDPSendPair(descriptor_t* apDescriptor, const char* apVariable, const char
         if (pProtocol == NULL)
             return;
 
+        std::string SanitizedValue = MSDPSanitizeValue(apValue);
+        apValue = SanitizedValue.c_str();
+
         /* Should really be replaced with a dynamic buffer */
         int RequiredBuffer = strlen(apVariable) + strlen(apValue) + 12;
 
@@ -1271,6 +1274,9 @@ void MSDPSendList(descriptor_t* apDescriptor, const char* apVariable, const char
         protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
         if (pProtocol == NULL)
             return;
+
+        std::string SanitizedValue = MSDPSanitizeValue(apValue);
+        apValue = SanitizedValue.c_str();
 
         /* Should really be replaced with a dynamic buffer */
         int RequiredBuffer = strlen(apVariable) + strlen(apValue) + 12;
@@ -1768,10 +1774,24 @@ static void PerformHandshake(descriptor_t* apDescriptor, char aCmd, char aProtoc
         if (aCmd == (char)DO) {
             ConfirmNegotiation(apDescriptor, eNEGOTIATED_MSDP, true, true);
 
+            /* Unlike its sibling flags (bMSSP/bATCP/bMSP/bMXP/bMCCP, all false by
+               default), bMSDP defaults to true at connection creation -- so the
+               "!pProtocol->bMSDP" check below can essentially never be true on a
+               normal DO/WILL exchange, making the block it guards dead in practice.
+               MSDPSetString() only populates SERVER_ID's own backing storage (no
+               wire traffic, no login/preference guard, safe to call on every DO),
+               so do that unconditionally here -- otherwise a client-issued
+               "SEND SERVER_ID" later (read via MSDPSend(), which reads that
+               storage) returns an empty string instead of the mud's name. */
+            MSDPSetString(apDescriptor, eMSDP_SERVER_ID, MUD_NAME);
+
             if (!pProtocol->bMSDP) {
                 pProtocol->bMSDP = true;
 
-                /* Identify the mud to the client. */
+                /* Identify the mud to the client immediately. This fires during
+                   telnet negotiation, before login, so it can't go through
+                   MSDPSend() (which requires a logged-in character with PRF_MSDP
+                   set) -- MSDPSendPair() sends it immediately with no such guard. */
                 MSDPSendPair(apDescriptor, "SERVER_ID", MUD_NAME);
             }
         } else if (aCmd == (char)DONT) {
@@ -1889,8 +1909,17 @@ static void PerformHandshake(descriptor_t* apDescriptor, char aCmd, char aProtoc
                 }
 #endif /* MUDLET_PACKAGE */
 
-                /* Identify the mud to the client. */
+                /* Identify the mud to the client. This fires during telnet negotiation,
+                   before login, so it can't go through MSDPSend() (which requires a
+                   logged-in character with PRF_MSDP set) -- MSDPSendPair() sends it
+                   immediately with no such guard, exactly as before. But MSDPSendPair()
+                   never touches the variable's own backing storage, so without this,
+                   a later client-issued "SEND SERVER_ID" (which does go through
+                   MSDPSend(), reading that storage) would return an empty string.
+                   MSDPSetString() has no login/preference guard either, so store the
+                   value too. */
                 MSDPSendPair(apDescriptor, "SERVER_ID", MUD_NAME);
+                MSDPSetString(apDescriptor, eMSDP_SERVER_ID, MUD_NAME);
             }
         } else if (aCmd == (char)WONT) {
             ConfirmNegotiation(apDescriptor, eNEGOTIATED_ATCP, false, pProtocol->bATCP);
@@ -2336,7 +2365,7 @@ static void ExecuteMSDPPair(descriptor_t* apDescriptor, const char* apVariable,
                                 int j; /* Loop counter */
 
                                 for (j = 0; j < VariableNameTable[i].Max && *apValue != '\0';
-                                    ++apValue) {
+                                     ++apValue) {
                                     const unsigned char value_byte = static_cast<unsigned char>(*apValue);
                                     if (value_byte >= 0x20 && value_byte <= 0x7e)
                                         pBuffer[j++] = *apValue;

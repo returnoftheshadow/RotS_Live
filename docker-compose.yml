@@ -13,6 +13,11 @@ services:
     platform: linux/386
     image: rots-dev:bullseye-i386
     container_name: rots
+    # Run as the host user (set by scripts/rots-docker.sh) instead of the container
+    # default (root), so build artifacts and any runtime-created directories
+    # (bin/ageland, *.o, lib/accounts/*, lib/account_characters/*, etc.) land on the
+    # bind-mounted host filesystem owned by you, not root.
+    user: "${ROTS_UID:-1000}:${ROTS_GID:-1000}"
     working_dir: /rots
     volumes:
       - .:/rots

@@ -52,6 +52,13 @@ void do_power_of_arda(char_data* ch);
 
 ACMD(do_look);
 
+/* Set by a caller that already fired ON_BEFORE_ENTER via its own
+   check_simple_move() call and is about to invoke do_move() for the exact
+   same character+transition (e.g. do_flee(), on_windblast_hit()) -- lets
+   check_simple_move() skip re-firing the trigger for that one redundant
+   internal call instead of running it (and any side effects) twice. */
+char_data* g_skip_next_before_enter_for = nullptr;
+
 bool should_double_strength(char_data* character)
 {
     char_data* master = NULL;
@@ -152,6 +159,14 @@ int check_simple_move(struct char_data* ch, int cmd, int* mv_cost, int mode)
     struct char_data* tmpch;
     struct room_data *room_to, *room_from;
 
+    /* Consume the caller's skip-trigger request unconditionally, as the very
+       first thing this function does, so it can never dangle past one of the
+       early returns below and wrongly suppress ON_BEFORE_ENTER on a later,
+       unrelated move for this character. */
+    bool skip_before_enter = (g_skip_next_before_enter_for == ch);
+    if (skip_before_enter)
+        g_skip_next_before_enter_for = nullptr;
+
     if (mode != SCMD_MOVING)
         /* check for special routines (north = 1) */
         if (special(ch, cmd + 1, "", SPECIAL_COMMAND, 0))
@@ -172,8 +187,9 @@ int check_simple_move(struct char_data* ch, int cmd, int* mv_cost, int mode)
     if (!room_to)
         return 1;
 
-    if (call_trigger(ON_BEFORE_ENTER, room_to, ch, 0) == FALSE)
+    if (!skip_before_enter && call_trigger(ON_BEFORE_ENTER, room_to, ch, 0) == FALSE) {
         return 1; //  Trigger doesn't allow them to enter the new room
+    }
     if (IS_SET(EXIT(ch, cmd)->exit_info, EX_NOWALK))
         return 8;
 
@@ -580,16 +596,20 @@ void msdp_room_update(char_data* ch)
         return;
     }
 
+    if (!ch->desc) {
+        return;
+    }
+
     if (!ch->desc->pProtocol) {
         return;
     }
 
-    if (ch->in_room >= 0) {
+    if (ch->in_room < 0) {
         return;
     }
 
-    MSDPSetString(ch->desc, eMSDP_ROOM_NAME, world[ch->desc->character->in_room].name);
-    MSDPSetNumber(ch->desc, eMSDP_ROOM_VNUM, world[ch->desc->character->in_room].number);
+    MSDPSetString(ch->desc, eMSDP_ROOM_NAME, world[ch->in_room].name);
+    MSDPSetNumber(ch->desc, eMSDP_ROOM_VNUM, world[ch->in_room].number);
 
     std::string msdp_room = {};
     msdp_room += (char)MSDP_VAR;
@@ -631,11 +651,11 @@ void msdp_room_update(char_data* ch)
     msdp_room += (char)MSDP_VAL;
 
     extern char* sector_types[];
-    msdp_room += sector_types[world[ch->in_room].sector_type];
+    msdp_room += MSDPSanitizeValue(sector_types[world[ch->in_room].sector_type]);
 
     // Room exits need to be sent first before anything else
     MSDPSetArray(ch->desc, eMSDP_ROOM_EXITS, exits_names.c_str());
-    MSDPSend(ch->desc, eMSDP_ROOM_EXITS);
+    MSDPFlush(ch->desc, eMSDP_ROOM_EXITS);
     MSDPSetTable(ch->desc, eMSDP_ROOM, msdp_room.c_str());
 
     MSDPUpdate(ch->desc);
@@ -652,11 +672,34 @@ ACMD(do_move)
     waiting_type tmpwtl;
     int mounts;
 
+    /* Consume the caller's skip-trigger request (if any) once, unconditionally,
+       before anything else -- including the AFF_HAZE re-roll below -- so it can
+       never dangle. do_flee()/on_windblast_hit() set this flag for the exact
+       direction they already validated via their own check_simple_move() call,
+       expecting the redundant internal check_simple_move() call below to be the
+       one that consumes it. If AFF_HAZE re-rolls cmd to a different direction,
+       or an early return below never reaches check_simple_move() at all (no
+       exit, closed door, hidden exit, wrong mount, etc.), the flag must not
+       survive to wrongly suppress ON_BEFORE_ENTER for a different destination
+       or a later, unrelated move. So: capture it here, and only re-arm it
+       immediately before each check_simple_move(ch, cmd, ...) call site below,
+       gated on the direction still matching what was originally requested. */
+    bool skip_before_enter_requested = (g_skip_next_before_enter_for == ch);
+    if (skip_before_enter_requested) {
+        g_skip_next_before_enter_for = nullptr;
+    }
+    int requested_cmd_before_haze = cmd;
+
     if (IS_AFFECTED(ch, AFF_HAZE) && number(1, 4) == 1) {
         send_to_char("You feel dizzy, and move randomly.\n\r", ch);
         cmd = number(1, NUM_OF_DIRS);
     }
     --cmd;
+
+    /* Only re-arm the suppression for check_simple_move(ch, cmd, ...) call
+       sites below if AFF_HAZE didn't change the direction out from under the
+       caller's already-validated request. */
+    bool skip_before_enter_direction_intact = skip_before_enter_requested && (cmd == requested_cmd_before_haze - 1);
 
     if ((ch->delay.wait_value > 0) && (ch->delay.priority <= 30)) {
         send_to_char("You could not concentrate anymore.\n\r", ch);
@@ -667,6 +710,11 @@ ACMD(do_move)
         fol_people = *ch->followers;
 
     if (IS_RIDDEN(ch)) {
+        /* This branch never reaches check_simple_move(ch, ...) below (only
+           perform_move_mount()'s own check_simple_move() calls for ch's
+           riders, a different pointer). No separate consume needed here --
+           the flag was already unconditionally consumed at function entry
+           above, so nothing can dangle past this early return. */
         perform_move_mount(ch, cmd);
         return;
     }
@@ -721,6 +769,9 @@ ACMD(do_move)
         bool different_zone = world[was_in].zone != world[to_room].zone;
 
         if (!IS_RIDING(ch)) {
+            if (skip_before_enter_direction_intact) {
+                g_skip_next_before_enter_for = ch;
+            }
             res_flag = check_simple_move(ch, cmd, &need_move, subcmd);
 
             if (subcmd == SCMD_FOLLOW) {
@@ -857,6 +908,9 @@ ACMD(do_move)
             if ((ch->mount_data.mount)->mount_data.rider != ch) {
                 send_to_char("You do not control your mount.\n\r", ch);
                 return;
+            }
+            if (skip_before_enter_direction_intact) {
+                g_skip_next_before_enter_for = ch;
             }
             res_flag = check_simple_move(ch, cmd, &need_move, subcmd);
 

@@ -2759,7 +2759,7 @@ ACMD(do_wizset)
     }
 
     for (l = 0; *(fields[l].cmd) != '\n'; l++)
-        if (!strncmp(field, fields[l].cmd, strlen(field)))
+        if (!strn_cmp(field, fields[l].cmd, strlen(field)))
             break;
 
     if ((GET_LEVEL(ch) < fields[l].level) && ((ch != vict) || fields[l].level > LEVEL_GRGOD)) {

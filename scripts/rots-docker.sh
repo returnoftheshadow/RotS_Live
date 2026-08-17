@@ -15,6 +15,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Run the container as the current host user (see docker-compose.yml's `user:`),
+# so bind-mounted build/runtime artifacts aren't created as root on the host.
+export ROTS_UID="$(id -u)"
+export ROTS_GID="$(id -g)"
+
 cmd="${1:-boot}"
 case "$cmd" in
   build)

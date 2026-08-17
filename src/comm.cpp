@@ -212,6 +212,7 @@ void run_the_game(sh_int port);
 void game_loop(SocketType s);
 SocketType init_socket(sh_int port);
 SocketType pnew_connection(SocketType s);
+void check_pre_login_idle(); /* below, in this file */
 SocketType pnew_descriptor(SocketType s);
 int process_output(struct descriptor_data* t);
 int process_input(struct descriptor_data* t);
@@ -513,7 +514,7 @@ void clean_expose_elements()
 
                 bool found_target = false;
                 for (char_data* person = current_room.people; person;
-                    person = person->next_in_room) {
+                     person = person->next_in_room) {
                     if (person == spec_data->exposed_target) {
                         found_target = true;
                         break;
@@ -684,6 +685,25 @@ void msdp_update()
         MSDPSetNumber(desc, eMSDP_SPIRIT, GET_SPIRIT(desc->character));
 
         MSDPUpdate(desc);
+    }
+}
+
+void check_pre_login_idle()
+{
+    const int PRE_LOGIN_IDLE_TIMEOUT = 15 * 60; /* seconds; covers name/password/menu entry only --
+                                                     logged-in players are handled by check_idling() */
+    descriptor_data *point, *next_point;
+
+    for (point = descriptor_list; point; point = next_point) {
+        next_point = point->next;
+
+        if (point->character) {
+            continue; /* has a char_data -- check_idling() covers this one */
+        }
+
+        if (time(0) - point->last_input_time > PRE_LOGIN_IDLE_TIMEOUT) {
+            close_socket(point);
+        }
     }
 }
 
@@ -888,11 +908,38 @@ void game_loop(SocketType s)
         for (point = descriptor_list; point; point = next_point) {
             next_point = point->next;
             if (point->descriptor) {
-                if (FD_ISSET(point->descriptor, &output_set) && *(point->output)) {
-                    if (process_output(point) < 0) {
-                        close_socket(point, FALSE);
+                if (*(point->output)) {
+                    if (FD_ISSET(point->descriptor, &output_set)) {
+                        int output_result = process_output(point);
+                        if (output_result < 0) {
+                            close_socket(point, FALSE);
+                        } else if (output_result > 0) {
+                            point->prompt_mode = 1;
+                        } else {
+                            /* output_result == 0: EAGAIN deferral -- t->output is still
+                               full of the unflushed text. The command-processing block
+                               earlier this same pulse may have already set prompt_mode
+                               when it queued that text (comm.cpp, "process_commands"
+                               loop) -- if we left that alone, the immediate,
+                               unbuffered prompt write below would fire ahead of the
+                               still-undelivered buffered text, and the client would
+                               see its prompt jump in front of a game message (or the
+                               room-name line, etc.) that hasn't arrived yet. Clear it
+                               so the prompt is held until a later pulse actually
+                               flushes this text successfully (which re-sets
+                               prompt_mode via the branch above). */
+                            point->prompt_mode = 0;
+                        }
                     } else {
-                        point->prompt_mode = 1;
+                        /* Socket wasn't reported writable by select() this pulse (kernel
+                           send buffer transiently full -- more likely under bursty/rapid
+                           output), so process_output() wasn't even attempted: t->output
+                           is still sitting there unflushed. Same reasoning as the EAGAIN
+                           branch above -- don't let an already-set prompt_mode fire the
+                           prompt ahead of this still-buffered text. This path needs no
+                           new code from this bundle to trigger; it's existed as long as
+                           this select()-based loop has, independent of the EAGAIN case. */
+                        point->prompt_mode = 0;
                     }
                 }
             }
@@ -917,12 +964,19 @@ void game_loop(SocketType s)
                     tmp = !(point->connected);
                 }
                 if (tmp) {
-                    write_to_descriptor(point->descriptor, "] ");
+                    /* write_to_descriptor() returns 0 on a full successful
+                       write, -2 on EAGAIN (nothing written), -1 fatal --
+                       only a real 0 leaves a bare prompt dangling on the
+                       wire that later needs its leading break. */
+                    if (write_to_descriptor(point->descriptor, "] ") == 0)
+                        point->bare_prompt_pending = true;
                 } else if (!point->connected) {
-                    if (point->showstr_point)
-                        write_to_descriptor(point->descriptor,
-                            "*** Press return to continue, q to quit ***");
-                    else { /*if point->showstr_point */
+                    if (point->showstr_point) {
+                        if (write_to_descriptor(point->descriptor,
+                                "*** Press return to continue, q to quit ***")
+                            == 0)
+                            point->bare_prompt_pending = true;
+                    } else { /*if point->showstr_point */
                         struct char_data* opponent;
                         struct char_data* tank;
 
@@ -1013,8 +1067,10 @@ void game_loop(SocketType s)
                             tmpflag = !IS_AFFECTED(point->character, AFF_WAITWHEEL);
                         else
                             tmpflag = 1;
-                        if (tmpflag)
-                            write_to_descriptor(point->descriptor, pptr);
+                        if (tmpflag) {
+                            if (write_to_descriptor(point->descriptor, pptr) == 0)
+                                point->bare_prompt_pending = true;
+                        }
                     }
                 }
                 point->prompt_mode = 0;
@@ -1052,6 +1108,11 @@ void game_loop(SocketType s)
         }
 
         msdp_update();
+
+        if (!(pulse % (60 * 4))) /* one minute */
+        {
+            check_pre_login_idle();
+        }
 
         // Periodic point-in-time crash-save snapshot cadence, driven by the configurable seconds
         // interval (autosave_time) through the unit-tested scheduler. Default 30s == 120 pulses (the
@@ -1362,6 +1423,21 @@ SocketType pnew_connection(SocketType s)
         perror("Accept");
         return (0); // probably incorrect..
     }
+
+    {
+        int opt = 1;
+        if (setsockopt(t, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt)) < 0) {
+            perror("setsockopt TCP_NODELAY");
+        }
+    }
+
+    {
+        int opt = 1;
+        if (setsockopt(t, SOL_SOCKET, SO_KEEPALIVE, (char*)&opt, sizeof(opt)) < 0) {
+            perror("setsockopt KEEPALIVE");
+        }
+    }
+
     sprintf(buf, "Socket %d connected.", t);
     mudlog(buf, NRM, LEVEL_IMPL, TRUE);
 
@@ -1450,6 +1526,7 @@ SocketType pnew_descriptor(SocketType s)
     pnewd->pos = -1;
     //   pnewd->wait = 1;
     pnewd->prompt_mode = 0;
+    pnewd->bare_prompt_pending = false;
     *pnewd->buf = '\0';
     pnewd->str = 0;
     pnewd->showstr_head = 0;
@@ -1523,9 +1600,19 @@ int process_output(struct descriptor_data* t)
     int wid_count, i_shift;
     /* start writing at the 2nd space so we can prepend "% " for snoop */
     wid_count = 0;
-    if (!t->prompt_mode && !t->connected) {
+    /* bare_prompt_pending (not prompt_mode -- see structs.h) tracks whether the
+       last thing written to this socket was a bare prompt with no trailing
+       newline. Using prompt_mode here was wrong: prompt_mode gets set to 1 as
+       soon as a new command is processed (to print a fresh prompt after THIS
+       flush), which happens before this check runs whenever a player sends a
+       new command in the same pulse a previous prompt is still unbroken on the
+       wire -- masking the fact that a real, still-dangling prompt from a prior
+       pulse needed a leading break. That's the root cause of prompts appearing
+       glued to the front of the next line. */
+    if (t->bare_prompt_pending) {
         strcpy(i + 2, "\n\r");
         i_shift = 2;
+        t->bare_prompt_pending = false;
     } else
         i_shift = 0;
     if ((t->character) && (IS_SET(PRF_FLAGS(t->character), PRF_WRAP)))
@@ -1545,8 +1632,25 @@ int process_output(struct descriptor_data* t)
     if (!t->connected && !(t->character && !IS_NPC(t->character) && PRF_FLAGGED(t->character, PRF_COMPACT)))
         strcat(i + 2, "\n\r");
 
-    if (write_to_descriptor(t->descriptor, i + 2) < 0)
+    int wtd_result = write_to_descriptor(t->descriptor, i + 2);
+    if (wtd_result == -1)
         return -1;
+    if (wtd_result == -2) {
+        /* EAGAIN/EWOULDBLOCK: nothing was written. Leave t->output, t->bufptr,
+           and t->bufspace untouched so the exact same buffered text is retried
+           whole on the next pulse's process_output() call instead of being
+           reset (and lost) by the buffer-reset code below. Return 0 so the
+           caller neither disconnects (that's the < 0 case) nor sets
+           prompt_mode (that's the > 0 case) -- we didn't actually flush
+           anything this pulse. */
+        if (i_shift == 2)
+            /* The leading break was only written into the local output
+               buffer above, which is being discarded on this retry path --
+               restore the flag so the retried flush still carries it, or the
+               still-dangling prompt gets glued to the next line. */
+            t->bare_prompt_pending = true;
+        return 0;
+    }
 
     if (t->snoop.snoop_by) {
         i[0] = '%';
@@ -1624,6 +1728,18 @@ int write_to_descriptor(int desc, char* txt)
         do {
             thisround = write(desc, txt + sofar, total - sofar);
             if (thisround < 0) {
+                if ((errno == EAGAIN || errno == EWOULDBLOCK) && sofar == 0) {
+                    /* Kernel send buffer is momentarily full and nothing from this
+                       call has gone out yet. Return a sentinel distinct from both
+                       the normal-success return (0) and the fatal return (-1) so
+                       process_output() can actually leave the caller's output
+                       buffer intact and retry the whole thing next pulse, instead
+                       of disconnecting the player. A mid-flight EAGAIN after a
+                       partial write is not handled here (would risk resending
+                       already-sent bytes) and still falls through to the existing
+                       fatal-disconnect path below. */
+                    return -2;
+                }
                 perror("Write to socket");
                 return (-1);
             }
@@ -1686,6 +1802,11 @@ int process_input(struct descriptor_data* t)
     begin = strlen(t->buf);
 
     /* Read in some stuff */
+    int read_iterations = 0;
+    const int MAX_READ_ITERATIONS_PER_CALL = 8; /* ~16KB/call at 2048 bytes/iteration --
+                                                   caps how long one connection can
+                                                   monopolize a single pulse when it
+                                                   keeps sending data with no newline */
     do {
         char inbuf[2048];
         thisround = read(t->descriptor, inbuf, sizeof(inbuf));
@@ -1729,7 +1850,7 @@ int process_input(struct descriptor_data* t)
                 return (-1);
             }
         }
-    } while (!ISNEWL(*(t->buf + begin + sofar - 1)));
+    } while (!ISNEWL(*(t->buf + begin + sofar - 1)) && ++read_iterations < MAX_READ_ITERATIONS_PER_CALL);
 
     if (t->character)
         t->character->specials.timer = 0;
@@ -1804,8 +1925,13 @@ int process_input(struct descriptor_data* t)
 
             if (flag) {
                 sprintf(buffer, "Line too long.  Truncated to:\n\r%s\n\r", tmp);
-                if (write_to_descriptor(t->descriptor, buffer) < 0)
+                int trunc_wtd_result = write_to_descriptor(t->descriptor, buffer);
+                if (trunc_wtd_result == -1)
                     return (-1);
+                /* trunc_wtd_result == -2: momentary EAGAIN on this one-off notice.
+                   Nothing buffered to preserve here (unlike process_output()'s
+                   t->output), so just drop the notice and keep processing --
+                   EAGAIN must not disconnect the player. */
 
                 /* skip the rest of the line */
                 for (; !ISNEWL(*(t->buf + i)); i++)
@@ -1993,7 +2119,7 @@ void send_to_char(const char* message, int character_id)
 {
     if (message && message[0] != 0) {
         for (descriptor_data* connection = descriptor_list; connection;
-            connection = connection->next) {
+             connection = connection->next) {
             char_data* character = connection->character;
             if (character && character->abs_number == character_id && connection->connected == CON_PLYNG) {
                 SEND_TO_Q(message, connection);
