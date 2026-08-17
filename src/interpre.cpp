@@ -3462,8 +3462,13 @@ void nanny(struct descriptor_data* d, char* arg)
             case '0':
                 mudlog_account_event(d, "Account logout");
                 clear_account_login_state(d);
-                show_account_email_prompt(d);
-                STATE(d) = CON_NME;
+                /* Logging out ends the connection, as "0) Exit from Arda." did before
+                   accounts existed. Defer the close to the CON_CLOSE sweep in the game
+                   loop (comm.cpp) so this farewell flushes before the socket goes away --
+                   close_socket() closes the fd before flushing, so calling it here would
+                   drop the text and free `d` underneath us. */
+                SEND_TO_Q("Goodbye.\n\r", d);
+                STATE(d) = CON_CLOSE;
                 break;
             case '1':
                 show_account_character_list(d, account_data);
