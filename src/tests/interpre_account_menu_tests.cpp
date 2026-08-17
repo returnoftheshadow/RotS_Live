@@ -2324,10 +2324,10 @@ TEST(InterpreAccountMenu, RestrictedActiveCharacterStillAllowsListResetAndLogout
     descriptor_data logout_descriptor = make_descriptor();
     char logout_choice[] = "0";
     nanny(&logout_descriptor, logout_choice);
-    EXPECT_EQ(logout_descriptor.connected, CON_NME);
+    EXPECT_EQ(logout_descriptor.connected, CON_CLOSE);
     EXPECT_STREQ(logout_descriptor.account_name, "");
     EXPECT_STREQ(logout_descriptor.account_email, "");
-    EXPECT_NE(std::string(logout_descriptor.output).find("Account email: "), std::string::npos);
+    EXPECT_NE(std::string(logout_descriptor.output).find("Goodbye."), std::string::npos);
 
     free_char(active_descriptor.character);
     active_descriptor.character = nullptr;
@@ -3119,8 +3119,8 @@ TEST(InterpreAccountMenu, AccountLogoutLogsEmailAndHostExactlyOnce)
         stderr_output = stderr_redirect.read_contents();
     }
 
-    EXPECT_EQ(descriptor.connected, CON_NME);
-    EXPECT_EQ(std::string(descriptor.output), "Account email: ");
+    EXPECT_EQ(descriptor.connected, CON_CLOSE);
+    EXPECT_EQ(std::string(descriptor.output), "Goodbye.\n\r");
     EXPECT_NE(stderr_output.find("Account logout for player@example.com [127.0.0.1]"), std::string::npos) << stderr_output;
     EXPECT_EQ(count_occurrences(stderr_output, "Account logout for player@example.com [127.0.0.1]"), 1u) << stderr_output;
 }
