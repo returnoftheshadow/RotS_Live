@@ -11,6 +11,7 @@
 #ifndef HANDLER_H
 #define HANDLER_H
 
+#include "caster_snapshot.h" /* For the other_side() snapshot overload */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "structs.h" /* For the RENT_CRASH macro */
 
@@ -80,6 +81,10 @@ void extract_obj(struct obj_data* obj);
 
 /* ******* characters ********* */
 int other_side(const char_data* character, const char_data* other);
+// The snapshot form: is_npc/is_charmed/race are captured from exactly the
+// same three expressions the live form evaluates, so the two agree by
+// construction (TASK-021).
+int other_side(const caster_snapshot& character, const char_data* other);
 int other_side_num(int ch_race, int i_race);
 
 struct char_data* get_char_room(char* name, int room);

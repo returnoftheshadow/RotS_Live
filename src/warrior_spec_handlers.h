@@ -62,6 +62,14 @@ public:
     battle_mage_handler(const char_data* in_character);
     int get_bonus_spell_pen(int spell_pen) const;
     int get_bonus_spell_power(int spell_power) const;
+
+    // Snapshot-safe forms of the two bonus formulas (TASK-021). Both depend on
+    // nothing but the specialization, the tactics setting and the mage level,
+    // so a caster_snapshot can reproduce them without a live char_data. The
+    // member forms above forward here, so the live cast and a stored-snapshot
+    // re-cast share one formula.
+    static int get_bonus_spell_pen(game_types::player_specs spec, int tactics, int mage_level, int spell_pen);
+    static int get_bonus_spell_power(game_types::player_specs spec, int tactics, int mage_level, int spell_power);
     bool does_spell_get_interrupted() const;
     bool does_armor_fail_spell() const;
     bool can_prepare_spell() const;

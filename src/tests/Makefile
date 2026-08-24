@@ -3,7 +3,7 @@ CXXFLAGS = -std=c++1z -Wall -Wextra -D TESTING
 LDFLAGS = -lgtest -lcrypt
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
-	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
+	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o caster_snapshot.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
 	comm.o config.o consts.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o character_json.o exploits_json.o json_utils.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
 	pkill.o profs.o protocol.o ranger.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
@@ -49,6 +49,8 @@ big_brother.o : ../big_brother.cpp ../big_brother.h ../base_utils.h ../singleton
 	$(CXX) -c $(CXXFLAGS) ../big_brother.cpp
 battle_mage_handler.o : ../battle_mage_handler.cpp ../warrior_spec_handlers.h ../structs.h
 	$(CXX) -c $(CXXFLAGS) ../battle_mage_handler.cpp
+caster_snapshot.o : ../caster_snapshot.cpp ../caster_snapshot.h ../char_utils.h ../handler.h ../structs.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../caster_snapshot.cpp
 wild_fighting_handler.o : ../wild_fighting_handler.cpp ../warrior_spec_handlers.h ../structs.h
 	$(CXX) -c $(CXXFLAGS) ../wild_fighting_handler.cpp
 weapon_master_handler.o : ../weapon_master_handler.cpp ../warrior_spec_handlers.h ../structs.h
@@ -183,7 +185,7 @@ protocol.o: ../protocol.cpp ../protocol.h
 	$(CXX) -c $(CXXFLAGS) ../protocol.cpp
 
 
-SRCS = account_management_tests.cpp account_management_assets_header_compile.cpp account_management_identity_header_compile.cpp account_management_migration_header_compile.cpp account_management_presentation_header_compile.cpp account_management_storage_header_compile.cpp account_management_types_header_compile.cpp act_wiz_tests.cpp affect_update_tests.cpp battle_mage_handler_tests.cpp CharPlayerDataBuilder.cpp character_json_tests.cpp char_utils_tests.cpp damage_tests.cpp db_loader_tests.cpp exploits_json_tests.cpp fight_proc_tests.cpp interpre_account_menu_tests.cpp json_utils_tests.cpp mage_tests.cpp ObjFlagDataBuilder.cpp objects_json_tests.cpp olog_hai_tests.cpp obj_flag_data_tests.cpp object_utils_tests.cpp protocol_tests.cpp startup_options_tests.cpp test_random_utils.cpp test_random_utils_tests.cpp weapon_master_handler_tests.cpp gtest_main.cpp
+SRCS = account_management_tests.cpp account_management_assets_header_compile.cpp account_management_identity_header_compile.cpp account_management_migration_header_compile.cpp account_management_presentation_header_compile.cpp account_management_storage_header_compile.cpp account_management_types_header_compile.cpp act_wiz_tests.cpp affect_update_tests.cpp battle_mage_handler_tests.cpp caster_snapshot_tests.cpp CharPlayerDataBuilder.cpp character_json_tests.cpp char_utils_tests.cpp damage_tests.cpp db_loader_tests.cpp exploits_json_tests.cpp fight_proc_tests.cpp interpre_account_menu_tests.cpp json_utils_tests.cpp mage_tests.cpp ObjFlagDataBuilder.cpp objects_json_tests.cpp olog_hai_tests.cpp obj_flag_data_tests.cpp object_utils_tests.cpp protocol_tests.cpp startup_options_tests.cpp test_random_utils.cpp test_random_utils_tests.cpp weapon_master_handler_tests.cpp gtest_main.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 EXECUTABLE = ../../bin/tests

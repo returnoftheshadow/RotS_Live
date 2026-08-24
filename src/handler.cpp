@@ -132,28 +132,52 @@ int char_power(int lev)
  * Decide if `character' and `other' are on the same side of the race
  * war.  Return 0 if they are, return 1 if they aren't.
  */
-int other_side(const char_data* character, const char_data* other)
+namespace {
+// The body of other_side() reads exactly three things from `character`: its
+// NPC-ness, its charm status and its race. Both public forms below funnel
+// here, so the live path and the caster_snapshot path share one body and can
+// never drift (TASK-021). The live form does NOT go through
+// caster_snapshot::capture(): other_side() runs per-character inside display
+// and grouping loops, and capture() costs two profession lookups, a
+// perception evaluation and a 64-byte name copy that this function reads none
+// of.
+int other_side_impl(bool character_is_npc, bool character_is_charmed, int character_race, const char_data* other)
 {
     if (IS_NPC(other) && !IS_AFFECTED(other, AFF_CHARM))
         return 0;
-    if (IS_NPC(character) && !IS_AFFECTED(character, AFF_CHARM))
+    if (character_is_npc && !character_is_charmed)
         return 0;
-    if ((GET_RACE(character) == RACE_GOD) || (GET_RACE(other) == RACE_GOD))
+    if ((character_race == RACE_GOD) || (GET_RACE(other) == RACE_GOD))
         return 0;
-    if (RACE_EAST(other) && !(RACE_EAST(character)))
+    if (RACE_EAST(other) && !race_is_east(character_race))
         return 1;
-    if (!(RACE_EAST(other)) && RACE_EAST(character))
+    if (!(RACE_EAST(other)) && race_is_east(character_race))
         return 1;
-    if (RACE_MAGI(other) && !(RACE_MAGI(character)))
+    if (RACE_MAGI(other) && !race_is_magi(character_race))
         return 1;
-    if (!(RACE_MAGI(other)) && RACE_MAGI(character))
+    if (!(RACE_MAGI(other)) && race_is_magi(character_race))
         return 1;
-    if (RACE_EVIL(other) && RACE_GOOD(character))
+    if (RACE_EVIL(other) && race_is_good(character_race))
         return 1;
-    if (RACE_GOOD(other) && RACE_EVIL(character))
+    if (RACE_GOOD(other) && race_is_evil(character_race))
         return 1;
 
     return 0;
+}
+} // namespace
+
+int other_side(const char_data* character, const char_data* other)
+{
+    return other_side_impl(IS_NPC(character) != 0, IS_AFFECTED(character, AFF_CHARM) != 0,
+        GET_RACE(character), other);
+}
+
+// The snapshot form: is_npc/is_charmed/race are captured from exactly the
+// same three expressions the live form evaluates above, so the two agree by
+// construction.
+int other_side(const caster_snapshot& character, const char_data* other)
+{
+    return other_side_impl(character.is_npc, character.is_charmed, character.race, other);
 }
 
 int other_side_num(int ch_race, int i_race)

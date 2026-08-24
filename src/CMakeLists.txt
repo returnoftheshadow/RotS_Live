@@ -46,6 +46,7 @@ set(ROTS_SERVER_SOURCES
     battle_mage_handler.cpp
     big_brother.cpp
     boards.cpp
+    caster_snapshot.cpp
     char_utils.cpp
     char_utils_combat.cpp
     clerics.cpp
@@ -116,6 +117,7 @@ set(ROTS_TEST_SOURCES
     tests/account_management_types_header_compile.cpp
     tests/act_wiz_tests.cpp
     tests/affect_update_tests.cpp
+    tests/caster_snapshot_tests.cpp
     tests/CharPlayerDataBuilder.cpp
     tests/char_utils_tests.cpp
     tests/character_json_tests.cpp

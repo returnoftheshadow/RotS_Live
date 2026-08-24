@@ -25,7 +25,7 @@ LIBS += -lcrypt
 CFLAGS = $(MYFLAGS) $(PROFILE) $(OSFLAGS)
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
-	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
+	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o caster_snapshot.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
 	comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
 	pkill.o player_file_finalize.o profs.o protocol.o ranger.o save_benchmark.o savebench.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
@@ -83,6 +83,8 @@ big_brother.o : big_brother.cpp big_brother.h base_utils.h singleton.h
 	$(CC) -c $(CFLAGS) big_brother.cpp
 battle_mage_handler.o : battle_mage_handler.cpp warrior_spec_handlers.h structs.h
 	$(CC) -c $(CFLAGS) battle_mage_handler.cpp
+caster_snapshot.o : caster_snapshot.cpp caster_snapshot.h char_utils.h handler.h structs.h utils.h
+	$(CC) -c $(CFLAGS) caster_snapshot.cpp
 wild_fighting_handler.o : wild_fighting_handler.cpp warrior_spec_handlers.h structs.h
 	$(CC) -c $(CFLAGS) wild_fighting_handler.cpp
 weapon_master_handler.o : weapon_master_handler.cpp warrior_spec_handlers.h structs.h

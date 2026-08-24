@@ -316,15 +316,22 @@ char saves_mystic(struct char_data* ch)
  * since they were very resilient to disease, but are represented
  * in rots by such low constitution.
  */
-char saves_poison(struct char_data* victim, struct char_data* caster)
+char saves_poison(struct char_data* victim, const caster_snapshot& caster)
 {
     int offence, defense;
-    int perception = GET_PERCEPTION(caster);
-    offence = ((GET_WILLPOWER(caster) * 8) * perception) / 100;
+    offence = ((caster.willpower * 8) * caster.perception) / 100;
     /* wood elves get a bonus against poison */
     defense = (GET_CON(victim) * 5) + (GET_WILLPOWER(victim) * 3) + (GET_RACE(victim) == RACE_WOOD ? 30 : 0);
 
     return (number(offence / 3, offence) < number(defense / 2, defense));
+}
+
+// The live form forwards, so a poison that ticks after its caster is gone runs
+// this identical formula from the cast-time copy (TASK-021). caster.willpower
+// and caster.perception are captured from GET_WILLPOWER()/GET_PERCEPTION().
+char saves_poison(struct char_data* victim, struct char_data* caster)
+{
+    return saves_poison(victim, caster_snapshot::capture(*caster));
 }
 
 /*

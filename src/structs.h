@@ -885,6 +885,26 @@ const int constexpr RACE_HARADRIM = 18;
 #define RACE_UNDEAD 16
 #define RACE_TROLL 20
 
+// Race-keyed maximum profession level. utils.h's GET_MAX_RACE_PROF_LEVEL(prof,
+// ch) macro is a one-line forward onto this, so the table lives in exactly one
+// place; the function form exists because a caster_snapshot carries the race
+// but no char_data to hand the macro (TASK-021). It lives here, next to the
+// PROF_*/RACE_* constants it reads, because utils.h does not define the
+// PROF_*/RACE_* constants at a definition of its own -- they come from this
+// header.
+inline int max_race_prof_level(int prof, int race)
+{
+    if (race == RACE_ORC) {
+        return 20;
+    }
+
+    if (race == RACE_URUK) {
+        return (prof == PROF_MAGE) ? 27 : 30;
+    }
+
+    return 30;
+}
+
 #define localtime(x) localtime((time_t*)x)
 #ifndef CONSTANTSMARK
 extern char* pc_races[];

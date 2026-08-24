@@ -56,7 +56,8 @@ extern char* race_abbrevs[];
  */
 
 char saves_mystic(struct char_data*);
-char saves_poison(struct char_data*, struct char_data*);
+// saves_poison() is declared in spells.h (both the live and caster_snapshot
+// forms, TASK-021), which this file already includes.
 char saves_confuse(struct char_data*, char_data*);
 char saves_leadership(struct char_data*);
 char saves_insight(struct char_data*, struct char_data*);

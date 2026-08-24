@@ -316,8 +316,11 @@ int has_program(char_data* host, int num);
 
 #define GET_PROF_LEVEL(prof, ch) (((prof == PROF_GENERAL) || IS_NPC(ch)) ? GET_LEVEL(ch) : (ch)->profs->prof_level[prof])
 
-#define GET_MAX_RACE_PROF_LEVEL(prof, ch) ((GET_RACE(ch) == RACE_ORC) ? 20 : (GET_RACE(ch) == RACE_URUK) ? (prof == PROF_MAGE) ? 27 : 30 \
-                                                                                                         : 30)
+// max_race_prof_level() lives in structs.h, beside the PROF_*/RACE_*
+// constants it reads; this macro is the char_data-shaped face of it
+// (TASK-021 moved the table into a function so a caster_snapshot, which
+// carries a race but no character, can reach it too).
+#define GET_MAX_RACE_PROF_LEVEL(prof, ch) (max_race_prof_level((prof), GET_RACE(ch)))
 
 #define SET_PROF_LEVEL(prof, ch, val)            \
     do {                                         \
@@ -626,10 +629,18 @@ int CAN_SEE_OBJ(char_data* sub, obj_data* obj);
 
 #define IS_OBJ_STAT(obj, stat) (IS_SET((obj)->obj_flags.extra_flags, stat))
 
-#define RACE_GOOD(ch) ((GET_RACE(ch) > 0) ? (GET_RACE(ch) < 10) ? 1 : 0 : 0)
-#define RACE_EVIL(ch) ((GET_RACE(ch) > 10) ? 1 : 0)
-#define RACE_EAST(ch) ((GET_RACE(ch) == 14) ? 1 : 0)
-#define RACE_MAGI(ch) ((GET_RACE(ch) == 15) || (GET_RACE(ch) == 18) ? 1 : 0)
+// The race-war side tests below read nothing but the race number, so each
+// macro is a one-line face of an int-taking helper; a caster_snapshot uses
+// the helper directly (other_side(), TASK-021) and both share one table.
+inline int race_is_good(int race) { return (race > 0) ? ((race < 10) ? 1 : 0) : 0; }
+inline int race_is_evil(int race) { return (race > 10) ? 1 : 0; }
+inline int race_is_east(int race) { return (race == 14) ? 1 : 0; }
+inline int race_is_magi(int race) { return ((race == 15) || (race == 18)) ? 1 : 0; }
+
+#define RACE_GOOD(ch) race_is_good(GET_RACE(ch))
+#define RACE_EVIL(ch) race_is_evil(GET_RACE(ch))
+#define RACE_EAST(ch) race_is_east(GET_RACE(ch))
+#define RACE_MAGI(ch) race_is_magi(GET_RACE(ch))
 
 #define GET_REROLLS(ch) ((ch)->specials2.rerolls)
 

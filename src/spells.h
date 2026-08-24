@@ -11,6 +11,7 @@
 #ifndef SPELLS_H
 #define SPELLS_H
 
+#include "caster_snapshot.h" /* For the snapshot form of saves_poison() */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "structs.h" /* For the MAX_SKILLS macro */
 #include <algorithm>
@@ -486,5 +487,12 @@ bool is_strong_enough_to_tame(struct char_data* tamer, struct char_data* animal,
 
 int get_mage_caster_level(const char_data* caster);
 int get_mystic_caster_level(const char_data* caster);
+
+// saves_poison()'s two forms (TASK-021). The live struct char_data* form is a
+// one-line forwarder onto the caster_snapshot form, which owns the body: a
+// poison that ticks after its caster is gone runs the identical formula from
+// the cast-time copy instead of touching a possibly-freed character.
+char saves_poison(struct char_data* victim, struct char_data* caster);
+char saves_poison(struct char_data* victim, const caster_snapshot& caster);
 
 #endif /* SPELLS_H */
