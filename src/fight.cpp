@@ -874,6 +874,45 @@ void death_cry(struct char_data* ch)
     }
 }
 
+// TASK-021 port: hand back the character recorded as the source of `victim`'s
+// poison, or nullptr when no live character answers to that record any more.
+// THE RECORDED POINTER IS NEVER DEREFERENCED to reach that answer -- the
+// character it names may have been extracted and freed. char_by_abs_number()
+// reports who CURRENTLY owns the recorded slot (nullptr when nobody does), and
+// only a pointer-identical answer counts: an extracted poisoner resolves to
+// nullptr, and so does one whose abs_number has since been recycled by a
+// different mob. This is caster_snapshot::resolve()'s shape, for the same
+// reason (see its own comment and handler.h's char_by_abs_number()); the
+// pointer serves purely as an identity token to compare against.
+char_data* resolve_poisoner(const char_data& victim)
+{
+    const int number = victim.specials.poisoned_by_abs_number;
+    char_data* ptr = victim.specials.poisoned_by;
+    if (number < 0 || ptr == nullptr)
+        return nullptr;
+    char_data* live = char_by_abs_number(number);
+    return (live != nullptr && live == ptr) ? live : nullptr;
+}
+
+// TASK-021 port: the write side of that record, and the only writer that SETS
+// an origin. Every production site that applies a poison affect (or an
+// AFF_POISON bit) says here where the poison came from -- the spell's caster,
+// the mob that bit, or NOBODY for a poisoned meal or drink, which is what a
+// null `poisoner` means. Two other sites CLEAR the pair without going through
+// here, and neither ever sets one: db.cpp's clear_char() (a blank character's
+// pair starts blank) and handler.cpp's affect_remove() (once the last
+// SPELL_POISON affect is gone). Writing both halves in one place is the
+// point: resolve_poisoner() above reads the pair, so an abs_number left
+// standing without its pointer (or the reverse) is a record that can answer
+// for whoever holds that slot today. `poisoner` is not dereferenced beyond
+// reading its abs_number here, and the pointer is stored only as an identity
+// token to compare against later.
+void record_poison_origin(char_data* victim, char_data* poisoner)
+{
+    victim->specials.poisoned_by_abs_number = poisoner ? poisoner->abs_number : -1;
+    victim->specials.poisoned_by = poisoner;
+}
+
 void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
 {
     waiting_type tmpwtl;

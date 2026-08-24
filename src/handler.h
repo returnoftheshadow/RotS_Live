@@ -164,6 +164,18 @@ void hit(struct char_data* ch, struct char_data* victim, int type);
 void forget(struct char_data* ch, struct char_data* victim);
 void remember(struct char_data* ch, struct char_data* victim);
 int damage(struct char_data* ch, struct char_data* victim, int dam, int attacktype, int hit_location);
+// TASK-021 port: the live character recorded as the source of `victim`'s
+// poison, or null when no live character answers to that record any more
+// (the poisoner was extracted, or its abs_number slot was recycled). The only
+// sanctioned reader of char_special_data's poisoned_by* pair.
+struct char_data* resolve_poisoner(const struct char_data& victim);
+// TASK-021 port: records where `victim`'s poison came from, for
+// resolve_poisoner() above to read back when it kills. `poisoner` may be null
+// -- a poisoned meal or drink has no character behind it -- and then the
+// record is CLEARED, not left half-set. The only sanctioned writer that SETS
+// an origin; clear_char() (db.cpp) and affect_remove() (handler.cpp, when the
+// last SPELL_POISON affect goes) clear the pair, and set it nowhere.
+void record_poison_origin(struct char_data* victim, struct char_data* poisoner);
 int check_sanctuary(char_data* ch, char_data* victim);
 
 char* money_message(int sum, int mode = 0);

@@ -3139,6 +3139,11 @@ SPECIAL(vampire_huntress)
                     af.location = APPLY_STR;
                     af.bitvector = AFF_POISON;
                     affect_join(victim, &af, FALSE, FALSE);
+                    // TASK-021 port: the huntress owns this poison, so a
+                    // captive who dies of it in the cells died to a MOB --
+                    // without the record the death would credit nobody at
+                    // all.
+                    record_poison_origin(victim, host);
                     send_to_char("You feel extremely sick.\n\r", victim);
                     send_to_char(
                         "For a moment the pain is too great and you lose consciousness...\n\r\n\n",

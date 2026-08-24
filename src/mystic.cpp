@@ -1268,6 +1268,11 @@ ASPELL(spell_poison)
             af.bitvector = AFF_POISON;
 
             affect_join(victim, &af, FALSE, FALSE);
+            // TASK-021 port: this poison's origin, for resolve_poisoner() to
+            // read back when it kills. Without it the DoT that follows
+            // credits nobody, and a player killed by a mystic's poison would
+            // take the died-to-a-mob arm.
+            record_poison_origin(victim, caster);
 
             send_to_char("You feel very sick.\n\r", victim);
             damage((caster) ? caster : victim, victim, 5, SPELL_POISON, 0);

@@ -3475,6 +3475,15 @@ void clear_char(struct char_data* ch, int mode)
     ch->specials.alias = 0;
     ch->in_room = NOWHERE;
     ch->specials.was_in_room = NOWHERE;
+    // TASK-021 port: a fresh character carries no poison and therefore no
+    // poisoner. This struct has no in-class initializer for the pair (see
+    // structs.h), so this explicit blank is the only place a freshly
+    // memset(0) char_data gets -1 rather than 0 for poisoned_by_abs_number --
+    // stated here because this function is the tree's "what a blank
+    // character looks like" statement, and test code calls it directly to
+    // reset a character.
+    ch->specials.poisoned_by_abs_number = -1;
+    ch->specials.poisoned_by = nullptr;
     ch->specials.position = POSITION_STANDING;
     ch->specials.default_pos = POSITION_STANDING;
     SET_TACTICS(ch, TACTICS_NORMAL);

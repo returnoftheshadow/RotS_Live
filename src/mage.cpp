@@ -2154,6 +2154,10 @@ ASPELL(spell_black_arrow)
         af.location = APPLY_STR;
         af.bitvector = AFF_POISON;
         affect_join(victim, &af, FALSE, FALSE);
+        // TASK-021 port: this poison's origin, for resolve_poisoner() to read
+        // back when it kills -- see mystic.cpp's spell_poison for the same
+        // reasoning.
+        record_poison_origin(victim, caster);
 
         send_to_char("The vile magic poisons you!\n\r", victim);
         apply_spell_damage(caster, victim, min_poison_dam, SPELL_POISON, 0);
