@@ -1624,7 +1624,18 @@ int maul_damage_reduction(char_data* ch, int damage)
  * damage now modified to return int - 1 if the victim was
  * killed, 0 if not.
  */
-int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location)
+// TASK-021 port: split the two roles this function's single `attacker`
+// argument used to serve. `attacker` is the character that ENGAGES the
+// victim -- set_fighting, on_attacked_character, the group/hide/exp
+// bookkeeping, the damage message -- exactly as before. `credited_killer` is
+// who die() is told did it: it may be nullptr (nobody is credited), it may
+// equal `attacker` (which is what damage() below always passes, so every
+// historical call site is unchanged), and it may be a character standing
+// somewhere else entirely -- a room affect ticking from the snapshot of a
+// caster who has long since walked away. A remote credited killer is never
+// engaged: it is not passed to set_fighting and nothing in the body below
+// reads it.
+int damage_credited(char_data* attacker, char_data* victim, char_data* credited_killer, int dam, int attacktype, int hit_location)
 {
     struct affected_type* aff;
     int i, tmp, tmp1;
@@ -1955,23 +1966,57 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
         victim->specials.was_in_room = victim->in_room;
     }
 
+    // TASK-026 port: the opponent the victim is engaged with at the instant it
+    // dies, captured HERE because the stop_fighting() call on the very next
+    // line clears specials.fighting for a dead character -- read any later
+    // (in the death branch below, where it is used) and the answer is always
+    // nullptr. Only the credit fallback reads it; nothing else in this
+    // function does.
+    char_data* const engaged_opponent = victim->specials.fighting;
+
     if (!AWAKE(victim))
         if (victim->specials.fighting)
             stop_fighting(victim);
 
     if (GET_POS(victim) == POSITION_DEAD) {
+        // TASK-021 port: the KILL is credited to `credited_killer`, not to
+        // the character that engaged the victim. For damage() they are the
+        // same pointer, so this block is byte-for-byte the old one; the
+        // redirect is applied to a local rather than to the parameter only
+        // because the parameter is no longer the one going to die().
+        char_data* killer = credited_killer;
+        // TASK-026 port: when nobody is credited -- a poison or room tick
+        // whose caster can no longer be resolved -- the death is credited to
+        // whoever the victim was fighting. A victim fighting nobody still
+        // credits nobody: this never invents a killer.
+        if (killer == nullptr && engaged_opponent != nullptr) {
+            killer = engaged_opponent;
+        }
         // Redirect the attacker as the pet's master if the master is in the same room as the pet.
-        if (IS_NPC(attacker)) {
-            if (attacker->master && (MOB_FLAGGED(attacker, MOB_PET) || MOB_FLAGGED(attacker, MOB_ORC_FRIEND)) && attacker->master->in_room == attacker->in_room) {
-                attacker = attacker->master;
+        if (killer && IS_NPC(killer)) {
+            if (killer->master && (MOB_FLAGGED(killer, MOB_PET) || MOB_FLAGGED(killer, MOB_ORC_FRIEND)) && killer->master->in_room == killer->in_room) {
+                killer = killer->master;
             }
         }
 
-        die(victim, attacker, attacktype);
+        die(victim, killer, attacktype);
         return 1;
     } else {
         return 0;
     }
+}
+
+// TASK-021 port: the historical damage() shape -- whoever engages the victim
+// is also credited with the kill. A forwarder, not a second body: every
+// caller that has not been taught about separate credit keeps exactly the
+// behavior it had.
+int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location)
+{
+    // damage_credited()'s own `if (!attacker) attacker = victim;` emergency
+    // fix reassigns the ENGAGING attacker, and the credit has always followed
+    // that substitution (the old body reached die() with the same reassigned
+    // pointer). Reproduce it here rather than crediting nobody.
+    return damage_credited(attacker, victim, attacker ? attacker : victim, dam, attacktype, hit_location);
 }
 
 bool does_victim_save_on_weapon_poison(struct char_data* victim, struct obj_data* weapon)

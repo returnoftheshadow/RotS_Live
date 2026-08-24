@@ -726,8 +726,12 @@ void point_update(void)
                     i->specials.attacked_level -= 2;
             }
 
+            // TASK-021 port: this tick still ENGAGES the poisoned character
+            // with itself (nobody else is in the fight), but the kill is
+            // credited to whoever poisoned it -- resolve_poisoner() answers
+            // nullptr, i.e. nobody, once that character is gone.
             if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON))
-                damage(i, i, 5, SPELL_POISON, 0);
+                damage_credited(i, i, resolve_poisoner(*i), 5, SPELL_POISON, 0);
             //        if (GET_POS(i) == POSITION_STUNNED)
             //  	update_pos(i);
 
@@ -1346,7 +1350,15 @@ void affect_update_person(struct char_data* i, int mode)
                     }
 
                     /* If poison is fatal, damage returns non-zero */
-                    if (damage(i, i, 5, SPELL_POISON, 0))
+                    // TASK-021 port: the ORDINARY poison DoT -- the tick
+                    // behind every SPELL_POISON affect a spell, a bite or a
+                    // poisoned meal applied. It still ENGAGES the poisoned
+                    // character with itself (nobody else is in this fight),
+                    // but the kill is credited to whoever poisoned it;
+                    // resolve_poisoner() answers nullptr, i.e. nobody, once
+                    // that character is gone. Same shape as point_update()'s
+                    // gear-poison arm above.
+                    if (damage_credited(i, i, resolve_poisoner(*i), 5, SPELL_POISON, 0))
                         return;
                     break;
                 case SPELL_CURING:

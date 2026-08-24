@@ -151,6 +151,22 @@ int apply_spell_damage(char_data* caster, char_data* victim, int damage_dealt, i
     return damage(caster, victim, damage_dealt, spell_number, hit_location);
 }
 
+// TASK-021 port: apply_spell_damage() for a hit whose caster is a cast-time
+// SNAPSHOT rather than a live character -- a room affect ticking on an
+// occupant. `who` supplies the spell-penetration side of the saving throw
+// (the caster's stats AS THEY WERE at the cast, not as they are now, and
+// readable even if that character is gone); `attacker` engages the victim;
+// and `credited_killer` -- which may be null, and may stand in another room
+// -- takes the kill. Reuses scale_spell_damage() above, so the damage curve
+// is the live cast's, not a copy of it.
+int apply_spell_damage_credited(const caster_snapshot& who, char_data* attacker, char_data* victim,
+    char_data* credited_killer, int damage_dealt, int spell_number, int hit_location)
+{
+    damage_dealt = scale_spell_damage(get_victim_saving_throw(who, victim), damage_dealt);
+
+    return damage_credited(attacker, victim, credited_killer, damage_dealt, spell_number, hit_location);
+}
+
 bool different_zone(int was_in, int to_room)
 {
     return world[was_in].zone != world[to_room].zone;

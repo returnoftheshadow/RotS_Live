@@ -164,6 +164,12 @@ void hit(struct char_data* ch, struct char_data* victim, int type);
 void forget(struct char_data* ch, struct char_data* victim);
 void remember(struct char_data* ch, struct char_data* victim);
 int damage(struct char_data* ch, struct char_data* victim, int dam, int attacktype, int hit_location);
+// TASK-021 port: damage() with the kill credit named separately from the
+// character that engages the victim. `ch` engages exactly as damage() always
+// did; `credited_killer` (which may be null, may equal `ch`, and may stand in
+// another room) is what reaches die(). damage() is a forwarder onto this with
+// credit == attacker.
+int damage_credited(struct char_data* ch, struct char_data* victim, struct char_data* credited_killer, int dam, int attacktype, int hit_location);
 // TASK-021 port: the live character recorded as the source of `victim`'s
 // poison, or null when no live character answers to that record any more
 // (the poisoner was extracted, or its abs_number slot was recycled). The only
