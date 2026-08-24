@@ -143,6 +143,7 @@ set(ROTS_TEST_SOURCES
     tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp
+    tests/summon_targeting_tests.cpp
     tests/gtest_main.cpp
     tests/olog_hai_tests.cpp
     tests/obj_flag_data_tests.cpp

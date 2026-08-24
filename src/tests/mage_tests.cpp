@@ -2,6 +2,7 @@
 #include "../handler.h"
 #include "../spells.h"
 #include "../utils.h"
+#include "../zone.h"
 #include "test_random_utils.h"
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -158,6 +159,42 @@ loclife_coord *find_loclife_room(loclife_coord *roomlist, int roomnum, int targe
         }
     }
     return nullptr;
+}
+
+// spell_summon() unconditionally indexes zone_table -- both for its own
+// caster/victim distance term and, via the real char_from_room()/
+// char_to_room() it dispatches on the success arm, for the zone
+// goodness/evilness power counters. This shared test binary never boots a
+// real zone_table (see FireballSplashesTheRoomBeforeASelfFumbleKillsTheCaster's
+// comment on the same constraint), so a real spell_summon() body test needs
+// its own stub table installed for the scope of the test. Restores whatever
+// zone_table pointed at (normally nullptr) on destruction.
+struct ZoneTableGuard {
+    struct zone_data *previous_table;
+    int previous_top;
+    struct zone_data stub[2]{};
+
+    ZoneTableGuard() : previous_table(zone_table), previous_top(top_of_zone_table) {
+        zone_table = stub;
+        top_of_zone_table = 1;
+    }
+
+    ~ZoneTableGuard() {
+        zone_table = previous_table;
+        top_of_zone_table = previous_top;
+    }
+};
+
+// Matches spell_pa_tests.cpp's make_descriptor(): a descriptor whose output
+// buffer is the small inline buffer rather than a real socket, so act()/
+// send_to_char() output can be asserted on directly.
+descriptor_data make_descriptor() {
+    descriptor_data descriptor{};
+    descriptor.output = descriptor.small_outbuf;
+    descriptor.small_outbuf[0] = '\0';
+    descriptor.bufptr = 0;
+    descriptor.bufspace = SMALL_BUFSIZE - 1;
+    return descriptor;
 }
 
 } // namespace
@@ -1165,4 +1202,78 @@ TEST(MageHelpers, FriendlyTargetSnapshotFormAgreesWithLiveFormAndSelfTestUsesSam
     context.victim.player.race = RACE_ORC;
     EXPECT_EQ(is_friendly_taget(snap, &context.victim), is_friendly_taget(&context.caster, &context.victim))
         << "Expected the snapshot form to agree with the live form for an opposing-side character.";
+}
+
+// ---------------------------------------------------------------------------
+// TASK-025: spell_summon body coverage (the spell had no body test anywhere
+// in the tree before this port). The body itself has NO sight check by
+// design; the dark-room targeting fix lives in consts.cpp's mask and is
+// pinned by summon_targeting_tests.cpp's SummonTargeting suite. This
+// exercises the success arm end to end: a willing (PRF_SUMMONABLE clear --
+// the flag is inverted: set == NOT summonable), non-fighting, mortal player
+// victim who fails the save is moved into the caster's room through the real
+// char_from_room()/char_to_room() pair.
+//
+// The victim deliberately has NO descriptor: a linkdead player is a legal
+// summon target, and this pins act_move.cpp's existing null-desc guard in
+// msdp_room_update() (`if (!ch->desc) return;`, act_move.cpp:599-601) --
+// spell_summon() calls msdp_room_update(victim) on its success arm, and a
+// desc-less victim exercises that guard on every run of this test.
+// ---------------------------------------------------------------------------
+
+TEST_F(MageProcTest, SummonMovesAWillingPlayerVictimToTheCastersRoom) {
+    MageTestContext context;
+    // The victim is a player here (specials2.act stays 0 -- not MOB_ISNPC),
+    // and act()'s $N formatting for the caster's success message reads a
+    // player's name (GET_NAME() prefers player.name over short_descr for a PC).
+    char summon_victim_name[16] = "test_target";
+    context.victim.player.name = summon_victim_name;
+
+    // spell_summon() reads zone_table[room->zone].x/y for its save-bonus
+    // distance term, and char_to_room()/char_from_room() bump the zone's
+    // goodness/evilness power counters -- both real zone_table dereferences
+    // this shared test binary never boots on its own (see the guard's own
+    // comment). Both rooms are zone 0 in the shared test world.
+    ZoneTableGuard zone_table_guard;
+    ZoneGuard zone_guard(7, 8);
+    world[7].zone = 0;
+    world[8].zone = 0;
+
+    // Place both characters with real occupant chains -- the spell unlinks
+    // and relinks the victim through char_from_room()/char_to_room().
+    RoomExitGuard caster_room_guard(7);
+    RoomExitGuard victim_room_guard(8);
+    world[7].room_flags = 0; // clear any NO_TELEPORT leftover from an earlier suite in this room
+    world[7].people = nullptr;
+    world[8].people = nullptr;
+    char_to_room(&context.caster, 7);
+    char_to_room(&context.victim, 8);
+
+    descriptor_data caster_descriptor = make_descriptor();
+    context.caster.desc = &caster_descriptor;
+
+    // new_saves_spell(): casting_dc = 10 + 0 (zero mage-prof level) +
+    // (20-8)/4 = 13. get_character_saving_throw(victim) = 0 (zero mage-prof
+    // level) + (20-8)/4 = 3. spell_summon's `dist = ((ch_x-v_x)^2) +
+    // ((ch_y-v_y)^2)` is bitwise XOR, not exponentiation: same-zone x/y (both
+    // 0 on the zero-initialized zone_data stub) makes each term 0^2 == 2, so
+    // dist == 4 and save_value = 3 + 4 = 7. The single draw below (the save
+    // roll, number(1,20)) is a queued midpoint of the roll==1 bucket, so
+    // roll == 1 and 1+7=8, which is not > 13 -- new_saves_spell() returns
+    // false (the victim fails to save) and the success arm runs.
+    push_test_random_value(0.025); // (1 - 1 + 0.5) / 20 -- midpoint of the roll==1 bucket
+
+    spell_summon(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+
+    EXPECT_EQ(context.victim.in_room, 7)
+        << "Expected the summoned victim to be moved into the caster's room.";
+    const std::string caster_output = caster_descriptor.output;
+    EXPECT_NE(caster_output.find("appears in the room."), std::string::npos)
+        << "Expected the caster to see the success message; output was: " << caster_output;
+
+    // Fixture hygiene: undo spell_summon's own char_from_room()/char_to_room()
+    // move before the guards above unwind, so no stack character survives in
+    // world[]'s occupant chains after the test ends.
+    char_from_room(&context.victim);
+    char_from_room(&context.caster);
 }
