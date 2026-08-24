@@ -165,7 +165,9 @@ char* money_message(int sum, int mode = 0);
 
 int char_exists(int num);
 void set_char_exists(int num);
+void set_char_exists(int num, struct char_data* ch);
 void remove_char_exists(int num);
+struct char_data* char_by_abs_number(int num);
 int register_npc_char(struct char_data*);
 int register_pc_char(struct char_data*);
 

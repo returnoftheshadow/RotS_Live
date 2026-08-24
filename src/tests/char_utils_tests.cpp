@@ -673,3 +673,40 @@ TEST(DamageReports, ReturnsFriendlyEmptyReports) {
     EXPECT_NE(player_report.get_damage_report(&context.character).find("has not recorded any damage dealt"), std::string::npos);
     EXPECT_NE(group_report.get_damage_report().find("have not recorded any damage dealt"), std::string::npos);
 }
+
+// char_by_abs_number()/set_char_exists(num, ch) registry tests. The control
+// array is process-global, so these deliberately use high slot numbers that
+// register_npc_char() (which allocates from slot 0 upward) is very unlikely
+// to reach in this suite, and each test restores the slots it touches to
+// "unregistered" so it never leaks state into other tests.
+TEST(CharRegistry, TracksRegisteredPointerAcrossSetRemoveAndReplace) {
+    CharUtilsTestContext first_context;
+    CharUtilsTestContext second_context;
+    const int slot = MAX_CHARACTERS - 17;
+
+    remove_char_exists(slot); // defensive: ensure the slot starts clean
+
+    set_char_exists(slot, &first_context.character);
+    EXPECT_EQ(char_by_abs_number(slot), &first_context.character);
+
+    remove_char_exists(slot);
+    EXPECT_EQ(char_by_abs_number(slot), nullptr);
+
+    set_char_exists(slot, &second_context.character);
+    EXPECT_EQ(char_by_abs_number(slot), &second_context.character);
+
+    remove_char_exists(slot); // restore: leave the slot unregistered
+}
+
+TEST(CharRegistry, ReturnsNullForOutOfRangeSlots) {
+    EXPECT_EQ(char_by_abs_number(-1), nullptr);
+    EXPECT_EQ(char_by_abs_number(MAX_CHARACTERS), nullptr);
+}
+
+TEST(CharRegistry, ReturnsNullForAnUnregisteredInRangeSlot) {
+    const int slot = MAX_CHARACTERS - 18;
+
+    remove_char_exists(slot); // defensive: ensure the slot starts clean
+    EXPECT_EQ(char_by_abs_number(slot), nullptr);
+    remove_char_exists(slot); // restore: leave the slot unregistered
+}

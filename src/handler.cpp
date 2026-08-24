@@ -83,6 +83,13 @@ ACMD(do_return);
 char char_control_array[MAX_CHARACTERS / 8 + 1];
 long last_control_set = -1;
 
+// Parallel to char_control_array: the char_data* registered under each live
+// abs_number slot (TASK-021 port). caster_snapshot::resolve() and
+// affect_update()'s snapshot walk need to recover the CURRENT owner of a slot
+// without ever dereferencing a stale pointer -- char_by_abs_number() is the
+// only sanctioned way to do that lookup.
+static char_data* characters_by_abs_number[MAX_CHARACTERS];
+
 int dummy_affected_var = 17;
 universal_list* affected_list = 0;
 universal_list* affected_list_pool = 0;
@@ -2450,9 +2457,21 @@ void set_char_exists(int num)
 {
     char_control_array[num / 8] |= (1 << (num % 8));
 }
+void set_char_exists(int num, struct char_data* ch)
+{
+    set_char_exists(num);
+    characters_by_abs_number[num] = ch;
+}
 void remove_char_exists(int num)
 {
     char_control_array[num / 8] &= ~(1 << (num % 8));
+    characters_by_abs_number[num] = nullptr;
+}
+struct char_data* char_by_abs_number(int num)
+{
+    if (num < 0 || num >= MAX_CHARACTERS || !char_exists(num))
+        return nullptr;
+    return characters_by_abs_number[num];
 }
 int register_npc_char(struct char_data* mob)
 {
@@ -2476,7 +2495,7 @@ int register_npc_char(struct char_data* mob)
         log("register_char: MUD IS OVERFLOWED.");
         exit(0);
     }
-    set_char_exists(i);
+    set_char_exists(i, mob);
     mob->abs_number = i;
     last_control_set = i;
 
