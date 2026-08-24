@@ -469,7 +469,8 @@ struct skill_data skills[MAX_SKILLS] = {
 
     /* 61 */
     { "archery", PROF_RANGER, 1, NULL, POSITION_FIGHTING, 0, 0, 16, 24, 1, 0, PLRSPEC_NONE },
-    { "summon", PROF_MAGE, 17, spell_summon, POSITION_STANDING, 50, 36, 6, 10, 1, 0, PLRSPEC_NONE },
+    { "summon", PROF_MAGE, 17, spell_summon,
+        POSITION_STANDING, 50, 36, TAR_CHAR_ROOM | TAR_CHAR_WORLD | TAR_DARK_OK, 10, 1, 0, PLRSPEC_NONE },
     { "hallucinate", PROF_CLERIC, 3, spell_hallucinate, POSITION_STANDING, 2, 10, 18, 10, 1, 0,
         PLRSPEC_NONE },
     { "regeneration", PROF_CLERIC, 15, spell_regeneration, POSITION_STANDING, 5, 15, 10, 10, 1, 1,

@@ -809,8 +809,12 @@ ASPELL(spell_vitalize_self)
  * Summon spell
  * Transfers a character from where they are to
  * the casters room.
- * We don't use this spell anymore should it be completely
- * removed?
+ * Live and wired directly in consts.cpp's skills[] table (spell_summon is
+ * the real function pointer there, not NULL); it targets by player name
+ * world-wide, so its mask carries TAR_DARK_OK -- the same precedent `tell`
+ * uses (see interpre.cpp's COMMANDO entry for tell) -- so the dark-room
+ * sight arm in CAN_SEE() does not refuse a name-targeted world spell
+ * (TASK-025 port).
  */
 
 ASPELL(spell_summon)
