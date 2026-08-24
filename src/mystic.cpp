@@ -1095,6 +1095,16 @@ ASPELL(spell_haze)
             return;
         }
 
+        // TASK-021 port: the cast-time copy every later tick of this room
+        // affect reads its formula inputs from, and the character a kill by
+        // it credits. Taken once, here, so a caster who dies, levels,
+        // re-specs or walks away afterwards cannot change a haze that is
+        // already hanging.
+        const caster_snapshot who = caster_snapshot::capture(*caster);
+        // One resolve of the caster's own room for the whole arm: nothing
+        // between here and the affect below can move the caster.
+        room_data* const here = &world[caster->in_room];
+
         int level = get_mystic_caster_level(caster);
         af.type = ROOMAFF_SPELL;
         af.duration = (level) / 3;
@@ -1102,16 +1112,22 @@ ASPELL(spell_haze)
         af.location = SPELL_HAZE;
         af.bitvector = 0;
 
-        if ((oldaf = room_affected_by_spell(&world[caster->in_room], SPELL_HAZE))) {
+        if ((oldaf = room_affected_by_spell(here, SPELL_HAZE))) {
             if (oldaf->duration < af.duration) {
                 oldaf->duration = af.duration;
             }
 
             if (oldaf->modifier < af.modifier) {
                 oldaf->modifier = af.modifier;
+                // A renewal takes the room over only when it RAISED the
+                // affect. The modifier is the caster level every tick
+                // reads, so raising it means this mystic's haze is the one
+                // hanging now; a weaker renewal leaves both the affect and
+                // its recorded caster exactly as they were.
+                set_room_affect_caster(here, SPELL_HAZE, who);
             }
         } else {
-            affect_to_room(&world[caster->in_room], &af);
+            affect_to_room(here, &af, who);
         }
 
         act("$n breathes out a disorientating mist.", TRUE, caster, 0, 0, TO_ROOM);
@@ -1231,6 +1247,13 @@ ASPELL(spell_poison)
         if (!caster)
             return;
 
+        // TASK-021 port: see spell_haze() above -- the cast-time copy the
+        // room poison's ticks run from, and the character a death by it
+        // credits (through the poisoned_by* record each tick stamps on its
+        // victims).
+        const caster_snapshot who = caster_snapshot::capture(*caster);
+        room_data* const here = &world[caster->in_room];
+
         int level = get_mystic_caster_level(caster);
         af.type = ROOMAFF_SPELL;
         af.duration = (level) / 3;
@@ -1238,14 +1261,18 @@ ASPELL(spell_poison)
         af.location = SPELL_POISON;
         af.bitvector = 0;
 
-        if ((oldaf = room_affected_by_spell(&world[caster->in_room], SPELL_POISON))) {
+        if ((oldaf = room_affected_by_spell(here, SPELL_POISON))) {
             if (oldaf->duration < af.duration)
                 oldaf->duration = af.duration;
 
-            if (oldaf->modifier < af.modifier)
+            if (oldaf->modifier < af.modifier) {
                 oldaf->modifier = af.modifier;
+                // Raised the affect, so this mystic's poison is the one in
+                // the air now (spell_haze()'s rule, same reasoning).
+                set_room_affect_caster(here, SPELL_POISON, who);
+            }
         } else {
-            affect_to_room(&world[caster->in_room], &af);
+            affect_to_room(here, &af, who);
         }
 
         act("$n breathes out a cloud of smoke.", TRUE, caster, 0, 0, TO_ROOM);

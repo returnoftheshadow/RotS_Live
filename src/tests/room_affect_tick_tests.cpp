@@ -88,6 +88,23 @@ constexpr int kMistMoveSourceRoom = 975;
 constexpr int kMistMoveDestRoom = 976;
 constexpr int kAwayRoom = 977; // a caster's "somewhere else" room for the presence pins
 
+// TASK-021 port, Task 11: rooms exercising the CASTING arms (spell_blaze,
+// spell_haze, spell_poison's room arm, spell_mist_of_baazunga) directly,
+// rather than room_affect_tick() -- continuing this suite's own room band.
+constexpr int kBlazeCastRoom = 978;
+constexpr int kBlazeWeakerRecastRoom = 979;
+constexpr int kBlazeStrongerRecastRoom = 980;
+constexpr int kHazeCastRoom = 981;
+constexpr int kHazeWeakerRecastRoom = 982;
+constexpr int kHazeStrongerRecastRoom = 983;
+constexpr int kPoisonCastRoom = 984;
+constexpr int kPoisonWeakerRecastRoom = 985;
+constexpr int kPoisonStrongerRecastRoom = 986;
+constexpr int kMistCastMainRoom = 987;
+constexpr int kMistCastAdjacentRoom = 988;
+constexpr int kMistRenewMainRoom = 989;
+constexpr int kMistRenewAdjacentRoom = 990;
+
 // abs_number slots this suite registers, in a band no sibling suite in the
 // monolithic runner uses (affect_update_tests: MAX_CHARACTERS - 201/-202;
 // caster_snapshot_tests: -401; char_utils_tests: -17/-18; poison_origin_tests:
@@ -933,4 +950,229 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
         << "the source room's mist affect must have been removed by the move";
     EXPECT_EQ(room_affect_caster(source_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
         << "affect_remove_room() must have erased the source room's caster record along with it";
+}
+
+// ---------------------------------------------------------------------------
+// TASK-021 port, Task 11: the CASTING arms themselves (spell_blaze,
+// spell_haze, spell_poison's room arm, spell_mist_of_baazunga) record their
+// caster's snapshot when they create or strengthen a room affect. These
+// tests drive the live ASPELLs directly, unlike the room_affect_tick()
+// suite above -- Task 10 covers what a room affect READS back; this covers
+// what casting it WRITES.
+//
+// All four arms' room-cast path draws nothing from the RNG queue with a
+// CasterFixture caster: get_mage_caster_level()/get_mystic_caster_level()'s
+// only roll is number(0, intel_factor % 5) / number(0, will_factor % 5),
+// and CasterFixture's fixed intel = wil = 25 makes both 25/5 = 5, 5 % 5 ==
+// 0 -- a number(0, 0) the wrapped number() returns from `from` without
+// consuming the queue (see CasterFixture's own comment above). Blaze's
+// occupant damage loop is the one place a draw COULD happen, but every test
+// below leaves the cast room's people list empty, so the loop never
+// iterates (is_friendly_taget() would skip the caster as friendly to
+// itself either way -- see mage.cpp's spell_blaze comment). No test in
+// this section needs push_test_random_value()/queue_mid_rolls().
+// ---------------------------------------------------------------------------
+
+TEST(RoomAffectCasting, BlazeCastRecordsTheCasterSnapshot)
+{
+    RoomFixture room(kBlazeCastRoom);
+    CasterFixture caster(25, 0, game_types::PS_None, kBlazeCastRoom);
+
+    clear_test_random_values();
+    spell_blaze(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    clear_test_random_values();
+
+    affected_type* blaze = room_affected_by_spell(room.room(), SPELL_BLAZE);
+    ASSERT_NE(blaze, nullptr) << "a fresh cast must have created the room affect";
+
+    const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_BLAZE);
+    ASSERT_NE(recorded, nullptr) << "the fresh 3-arg affect_to_room() call must have recorded a caster";
+    EXPECT_TRUE(recorded->same_character_as(caster.ch))
+        << "the recorded snapshot must resolve back to the casting character";
+}
+
+TEST(RoomAffectCasting, BlazeWeakerRecastLeavesThePreviousRecord)
+{
+    RoomFixture room(kBlazeWeakerRecastRoom);
+    CasterFixture strong_caster(30, 0, game_types::PS_None, kBlazeWeakerRecastRoom); // level 35
+    CasterFixture weak_caster(1, 0, game_types::PS_None, kBlazeWeakerRecastRoom); // level 6
+
+    spell_blaze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    spell_blaze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_BLAZE);
+    ASSERT_NE(recorded, nullptr);
+    EXPECT_TRUE(recorded->same_character_as(strong_caster.ch))
+        << "a weaker recast must never raise oldaf->modifier, so it must leave the previously "
+           "recorded (stronger) caster in place";
+    EXPECT_FALSE(recorded->same_character_as(weak_caster.ch));
+}
+
+TEST(RoomAffectCasting, BlazeStrongerRecastReplacesTheRecord)
+{
+    RoomFixture room(kBlazeStrongerRecastRoom);
+    CasterFixture weak_caster(1, 0, game_types::PS_None, kBlazeStrongerRecastRoom); // level 6
+    CasterFixture strong_caster(30, 0, game_types::PS_None, kBlazeStrongerRecastRoom); // level 35
+
+    spell_blaze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    spell_blaze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_BLAZE);
+    ASSERT_NE(recorded, nullptr);
+    EXPECT_TRUE(recorded->same_character_as(strong_caster.ch))
+        << "a stronger recast raised oldaf->modifier, so it must take the room over";
+    EXPECT_FALSE(recorded->same_character_as(weak_caster.ch));
+}
+
+TEST(RoomAffectCasting, HazeCastRecordsTheCasterSnapshot)
+{
+    RoomFixture room(kHazeCastRoom);
+    CasterFixture caster(0, 10, game_types::PS_None, kHazeCastRoom);
+
+    spell_haze(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    affected_type* haze = room_affected_by_spell(room.room(), SPELL_HAZE);
+    ASSERT_NE(haze, nullptr) << "a fresh cast must have created the room affect";
+
+    const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_HAZE);
+    ASSERT_NE(recorded, nullptr) << "the fresh 3-arg affect_to_room() call must have recorded a caster";
+    EXPECT_TRUE(recorded->same_character_as(caster.ch));
+}
+
+TEST(RoomAffectCasting, HazeWeakerRecastLeavesThePreviousRecord)
+{
+    RoomFixture room(kHazeWeakerRecastRoom);
+    CasterFixture strong_caster(0, 30, game_types::PS_None, kHazeWeakerRecastRoom); // level 35
+    CasterFixture weak_caster(0, 1, game_types::PS_None, kHazeWeakerRecastRoom); // level 6
+
+    spell_haze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    spell_haze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_HAZE);
+    ASSERT_NE(recorded, nullptr);
+    EXPECT_TRUE(recorded->same_character_as(strong_caster.ch))
+        << "a weaker recast must never raise oldaf->modifier, so it must leave the recorded caster "
+           "in place";
+    EXPECT_FALSE(recorded->same_character_as(weak_caster.ch));
+}
+
+TEST(RoomAffectCasting, HazeStrongerRecastReplacesTheRecord)
+{
+    RoomFixture room(kHazeStrongerRecastRoom);
+    CasterFixture weak_caster(0, 1, game_types::PS_None, kHazeStrongerRecastRoom); // level 6
+    CasterFixture strong_caster(0, 30, game_types::PS_None, kHazeStrongerRecastRoom); // level 35
+
+    spell_haze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    spell_haze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_HAZE);
+    ASSERT_NE(recorded, nullptr);
+    EXPECT_TRUE(recorded->same_character_as(strong_caster.ch))
+        << "a stronger recast raised oldaf->modifier, so it must take the room over";
+    EXPECT_FALSE(recorded->same_character_as(weak_caster.ch));
+}
+
+TEST(RoomAffectCasting, PoisonRoomArmCastRecordsTheCasterSnapshot)
+{
+    RoomFixture room(kPoisonCastRoom);
+    CasterFixture caster(0, 10, game_types::PS_None, kPoisonCastRoom);
+
+    spell_poison(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    affected_type* poison = room_affected_by_spell(room.room(), SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "a fresh cast must have created the room affect";
+
+    const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_POISON);
+    ASSERT_NE(recorded, nullptr) << "the fresh 3-arg affect_to_room() call must have recorded a caster";
+    EXPECT_TRUE(recorded->same_character_as(caster.ch));
+}
+
+TEST(RoomAffectCasting, PoisonRoomArmWeakerRecastLeavesThePreviousRecord)
+{
+    RoomFixture room(kPoisonWeakerRecastRoom);
+    CasterFixture strong_caster(0, 30, game_types::PS_None, kPoisonWeakerRecastRoom); // level 35
+    CasterFixture weak_caster(0, 1, game_types::PS_None, kPoisonWeakerRecastRoom); // level 6
+
+    spell_poison(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    spell_poison(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_POISON);
+    ASSERT_NE(recorded, nullptr);
+    EXPECT_TRUE(recorded->same_character_as(strong_caster.ch))
+        << "a weaker recast must never raise oldaf->modifier, so it must leave the recorded caster "
+           "in place";
+    EXPECT_FALSE(recorded->same_character_as(weak_caster.ch));
+}
+
+TEST(RoomAffectCasting, PoisonRoomArmStrongerRecastReplacesTheRecord)
+{
+    RoomFixture room(kPoisonStrongerRecastRoom);
+    CasterFixture weak_caster(0, 1, game_types::PS_None, kPoisonStrongerRecastRoom); // level 6
+    CasterFixture strong_caster(0, 30, game_types::PS_None, kPoisonStrongerRecastRoom); // level 35
+
+    spell_poison(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    spell_poison(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_POISON);
+    ASSERT_NE(recorded, nullptr);
+    EXPECT_TRUE(recorded->same_character_as(strong_caster.ch))
+        << "a stronger recast raised oldaf->modifier, so it must take the room over";
+    EXPECT_FALSE(recorded->same_character_as(weak_caster.ch));
+}
+
+TEST(RoomAffectCasting, MistCastSeedsAFreshAdjacentRoomCarryingTheCaster)
+{
+    RoomFixture main_room(kMistCastMainRoom);
+    RoomFixture adjacent(kMistCastAdjacentRoom);
+    room_direction_data north_exit {};
+    north_exit.to_room = kMistCastAdjacentRoom;
+    main_room.room()->dir_option[NORTH] = &north_exit;
+
+    CasterFixture caster(25, 0, game_types::PS_None, kMistCastMainRoom); // level 30
+
+    spell_mist_of_baazunga(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    const caster_snapshot* main_recorded = room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(main_recorded, nullptr) << "the fresh main-room seed must have recorded a caster";
+    EXPECT_TRUE(main_recorded->same_character_as(caster.ch));
+
+    const caster_snapshot* adjacent_recorded = room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(adjacent_recorded, nullptr)
+        << "an empty adjacent room must be freshly seeded carrying the SAME caster";
+    EXPECT_TRUE(adjacent_recorded->same_character_as(caster.ch));
+}
+
+TEST(RoomAffectCasting, MistCastLongerDurationRenewalReplacesTheRecordInMainAndAdjacent)
+{
+    RoomFixture main_room(kMistRenewMainRoom);
+    RoomFixture adjacent(kMistRenewAdjacentRoom);
+    room_direction_data east_exit {};
+    east_exit.to_room = kMistRenewAdjacentRoom;
+    main_room.room()->dir_option[EAST] = &east_exit;
+
+    CasterFixture weak_caster(1, 0, game_types::PS_None, kMistRenewMainRoom); // level 6: main dur 1, adj dur 1
+    CasterFixture strong_caster(25, 0, game_types::PS_None, kMistRenewMainRoom); // level 30: main dur 6, adj dur 5
+
+    // Seed both rooms weakly first, recording weak_caster in each.
+    spell_mist_of_baazunga(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    ASSERT_NE(room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr);
+    ASSERT_NE(room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA), nullptr);
+
+    // A stronger recast: main's duration (1) is raised to 6, and the adjacent
+    // room's own (quirky) comparison is against the MAIN room's new af.duration
+    // (6) too -- see mage.cpp's spell_mist_of_baazunga comment -- so both
+    // renewals fire and both records must move to strong_caster.
+    spell_mist_of_baazunga(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    const caster_snapshot* main_recorded = room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(main_recorded, nullptr);
+    EXPECT_TRUE(main_recorded->same_character_as(strong_caster.ch))
+        << "the main room's longer-duration renewal must replace the recorded caster";
+    EXPECT_FALSE(main_recorded->same_character_as(weak_caster.ch));
+
+    const caster_snapshot* adjacent_recorded = room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(adjacent_recorded, nullptr);
+    EXPECT_TRUE(adjacent_recorded->same_character_as(strong_caster.ch))
+        << "the adjacent room's longer-duration renewal must also replace the recorded caster";
+    EXPECT_FALSE(adjacent_recorded->same_character_as(weak_caster.ch));
 }
