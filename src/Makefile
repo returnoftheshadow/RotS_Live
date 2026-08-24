@@ -28,7 +28,7 @@ OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o caster_snapshot.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
 	comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
-	pkill.o player_file_finalize.o profs.o protocol.o ranger.o save_benchmark.o savebench.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
+	pkill.o player_file_finalize.o profs.o protocol.o ranger.o room_affect_tick.o save_benchmark.o savebench.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
 	wild_fighting_handler.o weather.o zone.o
 
@@ -142,7 +142,7 @@ spec_ass.o : spec_ass.cpp structs.h db.h interpre.h utils.h
 spec_pro.o : spec_pro.cpp structs.h utils.h comm.h interpre.h \
 	handler.h db.h spells.h limits.h
 	$(CC) -c $(CFLAGS) spec_pro.cpp
-limits.o : limits.cpp structs.h limits.h utils.h spells.h comm.h db.h handler.h          profs.h
+limits.o : limits.cpp structs.h limits.h utils.h spells.h comm.h db.h handler.h          profs.h caster_snapshot.h room_affect_tick.h
 	$(CC) -c $(CFLAGS) limits.cpp
 fight.o	: fight.cpp structs.h utils.h comm.h handler.h interpre.h db.h spells.h limits.h
 	$(CC) -c $(CFLAGS) fight.cpp
@@ -225,6 +225,8 @@ pkill.o: pkill.cpp pkill.h
 	$(CC) -c $(CFLAGS) pkill.cpp
 protocol.o: protocol.cpp protocol.h
 	$(CC) -c $(CFLAGS) protocol.cpp
+room_affect_tick.o : room_affect_tick.cpp room_affect_tick.h caster_snapshot.h comm.h handler.h spells.h structs.h utils.h
+	$(CC) -c $(CFLAGS) room_affect_tick.cpp
 
 .PHONY: format
 format:

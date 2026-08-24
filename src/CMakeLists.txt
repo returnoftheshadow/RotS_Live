@@ -82,6 +82,7 @@ set(ROTS_SERVER_SOURCES
     profs.cpp
     protocol.cpp
     ranger.cpp
+    room_affect_tick.cpp
     save_benchmark.cpp
     savebench.cpp
     script.cpp
@@ -138,6 +139,7 @@ set(ROTS_TEST_SOURCES
     tests/poison_origin_tests.cpp
     tests/protocol_tests.cpp
     tests/room_affect_caster_tests.cpp
+    tests/room_affect_tick_tests.cpp
     tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp

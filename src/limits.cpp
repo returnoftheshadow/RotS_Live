@@ -9,6 +9,7 @@
  ************************************************************************ */
 
 #include "limits.h"
+#include "caster_snapshot.h"
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
@@ -16,6 +17,7 @@
 #include "pkill.h"
 #include "platdef.h"
 #include "profs.h"
+#include "room_affect_tick.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -1469,10 +1471,27 @@ void affect_update_room(struct room_data* room)
 
                         /* 1 in 13 chance that a room spell won't do anything */
                         if (!(tmp = number(0, 12)) || (skills[tmpaf->location].is_fast && !number(0, 2))) {
-                            (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
-                                tmpch, 0, 0, 0);
+                            // TASK-021: tick the affect from the caster_snapshot recorded
+                            // for (room, spell) instead of re-casting the spell with the
+                            // occupant standing in for its own caster. The historical
+                            // re-cast stays as the fallback for any ROOMAFF_SPELL that
+                            // room_affect_tick() has no body for.
+                            if (!room_affect_tick(tmpaf->location, room, tmpch, *tmpaf))
+                                (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
+                                    tmpch, 0, 0, 0);
                         }
                     }
+
+                    // Defensive: a tick body that removed the LAST affect from this
+                    // room would leave `tmpaf` pooled, and the duration/mist-move code
+                    // below would then read recycled storage. No tick body removes a
+                    // room affect today (raw_kill() strips the DEAD CHARACTER's
+                    // affects, not the room's), so this cannot fire; it is here so a
+                    // future tick that does remove one fails safe. `continue` rather
+                    // than `break`: `break` would only leave the switch and fall
+                    // straight into the very code this guards.
+                    if (!room->affected)
+                        continue;
                 } else {
                     sprintf(buf2, "Attempt to cast spell %d in room %d", tmpaf->location,
                         room->number);
@@ -1516,8 +1535,27 @@ void affect_update_room(struct room_data* room)
                         sprintf(buf, "The mists drift %s.\n\r", dirs[direction]);
                         send_to_room(buf, room->number);
 
-                        affect_to_room(&world[roomnum], &newaf);
+                        // TASK-021: a mist that MOVES keeps the caster that breathed
+                        // it. Read the record into a local COPY first --
+                        // affect_remove_room() below erases this room's (room, spell)
+                        // caster entry, and room_affect_caster() hands back a pointer
+                        // into the very map entry it erases.
+                        const caster_snapshot* const mist_caster
+                            = room_affect_caster(room, SPELL_MIST_OF_BAAZUNGA);
+                        const caster_snapshot moved_caster
+                            = mist_caster ? *mist_caster : caster_snapshot::none();
+
+                        affect_to_room(&world[roomnum], &newaf, moved_caster);
                         affect_remove_room(room, tmpaf);
+                        // affect_remove_room() ends in put_to_affected_type_pool(),
+                        // which is `free(oldaf)` in every build (handler.cpp) -- so
+                        // `tmpaf` is dangling from here on. The `if (tmpaf)` test below
+                        // was already written as if something nulled it after a move;
+                        // nothing ever did, and it read (and could re-remove) freed
+                        // storage on every mist that drifted. TASK-021 supplies the
+                        // missing null; the loop increment re-reads `next_tmpaf`,
+                        // saved at the top.
+                        tmpaf = nullptr;
                     }
                 }
             }
