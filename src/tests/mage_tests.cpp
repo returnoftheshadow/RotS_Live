@@ -881,3 +881,120 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
     remove_char_exists(caster->abs_number);
     free_char(caster);
 }
+
+// TASK-019 -- spell_earthquake's crack/fall loop (mage.cpp). The damage loop above it
+// excludes the caster (`if (tmpch != caster)`), but the fall loop does not: on the coin
+// flip the caster itself is moved into the crevice and takes fall damage INSIDE the
+// occupant loop. A lethal fall runs apply_spell_damage() -> damage() -> die() ->
+// raw_kill() -> extract_char(), which frees an NPC caster -- and the loop then keeps
+// calling new_saves_spell(caster, tmpch, ...) for every later occupant, reading the
+// freed caster's profs/tmpabilities/points fields. Same defect class and same fix shape
+// as TASK-018: every other occupant falls first, the caster falls last, as the spell's
+// final act.
+//
+// The caster's own lethal self-fall is the same self-damage shape TASK-018's fireball
+// test already exercises (apply_spell_damage(caster, caster, ...) -> damage() -> die()
+// -> raw_kill() -> extract_char()), so this test reuses that fixture wholesale
+// (make_fireball_caster, ScopedFireballMobIndex, release_fireball_corpse,
+// queue_fireball_rolls, kFireballRoom as the quake room): this depot has no
+// extract_char test seam, so the fix is proven by driving the real death pipeline
+// rather than stubbing it.
+//
+// RNG draw sequence (all pinned to the same value, see kEarthquakeSafeRoll below):
+//   1. get_mage_caster_level(): one number(0, intel_factor % 5) roll (magnitude only).
+//   2. dam_value = number(1, 30) + level (magnitude only).
+//   3. First (non-fall) damage loop: one new_saves_spell() roll for the bystander --
+//      the caster is skipped entirely by that loop's own `tmpch != caster` guard, so it
+//      draws nothing here (magnitude only; damage()'s internal draws, if any, follow).
+//   4. Fall loop, iteration 1 (caster -- head of the room's chain, so the unfixed loop
+//      reaches it first): a new_saves_spell() roll (magnitude only, since `tmpch !=
+//      caster` is always false for the caster, so `saved` never gates the branch);
+//      then a CRITICAL number(0, 1) roll -- pinned to 0 so `!number(0, 1)` is true and
+//      the caster falls; then the landing-save new_saves_spell() roll (magnitude only).
+//   5. Fall loop, iteration 2 (bystander): a new_saves_spell() roll (may itself
+//      short-circuit the OR before any number(0, 1) roll is drawn, depending on the
+//      forced-low DC margin); if drawn, another CRITICAL number(0, 1) roll -- also
+//      pinned to 0 so the bystander falls regardless; then its own landing-save
+//      new_saves_spell() roll, then apply_spell_damage() -> damage() (non-lethal;
+//      internal draws, if any, follow).
+//   6. Deferred caster fall (after the loop, fixed code only): fall(caster, ...) ->
+//      apply_spell_damage(caster, caster, ...) -> damage() -> die() -> raw_kill() ->
+//      extract_char() -> free_char() / make_physical_corpse() -- the same death
+//      pipeline TASK-018's fireball test exercises, unspecified internal draw count.
+// Every draw above uses the SAME pinned value, so the exact count needs no bookkeeping
+// beyond covering the two CRITICAL number(0, 1) rolls (steps 4 and 5): a generous
+// uniform buffer suffices, exactly as TASK-018's fireball test does.
+namespace {
+
+// 0.25 is a dyadic fraction (exactly representable in IEEE double), so value * range is
+// exact under BOTH x87 extended precision and SSE2 -- unlike a decimal fraction such as
+// 0.60, it never lands a hair below an integer boundary and truncates one low on one
+// platform but not the other (see global-constraints.md's RNG-pinning policy). At range
+// 2 (number(0, 1)) it yields exactly 0 (0.25 * 2 = 0.5, truncated -> 0), which is the
+// one outcome this test's control flow depends on: every occupant must fall. At every
+// other range used by this call (get_mage_caster_level's rounding roll, number(1, 30),
+// number(1, 20) inside new_saves_spell), it yields a fixed, low-but-nonzero result that
+// only affects damage magnitude, never which branch is taken.
+constexpr double kEarthquakeSafeRoll = 0.25;
+constexpr int kEarthquakeCrackRoom = 8;
+
+} // namespace
+
+TEST_F(MageProcTest, EarthquakeLetsEveryOtherOccupantFallBeforeTheCastersOwnFall) {
+    ScopedFireballMobIndex prototype_table;
+    RoomExitGuard quake_room_guard(kFireballRoom);
+    RoomExitGuard crack_room_guard(kEarthquakeCrackRoom);
+
+    char caster_short_descr[] = "a testing earthquake orc";
+    char_data *caster = make_fireball_caster(1, caster_short_descr); // any quake fall is lethal
+    character_list = caster;
+    caster->next = nullptr;
+
+    MageTestContext context; // supplies the bystander (context.victim)
+    context.prepare_for_spell_damage();
+    context.victim.in_room = kFireballRoom;
+
+    // A door-less way down makes crack_chance certain (mage.cpp: `dir_option[DOWN] &&
+    // !exit_info`), and an existing destination (kEarthquakeCrackRoom) takes the
+    // "existing way down" branch rather than world.create_room().
+    room_direction_data way_down{};
+    way_down.to_room = kEarthquakeCrackRoom;
+    way_down.exit_info = 0;
+    world[kFireballRoom].dir_option[DOWN] = &way_down;
+
+    // Caster is the HEAD of the room's chain: the unfixed loop reaches -- and frees --
+    // it before the bystander is ever processed.
+    world[kFireballRoom].people = caster;
+    caster->next_in_room = &context.victim;
+    context.victim.next_in_room = nullptr;
+
+    obj_data *const previous_object_list = object_list;
+
+    queue_fireball_rolls(kEarthquakeSafeRoll, 100);
+
+    testing::internal::CaptureStderr();
+    spell_earthquake(caster, nullptr, 0, nullptr, nullptr, 0, 0);
+    const std::string captured = testing::internal::GetCapturedStderr();
+    // caster is freed at this point (its own fall was lethal); nothing below may
+    // dereference it -- only compare the pointer value or read state through survivors
+    // (character_list, world[]'s room lists, the bystander).
+
+    const int victim_location_after = context.victim.in_room;
+
+    release_fireball_corpse(kEarthquakeCrackRoom, previous_object_list);
+    release_fireball_corpse(kFireballRoom, previous_object_list);
+
+    EXPECT_EQ(captured.find("world[] called for negative room number."), std::string::npos)
+        << "nothing may resolve the dead caster through a stale room number; stderr was: "
+        << captured;
+    EXPECT_EQ(victim_location_after, kEarthquakeCrackRoom)
+        << "the bystander must still fall into the crack";
+    EXPECT_EQ(world[kEarthquakeCrackRoom].people, &context.victim)
+        << "the bystander must be the survivor left linked into the crack room's occupant chain "
+           "once the caster's own deferred fall has been extracted back out of it";
+    EXPECT_EQ(world[kFireballRoom].people, nullptr)
+        << "both occupants must have left the quake room -- nothing remains there to be reached "
+           "through a freed caster pointer on a later, hypothetical occupant";
+    EXPECT_EQ(character_list, nullptr)
+        << "extract_char()'s NPC arm must have unlinked the caster from character_list";
+}

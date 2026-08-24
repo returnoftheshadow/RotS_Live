@@ -1691,27 +1691,50 @@ ASPELL(spell_earthquake)
         }
 
         /* deal out the damage */
+        // The fall itself. `landing_saved` is drawn by the loop below at the same
+        // point it always was, so the RNG sequence every occupant sees is
+        // unchanged; only WHEN the caster's own fall runs moves (TASK-019).
+        const auto fall = [&](char_data* faller, bool landing_saved) {
+            act("$n loses balance and falls down!", TRUE, faller, 0, 0, TO_ROOM);
+            send_to_char("The earthquake throws you down!\n\r", faller);
+            stop_riding(faller);
+            char_from_room(faller);
+            char_to_room(faller, crack);
+            act("$n falls in.", TRUE, faller, 0, 0, TO_ROOM);
+            faller->specials.position = POSITION_SITTING;
+
+            if (landing_saved) {
+                act("$N manages to land on his feet!", FALSE, caster, 0, faller, TO_CHAR);
+                act("You manage to land on your feet!", FALSE, caster, 0, faller, TO_VICT);
+                apply_spell_damage(caster, faller, dam_value, SPELL_EARTHQUAKE, 0);
+            } else {
+                apply_spell_damage(caster, faller, dam_value * 2, SPELL_EARTHQUAKE, 0);
+            }
+        };
+
+        // TASK-019: the caster's own fall is deferred until every other occupant
+        // has fallen. Fall damage goes through damage() -> die() -> raw_kill() ->
+        // extract_char(), which frees an NPC caster (or re-places a player), and
+        // this loop keeps using `caster` for every later occupant -- so the
+        // caster's fall must be the spell's final act (the TASK-018 fireball shape).
+        bool caster_falls = false;
+        bool caster_landing_saved = false;
         for (tmpch = cur_room->people; tmpch; tmpch = tmpch_next) {
             bool saved = new_saves_spell(caster, tmpch, tmpch->tmpabilities.dex / 4);
             tmpch_next = tmpch->next_in_room;
-            if (!saved && (tmpch != caster) || (!number(0, 1))) {
-                act("$n loses balance and falls down!", TRUE, tmpch, 0, 0, TO_ROOM);
-                send_to_char("The earthquake throws you down!\n\r", tmpch);
-                stop_riding(tmpch);
-                char_from_room(tmpch);
-                char_to_room(tmpch, crack);
-                act("$n falls in.", TRUE, tmpch, 0, 0, TO_ROOM);
-                tmpch->specials.position = POSITION_SITTING;
-
-                if (new_saves_spell(caster, tmpch, 0)) {
-                    act("$N manages to land on his feet!", FALSE, caster, 0, tmpch, TO_CHAR);
-                    act("You manage to land on your feet!", FALSE, caster, 0, tmpch, TO_VICT);
-                    apply_spell_damage(caster, tmpch, dam_value, SPELL_EARTHQUAKE, 0);
-                } else {
-                    apply_spell_damage(caster, tmpch, dam_value * 2, SPELL_EARTHQUAKE, 0);
+            if ((!saved && (tmpch != caster)) || (!number(0, 1))) {
+                const bool landing_saved = new_saves_spell(caster, tmpch, 0);
+                if (tmpch == caster) {
+                    caster_falls = true;
+                    caster_landing_saved = landing_saved;
+                    continue;
                 }
+                fall(tmpch, landing_saved);
             }
         }
+
+        if (caster_falls)
+            fall(caster, caster_landing_saved); // may free or relocate `caster`; nothing reads it after this
     }
 }
 
