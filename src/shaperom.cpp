@@ -276,6 +276,8 @@ void implement_room(struct char_data* ch)
 
     while (tmpaf) {
 
+        // Two-argument form: the builder has no caster, so this records
+        // caster_snapshot::none() for every ROOMAFF_SPELL, by construction.
         affect_to_room(real, tmpaf);
         tmpaf = tmpaf->next;
     };

@@ -29,6 +29,20 @@ void affect_total_room(struct room_data* room, int mode = AFFECT_TOTAL_UPDATE);
 void affect_modify_room(struct room_data* room, byte loc, int mod, long bitv, char add);
 void affect_to_room(struct room_data* room, struct affected_type* af);
 void affect_remove_room(struct room_data* room, struct affected_type* af);
+// TASK-021 port: records `caster` as the source of `af` when it is a
+// ROOMAFF_SPELL; the two-argument form still backfills caster_snapshot::none()
+// for a ROOMAFF_SPELL that has no record yet.
+void affect_to_room(struct room_data* room, struct affected_type* af, const caster_snapshot& caster);
+// TASK-021 port: the caster recorded for the live ROOMAFF_SPELL affect at
+// (room, spell), or null if none was ever recorded (or it has since been
+// removed by affect_remove_room()). The pointer aims into the internal store
+// and is invalidated by any subsequent affect_remove_room() call for the same
+// (room, spell) -- copy the pointed-to caster_snapshot before removing the
+// affect if it must outlive that call.
+const caster_snapshot* room_affect_caster(const room_data* room, int spell);
+// TASK-021 port: the write side of the store above. Overwrites any existing
+// record for (room, spell).
+void set_room_affect_caster(room_data* room, int spell, const caster_snapshot& caster);
 void affect_from_room(struct room_data* room, byte skill);
 
 void affect_total(struct char_data* ch, int mode = AFFECT_TOTAL_UPDATE);
