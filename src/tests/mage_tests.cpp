@@ -1,8 +1,11 @@
+#include "../db.h"
+#include "../handler.h"
 #include "../spells.h"
 #include "../utils.h"
 #include "test_random_utils.h"
 #include <algorithm>
 #include <gtest/gtest.h>
+#include <string>
 
 int get_mage_caster_level(const char_data *caster);
 int get_magic_power(const char_data *caster);
@@ -28,6 +31,9 @@ int loclife_add_rooms(loclife_coord room, loclife_coord *roomlist, int *roomnum,
 
 extern room_data world;
 extern int top_of_world;
+extern struct char_data* character_list;
+extern struct index_data* mob_index;
+extern struct obj_data* object_list;
 
 namespace {
 
@@ -665,4 +671,213 @@ TEST_F(MageProcTest, LocateLifeSkipsBlockedDuplicateAndExcludedRooms) {
     EXPECT_EQ(west_room->n, 0);
     EXPECT_EQ(west_room->e, -1);
     EXPECT_EQ(west_room->u, 0);
+}
+
+// TASK-018 -- spell_fireball's orc self-fumble arm (mage.cpp, `victim = caster;`) hands the
+// caster to apply_spell_damage() as its own victim. When that hit is lethal, fight.cpp's
+// damage() runs die() -> raw_kill() -> extract_char(), whose NPC arm unlinks AND free_char()s
+// the caster -- and the body used to continue straight into world[caster->in_room].people (the
+// splash loop) and is_friendly_taget(caster, victim) using the now-freed caster.
+//
+// This depot has no extract_char test seam (see the test adaptation policy in
+// global-constraints.md), so the fixture drives the real death pipeline instead of stubbing it:
+// the caster is heap-allocated and registered the way the game builds an NPC (register_npc_char,
+// linked into character_list and a real room), so free_char() is legal to call on it, following
+// the extract_char precedent at src/tests/interpre_account_menu_tests.cpp:3779. A one-entry
+// mob_index[] is installed because raw_kill()'s SPECIAL_DEATH probe (activate_char_special) and
+// make_physical_corpse() both dereference the caster's mob prototype slot unconditionally for any
+// IS_NPC() character.
+//
+// char_from_room() sets a departing character's ch->in_room to NOWHERE (-1) before extract_char's
+// NPC arm frees it, and nothing allocates between that free() and the old body's next read of
+// `caster->in_room` -- so under the pre-fix ordering, world[caster->in_room] reliably resolves to
+// world[-1], which room_data::operator[] reports via mudlog("world[] called for negative room
+// number.", ..., TRUE) to stderr (db.cpp:4062). That gives a deterministic, non-ASan witness for
+// the UAF, captured the same way spell_blink's own tests capture it.
+namespace {
+
+constexpr int kFireballRoom = 7;
+
+// Pinned per the controller's RNG policy (see global-constraints.md "Environment ruling"): this
+// container's x87 arithmetic truncates products that land just below an integer boundary (e.g.
+// 0.60 * 5 evaluates a hair under 3.0), so an integer roll r in [from, to] must be pinned at the
+// MIDPOINT (r - from + 0.5) / range rather than at r's own fraction, or the pinned roll can come
+// out one low under x87 while landing correctly under SSE2 (e.g. real CI hardware). Both fireball
+// tests reuse the same pinned value for every draw in the call (get_magic_power()'s internal
+// rolls, the fumble check, the save rolls, and the splash target roll): the fumble check
+// (number(0, 9)) is the only draw whose outcome the test's control flow depends on, and these are
+// exactly the range-10 midpoints for r = 0 and r = 9. Every other draw only needs to be
+// comfortably low (so the caster's one-hit-point body dies, and splash/save comparisons keep the
+// same generous margins regardless of a rounding wobble on an unrelated draw) -- per the
+// controller's guidance, this suite asserts *behavior* (who died, who was hit, ordering) rather
+// than exact damage values, so it does not depend on any of those other draws being precise.
+constexpr double kForceFumbleRoll = 0.05; // (0 - 0 + 0.5) / 10 -- number(0, 9) == 0, fumble fires
+constexpr double kForceNoFumbleRoll = 0.95; // (9 - 0 + 0.5) / 10 -- number(0, 9) == 9, no fumble
+
+void queue_fireball_rolls(double roll, int count = 60)
+{
+    for (int i = 0; i < count; ++i)
+        push_test_random_value(roll);
+}
+
+// raw_kill()'s SPECIAL_DEATH probe (activate_char_special -> IS_MOB()) and
+// make_physical_corpse() both read mob_index[character->nr] unconditionally for any IS_NPC()
+// character; this suite has no mob table, so publish a one-entry one (matching the caster's
+// nr = 0 below) for the test's scope and restore whatever was installed before.
+class ScopedFireballMobIndex {
+public:
+    ScopedFireballMobIndex()
+        : m_previous(mob_index)
+    {
+        m_entry = index_data {};
+        m_entry.virt = 1;
+        mob_index = &m_entry;
+    }
+    ~ScopedFireballMobIndex() { mob_index = m_previous; }
+    ScopedFireballMobIndex(const ScopedFireballMobIndex &) = delete;
+    ScopedFireballMobIndex &operator=(const ScopedFireballMobIndex &) = delete;
+
+private:
+    index_data *m_previous; // whatever this suite found installed (normally null)
+    index_data m_entry {}; // the single prototype slot the caster's nr = 0 names
+};
+
+// make_corpse() CREATE()s a heap corpse and pushes it onto world[].contents and object_list; take
+// both back out so a fireball test leaves no residue for later tests in this binary.
+void release_fireball_corpse(int room_number, obj_data *previous_object_list)
+{
+    obj_data *corpse = world[room_number].contents;
+    if (corpse == nullptr)
+        return;
+    obj_from_room(corpse);
+    if (object_list == corpse)
+        object_list = corpse->next;
+    RELEASE(corpse->name);
+    RELEASE(corpse->short_description);
+    RELEASE(corpse->description);
+    RELEASE(corpse);
+    object_list = previous_object_list;
+}
+
+// Builds the heap-allocated, registered orc NPC caster the death pipeline needs (see the file
+// comment above): clear_char() + register_npc_char() the way the game constructs an NPC, with
+// nr = 0 naming the ScopedFireballMobIndex slot above.
+char_data *make_fireball_caster(int hit_points, char *short_descr)
+{
+    char_data *caster = new char_data {};
+    clear_char(caster, MOB_ISNPC);
+    caster->specials2.act = MOB_ISNPC;
+    caster->nr = 0; // prototype slot 0 of the scoped one-entry mob_index above
+    caster->player.race = RACE_ORC;
+    caster->player.short_descr = short_descr; // make_physical_corpse() reads GET_NAME() for the corpse text
+    caster->player.level = 30;
+    caster->profs->prof_level[PROF_MAGE] = 30; // wide save-DC margin so the pinned rolls above are decisive either way
+    caster->tmpabilities.intel = 20;
+    caster->tmpabilities.hit = hit_points;
+    caster->abilities.hit = std::max(hit_points, 1);
+    caster->specials.position = POSITION_STANDING;
+    caster->in_room = kFireballRoom;
+    register_npc_char(caster);
+    return caster;
+}
+
+} // namespace
+
+TEST_F(MageProcTest, FireballSplashesTheRoomBeforeASelfFumbleKillsTheCaster) {
+    ScopedFireballMobIndex prototype_table;
+    RoomExitGuard room_guard(kFireballRoom);
+
+    char caster_short_descr[] = "a testing fireball orc";
+    char_data *caster = make_fireball_caster(1, caster_short_descr); // any fireball hit -- primary or splash -- is lethal
+    character_list = caster;
+    caster->next = nullptr;
+
+    MageTestContext context; // supplies the named target and the bystander
+    context.prepare_for_spell_damage();
+    context.victim.in_room = kFireballRoom;
+    context.master.in_room = kFireballRoom;
+    // MageTestContext only sets these up for caster/victim; the bystander needs them too so it
+    // is a normal, alive, undamaged occupant rather than the zero-initialized default (which
+    // reads as POSITION_DEAD -- damage() would refuse to touch a "corpse").
+    context.master.abilities.hit = 500;
+    context.master.tmpabilities.hit = 500;
+    context.master.specials.position = POSITION_STANDING;
+    context.master.specials.fighting = nullptr;
+
+    world[kFireballRoom].people = caster;
+    caster->next_in_room = &context.victim;
+    context.victim.next_in_room = &context.master;
+    context.master.next_in_room = nullptr;
+
+    const int bystander_hit_before = context.master.tmpabilities.hit;
+    obj_data *const previous_object_list = object_list;
+
+    queue_fireball_rolls(kForceFumbleRoll);
+
+    testing::internal::CaptureStderr();
+    spell_fireball(caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    const std::string captured = testing::internal::GetCapturedStderr();
+    // caster is freed at this point; nothing below may dereference it -- only compare the
+    // pointer value or read state through survivors (character_list, world[]'s room lists).
+
+    release_fireball_corpse(kFireballRoom, previous_object_list);
+
+    EXPECT_EQ(captured.find("world[] called for negative room number."), std::string::npos)
+        << "Expected the splash to resolve world[caster->in_room] while the caster was still "
+           "alive, never after extract_char() unlinked it; stderr was: "
+        << captured;
+    EXPECT_LT(context.master.tmpabilities.hit, bystander_hit_before)
+        << "the fumbled fireball must still splash the room before the caster's own hit lands";
+    EXPECT_EQ(character_list, nullptr)
+        << "extract_char()'s NPC arm must have unlinked the caster from character_list";
+    EXPECT_EQ(world[kFireballRoom].people, &context.victim)
+        << "extract_char()'s NPC arm must have unlinked the caster from the room's occupant list";
+}
+
+TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaster) {
+    ScopedFireballMobIndex prototype_table;
+    RoomExitGuard room_guard(kFireballRoom);
+
+    char caster_short_descr[] = "a testing fireball orc";
+    char_data *caster = make_fireball_caster(500, caster_short_descr); // no fumble expected: the caster must survive
+    character_list = caster;
+    caster->next = nullptr;
+
+    MageTestContext context;
+    context.prepare_for_spell_damage();
+    context.victim.in_room = kFireballRoom;
+    context.master.in_room = kFireballRoom;
+    // MageTestContext only sets these up for caster/victim; the bystander needs them too so it
+    // is a normal, alive, undamaged occupant rather than the zero-initialized default (which
+    // reads as POSITION_DEAD -- damage() would refuse to touch a "corpse").
+    context.master.abilities.hit = 500;
+    context.master.tmpabilities.hit = 500;
+    context.master.specials.position = POSITION_STANDING;
+    context.master.specials.fighting = nullptr;
+
+    world[kFireballRoom].people = caster;
+    caster->next_in_room = &context.victim;
+    context.victim.next_in_room = &context.master;
+    context.master.next_in_room = nullptr;
+
+    const int victim_hit_before = context.victim.tmpabilities.hit;
+    obj_data *const previous_object_list = object_list;
+
+    queue_fireball_rolls(kForceNoFumbleRoll);
+
+    spell_fireball(caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+
+    release_fireball_corpse(kFireballRoom, previous_object_list);
+
+    EXPECT_LT(context.victim.tmpabilities.hit, victim_hit_before)
+        << "the primary hit must still land on the named victim";
+    EXPECT_EQ(caster->in_room, kFireballRoom)
+        << "no fumble, no self-kill: the caster must still be standing where it cast from";
+    EXPECT_EQ(character_list, caster)
+        << "a caster that never fumbled must not have been extracted";
+
+    // The caster survives this test, so tear it down the way extract_char() would.
+    character_list = nullptr;
+    remove_char_exists(caster->abs_number);
+    free_char(caster);
 }

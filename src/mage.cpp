@@ -1835,16 +1835,33 @@ ASPELL(spell_fireball)
     }
 
     bool is_fire_spec = utils::get_specialization(*caster) == game_types::PS_Fire;
+    // Read before the primary hit: damage() can kill `victim`, and an NPC victim
+    // is free_char()'d by extract_char() before this function resumes.
+    const bool victim_is_friendly = is_fire_spec && is_friendly_taget(caster, victim);
 
-    int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Fire, game_types::PS_Cold);
-    bool saved = new_saves_spell(caster, victim, save_bonus);
-    if (saved) {
-        act("$N dodges off to the side, avoiding part of the blast!", FALSE, caster, 0, victim, TO_CHAR);
-        act("You dodge to the side, avoiding part of the blast!", FALSE, caster, 0, victim, TO_VICT);
-        apply_spell_damage(caster, victim, fireball_damage * 2 / 3, SPELL_FIREBALL, 0);
-    } else {
-        apply_spell_damage(caster, victim, fireball_damage, SPELL_FIREBALL, 0);
-    }
+    // The primary hit. damage() returns 1 once die() -> raw_kill() ->
+    // extract_char() has run on the victim; the caller decides what may still
+    // be read afterwards.
+    const auto deliver_primary_hit = [&]() -> int {
+        int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Fire, game_types::PS_Cold);
+        bool saved = new_saves_spell(caster, victim, save_bonus);
+        if (saved) {
+            act("$N dodges off to the side, avoiding part of the blast!", FALSE, caster, 0, victim, TO_CHAR);
+            act("You dodge to the side, avoiding part of the blast!", FALSE, caster, 0, victim, TO_VICT);
+            return apply_spell_damage(caster, victim, fireball_damage * 2 / 3, SPELL_FIREBALL, 0);
+        }
+        return apply_spell_damage(caster, victim, fireball_damage, SPELL_FIREBALL, 0);
+    };
+
+    // TASK-018: when the orc fumble above made the caster its own victim, the
+    // self-hit is delivered LAST (below the splash loop). A lethal self-hit
+    // ends in extract_char(), which free_char()s an NPC caster and re-places a
+    // player in the mortal start room; making it the spell's final act means
+    // nothing can run on a dead caster, and the room still takes the splash
+    // the fireball was invoked for. The ordinary hit keeps its place.
+    const bool self_hit = victim == caster;
+    if (!self_hit)
+        deliver_primary_hit();
 
     char_data* next_character = nullptr;
     for (char_data* potential_victim = world[caster->in_room].people; potential_victim; potential_victim = next_character) {
@@ -1853,7 +1870,7 @@ ASPELL(spell_fireball)
             continue;
 
         /* Fire specialization mages won't hit friendly targets. */
-        if (is_fire_spec && is_friendly_taget(caster, victim))
+        if (victim_is_friendly)
             continue;
 
         double random_roll = number();
@@ -1878,6 +1895,9 @@ ASPELL(spell_fireball)
             apply_spell_damage(caster, potential_victim, splash_damage, SPELL_FIREBALL2, 0);
         }
     }
+
+    if (self_hit)
+        deliver_primary_hit(); // may free or relocate `caster`; nothing reads it after this
 }
 
 /*----------------------------------------------------------------------------------------------------------*/
