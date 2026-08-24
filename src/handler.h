@@ -201,6 +201,10 @@ int check_sanctuary(char_data* ch, char_data* victim);
 char* money_message(int sum, int mode = 0);
 
 int char_exists(int num);
+// Sets only the char_control_array bit; production registration goes through
+// the two-arg overload below, which also records the pointer. Calling this
+// one-arg form alone leaves the slot char_exists()-true but
+// char_by_abs_number()-null.
 void set_char_exists(int num);
 void set_char_exists(int num, struct char_data* ch);
 void remove_char_exists(int num);

@@ -12,8 +12,8 @@ struct caster_snapshot {
     // GET_NAME() returns player.short_descr for an NPC ("a battle-scarred
     // orc chieftain") -- routinely well past MAX_NAME_LENGTH (12), the PC
     // player-name limit -- so NPC casters, the common case, need real
-    // headroom. 64 is the brief's own fallback figure (TASK-021 fix round 1,
-    // finding 1); snprintf in capture()/none() still bounds every write.
+    // headroom. 64 is deliberate headroom for NPC short_descr names;
+    // snprintf in capture()/none() still bounds every write.
     static constexpr int kNameCapacity = 64;
 
     int abs_number; // identity for kill credit only; never used to read stats

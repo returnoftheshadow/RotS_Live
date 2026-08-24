@@ -675,11 +675,11 @@ TEST_F(MageProcTest, LocateLifeSkipsBlockedDuplicateAndExcludedRooms) {
 // the caster -- and the body used to continue straight into world[caster->in_room].people (the
 // splash loop) and is_friendly_taget(caster, victim) using the now-freed caster.
 //
-// This depot has no extract_char test seam (see the test adaptation policy in
-// global-constraints.md), so the fixture drives the real death pipeline instead of stubbing it:
-// the caster is heap-allocated and registered the way the game builds an NPC (register_npc_char,
-// linked into character_list and a real room), so free_char() is legal to call on it, following
-// the extract_char precedent at src/tests/interpre_account_menu_tests.cpp:3779. A one-entry
+// This depot has no extract_char test seam, so the fixture drives the real death pipeline instead
+// of stubbing it: the caster is heap-allocated and registered the way the game builds an NPC
+// (register_npc_char, linked into character_list and a real room), so free_char() is legal to call
+// on it, following the extract_char precedent at src/tests/interpre_account_menu_tests.cpp:3779.
+// A one-entry
 // mob_index[] is installed because raw_kill()'s SPECIAL_DEATH probe (activate_char_special) and
 // make_physical_corpse() both dereference the caster's mob prototype slot unconditionally for any
 // IS_NPC() character.
@@ -689,24 +689,24 @@ TEST_F(MageProcTest, LocateLifeSkipsBlockedDuplicateAndExcludedRooms) {
 // `caster->in_room` -- so under the pre-fix ordering, world[caster->in_room] reliably resolves to
 // world[-1], which room_data::operator[] reports via mudlog("world[] called for negative room
 // number.", ..., TRUE) to stderr (db.cpp:4062). That gives a deterministic, non-ASan witness for
-// the UAF, captured the same way spell_blink's own tests capture it.
+// the UAF, captured via CaptureStderr.
 namespace {
 
 constexpr int kFireballRoom = 7;
 
-// Pinned per the controller's RNG policy (see global-constraints.md "Environment ruling"): this
-// container's x87 arithmetic truncates products that land just below an integer boundary (e.g.
-// 0.60 * 5 evaluates a hair under 3.0), so an integer roll r in [from, to] must be pinned at the
-// MIDPOINT (r - from + 0.5) / range rather than at r's own fraction, or the pinned roll can come
-// out one low under x87 while landing correctly under SSE2 (e.g. real CI hardware). Both fireball
+// Pinned at the midpoint: this container's x87 arithmetic truncates products that land just below
+// an integer boundary (e.g. 0.60 * 5 evaluates a hair under 3.0), so an integer roll r in [from,
+// to] must be pinned at the MIDPOINT (r - from + 0.5) / range rather than at r's own fraction, or
+// the pinned roll can come out one low under x87 while landing correctly under SSE2 (e.g. real CI
+// hardware) -- midpoint values truncate identically under both. Both fireball
 // tests reuse the same pinned value for every draw in the call (get_magic_power()'s internal
 // rolls, the fumble check, the save rolls, and the splash target roll): the fumble check
 // (number(0, 9)) is the only draw whose outcome the test's control flow depends on, and these are
 // exactly the range-10 midpoints for r = 0 and r = 9. Every other draw only needs to be
 // comfortably low (so the caster's one-hit-point body dies, and splash/save comparisons keep the
-// same generous margins regardless of a rounding wobble on an unrelated draw) -- per the
-// controller's guidance, this suite asserts *behavior* (who died, who was hit, ordering) rather
-// than exact damage values, so it does not depend on any of those other draws being precise.
+// same generous margins regardless of a rounding wobble on an unrelated draw) -- this suite
+// asserts *behavior* (who died, who was hit, ordering) rather than exact damage values, so it does
+// not depend on any of those other draws being precise.
 constexpr double kForceFumbleRoll = 0.05; // (0 - 0 + 0.5) / 10 -- number(0, 9) == 0, fumble fires
 constexpr double kForceNoFumbleRoll = 0.95; // (9 - 0 + 0.5) / 10 -- number(0, 9) == 9, no fumble
 
@@ -937,7 +937,7 @@ namespace {
 // 0.25 is a dyadic fraction (exactly representable in IEEE double), so value * range is
 // exact under BOTH x87 extended precision and SSE2 -- unlike a decimal fraction such as
 // 0.60, it never lands a hair below an integer boundary and truncates one low on one
-// platform but not the other (see global-constraints.md's RNG-pinning policy). At range
+// platform but not the other. At range
 // 2 (number(0, 1)) it yields exactly 0 (0.25 * 2 = 0.5, truncated -> 0), which is the
 // one outcome this test's control flow depends on: every occupant must fall. At every
 // other range used by this call (get_mage_caster_level's rounding roll, number(1, 30),
@@ -1018,7 +1018,7 @@ TEST_F(MageProcTest, EarthquakeLetsEveryOtherOccupantFallBeforeTheCastersOwnFall
 TEST_F(MageProcTest, MageCasterLevelSnapshotFormMatchesLiveFormUnderPinnedRng) {
     MageTestContext context;
     context.caster_profs.prof_level[PROF_MAGE] = 18;
-    context.caster.tmpabilities.intel = 22; // intel_factor 4, remainder 2 -> a real number(0, 2) draw
+    context.caster.tmpabilities.intel = 22; // intel_factor 4, remainder 4 -> a real number(0, 4) draw
 
     const caster_snapshot snap = caster_snapshot::capture(context.caster);
 

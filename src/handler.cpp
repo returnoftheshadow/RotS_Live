@@ -2540,6 +2540,8 @@ void set_char_exists(int num, struct char_data* ch)
 }
 void remove_char_exists(int num)
 {
+    if (num < 0 || num >= MAX_CHARACTERS)
+        return;
     char_control_array[num / 8] &= ~(1 << (num % 8));
     characters_by_abs_number[num] = nullptr;
 }

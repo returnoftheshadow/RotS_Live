@@ -6,8 +6,7 @@
 // grandmaster's blaze took a level-1 blaze, and nobody was ever credited with
 // the kill.
 //
-// This depot has no extract_char test seam and no rots::entity hook system
-// (see the test adaptation policy in global-constraints.md), so this file
+// This depot has no extract_char test seam and no rots::entity hook system, so this file
 // reuses the depot's own established idioms rather than porting the modern
 // suite's fixture-by-fixture: the heap-NPC/register_npc_char()/ScopedMobIndex
 // death-path idiom (fight_credit_tests.cpp), the gear-move oracle for "who was
@@ -116,9 +115,8 @@ constexpr int kCasterBSlot = MAX_CHARACTERS - 1002;
 // returns from + (to - from + 1) / 2 (integer truncation) at every call site.
 // 0.5 is a dyadic fraction: 0.5 * N is exactly representable for every
 // integer N, so this is safe under both x87 excess precision and SSE2 with no
-// platform-divergence risk (global-constraints.md's RNG-pinning policy is
-// about values that land a hair BELOW an integer boundary from rounding
-// error; an exact 0.5 * N never does).
+// platform-divergence risk -- x87's rounding error only lands a value a hair
+// BELOW an integer boundary; an exact 0.5 * N never does.
 constexpr double kMidRoll = 0.5;
 
 void queue_mid_rolls(int count = 60)

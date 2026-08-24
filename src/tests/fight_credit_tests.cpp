@@ -6,8 +6,7 @@
 // room-affect tick (Task 12) pass a credited_killer that can be null or
 // remote instead.
 //
-// This depot has no extract_char test seam (see the test adaptation policy in
-// global-constraints.md), so the death-path pins below drive the real death
+// This depot has no extract_char test seam, so the death-path pins below drive the real death
 // pipeline -- heap-allocated, register_npc_char()'d NPCs linked into
 // character_list and a real room, so raw_kill()/extract_char()/free_char()
 // run for real -- following the precedent at

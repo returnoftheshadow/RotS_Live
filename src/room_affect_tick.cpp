@@ -21,10 +21,11 @@
 // self-re-cast produced -- so damage()'s whole `victim != attacker` block
 // (set_fighting both ways, remember(), the 1-in-11 charmed-pet `hit()` on the
 // pet's master) never runs from a room tick. Only the CREDITED killer moved:
-// it is the resolved caster, or nobody. An earlier round of this port briefly
-// engaged a same-room caster; the final whole-branch review overturned that --
-// a room affect would otherwise put a resting caster into a fight with their
-// own group-mates and pets, and the pet-master `hit()` arm could free a
+// it is the resolved caster, or nobody. In the source depot's history
+// (RotS_Live_Modern, TASK-021 review M-1), an earlier round of this port
+// briefly engaged a same-room caster; that review overturned it -- a room
+// affect would otherwise put a resting caster into a fight with their own
+// group-mates and pets, and the pet-master `hit()` arm could free a
 // character out from under affect_update_room()'s occupant walk.
 //
 // The saved arm's two messages are both kept, but re-aimed: the victim-facing

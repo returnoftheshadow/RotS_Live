@@ -144,20 +144,20 @@ spec_pro.o : spec_pro.cpp structs.h utils.h comm.h interpre.h \
 	$(CC) -c $(CFLAGS) spec_pro.cpp
 limits.o : limits.cpp structs.h limits.h utils.h spells.h comm.h db.h handler.h          profs.h caster_snapshot.h room_affect_tick.h
 	$(CC) -c $(CFLAGS) limits.cpp
-fight.o	: fight.cpp structs.h utils.h comm.h handler.h interpre.h db.h spells.h limits.h
+fight.o	: fight.cpp structs.h utils.h comm.h handler.h interpre.h db.h spells.h limits.h kill_contributors.h pkill.h
 	$(CC) -c $(CFLAGS) fight.cpp
 weather.o : weather.cpp structs.h utils.h comm.h handler.h interpre.h db.h
 	$(CC) -c $(CFLAGS) weather.cpp
 shop.o : shop.cpp structs.h comm.h handler.h db.h interpre.h utils.h
 	$(CC) -c $(CFLAGS) shop.cpp
 mystic.o : mystic.cpp structs.h utils.h comm.h spells.h handler.h limits.h \
-	interpre.h db.h
+	interpre.h db.h caster_snapshot.h
 	$(CC) -c $(CFLAGS) mystic.cpp
 mage.o  : mage.cpp structs.h utils.h comm.h spells.h handler.h limits.h \
-        interpre.h db.h
+        interpre.h db.h caster_snapshot.h
 	${CC} -c ${CFLAGS} mage.cpp
 spell_pa.o : spell_pa.cpp structs.h utils.h comm.h db.h interpre.h \
-	spells.h handler.h
+	spells.h handler.h caster_snapshot.h
 	$(CC) -c $(CFLAGS) spell_pa.cpp
 mobact.o : mobact.cpp utils.h structs.h db.h comm.h interpre.h handler.h
 	$(CC) -c $(CFLAGS) mobact.cpp

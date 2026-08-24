@@ -12,9 +12,8 @@
 // right behind a freshly-cast blaze room's is whoever acquired their first
 // affect just before the cast -- exactly the people standing in the blaze.
 //
-// This depot has no extract_char test seam (see the test adaptation policy
-// in global-constraints.md), so the dying occupant is built the way the game
-// builds an NPC -- heap-allocated, clear_char()'d, and register_npc_char()'d
+// This depot has no extract_char test seam, so the dying occupant is built the way the game builds
+// an NPC -- heap-allocated, clear_char()'d, and register_npc_char()'d
 // into character_list and a real room -- so extract_char()/free_char() can
 // run for real, following the TASK-018 fireball-fumble precedent at
 // src/tests/mage_tests.cpp (make_fireball_caster / ScopedFireballMobIndex /
@@ -210,11 +209,11 @@ affected_type inert_affect(int duration) {
 constexpr int kBlazeRoom = 27;
 constexpr int kQuietRoom = 28;
 
-// Pinned per global-constraints.md's RNG-pinning policy: this container's
-// x87 arithmetic truncates products that land just below an integer
-// boundary, so an integer roll r in [from, to] must be pinned at the
-// MIDPOINT (r - from + 0.5) / range rather than at r's own fraction. The
-// only draw this test's control flow depends on is affect_update_room()'s
+// Pinned at the midpoint: this container's x87 arithmetic truncates products
+// that land just below an integer boundary, so an integer roll r in [from,
+// to] must be pinned at the MIDPOINT (r - from + 0.5) / range rather than at
+// r's own fraction -- midpoint values truncate identically under x87 and
+// SSE2. The only draw this test's control flow depends on is affect_update_room()'s
 // "1 in 13 chance a room spell does nothing" gate -- number(0, 12) must come
 // out 0 so the blaze tick actually fires on the occupant -- so this is the
 // range-13 midpoint for r = 0. Every other draw in the call (movechance,
