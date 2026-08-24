@@ -30,12 +30,12 @@ extern struct room_data world;
 int apply_spell_damage(char_data* caster, char_data* victim, int damage_dealt, int spell_number, int hit_location);
 bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus);
 
-int get_mage_caster_level(const char_data* caster)
+int get_mage_caster_level(const caster_snapshot& caster)
 {
-    int mage_level = utils::get_prof_level(PROF_MAGE, *caster);
+    int mage_level = caster.mage_prof_level;
 
     // Factor in intel values not divisible by 5.
-    int intel_factor = caster->tmpabilities.intel / 5;
+    int intel_factor = caster.intel / 5;
     if (number(0, intel_factor % 5) > 0) {
         ++intel_factor;
     }
@@ -43,15 +43,26 @@ int get_mage_caster_level(const char_data* caster)
     return mage_level + intel_factor;
 }
 
-int get_magic_power(const char_data* caster)
+// Each live const char_data* form below is a one-line forwarder onto the
+// caster_snapshot form above/below it (TASK-021): the snapshot owns the body,
+// so a room affect that re-casts on a later tick runs the identical formula
+// from its cast-time copy without ever touching the caster again. The
+// per-call rounding rolls are inside the snapshot forms, so they still happen
+// on every call.
+int get_mage_caster_level(const char_data* caster)
 {
-    player_spec::battle_mage_handler battle_mage_handler(caster);
+    return get_mage_caster_level(caster_snapshot::capture(*caster));
+}
+
+int get_magic_power(const caster_snapshot& caster)
+{
     int caster_level = get_mage_caster_level(caster);
-    int level_modifier = GET_MAX_RACE_PROF_LEVEL(PROF_MAGE, caster) * GET_LEVELA(caster) / 30;
-    caster_level += battle_mage_handler.get_bonus_spell_power(caster->points.spell_power);
+    int level_modifier = max_race_prof_level(PROF_MAGE, caster.race) * caster.level_a / 30;
+    caster_level += player_spec::battle_mage_handler::get_bonus_spell_power(
+        caster.specialization, caster.tactics, caster.mage_prof_level, caster.spell_power);
 
     // Factor in intel values not divisible by 5.
-    int intel_factor = caster->tmpabilities.intel / 5;
+    int intel_factor = caster.intel / 5;
     if (number(0, intel_factor % 5) > 0) {
         ++intel_factor;
     }
@@ -59,28 +70,41 @@ int get_magic_power(const char_data* caster)
     return caster_level + level_modifier + intel_factor;
 }
 
-bool should_apply_spell_penetration(const char_data* caster)
+int get_magic_power(const char_data* caster)
 {
-    bool apply_spell_pen = utils::is_pc(*caster);
-    if (apply_spell_pen == false) {
-        if (utils::is_mob_flagged(*caster, MOB_ORC_FRIEND) && utils::is_affected_by(*caster, AFF_CHARM)) {
-            apply_spell_pen = caster->master && utils::is_pc(*(caster->master));
-        }
-    }
-    return apply_spell_pen;
+    return get_magic_power(caster_snapshot::capture(*caster));
 }
 
-double get_spell_pen_value(const char_data* caster)
+bool should_apply_spell_penetration(const caster_snapshot& caster)
 {
-    int mage_level = utils::get_prof_level(PROF_MAGE, *caster);
-    if (utils::is_npc(*caster) && utils::is_affected_by(*caster, AFF_CHARM) && caster->master) {
-        mage_level += utils::get_prof_level(PROF_MAGE, *(caster->master)) / 3;
+    // capture() evaluates exactly the player/charmed-orc-friend test the live
+    // form ran, so this is a lookup rather than a re-derivation.
+    return caster.is_pc_for_spell_pen;
+}
+
+bool should_apply_spell_penetration(const char_data* caster)
+{
+    return should_apply_spell_penetration(caster_snapshot::capture(*caster));
+}
+
+double get_spell_pen_value(const caster_snapshot& caster)
+{
+    int mage_level = caster.mage_prof_level;
+    if (caster.is_npc && caster.is_charmed) {
+        // 0 when the charmed NPC has no master, which is what the live form's
+        // `&& caster->master` guard produced.
+        mage_level += caster.master_mage_prof_level / 3;
     }
 
     return mage_level / 5.0;
 }
 
-double get_victim_saving_throw(const char_data* caster, const char_data* victim)
+double get_spell_pen_value(const char_data* caster)
+{
+    return get_spell_pen_value(caster_snapshot::capture(*caster));
+}
+
+double get_victim_saving_throw(const caster_snapshot& caster, const char_data* victim)
 {
     double saving_throw = victim->specials2.saving_throw; // this value comes from gear and/or spells.
 
@@ -98,10 +122,18 @@ double get_victim_saving_throw(const char_data* caster, const char_data* victim)
     return saving_throw;
 }
 
-int apply_spell_damage(char_data* caster, char_data* victim, int damage_dealt, int spell_number, int hit_location)
+double get_victim_saving_throw(const char_data* caster, const char_data* victim)
 {
-    double saving_throw = get_victim_saving_throw(caster, victim);
+    // The live form forwards, like every other helper in this file (TASK-021).
+    // Identical arithmetic: the two reads it used to make
+    // (should_apply_spell_penetration()/get_spell_pen_value()) each captured a
+    // snapshot of their own already.
+    return get_victim_saving_throw(caster_snapshot::capture(*caster), victim);
+}
 
+// TASK-021: the ONE place apply_spell_damage()'s saving-throw scaling lives.
+static int scale_spell_damage(double saving_throw, int damage_dealt)
+{
     double damage_multiplier = 1.0;
     if (saving_throw > 0) {
         damage_multiplier = 20.0 / (20.0 + saving_throw);
@@ -109,7 +141,12 @@ int apply_spell_damage(char_data* caster, char_data* victim, int damage_dealt, i
         damage_multiplier = 2.0 - (20.0 / (20.0 - saving_throw));
     }
 
-    damage_dealt = int(damage_dealt * damage_multiplier);
+    return int(damage_dealt * damage_multiplier);
+}
+
+int apply_spell_damage(char_data* caster, char_data* victim, int damage_dealt, int spell_number, int hit_location)
+{
+    damage_dealt = scale_spell_damage(get_victim_saving_throw(caster, victim), damage_dealt);
 
     return damage(caster, victim, damage_dealt, spell_number, hit_location);
 }
@@ -1304,10 +1341,10 @@ ASPELL(spell_beacon)
 
 // Gets the save bonus provided by character specialization.
 // Higher numbers increase the targets chance of saving.
-int get_save_bonus(const char_data& caster, const char_data& victim, game_types::player_specs primary_spec, game_types::player_specs opposing_spec)
+int get_save_bonus(const caster_snapshot& caster, const char_data& victim, game_types::player_specs primary_spec, game_types::player_specs opposing_spec)
 {
     int save_bonus = 0;
-    game_types::player_specs caster_spec = utils::get_specialization(caster);
+    game_types::player_specs caster_spec = caster.specialization;
     game_types::player_specs victim_spec = utils::get_specialization(victim);
     game_types::player_specs arcane_spec = game_types::player_specs::PS_Arcane;
 
@@ -1324,6 +1361,13 @@ int get_save_bonus(const char_data& caster, const char_data& victim, game_types:
     }
 
     return save_bonus;
+}
+
+// The live form forwards; caster.specialization is captured from the same
+// utils::get_specialization() call this used to make (TASK-021).
+int get_save_bonus(const char_data& caster, const char_data& victim, game_types::player_specs primary_spec, game_types::player_specs opposing_spec)
+{
+    return get_save_bonus(caster_snapshot::capture(caster), victim, primary_spec, opposing_spec);
 }
 
 /*----------------------------------------------------------------------------------------------------------*/
@@ -1831,15 +1875,23 @@ ASPELL(spell_searing_darkness)
  * does big damage at the risk of hitting others in the room
  */
 
-bool is_friendly_taget(const char_data* caster, const char_data* victim)
+bool is_friendly_taget(const caster_snapshot& caster, const char_data* victim)
 {
-    if (victim == caster)
+    // same_character_as() is the snapshot spelling of the live form's
+    // `victim == caster` identity test: it holds only for the very character
+    // the snapshot was taken from.
+    if (caster.same_character_as(*victim))
         return true;
 
     if (victim->master)
         return is_friendly_taget(caster, victim->master);
 
     return !other_side(caster, victim);
+}
+
+bool is_friendly_taget(const char_data* caster, const char_data* victim)
+{
+    return is_friendly_taget(caster_snapshot::capture(*caster), victim);
 }
 
 ASPELL(spell_fireball)

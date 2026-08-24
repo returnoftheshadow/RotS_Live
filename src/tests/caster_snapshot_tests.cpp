@@ -10,15 +10,17 @@
 #include <gtest/gtest.h>
 
 // TASK-021 port, Task 5: caster_snapshot, the cast-time copy of the formula
-// inputs. This file only exercises what Task 5 actually ships in THIS depot
-// -- the snapshot type itself, max_race_prof_level()/the race_is_* helpers,
-// the battle_mage_handler static bonus forms, other_side(), and
-// saves_poison(). The modern depot's caster_snapshot_tests.cpp also covers
-// get_mage_caster_level()/get_magic_power()/get_saving_throw_dc()/
-// get_save_bonus()/should_apply_spell_penetration()/get_spell_pen_value()/
-// get_mystic_caster_level()/new_saves_spell()/is_friendly_taget() and the
-// room_affect_caster() registry -- those are ported by later tasks (6-12) in
-// this port, alongside their own snapshot-equivalence tests.
+// inputs. Originally this file only exercised what Task 5 shipped in THIS
+// depot -- the snapshot type itself, max_race_prof_level()/the race_is_*
+// helpers, the battle_mage_handler static bonus forms, other_side(), and
+// saves_poison(). Task 6 added the mystic.cpp/spell_pa.cpp equivalence tests
+// below (get_mystic_caster_level()/get_saving_throw_dc()/new_saves_spell());
+// the mage.cpp helpers' own equivalence tests
+// (get_mage_caster_level()/get_magic_power()/should_apply_spell_penetration()/
+// get_spell_pen_value()/get_victim_saving_throw()/get_save_bonus()/
+// is_friendly_taget()) live in mage_tests.cpp instead, alongside the rest of
+// mage.cpp's coverage. The room_affect_caster() registry is still out of
+// scope here (Tasks 7-12).
 
 namespace {
 
@@ -140,10 +142,10 @@ TEST(CasterSnapshot, NoneIsNeverResolvable)
 // The Task-1 deferred coverage gap the final whole-branch review reopened
 // (m-3) in the modern port: capture()'s charmed-orc-friend spell-penetration
 // derivation needs its own test rather than trusting a hand-set snapshot.
-// mage.cpp's should_apply_spell_penetration()/get_spell_pen_value() (Task
-// 6-12 in this port) are the CONSUMERS of is_pc_for_spell_pen and
-// master_mage_prof_level; this test only proves capture() itself derives
-// them correctly.
+// mage.cpp's should_apply_spell_penetration()/get_spell_pen_value() (Task 6
+// in this port; see mage_tests.cpp for their own equivalence coverage) are
+// the CONSUMERS of is_pc_for_spell_pen and master_mage_prof_level; this test
+// only proves capture() itself derives them correctly.
 namespace {
 
 // Builds the charmed-orc-friend NPC pet the arm exists for; each of the four
@@ -433,5 +435,62 @@ TEST(CasterSnapshot, SavesPoisonOffenceReadsTheCapturedWillpowerAndPerception)
     push_test_random_value(0.5);
     EXPECT_NE(saves_poison(&victim, spineless), 0)
         << "the poison offence term must scale with the captured willpower";
+    clear_test_random_values();
+}
+
+// ---------------------------------------------------------------------------
+// TASK-021 Task 6: get_mystic_caster_level() (mystic.cpp), get_saving_throw_dc()
+// and new_saves_spell() (spell_pa.cpp) each gain a caster_snapshot overload
+// that owns the body; the live const char_data* form is a one-line forwarder
+// onto it. Ported here rather than mage_tests.cpp -- these three formulas
+// live in mystic.cpp/spell_pa.cpp, not mage.cpp.
+// ---------------------------------------------------------------------------
+
+TEST(CasterSnapshot, MysticCasterLevelSnapshotFormMatchesLiveFormUnderPinnedRng)
+{
+    CasterSnapshotTestContext context; // PROF_CLERIC 3, wil 17 -> will_factor 3, remainder 2 (a real draw)
+    const caster_snapshot snap = caster_snapshot::capture(context.character);
+
+    push_test_random_value(0.5);
+    const int live_level = get_mystic_caster_level(&context.character);
+    push_test_random_value(0.5);
+    EXPECT_EQ(get_mystic_caster_level(snap), live_level)
+        << "Expected the snapshot form to reproduce the live form's mystic caster level under the "
+           "same pinned remainder roll.";
+    clear_test_random_values();
+}
+
+TEST(CasterSnapshot, SavingThrowDcSnapshotFormMatchesLiveForm)
+{
+    CasterSnapshotTestContext context; // PROF_MAGE 25, intel 21, spell_pen 2
+    const caster_snapshot snap = caster_snapshot::capture(context.character);
+
+    EXPECT_EQ(get_saving_throw_dc(snap), get_saving_throw_dc(&context.character))
+        << "Expected the snapshot form to reproduce the live form's saving throw DC.";
+
+    context.character.specials.tactics = TACTICS_AGGRESSIVE;
+    context.profs.specialization = static_cast<int>(game_types::PS_BattleMage);
+    const caster_snapshot battle_snap = caster_snapshot::capture(context.character);
+    EXPECT_EQ(get_saving_throw_dc(battle_snap), get_saving_throw_dc(&context.character))
+        << "Expected the battle-mage spell-pen bonus to agree between the live and snapshot forms.";
+}
+
+TEST(CasterSnapshot, NewSavesSpellSnapshotFormMatchesLiveFormUnderPinnedRng)
+{
+    CasterSnapshotTestContext context;
+    char_data victim {};
+    char_prof_data victim_profs {};
+    victim.profs = &victim_profs;
+    victim.player.race = RACE_HUMAN;
+    victim.tmpabilities.intel = 18;
+
+    const caster_snapshot snap = caster_snapshot::capture(context.character);
+
+    push_test_random_value(0.5);
+    const bool live_saved = new_saves_spell(&context.character, &victim, 3);
+    push_test_random_value(0.5);
+    EXPECT_EQ(new_saves_spell(snap, &victim, 3), live_saved)
+        << "Expected the snapshot form to reproduce the live form's save result under the same "
+           "pinned roll.";
     clear_test_random_values();
 }

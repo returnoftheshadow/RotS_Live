@@ -7,17 +7,13 @@
 #include <gtest/gtest.h>
 #include <string>
 
-int get_mage_caster_level(const char_data *caster);
-int get_magic_power(const char_data *caster);
-bool should_apply_spell_penetration(const char_data *caster);
-double get_spell_pen_value(const char_data *caster);
-double get_victim_saving_throw(const char_data *caster, const char_data *victim);
+// get_mage_caster_level/get_magic_power/should_apply_spell_penetration/
+// get_spell_pen_value/get_victim_saving_throw/get_save_bonus/
+// is_friendly_taget are declared (both the live and caster_snapshot forms,
+// TASK-021) by spells.h, included above.
 bool different_zone(int was_in, int to_room);
 int random_exit(int room);
 bool is_teleportation_room_valid(room_data *room);
-int get_save_bonus(const char_data &caster, const char_data &victim,
-                   game_types::player_specs primary_spec, game_types::player_specs opposing_spec);
-bool is_friendly_taget(const char_data *caster, const char_data *victim);
 void apply_chilled_effect(char_data *caster, char_data *victim);
 
 struct loclife_coord {
@@ -997,4 +993,164 @@ TEST_F(MageProcTest, EarthquakeLetsEveryOtherOccupantFallBeforeTheCastersOwnFall
            "through a freed caster pointer on a later, hypothetical occupant";
     EXPECT_EQ(character_list, nullptr)
         << "extract_char()'s NPC arm must have unlinked the caster from character_list";
+}
+
+// ---------------------------------------------------------------------------
+// TASK-021 Task 6: every mage formula helper gains a caster_snapshot overload
+// that owns the body; the live const char_data* form is a one-line forwarder
+// onto it. These tests pin the per-call RNG rolls (which stay inside the
+// snapshot bodies) so the live and snapshot forms can be proven equivalent
+// rather than merely both compiling.
+// ---------------------------------------------------------------------------
+
+TEST_F(MageProcTest, MageCasterLevelSnapshotFormMatchesLiveFormUnderPinnedRng) {
+    MageTestContext context;
+    context.caster_profs.prof_level[PROF_MAGE] = 18;
+    context.caster.tmpabilities.intel = 22; // intel_factor 4, remainder 2 -> a real number(0, 2) draw
+
+    const caster_snapshot snap = caster_snapshot::capture(context.caster);
+
+    push_test_random_value(0.5);
+    const int live_level = get_mage_caster_level(&context.caster);
+    push_test_random_value(0.5);
+    EXPECT_EQ(get_mage_caster_level(snap), live_level)
+        << "Expected the snapshot form to reproduce the live form's mage caster level under the "
+           "same pinned remainder roll.";
+}
+
+TEST_F(MageProcTest, MagicPowerSnapshotFormMatchesLiveFormUnderPinnedRng) {
+    MageTestContext context;
+    context.caster_profs.prof_level[PROF_MAGE] = 24;
+    context.caster_profs.specialization = static_cast<int>(game_types::PS_BattleMage);
+    context.caster.specials.tactics = TACTICS_AGGRESSIVE;
+    context.caster.points.spell_power = 60;
+    context.caster.tmpabilities.intel = 22; // two remainder draws per call (own + get_mage_caster_level's)
+
+    const caster_snapshot snap = caster_snapshot::capture(context.caster);
+
+    push_test_random_value(0.5);
+    push_test_random_value(0.5);
+    const int live_power = get_magic_power(&context.caster);
+    push_test_random_value(0.5);
+    push_test_random_value(0.5);
+    EXPECT_EQ(get_magic_power(snap), live_power)
+        << "Expected the snapshot form to reproduce the live form's magic power, including the "
+           "battle-mage bonus and the race-capped level modifier.";
+}
+
+TEST(MageHelpers, SpellPenetrationSnapshotFormMatchesLiveForm) {
+    MageTestContext context;
+
+    caster_snapshot snap = caster_snapshot::capture(context.caster);
+    EXPECT_EQ(should_apply_spell_penetration(snap), should_apply_spell_penetration(&context.caster))
+        << "Expected a player caster to agree between the live and snapshot forms.";
+
+    context.caster.specials2.act = MOB_ISNPC;
+    snap = caster_snapshot::capture(context.caster);
+    EXPECT_EQ(should_apply_spell_penetration(snap), should_apply_spell_penetration(&context.caster))
+        << "Expected an ordinary NPC caster to agree between the live and snapshot forms.";
+
+    context.caster.specials2.act = MOB_ISNPC | MOB_ORC_FRIEND;
+    context.caster.specials.affected_by = AFF_CHARM;
+    context.caster.master = &context.master;
+    snap = caster_snapshot::capture(context.caster);
+    EXPECT_EQ(should_apply_spell_penetration(snap), should_apply_spell_penetration(&context.caster))
+        << "Expected a charmed orc-friend NPC with a player master to agree between the live and "
+           "snapshot forms.";
+}
+
+TEST(MageHelpers, SpellPenValueSnapshotFormMatchesLiveFormForCharmedNpc) {
+    MageTestContext context;
+    context.caster_profs.prof_level[PROF_MAGE] = 20;
+    context.caster.specials2.act = MOB_ISNPC;
+    context.caster.specials.affected_by = AFF_CHARM;
+    context.caster.master = &context.master;
+    context.caster.player.level = 20;
+    context.master_profs.prof_level[PROF_MAGE] = 15;
+
+    const caster_snapshot snap = caster_snapshot::capture(context.caster);
+    EXPECT_DOUBLE_EQ(get_spell_pen_value(snap), get_spell_pen_value(&context.caster))
+        << "Expected the snapshot form to reproduce the live form's charmed-NPC master bonus.";
+}
+
+// Brief-mandated coverage: get_spell_pen_value()'s charmed-NPC-without-master
+// arm, which the snapshot form reaches through master_mage_prof_level == 0
+// (capture()'s guard for "no master" -- see
+// CaptureDerivesTheCharmedOrcFriendSpellPenetrationPair in
+// caster_snapshot_tests.cpp for the field itself).
+TEST(MageHelpers, SpellPenValueSnapshotFormHandlesCharmedNpcWithoutMaster) {
+    MageTestContext context;
+    context.caster.specials2.act = MOB_ISNPC;
+    context.caster.specials.affected_by = AFF_CHARM;
+    context.caster.master = nullptr;
+    context.caster.player.level = 25;
+
+    const caster_snapshot snap = caster_snapshot::capture(context.caster);
+    EXPECT_TRUE(snap.is_npc);
+    EXPECT_TRUE(snap.is_charmed);
+    EXPECT_EQ(snap.master_mage_prof_level, 0)
+        << "Expected a masterless charmed NPC to carry no master mage level.";
+    EXPECT_DOUBLE_EQ(get_spell_pen_value(snap), 5.0)
+        << "Expected the master_mage_prof_level == 0 arm to add nothing on top of the NPC's own "
+           "mage level (25 / 5).";
+    EXPECT_DOUBLE_EQ(get_spell_pen_value(snap), get_spell_pen_value(&context.caster))
+        << "Expected the snapshot form to agree with the live form on the masterless arm.";
+}
+
+TEST(MageHelpers, VictimSavingThrowSnapshotFormMatchesLiveForm) {
+    MageTestContext context;
+    context.caster_profs.prof_level[PROF_MAGE] = 20;
+    context.victim.specials2.saving_throw = 10;
+    context.victim.player.level = 25;
+
+    caster_snapshot snap = caster_snapshot::capture(context.caster);
+    EXPECT_DOUBLE_EQ(get_victim_saving_throw(snap, &context.victim),
+        get_victim_saving_throw(&context.caster, &context.victim))
+        << "Expected the snapshot form to agree with the live form for a spell-penetrating player "
+           "caster.";
+
+    context.caster.specials2.act = MOB_ISNPC;
+    snap = caster_snapshot::capture(context.caster);
+    EXPECT_DOUBLE_EQ(get_victim_saving_throw(snap, &context.victim),
+        get_victim_saving_throw(&context.caster, &context.victim))
+        << "Expected the snapshot form to agree with the live form for a non-penetrating NPC caster.";
+}
+
+TEST(MageHelpers, SaveBonusSnapshotFormMatchesLiveForm) {
+    MageTestContext context;
+    context.caster_profs.specialization = static_cast<int>(game_types::PS_Fire);
+    context.victim_profs.specialization = static_cast<int>(game_types::PS_Cold);
+
+    const caster_snapshot snap = caster_snapshot::capture(context.caster);
+    EXPECT_EQ(get_save_bonus(snap, context.victim, game_types::PS_Fire, game_types::PS_Cold),
+        get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold))
+        << "Expected the snapshot form to agree with the live form's specialization matchup.";
+}
+
+TEST(MageHelpers, FriendlyTargetSnapshotFormAgreesWithLiveFormAndSelfTestUsesSameCharacterAs) {
+    MageTestContext context;
+    char_data follower{};
+    follower.master = &context.caster;
+
+    const caster_snapshot snap = caster_snapshot::capture(context.caster);
+
+    // The self test: caster.same_character_as(*victim) must hold only for the
+    // very character the snapshot was captured from, matching the live form's
+    // `victim == caster` identity test.
+    EXPECT_TRUE(is_friendly_taget(snap, &context.caster))
+        << "Expected a caster snapshot to count as a friendly target to the character it was "
+           "captured from.";
+    EXPECT_TRUE(snap.same_character_as(context.caster));
+    EXPECT_FALSE(snap.same_character_as(context.victim))
+        << "same_character_as() must not treat an unrelated character as the captured caster.";
+
+    EXPECT_EQ(is_friendly_taget(snap, &context.caster), is_friendly_taget(&context.caster, &context.caster));
+    EXPECT_EQ(is_friendly_taget(snap, &follower), is_friendly_taget(&context.caster, &follower))
+        << "Expected the snapshot form to agree with the live form across a follower chain.";
+    EXPECT_EQ(is_friendly_taget(snap, &context.victim), is_friendly_taget(&context.caster, &context.victim))
+        << "Expected the snapshot form to agree with the live form for a same-side character.";
+
+    context.victim.player.race = RACE_ORC;
+    EXPECT_EQ(is_friendly_taget(snap, &context.victim), is_friendly_taget(&context.caster, &context.victim))
+        << "Expected the snapshot form to agree with the live form for an opposing-side character.";
 }

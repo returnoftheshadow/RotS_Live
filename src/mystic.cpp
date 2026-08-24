@@ -66,17 +66,24 @@ void list_char_to_char(struct char_data* list, struct char_data* caster,
     int mode);
 ACMD(do_look);
 
-int get_mystic_caster_level(const char_data* caster)
+int get_mystic_caster_level(const caster_snapshot& caster)
 {
-    int mystic_level = utils::get_prof_level(PROF_CLERIC, *caster);
+    int mystic_level = caster.cleric_prof_level;
 
     // Factor in will values not divisible by 5.
-    int will_factor = caster->tmpabilities.wil / 5;
+    int will_factor = caster.wil / 5;
     if (number(0, will_factor % 5) > 0) {
         ++will_factor;
     }
 
     return mystic_level + will_factor;
+}
+
+// The live form forwards; the per-call remainder roll above still happens on
+// every call, snapshot or not (TASK-021).
+int get_mystic_caster_level(const char_data* caster)
+{
+    return get_mystic_caster_level(caster_snapshot::capture(*caster));
 }
 
 /*

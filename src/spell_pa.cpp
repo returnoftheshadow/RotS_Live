@@ -39,7 +39,7 @@ int check_hallucinate(struct char_data*, struct char_data*);
 void report_wrong_target(struct char_data*, int, char);
 void affect_update_person(struct char_data*, int);
 char saves_spell(struct char_data*, sh_int, int);
-bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus);
+// new_saves_spell()'s two forms are declared by spells.h, included above.
 void one_mobile_activity(struct char_data*);
 void do_sense_magic(struct char_data*, int);
 char saves_mystic(struct char_data*);
@@ -224,20 +224,26 @@ int get_character_saving_throw(const char_data* victim)
 //   Spell_id is not currently used, but may be used in the future to make
 //   it harder to save against spells from specialized mages.
 //============================================================================
+int get_saving_throw_dc(const caster_snapshot& caster)
+{
+    int caster_dc = 10;
+    caster_dc += caster.mage_prof_level / 3;
+    caster_dc += (caster.intel - 8) / 4;
+    return caster_dc + player_spec::battle_mage_handler::get_bonus_spell_pen(
+               caster.specialization, caster.tactics, caster.mage_prof_level, caster.spell_pen);
+}
+
+// The live form forwards (TASK-021).
 int get_saving_throw_dc(const char_data* caster)
 {
-    player_spec::battle_mage_handler battle_mage_handler(caster);
-    int caster_dc = 10;
-    caster_dc += utils::get_prof_level(PROF_MAGE, *caster) / 3;
-    caster_dc += (caster->tmpabilities.intel - 8) / 4;
-    return caster_dc + battle_mage_handler.get_bonus_spell_pen(caster->points.spell_pen);
+    return get_saving_throw_dc(caster_snapshot::capture(*caster));
 }
 
 //============================================================================
 // Returns true if the victim saves against the spell, false otherwise.
 //   Save bonus is added to the victim's base save value.
 //============================================================================
-bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus)
+bool new_saves_spell(const caster_snapshot& caster, const char_data* victim, int save_bonus)
 {
     int save_value = get_character_saving_throw(victim) + save_bonus;
     int casting_dc = get_saving_throw_dc(caster);
@@ -258,6 +264,13 @@ bool new_saves_spell(const char_data* caster, const char_data* victim, int save_
         return true;
 
     return saved;
+}
+
+// The live form forwards, so a room affect that re-rolls a save on a later
+// tick uses the identical DC the original cast computed (TASK-021).
+bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus)
+{
+    return new_saves_spell(caster_snapshot::capture(*caster), victim, save_bonus);
 }
 
 void record_spell_damage(struct char_data* caster, struct char_data* victim, int at, int dam)
