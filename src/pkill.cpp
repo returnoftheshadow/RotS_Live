@@ -21,6 +21,7 @@
 
 #include "db.h"
 #include "handler.h"
+#include "kill_contributors.h"
 #include "pkill.h"
 #include "structs.h"
 #include "utils.h"
@@ -108,16 +109,19 @@ int pkill_expired(PKILL* p)
  * opponents and levels (relative to his own level), then the
  * weight will be large.
  */
-int pkill_weight(struct char_data* victim)
+int pkill_weight(struct char_data* victim, const kill_contributor_list& contributors)
 {
     int total_levels;
-    struct char_data* c;
-    extern struct char_data* combat_list;
 
+    /*
+     * TASK-026 port: the contributor list replaces this walk's own
+     * `for (c = combat_list; ...) if (c->specials.fighting == victim)` scan.
+     * The breadth is deliberately unchanged -- every contributor's level
+     * counts, NPCs included, exactly as every fighter's did.
+     */
     total_levels = 0;
-    for (c = combat_list; c != NULL; c = c->next_fighting)
-        if (c->specials.fighting == victim)
-            total_levels += GET_LEVEL(c);
+    for (int i = 0; i < contributors.count; ++i)
+        total_levels += GET_LEVEL(contributors.entries[i]);
 
     /* Get the larger of the two */
     total_levels = MAX(victim->specials.attacked_level, total_levels);
@@ -157,15 +161,13 @@ int pkill_valid_killer(struct char_data* killer, struct char_data* victim)
     return 1;
 }
 
-int pkill_opponents(struct char_data* victim)
+int pkill_opponents(struct char_data* victim, const kill_contributor_list& contributors)
 {
     int total_opponents;
-    struct char_data* c;
-    extern struct char_data* combat_list;
 
     total_opponents = 0;
-    for (c = combat_list; c != NULL; c = c->next_fighting)
-        if (c->specials.fighting == victim && pkill_valid_killer(c, victim))
+    for (int i = 0; i < contributors.count; ++i)
+        if (pkill_valid_killer(contributors.entries[i], victim))
             ++total_opponents;
 
     return total_opponents;
@@ -503,13 +505,13 @@ int pkill_update_player_tab(PKILL pkills[], int nkills)
  * and that the pkill statistics weight w and opponents n pertain
  * to this pkill.
  */
-int pkill_update_pkill_tab(struct char_data* victim, int w, int n)
+int pkill_update_pkill_tab(struct char_data* victim, int w, int n,
+    const kill_contributor_list& contributors)
 {
     int i, start;
     int points;
     time_t t;
     struct char_data* c;
-    extern struct char_data* combat_list;
 
     /* Record where the list of new PKILL records start */
     start = pkill_tab_len;
@@ -519,8 +521,9 @@ int pkill_update_pkill_tab(struct char_data* victim, int w, int n)
 
     i = 0;
     t = time(0);
-    for (c = combat_list; c != NULL; c = c->next_fighting) {
-        if (c->specials.fighting == victim && pkill_valid_killer(c, victim)) {
+    for (int entry = 0; entry < contributors.count; ++entry) {
+        c = contributors.entries[entry];
+        if (pkill_valid_killer(c, victim)) {
             vmudlog(CMP, "Creating pkill: %s killed %s.",
                 GET_NAME(c), GET_NAME(victim));
 
@@ -540,7 +543,7 @@ int pkill_update_pkill_tab(struct char_data* victim, int w, int n)
     return start;
 }
 
-void pkill_create(struct char_data* victim)
+void pkill_create(struct char_data* victim, const kill_contributor_list& contributors)
 {
     int weight;
     int opponents;
@@ -551,10 +554,10 @@ void pkill_create(struct char_data* victim)
         return;
 
     /* Get the kill statistics */
-    weight = pkill_weight(victim);
-    opponents = pkill_opponents(victim);
+    weight = pkill_weight(victim, contributors);
+    opponents = pkill_opponents(victim, contributors);
 
-    start = pkill_update_pkill_tab(victim, weight, opponents);
+    start = pkill_update_pkill_tab(victim, weight, opponents, contributors);
     pkill_update_player_tab(&pkill_tab[start], opponents);
     pkill_update_file(PKILL_FILE, &pkill_tab[start], opponents);
 }

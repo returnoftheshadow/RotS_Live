@@ -31,7 +31,9 @@
 #include "big_brother.h"
 #include "char_utils.h"
 #include "char_utils_combat.h"
+#include "kill_contributors.h"
 
+#include <algorithm>
 #include <ctime>
 
 #define IS_PHYSICAL(_at) \
@@ -913,6 +915,88 @@ void record_poison_origin(char_data* victim, char_data* poisoner)
     victim->specials.poisoned_by = poisoner;
 }
 
+namespace {
+
+// Normalizes one contributor candidate and offers it to `contributors`.
+//
+// The pet redirect runs BEFORE the exclusions rather than after them: applying
+// them to the character that actually lands in the list is what makes the two
+// guarantees hold under every route -- an immortal's pet would otherwise put
+// its immortal master in the list, and a victim's own pet would put the
+// victim in its own kill record.
+void offer_kill_contributor(kill_contributor_list& contributors,
+    const char_data* victim, char_data* candidate)
+{
+    if (candidate == nullptr) {
+        return;
+    }
+
+    // damage_credited()'s death-branch redirect, to the letter: a pet or
+    // orc-friend kills on its master's behalf only while the master is
+    // standing with it.
+    if (IS_NPC(candidate) && candidate->master != nullptr
+        && (MOB_FLAGGED(candidate, MOB_PET) || MOB_FLAGGED(candidate, MOB_ORC_FRIEND))
+        && candidate->master->in_room == candidate->in_room) {
+        candidate = candidate->master;
+    }
+
+    if (candidate == victim || GET_LEVEL(candidate) >= LEVEL_IMMORT) {
+        return;
+    }
+
+    contributors.add(candidate);
+}
+
+} // namespace
+
+bool kill_contributor_list::contains(const char_data* candidate) const
+{
+    return std::find(entries, entries + count, candidate) != entries + count;
+}
+
+bool kill_contributor_list::add(char_data* candidate)
+{
+    if (candidate == nullptr || contains(candidate)) {
+        return false;
+    }
+
+    if (count >= kCapacity) {
+        if (!overflow_logged) {
+            overflow_logged = true;
+            vmudlog(BRF, "More than %d contributors to one kill: the surplus is dropped.",
+                kCapacity);
+        }
+        return false;
+    }
+
+    entries[count] = candidate;
+    ++count;
+    return true;
+}
+
+// TASK-026 port: who took part in `victim`'s death. See kill_contributors.h
+// for what this set is for and why pkill.cpp's own combat_list walks could
+// not produce it. The three sources are unioned in a fixed order (fighters,
+// poisoner, primary) purely so the resulting records are reproducible;
+// nothing downstream reads a position.
+kill_contributor_list kill_contributors(char_data* victim, char_data* primary)
+{
+    kill_contributor_list contributors;
+    if (victim == nullptr) {
+        return contributors;
+    }
+
+    for (char_data* fighter = combat_list; fighter != nullptr; fighter = fighter->next_fighting) {
+        if (fighter->specials.fighting == victim) {
+            offer_kill_contributor(contributors, victim, fighter);
+        }
+    }
+
+    offer_kill_contributor(contributors, victim, resolve_poisoner(*victim));
+    offer_kill_contributor(contributors, victim, primary);
+    return contributors;
+}
+
 void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
 {
     waiting_type tmpwtl;
@@ -956,9 +1040,15 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
 
         // The player was killed by another player (probably).
         // Restore them.
-        // TODO(drelidan):  When we can track the origin of status effects, include that
-        // here so we can determine if the 'poisoned' kill type was actually from a player.
-        bool died_to_player = attack_type == SPELL_POISON || killer != NULL && !IS_NPC(killer);
+        // TASK-021/026 port: the origin of a poison IS tracked now -- the
+        // poisoner is recorded on the victim when the poison lands and
+        // resolved back into this `killer` argument by the tick that kills
+        // (resolve_poisoner(), limits.cpp's point_update()/
+        // affect_update_person()). So the old `attack_type == SPELL_POISON ||`
+        // term, which assumed every poison death was a player's doing, is
+        // gone: a poison death is a player kill exactly when the character
+        // credited with it is a player.
+        bool died_to_player = killer != NULL && !IS_NPC(killer);
         char_ability_data& cur_abils = dead_man->tmpabilities;
         char_ability_data& max_abils = dead_man->abilities;
         cur_abils = max_abils;
@@ -1091,23 +1181,31 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
     } else {
         gain_exp_regardless(dead_man, std::min(0, base_xp_gain / 10));
 
-        // TODO(drelidan):  I am unsure why this early out is here, but figure it out and potentially
-        // fix it... 'cause this could have all sorts of problems.
         if (attack_type == SPELL_POISON) {
             add_exploit_record(EXPLOIT_POISON, dead_man, 0, NULL);
-
-            // TODO(drelidan):  Only early-out if the dead man isn't in combat.  Otherwise continue
-            // so that proper exploits are given out.
-            if (dead_man->specials.fighting == NULL) {
-                raw_kill(dead_man, killer, attack_type);
-                return;
-            }
         }
 
-        // PK records are created regardless of death cause, but then early out if it's
-        // all NPCs killing the character.  Heh...
-        pkill_create(dead_man);
-        add_exploit_record(EXPLOIT_PK, dead_man, 0, NULL); /* pk records to killers */
+        // TASK-026 port: who took part is decided here, once, and handed to
+        // the record builder -- pkill.cpp's own combat_list walks could not
+        // see a poisoner or a remote room-affect caster.
+        //
+        // This replaces the `attack_type == SPELL_POISON && !fighting` early
+        // return that used to stand here, whose own TODO asked for exactly
+        // this: "Only early-out if the dead man isn't in combat. Otherwise
+        // continue so that proper exploits are given out." Being in combat was
+        // never the right question -- a poisoner standing two rooms away took
+        // part in this death and a walk of combat_list cannot see that, while
+        // a victim who happens to be swinging at a training dummy has nobody
+        // to credit. The question is whether ANYBODY took part, and an empty
+        // contributor set is the only case that records nothing.
+        //
+        // PK records are created regardless of death cause, but then early out
+        // if it's all NPCs killing the character.  Heh...
+        const kill_contributor_list contributors = kill_contributors(dead_man, killer);
+        if (contributors.count > 0) {
+            pkill_create(dead_man, contributors);
+            add_exploit_record(EXPLOIT_PK, dead_man, 0, NULL); /* pk records to killers */
+        }
 
         /* add death records to dead player */
         /* Fingolfin: Jul 19: since we record mobdeaths earlier */
