@@ -29,6 +29,7 @@
 #include "char_utils.h"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 extern char* pc_race_types[];
 
@@ -1523,32 +1524,87 @@ extern universal_list* affected_list;
 
 extern universal_list* affected_list_pool;
 
+// TASK-020: the walk below used to hold `tmplist->next` across the body, and
+// the body can free that very node -- affect_update_room()'s blaze tick kills
+// an occupant, raw_kill() strips the dead character's affects, and
+// affect_remove()'s tail from_list_to_pool()s (free()s) the character's own
+// affected_list node. So the list is SNAPSHOTTED first (identities only, no
+// body runs during that walk) and every entry is re-validated at its turn:
+// a character is updated only while the abs_number it was captured under
+// still resolves back to that very pointer and it still carries an affect;
+// a room is always safe to visit (world[] rooms are never freed, and a room
+// whose last affect expired earlier in the tick simply has no affects left
+// to update). The housekeeping branch re-finds the live node instead of
+// reusing a pointer captured before the bodies ran.
+//
+// char_exists() alone is not enough to validate a snapshotted entry:
+// register_npc_char() hands a freed slot straight to the next character its
+// cursor reaches, and a death earlier in the SAME affect_update() can load a
+// new mobile into that very slot before this entry is revisited. So the
+// number is resolved back to a live pointer via char_by_abs_number() and
+// that pointer must be the SAME one the entry named -- the identity compare
+// used everywhere else a stale character reference must be recovered
+// safely -- before anything is dereferenced.
+namespace {
+
+// One affected_list entry's identity, captured before any body runs.
+struct affected_list_entry {
+    int type; // TARGET_CHAR / TARGET_ROOM, as the node carried it
+    int number; // the character's abs_number (unused for rooms)
+    // The node's character pointer. Only ever COMPARED against the live
+    // char_by_abs_number(number) lookup -- never dereferenced on its own, so
+    // a character freed since the snapshot cannot be read through it.
+    char_data* ch;
+    room_data* room; // the node's room pointer
+};
+
+// Removes the live affected_list node that still names this character, if
+// any -- the node may already have been freed by a death earlier in the tick.
+void drop_stale_character_entry(const affected_list_entry& entry)
+{
+    for (universal_list* node = affected_list; node; node = node->next) {
+        if (node->type == TARGET_CHAR && node->ptr.ch == entry.ch && node->number == entry.number) {
+            from_list_to_pool(&affected_list, &affected_list_pool, node);
+            return;
+        }
+    }
+}
+
+} // namespace
+
 void affect_update()
 {
-    universal_list *tmplist, *tmplist2, *tmplist3;
-    ;
+    // Reused across ticks so the per-tick snapshot allocates only on growth.
+    static std::vector<affected_list_entry> snapshot;
+    snapshot.clear();
+    for (universal_list* node = affected_list; node; node = node->next) {
+        affected_list_entry entry {};
+        entry.type = node->type;
+        entry.number = node->number;
+        if (node->type == TARGET_CHAR)
+            entry.ch = node->ptr.ch;
+        else if (node->type == TARGET_ROOM)
+            entry.room = node->ptr.room;
+        snapshot.push_back(entry);
+    }
+
     char mybuf[1000];
-
-    tmplist3 = 0;
-    for (tmplist = affected_list; tmplist; tmplist = tmplist2) {
-        tmplist2 = tmplist->next;
-
-        if (tmplist->type == TARGET_CHAR) {
-
-            if (char_exists(tmplist->number) && tmplist->ptr.ch && tmplist->ptr.ch->affected) {
-                affect_update_person(tmplist->ptr.ch, 0);
+    for (const affected_list_entry& entry : snapshot) {
+        if (entry.type == TARGET_CHAR) {
+            char_data* const live = char_by_abs_number(entry.number);
+            if (live != nullptr && live == entry.ch && live->affected) {
+                affect_update_person(live, 0);
             } else {
-                if (char_exists(tmplist->number))
-                    sprintf(mybuf, "Getting %s off the affected_list.", GET_NAME(tmplist->ptr.ch));
+                if (live != nullptr && live == entry.ch)
+                    sprintf(mybuf, "Getting %s off the affected_list.", GET_NAME(live));
                 else
                     strcpy(mybuf, "Getting Unknown char off the affected_list.");
                 mudlog(mybuf, CMP, LEVEL_GRGOD, TRUE);
-                from_list_to_pool(&affected_list, &affected_list_pool, tmplist);
+                drop_stale_character_entry(entry);
             }
-        } else if (tmplist->type == TARGET_ROOM) {
-            affect_update_room(tmplist->ptr.room);
+        } else if (entry.type == TARGET_ROOM) {
+            affect_update_room(entry.room);
         }
-        tmplist3 = tmplist; /* prev item */
     }
 }
 

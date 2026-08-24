@@ -115,6 +115,7 @@ set(ROTS_TEST_SOURCES
     tests/account_management_storage_header_compile.cpp
     tests/account_management_types_header_compile.cpp
     tests/act_wiz_tests.cpp
+    tests/affect_update_tests.cpp
     tests/CharPlayerDataBuilder.cpp
     tests/char_utils_tests.cpp
     tests/character_json_tests.cpp
