@@ -131,6 +131,32 @@ void queue_mid_rolls(int count = 60)
 // Fixtures
 // ---------------------------------------------------------------------------
 
+// The real world[] array indices RoomFixture uses, independent of the
+// disambiguating "room number" (960-990) baked into room->number for the
+// (room, spell) caster-store map key. world[]'s backing storage can only
+// ever be sized ONCE for the whole process -- room_data::create_bulk()
+// hard-exits (`exit(0)`) if BASE_WORLD is already set (db.cpp:4025-4032) --
+// and whichever suite in this shared, monolithic test binary happens to
+// call ensure_test_world()/create_bulk() first controls how many rooms
+// every other suite gets for the rest of the run. The smallest known
+// allocator in this binary is mage_tests.cpp's `ensure_test_world(32)`
+// (34 rooms). Indexing world[] directly by this file's logical room
+// numbers (960+) reads past that allocation whenever some other suite wins
+// the race to create the world first -- room_data::operator[] catches it
+// ("room_data called for a room outside the world") and serves a fallback
+// room instead of the real fixture, silently breaking the test. Stay in a
+// small, low index range instead, safely inside even the smallest known
+// allocation, mirroring room_affect_caster_tests.cpp's own
+// `world[0].number = room_number` precedent (which this file should have
+// followed originally) rather than reusing the logical room number as the
+// array index.
+constexpr int kRoomSlotCount = 8; // more than the max (2) RoomFixtures ever alive at once in one test
+int next_room_slot()
+{
+    static int counter = 0;
+    return counter++ % kRoomSlotCount;
+}
+
 // Saves/restores everything a test in this file might touch on one room:
 // occupants, corpse contents, exits, flags, and the room's own affect list
 // (which also empties the (room, spell) caster store for every affect this
@@ -140,10 +166,10 @@ void queue_mid_rolls(int count = 60)
 class RoomFixture {
 public:
     explicit RoomFixture(int room_number)
-        : m_room_number(room_number)
+        : m_slot(next_room_slot())
     {
-        ensure_test_world(room_number);
-        room_data& room = world[room_number];
+        ensure_test_world(kRoomSlotCount);
+        room_data& room = world[m_slot];
         m_original_people = room.people;
         m_original_contents = room.contents;
         m_original_number = room.number;
@@ -171,7 +197,7 @@ public:
     }
     ~RoomFixture()
     {
-        room_data& room = world[m_room_number];
+        room_data& room = world[m_slot];
         while (room.affected)
             affect_remove_room(&room, room.affected);
         room.people = m_original_people;
@@ -185,10 +211,15 @@ public:
     RoomFixture(const RoomFixture&) = delete;
     RoomFixture& operator=(const RoomFixture&) = delete;
 
-    room_data* room() const { return &world[m_room_number]; }
+    // The real world[] array index this fixture occupies -- what a
+    // room_direction_data::to_room pointing AT this room must hold (mist_tick()
+    // dereferences to_room as a raw world[] index, never room->number).
+    int slot() const { return m_slot; }
+
+    room_data* room() const { return &world[m_slot]; }
 
 private:
-    int m_room_number;
+    int m_slot;
     char_data* m_original_people;
     obj_data* m_original_contents;
     int m_original_number;
@@ -462,7 +493,7 @@ TEST(RoomAffectTick, BlazeTickCreditsTheRecordedCasterWithoutEngagingIt)
     RoomFixture caster_room(kAwayRoom);
 
     char occupant_short_descr[] = "a testing blaze victim";
-    char_data* occupant = make_heap_occupant(kBlazeRoomA, occupant_short_descr, 1); // any blaze tick is lethal
+    char_data* occupant = make_heap_occupant(occupant_room.slot(), occupant_short_descr, 1); // any blaze tick is lethal
     character_list = occupant;
     occupant->next = nullptr;
     occupant_room.room()->people = occupant;
@@ -550,9 +581,14 @@ TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRe
         << "a builder-placed affect with no recorded caster must credit nobody as the poisoner";
     affected_type* poison = affected_by_spell(&occupant, SPELL_POISON);
     ASSERT_NE(poison, nullptr);
-    // duration = get_mystic_caster_level(capture(occupant)) + 1 = (0 + 0/5) + 1 = 1, i.e. the
-    // OCCUPANT's own (weak) stats stand in, matching the pre-TASK-021 self-re-cast shape.
-    EXPECT_EQ(poison->duration, 1);
+    // duration = get_mystic_caster_level(capture(occupant)) + 1. get_prof_level() (char_utils.cpp)
+    // returns player.level -- not profs->prof_level[prof] -- for any IS_NPC() character (its
+    // "no real profession track" branch), and make_weak_occupant() flags the occupant NPC with
+    // player.level = 1, so the snapshot's cleric_prof_level is 1 (not the raw, unset
+    // profs->prof_level[PROF_CLERIC] == 0 a non-NPC caster would read here). will_factor is 0
+    // (wil = 0), so get_mystic_caster_level() = 1 + 0 = 1, and duration = 1 + 1 = 2 -- still the
+    // OCCUPANT's own (weak) stats standing in, matching the pre-TASK-021 self-re-cast shape.
+    EXPECT_EQ(poison->duration, 2);
 
     while (occupant.affected)
         affect_remove(&occupant, occupant.affected);
@@ -711,7 +747,7 @@ TEST(RoomAffectTick, MistTickRenewsFromTheSnapshotLevelAndNeverShortensAStronger
     RoomFixture main_room(kMistMainRoom);
     RoomFixture stronger_adjacent(kMistStrongerAdjacentRoom);
     room_direction_data east_exit {};
-    east_exit.to_room = kMistStrongerAdjacentRoom;
+    east_exit.to_room = stronger_adjacent.slot();
     main_room.room()->dir_option[EAST] = &east_exit;
 
     // level = get_mage_caster_level(who) = 25 + 25/5 = 30 -> level/5 = 6, level/6 = 5.
@@ -752,7 +788,7 @@ TEST(RoomAffectTick, MistTickSeedsAnEmptyAdjacentRoomCarryingTheCaster)
     RoomFixture main_room(kMistMainRoom);
     RoomFixture adjacent(kMistAdjacentRoom);
     room_direction_data north_exit {};
-    north_exit.to_room = kMistAdjacentRoom;
+    north_exit.to_room = adjacent.slot();
     main_room.room()->dir_option[NORTH] = &north_exit;
 
     // level = 25 + 25/5 = 30 -> the fresh adjacent seed carries level/6 = 5.
@@ -904,7 +940,7 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
     RoomFixture dest_room(kMistMoveDestRoom);
     ScopedSpellPointer mist_pointer(SPELL_MIST_OF_BAAZUNGA, recording_fallback_spell);
     room_direction_data north_exit {};
-    north_exit.to_room = kMistMoveDestRoom;
+    north_exit.to_room = dest_room.slot();
     source_room.room()->dir_option[NORTH] = &north_exit;
     for (int direction = 0; direction < NUM_OF_DIRS; ++direction)
         if (direction != NORTH)
@@ -976,7 +1012,7 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
 TEST(RoomAffectCasting, BlazeCastRecordsTheCasterSnapshot)
 {
     RoomFixture room(kBlazeCastRoom);
-    CasterFixture caster(25, 0, game_types::PS_None, kBlazeCastRoom);
+    CasterFixture caster(25, 0, game_types::PS_None, room.slot());
 
     clear_test_random_values();
     spell_blaze(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
@@ -994,8 +1030,8 @@ TEST(RoomAffectCasting, BlazeCastRecordsTheCasterSnapshot)
 TEST(RoomAffectCasting, BlazeWeakerRecastLeavesThePreviousRecord)
 {
     RoomFixture room(kBlazeWeakerRecastRoom);
-    CasterFixture strong_caster(30, 0, game_types::PS_None, kBlazeWeakerRecastRoom); // level 35
-    CasterFixture weak_caster(1, 0, game_types::PS_None, kBlazeWeakerRecastRoom); // level 6
+    CasterFixture strong_caster(30, 0, game_types::PS_None, room.slot()); // level 35
+    CasterFixture weak_caster(1, 0, game_types::PS_None, room.slot()); // level 6
 
     spell_blaze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
     spell_blaze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
@@ -1011,8 +1047,8 @@ TEST(RoomAffectCasting, BlazeWeakerRecastLeavesThePreviousRecord)
 TEST(RoomAffectCasting, BlazeStrongerRecastReplacesTheRecord)
 {
     RoomFixture room(kBlazeStrongerRecastRoom);
-    CasterFixture weak_caster(1, 0, game_types::PS_None, kBlazeStrongerRecastRoom); // level 6
-    CasterFixture strong_caster(30, 0, game_types::PS_None, kBlazeStrongerRecastRoom); // level 35
+    CasterFixture weak_caster(1, 0, game_types::PS_None, room.slot()); // level 6
+    CasterFixture strong_caster(30, 0, game_types::PS_None, room.slot()); // level 35
 
     spell_blaze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
     spell_blaze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
@@ -1027,7 +1063,7 @@ TEST(RoomAffectCasting, BlazeStrongerRecastReplacesTheRecord)
 TEST(RoomAffectCasting, HazeCastRecordsTheCasterSnapshot)
 {
     RoomFixture room(kHazeCastRoom);
-    CasterFixture caster(0, 10, game_types::PS_None, kHazeCastRoom);
+    CasterFixture caster(0, 10, game_types::PS_None, room.slot());
 
     spell_haze(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
@@ -1042,8 +1078,8 @@ TEST(RoomAffectCasting, HazeCastRecordsTheCasterSnapshot)
 TEST(RoomAffectCasting, HazeWeakerRecastLeavesThePreviousRecord)
 {
     RoomFixture room(kHazeWeakerRecastRoom);
-    CasterFixture strong_caster(0, 30, game_types::PS_None, kHazeWeakerRecastRoom); // level 35
-    CasterFixture weak_caster(0, 1, game_types::PS_None, kHazeWeakerRecastRoom); // level 6
+    CasterFixture strong_caster(0, 30, game_types::PS_None, room.slot()); // level 35
+    CasterFixture weak_caster(0, 1, game_types::PS_None, room.slot()); // level 6
 
     spell_haze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
     spell_haze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
@@ -1059,8 +1095,8 @@ TEST(RoomAffectCasting, HazeWeakerRecastLeavesThePreviousRecord)
 TEST(RoomAffectCasting, HazeStrongerRecastReplacesTheRecord)
 {
     RoomFixture room(kHazeStrongerRecastRoom);
-    CasterFixture weak_caster(0, 1, game_types::PS_None, kHazeStrongerRecastRoom); // level 6
-    CasterFixture strong_caster(0, 30, game_types::PS_None, kHazeStrongerRecastRoom); // level 35
+    CasterFixture weak_caster(0, 1, game_types::PS_None, room.slot()); // level 6
+    CasterFixture strong_caster(0, 30, game_types::PS_None, room.slot()); // level 35
 
     spell_haze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
     spell_haze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
@@ -1075,7 +1111,7 @@ TEST(RoomAffectCasting, HazeStrongerRecastReplacesTheRecord)
 TEST(RoomAffectCasting, PoisonRoomArmCastRecordsTheCasterSnapshot)
 {
     RoomFixture room(kPoisonCastRoom);
-    CasterFixture caster(0, 10, game_types::PS_None, kPoisonCastRoom);
+    CasterFixture caster(0, 10, game_types::PS_None, room.slot());
 
     spell_poison(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
@@ -1090,8 +1126,8 @@ TEST(RoomAffectCasting, PoisonRoomArmCastRecordsTheCasterSnapshot)
 TEST(RoomAffectCasting, PoisonRoomArmWeakerRecastLeavesThePreviousRecord)
 {
     RoomFixture room(kPoisonWeakerRecastRoom);
-    CasterFixture strong_caster(0, 30, game_types::PS_None, kPoisonWeakerRecastRoom); // level 35
-    CasterFixture weak_caster(0, 1, game_types::PS_None, kPoisonWeakerRecastRoom); // level 6
+    CasterFixture strong_caster(0, 30, game_types::PS_None, room.slot()); // level 35
+    CasterFixture weak_caster(0, 1, game_types::PS_None, room.slot()); // level 6
 
     spell_poison(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
     spell_poison(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
@@ -1107,8 +1143,8 @@ TEST(RoomAffectCasting, PoisonRoomArmWeakerRecastLeavesThePreviousRecord)
 TEST(RoomAffectCasting, PoisonRoomArmStrongerRecastReplacesTheRecord)
 {
     RoomFixture room(kPoisonStrongerRecastRoom);
-    CasterFixture weak_caster(0, 1, game_types::PS_None, kPoisonStrongerRecastRoom); // level 6
-    CasterFixture strong_caster(0, 30, game_types::PS_None, kPoisonStrongerRecastRoom); // level 35
+    CasterFixture weak_caster(0, 1, game_types::PS_None, room.slot()); // level 6
+    CasterFixture strong_caster(0, 30, game_types::PS_None, room.slot()); // level 35
 
     spell_poison(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
     spell_poison(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
@@ -1125,10 +1161,10 @@ TEST(RoomAffectCasting, MistCastSeedsAFreshAdjacentRoomCarryingTheCaster)
     RoomFixture main_room(kMistCastMainRoom);
     RoomFixture adjacent(kMistCastAdjacentRoom);
     room_direction_data north_exit {};
-    north_exit.to_room = kMistCastAdjacentRoom;
+    north_exit.to_room = adjacent.slot();
     main_room.room()->dir_option[NORTH] = &north_exit;
 
-    CasterFixture caster(25, 0, game_types::PS_None, kMistCastMainRoom); // level 30
+    CasterFixture caster(25, 0, game_types::PS_None, main_room.slot()); // level 30
 
     spell_mist_of_baazunga(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
@@ -1147,11 +1183,11 @@ TEST(RoomAffectCasting, MistCastLongerDurationRenewalReplacesTheRecordInMainAndA
     RoomFixture main_room(kMistRenewMainRoom);
     RoomFixture adjacent(kMistRenewAdjacentRoom);
     room_direction_data east_exit {};
-    east_exit.to_room = kMistRenewAdjacentRoom;
+    east_exit.to_room = adjacent.slot();
     main_room.room()->dir_option[EAST] = &east_exit;
 
-    CasterFixture weak_caster(1, 0, game_types::PS_None, kMistRenewMainRoom); // level 6: main dur 1, adj dur 1
-    CasterFixture strong_caster(25, 0, game_types::PS_None, kMistRenewMainRoom); // level 30: main dur 6, adj dur 5
+    CasterFixture weak_caster(1, 0, game_types::PS_None, main_room.slot()); // level 6: main dur 1, adj dur 1
+    CasterFixture strong_caster(25, 0, game_types::PS_None, main_room.slot()); // level 30: main dur 6, adj dur 5
 
     // Seed both rooms weakly first, recording weak_caster in each.
     spell_mist_of_baazunga(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
