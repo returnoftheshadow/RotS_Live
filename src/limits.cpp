@@ -1362,9 +1362,11 @@ void affect_update_person(struct char_data* i, int mode)
                     // resolve_poisoner() answers nullptr, i.e. nobody, once
                     // that character is gone. Same shape as point_update()'s
                     // gear-poison arm above.
-                    char_data* const poisoner = resolve_poisoner(*i);
-                    if (damage_credited(i, i, poisoner, 5, SPELL_POISON, 0)) {
-                        return;
+                    {
+                        char_data* const poisoner = resolve_poisoner(*i);
+                        if (damage_credited(i, i, poisoner, 5, SPELL_POISON, 0)) {
+                            return;
+                        }
                     }
                     break;
                 case SPELL_CURING:
