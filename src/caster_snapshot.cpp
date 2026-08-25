@@ -30,8 +30,10 @@ caster_snapshot caster_snapshot::capture(const char_data& caster)
     snap.is_charmed = utils::is_affected_by(caster, AFF_CHARM);
     snap.is_pc_for_spell_pen = !snap.is_npc
         || (utils::is_mob_flagged(caster, MOB_ORC_FRIEND) && snap.is_charmed && caster.master && utils::is_pc(*caster.master));
-    snap.master_mage_prof_level = (snap.is_npc && snap.is_charmed && caster.master)
-        ? utils::get_prof_level(PROF_MAGE, *caster.master) : 0;
+    snap.master_mage_prof_level = 0;
+    if (snap.is_npc && snap.is_charmed && caster.master) {
+        snap.master_mage_prof_level = utils::get_prof_level(PROF_MAGE, *caster.master);
+    }
     const char* name = GET_NAME(ch);
     const char* display_name = "someone";
     if (name != nullptr) {

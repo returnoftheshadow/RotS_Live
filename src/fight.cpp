@@ -894,7 +894,10 @@ char_data* resolve_poisoner(const char_data& victim)
         return nullptr;
     }
     char_data* live = char_by_abs_number(number);
-    return (live != nullptr && live == ptr) ? live : nullptr;
+    if (live != nullptr && live == ptr) {
+        return live;
+    }
+    return nullptr;
 }
 
 // TASK-021 port: the write side of that record, and the only writer that SETS
@@ -912,7 +915,11 @@ char_data* resolve_poisoner(const char_data& victim)
 // token to compare against later.
 void record_poison_origin(char_data* victim, char_data* poisoner)
 {
-    victim->specials.poisoned_by_abs_number = poisoner ? poisoner->abs_number : -1;
+    int poisoner_abs_number = -1;
+    if (poisoner != nullptr) {
+        poisoner_abs_number = poisoner->abs_number;
+    }
+    victim->specials.poisoned_by_abs_number = poisoner_abs_number;
     victim->specials.poisoned_by = poisoner;
 }
 
@@ -2116,7 +2123,11 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
     // fix reassigns the ENGAGING attacker, and the credit has always followed
     // that substitution (the old body reached die() with the same reassigned
     // pointer). Reproduce it here rather than crediting nobody.
-    return damage_credited(attacker, victim, attacker ? attacker : victim, dam, attacktype, hit_location);
+    char_data* credited_killer = victim;
+    if (attacker != nullptr) {
+        credited_killer = attacker;
+    }
+    return damage_credited(attacker, victim, credited_killer, dam, attacktype, hit_location);
 }
 
 bool does_victim_save_on_weapon_poison(struct char_data* victim, struct obj_data* weapon)

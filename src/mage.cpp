@@ -2517,8 +2517,9 @@ ASPELL(spell_mist_of_baazunga)
                     mod = oldaf->modifier;
                 } else if (IS_SET(next->room_flags, SHADOWY)) {
                     mod = 1;
-                } else
+                } else {
                     mod = 0;
+                }
 
                 af2.type = ROOMAFF_SPELL;
                 af2.duration = level / 6;
