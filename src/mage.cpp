@@ -864,7 +864,14 @@ ASPELL(spell_summon)
     ch_y = zone_table[world[caster->in_room].zone].y;
     v_x = zone_table[world[victim->in_room].zone].x;
     v_y = zone_table[world[victim->in_room].zone].y;
-    dist = ((ch_x - v_x) ^ 2) + ((ch_y - v_y) ^ 2);
+
+    // dist is the squared Euclidean distance between the caster's and
+    // victim's zone map coordinates, feeding the save bonus below (farther
+    // zones make the victim's save easier). Previously used `^` (bitwise
+    // XOR) here instead of squaring, which was a typo.
+    const int delta_x = ch_x - v_x;
+    const int delta_y = ch_y - v_y;
+    dist = (delta_x * delta_x) + (delta_y * delta_y);
 
     int save_bonus = dist;
     /* Make high level mobs harder to summon */

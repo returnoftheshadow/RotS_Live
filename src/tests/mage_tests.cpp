@@ -1254,13 +1254,14 @@ TEST_F(MageProcTest, SummonMovesAWillingPlayerVictimToTheCastersRoom) {
 
     // new_saves_spell(): casting_dc = 10 + 0 (zero mage-prof level) +
     // (20-8)/4 = 13. get_character_saving_throw(victim) = 0 (zero mage-prof
-    // level) + (20-8)/4 = 3. spell_summon's `dist = ((ch_x-v_x)^2) +
-    // ((ch_y-v_y)^2)` is bitwise XOR, not exponentiation: same-zone x/y (both
-    // 0 on the zero-initialized zone_data stub) makes each term 0^2 == 2, so
-    // dist == 4 and save_value = 3 + 4 = 7. The single draw below (the save
-    // roll, number(1,20)) is a queued midpoint of the roll==1 bucket, so
-    // roll == 1 and 1+7=8, which is not > 13 -- new_saves_spell() returns
-    // false (the victim fails to save) and the success arm runs.
+    // level) + (20-8)/4 = 3. spell_summon's dist is the squared distance
+    // between the caster's and victim's zone map coordinates: both rooms are
+    // zone 0 on the zero-initialized zone_data stub, so ch_x/ch_y/v_x/v_y are
+    // all 0 and dist == 0, giving save_value = 3 + 0 = 3. The single draw
+    // below (the save roll, number(1,20)) is a queued midpoint of the
+    // roll==1 bucket, so roll == 1 and 1+3=4, which is not > 13 --
+    // new_saves_spell() returns false (the victim fails to save) and the
+    // success arm runs.
     push_test_random_value(0.025); // (1 - 1 + 0.5) / 20 -- midpoint of the roll==1 bucket
 
     spell_summon(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
@@ -1274,6 +1275,76 @@ TEST_F(MageProcTest, SummonMovesAWillingPlayerVictimToTheCastersRoom) {
     // Fixture hygiene: undo spell_summon's own char_from_room()/char_to_room()
     // move before the guards above unwind, so no stack character survives in
     // world[]'s occupant chains after the test ends.
+    char_from_room(&context.victim);
+    char_from_room(&context.caster);
+}
+
+// spell_summon()'s save bonus is the squared distance between the caster's
+// and victim's zone map coordinates (dist = delta_x^2 + delta_y^2), not the
+// bitwise XOR of the coordinate deltas. This test puts the two zones 4
+// x-units apart and pins a save_value that only the squared arithmetic
+// produces: under the fix the victim saves and the summon fails; under the
+// pre-fix XOR arithmetic the same setup would have let the summon succeed
+// (see the derivation below), so this test is red against the bug and green
+// against the fix.
+TEST_F(MageProcTest, SummonSaveBonusUsesSquaredZoneDistance) {
+    MageTestContext context;
+    char summon_victim_name[16] = "test_target";
+    context.victim.player.name = summon_victim_name;
+
+    // spell_summon() reads zone_table[room->zone].x/y for its save-bonus
+    // distance term (see ZoneTableGuard's comment above). Put the caster's
+    // zone (0) at (0, 0) and the victim's zone (1) at (4, 0), 4 x-units away
+    // -- y stays 0 for both so the y term of dist is 0.
+    ZoneTableGuard zone_table_guard;
+    zone_table_guard.stub[0].x = 0;
+    zone_table_guard.stub[0].y = 0;
+    zone_table_guard.stub[1].x = 4;
+    zone_table_guard.stub[1].y = 0;
+
+    ZoneGuard zone_guard(7, 8);
+    world[7].zone = 0;
+    world[8].zone = 1;
+
+    // Place both characters with real occupant chains -- different_zone()
+    // is true here (zone 0 vs zone 1), so spell_summon() also exercises
+    // prohibit_item_stay_zone_move() before the save roll; neither character
+    // carries or wears anything, so that call is a no-op.
+    RoomExitGuard caster_room_guard(7);
+    RoomExitGuard victim_room_guard(8);
+    world[7].room_flags = 0; // clear any NO_TELEPORT leftover from an earlier suite in this room
+    world[7].people = nullptr;
+    world[8].people = nullptr;
+    char_to_room(&context.caster, 7);
+    char_to_room(&context.victim, 8);
+
+    descriptor_data caster_descriptor = make_descriptor();
+    context.caster.desc = &caster_descriptor;
+
+    // new_saves_spell(): casting_dc = 13 and get_character_saving_throw(victim)
+    // = 3, same as the same-zone test above (identical caster/victim mage
+    // levels and intel). dist = (4-0)^2 + (0-0)^2 = 16, so save_value = 3 +
+    // 16 = 19. The single draw below (the save roll, number(1,20)) is a
+    // queued midpoint of the roll==1 bucket, so roll == 1 and 1+19=20, which
+    // IS > 13 -- new_saves_spell() returns true (the victim saves) and the
+    // summon fails.
+    //
+    // Under the pre-fix bitwise-XOR arithmetic, the same coordinates would
+    // have produced dist = (4^2) + (0^2) = 6 + 2 = 8 (XOR, not squaring), so
+    // save_value = 3 + 8 = 11 and 1+11=12, which is NOT > 13 -- the summon
+    // would have incorrectly succeeded.
+    push_test_random_value(0.025); // (1 - 1 + 0.5) / 20 -- midpoint of the roll==1 bucket
+
+    spell_summon(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+
+    EXPECT_EQ(context.victim.in_room, 8)
+        << "Expected the victim to save against the summon and stay in its own room.";
+    const std::string caster_output = caster_descriptor.output;
+    EXPECT_NE(caster_output.find("You failed."), std::string::npos)
+        << "Expected the caster to see the failure message; output was: " << caster_output;
+
+    // Fixture hygiene: the victim never moved, but char_to_room() above
+    // still linked both characters into world[]'s occupant chains.
     char_from_room(&context.victim);
     char_from_room(&context.caster);
 }
