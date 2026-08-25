@@ -147,22 +147,30 @@ int other_side_impl(bool character_is_npc, bool character_is_charmed, int charac
 {
     if (IS_NPC(other) && !IS_AFFECTED(other, AFF_CHARM))
         return 0;
-    if (character_is_npc && !character_is_charmed)
+    if (character_is_npc && !character_is_charmed) {
         return 0;
-    if ((character_race == RACE_GOD) || (GET_RACE(other) == RACE_GOD))
+    }
+    if ((character_race == RACE_GOD) || (GET_RACE(other) == RACE_GOD)) {
         return 0;
-    if (RACE_EAST(other) && !race_is_east(character_race))
+    }
+    if (RACE_EAST(other) && !race_is_east(character_race)) {
         return 1;
-    if (!(RACE_EAST(other)) && race_is_east(character_race))
+    }
+    if (!(RACE_EAST(other)) && race_is_east(character_race)) {
         return 1;
-    if (RACE_MAGI(other) && !race_is_magi(character_race))
+    }
+    if (RACE_MAGI(other) && !race_is_magi(character_race)) {
         return 1;
-    if (!(RACE_MAGI(other)) && race_is_magi(character_race))
+    }
+    if (!(RACE_MAGI(other)) && race_is_magi(character_race)) {
         return 1;
-    if (RACE_EVIL(other) && race_is_good(character_race))
+    }
+    if (RACE_EVIL(other) && race_is_good(character_race)) {
         return 1;
-    if (RACE_GOOD(other) && race_is_evil(character_race))
+    }
+    if (RACE_GOOD(other) && race_is_evil(character_race)) {
         return 1;
+    }
 
     return 0;
 }
@@ -714,7 +722,10 @@ void set_room_affect_caster(room_data* room, int spell, const caster_snapshot& c
 const caster_snapshot* room_affect_caster(const room_data* room, int spell)
 {
     auto it = g_room_affect_casters.find({ room->number, spell });
-    return it == g_room_affect_casters.end() ? nullptr : &it->second;
+    if (it == g_room_affect_casters.end()) {
+        return nullptr;
+    }
+    return &it->second;
 }
 
 /* Standard mud call to put an affected structure to a room.  The room is added to
@@ -752,15 +763,17 @@ void affect_to_room(struct room_data* room, struct affected_type* af)
         AFFECT_MODIFY_SET);
     affect_total_room(room);
 
-    if (af->type == ROOMAFF_SPELL && room_affect_caster(room, af->location) == nullptr)
+    if (af->type == ROOMAFF_SPELL && room_affect_caster(room, af->location) == nullptr) {
         set_room_affect_caster(room, af->location, caster_snapshot::none());
+    }
 }
 
 void affect_to_room(struct room_data* room, struct affected_type* af, const caster_snapshot& caster)
 {
     affect_to_room(room, af);
-    if (af->type == ROOMAFF_SPELL)
+    if (af->type == ROOMAFF_SPELL) {
         set_room_affect_caster(room, af->location, caster);
+    }
 }
 
 /* Remove an affected_type structure from a char (called when duration
@@ -875,8 +888,9 @@ void affect_remove_room(struct room_data* room, struct affected_type* af)
     //   RELEASE(af);
     put_to_affected_type_pool(af);
 
-    if (is_room_spell)
+    if (is_room_spell) {
         g_room_affect_casters.erase({ room->number, spell });
+    }
 
     perms_only = 1;
     for (tmpaf = room->affected; tmpaf; tmpaf = tmpaf->next)
@@ -2540,15 +2554,17 @@ void set_char_exists(int num, struct char_data* ch)
 }
 void remove_char_exists(int num)
 {
-    if (num < 0 || num >= MAX_CHARACTERS)
+    if (num < 0 || num >= MAX_CHARACTERS) {
         return;
+    }
     char_control_array[num / 8] &= ~(1 << (num % 8));
     characters_by_abs_number[num] = nullptr;
 }
 struct char_data* char_by_abs_number(int num)
 {
-    if (num < 0 || num >= MAX_CHARACTERS || !char_exists(num))
+    if (num < 0 || num >= MAX_CHARACTERS || !char_exists(num)) {
         return nullptr;
+    }
     return characters_by_abs_number[num];
 }
 int register_npc_char(struct char_data* mob)

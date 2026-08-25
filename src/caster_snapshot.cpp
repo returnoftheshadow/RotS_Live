@@ -33,7 +33,11 @@ caster_snapshot caster_snapshot::capture(const char_data& caster)
     snap.master_mage_prof_level = (snap.is_npc && snap.is_charmed && caster.master)
         ? utils::get_prof_level(PROF_MAGE, *caster.master) : 0;
     const char* name = GET_NAME(ch);
-    std::snprintf(snap.name, sizeof(snap.name), "%s", name ? name : "someone");
+    const char* display_name = "someone";
+    if (name != nullptr) {
+        display_name = name;
+    }
+    std::snprintf(snap.name, sizeof(snap.name), "%s", display_name);
     return snap;
 }
 
@@ -58,8 +62,12 @@ char_data* caster_snapshot::resolve() const
     // unrelated character (TASK-021 fix round 1). char_by_abs_number()
     // looks up the CURRENT owner of the slot instead; identity_ptr is only
     // ever compared, never read through.
-    if (is_none())
+    if (is_none()) {
         return nullptr;
+    }
     char_data* live = char_by_abs_number(abs_number);
-    return (live != nullptr && live == identity_ptr) ? live : nullptr;
+    if (live != nullptr && live == identity_ptr) {
+        return live;
+    }
+    return nullptr;
 }

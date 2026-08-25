@@ -27,9 +27,9 @@ namespace {
 // A minimally-populated mage caster, matching the modern suite's make_mage()
 // helper field-for-field so the two depots' expectations stay comparable.
 struct CasterSnapshotTestContext {
-    char_data character {};
-    char_prof_data profs {};
-    char name_storage[16] = "test-mage";
+    char_data character {}; // the mage caster under test; capture()'d by each pin below
+    char_prof_data profs {}; // backs character.profs; holds the prof levels/specialization capture() reads
+    char name_storage[16] = "test-mage"; // backs character.player.name (GET_NAME()); owned for the context's lifetime
 
     CasterSnapshotTestContext()
     {
@@ -244,8 +244,8 @@ TEST(CasterSnapshot, NpcNameCapacityTruncatesLongShortDescriptorsSafely)
 
     EXPECT_EQ(std::strlen(snap.name), static_cast<size_t>(caster_snapshot::kNameCapacity - 1))
         << "expected a name far longer than the 64-byte buffer to be truncated, not overflowed";
-    for (int i = 0; i < caster_snapshot::kNameCapacity - 1; ++i) {
-        ASSERT_EQ(snap.name[i], 'x') << "expected the truncated name to keep the source's own prefix";
+    for (int name_index = 0; name_index < caster_snapshot::kNameCapacity - 1; ++name_index) {
+        ASSERT_EQ(snap.name[name_index], 'x') << "expected the truncated name to keep the source's own prefix";
     }
 }
 

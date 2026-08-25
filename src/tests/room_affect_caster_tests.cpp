@@ -80,9 +80,9 @@ struct RoomAffectGuard {
 // CasterSnapshotTestContext field-for-field so a captured snapshot has
 // non-default values worth asserting on.
 struct CasterContext {
-    char_data character {};
-    char_prof_data profs {};
-    char name_storage[16] = "test-mage";
+    char_data character {}; // the mage caster under test; snapshotted by each pin below
+    char_prof_data profs {}; // backs character.profs; holds the prof level capture() reads
+    char name_storage[16] = "test-mage"; // backs character.player.name (GET_NAME()); owned for the context's lifetime
 
     CasterContext()
     {

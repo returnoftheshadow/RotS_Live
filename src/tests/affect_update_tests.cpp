@@ -134,9 +134,11 @@ private:
 };
 
 bool affected_list_holds(const void* ptr) {
-    for (universal_list* node = affected_list; node; node = node->next)
-        if (node->ptr.ch == ptr || node->ptr.room == ptr)
+    for (universal_list* node = affected_list; node; node = node->next) {
+        if (node->ptr.ch == ptr || node->ptr.room == ptr) {
             return true;
+        }
+    }
     return false;
 }
 
@@ -145,11 +147,13 @@ bool affected_list_holds(const void* ptr) {
 // later tests in this binary. Mirrors mage_tests.cpp's release_fireball_corpse.
 void release_corpse_from_room(int room_number, obj_data* previous_object_list) {
     obj_data* corpse = world[room_number].contents;
-    if (corpse == nullptr)
+    if (corpse == nullptr) {
         return;
+    }
     obj_from_room(corpse);
-    if (object_list == corpse)
+    if (object_list == corpse) {
         object_list = corpse->next;
+    }
     RELEASE(corpse->name);
     RELEASE(corpse->short_description);
     RELEASE(corpse->description);
@@ -224,8 +228,9 @@ constexpr int kQuietRoom = 28;
 constexpr double kBlazeSafeRoll = 0.5 / 13.0; // (0 - 0 + 0.5) / 13 -- number(0, 12) == 0, the tick fires
 
 void queue_blaze_rolls(int count = 100) {
-    for (int i = 0; i < count; ++i)
+    for (int roll_index = 0; roll_index < count; ++roll_index) {
         push_test_random_value(kBlazeSafeRoll);
+    }
 }
 
 // The abs_number slots the recycled-slot tests below hand from one character
@@ -296,12 +301,14 @@ TEST(AffectUpdateWalk, SurvivesAnOccupantDyingToTheBlazeTickItIsProcessing) {
     // (character_list, world[]'s room lists, char_by_abs_number()).
 
     release_corpse_from_room(kBlazeRoom, previous_object_list);
-    if (affected_type* left = room_affected_by_spell(&world[kBlazeRoom], SPELL_BLAZE))
+    if (affected_type* left = room_affected_by_spell(&world[kBlazeRoom], SPELL_BLAZE)) {
         affect_remove_room(&world[kBlazeRoom], left);
+    }
     const bool sentinel_node_intact = affected_list_holds(&sentinel);
     const bool occupant_node_gone = !affected_list_holds(occupant);
-    while (sentinel.affected)
+    while (sentinel.affected) {
         affect_remove(&sentinel, sentinel.affected);
+    }
     combat_list = original_combat_list;
     combat_next_dude = original_combat_next_dude;
     character_list = original_character_list;
@@ -360,8 +367,9 @@ TEST(AffectUpdateWalk, DoesNotUpdateACharacterWhoseAbsNumberSlotWasRecycled) {
 
     const int duration_after = victim.affected ? victim.affected->duration : -1;
     const bool victim_node_gone = !affected_list_holds(&victim);
-    while (victim.affected)
+    while (victim.affected) {
         affect_remove(&victim, victim.affected);
+    }
 
     EXPECT_EQ(duration_after, 50)
         << "the old owner of a recycled slot must not be updated (char_exists() alone would "

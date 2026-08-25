@@ -890,8 +890,9 @@ char_data* resolve_poisoner(const char_data& victim)
 {
     const int number = victim.specials.poisoned_by_abs_number;
     char_data* ptr = victim.specials.poisoned_by;
-    if (number < 0 || ptr == nullptr)
+    if (number < 0 || ptr == nullptr) {
         return nullptr;
+    }
     char_data* live = char_by_abs_number(number);
     return (live != nullptr && live == ptr) ? live : nullptr;
 }
@@ -992,7 +993,8 @@ kill_contributor_list kill_contributors(char_data* victim, char_data* primary)
         }
     }
 
-    offer_kill_contributor(contributors, victim, resolve_poisoner(*victim));
+    char_data* const poisoner = resolve_poisoner(*victim);
+    offer_kill_contributor(contributors, victim, poisoner);
     offer_kill_contributor(contributors, victim, primary);
     return contributors;
 }

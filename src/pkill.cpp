@@ -123,8 +123,9 @@ int pkill_weight(struct char_data* victim, const kill_contributor_list& contribu
      * fighter's did.
      */
     total_levels = 0;
-    for (int i = 0; i < contributors.count; ++i)
-        total_levels += GET_LEVEL(contributors.entries[i]);
+    for (int contributor_index = 0; contributor_index < contributors.count; ++contributor_index) {
+        total_levels += GET_LEVEL(contributors.entries[contributor_index]);
+    }
 
     /* Get the larger of the two */
     total_levels = MAX(victim->specials.attacked_level, total_levels);
@@ -169,9 +170,11 @@ int pkill_opponents(struct char_data* victim, const kill_contributor_list& contr
     int total_opponents;
 
     total_opponents = 0;
-    for (int i = 0; i < contributors.count; ++i)
-        if (pkill_valid_killer(contributors.entries[i], victim))
+    for (int contributor_index = 0; contributor_index < contributors.count; ++contributor_index) {
+        if (pkill_valid_killer(contributors.entries[contributor_index], victim)) {
             ++total_opponents;
+        }
+    }
 
     return total_opponents;
 }

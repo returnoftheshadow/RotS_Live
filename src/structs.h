@@ -899,7 +899,10 @@ inline int max_race_prof_level(int prof, int race)
     }
 
     if (race == RACE_URUK) {
-        return (prof == PROF_MAGE) ? 27 : 30;
+        if (prof == PROF_MAGE) {
+            return 27;
+        }
+        return 30;
     }
 
     return 30;

@@ -732,8 +732,10 @@ void point_update(void)
             // with itself (nobody else is in the fight), but the kill is
             // credited to whoever poisoned it -- resolve_poisoner() answers
             // nullptr, i.e. nobody, once that character is gone.
-            if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON))
-                damage_credited(i, i, resolve_poisoner(*i), 5, SPELL_POISON, 0);
+            if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON)) {
+                char_data* const poisoner = resolve_poisoner(*i);
+                damage_credited(i, i, poisoner, 5, SPELL_POISON, 0);
+            }
             //        if (GET_POS(i) == POSITION_STUNNED)
             //  	update_pos(i);
 
@@ -1360,8 +1362,10 @@ void affect_update_person(struct char_data* i, int mode)
                     // resolve_poisoner() answers nullptr, i.e. nobody, once
                     // that character is gone. Same shape as point_update()'s
                     // gear-poison arm above.
-                    if (damage_credited(i, i, resolve_poisoner(*i), 5, SPELL_POISON, 0))
+                    char_data* const poisoner = resolve_poisoner(*i);
+                    if (damage_credited(i, i, poisoner, 5, SPELL_POISON, 0)) {
                         return;
+                    }
                     break;
                 case SPELL_CURING:
                 case SPELL_RESTLESSNESS:
@@ -1476,9 +1480,10 @@ void affect_update_room(struct room_data* room)
                             // occupant standing in for its own caster. The historical
                             // re-cast stays as the fallback for any ROOMAFF_SPELL that
                             // room_affect_tick() has no body for.
-                            if (!room_affect_tick(tmpaf->location, room, tmpch, *tmpaf))
+                            if (!room_affect_tick(tmpaf->location, room, tmpch, *tmpaf)) {
                                 (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
                                     tmpch, 0, 0, 0);
+                            }
                         }
                     }
 
@@ -1490,8 +1495,9 @@ void affect_update_room(struct room_data* room)
                     // future tick that does remove one fails safe. `continue` rather
                     // than `break`: `break` would only leave the switch and fall
                     // straight into the very code this guards.
-                    if (!room->affected)
+                    if (!room->affected) {
                         continue;
+                    }
                 } else {
                     sprintf(buf2, "Attempt to cast spell %d in room %d", tmpaf->location,
                         room->number);
@@ -1631,10 +1637,11 @@ void affect_update()
         affected_list_entry entry {};
         entry.type = node->type;
         entry.number = node->number;
-        if (node->type == TARGET_CHAR)
+        if (node->type == TARGET_CHAR) {
             entry.ch = node->ptr.ch;
-        else if (node->type == TARGET_ROOM)
+        } else if (node->type == TARGET_ROOM) {
             entry.room = node->ptr.room;
+        }
         snapshot.push_back(entry);
     }
 
@@ -1645,10 +1652,11 @@ void affect_update()
             if (live != nullptr && live == entry.ch && live->affected) {
                 affect_update_person(live, 0);
             } else {
-                if (live != nullptr && live == entry.ch)
+                if (live != nullptr && live == entry.ch) {
                     sprintf(mybuf, "Getting %s off the affected_list.", GET_NAME(live));
-                else
+                } else {
                     strcpy(mybuf, "Getting Unknown char off the affected_list.");
+                }
                 mudlog(mybuf, CMP, LEVEL_GRGOD, TRUE);
                 drop_stale_character_entry(entry);
             }

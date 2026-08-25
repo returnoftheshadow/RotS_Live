@@ -749,8 +749,9 @@ constexpr double kForceNoFumbleRoll = 0.95; // (9 - 0 + 0.5) / 10 -- number(0, 9
 
 void queue_fireball_rolls(double roll, int count = 60)
 {
-    for (int i = 0; i < count; ++i)
+    for (int roll_index = 0; roll_index < count; ++roll_index) {
         push_test_random_value(roll);
+    }
 }
 
 // raw_kill()'s SPECIAL_DEATH probe (activate_char_special -> IS_MOB()) and
@@ -780,11 +781,13 @@ private:
 void release_fireball_corpse(int room_number, obj_data *previous_object_list)
 {
     obj_data *corpse = world[room_number].contents;
-    if (corpse == nullptr)
+    if (corpse == nullptr) {
         return;
+    }
     obj_from_room(corpse);
-    if (object_list == corpse)
+    if (object_list == corpse) {
         object_list = corpse->next;
+    }
     RELEASE(corpse->name);
     RELEASE(corpse->short_description);
     RELEASE(corpse->description);

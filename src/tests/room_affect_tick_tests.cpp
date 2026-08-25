@@ -121,8 +121,9 @@ constexpr double kMidRoll = 0.5;
 
 void queue_mid_rolls(int count = 60)
 {
-    for (int i = 0; i < count; ++i)
+    for (int roll_index = 0; roll_index < count; ++roll_index) {
         push_test_random_value(kMidRoll);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -179,15 +180,15 @@ public:
         // act()'s output, not a silently-dropped line because a bare test room
         // defaults to dark.
         room.light = 1;
-        for (int i = 0; i < NUM_OF_DIRS; ++i) {
-            m_original_exits[i] = room.dir_option[i];
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            m_original_exits[direction] = room.dir_option[direction];
             // Every exit starts cleared: dir_option[] normally points at
             // stack-local room_direction_data owned by whichever test set it
             // last, and the shared test-binary world[] carries that pointer
             // across tests -- leaving a prior test's exit in place here would
             // read a dangling pointer the moment this room's own test walks
             // its exits (mist_tick()'s spread/move code does exactly that).
-            room.dir_option[i] = nullptr;
+            room.dir_option[direction] = nullptr;
         }
         room.number = 2000 + room_number;
         room.people = nullptr;
@@ -196,15 +197,17 @@ public:
     ~RoomFixture()
     {
         room_data& room = world[m_slot];
-        while (room.affected)
+        while (room.affected) {
             affect_remove_room(&room, room.affected);
+        }
         room.people = m_original_people;
         room.contents = m_original_contents;
         room.number = m_original_number;
         room.room_flags = m_original_room_flags;
         room.light = m_original_light;
-        for (int i = 0; i < NUM_OF_DIRS; ++i)
-            room.dir_option[i] = m_original_exits[i];
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            room.dir_option[direction] = m_original_exits[direction];
+        }
     }
     RoomFixture(const RoomFixture&) = delete;
     RoomFixture& operator=(const RoomFixture&) = delete;
@@ -217,13 +220,13 @@ public:
     room_data* room() const { return &world[m_slot]; }
 
 private:
-    int m_slot;
-    char_data* m_original_people;
-    obj_data* m_original_contents;
-    int m_original_number;
-    long m_original_room_flags;
-    byte m_original_light;
-    room_direction_data* m_original_exits[NUM_OF_DIRS];
+    int m_slot; // the real world[] array index this fixture occupies (see slot() above)
+    char_data* m_original_people; // occupant chain found before the test; restored on scope exit
+    obj_data* m_original_contents; // corpse/content list found before the test; restored on scope exit
+    int m_original_number; // room->number found before the test; restored on scope exit
+    long m_original_room_flags; // room->room_flags found before the test; restored on scope exit
+    byte m_original_light; // room->light found before the test; restored on scope exit
+    room_direction_data* m_original_exits[NUM_OF_DIRS]; // per-direction exits found before the test; restored on scope exit
 };
 
 // The death pipeline reads an NPC's prototype twice (raw_kill()'s
@@ -244,8 +247,8 @@ public:
     ScopedMobIndex& operator=(const ScopedMobIndex&) = delete;
 
 private:
-    index_data* m_previous;
-    index_data m_entry {};
+    index_data* m_previous; // whatever this suite found installed (normally null)
+    index_data m_entry {}; // the single prototype slot the death-path NPC's nr = 0 names
 };
 
 // Registers an abs_number AND records the pointer, the way
@@ -263,7 +266,7 @@ public:
     ScopedCharExists& operator=(const ScopedCharExists&) = delete;
 
 private:
-    char_data& m_ch;
+    char_data& m_ch; // the character whose registration this scope owns
 };
 
 // Installs a spell pointer into skills[slot] for the scope and restores
@@ -281,8 +284,8 @@ public:
     ScopedSpellPointer& operator=(const ScopedSpellPointer&) = delete;
 
 private:
-    int m_slot;
-    void (*m_previous)(char_data*, char*, int, char_data*, obj_data*, int, int);
+    int m_slot; // the skills[] cell this scope owns
+    void (*m_previous)(char_data*, char*, int, char_data*, obj_data*, int, int); // the cell's prior value; restored on scope exit
 };
 
 // A one-item container carried (not worn) by a corpse's owner:
@@ -311,11 +314,13 @@ struct CarriedGear {
 void release_corpse(room_data& room, obj_data* previous_object_list)
 {
     obj_data* corpse = room.contents;
-    if (corpse == nullptr)
+    if (corpse == nullptr) {
         return;
+    }
     obj_from_room(corpse);
-    if (object_list == corpse)
+    if (object_list == corpse) {
         object_list = corpse->next;
+    }
     RELEASE(corpse->name);
     RELEASE(corpse->short_description);
     RELEASE(corpse->description);
@@ -559,8 +564,9 @@ TEST(RoomAffectTick, PoisonTickRecordsTheResolvedCasterAsPoisoner)
     // from the RECORDED caster -- the occupant's own cleric_prof/wil are both 0.
     EXPECT_EQ(poison->duration, 16);
 
-    while (occupant.affected)
+    while (occupant.affected) {
         affect_remove(&occupant, occupant.affected);
+    }
 }
 
 TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRecordsNoPoisoner)
@@ -588,8 +594,9 @@ TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRe
     // OCCUPANT's own (weak) stats standing in, matching the pre-TASK-021 self-re-cast shape.
     EXPECT_EQ(poison->duration, 2);
 
-    while (occupant.affected)
+    while (occupant.affected) {
         affect_remove(&occupant, occupant.affected);
+    }
 }
 
 TEST(RoomAffectTick, PoisonTickWithAnExplicitNoneRecordRecordsNoPoisoner)
@@ -608,8 +615,9 @@ TEST(RoomAffectTick, PoisonTickWithAnExplicitNoneRecordRecordsNoPoisoner)
         << "an explicit caster_snapshot::none() record must credit nobody, exactly like no record "
            "at all";
 
-    while (occupant.affected)
+    while (occupant.affected) {
         affect_remove(&occupant, occupant.affected);
+    }
 }
 
 TEST(RoomAffectTick, PoisonTickSavedArmMessagesTheOccupantAndThePresentCaster)
@@ -732,8 +740,9 @@ TEST(RoomAffectTick, HazeTickAppliesFromTheSnapshotLevelPlusTheIllusionBonus)
     // the RECORDED caster -- the occupant carries no mystic levels of its own.
     EXPECT_EQ(haze->modifier, 21);
 
-    while (occupant.affected)
+    while (occupant.affected) {
         affect_remove(&occupant, occupant.affected);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -925,8 +934,9 @@ TEST(RoomAffectTick, AffectUpdateRoomNeverFallsBackForASpellItOwns)
     EXPECT_NE(affected_by_spell(&occupant, SPELL_HAZE), nullptr)
         << "the real tick must still have run and applied haze to the occupant";
 
-    while (occupant.affected)
+    while (occupant.affected) {
         affect_remove(&occupant, occupant.affected);
+    }
 }
 
 // Change #3: a mist that MOVES keeps its recorded caster, and the (freed)
@@ -940,9 +950,11 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
     room_direction_data north_exit {};
     north_exit.to_room = dest_room.slot();
     source_room.room()->dir_option[NORTH] = &north_exit;
-    for (int direction = 0; direction < NUM_OF_DIRS; ++direction)
-        if (direction != NORTH)
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        if (direction != NORTH) {
             source_room.room()->dir_option[direction] = nullptr;
+        }
+    }
 
     CasterFixture caster(25, 0, game_types::PS_None, kMistMoveSourceRoom);
     const caster_snapshot recorded = caster_snapshot::capture(caster.ch);

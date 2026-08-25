@@ -73,8 +73,9 @@ void blaze_tick(const caster_snapshot& who, char_data* caster, char_data* occupa
     const bool saved = new_saves_spell(who, occupant, save_bonus);
 
     int dam = number(8, level) + 10;
-    if (saved)
+    if (saved) {
         dam >>= 1;
+    }
 
     // Engaging attacker == the occupant itself (never `caster`): a tick damages,
     // it does not start a fight. Only the credit moves.
@@ -125,16 +126,18 @@ void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occup
         // to anchor on there is nothing for act() to render, so the line is
         // sent directly, the way this function's other victim-facing message
         // ("You feel very sick.") already is.
-        if (caster != nullptr)
+        if (caster != nullptr) {
             act("You feel your body fend off the poison.", TRUE, caster, 0, occupant, TO_VICT);
-        else
+        } else {
             send_to_char("You feel your body fend off the poison.\n\r", occupant);
+        }
 
         // ...and the caster-facing line only when there IS a caster to address:
         // still alive AND standing in this room. A caster who walked away, or
         // who is gone entirely, is told nothing.
-        if (caster_is_present(caster, occupant))
+        if (caster_is_present(caster, occupant)) {
             act("$N shrugs off your poison with ease.", FALSE, caster, 0, occupant, TO_CHAR);
+        }
     }
 }
 
@@ -143,8 +146,9 @@ void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occup
 void haze_tick(const caster_snapshot& who, char_data* occupant)
 {
     int level = get_mystic_caster_level(who);
-    if (who.specialization == game_types::PS_Illusion)
+    if (who.specialization == game_types::PS_Illusion) {
         level += 6;
+    }
 
     const int my_duration = number(0, 1);
     if (!affected_by_spell(occupant, SPELL_HAZE) && !saves_mystic(occupant)) {
@@ -172,25 +176,32 @@ void mist_tick(const caster_snapshot& who, room_data* room)
     const int level = get_mage_caster_level(who);
 
     if (affected_type* here = room_affected_by_spell(room, SPELL_MIST_OF_BAAZUNGA)) {
-        if (here->duration < level / 5)
+        if (here->duration < level / 5) {
             here->duration = level / 5;
+        }
     }
 
     for (int direction = 0; direction < NUM_OF_DIRS; direction++) {
-        if (!room->dir_option[direction] || room->dir_option[direction]->to_room == NOWHERE)
+        if (!room->dir_option[direction] || room->dir_option[direction]->to_room == NOWHERE) {
             continue;
+        }
 
         room_data* const next = &world[room->dir_option[direction]->to_room];
         if (affected_type* there = room_affected_by_spell(next, SPELL_MIST_OF_BAAZUNGA)) {
-            if (there->duration < level / 5)
+            if (there->duration < level / 5) {
                 there->duration = level / 5;
+            }
             continue;
         }
 
         affected_type af2 {};
         af2.type = ROOMAFF_SPELL;
         af2.duration = level / 6;
-        af2.modifier = IS_SET(next->room_flags, SHADOWY) ? 1 : 0;
+        if (IS_SET(next->room_flags, SHADOWY)) {
+            af2.modifier = 1;
+        } else {
+            af2.modifier = 0;
+        }
         af2.location = SPELL_MIST_OF_BAAZUNGA;
         af2.bitvector = 0;
         affect_to_room(next, &af2, who);

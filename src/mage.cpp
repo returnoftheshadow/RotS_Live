@@ -1765,7 +1765,7 @@ ASPELL(spell_earthquake)
         // The fall itself. `landing_saved` is drawn by the loop below at the same
         // point it always was, so the RNG sequence every occupant sees is
         // unchanged; only WHEN the caster's own fall runs moves (TASK-019).
-        const auto fall = [&](char_data* faller, bool landing_saved) {
+        const auto fall = [&](char_data* faller, bool landing_saved) -> void {
             act("$n loses balance and falls down!", TRUE, faller, 0, 0, TO_ROOM);
             send_to_char("The earthquake throws you down!\n\r", faller);
             stop_riding(faller);
@@ -1804,8 +1804,9 @@ ASPELL(spell_earthquake)
             }
         }
 
-        if (caster_falls)
+        if (caster_falls) {
             fall(caster, caster_landing_saved); // may free or relocate `caster`; nothing reads it after this
+        }
     }
 }
 
@@ -1907,8 +1908,9 @@ bool is_friendly_taget(const caster_snapshot& caster, const char_data* victim)
     // same_character_as() is the snapshot spelling of the live form's
     // `victim == caster` identity test: it holds only for the very character
     // the snapshot was taken from.
-    if (caster.same_character_as(*victim))
+    if (caster.same_character_as(*victim)) {
         return true;
+    }
 
     if (victim->master)
         return is_friendly_taget(caster, victim->master);
@@ -1962,8 +1964,9 @@ ASPELL(spell_fireball)
     // nothing can run on a dead caster, and the room still takes the splash
     // the fireball was invoked for. The ordinary hit keeps its place.
     const bool self_hit = victim == caster;
-    if (!self_hit)
+    if (!self_hit) {
         deliver_primary_hit();
+    }
 
     char_data* next_character = nullptr;
     for (char_data* potential_victim = world[caster->in_room].people; potential_victim; potential_victim = next_character) {
@@ -1972,8 +1975,9 @@ ASPELL(spell_fireball)
             continue;
 
         /* Fire specialization mages won't hit friendly targets. */
-        if (victim_is_friendly)
+        if (victim_is_friendly) {
             continue;
+        }
 
         double random_roll = number();
         // target_number and damage are higher if the victim is fighting with the caster
@@ -1998,8 +2002,9 @@ ASPELL(spell_fireball)
         }
     }
 
-    if (self_hit)
+    if (self_hit) {
         deliver_primary_hit(); // may free or relocate `caster`; nothing reads it after this
+    }
 }
 
 /*----------------------------------------------------------------------------------------------------------*/
@@ -2356,8 +2361,9 @@ ASPELL(spell_blaze)
                 // who answers for it.
                 set_room_affect_caster(here, SPELL_BLAZE, who);
             }
-        } else
+        } else {
             affect_to_room(here, &af, who);
+        }
 
         act("The area suddenly bursts into a roaring firestorm!",
             FALSE, caster, 0, 0, TO_ROOM);
@@ -2507,11 +2513,11 @@ ASPELL(spell_mist_of_baazunga)
                 room_data* const next = &world[roomnum];
 
                 if ((oldaf = room_affected_by_spell(next,
-                         SPELL_MIST_OF_BAAZUNGA)))
+                         SPELL_MIST_OF_BAAZUNGA))) {
                     mod = oldaf->modifier;
-                else if (IS_SET(next->room_flags, SHADOWY))
+                } else if (IS_SET(next->room_flags, SHADOWY)) {
                     mod = 1;
-                else
+                } else
                     mod = 0;
 
                 af2.type = ROOMAFF_SPELL;
@@ -2526,8 +2532,9 @@ ASPELL(spell_mist_of_baazunga)
                         oldaf->duration = af.duration;
                         set_room_affect_caster(next, SPELL_MIST_OF_BAAZUNGA, who);
                     }
-                } else
+                } else {
                     affect_to_room(next, &af2, who);
+                }
             }
         }
     }

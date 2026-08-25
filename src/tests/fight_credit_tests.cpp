@@ -130,9 +130,9 @@ private:
 
 // Saves/restores a room's occupant and content lists for one death-path test.
 struct RoomGuard {
-    int room_number;
-    char_data* original_people;
-    obj_data* original_contents;
+    int room_number; // the world[] slot this guard owns for the scope
+    char_data* original_people; // occupant chain found before the test; restored on scope exit
+    obj_data* original_contents; // content list found before the test; restored on scope exit
 
     explicit RoomGuard(int room)
         : room_number(room)
@@ -156,11 +156,13 @@ struct RoomGuard {
 void release_corpse(int room_number, obj_data* previous_object_list)
 {
     obj_data* corpse = world[room_number].contents;
-    if (corpse == nullptr)
+    if (corpse == nullptr) {
         return;
+    }
     obj_from_room(corpse);
-    if (object_list == corpse)
+    if (object_list == corpse) {
         object_list = corpse->next;
+    }
     RELEASE(corpse->name);
     RELEASE(corpse->short_description);
     RELEASE(corpse->description);
@@ -574,7 +576,7 @@ namespace {
 // suite's) walk of the list. Mirrors damage_tests.cpp's
 // `combat_list = nullptr;` TearDown reset, scoped per-test via RAII instead.
 struct CombatListGuard {
-    char_data* previous;
+    char_data* previous; // combat_list found before the test; restored on scope exit
     CombatListGuard()
         : previous(combat_list)
     {
@@ -617,9 +619,9 @@ TEST(KillContributorList, AddRefusesPastCapacityAndLatchesOverflowOnce)
     kill_contributor_list contributors;
     char_data candidates[kill_contributor_list::kCapacity + 2] {};
 
-    for (int i = 0; i < kill_contributor_list::kCapacity; ++i) {
-        EXPECT_TRUE(contributors.add(&candidates[i]))
-            << "candidate " << i << " is within capacity and must be added";
+    for (int candidate_index = 0; candidate_index < kill_contributor_list::kCapacity; ++candidate_index) {
+        EXPECT_TRUE(contributors.add(&candidates[candidate_index]))
+            << "candidate " << candidate_index << " is within capacity and must be added";
     }
     EXPECT_EQ(contributors.count, kill_contributor_list::kCapacity);
     EXPECT_FALSE(contributors.overflow_logged) << "overflow must not latch before capacity is exceeded";
