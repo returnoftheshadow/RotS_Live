@@ -1973,12 +1973,15 @@ int set_exit_state(struct room_data* room, int dir, int newstate)
     if (!strcmp(line, the_field)) {                                                                         \
         for (tmp1 = 0; position < input_end && *position != '~' && tmp1 < (length - 1); position++, tmp1++) \
             element[tmp1] = *position;                                                                      \
-        if (position >= input_end || *position != '~') {                                                    \
+        element[tmp1] = '\0';                                                                               \
+        /* A string longer than the field is truncated, not fatal: skip the rest up to the '~'. */          \
+        while (position < input_end && *position != '~')                                                    \
+            position++;                                                                                     \
+        if (position >= input_end) {                                                                        \
             sprintf(buf, "load_player_from_text: malformed long string for %s", name);                      \
             log(buf);                                                                                       \
             return -1;                                                                                      \
         }                                                                                                   \
-        element[tmp1] = '\0';                                                                               \
         position++;                                                                                         \
         while (position < input_end && (*position == '\r' || *position == '\n'))                            \
             position++;                                                                                     \
