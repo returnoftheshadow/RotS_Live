@@ -3149,11 +3149,13 @@ ACMD(do_delete)
         }
         extract_char(vict);
     }
+    if (!delete_player_character_by_index(char_index)) {
+        send_to_char("That character could not be deleted; check the log.\n\r", ch);
+        return;
+    }
+
     sprintf(buf, "(GC) %s has deleted %s.", GET_NAME(ch), arg);
     mudlog(buf, BRF, LEVEL_GOD, TRUE);
-    Crash_delete_file(player_table[char_index].name);
-    delete_exploits_file(player_table[char_index].name);
-    move_char_deleted(char_index);
 }
 
 ACMD(do_account)

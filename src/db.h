@@ -131,6 +131,10 @@ void add_exploit_record(int, struct char_data*, int, char*);
 int delete_exploits_file(char*);
 void delete_character_file(struct char_data*);
 void move_char_deleted(int);
+// System deletion (boot-time idle sweep, immortal 'delete'). Unlinks account-linked characters
+// through the account layer so account.json stops listing them; returns false if it declined to
+// delete, in which case the character is left untouched.
+bool delete_player_character_by_index(int);
 int get_char_directory(char*, char*);
 int load_player(char*, struct char_file_u*);
 int load_player_from_text(char*, const char*, struct char_file_u*);
