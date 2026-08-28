@@ -5095,4 +5095,83 @@ TEST(InterpreAccountMenu, ForgotPasswordCompletionReVerifiesTheCodeRatherThanTru
     close(descriptor.descriptor);
 }
 
+// The product decision is deliberate: a completed reset must not disconnect a session already
+// playing on the account, even though that is the account-theft scenario the feature exists for
+// -- a forced link-drop can get a character killed and their gear lost. Verify the survival, not
+// just the absence of a crash: an active playing session stays connected and attached through a
+// completed reset on a different descriptor.
+TEST(InterpreAccountMenu, ForgotPasswordCompletionLeavesAnActivePlayingSessionConnected)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    const std::string capture_path = temp_directory.path() + "/captured-mail.txt";
+    const std::string command_script_path = temp_directory.path() + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010202, &stored_account, &error_message)) << error_message;
+
+    descriptor_data active_descriptor = make_descriptor();
+    active_descriptor.connected = CON_PLYNG;
+    active_descriptor.descriptor = 7;
+    attach_active_character(&active_descriptor, "aragorn", 50, 4242);
+    descriptor_list = &active_descriptor;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTPWDFAIL;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "host.example.com");
+
+    char request[] = "1";
+    nanny(&descriptor, request);
+    ASSERT_EQ(descriptor.connected, CON_ACCTFORGOTCODE);
+
+    const std::string captured_mail = read_file_contents(capture_path);
+    const std::string marker = "Password reset code: ";
+    const size_t code_offset = captured_mail.find(marker);
+    ASSERT_NE(code_offset, std::string::npos);
+    std::string mailed_code = captured_mail.substr(code_offset + marker.size(), 6);
+
+    std::vector<char> code_buffer(mailed_code.begin(), mailed_code.end());
+    code_buffer.push_back('\0');
+    nanny(&descriptor, code_buffer.data());
+    ASSERT_EQ(descriptor.connected, CON_ACCTFORGOTNEW);
+
+    char new_password[] = "BrandNew1";
+    nanny(&descriptor, new_password);
+    ASSERT_EQ(descriptor.connected, CON_ACCTFORGOTCNF);
+
+    char confirm_password[] = "BrandNew1";
+    nanny(&descriptor, confirm_password);
+
+    ASSERT_EQ(descriptor.connected, CON_CLOSE);
+
+    // The reset must have actually completed, or the survival assertions below would pass
+    // vacuously.
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::verify_password("BrandNew1", reloaded_account.password_hash));
+    EXPECT_FALSE(account::verify_password("ValidPass1", reloaded_account.password_hash));
+
+    EXPECT_EQ(active_descriptor.connected, CON_PLYNG);
+    ASSERT_NE(active_descriptor.character, nullptr);
+    EXPECT_EQ(active_descriptor.character->desc, &active_descriptor);
+
+    free_char(active_descriptor.character);
+    active_descriptor.character = nullptr;
+
+    close(descriptor.descriptor);
+}
+
 } // namespace
