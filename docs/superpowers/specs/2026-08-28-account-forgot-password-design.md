@@ -92,7 +92,8 @@ reset-code attempts.
 ### New functions (`account_management_identity.{h,cpp}`)
 
 ```cpp
-bool start_password_reset(root, email, sent_at, error_message = nullptr);
+bool start_password_reset(root, email, sent_at, code_expires_at, error_message = nullptr);
+bool verify_password_reset_code(root, email, code, attempted_at, error_message = nullptr);
 bool complete_password_reset(root, email, code, new_password, reset_at, account, error_message = nullptr);
 ```
 
@@ -108,14 +109,22 @@ ever has the address the player typed.
    write the account file, and mail it with a new `send_password_reset_email()` alongside the
    existing `send_verification_email()`.
 
-`complete_password_reset`:
+`verify_password_reset_code` checks a code without consuming it, so the player is told immediately
+that a code is wrong rather than after typing a new password twice:
 1. No account, no pending code, or an expired code → generic failure.
-2. Code mismatch → increment `password_reset_attempt_count`, persist; at
-   `MAX_PASSWORD_RESET_ATTEMPTS`, clear the hash and expiry so the code is dead even across a
-   reconnect.
-3. Match → apply `reset_account_password(&account, new_password, "forgot-password", reset_at)`,
+2. Mismatch → increment `password_reset_attempt_count`, persist; at `MAX_PASSWORD_RESET_ATTEMPTS`,
+   clear the hash and expiry so the code is dead even across a reconnect.
+3. Match → success, and **nothing is written** — the code stays pending for the completing call.
+
+`complete_password_reset` runs the same checks and then applies the change:
+1. Same failure cases as above, including the attempt increment — so it is safe to call directly.
+2. Match → apply `reset_account_password(&account, new_password, "forgot-password", reset_at)`,
    clear the reset-code fields, set `email_verified` (see below), clear the failed-login fields,
    and write once.
+
+Because a successful check never touches the attempt counter, verifying at the prompt and again at
+completion costs the player nothing. The only thing that can change between the two is expiry, which
+the deadline handles.
 
 The existing `prepare_email_verification_code` / `confirm_email_verification_code` are the shape to
 follow but are **not** reused directly — `confirm_email_verification_code` short-circuits on
@@ -187,8 +196,11 @@ one-second deadline check, seeded from the account's `password_reset_code_expire
 fixed offset. When it passes the player is told the code expired and disconnected — at which point
 nothing is lost, because the code was already dead.
 
-`CON_ACCTFORGOTNEW` and `CON_ACCTFORGOTCNF` have no deadline. The code has already been spent by
-then, and the 15-minute reaper is an adequate backstop for someone who walks away mid-password.
+The same code-expiry deadline carries through `CON_ACCTFORGOTNEW` and `CON_ACCTFORGOTCNF`. The code
+is verified at the prompt but not consumed there — it is re-checked when the new password is
+applied — so it can still lapse while the player is choosing a password. Closing the connection at
+expiry is better than letting them type a password twice only to have the reset rejected. The whole
+flow is therefore bounded by exactly one thing: how long the code is good for.
 
 ### Reconnecting mid-flow does not strand the player
 
@@ -235,6 +247,9 @@ Unit (`src/tests/account_management_tests.cpp`):
 - `complete_password_reset`: wrong code increments and persists; the fifth wrong code clears the
   hash and expiry; an expired code fails; the correct code changes the password hash, clears the
   reset fields, sets `email_verified`, and clears the failed-login fields.
+- `verify_password_reset_code`: a correct code succeeds without consuming the code or touching the
+  attempt count, so the completing call still works; a wrong one increments exactly as the
+  completing call would.
 - A code mailed for verification cannot complete a reset, and vice versa.
 
 Integration (`src/tests/interpre_account_menu_tests.cpp`, driving `nanny()` as the existing account
