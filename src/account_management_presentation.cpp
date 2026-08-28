@@ -44,6 +44,25 @@ std::string format_account_character_list(const std::string& root_directory, con
     return output.str();
 }
 
+std::string format_account_login_failure_notice(const AccountData& account)
+{
+    if (account.failed_login_count <= 0)
+        return std::string();
+
+    std::ostringstream output;
+    output << "\n\r" << account.failed_login_count << " FAILED LOGIN ATTEMPT"
+           << (account.failed_login_count == 1 ? "" : "S") << " SINCE YOUR LAST SUCCESSFUL LOGIN.\n\r";
+
+    if (account.failed_login_last_at > 0) {
+        output << "Most recent: " << format_account_timestamp(account.failed_login_last_at);
+        if (!account.failed_login_last_host.empty())
+            output << " from " << account.failed_login_last_host;
+        output << "\n\r";
+    }
+
+    return output.str();
+}
+
 std::string format_account_summary(const AccountData& account)
 {
     std::ostringstream output;

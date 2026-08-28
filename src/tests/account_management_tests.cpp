@@ -2824,3 +2824,148 @@ TEST(AccountManagement, RefusesToOverwriteCorruptExistingAccountFiles)
     EXPECT_FALSE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700011111, nullptr, &error_message));
     EXPECT_NE(error_message.find("could not be read safely"), std::string::npos);
 }
+
+TEST(AccountManagement, RoundTripsFailedLoginMetadataThroughAccountJson)
+{
+    account::AccountData original_account = make_account();
+    original_account.failed_login_count = 3;
+    original_account.failed_login_last_at = 1700020000;
+    original_account.failed_login_last_host = "host.example.com";
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(
+        account::serialize_account_to_json(original_account), &parsed_account, &error_message))
+        << error_message;
+
+    EXPECT_EQ(parsed_account.failed_login_count, 3);
+    EXPECT_EQ(parsed_account.failed_login_last_at, 1700020000);
+    EXPECT_EQ(parsed_account.failed_login_last_host, "host.example.com");
+}
+
+TEST(AccountManagement, DefaultsFailedLoginMetadataWhenAccountJsonOmitsIt)
+{
+    const std::string legacy_json = "{\n"
+                                    "  \"version\": 1,\n"
+                                    "  \"account_name\": \"alpha-admin\",\n"
+                                    "  \"normalized_email\": \"player@example.com\"\n"
+                                    "}\n";
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(legacy_json, &parsed_account, &error_message)) << error_message;
+
+    EXPECT_EQ(parsed_account.failed_login_count, 0);
+    EXPECT_EQ(parsed_account.failed_login_last_at, 0);
+    EXPECT_TRUE(parsed_account.failed_login_last_host.empty());
+}
+
+TEST(AccountManagement, RecordsFailedLoginAttemptsAgainstTheStoredAccount)
+{
+    TemporaryDirectory temp_directory;
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    EXPECT_TRUE(account::record_account_login_failure(temp_directory.path(), "player@example.com", "first.example.com", 1700002000, &error_message)) << error_message;
+    EXPECT_TRUE(account::record_account_login_failure(temp_directory.path(), "Player@Example.com", "second.example.com", 1700002500, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), created_account.account_name, &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.failed_login_count, 2);
+    EXPECT_EQ(stored_account.failed_login_last_at, 1700002500);
+    EXPECT_EQ(stored_account.failed_login_last_host, "second.example.com");
+}
+
+TEST(AccountManagement, StripsUnprintableAndOverlongHostsWhenRecordingFailedLogins)
+{
+    TemporaryDirectory temp_directory;
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    const std::string hostile_host = std::string("evil\x1b[2Jhost\r\n") + std::string(80, 'a');
+    EXPECT_TRUE(account::record_account_login_failure(temp_directory.path(), "player@example.com", hostile_host, 1700002000, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), created_account.account_name, &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.failed_login_last_host.find('\x1b'), std::string::npos);
+    EXPECT_EQ(stored_account.failed_login_last_host.find('\r'), std::string::npos);
+    EXPECT_EQ(stored_account.failed_login_last_host.find('\n'), std::string::npos);
+    EXPECT_LE(stored_account.failed_login_last_host.size(), static_cast<size_t>(account::MAX_FAILED_LOGIN_HOST_LENGTH));
+    // Only the control bytes go; the remaining "[2J" is inert text once the escape is gone.
+    EXPECT_EQ(stored_account.failed_login_last_host.substr(0, 11), "evil[2Jhost");
+}
+
+TEST(AccountManagement, IgnoresFailedLoginAttemptsForAddressesWithoutAnAccount)
+{
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+
+    EXPECT_TRUE(account::record_account_login_failure(temp_directory.path(), "nobody@example.com", "host.example.com", 1700002000, &error_message)) << error_message;
+
+    struct stat file_info {};
+    EXPECT_NE(stat(account::account_file_path(temp_directory.path(), "nobody@example.com").c_str(), &file_info), 0);
+}
+
+TEST(AccountManagement, ClearsFailedLoginMetadataAfterASuccessfulLogin)
+{
+    TemporaryDirectory temp_directory;
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::record_account_login_failure(temp_directory.path(), "player@example.com", "host.example.com", 1700002000, &error_message)) << error_message;
+
+    EXPECT_TRUE(account::clear_account_login_failures(temp_directory.path(), created_account.account_name, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), created_account.account_name, &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.failed_login_count, 0);
+    EXPECT_EQ(stored_account.failed_login_last_at, 0);
+    EXPECT_TRUE(stored_account.failed_login_last_host.empty());
+}
+
+TEST(AccountManagement, FormatsFailedLoginNoticeWithCountAndMostRecentAttempt)
+{
+    account::AccountData account_data;
+    account_data.failed_login_count = 3;
+    account_data.failed_login_last_at = 1700002500;
+    account_data.failed_login_last_host = "host.example.com";
+
+    const std::string notice = account::format_account_login_failure_notice(account_data);
+    EXPECT_NE(notice.find("3 FAILED LOGIN ATTEMPTS SINCE YOUR LAST SUCCESSFUL LOGIN."), std::string::npos);
+    EXPECT_NE(notice.find("Most recent: 2023-11-14 22:55:00 UTC from host.example.com"), std::string::npos);
+}
+
+TEST(AccountManagement, FormatsSingularFailedLoginNotice)
+{
+    account::AccountData account_data;
+    account_data.failed_login_count = 1;
+    account_data.failed_login_last_at = 1700002500;
+    account_data.failed_login_last_host = "host.example.com";
+
+    const std::string notice = account::format_account_login_failure_notice(account_data);
+    EXPECT_NE(notice.find("1 FAILED LOGIN ATTEMPT SINCE YOUR LAST SUCCESSFUL LOGIN."), std::string::npos);
+    EXPECT_EQ(notice.find("ATTEMPTS"), std::string::npos);
+}
+
+TEST(AccountManagement, OmitsTheFailedLoginNoticeWhenThereAreNoFailures)
+{
+    account::AccountData account_data;
+    account_data.failed_login_count = 0;
+    account_data.failed_login_last_at = 1700002500;
+    account_data.failed_login_last_host = "host.example.com";
+
+    EXPECT_TRUE(account::format_account_login_failure_notice(account_data).empty());
+}
+
+TEST(AccountManagement, OmitsTheHostFromTheFailedLoginNoticeWhenItIsUnknown)
+{
+    account::AccountData account_data;
+    account_data.failed_login_count = 2;
+    account_data.failed_login_last_at = 1700002500;
+
+    const std::string notice = account::format_account_login_failure_notice(account_data);
+    EXPECT_NE(notice.find("Most recent: 2023-11-14 22:55:00 UTC\n\r"), std::string::npos);
+    EXPECT_EQ(notice.find(" from "), std::string::npos);
+}

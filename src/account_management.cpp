@@ -1333,6 +1333,12 @@ namespace {
             return reader->parse_long(&account->password_reset_at, error_message);
         if (key == "password_reset_by")
             return reader->parse_string(&account->password_reset_by, error_message);
+        if (key == "failed_login_count")
+            return reader->parse_integer(&account->failed_login_count, error_message);
+        if (key == "failed_login_last_at")
+            return reader->parse_long(&account->failed_login_last_at, error_message);
+        if (key == "failed_login_last_host")
+            return reader->parse_string(&account->failed_login_last_host, error_message);
 
         return reader->skip_value(error_message);
     }

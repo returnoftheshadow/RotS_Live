@@ -4556,4 +4556,80 @@ TEST(InterpreAccountMenu, AdvanceLevelStillPersistsWhenAccountOwnershipLookupFai
     descriptor.character = nullptr;
 }
 
+TEST(InterpreAccountMenu, WrongAccountPasswordRecordsAFailedLoginAttemptOnTheAccount)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTPWD;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "host.example.com");
+    char wrong_password[] = "WrongPass1";
+
+    nanny(&descriptor, wrong_password);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTPWD);
+    EXPECT_NE(std::string(descriptor.output).find("Invalid account credentials."), std::string::npos);
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_EQ(reloaded_account.failed_login_count, 1);
+    EXPECT_EQ(reloaded_account.failed_login_last_host, "host.example.com");
+    EXPECT_NE(reloaded_account.failed_login_last_at, 0);
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, SuccessfulAccountLoginReportsAndClearsRecordedLoginFailures)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+    stored_account.failed_login_count = 2;
+    stored_account.failed_login_last_at = 1700002500;
+    stored_account.failed_login_last_host = "attacker.example.com";
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTPWD;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "host.example.com");
+    char correct_password[] = "ValidPass1";
+
+    nanny(&descriptor, correct_password);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("2 FAILED LOGIN ATTEMPTS SINCE YOUR LAST SUCCESSFUL LOGIN."), std::string::npos);
+    EXPECT_NE(output.find("Most recent: 2023-11-14 22:55:00 UTC from attacker.example.com"), std::string::npos);
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_EQ(reloaded_account.failed_login_count, 0);
+    EXPECT_EQ(reloaded_account.failed_login_last_at, 0);
+    EXPECT_TRUE(reloaded_account.failed_login_last_host.empty());
+
+    close(descriptor.descriptor);
+}
+
 } // namespace

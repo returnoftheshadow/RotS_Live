@@ -16,6 +16,9 @@ static constexpr int MAX_ACCOUNT_NAME_LENGTH = 20;
 static constexpr long EMAIL_VERIFICATION_WINDOW_SECONDS = 15 * 60;
 static constexpr long EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60;
 static constexpr int MAX_EMAIL_VERIFICATION_ATTEMPTS = 5;
+// Matches the descriptor host field width in structs.h, so a recorded host can never be
+// longer than the value the connection itself carried.
+static constexpr int MAX_FAILED_LOGIN_HOST_LENGTH = 49;
 
 struct AccountData {
     struct CharacterLinkReference {
@@ -48,6 +51,9 @@ struct AccountData {
     long updated_at = 0;
     long password_reset_at = 0;
     std::string password_reset_by;
+    int failed_login_count = 0;
+    long failed_login_last_at = 0;
+    std::string failed_login_last_host;
 };
 
 struct LegacyAssetSnapshot {

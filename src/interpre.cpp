@@ -2835,6 +2835,13 @@ void handle_account_authenticated(struct descriptor_data* d, const account::Acco
     set_account_login_email(d, account_data.normalized_email);
     d->bad_pws = 0;
     mudlog_account_event(d, "Account login", account_data.normalized_email.c_str());
+
+    const std::string login_failure_notice = account::format_account_login_failure_notice(account_data);
+    if (!login_failure_notice.empty()) {
+        SEND_TO_Q(login_failure_notice.c_str(), d);
+        account::clear_account_login_failures(kAccountStorageRoot, account_data.account_name, nullptr);
+    }
+
     show_account_menu(d, account_data);
     STATE(d) = CON_ACCTMENU;
 }
@@ -3116,6 +3123,7 @@ void nanny(struct descriptor_data* d, char* arg)
                 }
 
                 mudlog_account_event(d, "Bad account password");
+                account::record_account_login_failure(kAccountStorageRoot, d->account_email, d->host, time(0), nullptr);
                 if (++(d->bad_pws) >= 5) {
                     SEND_TO_Q("Invalid account credentials... disconnecting.\n\r", d);
                     STATE(d) = CON_CLOSE;

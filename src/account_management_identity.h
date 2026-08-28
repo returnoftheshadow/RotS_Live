@@ -30,6 +30,12 @@ bool create_account(const std::string& root_directory, const std::string& accoun
 bool create_account_for_email(const std::string& root_directory, const std::string& email, const std::string& password, long created_at, AccountData* account, std::string* error_message = nullptr);
 bool authenticate_account(const std::string& root_directory, const std::string& account_name, const std::string& password, AccountData* account, std::string* error_message = nullptr);
 bool authenticate_account_by_email(const std::string& root_directory, const std::string& email, const std::string& password, AccountData* account, std::string* error_message = nullptr);
+// Note a rejected account-login password on the stored account so the owner can be told about it
+// the next time they get in. Unknown or malformed addresses are a silent no-op (returning true and
+// writing nothing), so a failed attempt never reveals whether an address has an account behind it.
+bool record_account_login_failure(const std::string& root_directory, const std::string& email, const std::string& host, long attempted_at, std::string* error_message = nullptr);
+// Clear the failure tally after a successful login. Writes nothing when there is nothing to clear.
+bool clear_account_login_failures(const std::string& root_directory, const std::string& account_name, std::string* error_message = nullptr);
 bool start_email_verification(const std::string& root_directory, const std::string& account_name, long sent_at, AccountData* account, std::string* error_message = nullptr);
 bool complete_email_verification(const std::string& root_directory, const std::string& account_name, const std::string& verification_code, const std::string& verified_by, long verified_at, AccountData* account, std::string* error_message = nullptr);
 bool find_linked_character_owner_account(const std::string& root_directory, const std::string& character_name, std::string* owner_account_name, std::string* error_message = nullptr);

@@ -567,6 +567,73 @@ bool authenticate_account_by_email(const std::string& root_directory, const std:
     return authenticate_account(root_directory, stored_account.account_name, password, account, error_message);
 }
 
+std::string sanitize_failed_login_host(const std::string& host)
+{
+    std::string sanitized;
+    sanitized.reserve(host.size());
+    for (const char raw_character : host) {
+        const unsigned char character = static_cast<unsigned char>(raw_character);
+        // Reverse DNS supplies this string (comm.cpp: populate_descriptor_host), so it is
+        // attacker-controlled and ends up both in the account file and on a player's screen.
+        if (character < 0x20 || character > 0x7e)
+            continue;
+        sanitized.push_back(raw_character);
+        if (sanitized.size() >= static_cast<size_t>(MAX_FAILED_LOGIN_HOST_LENGTH))
+            break;
+    }
+    return sanitized;
+}
+
+bool record_account_login_failure(const std::string& root_directory, const std::string& email, const std::string& host, long attempted_at, std::string* error_message)
+{
+    if (!is_valid_email(email, nullptr)) {
+        set_error(error_message, "");
+        return true;
+    }
+
+    AccountData stored_account;
+    if (!find_account_by_email_internal(root_directory, email, &stored_account, nullptr)) {
+        set_error(error_message, "");
+        return true;
+    }
+
+    ++stored_account.failed_login_count;
+    stored_account.failed_login_last_at = attempted_at;
+    stored_account.failed_login_last_host = sanitize_failed_login_host(host);
+
+    if (!write_account_file(root_directory, stored_account, error_message))
+        return false;
+
+    set_error(error_message, "");
+    return true;
+}
+
+bool clear_account_login_failures(const std::string& root_directory, const std::string& account_name, std::string* error_message)
+{
+    if (!validate_identifier_for_path(account_name, "Account name", error_message))
+        return false;
+
+    AccountData stored_account;
+    if (!read_account_file(root_directory, account_name, &stored_account, error_message))
+        return false;
+
+    if (stored_account.failed_login_count == 0 && stored_account.failed_login_last_at == 0
+        && stored_account.failed_login_last_host.empty()) {
+        set_error(error_message, "");
+        return true;
+    }
+
+    stored_account.failed_login_count = 0;
+    stored_account.failed_login_last_at = 0;
+    stored_account.failed_login_last_host.clear();
+
+    if (!write_account_file(root_directory, stored_account, error_message))
+        return false;
+
+    set_error(error_message, "");
+    return true;
+}
+
 bool start_email_verification(const std::string& root_directory, const std::string& account_name, long sent_at, AccountData* account, std::string* error_message)
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
