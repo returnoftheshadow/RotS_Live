@@ -727,7 +727,14 @@ bool check_password_reset_code(const std::string& root_directory, const std::str
             stored_account->password_reset_code_expires_at = 0;
         }
 
-        write_account_file(root_directory, *stored_account, nullptr);
+        // If this write fails, the incremented attempt count (and, at the cap, the cleared code)
+        // never reaches disk -- there is no way to enforce a persistent attempt cap from this layer
+        // when persistence itself is broken. The result is captured (rather than discarded) so that
+        // is visibly a considered decision, not an oversight: the user-facing outcome is unchanged
+        // either way, since the caller already disconnects on this error, which remains the actual
+        // enforcement.
+        const bool write_succeeded = write_account_file(root_directory, *stored_account, nullptr);
+        (void)write_succeeded;
         set_error(error_message, exhausted ? "Too many invalid reset codes." : "That reset code is invalid.");
         return false;
     }

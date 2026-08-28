@@ -3321,6 +3321,34 @@ TEST(AccountManagement, CompletePasswordResetRejectsAPasswordFailingPolicy)
     EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
 }
 
+TEST(AccountManagement, CompletePasswordResetChecksTheCodeBeforeThePasswordPolicy)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    // Wrong code AND a policy-failing password. If the policy check ran first, this would surface
+    // the password error and tell an attacker nothing about the guessed code; it must instead fail
+    // on the code, before the password is ever looked at.
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", "000000", "short", 1700002050, nullptr, &error_message));
+    EXPECT_EQ(error_message, "That reset code is invalid.");
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.password_reset_attempt_count, 1);
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
 TEST(AccountManagement, VerifyPasswordResetCodeAcceptsWithoutConsumingTheCode)
 {
     TemporaryDirectory temp_directory;
