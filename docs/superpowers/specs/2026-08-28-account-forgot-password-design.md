@@ -1,7 +1,7 @@
 # Account forgot-password reset — design
 
 **Date:** 2026-08-28
-**Status:** approved, not yet implemented
+**Status:** implemented on `feat/account-failed-login-count`
 **Depends on:** `feat/account-failed-login-count` (`b4bf3d2`), which added the failed-login fields
 this design clears on a completed reset.
 
@@ -36,12 +36,18 @@ Pressing `0`, or letting the deadline pass, disconnects.
 
 ## Connection states
 
-`CON_ACCTVERIFY` is currently the highest at 39; these continue from 40.
+`CON_ACCTDELCNF1` is the highest existing state at 40, so these are 41-44. (An earlier draft said
+39/40-43; that was an artefact of a truncated read of the state list.)
 
 | State | Prompt | Transitions |
 |---|---|---|
 | `CON_ACCTPWDFAIL` | the menu above | `1` → send code, → `CON_ACCTFORGOTCODE` · `0` → disconnect · other → re-show menu (deadline is **not** extended) · deadline → disconnect |
 | `CON_ACCTFORGOTCODE` | `Reset code: ` | correct → `CON_ACCTFORGOTNEW` · wrong → re-prompt · 5th wrong → invalidate code, disconnect · empty → disconnect · code expiry reached → say so, disconnect |
+| `CON_ACCTFORGOTNEW` | `New account password: ` | passes `is_valid_password` → `CON_ACCTFORGOTCNF` · fails → re-prompt with the policy error |
+| `CON_ACCTFORGOTCNF` | `Retype the new password: ` | match → persist, disconnect · mismatch → back to `CON_ACCTFORGOTNEW` |
+
+The existing five-strike counter (`d->bad_pws`) is what triggers the menu; its threshold does not
+change.
 
 Every failure at `CON_ACCTFORGOTCODE` prints the same line and the fifth disconnects, whatever the
 cause and whether or not the address has an account. The count that drives that is kept on the
@@ -49,11 +55,7 @@ descriptor: an address with no account has no file to count on, so a cap read ou
 would silently never fire for exactly the case the flow exists to hide. The account layer keeps its
 own persistent cap in parallel — that is what kills the code across a reconnect — but it never
 decides what the player sees.
-| `CON_ACCTFORGOTNEW` | `New account password: ` | passes `is_valid_password` → `CON_ACCTFORGOTCNF` · fails → re-prompt with the policy error |
-| `CON_ACCTFORGOTCNF` | `Retype the new password: ` | match → persist, disconnect · mismatch → back to `CON_ACCTFORGOTNEW` |
 
-The existing five-strike counter (`d->bad_pws`) is what triggers the menu; its threshold does not
-change.
 
 ## Approach: separate reset-code fields
 
@@ -142,6 +144,17 @@ primitives (`generate_numeric_verification_code`, `generate_hash_for_secret`, `v
 are called directly.
 
 ## Not confirming whether an account exists
+
+> **Correction (verified live, 2026-08-28):** the premise below is weaker than it was written to be.
+> The `Account email:` prompt *already* discloses account existence, before any password is typed:
+> `interpre.cpp:2980-2991` looks the address up and answers an unknown one with
+> `"No account exists for that email address.\n\rCreate one? (Y/N): "`. That is pre-existing
+> behaviour, not introduced by this work, and closing it is a product decision (it would change how
+> new accounts get created). Everything below still holds and is still worth having — the reset flow
+> must not add a *second* disclosure channel, and if the email prompt is ever changed, this flow will
+> not silently reintroduce the leak — but it is defence in depth today, not the only line.
+
+
 
 The menu appears after five wrong passwords whether or not the address has an account, and
 pressing `1` always prints the same line:
