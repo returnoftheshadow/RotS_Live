@@ -4699,4 +4699,104 @@ TEST(InterpreAccountMenu, StateDeadlineNamesTheExpiredCodeInTheForgotPasswordSta
     EXPECT_NE(std::string(descriptor->output).find("That reset code has expired."), std::string::npos);
 }
 
+TEST(InterpreAccountMenu, FifthWrongAccountPasswordOffersTheResetMenuInsteadOfDisconnecting)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTPWD;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "host.example.com");
+
+    char wrong_password[] = "WrongPass1";
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        descriptor.connected = CON_ACCTPWD;
+        nanny(&descriptor, wrong_password);
+    }
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTPWDFAIL);
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("1) Reset your account password"), std::string::npos);
+    EXPECT_NE(output.find("0) Disconnect"), std::string::npos);
+    EXPECT_NE(descriptor.state_deadline, 0);
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, ResetMenuChoiceZeroDisconnects)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTPWDFAIL;
+    descriptor.state_deadline = 1900000000;
+    char choice[] = "0";
+
+    nanny(&descriptor, choice);
+
+    EXPECT_EQ(descriptor.connected, CON_CLOSE);
+    EXPECT_EQ(descriptor.state_deadline, 0);
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, ResetMenuRedrawsOnInvalidInputWithoutExtendingTheDeadline)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTPWDFAIL;
+    descriptor.state_deadline = 1900000000;
+    char choice[] = "banana";
+
+    nanny(&descriptor, choice);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTPWDFAIL);
+    EXPECT_EQ(descriptor.state_deadline, 1900000000);
+    EXPECT_NE(std::string(descriptor.output).find("1) Reset your account password"), std::string::npos);
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, ResetMenuChoiceOneAdvancesToTheCodePromptForAnUnknownAddress)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTPWDFAIL;
+    descriptor.state_deadline = 1900000000;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "nobody@example.com");
+    char choice[] = "1";
+
+    nanny(&descriptor, choice);
+
+    // Identical to the real-account path: same message, same next state, a deadline from the code.
+    EXPECT_EQ(descriptor.connected, CON_ACCTFORGOTCODE);
+    EXPECT_NE(std::string(descriptor.output).find("If an account exists for that address"), std::string::npos);
+    EXPECT_NE(descriptor.state_deadline, 0);
+    EXPECT_NE(descriptor.state_deadline, 1900000000);
+
+    close(descriptor.descriptor);
+}
+
 } // namespace

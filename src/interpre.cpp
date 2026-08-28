@@ -2862,6 +2862,21 @@ void start_account_login(struct descriptor_data* d, const char* email)
     STATE(d) = CON_ACCTPWD;
 }
 
+// How long the post-exhaustion reset menu stays open. Provisional -- already far more generous than
+// the instant disconnect a fifth wrong password causes today.
+static constexpr int ACCOUNT_RESET_MENU_TIMEOUT_SECONDS = 90;
+
+void show_account_reset_menu(struct descriptor_data* d)
+{
+    SEND_TO_Q("\n\r"
+              "1) Reset your account password\n\r"
+              "0) Disconnect\n\r"
+              "\n\r"
+              "This menu will close in 90 seconds.\n\r"
+              "Choice: ",
+        d);
+}
+
 } // namespace
 
 bool account_has_restricting_active_linked_session(const account::AccountData& account_data)
@@ -3125,8 +3140,10 @@ void nanny(struct descriptor_data* d, char* arg)
                 mudlog_account_event(d, "Bad account password");
                 account::record_account_login_failure(kAccountStorageRoot, d->account_email, d->host, time(0), nullptr);
                 if (++(d->bad_pws) >= 5) {
-                    SEND_TO_Q("Invalid account credentials... disconnecting.\n\r", d);
-                    STATE(d) = CON_CLOSE;
+                    SEND_TO_Q("Invalid account credentials.\n\r", d);
+                    d->state_deadline = time(0) + ACCOUNT_RESET_MENU_TIMEOUT_SECONDS;
+                    show_account_reset_menu(d);
+                    STATE(d) = CON_ACCTPWDFAIL;
                 } else {
                     SEND_TO_Q("Invalid account credentials.\n\rAccount password: ", d);
                     echo_off(d->descriptor);
@@ -3192,6 +3209,36 @@ void nanny(struct descriptor_data* d, char* arg)
             handle_account_authenticated(d, account_data);
         }
         break;
+    case CON_ACCTPWDFAIL: /* password attempts exhausted -- offer a reset */
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (*arg == '0') {
+            d->state_deadline = 0;
+            SEND_TO_Q("Goodbye.\n\r", d);
+            STATE(d) = CON_CLOSE;
+            return;
+        }
+
+        if (*arg == '1') {
+            long code_expires_at = 0;
+            mudlog_account_event(d, "Account password reset requested");
+            // The return value is deliberately not branched on: whether a code was sent, suppressed
+            // by the cooldown, or skipped because no account exists must not be observable here.
+            account::start_password_reset(kAccountStorageRoot, d->account_email, time(0), &code_expires_at, nullptr);
+
+            d->bad_pws = 0;
+            d->state_deadline = code_expires_at;
+            SEND_TO_Q("\n\rIf an account exists for that address, a reset code has been sent to it.\n\r"
+                      "The code is valid for 15 minutes.\n\r"
+                      "\n\rReset code: ",
+                d);
+            STATE(d) = CON_ACCTFORGOTCODE;
+            return;
+        }
+
+        show_account_reset_menu(d);
+        return;
     case CON_ACCTSLCT: /* get linked character for authenticated account */
         for (; isspace(*arg); arg++)
             continue;
