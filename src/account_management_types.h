@@ -19,6 +19,11 @@ static constexpr int MAX_EMAIL_VERIFICATION_ATTEMPTS = 5;
 // Matches the descriptor host field width in structs.h, so a recorded host can never be
 // longer than the value the connection itself carried.
 static constexpr int MAX_FAILED_LOGIN_HOST_LENGTH = 49;
+// Deliberately defined in terms of the verification constants rather than repeating the literals:
+// five password attempts, five verification attempts, five reset-code attempts.
+static constexpr long PASSWORD_RESET_WINDOW_SECONDS = EMAIL_VERIFICATION_WINDOW_SECONDS;
+static constexpr long PASSWORD_RESET_RESEND_COOLDOWN_SECONDS = EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS;
+static constexpr int MAX_PASSWORD_RESET_ATTEMPTS = MAX_EMAIL_VERIFICATION_ATTEMPTS;
 
 struct AccountData {
     struct CharacterLinkReference {
@@ -54,6 +59,10 @@ struct AccountData {
     int failed_login_count = 0;
     long failed_login_last_at = 0;
     std::string failed_login_last_host;
+    std::string password_reset_code_hash;
+    long password_reset_code_sent_at = 0;
+    long password_reset_code_expires_at = 0;
+    int password_reset_attempt_count = 0;
 };
 
 struct LegacyAssetSnapshot {

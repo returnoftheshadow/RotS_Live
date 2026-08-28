@@ -58,7 +58,7 @@ private:
                 continue;
 
             const std::string child_path = path + "/" + entry->d_name;
-            struct stat file_info {};
+            struct stat file_info { };
             if (stat(child_path.c_str(), &file_info) != 0)
                 continue;
 
@@ -1039,7 +1039,7 @@ TEST(AccountManagement, PersistsAccountsToBucketedJsonFilesAndReadsThemBack)
     EXPECT_EQ(loaded_account.characters, std::vector<std::string>({ "aragorn", "legolas" }));
     EXPECT_EQ(loaded_account.block_reason, original_account.block_reason);
 
-    struct stat file_info {};
+    struct stat file_info { };
     ASSERT_EQ(stat(account::account_file_path(temp_directory.path(), original_account.normalized_email).c_str(), &file_info), 0)
         << "Expected write_account_file() to materialize the final account JSON file.";
 
@@ -1063,7 +1063,7 @@ TEST(AccountManagement, RewritesLegacyFlatAccountFilesIntoEmailRootedLayout)
     loaded_account.block_reason = "updated reason";
     ASSERT_TRUE(account::write_account_file(temp_directory.path(), loaded_account, &error_message)) << error_message;
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_EQ(stat(account::account_file_path(temp_directory.path(), original_account.normalized_email).c_str(), &file_info), 0);
     EXPECT_NE(stat(legacy_path.c_str(), &file_info), 0);
 
@@ -1865,7 +1865,7 @@ TEST(AccountManagement, MigratesLegacyCharacterFilesIntoAccountNativeAssetsWitho
     EXPECT_EQ(migration.player_file.encoding, "hex");
     EXPECT_EQ(migration.player_file.source_path, account::legacy_player_file_path(temp_directory.path(), "aragorn"));
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0)
         << "Expected successful migration to rely on account-native assets without persisting a transitional snapshot file.";
 }
@@ -1888,7 +1888,7 @@ TEST(AccountManagement, PersistedMigrationSnapshotOmitsLegacyPlayerPasswordAndHo
     ASSERT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, &migration, &error_message)) << error_message;
     ASSERT_TRUE(migration.player_file.present);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0)
         << "Routine migration should no longer persist a transitional snapshot file at all.";
 }
@@ -2031,7 +2031,7 @@ TEST(AccountManagement, PrefersVersionedLegacyPlayerFilesOverStaleFlatFilesDurin
     EXPECT_EQ(restored_character.points.gold, versioned_character.points.gold);
     EXPECT_EQ(restored_character.specials2.idnum, versioned_character.specials2.idnum);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_player_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0)
         << "Expected migration to retire the stale flat legacy player file once the versioned save won precedence.";
 }
@@ -2063,7 +2063,7 @@ TEST(AccountManagement, MigratesVersionedLegacyPlayerFileEvenWhenStaleFlatFileIs
     ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &restored_character, &error_message)) << error_message;
     EXPECT_EQ(restored_character.points.gold, versioned_character.points.gold);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_player_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
 }
 
@@ -2145,7 +2145,7 @@ TEST(AccountManagement, EnsuresCharacterMigrationByCreatingMissingSnapshotFromLe
     ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &restored_character, &error_message)) << error_message;
     EXPECT_STREQ(restored_character.name, "aragorn");
     EXPECT_EQ(restored_character.points.gold, make_stored_character("aragorn").points.gold);
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_player_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
@@ -2170,7 +2170,7 @@ TEST(AccountManagement, IgnoresCorruptSnapshotArtifactWhenRebuildingFromLegacyFi
     EXPECT_STREQ(restored_character.name, "aragorn");
     EXPECT_EQ(restored_character.points.gold, make_stored_character("aragorn").points.gold);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_player_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
@@ -2259,7 +2259,7 @@ TEST(AccountManagement, RestoresLegacyFilesFromCharacterMigrationSnapshot)
     EXPECT_EQ(read_file_contents(account::legacy_player_file_path(temp_directory.path(), "aragorn")), expected_player_text);
     EXPECT_EQ(read_file_contents(account::legacy_object_file_path(temp_directory.path(), "aragorn")), expected_object_bytes);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
 }
 
@@ -2315,7 +2315,7 @@ TEST(AccountManagement, ClearsRuntimeSupportFilesForAccountBackedPlayWithoutRewr
     ASSERT_TRUE(account::clear_character_runtime_support_files_for_account_play(temp_directory.path(), "alpha-admin", "aragorn", migration, &error_message)) << error_message;
     EXPECT_EQ(read_file_contents(account::legacy_player_file_path(temp_directory.path(), "aragorn")), "player-stays-put");
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_object_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
     EXPECT_NE(stat(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
 }
@@ -2554,7 +2554,7 @@ TEST(AccountManagement, MigrationRetiresLegacyFilesAfterSuccessfulAccountNativeW
     account::CharacterMigrationData migration;
     ASSERT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, &migration, &error_message)) << error_message;
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
     EXPECT_NE(stat(player_path.c_str(), &file_info), 0);
     EXPECT_NE(stat(object_path.c_str(), &file_info), 0);
@@ -2589,7 +2589,7 @@ TEST(AccountManagement, MigrationFailsClosedWhenLegacyFileRetirementFails)
 
     ASSERT_EQ(chmod(object_bucket.c_str(), 0700), 0);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_EQ(stat(player_path.c_str(), &file_info), 0);
     EXPECT_EQ(stat(object_path.c_str(), &file_info), 0);
     EXPECT_EQ(read_file_contents(player_path), expected_player_text);
@@ -2632,7 +2632,7 @@ TEST(AccountManagement, MigrationCleansUpAccountNativeOutputsWhenStaleFlatRetire
     EXPECT_FALSE(account::account_object_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
     EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
     EXPECT_EQ(read_file_contents(versioned_player_path), expected_player_text);
     EXPECT_EQ(read_file_contents(account::legacy_object_file_path(temp_directory.path(), "aragorn")), expected_object_bytes);
@@ -2669,7 +2669,7 @@ TEST(AccountManagement, MigrationRestoresRetiredFilesWhenExploitRetirementFails)
 
     ASSERT_EQ(chmod(exploits_bucket.c_str(), 0700), 0);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_EQ(stat(player_path.c_str(), &file_info), 0);
     EXPECT_EQ(stat(object_path.c_str(), &file_info), 0);
     EXPECT_EQ(stat(exploits_path.c_str(), &file_info), 0);
@@ -2791,7 +2791,7 @@ TEST(AccountManagement, RefreshingSnapshotPreservesExistingExploitHistoryWhenRun
     EXPECT_EQ(refreshed_migration.exploits_file.content, initial_migration.exploits_file.content);
     EXPECT_TRUE(refreshed_migration.player_file.present);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
 
@@ -2808,7 +2808,7 @@ TEST(AccountManagement, RefreshingSnapshotForUnlinkedCharacterSucceedsWithoutWri
     EXPECT_TRUE(migration.account_name.empty());
     EXPECT_TRUE(migration.character_name.empty());
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
 
@@ -2904,7 +2904,7 @@ TEST(AccountManagement, IgnoresFailedLoginAttemptsForAddressesWithoutAnAccount)
 
     EXPECT_TRUE(account::record_account_login_failure(temp_directory.path(), "nobody@example.com", "host.example.com", 1700002000, &error_message)) << error_message;
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_file_path(temp_directory.path(), "nobody@example.com").c_str(), &file_info), 0);
 }
 
@@ -2968,4 +2968,49 @@ TEST(AccountManagement, OmitsTheHostFromTheFailedLoginNoticeWhenItIsUnknown)
     const std::string notice = account::format_account_login_failure_notice(account_data);
     EXPECT_NE(notice.find("Most recent: 2023-11-14 22:55:00 UTC\n\r"), std::string::npos);
     EXPECT_EQ(notice.find(" from "), std::string::npos);
+}
+
+TEST(AccountManagement, RoundTripsPasswordResetCodeMetadataThroughAccountJson)
+{
+    account::AccountData original_account = make_account();
+    original_account.password_reset_code_hash = "reset-code-hash";
+    original_account.password_reset_code_sent_at = 1700030000;
+    original_account.password_reset_code_expires_at = 1700030900;
+    original_account.password_reset_attempt_count = 2;
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(
+        account::serialize_account_to_json(original_account), &parsed_account, &error_message))
+        << error_message;
+
+    EXPECT_EQ(parsed_account.password_reset_code_hash, "reset-code-hash");
+    EXPECT_EQ(parsed_account.password_reset_code_sent_at, 1700030000);
+    EXPECT_EQ(parsed_account.password_reset_code_expires_at, 1700030900);
+    EXPECT_EQ(parsed_account.password_reset_attempt_count, 2);
+}
+
+TEST(AccountManagement, DefaultsPasswordResetCodeMetadataWhenAccountJsonOmitsIt)
+{
+    const std::string legacy_json = "{\n"
+                                    "  \"version\": 1,\n"
+                                    "  \"account_name\": \"alpha-admin\",\n"
+                                    "  \"normalized_email\": \"player@example.com\"\n"
+                                    "}\n";
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(legacy_json, &parsed_account, &error_message)) << error_message;
+
+    EXPECT_TRUE(parsed_account.password_reset_code_hash.empty());
+    EXPECT_EQ(parsed_account.password_reset_code_sent_at, 0);
+    EXPECT_EQ(parsed_account.password_reset_code_expires_at, 0);
+    EXPECT_EQ(parsed_account.password_reset_attempt_count, 0);
+}
+
+TEST(AccountManagement, KeepsResetAndVerificationAttemptCapsUniform)
+{
+    EXPECT_EQ(account::MAX_PASSWORD_RESET_ATTEMPTS, account::MAX_EMAIL_VERIFICATION_ATTEMPTS);
+    EXPECT_EQ(account::PASSWORD_RESET_WINDOW_SECONDS, account::EMAIL_VERIFICATION_WINDOW_SECONDS);
+    EXPECT_EQ(account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS, account::EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS);
 }

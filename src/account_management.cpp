@@ -1339,6 +1339,14 @@ namespace {
             return reader->parse_long(&account->failed_login_last_at, error_message);
         if (key == "failed_login_last_host")
             return reader->parse_string(&account->failed_login_last_host, error_message);
+        if (key == "password_reset_code_hash")
+            return reader->parse_string(&account->password_reset_code_hash, error_message);
+        if (key == "password_reset_code_sent_at")
+            return reader->parse_long(&account->password_reset_code_sent_at, error_message);
+        if (key == "password_reset_code_expires_at")
+            return reader->parse_long(&account->password_reset_code_expires_at, error_message);
+        if (key == "password_reset_attempt_count")
+            return reader->parse_integer(&account->password_reset_attempt_count, error_message);
 
         return reader->skip_value(error_message);
     }
