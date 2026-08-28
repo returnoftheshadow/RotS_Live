@@ -3094,7 +3094,44 @@ TEST(AccountManagement, StartPasswordResetSuppressesASecondCodeInsideTheCooldown
     // The first code is untouched and still the one that works.
     EXPECT_EQ(after_second.password_reset_code_hash, after_first.password_reset_code_hash);
     EXPECT_EQ(after_second.password_reset_code_sent_at, 1700002000);
-    EXPECT_EQ(second_expiry, after_first.password_reset_code_expires_at);
+    // The reported expiry is synthetic, not the stored one -- see the test below.
+    EXPECT_EQ(second_expiry, inside_cooldown + account::PASSWORD_RESET_WINDOW_SECONDS);
+}
+
+// The caller turns *code_expires_at into a connection deadline the player can time. Reporting the
+// real pending expiry inside the cooldown made that deadline depend on when an earlier code was
+// issued, so an attacker could tell an address with an account from one without by watching the
+// clock. Every branch must report the same clock-derived value.
+TEST(AccountManagement, StartPasswordResetReportsASyntheticExpiryInsideTheCooldown)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string command_script_path = root + "/discard-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > /dev/null\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    long first_expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &first_expiry, &error_message)) << error_message;
+
+    account::AccountData after_first;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_first, &error_message)) << error_message;
+
+    long cooldown_expiry = 0;
+    const long inside_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS - 1;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", inside_cooldown, &cooldown_expiry, &error_message)) << error_message;
+
+    EXPECT_EQ(cooldown_expiry, inside_cooldown + account::PASSWORD_RESET_WINDOW_SECONDS);
+    EXPECT_NE(cooldown_expiry, after_first.password_reset_code_expires_at);
+
+    // An address with no account at all reports the same thing, which is the whole point.
+    long unknown_expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "nobody@example.com", inside_cooldown, &unknown_expiry, &error_message)) << error_message;
+    EXPECT_EQ(unknown_expiry, cooldown_expiry);
 }
 
 TEST(AccountManagement, StartPasswordResetIssuesAFreshCodeOnceTheCooldownLapses)
@@ -3243,6 +3280,56 @@ TEST(AccountManagement, CompletePasswordResetCountsWrongCodesAndInvalidatesAtThe
     // The real code is dead too, so a reconnect cannot resume with it.
     EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", 1700002095, nullptr, &error_message));
     EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+// Clearing password_reset_code_sent_at at the cap switched the resend cooldown off, so five wrong
+// guesses bought an immediate fresh code -- unlimited mail to a known address, and a victim who
+// could never finish a reset because each code they received was killed by the next five guesses.
+TEST(AccountManagement, StartPasswordResetStillHonoursTheCooldownAfterTheAttemptCap)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    for (int attempt = 1; attempt <= account::MAX_PASSWORD_RESET_ATTEMPTS; ++attempt)
+        EXPECT_FALSE(account::verify_password_reset_code(root, "player@example.com", "000000", 1700002000 + attempt, &error_message));
+
+    account::AccountData exhausted_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &exhausted_account, &error_message)) << error_message;
+    EXPECT_TRUE(exhausted_account.password_reset_code_hash.empty());
+    EXPECT_EQ(exhausted_account.password_reset_code_expires_at, 0);
+    // The send timestamp survives the cap: it is the only thing the cooldown gate reads.
+    EXPECT_EQ(exhausted_account.password_reset_code_sent_at, 1700002000);
+
+    long expiry = 0;
+    const long inside_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS - 1;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", inside_cooldown, &expiry, &error_message)) << error_message;
+
+    account::AccountData after_request;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_request, &error_message)) << error_message;
+    // Still suppressed: no new code stamped, so nothing new was mailed either.
+    EXPECT_TRUE(after_request.password_reset_code_hash.empty());
+    EXPECT_EQ(after_request.password_reset_code_sent_at, 1700002000);
+
+    // Once the cooldown genuinely lapses a fresh code is issued as normal.
+    const long past_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", past_cooldown, &expiry, &error_message)) << error_message;
+
+    account::AccountData after_cooldown;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_cooldown, &error_message)) << error_message;
+    EXPECT_FALSE(after_cooldown.password_reset_code_hash.empty());
+    EXPECT_EQ(after_cooldown.password_reset_code_sent_at, past_cooldown);
+    EXPECT_EQ(after_cooldown.password_reset_attempt_count, 0);
 }
 
 TEST(AccountManagement, CompletePasswordResetRejectsAnExpiredCode)

@@ -656,8 +656,13 @@ bool start_password_reset(const std::string& root_directory, const std::string& 
         && sent_at < stored_account.password_reset_code_sent_at + PASSWORD_RESET_RESEND_COOLDOWN_SECONDS) {
         // Inside the cooldown the previous code is still pending and still works, so a player who
         // reconnected mid-flow can finish with the code already in their inbox.
-        if (code_expires_at != nullptr && stored_account.password_reset_code_expires_at != 0)
-            *code_expires_at = stored_account.password_reset_code_expires_at;
+        //
+        // *code_expires_at deliberately keeps the synthetic value set above rather than the real
+        // pending expiry: the caller stamps a visible connection deadline from it, and reporting
+        // the stored expiry here made the moment the connection closed depend on when the earlier
+        // code was issued -- an attacker-chosen, deterministic account-existence oracle. The real
+        // code can therefore lapse a little before the connection does, which the code prompt
+        // already handles.
         set_error(error_message, "");
         return true;
     }
@@ -722,8 +727,11 @@ bool check_password_reset_code(const std::string& root_directory, const std::str
 
         const bool exhausted = stored_account->password_reset_attempt_count >= MAX_PASSWORD_RESET_ATTEMPTS;
         if (exhausted) {
+            // The code dies, but password_reset_code_sent_at survives on purpose: it is the only
+            // thing start_password_reset's resend cooldown reads. Clearing it here turned the cap
+            // into an email-bombing tool -- burn five guesses, reconnect, and a fresh code was
+            // mailed to the victim immediately, forever.
             stored_account->password_reset_code_hash.clear();
-            stored_account->password_reset_code_sent_at = 0;
             stored_account->password_reset_code_expires_at = 0;
         }
 

@@ -38,9 +38,13 @@ bool record_account_login_failure(const std::string& root_directory, const std::
 bool clear_account_login_failures(const std::string& root_directory, const std::string& account_name, std::string* error_message = nullptr);
 // Begin a forgot-password reset for the account at this address. Malformed addresses, addresses
 // with no account, and repeat requests inside the resend cooldown all return true having written
-// and mailed nothing -- a failed request must never reveal whether an account exists. *code_expires_at
-// is always set (to the real pending expiry when one exists, otherwise to a synthetic one), so the
-// caller's timeout is identical in every case.
+// and mailed nothing -- a failed request must never reveal whether an account exists.
+// *code_expires_at is always sent_at + PASSWORD_RESET_WINDOW_SECONDS: a synthetic value derived
+// only from the caller's clock, never from stored state. The caller stamps a visible connection
+// deadline from it, so anything account-dependent here would leak through how long the connection
+// lived. Inside the cooldown the pending code may therefore expire slightly before the deadline.
+// The return value says whether the mail was actually sent; it distinguishes a send failure from
+// success and nothing else, and must never change anything the player can observe.
 bool start_password_reset(const std::string& root_directory, const std::string& email, long sent_at, long* code_expires_at, std::string* error_message = nullptr);
 // Check a reset code WITHOUT consuming it, so the player learns a code is wrong at the code prompt
 // rather than after typing a new password twice. A wrong code costs an attempt exactly as the

@@ -120,7 +120,9 @@ ever has the address the player typed.
 that a code is wrong rather than after typing a new password twice:
 1. No account, no pending code, or an expired code → generic failure.
 2. Mismatch → increment `password_reset_attempt_count`, persist; at `MAX_PASSWORD_RESET_ATTEMPTS`,
-   clear the hash and expiry so the code is dead even across a reconnect.
+   clear the hash and expiry so the code is dead even across a reconnect. `password_reset_code_sent_at`
+   is deliberately **left standing** — it is what the resend cooldown gates on, and zeroing it would
+   let an attacker mail the address a fresh code every five guesses, forever.
 3. Match → success, and **nothing is written** — the code stays pending for the completing call.
 
 `complete_password_reset` runs the same checks and then applies the change:
@@ -199,9 +201,15 @@ different code anyway. So the connection outlives the menu deadline by design.
 The generic 15-minute reaper is *not* the right backstop for it either, because it measures from
 last input: a wrong code typed at minute 10 keeps the connection alive to minute 25, stranding the
 player at a prompt whose code expired at minute 15. Instead `CON_ACCTFORGOTCODE` reuses the same
-one-second deadline check, seeded from the account's `password_reset_code_expires_at` rather than a
-fixed offset. When it passes the player is told the code expired and disconnected — at which point
-nothing is lost, because the code was already dead.
+one-second deadline check, seeded from the `code_expires_at` that `start_password_reset` reports.
+When it passes the player is told the code expired and disconnected — at which point nothing is
+lost, because the code was already dead.
+
+That reported value is **always synthetic** — `sent_at + PASSWORD_RESET_WINDOW_SECONDS`, derived
+only from the clock at the moment `1` was pressed, never from anything stored on the account. It has
+to be: the deadline is visible to whoever is holding the connection, so a value that depended on
+account state would let an attacker distinguish an address with an account from one without simply
+by pressing `1` and timing the disconnect.
 
 The same code-expiry deadline carries through `CON_ACCTFORGOTNEW` and `CON_ACCTFORGOTCNF`. The code
 is verified at the prompt but not consumed there — it is re-checked when the new password is
@@ -215,6 +223,10 @@ A player whose link drops after the code is mailed can reconnect, fail five pass
 again, and — inside the 60-second cooldown — be prompted for the code they already received, since
 the suppressed send leaves the original code pending. Past the cooldown they are simply mailed a
 fresh one. Either way the flow is recoverable without immortal intervention.
+
+Because the connection deadline is synthetic (above), a code kept alive through the cooldown can
+expire up to a minute *before* the connection does. That costs nothing: the code prompt rejects the
+dead code like any other wrong one, and the player is disconnected after five tries.
 
 ## Active sessions are not disconnected
 
