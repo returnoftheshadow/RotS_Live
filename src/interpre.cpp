@@ -3279,6 +3279,80 @@ void nanny(struct descriptor_data* d, char* arg)
         echo_off(d->descriptor);
         STATE(d) = CON_ACCTFORGOTNEW;
         return;
+    case CON_ACCTFORGOTNEW: /* new password after a verified reset code */
+        echo_on(d->descriptor);
+
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg || strlen(arg) > MAX_ACCOUNT_PASSWORD_LENGTH) {
+            SEND_TO_Q("\n\rIllegal password.\n\rNew account password: ", d);
+            *d->account_password = '\0';
+            echo_off(d->descriptor);
+            return;
+        }
+
+        {
+            std::string error_message;
+            if (!account::is_valid_password(arg, &error_message)) {
+                SEND_TO_Q(("\n\r" + error_message + "\n\rNew account password: ").c_str(), d);
+                *d->account_password = '\0';
+                echo_off(d->descriptor);
+                return;
+            }
+        }
+
+        strncpy(d->account_password, arg, MAX_ACCOUNT_PASSWORD_LENGTH);
+        d->account_password[MAX_ACCOUNT_PASSWORD_LENGTH] = '\0';
+        SEND_TO_Q("\n\rRetype the new password: ", d);
+        echo_off(d->descriptor);
+        STATE(d) = CON_ACCTFORGOTCNF;
+        return;
+
+    case CON_ACCTFORGOTCNF: /* confirm the new password and apply the reset */
+        echo_on(d->descriptor);
+
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (strcmp(arg, d->account_password)) {
+            SEND_TO_Q("\n\rPasswords don't match... start over.\n\rNew account password: ", d);
+            *d->account_password = '\0';
+            echo_off(d->descriptor);
+            STATE(d) = CON_ACCTFORGOTNEW;
+            return;
+        }
+
+        {
+            const std::string reset_code = d->account_character_name;
+            const std::string new_password = d->account_password;
+            *d->account_password = '\0';
+            *d->account_character_name = '\0';
+            d->state_deadline = 0;
+
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::complete_password_reset(kAccountStorageRoot, d->account_email, reset_code,
+                    new_password, time(0), &account_data, &error_message)) {
+                mudlog_account_event(d, "Account password reset failed");
+                SEND_TO_Q("\n\rThat reset code is not valid.\n\rPlease reconnect and try again.\n\r", d);
+                STATE(d) = CON_CLOSE;
+                return;
+            }
+
+            const bool had_active_session
+                = !active_account_character_sessions(d, account_data).empty();
+            mudlog_account_event(d,
+                had_active_session ? "Account password reset completed (session active)"
+                                   : "Account password reset completed",
+                account_data.normalized_email.c_str());
+
+            SEND_TO_Q("\n\rYour password has been updated.\n\r"
+                      "Please log in again with your new password.\n\r",
+                d);
+            STATE(d) = CON_CLOSE;
+            return;
+        }
     case CON_ACCTSLCT: /* get linked character for authenticated account */
         for (; isspace(*arg); arg++)
             continue;

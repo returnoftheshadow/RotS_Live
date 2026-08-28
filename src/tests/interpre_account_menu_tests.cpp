@@ -4961,4 +4961,138 @@ TEST(InterpreAccountMenu, ResetCodePromptDisconnectsOnEmptyInput)
     close(descriptor.descriptor);
 }
 
+TEST(InterpreAccountMenu, ForgotPasswordHappyPathResetsThePasswordAndDisconnects)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    const std::string capture_path = temp_directory.path() + "/captured-mail.txt";
+    const std::string command_script_path = temp_directory.path() + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTPWDFAIL;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "host.example.com");
+
+    char request[] = "1";
+    nanny(&descriptor, request);
+    ASSERT_EQ(descriptor.connected, CON_ACCTFORGOTCODE);
+
+    const std::string captured_mail = read_file_contents(capture_path);
+    const std::string marker = "Password reset code: ";
+    const size_t code_offset = captured_mail.find(marker);
+    ASSERT_NE(code_offset, std::string::npos);
+    std::string mailed_code = captured_mail.substr(code_offset + marker.size(), 6);
+
+    std::vector<char> code_buffer(mailed_code.begin(), mailed_code.end());
+    code_buffer.push_back('\0');
+    nanny(&descriptor, code_buffer.data());
+    ASSERT_EQ(descriptor.connected, CON_ACCTFORGOTNEW);
+
+    char new_password[] = "BrandNew1";
+    nanny(&descriptor, new_password);
+    ASSERT_EQ(descriptor.connected, CON_ACCTFORGOTCNF);
+
+    char confirm_password[] = "BrandNew1";
+    nanny(&descriptor, confirm_password);
+
+    EXPECT_EQ(descriptor.connected, CON_CLOSE);
+    EXPECT_NE(std::string(descriptor.output).find("Please log in again with your new password."), std::string::npos);
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::verify_password("BrandNew1", reloaded_account.password_hash));
+    EXPECT_TRUE(reloaded_account.password_reset_code_hash.empty());
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, ForgotPasswordRejectsAPasswordFailingPolicyWithoutAdvancing)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTFORGOTNEW;
+    char weak_password[] = "short";
+
+    nanny(&descriptor, weak_password);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTFORGOTNEW);
+    EXPECT_NE(std::string(descriptor.output).find("New account password:"), std::string::npos);
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, ForgotPasswordMismatchedConfirmationReturnsToTheNewPasswordPrompt)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTFORGOTNEW;
+
+    char new_password[] = "BrandNew1";
+    nanny(&descriptor, new_password);
+    ASSERT_EQ(descriptor.connected, CON_ACCTFORGOTCNF);
+
+    char mismatch[] = "Different1";
+    nanny(&descriptor, mismatch);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTFORGOTNEW);
+    EXPECT_NE(std::string(descriptor.output).find("Passwords don't match"), std::string::npos);
+
+    close(descriptor.descriptor);
+}
+
+// Defence in depth: the code was already checked at the prompt, but completion must re-check rather
+// than trust whatever the descriptor is carrying.
+TEST(InterpreAccountMenu, ForgotPasswordCompletionReVerifiesTheCodeRatherThanTrustingTheDescriptor)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTFORGOTNEW;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+    std::snprintf(descriptor.account_character_name, sizeof(descriptor.account_character_name), "%s", "000000");
+
+    char new_password[] = "BrandNew1";
+    nanny(&descriptor, new_password);
+    char confirm_password[] = "BrandNew1";
+    nanny(&descriptor, confirm_password);
+
+    EXPECT_EQ(descriptor.connected, CON_CLOSE);
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::verify_password("ValidPass1", reloaded_account.password_hash));
+
+    close(descriptor.descriptor);
+}
+
 } // namespace
