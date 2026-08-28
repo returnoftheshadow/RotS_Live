@@ -8,6 +8,7 @@
  *  CircleMUD is based on DikuMUD, Copyright (C) 1990, 1991.               *
  ************************************************************************ */
 
+#include <algorithm>
 #include <ctype.h>
 #include <errno.h>
 #include <execinfo.h>
@@ -646,11 +647,34 @@ void msdp_update()
         extern char* tactics[];
         MSDPSetString(desc, eMDSP_TACTIC, tactics[GET_TACTICS(desc->character) - 1]);
 
+        extern const char* specialize_name[];
+        game_types::player_specs spec = utils::get_specialization(*desc->character);
+        MSDPSetString(desc, eMDSP_SPECIALIZATION,
+            (spec >= game_types::PS_None && spec < game_types::PS_Count) ? specialize_name[spec]
+                                                                         : "nothing");
+
         MSDPSetNumber(desc, eMDSP_PERCEPTION, GET_PERCEPTION(desc->character));
         MSDPSetNumber(desc, eMDSP_WILLPOWER, GET_WILLPOWER(desc->character));
         MSDPSetNumber(desc, eMDSP_SKILL_ENCUMBRANCE, utils::get_encumbrance(*desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_ENCUMBRANCE,
             utils::get_leg_encumbrance(*desc->character));
+        MSDPSetNumber(desc, eMDSP_CARRIED_WEIGHT, IS_CARRYING_W(desc->character));
+
+        /* The coefficient can go negative -- an Uruk with no mage points takes a
+           flat -100 mage penalty in GET_PROF_COOF (utils.h) with no floor at
+           zero -- so clamp before reporting a maximum. */
+        auto max_prof_level = [](int prof, char_data* ch) {
+            return std::max(0, GET_PROF_COOF(prof, ch) * LEVEL_MAX / 1000);
+        };
+        MSDPSetNumber(desc, eMDSP_WARRIOR_LEVEL, GET_PROF_LEVEL(PROF_WARRIOR, desc->character));
+        MSDPSetNumber(
+            desc, eMDSP_WARRIOR_LEVEL_MAX, max_prof_level(PROF_WARRIOR, desc->character));
+        MSDPSetNumber(desc, eMDSP_RANGER_LEVEL, GET_PROF_LEVEL(PROF_RANGER, desc->character));
+        MSDPSetNumber(desc, eMDSP_RANGER_LEVEL_MAX, max_prof_level(PROF_RANGER, desc->character));
+        MSDPSetNumber(desc, eMDSP_MYSTIC_LEVEL, GET_PROF_LEVEL(PROF_CLERIC, desc->character));
+        MSDPSetNumber(desc, eMDSP_MYSTIC_LEVEL_MAX, max_prof_level(PROF_CLERIC, desc->character));
+        MSDPSetNumber(desc, eMDSP_MAGE_LEVEL, GET_PROF_LEVEL(PROF_MAGE, desc->character));
+        MSDPSetNumber(desc, eMDSP_MAGE_LEVEL_MAX, max_prof_level(PROF_MAGE, desc->character));
         MSDPSetNumber(desc, eMDSP_HEALTH_REGENERATION, (int)hit_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));

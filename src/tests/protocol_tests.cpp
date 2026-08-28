@@ -464,10 +464,23 @@ TEST(MSDPProtocol, ProtocolCreateInitializesExpectedDefaults)
     EXPECT_EQ(protocol->PendingInputLength, 0);
     EXPECT_EQ(protocol->IacInputLength, 0);
 
-    for (int i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i) {
+    for (int i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i)
         EXPECT_TRUE(protocol->pVariables[i]->bReport) << "MSDP enum " << i;
-        EXPECT_FALSE(protocol->pVariables[i]->bDirty) << "MSDP enum " << i;
-    }
+
+    /* Server-reported variables start dirty so the first update after login
+       transmits them even when their value is still the default. */
+    const std::vector<variable_t> primed = { eMSDP_CHARACTER_NAME, eMSDP_HEALTH, eMSDP_LEVEL,
+        eMDSP_SPELL_PEN, eMDSP_SPELL_POWER, eMDSP_CARRIED_WEIGHT, eMDSP_MAGE_LEVEL,
+        eMDSP_SPECIALIZATION, eMSDP_ROOM_NAME };
+    for (variable_t variable : primed)
+        EXPECT_TRUE(protocol->pVariables[variable]->bDirty) << "MSDP enum " << variable;
+
+    /* Client-owned configuration and GUI template variables are not primed. */
+    const std::vector<variable_t> not_primed = { eMSDP_CLIENT_ID, eMSDP_ANSI_COLORS,
+        eMSDP_XTERM_256_COLORS, eMSDP_UTF_8, eMSDP_SOUND, eMSDP_MXP, eMSDP_BUTTON_1,
+        eMSDP_GAUGE_1 };
+    for (variable_t variable : not_primed)
+        EXPECT_FALSE(protocol->pVariables[variable]->bDirty) << "MSDP enum " << variable;
 
     EXPECT_EQ(protocol->pVariables[eMSDP_SNIPPET_VERSION]->ValueInt, 8);
     EXPECT_STREQ(protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "Unknown");
@@ -540,7 +553,9 @@ TEST(MSDPProtocol, SetNumberMarksDirtyOnlyWhenValueChanges)
 {
     ProtocolDescriptor context;
 
-    EXPECT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_HEALTH]->bDirty);
+    /* HEALTH is primed dirty by ProtocolCreate; clear it to test change detection. */
+    EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_HEALTH]->bDirty);
+    context.descriptor.pProtocol->pVariables[eMSDP_HEALTH]->bDirty = false;
 
     MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 42);
     EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_HEALTH]->bDirty);
@@ -674,6 +689,10 @@ TEST(MSDPProtocol, SendPairAndListRejectOversizedPayloads)
 TEST(MSDPProtocol, PublicSetHelpersIgnoreInvalidVariables)
 {
     ProtocolDescriptor context;
+
+    /* Clear the priming flag so a dirty CHARACTER_NAME below could only come
+       from one of the invalid-variable calls. */
+    context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty = false;
 
     EXPECT_FALSE(MSDPIsValidVariable(eMSDP_NONE));
     EXPECT_FALSE(MSDPIsValidVariable(eMSDP_MAX));
@@ -1135,6 +1154,116 @@ TEST(MSDPProtocol, MsdpUpdateEmitsMinimalPlayerState)
     EXPECT_FALSE(protocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
     EXPECT_FALSE(protocol->pVariables[eMSDP_HEALTH]->bDirty);
     EXPECT_FALSE(protocol->pVariables[eMSDP_ROOM_NAME]->bDirty);
+}
+
+TEST(MSDPProtocol, MsdpUpdateEmitsZeroValuedStatsOnFirstUpdate)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    /* A character with no spell-pen/power gear and nothing carried. Without the
+       priming in ProtocolCreate these variables never reach the client at all,
+       because MSDPSetNumber only marks a variable dirty when its value changes
+       and they are already 0. */
+    initialize_msdp_player(&context.character, "Aragorn");
+    context.character.points.spell_pen = 0;
+    context.character.points.spell_power = 0;
+    context.character.specials.carry_weight = 0;
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    const std::string output = context.read_output();
+    EXPECT_NE(output.find(expected_msdp_pair("SPELL_PEN", "0")), std::string::npos);
+    EXPECT_NE(output.find(expected_msdp_pair("SPELL_POWER", "0")), std::string::npos);
+    EXPECT_NE(output.find(expected_msdp_pair("CARRIED_WEIGHT", "0")), std::string::npos);
+
+    /* Client-owned configuration variables stay out of the primed burst. */
+    EXPECT_EQ(output.find(expected_msdp_pair("ANSI_COLORS", "1")), std::string::npos);
+    EXPECT_EQ(output.find(expected_msdp_pair("SOUND", "0")), std::string::npos);
+
+    /* Priming is a one-shot: an unchanged value is not resent. */
+    msdp_update();
+    EXPECT_EQ(context.read_output(), "");
+}
+
+TEST(MSDPProtocol, MsdpUpdateEmitsCarriedWeightProfessionLevelsAndSpecialization)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    context.character.specials.carry_weight = 2550;
+    context.character.profs->specialization = game_types::PS_Archery;
+    /* square_root[n] is 100*sqrt(n), so these give coefficients of 1000, 700,
+       400 and 500 -- i.e. max profession levels of 30, 21, 12 and 15. */
+    context.character.profs->prof_coof[PROF_WARRIOR] = 100;
+    context.character.profs->prof_coof[PROF_RANGER] = 49;
+    context.character.profs->prof_coof[PROF_CLERIC] = 16;
+    context.character.profs->prof_coof[PROF_MAGE] = 25;
+
+    enable_msdp_reports(context.descriptor.pProtocol,
+        { eMDSP_CARRIED_WEIGHT, eMDSP_SPECIALIZATION, eMDSP_WARRIOR_LEVEL,
+            eMDSP_WARRIOR_LEVEL_MAX, eMDSP_RANGER_LEVEL, eMDSP_RANGER_LEVEL_MAX,
+            eMDSP_MYSTIC_LEVEL, eMDSP_MYSTIC_LEVEL_MAX, eMDSP_MAGE_LEVEL,
+            eMDSP_MAGE_LEVEL_MAX });
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    protocol_t* protocol = context.descriptor.pProtocol;
+    EXPECT_EQ(protocol->pVariables[eMDSP_CARRIED_WEIGHT]->ValueInt, 2550);
+    EXPECT_STREQ(protocol->pVariables[eMDSP_SPECIALIZATION]->pValueString, "archery");
+    EXPECT_EQ(protocol->pVariables[eMDSP_WARRIOR_LEVEL]->ValueInt, 5);
+    EXPECT_EQ(protocol->pVariables[eMDSP_WARRIOR_LEVEL_MAX]->ValueInt, 30);
+    EXPECT_EQ(protocol->pVariables[eMDSP_RANGER_LEVEL]->ValueInt, 2);
+    EXPECT_EQ(protocol->pVariables[eMDSP_RANGER_LEVEL_MAX]->ValueInt, 21);
+    EXPECT_EQ(protocol->pVariables[eMDSP_MYSTIC_LEVEL]->ValueInt, 3);
+    EXPECT_EQ(protocol->pVariables[eMDSP_MYSTIC_LEVEL_MAX]->ValueInt, 12);
+    EXPECT_EQ(protocol->pVariables[eMDSP_MAGE_LEVEL]->ValueInt, 4);
+    EXPECT_EQ(protocol->pVariables[eMDSP_MAGE_LEVEL_MAX]->ValueInt, 15);
+}
+
+TEST(MSDPProtocol, MsdpUpdateClampsNegativeProfessionMaximumForUrukWithoutMagePoints)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    /* GET_PROF_COOF applies a flat -100 mage penalty to Uruks with no floor at
+       zero, so an Uruk that spent no points on mage has a negative coefficient. */
+    initialize_msdp_player(&context.character, "Uglook");
+    context.character.player.race = RACE_URUK;
+    context.character.profs->prof_coof[PROF_MAGE] = 0;
+    context.character.profs->prof_coof[PROF_WARRIOR] = 100;
+    enable_msdp_reports(
+        context.descriptor.pProtocol, { eMDSP_MAGE_LEVEL_MAX, eMDSP_WARRIOR_LEVEL_MAX });
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    protocol_t* protocol = context.descriptor.pProtocol;
+    EXPECT_EQ(protocol->pVariables[eMDSP_MAGE_LEVEL_MAX]->ValueInt, 0);
+    EXPECT_EQ(protocol->pVariables[eMDSP_WARRIOR_LEVEL_MAX]->ValueInt, 30);
+}
+
+TEST(MSDPProtocol, MsdpUpdateReportsNoSpecializationAsNothing)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    context.character.profs->specialization = game_types::PS_None;
+    enable_msdp_reports(context.descriptor.pProtocol, { eMDSP_SPECIALIZATION });
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    EXPECT_STREQ(
+        context.descriptor.pProtocol->pVariables[eMDSP_SPECIALIZATION]->pValueString, "nothing");
 }
 
 TEST(MSDPProtocol, MsdpUpdateEmitsBroadCharacterStats)

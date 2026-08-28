@@ -146,10 +146,20 @@ static variable_name_t VariableNameTable[eMSDP_MAX + 1] = {
     { eMDSP_DODGE, "DODGE", NUMBER_READ_ONLY },
     { eMDSP_ATTACK_SPEED, "ATTACK_SPEED", NUMBER_READ_ONLY },
     { eMDSP_TACTIC, "TACTIC", STRING_READ_ONLY },
+    { eMDSP_SPECIALIZATION, "SPECIALIZATION", STRING_READ_ONLY },
     { eMDSP_PERCEPTION, "PERCEPTION", NUMBER_READ_ONLY },
     { eMDSP_WILLPOWER, "WILLPOWER", NUMBER_READ_ONLY },
     { eMDSP_SKILL_ENCUMBRANCE, "SKILL_ENCUMBRANCE", NUMBER_READ_ONLY },
     { eMDSP_MOVEMENT_ENCUMBRANCE, "MOVEMENT_ENCUMBRANCE", NUMBER_READ_ONLY },
+    { eMDSP_CARRIED_WEIGHT, "CARRIED_WEIGHT", NUMBER_READ_ONLY },
+    { eMDSP_WARRIOR_LEVEL, "WARRIOR_LEVEL", NUMBER_READ_ONLY },
+    { eMDSP_WARRIOR_LEVEL_MAX, "WARRIOR_LEVEL_MAX", NUMBER_READ_ONLY },
+    { eMDSP_RANGER_LEVEL, "RANGER_LEVEL", NUMBER_READ_ONLY },
+    { eMDSP_RANGER_LEVEL_MAX, "RANGER_LEVEL_MAX", NUMBER_READ_ONLY },
+    { eMDSP_MYSTIC_LEVEL, "MYSTIC_LEVEL", NUMBER_READ_ONLY },
+    { eMDSP_MYSTIC_LEVEL_MAX, "MYSTIC_LEVEL_MAX", NUMBER_READ_ONLY },
+    { eMDSP_MAGE_LEVEL, "MAGE_LEVEL", NUMBER_READ_ONLY },
+    { eMDSP_MAGE_LEVEL_MAX, "MAGE_LEVEL_MAX", NUMBER_READ_ONLY },
     { eMDSP_HEALTH_REGENERATION, "HEALTH_REGENERATION", NUMBER_READ_ONLY },
     { eMDSP_STAMINA_REGENERATION, "STAMINA_REGENERATION", NUMBER_READ_ONLY },
     { eMDSP_MOVEMENT_REGENERATION, "MOVEMENT_REGENERATION", NUMBER_READ_ONLY },
@@ -321,7 +331,13 @@ protocol_t* ProtocolCreate(void)
     for (i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i) {
         pProtocol->pVariables[i] = new MSDP_t;
         pProtocol->pVariables[i]->bReport = true;
-        pProtocol->pVariables[i]->bDirty = false;
+        /* Prime server-reported variables so the first update after login sends
+           them even when their value is still the default -- otherwise a stat
+           that is legitimately 0 (spell pen/power, carried weight, an unused
+           profession level) is never transmitted and looks unsupported to the
+           client. Client-owned config and GUI template variables are excluded. */
+        pProtocol->pVariables[i]->bDirty
+            = !VariableNameTable[i].bConfigurable && !VariableNameTable[i].bGUI;
         pProtocol->pVariables[i]->ValueInt = 0;
         pProtocol->pVariables[i]->pValueString = NULL;
 
