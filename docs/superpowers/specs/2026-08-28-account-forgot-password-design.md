@@ -42,6 +42,13 @@ Pressing `0`, or letting the deadline pass, disconnects.
 |---|---|---|
 | `CON_ACCTPWDFAIL` | the menu above | `1` → send code, → `CON_ACCTFORGOTCODE` · `0` → disconnect · other → re-show menu (deadline is **not** extended) · deadline → disconnect |
 | `CON_ACCTFORGOTCODE` | `Reset code: ` | correct → `CON_ACCTFORGOTNEW` · wrong → re-prompt · 5th wrong → invalidate code, disconnect · empty → disconnect · code expiry reached → say so, disconnect |
+
+Every failure at `CON_ACCTFORGOTCODE` prints the same line and the fifth disconnects, whatever the
+cause and whether or not the address has an account. The count that drives that is kept on the
+descriptor: an address with no account has no file to count on, so a cap read out of stored state
+would silently never fire for exactly the case the flow exists to hide. The account layer keeps its
+own persistent cap in parallel — that is what kills the code across a reconnect — but it never
+decides what the player sees.
 | `CON_ACCTFORGOTNEW` | `New account password: ` | passes `is_valid_password` → `CON_ACCTFORGOTCNF` · fails → re-prompt with the policy error |
 | `CON_ACCTFORGOTCNF` | `Retype the new password: ` | match → persist, disconnect · mismatch → back to `CON_ACCTFORGOTNEW` |
 

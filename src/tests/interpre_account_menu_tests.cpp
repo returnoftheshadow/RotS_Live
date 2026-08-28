@@ -4944,6 +4944,58 @@ TEST(InterpreAccountMenu, FifthWrongResetCodeDisconnects)
     close(descriptor.descriptor);
 }
 
+// The whole point of the code prompt is that it cannot be used to ask whether an address has an
+// account behind it. Five wrong codes must therefore end the same way, and say the same words,
+// whether or not there is an account to count the attempts on.
+TEST(InterpreAccountMenu, ResetCodePromptTreatsAnUnknownAddressIdenticallyToARealOne)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", "/bin/true");
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    long expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(".", "player@example.com", time(0), &expiry, &error_message)) << error_message;
+
+    char wrong_code[] = "000000";
+
+    descriptor_data known_descriptor = make_descriptor();
+    known_descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(known_descriptor.descriptor, 0);
+    known_descriptor.connected = CON_ACCTFORGOTCODE;
+    known_descriptor.state_deadline = expiry;
+    std::snprintf(known_descriptor.account_email, sizeof(known_descriptor.account_email), "%s", "player@example.com");
+
+    descriptor_data unknown_descriptor = make_descriptor();
+    unknown_descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(unknown_descriptor.descriptor, 0);
+    unknown_descriptor.connected = CON_ACCTFORGOTCODE;
+    unknown_descriptor.state_deadline = expiry;
+    std::snprintf(unknown_descriptor.account_email, sizeof(unknown_descriptor.account_email), "%s", "nobody@example.com");
+
+    for (int attempt = 0; attempt < account::MAX_PASSWORD_RESET_ATTEMPTS; ++attempt) {
+        nanny(&known_descriptor, wrong_code);
+        nanny(&unknown_descriptor, wrong_code);
+    }
+
+    // The address with no account is disconnected on the fifth wrong code exactly as the real one
+    // is, rather than being re-prompted forever.
+    EXPECT_EQ(unknown_descriptor.connected, CON_CLOSE);
+    EXPECT_EQ(known_descriptor.connected, CON_CLOSE);
+    EXPECT_NE(std::string(unknown_descriptor.output).find("Too many invalid reset codes."), std::string::npos);
+    // Not merely the same ending -- the same words, all the way through.
+    EXPECT_EQ(std::string(unknown_descriptor.output), std::string(known_descriptor.output));
+
+    close(known_descriptor.descriptor);
+    close(unknown_descriptor.descriptor);
+}
+
 TEST(InterpreAccountMenu, ResetCodePromptDisconnectsOnEmptyInput)
 {
     ScopedDescriptorListReset descriptor_list_reset;

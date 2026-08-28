@@ -3252,22 +3252,28 @@ void nanny(struct descriptor_data* d, char* arg)
         }
 
         {
-            std::string error_message;
             // Checked without being consumed: complete_password_reset re-checks it when the new
             // password is applied. A correct code never charges an attempt, so checking twice is
             // free -- and a wrong one is reported here rather than after two password prompts.
-            if (!account::verify_password_reset_code(kAccountStorageRoot, d->account_email, arg, time(0), &error_message)) {
+            //
+            // The account layer's error text is deliberately not read. It varies with the cause,
+            // and for an address with no account there is no stored record to vary it at all --
+            // branching on it left an unknown address re-prompted forever while a real one
+            // disconnected on the fifth wrong code, which is an account-existence oracle. The
+            // attempt cap the player sees is therefore counted here, on the descriptor, and every
+            // failure says exactly one thing. The account layer keeps its own persistent cap; that
+            // is what durably kills the code across a reconnect.
+            if (!account::verify_password_reset_code(kAccountStorageRoot, d->account_email, arg, time(0), nullptr)) {
                 *d->account_character_name = '\0';
 
-                if (error_message.find("Too many") != std::string::npos
-                    || error_message.find("expired") != std::string::npos) {
+                if (++(d->bad_pws) >= account::MAX_PASSWORD_RESET_ATTEMPTS) {
                     d->state_deadline = 0;
-                    SEND_TO_Q(("\n\r" + error_message + "\n\rPlease reconnect and try again.\n\r").c_str(), d);
+                    SEND_TO_Q("\n\rToo many invalid reset codes.\n\rPlease reconnect and try again.\n\r", d);
                     STATE(d) = CON_CLOSE;
                     return;
                 }
 
-                SEND_TO_Q(("\n\r" + error_message + "\n\rReset code: ").c_str(), d);
+                SEND_TO_Q("\n\rThat reset code is invalid.\n\rReset code: ", d);
                 return;
             }
         }
