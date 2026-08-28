@@ -41,7 +41,7 @@ Pressing `0`, or letting the deadline pass, disconnects.
 | State | Prompt | Transitions |
 |---|---|---|
 | `CON_ACCTPWDFAIL` | the menu above | `1` → send code, → `CON_ACCTFORGOTCODE` · `0` → disconnect · other → re-show menu (deadline is **not** extended) · deadline → disconnect |
-| `CON_ACCTFORGOTCODE` | `Reset code: ` | correct → `CON_ACCTFORGOTNEW` · wrong → re-prompt · 5th wrong → invalidate code, disconnect · empty → disconnect |
+| `CON_ACCTFORGOTCODE` | `Reset code: ` | correct → `CON_ACCTFORGOTNEW` · wrong → re-prompt · 5th wrong → invalidate code, disconnect · empty → disconnect · code expiry reached → say so, disconnect |
 | `CON_ACCTFORGOTNEW` | `New account password: ` | passes `is_valid_password` → `CON_ACCTFORGOTCNF` · fails → re-prompt with the policy error |
 | `CON_ACCTFORGOTCNF` | `Retype the new password: ` | match → persist, disconnect · mismatch → back to `CON_ACCTFORGOTNEW` |
 
@@ -169,9 +169,31 @@ would reset the clock indefinitely.
 `check_pre_login_idle()` (`comm.cpp:691`) already reaps characterless descriptors after 15 minutes,
 but it is swept once a minute (`comm.cpp:1112`), so a 90-second deadline checked there would
 actually fire between 90 and 150 seconds. The deadline check therefore goes on the existing
-one-second pulse block instead — a short walk of a small list, negligible cost. The 15-minute
-reaper still covers the other three states, which need no deadline of their own; the reset code
-expires on its own in any case.
+one-second pulse block instead — a short walk of a small list, negligible cost.
+
+### The code prompt is not deadlined — it lives exactly as long as the code
+
+The 90-second deadline is cleared on entry to `CON_ACCTFORGOTCODE` and no shorter one replaces it.
+Disconnecting someone who is holding a valid code destroys the code's value: getting back to the
+prompt costs five more failed passwords, and by then the cooldown may have lapsed and issued a
+different code anyway. So the connection outlives the menu deadline by design.
+
+The generic 15-minute reaper is *not* the right backstop for it either, because it measures from
+last input: a wrong code typed at minute 10 keeps the connection alive to minute 25, stranding the
+player at a prompt whose code expired at minute 15. Instead `CON_ACCTFORGOTCODE` reuses the same
+one-second deadline check, seeded from the account's `password_reset_code_expires_at` rather than a
+fixed offset. When it passes the player is told the code expired and disconnected — at which point
+nothing is lost, because the code was already dead.
+
+`CON_ACCTFORGOTNEW` and `CON_ACCTFORGOTCNF` have no deadline. The code has already been spent by
+then, and the 15-minute reaper is an adequate backstop for someone who walks away mid-password.
+
+### Reconnecting mid-flow does not strand the player
+
+A player whose link drops after the code is mailed can reconnect, fail five passwords, press `1`
+again, and — inside the 60-second cooldown — be prompted for the code they already received, since
+the suppressed send leaves the original code pending. Past the cooldown they are simply mailed a
+fresh one. Either way the flow is recoverable without immortal intervention.
 
 ## Active sessions are not disconnected
 
