@@ -3239,6 +3239,46 @@ void nanny(struct descriptor_data* d, char* arg)
 
         show_account_reset_menu(d);
         return;
+    case CON_ACCTFORGOTCODE: /* reset code from the email */
+        echo_on(d->descriptor);
+
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg) {
+            d->state_deadline = 0;
+            STATE(d) = CON_CLOSE;
+            return;
+        }
+
+        {
+            std::string error_message;
+            // Checked without being consumed: complete_password_reset re-checks it when the new
+            // password is applied. A correct code never charges an attempt, so checking twice is
+            // free -- and a wrong one is reported here rather than after two password prompts.
+            if (!account::verify_password_reset_code(kAccountStorageRoot, d->account_email, arg, time(0), &error_message)) {
+                *d->account_character_name = '\0';
+
+                if (error_message.find("Too many") != std::string::npos
+                    || error_message.find("expired") != std::string::npos) {
+                    d->state_deadline = 0;
+                    SEND_TO_Q(("\n\r" + error_message + "\n\rPlease reconnect and try again.\n\r").c_str(), d);
+                    STATE(d) = CON_CLOSE;
+                    return;
+                }
+
+                SEND_TO_Q(("\n\r" + error_message + "\n\rReset code: ").c_str(), d);
+                return;
+            }
+        }
+
+        strncpy(d->account_character_name, arg, sizeof(d->account_character_name) - 1);
+        d->account_character_name[sizeof(d->account_character_name) - 1] = '\0';
+
+        SEND_TO_Q("\n\rNew account password: ", d);
+        echo_off(d->descriptor);
+        STATE(d) = CON_ACCTFORGOTNEW;
+        return;
     case CON_ACCTSLCT: /* get linked character for authenticated account */
         for (; isspace(*arg); arg++)
             continue;

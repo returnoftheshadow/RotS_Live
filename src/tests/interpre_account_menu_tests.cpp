@@ -333,6 +333,36 @@ void write_text_file(const std::string& path, const std::string& contents)
     std::fclose(file);
 }
 
+std::string read_file_contents(const std::string& path)
+{
+    FILE* file = std::fopen(path.c_str(), "rb");
+    EXPECT_NE(file, nullptr) << "Expected test helper to open fixture file: " << path;
+    if (file == nullptr)
+        return "";
+
+    std::string contents;
+    char buffer[256];
+    while (true) {
+        const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+        if (bytes_read > 0)
+            contents.append(buffer, bytes_read);
+
+        if (bytes_read < sizeof(buffer)) {
+            EXPECT_EQ(std::ferror(file), 0) << "Expected test helper to read fixture file cleanly: " << path;
+            break;
+        }
+    }
+
+    EXPECT_EQ(std::fclose(file), 0);
+    return contents;
+}
+
+void make_file_executable(const std::string& path)
+{
+    ASSERT_EQ(chmod(path.c_str(), 0700), 0)
+        << "Expected test helper to mark fixture file executable: " << path;
+}
+
 size_t count_occurrences(const std::string& haystack, const std::string& needle)
 {
     if (needle.empty())
@@ -4795,6 +4825,138 @@ TEST(InterpreAccountMenu, ResetMenuChoiceOneAdvancesToTheCodePromptForAnUnknownA
     EXPECT_NE(std::string(descriptor.output).find("If an account exists for that address"), std::string::npos);
     EXPECT_NE(descriptor.state_deadline, 0);
     EXPECT_NE(descriptor.state_deadline, 1900000000);
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, CorrectResetCodeAdvancesToTheNewPasswordPrompt)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    const std::string capture_path = temp_directory.path() + "/captured-mail.txt";
+    const std::string command_script_path = temp_directory.path() + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+
+    long expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(".", "player@example.com", time(0), &expiry, &error_message)) << error_message;
+    const std::string captured_mail = read_file_contents(capture_path);
+    const std::string marker = "Password reset code: ";
+    const size_t code_offset = captured_mail.find(marker);
+    ASSERT_NE(code_offset, std::string::npos);
+    std::string mailed_code = captured_mail.substr(code_offset + marker.size(), 6);
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTFORGOTCODE;
+    descriptor.state_deadline = expiry;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+
+    std::vector<char> code_buffer(mailed_code.begin(), mailed_code.end());
+    code_buffer.push_back('\0');
+    nanny(&descriptor, code_buffer.data());
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTFORGOTNEW);
+    EXPECT_EQ(std::string(descriptor.account_character_name), mailed_code);
+    EXPECT_NE(std::string(descriptor.output).find("New account password:"), std::string::npos);
+    // The code's own expiry keeps bounding the connection through the password prompts.
+    EXPECT_EQ(descriptor.state_deadline, expiry);
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, WrongResetCodeIsReportedImmediatelyAndRePrompts)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", "/bin/true");
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    long expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(".", "player@example.com", time(0), &expiry, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTFORGOTCODE;
+    descriptor.state_deadline = expiry;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+    char wrong_code[] = "000000";
+
+    nanny(&descriptor, wrong_code);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTFORGOTCODE);
+    EXPECT_NE(std::string(descriptor.output).find("Reset code: "), std::string::npos);
+    EXPECT_TRUE(std::string(descriptor.account_character_name).empty());
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, FifthWrongResetCodeDisconnects)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", "/bin/true");
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    long expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(".", "player@example.com", time(0), &expiry, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTFORGOTCODE;
+    descriptor.state_deadline = expiry;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+
+    char wrong_code[] = "000000";
+    for (int attempt = 0; attempt < account::MAX_PASSWORD_RESET_ATTEMPTS; ++attempt) {
+        if (descriptor.connected != CON_ACCTFORGOTCODE)
+            break;
+        nanny(&descriptor, wrong_code);
+    }
+
+    EXPECT_EQ(descriptor.connected, CON_CLOSE);
+    EXPECT_NE(std::string(descriptor.output).find("Too many invalid reset codes."), std::string::npos);
+
+    close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, ResetCodePromptDisconnectsOnEmptyInput)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.descriptor = open("/dev/null", O_WRONLY);
+    ASSERT_GE(descriptor.descriptor, 0);
+    descriptor.connected = CON_ACCTFORGOTCODE;
+    char empty_input[] = "";
+
+    nanny(&descriptor, empty_input);
+
+    EXPECT_EQ(descriptor.connected, CON_CLOSE);
 
     close(descriptor.descriptor);
 }
