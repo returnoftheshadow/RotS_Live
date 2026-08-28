@@ -1265,9 +1265,56 @@ the new password across `CON_ACCTFORGOTNEW` → `CON_ACCTFORGOTCNF`, so the code
 `account_character_name` is a `MAX_INPUT_LENGTH` scratch field already used for pending account
 actions and is unused in this flow.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Add the two test helpers this file is missing**
 
-Append to `src/tests/interpre_account_menu_tests.cpp`:
+`src/tests/interpre_account_menu_tests.cpp` already has `write_text_file`, `ScopedEnvironmentVariable`,
+`ScopedWorkingDirectory`, and `TemporaryDirectory`, but it does **not** have `make_file_executable` or
+`read_file_contents` — the tests below need both to capture the mailed reset code. Copy them from
+`src/tests/account_management_tests.cpp` into this file's existing anonymous namespace, beside
+`write_text_file`:
+
+```cpp
+std::string read_file_contents(const std::string& path)
+{
+    FILE* file = std::fopen(path.c_str(), "rb");
+    EXPECT_NE(file, nullptr) << "Expected test helper to open fixture file: " << path;
+    if (file == nullptr)
+        return "";
+
+    std::string contents;
+    char buffer[256];
+    while (true) {
+        const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+        if (bytes_read > 0)
+            contents.append(buffer, bytes_read);
+
+        if (bytes_read < sizeof(buffer)) {
+            EXPECT_EQ(std::ferror(file), 0) << "Expected test helper to read fixture file cleanly: " << path;
+            break;
+        }
+    }
+
+    EXPECT_EQ(std::fclose(file), 0);
+    return contents;
+}
+
+void make_file_executable(const std::string& path)
+{
+    ASSERT_EQ(chmod(path.c_str(), 0700), 0)
+        << "Expected test helper to mark fixture file executable: " << path;
+}
+```
+
+Ensure `<sys/stat.h>` is included (it already is, for `mkdir`).
+
+- [ ] **Step 2: Write the failing tests**
+
+Append to `src/tests/interpre_account_menu_tests.cpp`.
+
+**Every test that calls `account::start_password_reset` MUST set `ROTS_SENDMAIL_COMMAND` first.** The
+docker test image has no MTA, so an unmocked call execs a nonexistent sendmail, exits 127, and the
+`ASSERT_TRUE` fails. Tests that need the code capture it with a script; tests that only need the send
+to succeed can use the file's existing lighter idiom, `ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", "/bin/true");`.
 
 ```cpp
 TEST(InterpreAccountMenu, CorrectResetCodeAdvancesToTheNewPasswordPrompt)
@@ -1324,6 +1371,8 @@ TEST(InterpreAccountMenu, WrongResetCodeIsReportedImmediatelyAndRePrompts)
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
 
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", "/bin/true");
+
     account::AccountData stored_account;
     std::string error_message;
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
@@ -1354,6 +1403,8 @@ TEST(InterpreAccountMenu, FifthWrongResetCodeDisconnects)
     ScopedDescriptorListReset descriptor_list_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", "/bin/true");
 
     account::AccountData stored_account;
     std::string error_message;
@@ -1399,12 +1450,12 @@ TEST(InterpreAccountMenu, ResetCodePromptDisconnectsOnEmptyInput)
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `scripts/rots-docker.sh test --gtest_filter='InterpreAccountMenu.*ResetCode*'`
 Expected: all 4 FAIL — `CON_ACCTFORGOTCODE` falls through `nanny()`'s switch, so `connected` never changes.
 
-- [ ] **Step 3: Handle the code prompt**
+- [ ] **Step 4: Handle the code prompt**
 
 In `src/interpre.cpp`, in `nanny()`, after the `CON_ACCTPWDFAIL` case:
 
@@ -1454,12 +1505,12 @@ The generic "That reset code is invalid." message is identical whether the addre
 has no pending code, or simply got the digits wrong — the same non-enumeration rule as everywhere
 else in this flow.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `scripts/rots-docker.sh test --gtest_filter='InterpreAccountMenu.*ResetCode*'`
 Expected: 4 tests PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 cd src && clang-format -i -style=WebKit interpre.cpp tests/interpre_account_menu_tests.cpp && cd ..
