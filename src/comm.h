@@ -41,6 +41,7 @@ void send_to_outdoor(const char* messg, int mode);
 void send_to_sector(const char* messg, int sector_type);
 void perform_to_all(char* messg, struct char_data* ch);
 void close_socket(struct descriptor_data* d, int drop_all = TRUE);
+void check_state_deadlines(time_t now);
 void break_spell(struct char_data* ch);
 void abort_delay(char_data* wait_ch);
 void complete_delay(struct char_data* ch);

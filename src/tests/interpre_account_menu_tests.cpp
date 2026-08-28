@@ -41,6 +41,7 @@ int create_entry(char* name);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 int process_input(struct descriptor_data* t);
 int get_from_q(struct txt_q* queue, char* dest);
+void check_state_deadlines(time_t now);
 
 namespace {
 
@@ -4630,6 +4631,72 @@ TEST(InterpreAccountMenu, SuccessfulAccountLoginReportsAndClearsRecordedLoginFai
     EXPECT_TRUE(reloaded_account.failed_login_last_host.empty());
 
     close(descriptor.descriptor);
+}
+
+TEST(InterpreAccountMenu, StateDeadlineClosesTheConnectionOnceItPasses)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data* descriptor = allocate_descriptor();
+    descriptor->descriptor = 7;
+    descriptor->connected = CON_ACCTPWD;
+    descriptor->state_deadline = 1700002000;
+    descriptor_list = descriptor;
+
+    check_state_deadlines(1700002000);
+
+    EXPECT_EQ(descriptor->connected, CON_CLOSE);
+    EXPECT_EQ(descriptor->state_deadline, 0);
+    EXPECT_NE(std::string(descriptor->output).find("Timed out."), std::string::npos);
+}
+
+TEST(InterpreAccountMenu, StateDeadlineLeavesConnectionsAloneBeforeItPasses)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data* descriptor = allocate_descriptor();
+    descriptor->descriptor = 7;
+    descriptor->connected = CON_ACCTPWD;
+    descriptor->state_deadline = 1700002000;
+    descriptor_list = descriptor;
+
+    check_state_deadlines(1700001999);
+
+    EXPECT_EQ(descriptor->connected, CON_ACCTPWD);
+    EXPECT_EQ(descriptor->state_deadline, 1700002000);
+    EXPECT_EQ(std::string(descriptor->output), "");
+}
+
+TEST(InterpreAccountMenu, StateDeadlineIgnoresDescriptorsWithoutOne)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data* descriptor = allocate_descriptor();
+    descriptor->descriptor = 7;
+    descriptor->connected = CON_ACCTMENU;
+    descriptor->state_deadline = 0;
+    descriptor_list = descriptor;
+
+    check_state_deadlines(1900000000);
+
+    EXPECT_EQ(descriptor->connected, CON_ACCTMENU);
+    EXPECT_EQ(std::string(descriptor->output), "");
+}
+
+TEST(InterpreAccountMenu, StateDeadlineNamesTheExpiredCodeInTheForgotPasswordStates)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data* descriptor = allocate_descriptor();
+    descriptor->descriptor = 7;
+    descriptor->connected = CON_ACCTFORGOTNEW;
+    descriptor->state_deadline = 1700002000;
+    descriptor_list = descriptor;
+
+    check_state_deadlines(1700002001);
+
+    EXPECT_EQ(descriptor->connected, CON_CLOSE);
+    EXPECT_NE(std::string(descriptor->output).find("That reset code has expired."), std::string::npos);
 }
 
 } // namespace

@@ -707,6 +707,35 @@ void check_pre_login_idle()
     }
 }
 
+/*
+** Close connections whose current state carried an absolute deadline. Distinct from
+** check_pre_login_idle(), which measures idleness from last input -- a deadline here is fixed when
+** the state is entered, so typing at a prompt cannot extend it.
+*/
+void check_state_deadlines(time_t now)
+{
+    descriptor_data *point, *next_point;
+
+    for (point = descriptor_list; point; point = next_point) {
+        next_point = point->next;
+
+        if (point->state_deadline == 0 || now < point->state_deadline)
+            continue;
+
+        point->state_deadline = 0;
+
+        // The three forgot-password states are all bounded by the code's own expiry, so name the
+        // real reason rather than a generic timeout.
+        if (point->connected == CON_ACCTFORGOTCODE || point->connected == CON_ACCTFORGOTNEW
+            || point->connected == CON_ACCTFORGOTCNF)
+            SEND_TO_Q("\n\rThat reset code has expired.\n\r", point);
+        else
+            SEND_TO_Q("\n\rTimed out.\n\r", point);
+
+        STATE(point) = CON_CLOSE;
+    }
+}
+
 void game_loop(SocketType s)
 {
     fd_set input_set, output_set, exc_set;
@@ -1125,6 +1154,8 @@ void game_loop(SocketType s)
         if (!(pulse % 4)) {
             game_timer::skill_timer& st_instance = game_timer::skill_timer::instance();
             st_instance.update_skill_timer();
+
+            check_state_deadlines(time(0));
         }
 
         if (!(pulse % 1200)) {
@@ -1516,6 +1547,7 @@ SocketType pnew_descriptor(SocketType s)
     pnewd->descriptor = desc;
     pnewd->connected = CON_NME;
     pnewd->bad_pws = 0;
+    pnewd->state_deadline = 0;
     pnewd->proxy_peer_address = 0;
     pnewd->proxy_peer_bytes_read = 0;
     pnewd->waiting_for_proxy_header = has_proxy ? true : false;
