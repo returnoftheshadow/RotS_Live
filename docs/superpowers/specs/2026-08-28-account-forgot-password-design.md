@@ -164,7 +164,9 @@ Set when `CON_ACCTPWDFAIL` is entered, cleared on every transition out of it. It
 absolute deadline rather than a comparison against `last_input_time`, or typing junk at the menu
 would reset the clock indefinitely.
 
-**90 seconds**, stated in the menu text.
+**90 seconds**, stated in the menu text. Provisional — kept because it is already far more generous
+than the instant disconnect the fifth wrong password causes today, but revisit if it proves too
+quick in practice. Nothing depends on the value; raising it is a one-constant change.
 
 `check_pre_login_idle()` (`comm.cpp:691`) already reaps characterless descriptors after 15 minutes,
 but it is swept once a minute (`comm.cpp:1112`), so a 90-second deadline checked there would
