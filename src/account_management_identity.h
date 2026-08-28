@@ -36,6 +36,12 @@ bool authenticate_account_by_email(const std::string& root_directory, const std:
 bool record_account_login_failure(const std::string& root_directory, const std::string& email, const std::string& host, long attempted_at, std::string* error_message = nullptr);
 // Clear the failure tally after a successful login. Writes nothing when there is nothing to clear.
 bool clear_account_login_failures(const std::string& root_directory, const std::string& account_name, std::string* error_message = nullptr);
+// Begin a forgot-password reset for the account at this address. Malformed addresses, addresses
+// with no account, and repeat requests inside the resend cooldown all return true having written
+// and mailed nothing -- a failed request must never reveal whether an account exists. *code_expires_at
+// is always set (to the real pending expiry when one exists, otherwise to a synthetic one), so the
+// caller's timeout is identical in every case.
+bool start_password_reset(const std::string& root_directory, const std::string& email, long sent_at, long* code_expires_at, std::string* error_message = nullptr);
 bool start_email_verification(const std::string& root_directory, const std::string& account_name, long sent_at, AccountData* account, std::string* error_message = nullptr);
 bool complete_email_verification(const std::string& root_directory, const std::string& account_name, const std::string& verification_code, const std::string& verified_by, long verified_at, AccountData* account, std::string* error_message = nullptr);
 bool find_linked_character_owner_account(const std::string& root_directory, const std::string& character_name, std::string* owner_account_name, std::string* error_message = nullptr);

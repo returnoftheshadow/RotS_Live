@@ -397,6 +397,19 @@ namespace {
         return send_email_message(account.normalized_email, "RotS account verification code", body.str(), error_message);
     }
 
+    bool send_password_reset_email(const AccountData& account, const std::string& reset_code, std::string* error_message)
+    {
+        std::ostringstream body;
+        body << "A password reset was requested for your RotS account.\n\n";
+        body << "Email: " << account.normalized_email << "\n";
+        body << "Password reset code: " << reset_code << "\n";
+        body << "This code is valid for 15 minutes.\n\n";
+        body << "If you did not request this reset, you can ignore this email. Your password has\n";
+        body << "not been changed.";
+
+        return send_email_message(account.normalized_email, "RotS account password reset code", body.str(), error_message);
+    }
+
     std::string hex_encode(const std::string& bytes)
     {
         static constexpr char kHexDigits[] = "0123456789abcdef";

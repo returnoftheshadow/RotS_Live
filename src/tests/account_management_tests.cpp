@@ -3014,3 +3014,139 @@ TEST(AccountManagement, KeepsResetAndVerificationAttemptCapsUniform)
     EXPECT_EQ(account::PASSWORD_RESET_WINDOW_SECONDS, account::EMAIL_VERIFICATION_WINDOW_SECONDS);
     EXPECT_EQ(account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS, account::EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS);
 }
+
+TEST(AccountManagement, StartPasswordResetIgnoresAddressesWithoutAnAccount)
+{
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    long code_expires_at = 0;
+
+    EXPECT_TRUE(account::start_password_reset(temp_directory.path(), "nobody@example.com", 1700002000, &code_expires_at, &error_message)) << error_message;
+
+    EXPECT_EQ(code_expires_at, 1700002000 + account::PASSWORD_RESET_WINDOW_SECONDS);
+    struct stat file_info { };
+    EXPECT_NE(stat(account::account_file_path(temp_directory.path(), "nobody@example.com").c_str(), &file_info), 0);
+}
+
+TEST(AccountManagement, StartPasswordResetStoresAHashedCodeAndMailsIt)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path,
+        "#!/bin/sh\n"
+        "cat > \""
+            + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    long code_expires_at = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &code_expires_at, &error_message)) << error_message;
+
+    EXPECT_EQ(code_expires_at, 1700002000 + account::PASSWORD_RESET_WINDOW_SECONDS);
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_FALSE(stored_account.password_reset_code_hash.empty());
+    EXPECT_EQ(stored_account.password_reset_code_sent_at, 1700002000);
+    EXPECT_EQ(stored_account.password_reset_code_expires_at, 1700002000 + account::PASSWORD_RESET_WINDOW_SECONDS);
+    EXPECT_EQ(stored_account.password_reset_attempt_count, 0);
+
+    const std::string captured_mail = read_file_contents(capture_path);
+    EXPECT_NE(captured_mail.find("To: player@example.com"), std::string::npos);
+    EXPECT_NE(captured_mail.find("Subject: RotS account password reset code"), std::string::npos);
+    EXPECT_NE(captured_mail.find("Password reset code: "), std::string::npos);
+    // The plaintext code must never be what we stored.
+    EXPECT_EQ(captured_mail.find(stored_account.password_reset_code_hash), std::string::npos);
+}
+
+TEST(AccountManagement, StartPasswordResetSuppressesASecondCodeInsideTheCooldown)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string command_script_path = root + "/discard-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > /dev/null\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    long first_expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &first_expiry, &error_message)) << error_message;
+
+    account::AccountData after_first;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_first, &error_message)) << error_message;
+
+    long second_expiry = 0;
+    const long inside_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS - 1;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", inside_cooldown, &second_expiry, &error_message)) << error_message;
+
+    account::AccountData after_second;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_second, &error_message)) << error_message;
+
+    // The first code is untouched and still the one that works.
+    EXPECT_EQ(after_second.password_reset_code_hash, after_first.password_reset_code_hash);
+    EXPECT_EQ(after_second.password_reset_code_sent_at, 1700002000);
+    EXPECT_EQ(second_expiry, after_first.password_reset_code_expires_at);
+}
+
+TEST(AccountManagement, StartPasswordResetIssuesAFreshCodeOnceTheCooldownLapses)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string command_script_path = root + "/discard-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > /dev/null\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    long expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &expiry, &error_message)) << error_message;
+    account::AccountData after_first;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_first, &error_message)) << error_message;
+
+    const long past_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", past_cooldown, &expiry, &error_message)) << error_message;
+    account::AccountData after_second;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_second, &error_message)) << error_message;
+
+    EXPECT_NE(after_second.password_reset_code_hash, after_first.password_reset_code_hash);
+    EXPECT_EQ(after_second.password_reset_code_sent_at, past_cooldown);
+}
+
+TEST(AccountManagement, StartPasswordResetLeavesAPendingEmailVerificationCodeAlone)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string command_script_path = root + "/discard-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > /dev/null\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    std::string verification_code;
+    ASSERT_TRUE(account::prepare_email_verification_code(&created_account, 1700001500, &verification_code, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_file(root, created_account, &error_message)) << error_message;
+
+    long expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &expiry, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.verification_code_hash, created_account.verification_code_hash);
+    EXPECT_EQ(stored_account.verification_code_expires_at, created_account.verification_code_expires_at);
+    EXPECT_NE(stored_account.password_reset_code_hash, stored_account.verification_code_hash);
+}

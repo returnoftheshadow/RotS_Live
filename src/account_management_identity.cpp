@@ -634,6 +634,59 @@ bool clear_account_login_failures(const std::string& root_directory, const std::
     return true;
 }
 
+bool start_password_reset(const std::string& root_directory, const std::string& email, long sent_at, long* code_expires_at, std::string* error_message)
+{
+    // Set unconditionally up front: every early return below must leave the caller with the same
+    // observable deadline, or the timeout becomes an account-existence oracle.
+    if (code_expires_at != nullptr)
+        *code_expires_at = sent_at + PASSWORD_RESET_WINDOW_SECONDS;
+
+    if (!is_valid_email(email, nullptr)) {
+        set_error(error_message, "");
+        return true;
+    }
+
+    AccountData stored_account;
+    if (!find_account_by_email_internal(root_directory, email, &stored_account, nullptr)) {
+        set_error(error_message, "");
+        return true;
+    }
+
+    if (stored_account.password_reset_code_sent_at != 0
+        && sent_at < stored_account.password_reset_code_sent_at + PASSWORD_RESET_RESEND_COOLDOWN_SECONDS) {
+        // Inside the cooldown the previous code is still pending and still works, so a player who
+        // reconnected mid-flow can finish with the code already in their inbox.
+        if (code_expires_at != nullptr && stored_account.password_reset_code_expires_at != 0)
+            *code_expires_at = stored_account.password_reset_code_expires_at;
+        set_error(error_message, "");
+        return true;
+    }
+
+    const std::string generated_code = generate_numeric_verification_code();
+    if (generated_code.empty()) {
+        set_error(error_message, "Failed to generate a password reset code.");
+        return false;
+    }
+
+    std::string reset_salt;
+    if (!generate_hash_for_secret(generated_code, &stored_account.password_reset_code_hash, &reset_salt, error_message))
+        return false;
+
+    stored_account.password_reset_code_sent_at = sent_at;
+    stored_account.password_reset_code_expires_at = sent_at + PASSWORD_RESET_WINDOW_SECONDS;
+    stored_account.password_reset_attempt_count = 0;
+    stored_account.updated_at = sent_at;
+
+    if (!write_account_file(root_directory, stored_account, error_message))
+        return false;
+
+    if (!send_password_reset_email(stored_account, generated_code, error_message))
+        return false;
+
+    set_error(error_message, "");
+    return true;
+}
+
 bool start_email_verification(const std::string& root_directory, const std::string& account_name, long sent_at, AccountData* account, std::string* error_message)
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
