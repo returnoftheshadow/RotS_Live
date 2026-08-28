@@ -687,6 +687,103 @@ bool start_password_reset(const std::string& root_directory, const std::string& 
     return true;
 }
 
+namespace {
+
+// Shared by verify_password_reset_code and complete_password_reset so the two can never disagree
+// about what counts as a failure. Loads the account, checks the code, and charges an attempt on
+// mismatch (clearing the code at the cap). Writes only on mismatch -- a correct code leaves the
+// stored record untouched.
+bool check_password_reset_code(const std::string& root_directory, const std::string& email, const std::string& reset_code, long attempted_at, AccountData* stored_account, std::string* error_message)
+{
+    if (!is_valid_email(email, nullptr)) {
+        set_error(error_message, "That reset code is invalid.");
+        return false;
+    }
+
+    if (!find_account_by_email_internal(root_directory, email, stored_account, nullptr)) {
+        set_error(error_message, "That reset code is invalid.");
+        return false;
+    }
+
+    if (stored_account->password_reset_code_hash.empty() || stored_account->password_reset_code_expires_at == 0) {
+        set_error(error_message, "That reset code is invalid.");
+        return false;
+    }
+
+    if (attempted_at > stored_account->password_reset_code_expires_at) {
+        set_error(error_message, "That reset code has expired.");
+        return false;
+    }
+
+    const std::string trimmed_code = trim_copy(reset_code);
+    if (trimmed_code.empty() || !verify_password(trimmed_code, stored_account->password_reset_code_hash)) {
+        ++stored_account->password_reset_attempt_count;
+        stored_account->updated_at = attempted_at;
+
+        const bool exhausted = stored_account->password_reset_attempt_count >= MAX_PASSWORD_RESET_ATTEMPTS;
+        if (exhausted) {
+            stored_account->password_reset_code_hash.clear();
+            stored_account->password_reset_code_sent_at = 0;
+            stored_account->password_reset_code_expires_at = 0;
+        }
+
+        write_account_file(root_directory, *stored_account, nullptr);
+        set_error(error_message, exhausted ? "Too many invalid reset codes." : "That reset code is invalid.");
+        return false;
+    }
+
+    set_error(error_message, "");
+    return true;
+}
+
+} // namespace
+
+bool verify_password_reset_code(const std::string& root_directory, const std::string& email, const std::string& reset_code, long attempted_at, std::string* error_message)
+{
+    AccountData stored_account;
+    return check_password_reset_code(root_directory, email, reset_code, attempted_at, &stored_account, error_message);
+}
+
+bool complete_password_reset(const std::string& root_directory, const std::string& email, const std::string& reset_code, const std::string& new_password, long reset_at, AccountData* account, std::string* error_message)
+{
+    AccountData stored_account;
+    if (!check_password_reset_code(root_directory, email, reset_code, reset_at, &stored_account, error_message))
+        return false;
+
+    // Validate the password only after the code is known good, so a rejected password never tells
+    // an attacker their guessed code was right.
+    if (!is_valid_password(new_password, error_message))
+        return false;
+
+    if (!reset_account_password(&stored_account, new_password, "forgot-password", reset_at, error_message))
+        return false;
+
+    stored_account.password_reset_code_hash.clear();
+    stored_account.password_reset_code_sent_at = 0;
+    stored_account.password_reset_code_expires_at = 0;
+    stored_account.password_reset_attempt_count = 0;
+
+    // Receiving the code proves control of the address, which also unsticks an account that never
+    // finished verification.
+    if (!stored_account.email_verified)
+        verify_email(&stored_account, "forgot-password", reset_at);
+
+    // These failures were the player's own, on the way to this reset; leaving them would greet them
+    // with a warning about themselves.
+    stored_account.failed_login_count = 0;
+    stored_account.failed_login_last_at = 0;
+    stored_account.failed_login_last_host.clear();
+
+    if (!write_account_file(root_directory, stored_account, error_message))
+        return false;
+
+    if (account != nullptr)
+        *account = stored_account;
+
+    set_error(error_message, "");
+    return true;
+}
+
 bool start_email_verification(const std::string& root_directory, const std::string& account_name, long sent_at, AccountData* account, std::string* error_message)
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
@@ -1005,7 +1102,7 @@ bool admin_delete_linked_character(const std::string& root_directory, const std:
     };
 
     auto stage_file_removal = [&](StagedRemoval* staged_removal) -> bool {
-        struct stat file_info {};
+        struct stat file_info { };
         if (stat(staged_removal->original_path.c_str(), &file_info) != 0) {
             if (errno == ENOENT) {
                 staged_removal->existed = false;

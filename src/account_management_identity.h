@@ -42,6 +42,16 @@ bool clear_account_login_failures(const std::string& root_directory, const std::
 // is always set (to the real pending expiry when one exists, otherwise to a synthetic one), so the
 // caller's timeout is identical in every case.
 bool start_password_reset(const std::string& root_directory, const std::string& email, long sent_at, long* code_expires_at, std::string* error_message = nullptr);
+// Check a reset code WITHOUT consuming it, so the player learns a code is wrong at the code prompt
+// rather than after typing a new password twice. A wrong code costs an attempt exactly as the
+// completing call would; a correct one changes nothing at all.
+bool verify_password_reset_code(const std::string& root_directory, const std::string& email, const std::string& reset_code, long attempted_at, std::string* error_message = nullptr);
+
+// Finish a forgot-password reset. Fails for an unknown address, a missing or expired code, a wrong
+// code, or a password the policy rejects. The fifth wrong code clears the stored code so a
+// reconnect cannot resume against it. On success the reset state is cleared, the address is marked
+// verified (mailbox control was just proven) and the failed-login tally is reset.
+bool complete_password_reset(const std::string& root_directory, const std::string& email, const std::string& reset_code, const std::string& new_password, long reset_at, AccountData* account, std::string* error_message = nullptr);
 bool start_email_verification(const std::string& root_directory, const std::string& account_name, long sent_at, AccountData* account, std::string* error_message = nullptr);
 bool complete_email_verification(const std::string& root_directory, const std::string& account_name, const std::string& verification_code, const std::string& verified_by, long verified_at, AccountData* account, std::string* error_message = nullptr);
 bool find_linked_character_owner_account(const std::string& root_directory, const std::string& character_name, std::string* owner_account_name, std::string* error_message = nullptr);

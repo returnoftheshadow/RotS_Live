@@ -3150,3 +3150,223 @@ TEST(AccountManagement, StartPasswordResetLeavesAPendingEmailVerificationCodeAlo
     EXPECT_EQ(stored_account.verification_code_expires_at, created_account.verification_code_expires_at);
     EXPECT_NE(stored_account.password_reset_code_hash, stored_account.verification_code_hash);
 }
+
+namespace {
+
+// Issues a reset code and returns the plaintext by capturing the outgoing mail.
+std::string issue_reset_code(const std::string& root, const std::string& capture_path, long sent_at)
+{
+    long expiry = 0;
+    std::string error_message;
+    EXPECT_TRUE(account::start_password_reset(root, "player@example.com", sent_at, &expiry, &error_message)) << error_message;
+
+    const std::string captured_mail = read_file_contents(capture_path);
+    const std::string marker = "Password reset code: ";
+    const size_t code_offset = captured_mail.find(marker);
+    EXPECT_NE(code_offset, std::string::npos) << "Expected a reset code in the captured mail.";
+    if (code_offset == std::string::npos)
+        return "";
+    return captured_mail.substr(code_offset + marker.size(), 6);
+}
+
+} // namespace
+
+TEST(AccountManagement, CompletePasswordResetChangesThePasswordAndClearsResetState)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    // Give it failed logins and an unverified address, both of which a completed reset should settle.
+    ASSERT_TRUE(account::record_account_login_failure(root, "player@example.com", "attacker.example.com", 1700001500, &error_message)) << error_message;
+
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    account::AccountData reset_account;
+    ASSERT_TRUE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", 1700002100, &reset_account, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+
+    EXPECT_TRUE(account::verify_password("BrandNew1", stored_account.password_hash));
+    EXPECT_FALSE(account::verify_password("ValidPass1", stored_account.password_hash));
+    EXPECT_EQ(stored_account.password_reset_by, "forgot-password");
+    EXPECT_EQ(stored_account.password_reset_at, 1700002100);
+    EXPECT_TRUE(stored_account.password_reset_code_hash.empty());
+    EXPECT_EQ(stored_account.password_reset_code_sent_at, 0);
+    EXPECT_EQ(stored_account.password_reset_code_expires_at, 0);
+    EXPECT_EQ(stored_account.password_reset_attempt_count, 0);
+    EXPECT_TRUE(stored_account.email_verified);
+    EXPECT_EQ(stored_account.failed_login_count, 0);
+    EXPECT_TRUE(stored_account.failed_login_last_host.empty());
+}
+
+TEST(AccountManagement, CompletePasswordResetCountsWrongCodesAndInvalidatesAtTheCap)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    for (int attempt = 1; attempt < account::MAX_PASSWORD_RESET_ATTEMPTS; ++attempt) {
+        EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", "000000", "BrandNew1", 1700002000 + attempt, nullptr, &error_message));
+        account::AccountData in_progress;
+        ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &in_progress, &error_message)) << error_message;
+        EXPECT_EQ(in_progress.password_reset_attempt_count, attempt);
+        EXPECT_FALSE(in_progress.password_reset_code_hash.empty());
+    }
+
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", "000000", "BrandNew1", 1700002090, nullptr, &error_message));
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_TRUE(stored_account.password_reset_code_hash.empty());
+    EXPECT_EQ(stored_account.password_reset_code_expires_at, 0);
+    // The real code is dead too, so a reconnect cannot resume with it.
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", 1700002095, nullptr, &error_message));
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+TEST(AccountManagement, CompletePasswordResetRejectsAnExpiredCode)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    const long after_expiry = 1700002000 + account::PASSWORD_RESET_WINDOW_SECONDS + 1;
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", after_expiry, nullptr, &error_message));
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+TEST(AccountManagement, CompletePasswordResetRejectsAddressesWithoutAnAccount)
+{
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    EXPECT_FALSE(account::complete_password_reset(temp_directory.path(), "nobody@example.com", "000000", "BrandNew1", 1700002000, nullptr, &error_message));
+}
+
+TEST(AccountManagement, CompletePasswordResetRejectsAnEmailVerificationCode)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    std::string verification_code;
+    ASSERT_TRUE(account::prepare_email_verification_code(&created_account, 1700001500, &verification_code, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_file(root, created_account, &error_message)) << error_message;
+
+    // No reset has been started, so a verification code must not stand in for one.
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", verification_code, "BrandNew1", 1700002000, nullptr, &error_message));
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+TEST(AccountManagement, CompletePasswordResetRejectsAPasswordFailingPolicy)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", reset_code, "short", 1700002100, nullptr, &error_message));
+
+    // The code survives so the player can retry with a better password.
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_FALSE(stored_account.password_reset_code_hash.empty());
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+TEST(AccountManagement, VerifyPasswordResetCodeAcceptsWithoutConsumingTheCode)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    EXPECT_TRUE(account::verify_password_reset_code(root, "player@example.com", reset_code, 1700002050, &error_message)) << error_message;
+
+    account::AccountData after_verify;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_verify, &error_message)) << error_message;
+    EXPECT_EQ(after_verify.password_reset_attempt_count, 0);
+    EXPECT_FALSE(after_verify.password_reset_code_hash.empty());
+
+    // The code still completes the reset afterwards -- checking it did not spend it.
+    EXPECT_TRUE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", 1700002100, nullptr, &error_message)) << error_message;
+}
+
+TEST(AccountManagement, VerifyPasswordResetCodeCountsWrongCodesLikeTheCompletingCall)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    EXPECT_FALSE(account::verify_password_reset_code(root, "player@example.com", "000000", 1700002050, &error_message));
+
+    account::AccountData after_verify;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_verify, &error_message)) << error_message;
+    EXPECT_EQ(after_verify.password_reset_attempt_count, 1);
+}
