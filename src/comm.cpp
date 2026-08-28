@@ -727,9 +727,14 @@ void check_state_deadlines(time_t now)
         // The three forgot-password states are all bounded by the code's own expiry, so name the
         // real reason rather than a generic timeout.
         if (point->connected == CON_ACCTFORGOTCODE || point->connected == CON_ACCTFORGOTNEW
-            || point->connected == CON_ACCTFORGOTCNF)
+            || point->connected == CON_ACCTFORGOTCNF) {
+            // account_character_name carries the plaintext reset code through these states and
+            // account_password the new one being typed. Every nanny() exit scrubs both; a close
+            // fired from here has to as well, or the secrets outlive the flow on the descriptor.
+            *point->account_character_name = '\0';
+            *point->account_password = '\0';
             SEND_TO_Q("\n\rThat reset code has expired.\n\r", point);
-        else
+        } else
             SEND_TO_Q("\n\rTimed out.\n\r", point);
 
         STATE(point) = CON_CLOSE;

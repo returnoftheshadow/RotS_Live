@@ -3222,10 +3222,17 @@ void nanny(struct descriptor_data* d, char* arg)
 
         if (*arg == '1') {
             long code_expires_at = 0;
-            mudlog_account_event(d, "Account password reset requested");
-            // The return value is deliberately not branched on: whether a code was sent, suppressed
-            // by the cooldown, or skipped because no account exists must not be observable here.
-            account::start_password_reset(kAccountStorageRoot, d->account_email, time(0), &code_expires_at, nullptr);
+            // Nothing the player can observe branches on the outcome: the message, the state
+            // transition, and the deadline below are identical whether a code was sent, suppressed
+            // by the cooldown, or skipped because no account exists -- that is exactly what would
+            // leak whether the address has an account. The log is not player-observable, so it can
+            // and does distinguish a failed send, which is the only reason a player with a real
+            // account hits the dead end this flow otherwise cannot explain to them. The no-account
+            // and cooldown cases stay indistinguishable here by design.
+            const bool reset_code_sent = account::start_password_reset(kAccountStorageRoot, d->account_email, time(0), &code_expires_at, nullptr);
+            mudlog_account_event(d,
+                reset_code_sent ? "Account password reset requested"
+                                : "Account password reset send failed");
 
             d->bad_pws = 0;
             d->state_deadline = code_expires_at;

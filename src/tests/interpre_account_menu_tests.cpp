@@ -4729,6 +4729,28 @@ TEST(InterpreAccountMenu, StateDeadlineNamesTheExpiredCodeInTheForgotPasswordSta
     EXPECT_NE(std::string(descriptor->output).find("That reset code has expired."), std::string::npos);
 }
 
+// account_character_name holds the plaintext reset code through the forgot-password states and
+// account_password the new one being typed. nanny() scrubs both on every exit; a close fired by the
+// deadline sweep has to match that hygiene rather than leaving them on the descriptor.
+TEST(InterpreAccountMenu, StateDeadlineScrubsTheResetCodeAndPasswordFromTheDescriptor)
+{
+    ScopedDescriptorListReset descriptor_list_reset;
+
+    descriptor_data* descriptor = allocate_descriptor();
+    descriptor->descriptor = 7;
+    descriptor->connected = CON_ACCTFORGOTCNF;
+    descriptor->state_deadline = 1700002000;
+    std::snprintf(descriptor->account_character_name, sizeof(descriptor->account_character_name), "%s", "123456");
+    std::snprintf(descriptor->account_password, sizeof(descriptor->account_password), "%s", "BrandNew1");
+    descriptor_list = descriptor;
+
+    check_state_deadlines(1700002001);
+
+    EXPECT_EQ(descriptor->connected, CON_CLOSE);
+    EXPECT_TRUE(std::string(descriptor->account_character_name).empty());
+    EXPECT_TRUE(std::string(descriptor->account_password).empty());
+}
+
 TEST(InterpreAccountMenu, FifthWrongAccountPasswordOffersTheResetMenuInsteadOfDisconnecting)
 {
     TemporaryDirectory temp_directory;
