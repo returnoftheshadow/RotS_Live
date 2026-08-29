@@ -2835,6 +2835,13 @@ void handle_account_authenticated(struct descriptor_data* d, const account::Acco
     set_account_login_email(d, account_data.normalized_email);
     d->bad_pws = 0;
     mudlog_account_event(d, "Account login", account_data.normalized_email.c_str());
+
+    const std::string login_failure_notice = account::format_account_login_failure_notice(account_data);
+    if (!login_failure_notice.empty()) {
+        SEND_TO_Q(login_failure_notice.c_str(), d);
+        account::clear_account_login_failures(kAccountStorageRoot, account_data.account_name, nullptr);
+    }
+
     show_account_menu(d, account_data);
     STATE(d) = CON_ACCTMENU;
 }
@@ -2853,6 +2860,21 @@ void start_account_login(struct descriptor_data* d, const char* email)
     SEND_TO_Q("Account password: ", d);
     echo_off(d->descriptor);
     STATE(d) = CON_ACCTPWD;
+}
+
+// How long the post-exhaustion reset menu stays open. Provisional -- already far more generous than
+// the instant disconnect a fifth wrong password causes today.
+static constexpr int ACCOUNT_RESET_MENU_TIMEOUT_SECONDS = 90;
+
+void show_account_reset_menu(struct descriptor_data* d)
+{
+    SEND_TO_Q("\n\r"
+              "1) Reset your account password\n\r"
+              "0) Disconnect\n\r"
+              "\n\r"
+              "This menu will close in 90 seconds.\n\r"
+              "Choice: ",
+        d);
 }
 
 } // namespace
@@ -3116,9 +3138,12 @@ void nanny(struct descriptor_data* d, char* arg)
                 }
 
                 mudlog_account_event(d, "Bad account password");
+                account::record_account_login_failure(kAccountStorageRoot, d->account_email, d->host, time(0), nullptr);
                 if (++(d->bad_pws) >= 5) {
-                    SEND_TO_Q("Invalid account credentials... disconnecting.\n\r", d);
-                    STATE(d) = CON_CLOSE;
+                    SEND_TO_Q("Invalid account credentials.\n\r", d);
+                    d->state_deadline = time(0) + ACCOUNT_RESET_MENU_TIMEOUT_SECONDS;
+                    show_account_reset_menu(d);
+                    STATE(d) = CON_ACCTPWDFAIL;
                 } else {
                     SEND_TO_Q("Invalid account credentials.\n\rAccount password: ", d);
                     echo_off(d->descriptor);
@@ -3184,6 +3209,163 @@ void nanny(struct descriptor_data* d, char* arg)
             handle_account_authenticated(d, account_data);
         }
         break;
+    case CON_ACCTPWDFAIL: /* password attempts exhausted -- offer a reset */
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (*arg == '0') {
+            d->state_deadline = 0;
+            SEND_TO_Q("Goodbye.\n\r", d);
+            STATE(d) = CON_CLOSE;
+            return;
+        }
+
+        if (*arg == '1') {
+            long code_expires_at = 0;
+            // Nothing the player can observe branches on the outcome: the message, the state
+            // transition, and the deadline below are identical whether a code was sent, suppressed
+            // by the cooldown, or skipped because no account exists -- that is exactly what would
+            // leak whether the address has an account. The log is not player-observable, so it can
+            // and does distinguish a failed send, which is the only reason a player with a real
+            // account hits the dead end this flow otherwise cannot explain to them. The no-account
+            // and cooldown cases stay indistinguishable here by design.
+            const bool reset_code_sent = account::start_password_reset(kAccountStorageRoot, d->account_email, time(0), &code_expires_at, nullptr);
+            mudlog_account_event(d,
+                reset_code_sent ? "Account password reset requested"
+                                : "Account password reset send failed");
+
+            d->bad_pws = 0;
+            d->state_deadline = code_expires_at;
+            SEND_TO_Q("\n\rIf an account exists for that address, a reset code has been sent to it.\n\r"
+                      "The code is valid for 15 minutes.\n\r"
+                      "\n\rReset code: ",
+                d);
+            STATE(d) = CON_ACCTFORGOTCODE;
+            return;
+        }
+
+        show_account_reset_menu(d);
+        return;
+    case CON_ACCTFORGOTCODE: /* reset code from the email */
+        echo_on(d->descriptor);
+
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg) {
+            d->state_deadline = 0;
+            STATE(d) = CON_CLOSE;
+            return;
+        }
+
+        {
+            // Checked without being consumed: complete_password_reset re-checks it when the new
+            // password is applied. A correct code never charges an attempt, so checking twice is
+            // free -- and a wrong one is reported here rather than after two password prompts.
+            //
+            // The account layer's error text is deliberately not read. It varies with the cause,
+            // and for an address with no account there is no stored record to vary it at all --
+            // branching on it left an unknown address re-prompted forever while a real one
+            // disconnected on the fifth wrong code, which is an account-existence oracle. The
+            // attempt cap the player sees is therefore counted here, on the descriptor, and every
+            // failure says exactly one thing. The account layer keeps its own persistent cap; that
+            // is what durably kills the code across a reconnect.
+            if (!account::verify_password_reset_code(kAccountStorageRoot, d->account_email, arg, time(0), nullptr)) {
+                *d->account_character_name = '\0';
+
+                if (++(d->bad_pws) >= account::MAX_PASSWORD_RESET_ATTEMPTS) {
+                    d->state_deadline = 0;
+                    SEND_TO_Q("\n\rToo many invalid reset codes.\n\rPlease reconnect and try again.\n\r", d);
+                    STATE(d) = CON_CLOSE;
+                    return;
+                }
+
+                SEND_TO_Q("\n\rThat reset code is invalid.\n\rReset code: ", d);
+                return;
+            }
+        }
+
+        strncpy(d->account_character_name, arg, sizeof(d->account_character_name) - 1);
+        d->account_character_name[sizeof(d->account_character_name) - 1] = '\0';
+
+        SEND_TO_Q("\n\rNew account password: ", d);
+        echo_off(d->descriptor);
+        STATE(d) = CON_ACCTFORGOTNEW;
+        return;
+    case CON_ACCTFORGOTNEW: /* new password after a verified reset code */
+        echo_on(d->descriptor);
+
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (!*arg || strlen(arg) > MAX_ACCOUNT_PASSWORD_LENGTH) {
+            SEND_TO_Q("\n\rIllegal password.\n\rNew account password: ", d);
+            *d->account_password = '\0';
+            echo_off(d->descriptor);
+            return;
+        }
+
+        {
+            std::string error_message;
+            if (!account::is_valid_password(arg, &error_message)) {
+                SEND_TO_Q(("\n\r" + error_message + "\n\rNew account password: ").c_str(), d);
+                *d->account_password = '\0';
+                echo_off(d->descriptor);
+                return;
+            }
+        }
+
+        strncpy(d->account_password, arg, MAX_ACCOUNT_PASSWORD_LENGTH);
+        d->account_password[MAX_ACCOUNT_PASSWORD_LENGTH] = '\0';
+        SEND_TO_Q("\n\rRetype the new password: ", d);
+        echo_off(d->descriptor);
+        STATE(d) = CON_ACCTFORGOTCNF;
+        return;
+
+    case CON_ACCTFORGOTCNF: /* confirm the new password and apply the reset */
+        echo_on(d->descriptor);
+
+        for (; isspace(*arg); arg++)
+            continue;
+
+        if (strcmp(arg, d->account_password)) {
+            SEND_TO_Q("\n\rPasswords don't match... start over.\n\rNew account password: ", d);
+            *d->account_password = '\0';
+            echo_off(d->descriptor);
+            STATE(d) = CON_ACCTFORGOTNEW;
+            return;
+        }
+
+        {
+            const std::string reset_code = d->account_character_name;
+            const std::string new_password = d->account_password;
+            *d->account_password = '\0';
+            *d->account_character_name = '\0';
+            d->state_deadline = 0;
+
+            account::AccountData account_data;
+            std::string error_message;
+            if (!account::complete_password_reset(kAccountStorageRoot, d->account_email, reset_code,
+                    new_password, time(0), &account_data, &error_message)) {
+                mudlog_account_event(d, "Account password reset failed");
+                SEND_TO_Q("\n\rThat reset code is not valid.\n\rPlease reconnect and try again.\n\r", d);
+                STATE(d) = CON_CLOSE;
+                return;
+            }
+
+            const bool had_active_session
+                = !active_account_character_sessions(d, account_data).empty();
+            mudlog_account_event(d,
+                had_active_session ? "Account password reset completed (session active)"
+                                   : "Account password reset completed",
+                account_data.normalized_email.c_str());
+
+            SEND_TO_Q("\n\rYour password has been updated.\n\r"
+                      "Please log in again with your new password.\n\r",
+                d);
+            STATE(d) = CON_CLOSE;
+            return;
+        }
     case CON_ACCTSLCT: /* get linked character for authenticated account */
         for (; isspace(*arg); arg++)
             continue;
