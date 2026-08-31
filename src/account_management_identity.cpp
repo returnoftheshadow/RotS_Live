@@ -345,12 +345,13 @@ bool select_linked_character(const AccountData& account, const std::string& char
         }
     }
 
+    const size_t displayed_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
+
     if (selection_is_numeric) {
-        const size_t displayed_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
         char* end_ptr = nullptr;
         const unsigned long selected_index = std::strtoul(trimmed_selection.c_str(), &end_ptr, 10);
         if (end_ptr == nullptr || *end_ptr != '\0' || selected_index == 0 || selected_index > displayed_count) {
-            set_error(error_message, "Select a linked character by number, or enter 0 to return to the account menu.");
+            set_error(error_message, "Select a linked character by number or name, or enter 0 to return to the account menu.");
             return false;
         }
 
@@ -359,7 +360,19 @@ bool select_linked_character(const AccountData& account, const std::string& char
         return true;
     }
 
-    set_error(error_message, "Select a linked character by number, or enter 0 to return to the account menu.");
+    /* Only the roster entries actually displayed to the player are selectable by name. */
+    const std::string normalized_selection = normalize_account_name(trimmed_selection);
+    for (size_t index = 0; index < displayed_count; ++index) {
+        const std::string normalized_linked_name = normalize_account_name(account.characters[index]);
+        if (normalized_linked_name != normalized_selection)
+            continue;
+
+        *normalized_character_name = normalized_linked_name;
+        set_error(error_message, "");
+        return true;
+    }
+
+    set_error(error_message, "Select a linked character by number or name, or enter 0 to return to the account menu.");
     return false;
 }
 

@@ -671,11 +671,51 @@ TEST(AccountManagement, SelectsOnlyCharactersLinkedToTheAccount)
     EXPECT_EQ(selected_character, "legolas");
 
     EXPECT_FALSE(account::select_linked_character(account_data, "gandalf", &selected_character, &error_message));
-    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
     EXPECT_FALSE(account::select_linked_character(account_data, "0", &selected_character, &error_message));
-    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
-    EXPECT_FALSE(account::select_linked_character(account_data, "aragorn", &selected_character, &error_message));
-    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+}
+
+TEST(AccountManagement, SelectsLinkedCharactersByFullName)
+{
+    account::AccountData account_data = make_account();
+    std::string selected_character;
+    std::string error_message;
+
+    ASSERT_TRUE(account::select_linked_character(account_data, "aragorn", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "aragorn");
+
+    ASSERT_TRUE(account::select_linked_character(account_data, "Legolas", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "legolas");
+}
+
+TEST(AccountManagement, SelectsLinkedCharactersByNameIgnoringCaseAndSurroundingSpaces)
+{
+    account::AccountData account_data = make_account();
+    std::string selected_character;
+    std::string error_message;
+
+    ASSERT_TRUE(account::select_linked_character(account_data, "ArAgOrN", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "aragorn");
+
+    ASSERT_TRUE(account::select_linked_character(account_data, "  Legolas  ", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "legolas");
+}
+
+TEST(AccountManagement, RejectsCharacterNamesThatAreNotLinkedToTheAccount)
+{
+    account::AccountData account_data = make_account();
+    std::string selected_character;
+    std::string error_message;
+
+    EXPECT_FALSE(account::select_linked_character(account_data, "gandalf", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+
+    EXPECT_FALSE(account::select_linked_character(account_data, "arago", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+
+    EXPECT_FALSE(account::select_linked_character(account_data, "aragorn the second", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
 TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
@@ -692,7 +732,13 @@ TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
     EXPECT_EQ(selected_character, "character100");
 
     EXPECT_FALSE(account::select_linked_character(account_data, "101", &selected_character, &error_message));
-    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+
+    EXPECT_TRUE(account::select_linked_character(account_data, "character100", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "character100");
+
+    EXPECT_FALSE(account::select_linked_character(account_data, "character101", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
 TEST(AccountManagement, BlocksAndUnblocksAccountsWithAuditMetadata)
@@ -978,7 +1024,7 @@ TEST(AccountManagement, FormatsCharacterPromptWithLinkedCharacterList)
         "1) [ 50 WdE] Aragorn     2) [ 45 Hum] Legolas     \n\r"
         "\n\r2 characters displayed.\n\r"
         "\n\r0) Back to Account Menu.\n\r"
-        "\n\rCharacter number: ");
+        "\n\rCharacter number or name: ");
 }
 
 TEST(AccountManagement, RejectsMalformedJsonInput)

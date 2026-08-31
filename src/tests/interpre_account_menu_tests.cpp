@@ -706,7 +706,7 @@ TEST(InterpreAccountMenu, AccountMenuPlayChoiceWritesWhoStyleCharacterPromptToDe
         "1) [ 50 WdE] Aragorn     2) [ 45 Hum] Legolas     \n\r"
         "\n\r2 characters displayed.\n\r"
         "\n\r0) Back to Account Menu.\n\r"
-        "\n\rCharacter number: ");
+        "\n\rCharacter number or name: ");
 }
 
 TEST(InterpreAccountMenu, ActiveAccountSessionShowsPlayingLinkedCharacterInAccountMenu)
@@ -915,7 +915,7 @@ TEST(InterpreAccountMenu, ActiveLevelNinetyOneBlocksDifferentLinkedCharacterBefo
         << "Blocked selection should happen before creating or updating player-table entries.";
     const std::string output = descriptor.output;
     EXPECT_NE(output.find("You are already connected as Aragorn."), std::string::npos) << output;
-    EXPECT_NE(output.find("\n\rCharacter number: "), std::string::npos) << output;
+    EXPECT_NE(output.find("\n\rCharacter number or name: "), std::string::npos) << output;
 
     struct stat file_info {};
     EXPECT_NE(stat("players", &file_info), 0);
@@ -1259,7 +1259,7 @@ TEST(InterpreAccountMenu, MultipleLowActiveSessionsStillRestrictDifferentLinkedC
     EXPECT_EQ(select_descriptor.pos, -1);
     const std::string selection_output = select_descriptor.output;
     EXPECT_NE(selection_output.find("You are already connected as Aragorn."), std::string::npos) << selection_output;
-    EXPECT_NE(selection_output.find("\n\rCharacter number: "), std::string::npos) << selection_output;
+    EXPECT_NE(selection_output.find("\n\rCharacter number or name: "), std::string::npos) << selection_output;
 
     free_char(level_ninety_one_descriptor.character);
     free_char(low_level_descriptor.character);
@@ -1352,7 +1352,7 @@ TEST(InterpreAccountMenu, LinkedRosterLevelNinetyOneDoesNotUnlockDifferentSelect
     EXPECT_EQ(select_descriptor.character, nullptr);
     const std::string output = select_descriptor.output;
     EXPECT_NE(output.find("You are already connected as Aragorn."), std::string::npos) << output;
-    EXPECT_NE(output.find("\n\rCharacter number: "), std::string::npos) << output;
+    EXPECT_NE(output.find("\n\rCharacter number or name: "), std::string::npos) << output;
 
     free_char(active_descriptor.character);
     active_descriptor.character = nullptr;
@@ -3651,7 +3651,7 @@ TEST(InterpreAccountMenu, FailedSelectionAfterDeleteDoesNotLeaveReplacementDescr
     EXPECT_EQ(descriptor.character, nullptr);
     EXPECT_EQ(descriptor.pos, -1);
     EXPECT_NE(std::string(descriptor.output).find("deleted and cannot be selected"), std::string::npos);
-    EXPECT_NE(std::string(descriptor.output).find("Character number: "), std::string::npos);
+    EXPECT_NE(std::string(descriptor.output).find("Character number or name: "), std::string::npos);
 }
 
 TEST(InterpreAccountMenu, CreatingNewCharacterAfterDeleteRecreatesDescriptorCharacterShell)

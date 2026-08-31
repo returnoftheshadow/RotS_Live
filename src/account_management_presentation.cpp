@@ -29,7 +29,7 @@ std::string format_account_character_prompt(const std::string& root_directory, c
     output << "\n\rLinked characters for your account:\n\r";
     output << format_account_character_short_roster(root_directory, account);
     output << "\n\r0) Back to Account Menu.\n\r";
-    output << "\n\rCharacter number: ";
+    output << "\n\rCharacter number or name: ";
     return output.str();
 }
 
