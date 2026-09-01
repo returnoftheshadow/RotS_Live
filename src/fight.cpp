@@ -1213,7 +1213,18 @@ int check_death_ward(struct char_data* ch)
         return FALSE;
 }
 
+// Forward declaration of the 4-arg die(); the 3-arg form forwards to it.
+void die(char_data* dead_man, char_data* killer, int attack_type, char_data* engaged_opponent);
+
 void die(char_data* dead_man, char_data* killer, int attack_type)
+{
+    die(dead_man, killer, attack_type, nullptr);
+}
+
+// `engaged_opponent` is the victim's own target captured before
+// stop_fighting() -- the one engagement direction a combat_list walk cannot
+// recover. Null from every caller except damage_credited()'s death branch.
+void die(char_data* dead_man, char_data* killer, int attack_type, char_data* engaged_opponent)
 {
     /* Character doesn't die if call_trigger returns FALSE */
     if (call_trigger(ON_DIE, dead_man, killer, 0) == FALSE) {
@@ -1258,36 +1269,31 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
         return;
     }
 
+    // Poison carveout: engagement with a real mob at the instant of death,
+    // not the credited killer, decides how a PC poison death is punished.
+    char_data* const engaged_mob = find_engaged_real_mob(dead_man, engaged_opponent);
+    const death_punishment punishment = classify_pc_death(attack_type, engaged_mob != nullptr);
+
     /* log mobdeaths */
-    if (IS_NPC(killer) && !(MOB_FLAGGED(killer, MOB_ORC_FRIEND) || MOB_FLAGGED(killer, MOB_PET))) {
-        add_exploit_record(EXPLOIT_MOBDEATH, dead_man, GET_IDNUM(killer), GET_NAME(killer));
+    char_data* const mobdeath_mob = mobdeath_record_mob(killer, engaged_mob, punishment);
+    if (mobdeath_mob != nullptr) {
+        add_exploit_record(EXPLOIT_MOBDEATH, dead_man, GET_IDNUM(mobdeath_mob), GET_NAME(mobdeath_mob));
     }
 
     int base_xp_gain = -(dead_man->points.exp - 3000) / (dead_man->player.level + 2);
 
-    /* A player died: DT/poison/incap/etc. death. */
-    if (!killer) {
-        gain_exp_regardless(dead_man, std::min(0, base_xp_gain / 10));
-    } else {
-        gain_exp_regardless(dead_man, std::min(0, base_xp_gain / 10));
+    // Both historical arms began with this tenth; hoisted unchanged.
+    gain_exp_regardless(dead_man, std::min(0, base_xp_gain / 10));
 
-        if (attack_type == SPELL_POISON) {
-            add_exploit_record(EXPLOIT_POISON, dead_man, 0, NULL);
-        }
+    // Recorded for every PC poison death -- the killerless arm used to skip it.
+    if (attack_type == SPELL_POISON) {
+        add_exploit_record(EXPLOIT_POISON, dead_man, 0, NULL);
+    }
 
+    if (killer) {
         // TASK-026 port: who took part is decided here, once, and handed to
         // the record builder -- pkill.cpp's own combat_list walks could not
         // see a poisoner or a remote room-affect caster.
-        //
-        // This replaces the `attack_type == SPELL_POISON && !fighting` early
-        // return that used to stand here, whose own TODO asked for exactly
-        // this: "Only early-out if the dead man isn't in combat. Otherwise
-        // continue so that proper exploits are given out." Being in combat was
-        // never the right question -- a poisoner standing two rooms away took
-        // part in this death and a walk of combat_list cannot see that, while
-        // a victim who happens to be swinging at a training dummy has nobody
-        // to credit. The question is whether ANYBODY took part, and an empty
-        // contributor set is the only case that records nothing.
         //
         // PK records are created regardless of death cause, but then early out
         // if it's all NPCs killing the character.  Heh...
@@ -1299,24 +1305,20 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
 
         /* add death records to dead player */
         /* Fingolfin: Jul 19: since we record mobdeaths earlier */
-        if (killer && !IS_NPC(killer)) {
+        if (!IS_NPC(killer)) {
             add_exploit_record(EXPLOIT_DEATH, dead_man, 0, NULL);
         }
+    }
 
-        if (IS_NPC(killer)) {
-            // Only grant mob_death XP if the player died to a mob that is not controlled
-            // by a player.
-            if (!MOB_FLAGGED(killer, MOB_ORC_FRIEND) && !MOB_FLAGGED(killer, MOB_PET)) {
-                gain_exp_regardless(dead_man, std::min(0, base_xp_gain));
-            }
-        }
+    if (death_takes_full_mob_xp_loss(killer, punishment)) {
+        gain_exp_regardless(dead_man, std::min(0, base_xp_gain));
     }
 
     GET_COND(dead_man, FULL) = 24;
     GET_COND(dead_man, THIRST) = 24;
     GET_COND(dead_man, DRUNK) = 0;
 
-    raw_kill(dead_man, killer, attack_type);
+    raw_kill(dead_man, killer, attack_type, punishment);
 }
 
 int exp_with_modifiers(char_data* character, char_data* dead_man, int base_exp)
@@ -2159,10 +2161,9 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
 
     // TASK-026 port: the opponent the victim is engaged with at the instant it
     // dies, captured HERE because the stop_fighting() call on the very next
-    // line clears specials.fighting for a dead character -- read any later
-    // (in the death branch below, where it is used) and the answer is always
-    // nullptr. Only the credit fallback reads it; nothing else in this
-    // function does.
+    // line retargets or clears specials.fighting for a dead character. The
+    // credit fallback below and die()'s poison-death engagement classification
+    // both read this captured value, never the post-stop pointer.
     char_data* const engaged_opponent = victim->specials.fighting;
 
     if (!AWAKE(victim))
@@ -2190,7 +2191,7 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
             }
         }
 
-        die(victim, killer, attacktype);
+        die(victim, killer, attacktype, engaged_opponent);
         return 1;
     } else {
         return 0;
