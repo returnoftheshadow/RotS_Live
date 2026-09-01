@@ -214,6 +214,12 @@ bool is_real_mob(const struct char_data* character);
 // then decides mob_death vs player_death regardless of the poison's source.
 death_punishment classify_pc_death(int attack_type, bool engaged_with_real_mob);
 
+// The real mob `victim` counts as engaged with at the instant of death, or
+// null. `engaged_opponent` -- the victim's own target, captured before
+// stop_fighting() -- is checked first; then combat_list is walked for a real
+// mob fighting the victim. No visibility check: an unseen attacker engages.
+struct char_data* find_engaged_real_mob(struct char_data* victim, struct char_data* engaged_opponent);
+
 int check_sanctuary(char_data* ch, char_data* victim);
 
 char* money_message(int sum, int mode = 0);

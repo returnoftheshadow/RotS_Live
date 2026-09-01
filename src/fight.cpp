@@ -1025,6 +1025,19 @@ death_punishment classify_pc_death(int attack_type, bool engaged_with_real_mob)
     return death_punishment::player_death;
 }
 
+char_data* find_engaged_real_mob(char_data* victim, char_data* engaged_opponent)
+{
+    if (is_real_mob(engaged_opponent)) {
+        return engaged_opponent;
+    }
+    for (char_data* fighter = combat_list; fighter != nullptr; fighter = fighter->next_fighting) {
+        if (fighter->specials.fighting == victim && is_real_mob(fighter)) {
+            return fighter;
+        }
+    }
+    return nullptr;
+}
+
 void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
 {
     waiting_type tmpwtl;

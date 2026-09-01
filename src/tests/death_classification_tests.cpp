@@ -82,3 +82,91 @@ TEST(ClassifyPcDeath, PoisonEngagedIsMobDeathUnengagedIsPlayerDeath)
     EXPECT_EQ(classify_pc_death(SPELL_POISON, true), death_punishment::mob_death);
     EXPECT_EQ(classify_pc_death(SPELL_POISON, false), death_punishment::player_death);
 }
+
+TEST(FindEngagedRealMob, EngagedOpponentRealMobIsFound)
+{
+    CombatListGuard combat_guard;
+    char_data victim { };
+    char_data mob { };
+    make_plain_mob(mob);
+
+    EXPECT_EQ(find_engaged_real_mob(&victim, &mob), &mob)
+        << "the victim's own target engages even with an empty combat_list";
+}
+
+TEST(FindEngagedRealMob, EngagedOpponentPetOrPlayerDoesNotEngage)
+{
+    CombatListGuard combat_guard;
+    char_data victim { };
+
+    char_data pet { };
+    make_pet_mob(pet);
+    EXPECT_EQ(find_engaged_real_mob(&victim, &pet), nullptr);
+
+    char_data player { };
+    player.player.level = 20;
+    EXPECT_EQ(find_engaged_real_mob(&victim, &player), nullptr);
+
+    EXPECT_EQ(find_engaged_real_mob(&victim, nullptr), nullptr);
+}
+
+TEST(FindEngagedRealMob, CombatListMobFightingTheVictimEngagesWithoutBeingTargeted)
+{
+    CombatListGuard combat_guard;
+    char_data victim { };
+    char_data mob { };
+    make_plain_mob(mob);
+    mob.specials.fighting = &victim;
+    combat_list = &mob;
+    mob.next_fighting = nullptr;
+
+    EXPECT_EQ(find_engaged_real_mob(&victim, nullptr), &mob)
+        << "a mob beating on a victim who targets nobody still engages (the fled/stunned case)";
+}
+
+TEST(FindEngagedRealMob, CombatListWalkSkipsPetsOrcFriendsPlayersAndMobsFightingOthers)
+{
+    CombatListGuard combat_guard;
+    char_data victim { };
+    char_data bystander { };
+
+    char_data pet { };
+    make_pet_mob(pet);
+    pet.specials.fighting = &victim;
+
+    char_data orc_friend { };
+    make_orc_friend_mob(orc_friend);
+    orc_friend.specials.fighting = &victim;
+
+    char_data player { };
+    player.player.level = 20;
+    player.specials.fighting = &victim;
+
+    char_data distracted_mob { };
+    make_plain_mob(distracted_mob);
+    distracted_mob.specials.fighting = &bystander;
+
+    combat_list = &pet;
+    pet.next_fighting = &orc_friend;
+    orc_friend.next_fighting = &player;
+    player.next_fighting = &distracted_mob;
+    distracted_mob.next_fighting = nullptr;
+
+    EXPECT_EQ(find_engaged_real_mob(&victim, nullptr), nullptr);
+}
+
+TEST(FindEngagedRealMob, EngagedOpponentIsPreferredOverCombatListMob)
+{
+    CombatListGuard combat_guard;
+    char_data victim { };
+    char_data targeted_mob { };
+    make_plain_mob(targeted_mob);
+    char_data list_mob { };
+    make_plain_mob(list_mob);
+    list_mob.specials.fighting = &victim;
+    combat_list = &list_mob;
+    list_mob.next_fighting = nullptr;
+
+    EXPECT_EQ(find_engaged_real_mob(&victim, &targeted_mob), &targeted_mob)
+        << "the victim's own target names the EXPLOIT_MOBDEATH mob deterministically";
+}
