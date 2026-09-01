@@ -1216,6 +1216,7 @@ int check_death_ward(struct char_data* ch)
 // Forward declaration of the 4-arg die(); the 3-arg form forwards to it.
 void die(char_data* dead_man, char_data* killer, int attack_type, char_data* engaged_opponent);
 
+// A 3-arg caller passing SPELL_POISON would always classify as unengaged.
 void die(char_data* dead_man, char_data* killer, int attack_type)
 {
     die(dead_man, killer, attack_type, nullptr);
@@ -1271,7 +1272,12 @@ void die(char_data* dead_man, char_data* killer, int attack_type, char_data* eng
 
     // Poison carveout: engagement with a real mob at the instant of death,
     // not the credited killer, decides how a PC poison death is punished.
-    char_data* const engaged_mob = find_engaged_real_mob(dead_man, engaged_opponent);
+    // ON_DIE (above) can extract characters; probe engagement only for the
+    // one attack type whose classification reads it.
+    char_data* engaged_mob = nullptr;
+    if (attack_type == SPELL_POISON) {
+        engaged_mob = find_engaged_real_mob(dead_man, engaged_opponent);
+    }
     const death_punishment punishment = classify_pc_death(attack_type, engaged_mob != nullptr);
 
     /* log mobdeaths */
@@ -1422,7 +1428,7 @@ void group_gain(char_data* killer, char_data* dead_man)
     }
 
     // Ensure that the victim's target is involved as well.
-    if (dead_man->specials.fighting != nullptr) {
+    if (dead_man->specials.fighting != nullptr && dead_man->specials.fighting->in_room == dead_man->in_room) {
         involved_killers.push_back(dead_man->specials.fighting);
         if (utils::is_pc(*dead_man->specials.fighting)) {
             player_killers.insert(dead_man->specials.fighting);

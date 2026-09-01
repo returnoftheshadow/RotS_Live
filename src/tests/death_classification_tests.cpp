@@ -171,6 +171,20 @@ TEST(FindEngagedRealMob, EngagedOpponentIsPreferredOverCombatListMob)
         << "the victim's own target names the EXPLOIT_MOBDEATH mob deterministically";
 }
 
+TEST(FindEngagedRealMob, IgnoresTheVictimsOwnFightingPointer)
+{
+    CombatListGuard combat_guard;
+    char_data victim { };
+    char_data mob { };
+    make_plain_mob(mob);
+    victim.specials.fighting = &mob; // deliberately NOT passed as engaged_opponent
+
+    EXPECT_EQ(find_engaged_real_mob(&victim, nullptr), nullptr)
+        << "engagement direction A comes only from the captured engaged_opponent argument -- "
+           "the live specials.fighting pointer is never read, so 3-arg die() callers always "
+           "classify as unengaged";
+}
+
 TEST(DeathTakesFullMobXpLoss, LegacyDerivesFromKiller)
 {
     char_data mob { };
