@@ -1025,6 +1025,8 @@ death_punishment classify_pc_death(int attack_type, bool engaged_with_real_mob)
     return death_punishment::player_death;
 }
 
+// engaged_opponent is checked before the combat_list walk; the preference
+// decides which mob an EXPLOIT_MOBDEATH record names.
 char_data* find_engaged_real_mob(char_data* victim, char_data* engaged_opponent)
 {
     if (is_real_mob(engaged_opponent)) {

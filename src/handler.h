@@ -197,9 +197,8 @@ struct char_data* resolve_poisoner(const struct char_data& victim);
 // last SPELL_POISON affect goes) clear the pair, and set it nowhere.
 void record_poison_origin(struct char_data* victim, struct char_data* poisoner);
 
-// Punishment class for a PC death. legacy = not a poison carveout: die()/
-// raw_kill() decide from the credited killer exactly as they always have.
-// The two poison values override the killer-based rules.
+// Punishment class for a PC death, chosen by classify_pc_death(). legacy
+// leaves die()/raw_kill() to decide from the credited killer as before.
 enum class death_punishment {
     legacy,
     mob_death,
@@ -214,18 +213,16 @@ bool is_real_mob(const struct char_data* character);
 // then decides mob_death vs player_death regardless of the poison's source.
 death_punishment classify_pc_death(int attack_type, bool engaged_with_real_mob);
 
-// The real mob `victim` counts as engaged with at the instant of death, or
-// null. `engaged_opponent` -- the victim's own target, captured before
-// stop_fighting() -- is checked first; then combat_list is walked for a real
-// mob fighting the victim. No visibility check: an unseen attacker engages.
+// The real mob counted as engaged with `victim` at the instant of death, or
+// null. `engaged_opponent` must be captured before stop_fighting() runs;
+// engagement ignores visibility.
 struct char_data* find_engaged_real_mob(struct char_data* victim, struct char_data* engaged_opponent);
 
 // Whether the death takes the full mob-death XP loss on top of the
-// unconditional tenth. legacy derives from the killer as die() always has.
+// unconditional tenth already applied.
 bool death_takes_full_mob_xp_loss(const struct char_data* killer, death_punishment punishment);
 
-// raw_kill()'s gentle-vs-harsh arm: true selects the gentle player-kill
-// penalty. legacy derives from the killer as raw_kill() always has.
+// True selects the gentle player-kill penalty over the harsh one.
 bool death_counts_as_player_kill(const struct char_data* killer, death_punishment punishment);
 
 // The NPC an EXPLOIT_MOBDEATH record names, or null when no record is due.
