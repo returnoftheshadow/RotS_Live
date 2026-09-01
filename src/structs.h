@@ -2044,6 +2044,10 @@ struct txt_q {
 #define CON_ACCTLEGPWD 38
 #define CON_ACCTVERIFY 39
 #define CON_ACCTDELCNF1 40
+#define CON_ACCTPWDFAIL 41
+#define CON_ACCTFORGOTCODE 42
+#define CON_ACCTFORGOTNEW 43
+#define CON_ACCTFORGOTCNF 44
 
 /* modes for flags */
 #define DFLAG_IS_SPAMMING 1
@@ -2070,6 +2074,7 @@ struct descriptor_data {
     char account_password[MAX_ACCOUNT_PASSWORD_LENGTH + 1]; /* transient account password */
     char account_character_name[MAX_INPUT_LENGTH]; /* pending account character action */
     int bad_pws; /* number of bad pw attemps this login	*/
+    time_t state_deadline; /* absolute time the current connection state expires; 0 = none */
     int pos; /* position in player-file		*/
     int connected; /* mode of 'connectedness'		*/
     //   int	wait;			/* wait for how many loops    	*/

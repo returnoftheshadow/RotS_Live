@@ -819,6 +819,141 @@ void build_directory(char* TheDir)
     RELEASE(tmpch);
 }
 
+// Copies a character's stored file into players/ZZZ/<name>, the archive the legacy delete path has
+// always written. Used for account-native characters, whose real file is removed by the account
+// layer (which cannot leave it behind for us to move), so the copy has to happen first.
+static bool archive_character_file_copy(const char* source_path, const char* name)
+{
+    if (source_path == nullptr || *source_path == '\0')
+        return false;
+
+    FILE* source = fopen(source_path, "rb");
+    if (source == nullptr)
+        return false;
+
+    char archive_path[128];
+    std::snprintf(archive_path, sizeof(archive_path), "players/ZZZ/%s", name);
+    FILE* archive = fopen(archive_path, "wb");
+    if (archive == nullptr) {
+        fclose(source);
+        return false;
+    }
+
+    char chunk[4096];
+    size_t bytes_read;
+    bool copied = true;
+    while ((bytes_read = fread(chunk, 1, sizeof(chunk), source)) > 0) {
+        if (fwrite(chunk, 1, bytes_read, archive) != bytes_read) {
+            copied = false;
+            break;
+        }
+    }
+    if (ferror(source))
+        copied = false;
+
+    fclose(source);
+    if (fclose(archive) != 0)
+        copied = false;
+
+    if (!copied)
+        remove(archive_path);
+
+    return copied;
+}
+
+// Removes the character at player_table[index] from the game, for system deletions: the boot-time
+// sweep of idle low-level characters and the immortal 'delete' command.
+//
+// Account-linked characters have to be unlinked through the account layer. account.json keeps its
+// own list of linked characters, so moving the character file aside on its own leaves the account
+// pointing at a file that is no longer there: the character still shows in the roster (rendered as
+// "[ ?? ???]" because its file cannot be read) and can never be selected again, because selection
+// falls through to a migration that has no legacy file left to migrate. Only the player-initiated
+// self-delete used to unlink properly; these two paths did not.
+//
+// Returns false when nothing was deleted. That happens when the character lives in account storage
+// but its owning account could not be resolved or updated, or when the players/ZZZ archive could
+// not be written. Skipping is the safe outcome - the character stays intact and gets looked at
+// again on the next boot - so callers should not treat it as a hard error.
+bool delete_player_character_by_index(int index)
+{
+    if (index < 0 || index > top_of_p_table)
+        return false;
+    if (player_table[index].name == nullptr || player_table[index].name[0] == '\0')
+        return false;
+
+    char character_name[MAX_NAME_LENGTH + 1];
+    std::snprintf(character_name, sizeof(character_name), "%s", player_table[index].name);
+
+    const bool account_native_entry = has_suffix(player_table[index].ch_file, ".character.json");
+
+    // A name the account layer refuses cannot be linked to an account at all (linking validates the
+    // same way), so there is nothing to unlink and the legacy path stays correct for it. A handful
+    // of very old characters are in this bucket - two-letter names, names starting with '#'.
+    if (!account::is_valid_account_name(character_name)) {
+        if (account_native_entry) {
+            sprintf(buf, "delete_player_character_by_index: refusing to delete %s: stored in account storage under a name the account layer rejects",
+                character_name);
+            log(buf);
+            return false;
+        }
+
+        Crash_delete_file(character_name);
+        delete_exploits_file(character_name);
+        move_char_deleted(index);
+        return true;
+    }
+
+    std::string owner_account_name;
+    std::string account_error;
+    if (!account::find_linked_character_owner_account(".", character_name, &owner_account_name, &account_error)) {
+        sprintf(buf, "delete_player_character_by_index: refusing to delete %s: %s", character_name,
+            account_error.empty() ? "linked ownership could not be resolved" : account_error.c_str());
+        log(buf);
+        return false;
+    }
+
+    if (owner_account_name.empty()) {
+        if (account_native_entry) {
+            sprintf(buf, "delete_player_character_by_index: refusing to delete %s: stored in account storage but no account claims it",
+                character_name);
+            log(buf);
+            return false;
+        }
+
+        // Legacy, unlinked character: unchanged behaviour.
+        Crash_delete_file(character_name);
+        delete_exploits_file(character_name);
+        move_char_deleted(index);
+        return true;
+    }
+
+    if (!archive_character_file_copy(player_table[index].ch_file, character_name)) {
+        sprintf(buf, "delete_player_character_by_index: could not archive %s to players/ZZZ; not deleting",
+            character_name);
+        log(buf);
+        return false;
+    }
+
+    std::string delete_error;
+    if (!account::admin_delete_linked_character(
+            ".", owner_account_name, character_name, time(0), nullptr, &delete_error)) {
+        char archive_path[128];
+        std::snprintf(archive_path, sizeof(archive_path), "players/ZZZ/%s", character_name);
+        remove(archive_path);
+        sprintf(buf, "delete_player_character_by_index: could not unlink %s from account %s: %s",
+            character_name, owner_account_name.c_str(), delete_error.c_str());
+        log(buf);
+        return false;
+    }
+
+    player_table[index].flags |= PLR_DELETED;
+    player_table[index].ch_file[0] = '\0';
+    player_table[index].name[0] = '\0';
+    player_table[index].idnum = 0;
+    return true;
+}
+
 void build_player_index(void)
 {
     int nr, tt;
@@ -839,11 +974,12 @@ void build_player_index(void)
 
     for (nr = 0; nr <= top_of_p_table; nr++) {
         if (player_table[nr].level < 20 && (!IS_SET(player_table[nr].flags, PLR_DELETED)) && (!IS_SET(player_table[nr].flags, PLR_RETIRED)) && ((tt - player_table[nr].log_time) > SECS_PER_REAL_DAY * player_table[nr].level * 7) && (number(0, 100) < 51)) {
-            sprintf(buf, "Mud auto-deleted char %s.", player_table[nr].name);
-            log(buf);
-            Crash_delete_file(player_table[nr].name);
-            delete_exploits_file(player_table[nr].name);
-            move_char_deleted(nr);
+            char auto_deleted_name[MAX_NAME_LENGTH + 1];
+            std::snprintf(auto_deleted_name, sizeof(auto_deleted_name), "%s", player_table[nr].name);
+            if (delete_player_character_by_index(nr)) {
+                sprintf(buf, "Mud auto-deleted char %s.", auto_deleted_name);
+                log(buf);
+            }
         }
         if (strlen(player_table[nr].name) > 12)
             vmudlog(BRF, "%s, len=%d", player_table[nr].name,
@@ -1973,12 +2109,15 @@ int set_exit_state(struct room_data* room, int dir, int newstate)
     if (!strcmp(line, the_field)) {                                                                         \
         for (tmp1 = 0; position < input_end && *position != '~' && tmp1 < (length - 1); position++, tmp1++) \
             element[tmp1] = *position;                                                                      \
-        if (position >= input_end || *position != '~') {                                                    \
+        element[tmp1] = '\0';                                                                               \
+        /* A string longer than the field is truncated, not fatal: skip the rest up to the '~'. */          \
+        while (position < input_end && *position != '~')                                                    \
+            position++;                                                                                     \
+        if (position >= input_end) {                                                                        \
             sprintf(buf, "load_player_from_text: malformed long string for %s", name);                      \
             log(buf);                                                                                       \
             return -1;                                                                                      \
         }                                                                                                   \
-        element[tmp1] = '\0';                                                                               \
         position++;                                                                                         \
         while (position < input_end && (*position == '\r' || *position == '\n'))                            \
             position++;                                                                                     \

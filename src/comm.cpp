@@ -8,6 +8,7 @@
  *  CircleMUD is based on DikuMUD, Copyright (C) 1990, 1991.               *
  ************************************************************************ */
 
+#include <algorithm>
 #include <ctype.h>
 #include <errno.h>
 #include <execinfo.h>
@@ -646,11 +647,34 @@ void msdp_update()
         extern char* tactics[];
         MSDPSetString(desc, eMDSP_TACTIC, tactics[GET_TACTICS(desc->character) - 1]);
 
+        extern const char* specialize_name[];
+        game_types::player_specs spec = utils::get_specialization(*desc->character);
+        MSDPSetString(desc, eMDSP_SPECIALIZATION,
+            (spec >= game_types::PS_None && spec < game_types::PS_Count) ? specialize_name[spec]
+                                                                         : "nothing");
+
         MSDPSetNumber(desc, eMDSP_PERCEPTION, GET_PERCEPTION(desc->character));
         MSDPSetNumber(desc, eMDSP_WILLPOWER, GET_WILLPOWER(desc->character));
         MSDPSetNumber(desc, eMDSP_SKILL_ENCUMBRANCE, utils::get_encumbrance(*desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_ENCUMBRANCE,
             utils::get_leg_encumbrance(*desc->character));
+        MSDPSetNumber(desc, eMDSP_CARRIED_WEIGHT, IS_CARRYING_W(desc->character));
+
+        /* The coefficient can go negative -- an Uruk with no mage points takes a
+           flat -100 mage penalty in GET_PROF_COOF (utils.h) with no floor at
+           zero -- so clamp before reporting a maximum. */
+        auto max_prof_level = [](int prof, char_data* ch) {
+            return std::max(0, GET_PROF_COOF(prof, ch) * LEVEL_MAX / 1000);
+        };
+        MSDPSetNumber(desc, eMDSP_WARRIOR_LEVEL, GET_PROF_LEVEL(PROF_WARRIOR, desc->character));
+        MSDPSetNumber(
+            desc, eMDSP_WARRIOR_LEVEL_MAX, max_prof_level(PROF_WARRIOR, desc->character));
+        MSDPSetNumber(desc, eMDSP_RANGER_LEVEL, GET_PROF_LEVEL(PROF_RANGER, desc->character));
+        MSDPSetNumber(desc, eMDSP_RANGER_LEVEL_MAX, max_prof_level(PROF_RANGER, desc->character));
+        MSDPSetNumber(desc, eMDSP_MYSTIC_LEVEL, GET_PROF_LEVEL(PROF_CLERIC, desc->character));
+        MSDPSetNumber(desc, eMDSP_MYSTIC_LEVEL_MAX, max_prof_level(PROF_CLERIC, desc->character));
+        MSDPSetNumber(desc, eMDSP_MAGE_LEVEL, GET_PROF_LEVEL(PROF_MAGE, desc->character));
+        MSDPSetNumber(desc, eMDSP_MAGE_LEVEL_MAX, max_prof_level(PROF_MAGE, desc->character));
         MSDPSetNumber(desc, eMDSP_HEALTH_REGENERATION, (int)hit_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
@@ -704,6 +728,40 @@ void check_pre_login_idle()
         if (time(0) - point->last_input_time > PRE_LOGIN_IDLE_TIMEOUT) {
             close_socket(point);
         }
+    }
+}
+
+/*
+** Close connections whose current state carried an absolute deadline. Distinct from
+** check_pre_login_idle(), which measures idleness from last input -- a deadline here is fixed when
+** the state is entered, so typing at a prompt cannot extend it.
+*/
+void check_state_deadlines(time_t now)
+{
+    descriptor_data *point, *next_point;
+
+    for (point = descriptor_list; point; point = next_point) {
+        next_point = point->next;
+
+        if (point->state_deadline == 0 || now < point->state_deadline)
+            continue;
+
+        point->state_deadline = 0;
+
+        // The three forgot-password states are all bounded by the code's own expiry, so name the
+        // real reason rather than a generic timeout.
+        if (point->connected == CON_ACCTFORGOTCODE || point->connected == CON_ACCTFORGOTNEW
+            || point->connected == CON_ACCTFORGOTCNF) {
+            // account_character_name carries the plaintext reset code through these states and
+            // account_password the new one being typed. Every nanny() exit scrubs both; a close
+            // fired from here has to as well, or the secrets outlive the flow on the descriptor.
+            *point->account_character_name = '\0';
+            *point->account_password = '\0';
+            SEND_TO_Q("\n\rThat reset code has expired.\n\r", point);
+        } else
+            SEND_TO_Q("\n\rTimed out.\n\r", point);
+
+        STATE(point) = CON_CLOSE;
     }
 }
 
@@ -1125,6 +1183,8 @@ void game_loop(SocketType s)
         if (!(pulse % 4)) {
             game_timer::skill_timer& st_instance = game_timer::skill_timer::instance();
             st_instance.update_skill_timer();
+
+            check_state_deadlines(time(0));
         }
 
         if (!(pulse % 1200)) {
@@ -1516,6 +1576,7 @@ SocketType pnew_descriptor(SocketType s)
     pnewd->descriptor = desc;
     pnewd->connected = CON_NME;
     pnewd->bad_pws = 0;
+    pnewd->state_deadline = 0;
     pnewd->proxy_peer_address = 0;
     pnewd->proxy_peer_bytes_read = 0;
     pnewd->waiting_for_proxy_header = has_proxy ? true : false;

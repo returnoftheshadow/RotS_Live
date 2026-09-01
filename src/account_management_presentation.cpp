@@ -29,7 +29,7 @@ std::string format_account_character_prompt(const std::string& root_directory, c
     output << "\n\rLinked characters for your account:\n\r";
     output << format_account_character_short_roster(root_directory, account);
     output << "\n\r0) Back to Account Menu.\n\r";
-    output << "\n\rCharacter number: ";
+    output << "\n\rCharacter number or name: ";
     return output.str();
 }
 
@@ -41,6 +41,25 @@ std::string format_account_character_list(const std::string& root_directory, con
     std::ostringstream output;
     output << "\n\rLinked characters:\n\r";
     output << format_account_character_short_roster(root_directory, account);
+    return output.str();
+}
+
+std::string format_account_login_failure_notice(const AccountData& account)
+{
+    if (account.failed_login_count <= 0)
+        return std::string();
+
+    std::ostringstream output;
+    output << "\n\r" << account.failed_login_count << " FAILED LOGIN ATTEMPT"
+           << (account.failed_login_count == 1 ? "" : "S") << " SINCE YOUR LAST SUCCESSFUL LOGIN.\n\r";
+
+    if (account.failed_login_last_at > 0) {
+        output << "Most recent: " << format_account_timestamp(account.failed_login_last_at);
+        if (!account.failed_login_last_host.empty())
+            output << " from " << account.failed_login_last_host;
+        output << "\n\r";
+    }
+
     return output.str();
 }
 

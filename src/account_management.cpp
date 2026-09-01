@@ -397,6 +397,19 @@ namespace {
         return send_email_message(account.normalized_email, "RotS account verification code", body.str(), error_message);
     }
 
+    bool send_password_reset_email(const AccountData& account, const std::string& reset_code, std::string* error_message)
+    {
+        std::ostringstream body;
+        body << "A password reset was requested for your RotS account.\n\n";
+        body << "Email: " << account.normalized_email << "\n";
+        body << "Password reset code: " << reset_code << "\n";
+        body << "This code is valid for 15 minutes.\n\n";
+        body << "If you did not request this reset, you can ignore this email. Your password has\n";
+        body << "not been changed.";
+
+        return send_email_message(account.normalized_email, "RotS account password reset code", body.str(), error_message);
+    }
+
     std::string hex_encode(const std::string& bytes)
     {
         static constexpr char kHexDigits[] = "0123456789abcdef";
@@ -1333,6 +1346,20 @@ namespace {
             return reader->parse_long(&account->password_reset_at, error_message);
         if (key == "password_reset_by")
             return reader->parse_string(&account->password_reset_by, error_message);
+        if (key == "failed_login_count")
+            return reader->parse_integer(&account->failed_login_count, error_message);
+        if (key == "failed_login_last_at")
+            return reader->parse_long(&account->failed_login_last_at, error_message);
+        if (key == "failed_login_last_host")
+            return reader->parse_string(&account->failed_login_last_host, error_message);
+        if (key == "password_reset_code_hash")
+            return reader->parse_string(&account->password_reset_code_hash, error_message);
+        if (key == "password_reset_code_sent_at")
+            return reader->parse_long(&account->password_reset_code_sent_at, error_message);
+        if (key == "password_reset_code_expires_at")
+            return reader->parse_long(&account->password_reset_code_expires_at, error_message);
+        if (key == "password_reset_attempt_count")
+            return reader->parse_integer(&account->password_reset_attempt_count, error_message);
 
         return reader->skip_value(error_message);
     }

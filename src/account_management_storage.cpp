@@ -108,7 +108,14 @@ std::string serialize_account_to_json(const AccountData& account)
     output << "  \"created_at\": " << account.created_at << ",\n";
     output << "  \"updated_at\": " << account.updated_at << ",\n";
     output << "  \"password_reset_at\": " << account.password_reset_at << ",\n";
-    output << "  \"password_reset_by\": \"" << json_utils::escape_json_string(account.password_reset_by) << "\"\n";
+    output << "  \"password_reset_by\": \"" << json_utils::escape_json_string(account.password_reset_by) << "\",\n";
+    output << "  \"failed_login_count\": " << account.failed_login_count << ",\n";
+    output << "  \"failed_login_last_at\": " << account.failed_login_last_at << ",\n";
+    output << "  \"failed_login_last_host\": \"" << json_utils::escape_json_string(account.failed_login_last_host) << "\",\n";
+    output << "  \"password_reset_code_hash\": \"" << json_utils::escape_json_string(account.password_reset_code_hash) << "\",\n";
+    output << "  \"password_reset_code_sent_at\": " << account.password_reset_code_sent_at << ",\n";
+    output << "  \"password_reset_code_expires_at\": " << account.password_reset_code_expires_at << ",\n";
+    output << "  \"password_reset_attempt_count\": " << account.password_reset_attempt_count << "\n";
     output << "}\n";
     return output.str();
 }

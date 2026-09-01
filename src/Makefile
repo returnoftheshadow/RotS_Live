@@ -77,9 +77,9 @@ object_utils.o : object_utils.cpp structs.h object_utils.h
 	$(CC) -c $(CFLAGS) object_utils.cpp
 char_utils_combat.o : char_utils_combat.cpp structs.h base_utils.h char_utils.h object_utils.h  comm.h char_utils_combat.h
 	$(CC) -c $(CFLAGS) char_utils_combat.cpp
-combat_manager.o : combat_manager.cpp combat_manager.h base_utils.h
+combat_manager.o : combat_manager.cpp combat_manager.h base_utils.h utils.h structs.h
 	$(CC) -c $(CFLAGS) combat_manager.cpp
-big_brother.o : big_brother.cpp big_brother.h base_utils.h singleton.h
+big_brother.o : big_brother.cpp big_brother.h base_utils.h singleton.h structs.h
 	$(CC) -c $(CFLAGS) big_brother.cpp
 battle_mage_handler.o : battle_mage_handler.cpp warrior_spec_handlers.h structs.h
 	$(CC) -c $(CFLAGS) battle_mage_handler.cpp
@@ -89,12 +89,12 @@ wild_fighting_handler.o : wild_fighting_handler.cpp warrior_spec_handlers.h stru
 	$(CC) -c $(CFLAGS) wild_fighting_handler.cpp
 weapon_master_handler.o : weapon_master_handler.cpp warrior_spec_handlers.h structs.h
 	$(CC) -c $(CFLAGS) weapon_master_handler.cpp
-skill_timer.o : skill_timer.cpp skill_timer.h singleton.h
+skill_timer.o : skill_timer.cpp skill_timer.h singleton.h structs.h
 	$(CC) -c $(CFLAGS) skill_timer.cpp
 olog_hai.o : olog_hai.cpp structs.h utils.h comm.h interpre.h handler.h \
 	db.h spells.h limits.h 
 	$(CC) -c $(CFLAGS) olog_hai.cpp
-delayed_command_interpreter.o : delayed_command_interpreter.cpp delayed_command_interpreter.h
+delayed_command_interpreter.o : delayed_command_interpreter.cpp delayed_command_interpreter.h structs.h
 	$(CC) -c $(CFLAGS) delayed_command_interpreter.cpp
 wait_functions.o : wait_functions.cpp structs.h base_utils.h char_utils.h object_utils.h  comm.h
 	$(CC) -c $(CFLAGS) wait_functions.cpp
@@ -215,15 +215,15 @@ mail.o    : mail.cpp structs.h utils.h comm.h interpre.h db.h handler.h
 	$(CC) -c $(CFLAGS) mail.cpp
 zone.o: zone.cpp zone.h structs.h utils.h
 	$(CC) -c $(CFLAGS) zone.cpp
-color.o: color.cpp color.h
+color.o: color.cpp color.h utils.h structs.h
 	$(CC) -c $(CFLAGS) color.cpp
-obj2html.o: obj2html.cpp
+obj2html.o: obj2html.cpp structs.h
 	$(CC) -c $(CFLAGS) obj2html.cpp
-mob_csv_extract.o: mob_csv_extract.cpp mob_csv_extract.h
+mob_csv_extract.o: mob_csv_extract.cpp mob_csv_extract.h structs.h
 	$(CC) -c $(CFLAGS) mob_csv_extract.cpp
-pkill.o: pkill.cpp pkill.h
+pkill.o: pkill.cpp pkill.h structs.h
 	$(CC) -c $(CFLAGS) pkill.cpp
-protocol.o: protocol.cpp protocol.h
+protocol.o: protocol.cpp protocol.h comm.h utils.h structs.h
 	$(CC) -c $(CFLAGS) protocol.cpp
 room_affect_tick.o : room_affect_tick.cpp room_affect_tick.h caster_snapshot.h comm.h handler.h spells.h structs.h utils.h
 	$(CC) -c $(CFLAGS) room_affect_tick.cpp

@@ -58,7 +58,7 @@ private:
                 continue;
 
             const std::string child_path = path + "/" + entry->d_name;
-            struct stat file_info {};
+            struct stat file_info { };
             if (stat(child_path.c_str(), &file_info) != 0)
                 continue;
 
@@ -671,11 +671,51 @@ TEST(AccountManagement, SelectsOnlyCharactersLinkedToTheAccount)
     EXPECT_EQ(selected_character, "legolas");
 
     EXPECT_FALSE(account::select_linked_character(account_data, "gandalf", &selected_character, &error_message));
-    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
     EXPECT_FALSE(account::select_linked_character(account_data, "0", &selected_character, &error_message));
-    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
-    EXPECT_FALSE(account::select_linked_character(account_data, "aragorn", &selected_character, &error_message));
-    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+}
+
+TEST(AccountManagement, SelectsLinkedCharactersByFullName)
+{
+    account::AccountData account_data = make_account();
+    std::string selected_character;
+    std::string error_message;
+
+    ASSERT_TRUE(account::select_linked_character(account_data, "aragorn", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "aragorn");
+
+    ASSERT_TRUE(account::select_linked_character(account_data, "Legolas", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "legolas");
+}
+
+TEST(AccountManagement, SelectsLinkedCharactersByNameIgnoringCaseAndSurroundingSpaces)
+{
+    account::AccountData account_data = make_account();
+    std::string selected_character;
+    std::string error_message;
+
+    ASSERT_TRUE(account::select_linked_character(account_data, "ArAgOrN", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "aragorn");
+
+    ASSERT_TRUE(account::select_linked_character(account_data, "  Legolas  ", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "legolas");
+}
+
+TEST(AccountManagement, RejectsCharacterNamesThatAreNotLinkedToTheAccount)
+{
+    account::AccountData account_data = make_account();
+    std::string selected_character;
+    std::string error_message;
+
+    EXPECT_FALSE(account::select_linked_character(account_data, "gandalf", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+
+    EXPECT_FALSE(account::select_linked_character(account_data, "arago", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+
+    EXPECT_FALSE(account::select_linked_character(account_data, "aragorn the second", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
 TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
@@ -692,7 +732,13 @@ TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
     EXPECT_EQ(selected_character, "character100");
 
     EXPECT_FALSE(account::select_linked_character(account_data, "101", &selected_character, &error_message));
-    EXPECT_NE(error_message.find("Select a linked character by number"), std::string::npos);
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+
+    EXPECT_TRUE(account::select_linked_character(account_data, "character100", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "character100");
+
+    EXPECT_FALSE(account::select_linked_character(account_data, "character101", &selected_character, &error_message));
+    EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
 TEST(AccountManagement, BlocksAndUnblocksAccountsWithAuditMetadata)
@@ -978,7 +1024,7 @@ TEST(AccountManagement, FormatsCharacterPromptWithLinkedCharacterList)
         "1) [ 50 WdE] Aragorn     2) [ 45 Hum] Legolas     \n\r"
         "\n\r2 characters displayed.\n\r"
         "\n\r0) Back to Account Menu.\n\r"
-        "\n\rCharacter number: ");
+        "\n\rCharacter number or name: ");
 }
 
 TEST(AccountManagement, RejectsMalformedJsonInput)
@@ -1039,7 +1085,7 @@ TEST(AccountManagement, PersistsAccountsToBucketedJsonFilesAndReadsThemBack)
     EXPECT_EQ(loaded_account.characters, std::vector<std::string>({ "aragorn", "legolas" }));
     EXPECT_EQ(loaded_account.block_reason, original_account.block_reason);
 
-    struct stat file_info {};
+    struct stat file_info { };
     ASSERT_EQ(stat(account::account_file_path(temp_directory.path(), original_account.normalized_email).c_str(), &file_info), 0)
         << "Expected write_account_file() to materialize the final account JSON file.";
 
@@ -1063,7 +1109,7 @@ TEST(AccountManagement, RewritesLegacyFlatAccountFilesIntoEmailRootedLayout)
     loaded_account.block_reason = "updated reason";
     ASSERT_TRUE(account::write_account_file(temp_directory.path(), loaded_account, &error_message)) << error_message;
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_EQ(stat(account::account_file_path(temp_directory.path(), original_account.normalized_email).c_str(), &file_info), 0);
     EXPECT_NE(stat(legacy_path.c_str(), &file_info), 0);
 
@@ -1865,7 +1911,7 @@ TEST(AccountManagement, MigratesLegacyCharacterFilesIntoAccountNativeAssetsWitho
     EXPECT_EQ(migration.player_file.encoding, "hex");
     EXPECT_EQ(migration.player_file.source_path, account::legacy_player_file_path(temp_directory.path(), "aragorn"));
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0)
         << "Expected successful migration to rely on account-native assets without persisting a transitional snapshot file.";
 }
@@ -1888,7 +1934,7 @@ TEST(AccountManagement, PersistedMigrationSnapshotOmitsLegacyPlayerPasswordAndHo
     ASSERT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, &migration, &error_message)) << error_message;
     ASSERT_TRUE(migration.player_file.present);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0)
         << "Routine migration should no longer persist a transitional snapshot file at all.";
 }
@@ -2031,7 +2077,7 @@ TEST(AccountManagement, PrefersVersionedLegacyPlayerFilesOverStaleFlatFilesDurin
     EXPECT_EQ(restored_character.points.gold, versioned_character.points.gold);
     EXPECT_EQ(restored_character.specials2.idnum, versioned_character.specials2.idnum);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_player_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0)
         << "Expected migration to retire the stale flat legacy player file once the versioned save won precedence.";
 }
@@ -2063,7 +2109,7 @@ TEST(AccountManagement, MigratesVersionedLegacyPlayerFileEvenWhenStaleFlatFileIs
     ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &restored_character, &error_message)) << error_message;
     EXPECT_EQ(restored_character.points.gold, versioned_character.points.gold);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_player_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
 }
 
@@ -2145,7 +2191,7 @@ TEST(AccountManagement, EnsuresCharacterMigrationByCreatingMissingSnapshotFromLe
     ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &restored_character, &error_message)) << error_message;
     EXPECT_STREQ(restored_character.name, "aragorn");
     EXPECT_EQ(restored_character.points.gold, make_stored_character("aragorn").points.gold);
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_player_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
@@ -2170,7 +2216,7 @@ TEST(AccountManagement, IgnoresCorruptSnapshotArtifactWhenRebuildingFromLegacyFi
     EXPECT_STREQ(restored_character.name, "aragorn");
     EXPECT_EQ(restored_character.points.gold, make_stored_character("aragorn").points.gold);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_player_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
@@ -2259,7 +2305,7 @@ TEST(AccountManagement, RestoresLegacyFilesFromCharacterMigrationSnapshot)
     EXPECT_EQ(read_file_contents(account::legacy_player_file_path(temp_directory.path(), "aragorn")), expected_player_text);
     EXPECT_EQ(read_file_contents(account::legacy_object_file_path(temp_directory.path(), "aragorn")), expected_object_bytes);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
 }
 
@@ -2315,7 +2361,7 @@ TEST(AccountManagement, ClearsRuntimeSupportFilesForAccountBackedPlayWithoutRewr
     ASSERT_TRUE(account::clear_character_runtime_support_files_for_account_play(temp_directory.path(), "alpha-admin", "aragorn", migration, &error_message)) << error_message;
     EXPECT_EQ(read_file_contents(account::legacy_player_file_path(temp_directory.path(), "aragorn")), "player-stays-put");
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::legacy_object_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
     EXPECT_NE(stat(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
 }
@@ -2554,7 +2600,7 @@ TEST(AccountManagement, MigrationRetiresLegacyFilesAfterSuccessfulAccountNativeW
     account::CharacterMigrationData migration;
     ASSERT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, &migration, &error_message)) << error_message;
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
     EXPECT_NE(stat(player_path.c_str(), &file_info), 0);
     EXPECT_NE(stat(object_path.c_str(), &file_info), 0);
@@ -2589,7 +2635,7 @@ TEST(AccountManagement, MigrationFailsClosedWhenLegacyFileRetirementFails)
 
     ASSERT_EQ(chmod(object_bucket.c_str(), 0700), 0);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_EQ(stat(player_path.c_str(), &file_info), 0);
     EXPECT_EQ(stat(object_path.c_str(), &file_info), 0);
     EXPECT_EQ(read_file_contents(player_path), expected_player_text);
@@ -2632,7 +2678,7 @@ TEST(AccountManagement, MigrationCleansUpAccountNativeOutputsWhenStaleFlatRetire
     EXPECT_FALSE(account::account_object_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
     EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
     EXPECT_EQ(read_file_contents(versioned_player_path), expected_player_text);
     EXPECT_EQ(read_file_contents(account::legacy_object_file_path(temp_directory.path(), "aragorn")), expected_object_bytes);
@@ -2669,7 +2715,7 @@ TEST(AccountManagement, MigrationRestoresRetiredFilesWhenExploitRetirementFails)
 
     ASSERT_EQ(chmod(exploits_bucket.c_str(), 0700), 0);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_EQ(stat(player_path.c_str(), &file_info), 0);
     EXPECT_EQ(stat(object_path.c_str(), &file_info), 0);
     EXPECT_EQ(stat(exploits_path.c_str(), &file_info), 0);
@@ -2791,7 +2837,7 @@ TEST(AccountManagement, RefreshingSnapshotPreservesExistingExploitHistoryWhenRun
     EXPECT_EQ(refreshed_migration.exploits_file.content, initial_migration.exploits_file.content);
     EXPECT_TRUE(refreshed_migration.player_file.present);
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
 
@@ -2808,7 +2854,7 @@ TEST(AccountManagement, RefreshingSnapshotForUnlinkedCharacterSucceedsWithoutWri
     EXPECT_TRUE(migration.account_name.empty());
     EXPECT_TRUE(migration.character_name.empty());
 
-    struct stat file_info {};
+    struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
 
@@ -2823,4 +2869,665 @@ TEST(AccountManagement, RefusesToOverwriteCorruptExistingAccountFiles)
     std::string error_message;
     EXPECT_FALSE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700011111, nullptr, &error_message));
     EXPECT_NE(error_message.find("could not be read safely"), std::string::npos);
+}
+
+TEST(AccountManagement, RoundTripsFailedLoginMetadataThroughAccountJson)
+{
+    account::AccountData original_account = make_account();
+    original_account.failed_login_count = 3;
+    original_account.failed_login_last_at = 1700020000;
+    original_account.failed_login_last_host = "host.example.com";
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(
+        account::serialize_account_to_json(original_account), &parsed_account, &error_message))
+        << error_message;
+
+    EXPECT_EQ(parsed_account.failed_login_count, 3);
+    EXPECT_EQ(parsed_account.failed_login_last_at, 1700020000);
+    EXPECT_EQ(parsed_account.failed_login_last_host, "host.example.com");
+}
+
+TEST(AccountManagement, DefaultsFailedLoginMetadataWhenAccountJsonOmitsIt)
+{
+    const std::string legacy_json = "{\n"
+                                    "  \"version\": 1,\n"
+                                    "  \"account_name\": \"alpha-admin\",\n"
+                                    "  \"normalized_email\": \"player@example.com\"\n"
+                                    "}\n";
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(legacy_json, &parsed_account, &error_message)) << error_message;
+
+    EXPECT_EQ(parsed_account.failed_login_count, 0);
+    EXPECT_EQ(parsed_account.failed_login_last_at, 0);
+    EXPECT_TRUE(parsed_account.failed_login_last_host.empty());
+}
+
+TEST(AccountManagement, RecordsFailedLoginAttemptsAgainstTheStoredAccount)
+{
+    TemporaryDirectory temp_directory;
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    EXPECT_TRUE(account::record_account_login_failure(temp_directory.path(), "player@example.com", "first.example.com", 1700002000, &error_message)) << error_message;
+    EXPECT_TRUE(account::record_account_login_failure(temp_directory.path(), "Player@Example.com", "second.example.com", 1700002500, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), created_account.account_name, &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.failed_login_count, 2);
+    EXPECT_EQ(stored_account.failed_login_last_at, 1700002500);
+    EXPECT_EQ(stored_account.failed_login_last_host, "second.example.com");
+}
+
+TEST(AccountManagement, StripsUnprintableAndOverlongHostsWhenRecordingFailedLogins)
+{
+    TemporaryDirectory temp_directory;
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    const std::string hostile_host = std::string("evil\x1b[2Jhost\r\n") + std::string(80, 'a');
+    EXPECT_TRUE(account::record_account_login_failure(temp_directory.path(), "player@example.com", hostile_host, 1700002000, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), created_account.account_name, &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.failed_login_last_host.find('\x1b'), std::string::npos);
+    EXPECT_EQ(stored_account.failed_login_last_host.find('\r'), std::string::npos);
+    EXPECT_EQ(stored_account.failed_login_last_host.find('\n'), std::string::npos);
+    EXPECT_LE(stored_account.failed_login_last_host.size(), static_cast<size_t>(account::MAX_FAILED_LOGIN_HOST_LENGTH));
+    // Only the control bytes go; the remaining "[2J" is inert text once the escape is gone.
+    EXPECT_EQ(stored_account.failed_login_last_host.substr(0, 11), "evil[2Jhost");
+}
+
+TEST(AccountManagement, IgnoresFailedLoginAttemptsForAddressesWithoutAnAccount)
+{
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+
+    EXPECT_TRUE(account::record_account_login_failure(temp_directory.path(), "nobody@example.com", "host.example.com", 1700002000, &error_message)) << error_message;
+
+    struct stat file_info { };
+    EXPECT_NE(stat(account::account_file_path(temp_directory.path(), "nobody@example.com").c_str(), &file_info), 0);
+}
+
+TEST(AccountManagement, ClearsFailedLoginMetadataAfterASuccessfulLogin)
+{
+    TemporaryDirectory temp_directory;
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::record_account_login_failure(temp_directory.path(), "player@example.com", "host.example.com", 1700002000, &error_message)) << error_message;
+
+    EXPECT_TRUE(account::clear_account_login_failures(temp_directory.path(), created_account.account_name, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), created_account.account_name, &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.failed_login_count, 0);
+    EXPECT_EQ(stored_account.failed_login_last_at, 0);
+    EXPECT_TRUE(stored_account.failed_login_last_host.empty());
+}
+
+TEST(AccountManagement, FormatsFailedLoginNoticeWithCountAndMostRecentAttempt)
+{
+    account::AccountData account_data;
+    account_data.failed_login_count = 3;
+    account_data.failed_login_last_at = 1700002500;
+    account_data.failed_login_last_host = "host.example.com";
+
+    const std::string notice = account::format_account_login_failure_notice(account_data);
+    EXPECT_NE(notice.find("3 FAILED LOGIN ATTEMPTS SINCE YOUR LAST SUCCESSFUL LOGIN."), std::string::npos);
+    EXPECT_NE(notice.find("Most recent: 2023-11-14 22:55:00 UTC from host.example.com"), std::string::npos);
+}
+
+TEST(AccountManagement, FormatsSingularFailedLoginNotice)
+{
+    account::AccountData account_data;
+    account_data.failed_login_count = 1;
+    account_data.failed_login_last_at = 1700002500;
+    account_data.failed_login_last_host = "host.example.com";
+
+    const std::string notice = account::format_account_login_failure_notice(account_data);
+    EXPECT_NE(notice.find("1 FAILED LOGIN ATTEMPT SINCE YOUR LAST SUCCESSFUL LOGIN."), std::string::npos);
+    EXPECT_EQ(notice.find("ATTEMPTS"), std::string::npos);
+}
+
+TEST(AccountManagement, OmitsTheFailedLoginNoticeWhenThereAreNoFailures)
+{
+    account::AccountData account_data;
+    account_data.failed_login_count = 0;
+    account_data.failed_login_last_at = 1700002500;
+    account_data.failed_login_last_host = "host.example.com";
+
+    EXPECT_TRUE(account::format_account_login_failure_notice(account_data).empty());
+}
+
+TEST(AccountManagement, OmitsTheHostFromTheFailedLoginNoticeWhenItIsUnknown)
+{
+    account::AccountData account_data;
+    account_data.failed_login_count = 2;
+    account_data.failed_login_last_at = 1700002500;
+
+    const std::string notice = account::format_account_login_failure_notice(account_data);
+    EXPECT_NE(notice.find("Most recent: 2023-11-14 22:55:00 UTC\n\r"), std::string::npos);
+    EXPECT_EQ(notice.find(" from "), std::string::npos);
+}
+
+TEST(AccountManagement, RoundTripsPasswordResetCodeMetadataThroughAccountJson)
+{
+    account::AccountData original_account = make_account();
+    original_account.password_reset_code_hash = "reset-code-hash";
+    original_account.password_reset_code_sent_at = 1700030000;
+    original_account.password_reset_code_expires_at = 1700030900;
+    original_account.password_reset_attempt_count = 2;
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(
+        account::serialize_account_to_json(original_account), &parsed_account, &error_message))
+        << error_message;
+
+    EXPECT_EQ(parsed_account.password_reset_code_hash, "reset-code-hash");
+    EXPECT_EQ(parsed_account.password_reset_code_sent_at, 1700030000);
+    EXPECT_EQ(parsed_account.password_reset_code_expires_at, 1700030900);
+    EXPECT_EQ(parsed_account.password_reset_attempt_count, 2);
+}
+
+TEST(AccountManagement, DefaultsPasswordResetCodeMetadataWhenAccountJsonOmitsIt)
+{
+    const std::string legacy_json = "{\n"
+                                    "  \"version\": 1,\n"
+                                    "  \"account_name\": \"alpha-admin\",\n"
+                                    "  \"normalized_email\": \"player@example.com\"\n"
+                                    "}\n";
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(legacy_json, &parsed_account, &error_message)) << error_message;
+
+    EXPECT_TRUE(parsed_account.password_reset_code_hash.empty());
+    EXPECT_EQ(parsed_account.password_reset_code_sent_at, 0);
+    EXPECT_EQ(parsed_account.password_reset_code_expires_at, 0);
+    EXPECT_EQ(parsed_account.password_reset_attempt_count, 0);
+}
+
+TEST(AccountManagement, KeepsResetAndVerificationAttemptCapsUniform)
+{
+    EXPECT_EQ(account::MAX_PASSWORD_RESET_ATTEMPTS, account::MAX_EMAIL_VERIFICATION_ATTEMPTS);
+    EXPECT_EQ(account::PASSWORD_RESET_WINDOW_SECONDS, account::EMAIL_VERIFICATION_WINDOW_SECONDS);
+    EXPECT_EQ(account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS, account::EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS);
+}
+
+TEST(AccountManagement, StartPasswordResetIgnoresAddressesWithoutAnAccount)
+{
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    long code_expires_at = 0;
+
+    EXPECT_TRUE(account::start_password_reset(temp_directory.path(), "nobody@example.com", 1700002000, &code_expires_at, &error_message)) << error_message;
+
+    EXPECT_EQ(code_expires_at, 1700002000 + account::PASSWORD_RESET_WINDOW_SECONDS);
+    struct stat file_info { };
+    EXPECT_NE(stat(account::account_file_path(temp_directory.path(), "nobody@example.com").c_str(), &file_info), 0);
+}
+
+TEST(AccountManagement, StartPasswordResetStoresAHashedCodeAndMailsIt)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path,
+        "#!/bin/sh\n"
+        "cat > \""
+            + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    long code_expires_at = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &code_expires_at, &error_message)) << error_message;
+
+    EXPECT_EQ(code_expires_at, 1700002000 + account::PASSWORD_RESET_WINDOW_SECONDS);
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_FALSE(stored_account.password_reset_code_hash.empty());
+    EXPECT_EQ(stored_account.password_reset_code_sent_at, 1700002000);
+    EXPECT_EQ(stored_account.password_reset_code_expires_at, 1700002000 + account::PASSWORD_RESET_WINDOW_SECONDS);
+    EXPECT_EQ(stored_account.password_reset_attempt_count, 0);
+
+    const std::string captured_mail = read_file_contents(capture_path);
+    EXPECT_NE(captured_mail.find("To: player@example.com"), std::string::npos);
+    EXPECT_NE(captured_mail.find("Subject: RotS account password reset code"), std::string::npos);
+    EXPECT_NE(captured_mail.find("Password reset code: "), std::string::npos);
+    // The plaintext code must never be what we stored.
+    EXPECT_EQ(captured_mail.find(stored_account.password_reset_code_hash), std::string::npos);
+}
+
+TEST(AccountManagement, StartPasswordResetSuppressesASecondCodeInsideTheCooldown)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string command_script_path = root + "/discard-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > /dev/null\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    long first_expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &first_expiry, &error_message)) << error_message;
+
+    account::AccountData after_first;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_first, &error_message)) << error_message;
+
+    long second_expiry = 0;
+    const long inside_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS - 1;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", inside_cooldown, &second_expiry, &error_message)) << error_message;
+
+    account::AccountData after_second;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_second, &error_message)) << error_message;
+
+    // The first code is untouched and still the one that works.
+    EXPECT_EQ(after_second.password_reset_code_hash, after_first.password_reset_code_hash);
+    EXPECT_EQ(after_second.password_reset_code_sent_at, 1700002000);
+    // The reported expiry is synthetic, not the stored one -- see the test below.
+    EXPECT_EQ(second_expiry, inside_cooldown + account::PASSWORD_RESET_WINDOW_SECONDS);
+}
+
+// The caller turns *code_expires_at into a connection deadline the player can time. Reporting the
+// real pending expiry inside the cooldown made that deadline depend on when an earlier code was
+// issued, so an attacker could tell an address with an account from one without by watching the
+// clock. Every branch must report the same clock-derived value.
+TEST(AccountManagement, StartPasswordResetReportsASyntheticExpiryInsideTheCooldown)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string command_script_path = root + "/discard-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > /dev/null\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    long first_expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &first_expiry, &error_message)) << error_message;
+
+    account::AccountData after_first;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_first, &error_message)) << error_message;
+
+    long cooldown_expiry = 0;
+    const long inside_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS - 1;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", inside_cooldown, &cooldown_expiry, &error_message)) << error_message;
+
+    EXPECT_EQ(cooldown_expiry, inside_cooldown + account::PASSWORD_RESET_WINDOW_SECONDS);
+    EXPECT_NE(cooldown_expiry, after_first.password_reset_code_expires_at);
+
+    // An address with no account at all reports the same thing, which is the whole point.
+    long unknown_expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "nobody@example.com", inside_cooldown, &unknown_expiry, &error_message)) << error_message;
+    EXPECT_EQ(unknown_expiry, cooldown_expiry);
+}
+
+TEST(AccountManagement, StartPasswordResetIssuesAFreshCodeOnceTheCooldownLapses)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string command_script_path = root + "/discard-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > /dev/null\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    long expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &expiry, &error_message)) << error_message;
+    account::AccountData after_first;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_first, &error_message)) << error_message;
+
+    const long past_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", past_cooldown, &expiry, &error_message)) << error_message;
+    account::AccountData after_second;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_second, &error_message)) << error_message;
+
+    EXPECT_NE(after_second.password_reset_code_hash, after_first.password_reset_code_hash);
+    EXPECT_EQ(after_second.password_reset_code_sent_at, past_cooldown);
+}
+
+TEST(AccountManagement, StartPasswordResetLeavesAPendingEmailVerificationCodeAlone)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string command_script_path = root + "/discard-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > /dev/null\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    std::string verification_code;
+    ASSERT_TRUE(account::prepare_email_verification_code(&created_account, 1700001500, &verification_code, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_file(root, created_account, &error_message)) << error_message;
+
+    long expiry = 0;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", 1700002000, &expiry, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.verification_code_hash, created_account.verification_code_hash);
+    EXPECT_EQ(stored_account.verification_code_expires_at, created_account.verification_code_expires_at);
+    EXPECT_NE(stored_account.password_reset_code_hash, stored_account.verification_code_hash);
+}
+
+namespace {
+
+// Issues a reset code and returns the plaintext by capturing the outgoing mail.
+std::string issue_reset_code(const std::string& root, const std::string& capture_path, long sent_at)
+{
+    long expiry = 0;
+    std::string error_message;
+    EXPECT_TRUE(account::start_password_reset(root, "player@example.com", sent_at, &expiry, &error_message)) << error_message;
+
+    const std::string captured_mail = read_file_contents(capture_path);
+    const std::string marker = "Password reset code: ";
+    const size_t code_offset = captured_mail.find(marker);
+    EXPECT_NE(code_offset, std::string::npos) << "Expected a reset code in the captured mail.";
+    if (code_offset == std::string::npos)
+        return "";
+    return captured_mail.substr(code_offset + marker.size(), 6);
+}
+
+} // namespace
+
+TEST(AccountManagement, CompletePasswordResetChangesThePasswordAndClearsResetState)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    // Give it failed logins and an unverified address, both of which a completed reset should settle.
+    ASSERT_TRUE(account::record_account_login_failure(root, "player@example.com", "attacker.example.com", 1700001500, &error_message)) << error_message;
+
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    account::AccountData reset_account;
+    ASSERT_TRUE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", 1700002100, &reset_account, &error_message)) << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+
+    EXPECT_TRUE(account::verify_password("BrandNew1", stored_account.password_hash));
+    EXPECT_FALSE(account::verify_password("ValidPass1", stored_account.password_hash));
+    EXPECT_EQ(stored_account.password_reset_by, "forgot-password");
+    EXPECT_EQ(stored_account.password_reset_at, 1700002100);
+    EXPECT_TRUE(stored_account.password_reset_code_hash.empty());
+    EXPECT_EQ(stored_account.password_reset_code_sent_at, 0);
+    EXPECT_EQ(stored_account.password_reset_code_expires_at, 0);
+    EXPECT_EQ(stored_account.password_reset_attempt_count, 0);
+    EXPECT_TRUE(stored_account.email_verified);
+    EXPECT_EQ(stored_account.failed_login_count, 0);
+    EXPECT_TRUE(stored_account.failed_login_last_host.empty());
+}
+
+TEST(AccountManagement, CompletePasswordResetCountsWrongCodesAndInvalidatesAtTheCap)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    for (int attempt = 1; attempt < account::MAX_PASSWORD_RESET_ATTEMPTS; ++attempt) {
+        EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", "000000", "BrandNew1", 1700002000 + attempt, nullptr, &error_message));
+        account::AccountData in_progress;
+        ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &in_progress, &error_message)) << error_message;
+        EXPECT_EQ(in_progress.password_reset_attempt_count, attempt);
+        EXPECT_FALSE(in_progress.password_reset_code_hash.empty());
+    }
+
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", "000000", "BrandNew1", 1700002090, nullptr, &error_message));
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_TRUE(stored_account.password_reset_code_hash.empty());
+    EXPECT_EQ(stored_account.password_reset_code_expires_at, 0);
+    // The real code is dead too, so a reconnect cannot resume with it.
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", 1700002095, nullptr, &error_message));
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+// Clearing password_reset_code_sent_at at the cap switched the resend cooldown off, so five wrong
+// guesses bought an immediate fresh code -- unlimited mail to a known address, and a victim who
+// could never finish a reset because each code they received was killed by the next five guesses.
+TEST(AccountManagement, StartPasswordResetStillHonoursTheCooldownAfterTheAttemptCap)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    for (int attempt = 1; attempt <= account::MAX_PASSWORD_RESET_ATTEMPTS; ++attempt)
+        EXPECT_FALSE(account::verify_password_reset_code(root, "player@example.com", "000000", 1700002000 + attempt, &error_message));
+
+    account::AccountData exhausted_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &exhausted_account, &error_message)) << error_message;
+    EXPECT_TRUE(exhausted_account.password_reset_code_hash.empty());
+    EXPECT_EQ(exhausted_account.password_reset_code_expires_at, 0);
+    // The send timestamp survives the cap: it is the only thing the cooldown gate reads.
+    EXPECT_EQ(exhausted_account.password_reset_code_sent_at, 1700002000);
+
+    long expiry = 0;
+    const long inside_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS - 1;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", inside_cooldown, &expiry, &error_message)) << error_message;
+
+    account::AccountData after_request;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_request, &error_message)) << error_message;
+    // Still suppressed: no new code stamped, so nothing new was mailed either.
+    EXPECT_TRUE(after_request.password_reset_code_hash.empty());
+    EXPECT_EQ(after_request.password_reset_code_sent_at, 1700002000);
+
+    // Once the cooldown genuinely lapses a fresh code is issued as normal.
+    const long past_cooldown = 1700002000 + account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS;
+    ASSERT_TRUE(account::start_password_reset(root, "player@example.com", past_cooldown, &expiry, &error_message)) << error_message;
+
+    account::AccountData after_cooldown;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_cooldown, &error_message)) << error_message;
+    EXPECT_FALSE(after_cooldown.password_reset_code_hash.empty());
+    EXPECT_EQ(after_cooldown.password_reset_code_sent_at, past_cooldown);
+    EXPECT_EQ(after_cooldown.password_reset_attempt_count, 0);
+}
+
+TEST(AccountManagement, CompletePasswordResetRejectsAnExpiredCode)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    const long after_expiry = 1700002000 + account::PASSWORD_RESET_WINDOW_SECONDS + 1;
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", after_expiry, nullptr, &error_message));
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+TEST(AccountManagement, CompletePasswordResetRejectsAddressesWithoutAnAccount)
+{
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    EXPECT_FALSE(account::complete_password_reset(temp_directory.path(), "nobody@example.com", "000000", "BrandNew1", 1700002000, nullptr, &error_message));
+}
+
+TEST(AccountManagement, CompletePasswordResetRejectsAnEmailVerificationCode)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+
+    std::string verification_code;
+    ASSERT_TRUE(account::prepare_email_verification_code(&created_account, 1700001500, &verification_code, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_file(root, created_account, &error_message)) << error_message;
+
+    // No reset has been started, so a verification code must not stand in for one.
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", verification_code, "BrandNew1", 1700002000, nullptr, &error_message));
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+TEST(AccountManagement, CompletePasswordResetRejectsAPasswordFailingPolicy)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", reset_code, "short", 1700002100, nullptr, &error_message));
+
+    // The code survives so the player can retry with a better password.
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_FALSE(stored_account.password_reset_code_hash.empty());
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+TEST(AccountManagement, CompletePasswordResetChecksTheCodeBeforeThePasswordPolicy)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    // Wrong code AND a policy-failing password. If the policy check ran first, this would surface
+    // the password error and tell an attacker nothing about the guessed code; it must instead fail
+    // on the code, before the password is ever looked at.
+    EXPECT_FALSE(account::complete_password_reset(root, "player@example.com", "000000", "short", 1700002050, nullptr, &error_message));
+    EXPECT_EQ(error_message, "That reset code is invalid.");
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &stored_account, &error_message)) << error_message;
+    EXPECT_EQ(stored_account.password_reset_attempt_count, 1);
+    EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
+}
+
+TEST(AccountManagement, VerifyPasswordResetCodeAcceptsWithoutConsumingTheCode)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    EXPECT_TRUE(account::verify_password_reset_code(root, "player@example.com", reset_code, 1700002050, &error_message)) << error_message;
+
+    account::AccountData after_verify;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_verify, &error_message)) << error_message;
+    EXPECT_EQ(after_verify.password_reset_attempt_count, 0);
+    EXPECT_FALSE(after_verify.password_reset_code_hash.empty());
+
+    // The code still completes the reset afterwards -- checking it did not spend it.
+    EXPECT_TRUE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", 1700002100, nullptr, &error_message)) << error_message;
+}
+
+TEST(AccountManagement, VerifyPasswordResetCodeCountsWrongCodesLikeTheCompletingCall)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    const std::string capture_path = root + "/captured-mail.txt";
+    const std::string command_script_path = root + "/capture-sendmail.sh";
+    write_text_file(command_script_path, "#!/bin/sh\ncat > \"" + capture_path + "\"\n");
+    make_file_executable(command_script_path);
+    ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", command_script_path);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700001000, &created_account, &error_message)) << error_message;
+    const std::string reset_code = issue_reset_code(root, capture_path, 1700002000);
+    ASSERT_FALSE(reset_code.empty());
+
+    EXPECT_FALSE(account::verify_password_reset_code(root, "player@example.com", "000000", 1700002050, &error_message));
+
+    account::AccountData after_verify;
+    ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_verify, &error_message)) << error_message;
+    EXPECT_EQ(after_verify.password_reset_attempt_count, 1);
 }
