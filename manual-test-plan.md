@@ -99,6 +99,20 @@ in the victim's fight. If the poisoner has since logged off or died, the record 
 same room rule as blaze above: the remote poisoner gets the record but no XP, while anyone
 fighting the victim in the death room still splits the XP normally.
 
+**Punishment carveout (poison only):** how a poison death *punishes* is decided by engagement
+with a real mob (not a pet/orc-friend) at the instant of death, in either direction — you
+fighting it, or it fighting you:
+- Not engaged with any real mob → legacy treatment regardless of poison source: small XP loss,
+  gentle penalty (revive at hp/4, no stat loss), `EXPLOIT_POISON` record, **no** mob-death
+  record — even when a mob's poison did the killing.
+- Engaged with a real mob → full mob death regardless of poison source: full XP loss, harsh
+  2/3-stat penalty, mob-death record (naming the poisoning mob, else the engaged mob). A
+  player poisoner still keeps their PK/kill records alongside.
+Manual checks on 4810: (a) mob poisons you, flee two rooms, die alone → gentle + small loss +
+poison record only; (b) same poison, die still swinging at the mob → harsh + full loss +
+mob-death record; (c) player poisons you, you die fighting an unrelated mob → harsh + full
+loss, poisoner keeps PK record.
+
 ### 5. PK weight/opponent records now agree with each other and include remote contributors
 
 **Before:** the three PK record walks (`pkill_weight`, `pkill_opponents`, the pkill-table
