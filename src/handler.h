@@ -199,8 +199,7 @@ void record_poison_origin(struct char_data* victim, struct char_data* poisoner);
 
 // Punishment class for a PC death. legacy = not a poison carveout: die()/
 // raw_kill() decide from the credited killer exactly as they always have.
-// The two poison values override the killer-based rules (spec:
-// docs/superpowers/specs/2026-09-01-poison-death-classification-design.md).
+// The two poison values override the killer-based rules.
 enum class death_punishment {
     legacy,
     mob_death,

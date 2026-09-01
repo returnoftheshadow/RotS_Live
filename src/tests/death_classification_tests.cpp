@@ -1,6 +1,5 @@
 // Pins for the poison-death classification carveout: the pure decision
-// functions that decide how a PC poison death is punished (spec:
-// docs/superpowers/specs/2026-09-01-poison-death-classification-design.md).
+// functions that decide how a PC poison death is punished.
 // The harness cannot drive a PC-victim death end-to-end (see the banner in
 // fight_credit_tests.cpp), so these pins target the extracted functions
 // directly with stack fixtures -- no rooms, no death pipeline.
