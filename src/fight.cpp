@@ -1075,7 +1075,18 @@ char_data* mobdeath_record_mob(char_data* killer, char_data* engaged_mob, death_
     return nullptr;
 }
 
+// Forward declaration of the 4-arg raw_kill; the 3-arg form forwards to it.
+void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_punishment punishment);
+
 void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
+{
+    raw_kill(dead_man, killer, attack_type, death_punishment::legacy);
+}
+
+// The punishment classification is computed once in die(); every direct
+// caller goes through the 3-arg forwarder above and keeps the killer-based
+// legacy rule.
+void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_punishment punishment)
 {
     waiting_type tmpwtl;
 
@@ -1126,7 +1137,8 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
         // term, which assumed every poison death was a player's doing, is
         // gone: a poison death is a player kill exactly when the character
         // credited with it is a player.
-        bool died_to_player = killer != NULL && !IS_NPC(killer);
+        // The poison carveout (death_punishment) can override this in either direction.
+        const bool died_to_player = death_counts_as_player_kill(killer, punishment);
         char_ability_data& cur_abils = dead_man->tmpabilities;
         char_ability_data& max_abils = dead_man->abilities;
         cur_abils = max_abils;
