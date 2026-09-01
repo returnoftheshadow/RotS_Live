@@ -196,6 +196,25 @@ struct char_data* resolve_poisoner(const struct char_data& victim);
 // an origin; clear_char() (db.cpp) and affect_remove() (handler.cpp, when the
 // last SPELL_POISON affect goes) clear the pair, and set it nowhere.
 void record_poison_origin(struct char_data* victim, struct char_data* poisoner);
+
+// Punishment class for a PC death. legacy = not a poison carveout: die()/
+// raw_kill() decide from the credited killer exactly as they always have.
+// The two poison values override the killer-based rules (spec:
+// docs/superpowers/specs/2026-09-01-poison-death-classification-design.md).
+enum class death_punishment {
+    legacy,
+    mob_death,
+    player_death,
+};
+
+// A mob acting for itself: an NPC that is neither MOB_PET nor MOB_ORC_FRIEND.
+// Null and players answer false.
+bool is_real_mob(const struct char_data* character);
+
+// Only SPELL_POISON classifies away from legacy; engagement with a real mob
+// then decides mob_death vs player_death regardless of the poison's source.
+death_punishment classify_pc_death(int attack_type, bool engaged_with_real_mob);
+
 int check_sanctuary(char_data* ch, char_data* victim);
 
 char* money_message(int sum, int mode = 0);

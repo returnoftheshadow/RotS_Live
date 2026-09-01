@@ -296,7 +296,7 @@ void stop_fighting(struct char_data* ch)
             combat_list = ch->next_fighting;
         else {
             for (tmp = combat_list; tmp && (tmp->next_fighting != ch);
-                 tmp = tmp->next_fighting)
+                tmp = tmp->next_fighting)
                 ;
 
             if (!tmp) {
@@ -1004,6 +1004,25 @@ kill_contributor_list kill_contributors(char_data* victim, char_data* primary)
     offer_kill_contributor(contributors, victim, poisoner);
     offer_kill_contributor(contributors, victim, primary);
     return contributors;
+}
+
+bool is_real_mob(const char_data* character)
+{
+    if (!IS_NPC(character)) {
+        return false;
+    }
+    return !MOB_FLAGGED(character, MOB_PET) && !MOB_FLAGGED(character, MOB_ORC_FRIEND);
+}
+
+death_punishment classify_pc_death(int attack_type, bool engaged_with_real_mob)
+{
+    if (attack_type != SPELL_POISON) {
+        return death_punishment::legacy;
+    }
+    if (engaged_with_real_mob) {
+        return death_punishment::mob_death;
+    }
+    return death_punishment::player_death;
 }
 
 void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
