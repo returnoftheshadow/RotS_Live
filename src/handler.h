@@ -228,6 +228,11 @@ bool death_takes_full_mob_xp_loss(const struct char_data* killer, death_punishme
 // penalty. legacy derives from the killer as raw_kill() always has.
 bool death_counts_as_player_kill(const struct char_data* killer, death_punishment punishment);
 
+// The NPC an EXPLOIT_MOBDEATH record names, or null when no record is due.
+// legacy names a real-mob killer only; mob_death names the killer when it is
+// a real mob, else engaged_mob; player_death suppresses the record.
+struct char_data* mobdeath_record_mob(struct char_data* killer, struct char_data* engaged_mob, death_punishment punishment);
+
 int check_sanctuary(char_data* ch, char_data* victim);
 
 char* money_message(int sum, int mode = 0);

@@ -236,3 +236,44 @@ TEST(DeathCountsAsPlayerKill, MobDeathIsHarshAndPlayerDeathIsGentleRegardlessOfK
         << "an unengaged mob poisoner still yields the gentle player-kill penalty";
     EXPECT_TRUE(death_counts_as_player_kill(nullptr, death_punishment::player_death));
 }
+
+TEST(MobdeathRecordMob, LegacyNamesOnlyARealMobKiller)
+{
+    char_data mob { };
+    make_plain_mob(mob);
+    char_data pet { };
+    make_pet_mob(pet);
+    char_data player { };
+    player.player.level = 20;
+    char_data engaged_mob { };
+    make_plain_mob(engaged_mob);
+
+    EXPECT_EQ(mobdeath_record_mob(&mob, &engaged_mob, death_punishment::legacy), &mob);
+    EXPECT_EQ(mobdeath_record_mob(&pet, &engaged_mob, death_punishment::legacy), nullptr);
+    EXPECT_EQ(mobdeath_record_mob(&player, &engaged_mob, death_punishment::legacy), nullptr);
+    EXPECT_EQ(mobdeath_record_mob(nullptr, &engaged_mob, death_punishment::legacy), nullptr)
+        << "legacy never names the engaged mob -- byte-compatible with the removed guard";
+}
+
+TEST(MobdeathRecordMob, MobDeathNamesRealMobKillerElseTheEngagedMob)
+{
+    char_data mob { };
+    make_plain_mob(mob);
+    char_data player { };
+    player.player.level = 20;
+    char_data engaged_mob { };
+    make_plain_mob(engaged_mob);
+
+    EXPECT_EQ(mobdeath_record_mob(&mob, &engaged_mob, death_punishment::mob_death), &mob);
+    EXPECT_EQ(mobdeath_record_mob(&player, &engaged_mob, death_punishment::mob_death), &engaged_mob);
+    EXPECT_EQ(mobdeath_record_mob(nullptr, &engaged_mob, death_punishment::mob_death), &engaged_mob);
+}
+
+TEST(MobdeathRecordMob, PlayerDeathSuppressesTheRecordEvenForAMobKiller)
+{
+    char_data mob { };
+    make_plain_mob(mob);
+
+    EXPECT_EQ(mobdeath_record_mob(&mob, nullptr, death_punishment::player_death), nullptr)
+        << "an unengaged mob-poison death is not recorded as a mob death";
+}

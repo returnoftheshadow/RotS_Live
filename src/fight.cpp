@@ -1060,6 +1060,21 @@ bool death_counts_as_player_kill(const char_data* killer, death_punishment punis
     return killer != nullptr && !IS_NPC(killer);
 }
 
+char_data* mobdeath_record_mob(char_data* killer, char_data* engaged_mob, death_punishment punishment)
+{
+    if (punishment == death_punishment::player_death) {
+        return nullptr;
+    }
+    if (is_real_mob(killer)) {
+        return killer;
+    }
+    if (punishment == death_punishment::mob_death) {
+        // Non-null by construction: mob_death classification implies an engaged mob.
+        return engaged_mob;
+    }
+    return nullptr;
+}
+
 void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
 {
     waiting_type tmpwtl;
