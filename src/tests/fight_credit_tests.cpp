@@ -898,3 +898,222 @@ TEST(PkillWeightAndOpponents, OpponentsCountsOnlyValidKillers)
     EXPECT_EQ(pkill_opponents(&victim, contributors), 2)
         << "only valid_pc and valid_orc_pet must be counted as opponents";
 }
+
+// ============================================================================
+// group_gain() room gating -- the XP half of remote credit (TASK-021/026
+// follow-up). die() hands group_gain() the CREDITED killer, which a room
+// affect or poison tick can leave in another room; the old global
+// `killer->in_room != dead_man->in_room` early return then paid nobody --
+// including the fighters engaged with the victim in the death room, who were
+// always paid before ticks learned to credit remotely. The pins below drive
+// group_gain() directly (declared extern here per this file's pkill-internal
+// precedent) and assert through exp deltas.
+//
+// Harness notes for the exp machinery (the reason older pins in this file
+// avoided it): recipients use RACE_URUK so exp_with_modifiers()'s RACE_GOOD
+// east-bonus arm never indexes the zone_table this harness does not boot;
+// mini_level is pinned high so gain_exp_regardless()'s mini-level loop never
+// advances; perception stays 0 so the spirit-split block is skipped; the
+// victim's alignment stays 0 so change_alignment() early-outs; and the
+// victim stays level 5 so the average_mob_life age arm is skipped.
+// ============================================================================
+
+extern void group_gain(struct char_data* killer, struct char_data* dead_man);
+
+namespace {
+
+// world[] slots this section claims, continuing this file's out-of-band
+// numbering (900-903 above).
+constexpr int kPayoutRoom = 904;
+constexpr int kPayoutRemoteRoom = 905;
+constexpr int kPayoutDeathRoom = 906;
+
+// A "PC" exp recipient (no MOB_ISNPC), shaped per the harness notes above.
+void init_payout_pc(char_data& pc, char* name, int room)
+{
+    pc.player.name = name;
+    pc.player.race = RACE_URUK;
+    pc.player.level = 20;
+    pc.specials2.mini_level = 2000;
+    pc.points.exp = 1000;
+    pc.abilities.hit = 500;
+    pc.tmpabilities.hit = 500;
+    pc.specials.position = POSITION_STANDING;
+    pc.in_room = room;
+}
+
+// A stack NPC victim for direct group_gain() calls -- no death pipeline runs,
+// so no registration/prototype table is needed. points.exp is the pool
+// group_gain() splits.
+void init_payout_victim(char_data& victim, char* short_descr, int room)
+{
+    victim.specials2.act = MOB_ISNPC;
+    victim.player.race = RACE_HUMAN;
+    victim.player.short_descr = short_descr;
+    victim.player.level = 5;
+    victim.points.exp = 20000;
+    victim.abilities.hit = 500;
+    victim.tmpabilities.hit = 500;
+    victim.specials.position = POSITION_STANDING;
+    victim.in_room = room;
+}
+
+} // namespace
+
+TEST(GroupGain, PaysEngagedRoomFightersWhenCreditedKillerIsRemote)
+{
+    RoomGuard room_guard(kPayoutRoom);
+
+    char victim_short_descr[] = "a testing payout victim";
+    char_data victim {};
+    init_payout_victim(victim, victim_short_descr, kPayoutRoom);
+
+    char fighter_name[] = "test_payout_fighter";
+    char_data fighter {};
+    init_payout_pc(fighter, fighter_name, kPayoutRoom);
+    fighter.specials.fighting = &victim;
+
+    char remote_name[] = "test_remote_blaze_caster";
+    char_data remote_caster {};
+    init_payout_pc(remote_caster, remote_name, kPayoutRemoteRoom);
+
+    world[kPayoutRoom].people = &fighter;
+    fighter.next_in_room = nullptr;
+
+    group_gain(&remote_caster, &victim);
+
+    EXPECT_GT(fighter.points.exp, 1000)
+        << "a fighter engaged with the victim in the death room must receive an exp share even "
+           "when the credited killer (a remote room-affect caster) is in another room";
+    EXPECT_EQ(remote_caster.points.exp, 1000)
+        << "the remote credited killer must never receive exp -- presence in the death room is "
+           "still required for a share";
+}
+
+TEST(GroupGain, PaysNobodyWhenCreditedKillerIsRemoteAndNobodyFights)
+{
+    RoomGuard room_guard(kPayoutRoom);
+
+    char victim_short_descr[] = "a testing lonely payout victim";
+    char_data victim {};
+    init_payout_victim(victim, victim_short_descr, kPayoutRoom);
+    victim.specials.fighting = nullptr;
+
+    char remote_name[] = "test_lonely_remote_caster";
+    char_data remote_caster {};
+    init_payout_pc(remote_caster, remote_name, kPayoutRemoteRoom);
+
+    world[kPayoutRoom].people = nullptr;
+
+    group_gain(&remote_caster, &victim);
+
+    EXPECT_EQ(remote_caster.points.exp, 1000)
+        << "with nobody in the death room, a remote credited killer must still receive nothing";
+}
+
+TEST(GroupGain, StillPaysASameRoomUnengagedCreditedKiller)
+{
+    RoomGuard room_guard(kPayoutRoom);
+
+    char victim_short_descr[] = "a testing same-room payout victim";
+    char_data victim {};
+    init_payout_victim(victim, victim_short_descr, kPayoutRoom);
+    victim.specials.fighting = nullptr;
+
+    char caster_name[] = "test_same_room_caster";
+    char_data caster {};
+    init_payout_pc(caster, caster_name, kPayoutRoom);
+    caster.specials.fighting = nullptr; // present but never engaged -- the tick engaged the victim
+
+    world[kPayoutRoom].people = &caster;
+    caster.next_in_room = nullptr;
+
+    group_gain(&caster, &victim);
+
+    EXPECT_GT(caster.points.exp, 1000)
+        << "a credited killer standing in the death room receives a share even when a tick, not "
+           "melee, landed the kill -- presence plus credit is enough";
+}
+
+TEST(GroupGain, ExtendsRemoteCreditPayoutToSameRoomGroupmates)
+{
+    RoomGuard room_guard(kPayoutRoom);
+
+    char victim_short_descr[] = "a testing grouped payout victim";
+    char_data victim {};
+    init_payout_victim(victim, victim_short_descr, kPayoutRoom);
+
+    char fighter_name[] = "test_grouped_fighter";
+    char_data fighter {};
+    init_payout_pc(fighter, fighter_name, kPayoutRoom);
+    fighter.specials.fighting = &victim;
+
+    char groupmate_name[] = "test_idle_groupmate";
+    char_data groupmate {};
+    init_payout_pc(groupmate, groupmate_name, kPayoutRoom);
+    groupmate.specials.fighting = nullptr; // grouped and present, but not swinging
+
+    group_data group(&fighter); // add_member() wires each member's ->group back to this
+    group.add_member(&groupmate);
+
+    char remote_name[] = "test_grouped_remote_caster";
+    char_data remote_caster {};
+    init_payout_pc(remote_caster, remote_name, kPayoutRemoteRoom);
+
+    world[kPayoutRoom].people = &fighter;
+    fighter.next_in_room = nullptr;
+
+    group_gain(&remote_caster, &victim);
+
+    EXPECT_GT(fighter.points.exp, 1000);
+    EXPECT_GT(groupmate.points.exp, 1000)
+        << "a same-room groupmate of an engaged fighter must share the payout, exactly as when "
+           "the credited killer was standing in the room";
+    EXPECT_EQ(remote_caster.points.exp, 1000);
+}
+
+// Integration: the same guarantee through the real death pipeline -- a lethal
+// remote-credited hit (the room-affect tick call shape, attacker == victim)
+// must pay the engaged room fighter via die() -> group_gain(). Uses this
+// file's heap-NPC death choreography; the fighter (a "PC") sits ahead of the
+// victim in the room's occupant chain so extract_char()'s unlink walks
+// through it.
+TEST(FightCredit, RemoteCreditedKillerDeathStillPaysEngagedRoomFighters)
+{
+    ScopedMobIndex prototype_table;
+    RoomGuard room_guard(kPayoutDeathRoom);
+
+    char victim_short_descr[] = "a testing remote-credit death victim";
+    char_data* victim = make_npc_victim(kPayoutDeathRoom, victim_short_descr, 1);
+    victim->points.exp = 20000;
+    character_list = victim;
+    victim->next = nullptr;
+
+    char fighter_name[] = "test_death_payout_fighter";
+    char_data fighter {};
+    init_payout_pc(fighter, fighter_name, kPayoutDeathRoom);
+    fighter.specials.fighting = victim;
+    victim->specials.fighting = &fighter;
+
+    char remote_name[] = "test_death_remote_caster";
+    char_data remote_caster {};
+    init_payout_pc(remote_caster, remote_name, kPayoutRemoteRoom);
+
+    world[kPayoutDeathRoom].people = &fighter;
+    fighter.next_in_room = victim;
+    victim->next_in_room = nullptr;
+
+    obj_data* const previous_object_list = object_list;
+
+    int result = damage_credited(victim, victim, &remote_caster, 5, TYPE_HIT, 0);
+
+    EXPECT_EQ(result, 1) << "1-hit-point victim must die to any nonzero hit";
+    EXPECT_EQ(character_list, nullptr);
+
+    EXPECT_GT(fighter.points.exp, 1000)
+        << "die() -> group_gain() must pay the engaged room fighter when the credited killer is "
+           "remote -- the regression this section exists to pin";
+    EXPECT_EQ(remote_caster.points.exp, 1000);
+
+    release_corpse(kPayoutDeathRoom, previous_object_list);
+}

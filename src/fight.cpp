@@ -1317,17 +1317,20 @@ void group_gain(char_data* killer, char_data* dead_man)
     if (killer == nullptr || dead_man == nullptr)
         return;
 
-    if (killer->in_room == NOWHERE)
+    if (dead_man->in_room == NOWHERE)
         return;
 
-    if (killer->in_room != dead_man->in_room)
-        return;
+    // killer may be remote (a room-affect or poison tick); presence gates only its own share.
+    bool killer_is_present = false;
+    if (killer->in_room != NOWHERE && killer->in_room == dead_man->in_room) {
+        killer_is_present = true;
+    }
 
     char_vector involved_killers;
     char_set player_killers;
 
     // This can happen from some effects.
-    if (killer != dead_man) {
+    if (killer_is_present && killer != dead_man) {
         // Ensure that the killer is involved.
         involved_killers.push_back(killer);
         if (utils::is_pc(*killer)) {
