@@ -220,6 +220,14 @@ death_punishment classify_pc_death(int attack_type, bool engaged_with_real_mob);
 // mob fighting the victim. No visibility check: an unseen attacker engages.
 struct char_data* find_engaged_real_mob(struct char_data* victim, struct char_data* engaged_opponent);
 
+// Whether the death takes the full mob-death XP loss on top of the
+// unconditional tenth. legacy derives from the killer as die() always has.
+bool death_takes_full_mob_xp_loss(const struct char_data* killer, death_punishment punishment);
+
+// raw_kill()'s gentle-vs-harsh arm: true selects the gentle player-kill
+// penalty. legacy derives from the killer as raw_kill() always has.
+bool death_counts_as_player_kill(const struct char_data* killer, death_punishment punishment);
+
 int check_sanctuary(char_data* ch, char_data* victim);
 
 char* money_message(int sum, int mode = 0);

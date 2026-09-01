@@ -170,3 +170,69 @@ TEST(FindEngagedRealMob, EngagedOpponentIsPreferredOverCombatListMob)
     EXPECT_EQ(find_engaged_real_mob(&victim, &targeted_mob), &targeted_mob)
         << "the victim's own target names the EXPLOIT_MOBDEATH mob deterministically";
 }
+
+TEST(DeathTakesFullMobXpLoss, LegacyDerivesFromKiller)
+{
+    char_data mob { };
+    make_plain_mob(mob);
+    char_data pet { };
+    make_pet_mob(pet);
+    char_data orc_friend { };
+    make_orc_friend_mob(orc_friend);
+    char_data player { };
+    player.player.level = 20;
+
+    EXPECT_TRUE(death_takes_full_mob_xp_loss(&mob, death_punishment::legacy));
+    EXPECT_FALSE(death_takes_full_mob_xp_loss(&pet, death_punishment::legacy));
+    EXPECT_FALSE(death_takes_full_mob_xp_loss(&orc_friend, death_punishment::legacy));
+    EXPECT_FALSE(death_takes_full_mob_xp_loss(&player, death_punishment::legacy));
+    EXPECT_FALSE(death_takes_full_mob_xp_loss(nullptr, death_punishment::legacy))
+        << "byte-compatible with die()'s removed IS_NPC(killer) branch, killer == null included";
+}
+
+TEST(DeathTakesFullMobXpLoss, MobDeathAlwaysLosesPlayerDeathNeverLoses)
+{
+    char_data mob { };
+    make_plain_mob(mob);
+    char_data player { };
+    player.player.level = 20;
+
+    EXPECT_TRUE(death_takes_full_mob_xp_loss(nullptr, death_punishment::mob_death));
+    EXPECT_TRUE(death_takes_full_mob_xp_loss(&player, death_punishment::mob_death));
+    EXPECT_TRUE(death_takes_full_mob_xp_loss(&mob, death_punishment::mob_death));
+
+    EXPECT_FALSE(death_takes_full_mob_xp_loss(nullptr, death_punishment::player_death));
+    EXPECT_FALSE(death_takes_full_mob_xp_loss(&player, death_punishment::player_death));
+    EXPECT_FALSE(death_takes_full_mob_xp_loss(&mob, death_punishment::player_death))
+        << "an unengaged mob poisoner takes the legacy small loss only";
+}
+
+TEST(DeathCountsAsPlayerKill, LegacyDerivesFromKiller)
+{
+    char_data mob { };
+    make_plain_mob(mob);
+    char_data player { };
+    player.player.level = 20;
+
+    EXPECT_FALSE(death_counts_as_player_kill(nullptr, death_punishment::legacy))
+        << "raw_kill()'s removed expression: null killer is harsh, and the old"
+           " attack_type == SPELL_POISON short-circuit stays gone from legacy";
+    EXPECT_FALSE(death_counts_as_player_kill(&mob, death_punishment::legacy));
+    EXPECT_TRUE(death_counts_as_player_kill(&player, death_punishment::legacy));
+}
+
+TEST(DeathCountsAsPlayerKill, MobDeathIsHarshAndPlayerDeathIsGentleRegardlessOfKiller)
+{
+    char_data mob { };
+    make_plain_mob(mob);
+    char_data player { };
+    player.player.level = 20;
+
+    EXPECT_FALSE(death_counts_as_player_kill(&player, death_punishment::mob_death))
+        << "player poison while engaged with a mob is still punished as a mob death";
+    EXPECT_FALSE(death_counts_as_player_kill(nullptr, death_punishment::mob_death));
+
+    EXPECT_TRUE(death_counts_as_player_kill(&mob, death_punishment::player_death))
+        << "an unengaged mob poisoner still yields the gentle player-kill penalty";
+    EXPECT_TRUE(death_counts_as_player_kill(nullptr, death_punishment::player_death));
+}

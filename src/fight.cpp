@@ -1038,6 +1038,28 @@ char_data* find_engaged_real_mob(char_data* victim, char_data* engaged_opponent)
     return nullptr;
 }
 
+bool death_takes_full_mob_xp_loss(const char_data* killer, death_punishment punishment)
+{
+    if (punishment == death_punishment::mob_death) {
+        return true;
+    }
+    if (punishment == death_punishment::player_death) {
+        return false;
+    }
+    return is_real_mob(killer);
+}
+
+bool death_counts_as_player_kill(const char_data* killer, death_punishment punishment)
+{
+    if (punishment == death_punishment::mob_death) {
+        return false;
+    }
+    if (punishment == death_punishment::player_death) {
+        return true;
+    }
+    return killer != nullptr && !IS_NPC(killer);
+}
+
 void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
 {
     waiting_type tmpwtl;
