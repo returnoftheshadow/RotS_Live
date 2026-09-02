@@ -1,4 +1,4 @@
-Here's the in-game verification plan, grounded in what the branch actually changed. All of this happens on **4810 after a reboot** — the new binary is deployed but the running process is still the old image, so step zero is an implementor `shutdown reboot` there, then confirm the process start time is newer than the deploy (Aug 31 21:30).
+Here's the in-game verification plan, grounded in what the branch actually changed. All of this happens on **4810**, and step zero is making sure 4810 is actually running this branch: build and deploy the current head of `fix/spell-room-affect-uaf-port` to `/rots/dev-coding4810/bin/ageland`, have an implementor `shutdown reboot` the port, and confirm the process start time is newer than that deploy. A binary from before the group_gain XP fix and the poison punishment carveout will fail the XP-split and punishment checks below in confusing ways.
 
 While testing, keep a second terminal tailing the 4810 syslog/log dir — the autorun loop wraps crashes in a gdb backtrace, so any UAF regression shows up there even if the game just restarts silently.
 
@@ -9,9 +9,10 @@ While testing, keep a second terminal tailing the 4810 syslog/log dir — the au
 - Repeat with the caster **quitting/renting** instead of dying.
 - Repeat with the caster dying and a **different character logging in immediately** — the identity registry exists precisely so the tick can't attribute to whoever now occupies that memory. You can't force memory reuse deterministically, but any misattribution here is an instant fail.
 
-**2. Poison attribution:**
+**2. Poison attribution and punishment:**
 - Poison a victim, then log the poisoner out (and separately: kill the poisoner). Let the victim later die *of the poison tick*. Expected: no crash, an `EXPLOIT_POISON` record on the victim, and kill credit to the original poisoner where still resolvable — with a safe/anonymous record when they're gone, not garbage or a wrong name.
 - Control case: poisoner stays online → normal credit and XP.
+- Punishment carveout checks (full rules in behavior section 4 below): (a) a mob poisons you, you flee two rooms and die alone → gentle penalty (revive at hp/4, no stat loss), small XP loss, poison record only — no mob-death record; (b) same poison, but you die still swinging at the mob → harsh 2/3-stat penalty, full mob-death XP loss, mob-death record; (c) a player poisons you and you die while fighting an unrelated mob → harsh penalty + full loss, and the poisoner still gets their PK record.
 
 **3. Kill credit separation (`damage_credited` / die-records-participation):**
 - Group fight where the killing blow comes from someone who wasn't the mob's current fight target (e.g., mob is tanking A, B's spell lands the kill). Expected: the kill is recorded and XP shares go to participants — pre-fix, kills could go unrecorded when the killer wasn't the engaged opponent.
