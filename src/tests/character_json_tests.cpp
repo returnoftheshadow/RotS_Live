@@ -600,6 +600,46 @@ TEST(CharacterJson, SerializesCustomColorsAsNamedObject)
     EXPECT_NE(json.find("\"weather\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 13}, \"background\": {\"mode\": \"truecolor\", \"value\": 11, \"r\": 10, \"g\": 20, \"b\": 35}}"), std::string::npos);
 }
 
+TEST(CharacterJson, AcceptsLegacyReservedFifteenKeyAsTheMobColorSlot)
+{
+    /*
+     * convert_old_colormask() forces every slot to ansi16 on load, so slot 15
+     * was serialized as "reserved_15" into every character file written before
+     * it became the 'mob' colour.  An unrecognised colour key is a fatal parse
+     * error, so those files must still load.
+     */
+    char_file_u stored = make_stored_character();
+    stored.profs.colors[COLOR_MOB] = CBLU;
+    stored.profs.color_settings[COLOR_MOB].foreground.mode = COLOR_VALUE_ANSI16;
+    stored.profs.color_settings[COLOR_MOB].foreground.ansi = CBLU;
+    const std::string json = replace_once(
+        character_json::serialize_character_to_json(character_json::character_data_from_store(stored)),
+        "\"mob\":", "\"reserved_15\":");
+    ASSERT_NE(json.find("\"reserved_15\":"), std::string::npos) << json;
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    ASSERT_TRUE(character_json::deserialize_character_from_json(json, &parsed, &error_message)) << error_message;
+
+    ASSERT_EQ(parsed.colors.size(), static_cast<size_t>(MAX_COLOR_FIELDS));
+    EXPECT_EQ(parsed.colors[COLOR_MOB], CBLU);
+    EXPECT_EQ(parsed.color_settings[COLOR_MOB].foreground.mode, COLOR_VALUE_ANSI16);
+    EXPECT_EQ(parsed.color_settings[COLOR_MOB].foreground.value, CBLU);
+}
+
+TEST(CharacterJson, SerializesTheMobColorSlotUnderItsCurrentName)
+{
+    char_file_u stored = make_stored_character();
+    stored.profs.colors[COLOR_MOB] = CBLU;
+    stored.profs.color_settings[COLOR_MOB].foreground.mode = COLOR_VALUE_ANSI16;
+    stored.profs.color_settings[COLOR_MOB].foreground.ansi = CBLU;
+
+    const std::string json = character_json::serialize_character_to_json(character_json::character_data_from_store(stored));
+
+    EXPECT_NE(json.find("\"mob\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 4}"), std::string::npos) << json;
+    EXPECT_EQ(json.find("reserved_15"), std::string::npos) << json;
+}
+
 TEST(CharacterJson, DeserializesLegacyCharacterJsonWithoutColorsAsDefaults)
 {
     std::string json = make_valid_character_json();

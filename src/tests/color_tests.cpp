@@ -201,3 +201,55 @@ TEST(Color, InterpreterAcceptsColorAsAliasForColour)
     EXPECT_EQ(cmd_info[color_command].command_pointer, cmd_info[colour_command].command_pointer);
     EXPECT_EQ(cmd_info[color_command].command_pointer, &do_color);
 }
+
+TEST(Color, MobSlotIsConfigurableThroughTheCommand)
+{
+    char_data character {};
+    descriptor_data descriptor = make_descriptor();
+    initialize_player_character(&character);
+    character.desc = &descriptor;
+
+    char command[] = "mob bright blue";
+    do_color(&character, command, nullptr, 0, 0);
+
+    EXPECT_EQ(get_colornum(&character, COLOR_MOB), CBBLU);
+    EXPECT_EQ(character.profs->color_settings[COLOR_MOB].foreground.mode, COLOR_VALUE_ANSI16);
+    EXPECT_NE(std::string(descriptor.output).find("You colour mob"), std::string::npos);
+}
+
+TEST(Color, MobSlotStartsNormalUntilTheDefaultSetIsApplied)
+{
+    char_data character {};
+    initialize_player_character(&character);
+
+    /* Nothing is stored for the new slot, so existing players see mobiles
+     * uncoloured until they ask for a colour. */
+    EXPECT_EQ(get_colornum(&character, COLOR_MOB), CNRM);
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_MOB)), std::string(""));
+
+    set_colors_default(&character);
+
+    EXPECT_EQ(get_colornum(&character, COLOR_MOB), CGRN);
+    EXPECT_EQ(get_colornum(&character, COLOR_CHAR), CGRN);
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_MOB)), std::string(color_sequence[CGRN]));
+}
+
+TEST(Color, MobSlotDoesNotStealTheMagicAbbreviation)
+{
+    char field[] = "m";
+
+    EXPECT_EQ(old_search_block(field, 0, strlen(field), color_fields, FALSE) - 1, COLOR_MAGIC);
+}
+
+TEST(Color, CharacterSlotSelectedForPlayersAndMobSlotForNpcs)
+{
+    char_data player {};
+    char_data mobile {};
+    initialize_player_character(&player);
+    clear_char(&mobile, MOB_VOID);
+    SET_BIT(MOB_FLAGS(&mobile), MOB_ISNPC);
+
+    EXPECT_EQ(char_color_slot(&player), COLOR_CHAR);
+    EXPECT_EQ(char_color_slot(&mobile), COLOR_MOB);
+    EXPECT_EQ(char_color_slot(nullptr), COLOR_CHAR);
+}
