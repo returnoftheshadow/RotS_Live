@@ -1800,8 +1800,15 @@ int gen_receptionist(struct char_data* ch, int cmd, char* arg, int mode)
         act("$n helps $N into $S private chamber.", FALSE, recep, 0, ch, TO_NOTVICT);
         save_room = ch->in_room;
         extract_char(ch);
-        ch->in_room = world[save_room].number;
-        save_char(ch, ch->in_room, 0);
+        /* save_char() wants the room's VNUM, but ch->in_room is an INDEX into world[].
+           Pass the vnum straight through instead of staging it in in_room: writing it
+           there left a live char_data whose in_room held a vnum, and msdp_update() then
+           published world[<vnum>] -- a real, valid, completely unrelated room -- to the
+           client. That was the origin of the bogus MSDP rooms seen at rent. extract_char()
+           has already removed the character from the world, and load_character() re-derives
+           the room from specials2.load_room (which save_char is writing right here), so
+           leaving in_room as NOWHERE is both correct and what the re-entry path expects. */
+        save_char(ch, world[save_room].number, 0);
     } else { /* Offer */
         Crash_offer_rent(ch, recep, mode, TRUE);
         act("$N gives $n an offer.", FALSE, ch, 0, recep, TO_ROOM);
@@ -1853,8 +1860,8 @@ ACMD(do_rent)
 
     save_room = ch->in_room;
     extract_char(ch);
-    ch->in_room = world[save_room].number;
-    save_char(ch, ch->in_room, 0);
+    /* Same vnum-into-an-index-field hazard as the receptionist rent path above. */
+    save_char(ch, world[save_room].number, 0);
 }
 
 void Crash_save_all(void)
