@@ -637,6 +637,21 @@ void msdp_update()
             continue;
         }
 
+        /* Only publish game state for a descriptor that is actually in the game.
+           While a descriptor sits at the login / account / character-selection
+           menus, desc->character is a character that has been loaded but not yet
+           entered -- and load_character() (objsave.cpp) deliberately parks the
+           player file's load_room *vnum* in ch->in_room at that stage, because
+           calc_load_room() reads it back as a vnum via real_room(). Without this
+           check we index world[] with that vnum as though it were an rnum and
+           publish a real, valid, completely unrelated room: coherent VNUM+NAME,
+           somewhere the character has never been. Renting returns the player to
+           the menu, so that bogus value was the last one many clients received
+           before disconnecting -- and the one they persisted. */
+        if (desc->connected != CON_PLYNG) {
+            continue;
+        }
+
         if (!desc->pProtocol) {
             continue;
         }

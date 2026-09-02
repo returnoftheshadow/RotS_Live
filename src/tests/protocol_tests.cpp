@@ -1582,6 +1582,50 @@ TEST(MSDPProtocol, MsdpUpdateClearsOpponentFieldsWhenNotFighting)
             + expected_msdp_pair("OPPONENT_NAME", ""));
 }
 
+TEST(MSDPProtocol, MsdpUpdatePublishesNothingForDescriptorAtCharacterMenu)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    enable_msdp_reports(context.descriptor.pProtocol,
+        { eMSDP_CHARACTER_NAME, eMSDP_ROOM_NAME, eMSDP_ROOM_VNUM });
+
+    /* A descriptor parked at the character-selection menu holds a character that
+       has been loaded but not entered, and load_character() (objsave.cpp) leaves
+       the player file's load_room *vnum* in in_room at that stage. Indexing
+       world[] with it would publish a real but completely unrelated room. */
+    context.descriptor.connected = CON_SLCT;
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_ROOM_NAME]->pValueString, "");
+    EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_ROOM_VNUM]->ValueInt, 0);
+}
+
+TEST(MSDPProtocol, MsdpUpdatePublishesOnceDescriptorIsPlaying)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_ROOM_VNUM });
+    context.descriptor.connected = CON_PLYNG;
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    /* Same descriptor, now in the game: the real room is published normally. */
+    EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_ROOM_VNUM]->ValueInt,
+        world[context.character.in_room].number);
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_pair("ROOM_VNUM", std::to_string(world[context.character.in_room].number)));
+}
+
 TEST(MSDPProtocol, MsdpUpdateEmitsNpcOpponentDetails)
 {
     ScopedDescriptorList descriptor_list_scope;

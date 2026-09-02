@@ -604,7 +604,10 @@ void msdp_room_update(char_data* ch)
         return;
     }
 
-    if (ch->in_room < 0) {
+    /* Upper bound as well as lower: msdp_update() checks both, this did not, so a
+       stale or vnum-valued in_room indexed world[] out of range. */
+    extern int top_of_world;
+    if (ch->in_room < 0 || ch->in_room > top_of_world) {
         return;
     }
 
