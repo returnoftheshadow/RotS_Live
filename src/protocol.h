@@ -454,13 +454,21 @@ void MSDPUpdate(descriptor_t* apDescriptor);
  */
 void MSDPFlush(descriptor_t* apDescriptor, variable_t aMSDP);
 
+/* Function: MSDPMarkAllReportedDirty
+ *
+ * Marks every reported MSDP variable dirty so the next MSDPUpdate() re-sends a full
+ * snapshot. Call when a client's MSDP channel becomes newly deliverable (e.g. the
+ * player enables MSDP after login) so it receives values that never change again.
+ */
+void MSDPMarkAllReportedDirty(descriptor_t* apDescriptor);
+
 /* Function: MSDPSend
  *
  * Send the specified MSDP variable to the player.  You shouldn't ever really
  * need to do this manually, except perhaps when debugging something.  This
  * will automatically use ATCP instead if MSDP is not supported by the client.
  */
-void MSDPSend(descriptor_t* apDescriptor, variable_t aMSDP);
+bool MSDPSend(descriptor_t* apDescriptor, variable_t aMSDP);
 
 /* Function: MSDPSendPair
  *
