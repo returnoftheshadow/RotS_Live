@@ -7,6 +7,7 @@ Add broad unit-test coverage for the game's MSDP implementation. The goal is to 
 Requirements:
 - Cover the protocol core in `src/protocol.cpp`, including MSDP negotiation, subnegotiation parsing, command handling, configurable variables, reporting state, dirty-state flushing, and output formatting.
 - Cover the game-facing MSDP update paths in `src/comm.cpp` and `src/act_move.cpp`, including periodic character updates and room updates.
+- Include structured group status reporting with every group member's name plus health, mana, and movement percentages.
 - Prefer focused C++ unit tests in `src/tests/` that can run through `make test`.
 - Build reusable test helpers for descriptors, protocol state, output capture, fake player characters, rooms, and MSDP packet parsing so individual tests are readable and do not require a real network connection.
 - Include negative and boundary coverage for malformed or truncated MSDP packets, unknown commands/variables, oversized values, invalid configurable values, write-once client identity variables, and disabled or missing protocol state.

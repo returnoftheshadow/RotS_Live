@@ -230,6 +230,7 @@ typedef enum {
     eMSDP_GAUGE_5,
 
     /* Group Information  */
+    eMSDP_GROUP,
 
     eMSDP_MAX /* This must always be last */
 } variable_t;

@@ -41,6 +41,7 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <string>
 #include <vector>
 
 #define MAX_HOSTNAME 256
@@ -568,18 +569,65 @@ void add_prompt(char* prompt, struct char_data* ch, long flag);
 timeval opt_time;
 int pulse = 0; // moved here from being a local variable
 
+static int get_stat_percent(int current, int maximum)
+{
+    if (maximum <= 0)
+        return 0;
+    if (current <= 0)
+        return 0;
+
+    const float percent = (static_cast<float>(current) / static_cast<float>(maximum)) * 100.0f;
+
+    return static_cast<int>(percent);
+}
+
 int get_health_percent(char_data* character)
 {
-    const float current_health = GET_HIT(character);
-    const float max_health = GET_MAX_HIT(character);
-    if (max_health <= 0.0f)
-        return 0;
-    if (current_health <= 0.0f)
-        return 0;
+    return get_stat_percent(GET_HIT(character), GET_MAX_HIT(character));
+}
 
-    const float health_percent = (current_health / max_health) * 100.0f;
+static void append_msdp_table_value(std::string& payload, const char* name, const std::string& value)
+{
+    payload += static_cast<char>(MSDP_VAR);
+    payload += name;
+    payload += static_cast<char>(MSDP_VAL);
+    payload += value;
+}
 
-    return (int)health_percent;
+static void append_msdp_table_value(std::string& payload, const char* name, int value)
+{
+    append_msdp_table_value(payload, name, std::to_string(value));
+}
+
+static std::string get_group_msdp_table(const group_data* group)
+{
+    std::string payload;
+    payload += static_cast<char>(MSDP_VAR);
+    payload += "MEMBERS";
+    payload += static_cast<char>(MSDP_VAL);
+    payload += static_cast<char>(MSDP_ARRAY_OPEN);
+
+    if (group != nullptr) {
+        for (const_char_iter iter = group->begin(); iter != group->end(); ++iter) {
+            const char_data* member = *iter;
+            if (member == nullptr)
+                continue;
+
+            payload += static_cast<char>(MSDP_VAL);
+            payload += static_cast<char>(MSDP_TABLE_OPEN);
+            append_msdp_table_value(payload, "NAME", MSDPSanitizeValue(GET_NAME(member)));
+            append_msdp_table_value(payload, "HEALTH",
+                get_stat_percent(GET_HIT(member), GET_MAX_HIT(member)));
+            append_msdp_table_value(payload, "MANA",
+                get_stat_percent(GET_MANA(member), GET_MAX_MANA(member)));
+            append_msdp_table_value(payload, "MOVEMENT",
+                get_stat_percent(GET_MOVE(member), GET_MAX_MOVE(member)));
+            payload += static_cast<char>(MSDP_TABLE_CLOSE);
+        }
+    }
+
+    payload += static_cast<char>(MSDP_ARRAY_CLOSE);
+    return payload;
 }
 
 void msdp_update()
@@ -707,6 +755,7 @@ void msdp_update()
         }
 
         MSDPSetNumber(desc, eMSDP_SPIRIT, GET_SPIRIT(desc->character));
+        MSDPSetTable(desc, eMSDP_GROUP, get_group_msdp_table(desc->character->group).c_str());
 
         MSDPUpdate(desc);
     }

@@ -201,6 +201,9 @@ static variable_name_t VariableNameTable[eMSDP_MAX + 1] = {
     { eMSDP_GAUGE_4, "GAUGE_4", STRING_GUI(s_Gauge4) },
     { eMSDP_GAUGE_5, "GAUGE_5", STRING_GUI(s_Gauge5) },
 
+    /* Group information */
+    { eMSDP_GROUP, "GROUP", STRING_READ_ONLY },
+
     { eMSDP_MAX, "", NUMBER_READ_ONLY } /* This must always be last. */
 };
 

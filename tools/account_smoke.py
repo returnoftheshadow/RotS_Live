@@ -5,6 +5,7 @@ import json
 import os
 import random
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -38,6 +39,7 @@ LOOPBACK_HOST = "127.0.0.1"
 MIN_SMOKE_PORT = 20000
 MAX_GAME_PORT = 32767
 VERIFICATION_CODE_PROMPT = "Verification code (or type RESEND/CANCEL):"
+CHARACTER_SELECTION_PROMPT = "Character number or name:"
 CHILD_ENV_ALLOWLIST = ("PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "CARGO_HOME", "RUSTUP_HOME")
 
 
@@ -1027,7 +1029,7 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
     proxy_log_path = temp_dir_path / "proxy.log"
     capture_script_path.write_text(
         "#!/bin/sh\n"
-        f"cat > '{capture_path}'\n"
+        f"cat > {shlex.quote(str(capture_path))}\n"
         "exit 0\n",
         encoding="utf-8",
     )
@@ -1123,7 +1125,10 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
 
             reader.recv_until(["Account password updated.", "0) Log out", "Choice:"], 8.0)
             send_line(sock, "0")
+            reader.recv_until(["Goodbye"], 8.0)
 
+        with socket.create_connection((LOOPBACK_HOST, args.proxy_port), timeout=5) as sock:
+            reader = BufferedPromptReader(sock)
             reader.recv_until(["Account email:"], 8.0)
             send_line(sock, account_email)
 
@@ -1175,7 +1180,7 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
             wait_for_account_menu(reader, 8.0)
             send_line(sock, "2")
 
-            reader.recv_until(["Character number:"], 8.0)
+            reader.recv_until([CHARACTER_SELECTION_PROMPT], 8.0)
             send_line(sock, "1")
 
             wait_for_character_menu(reader, 8.0)
@@ -1206,7 +1211,7 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
             wait_for_account_menu(reader, 8.0)
             send_line(sock, "2")
 
-            reader.recv_until(["Character number:"], 8.0)
+            reader.recv_until([CHARACTER_SELECTION_PROMPT], 8.0)
             send_line(sock, "1")
 
             wait_for_character_menu(reader, 8.0)
@@ -1297,7 +1302,7 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
                     raise RuntimeError(f"Legacy fixture file still exists after account migration: {retired_path}")
 
             send_line(sock, "2")
-            reader.recv_until(["Character number:"], 8.0)
+            reader.recv_until([CHARACTER_SELECTION_PROMPT], 8.0)
             send_line(sock, "2")
 
             wait_for_character_menu(reader, 8.0)
@@ -1346,7 +1351,7 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
 
             wait_for_account_menu(reader, 8.0)
             send_line(sock, "2")
-            reader.recv_until(["Character number:"], 8.0)
+            reader.recv_until([CHARACTER_SELECTION_PROMPT], 8.0)
             send_line(sock, "2")
 
             wait_for_character_menu(reader, 8.0)
@@ -1380,7 +1385,7 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
             wait_for_account_menu(active_reader, 8.0)
             send_line(active_sock, "2")
 
-            active_reader.recv_until(["Character number:"], 8.0)
+            active_reader.recv_until([CHARACTER_SELECTION_PROMPT], 8.0)
             send_line(active_sock, "1")
 
             wait_for_character_menu(active_reader, 8.0)
@@ -1405,15 +1410,15 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
                 )
                 send_line(second_sock, "2")
 
-                second_reader.recv_until(["Character number:"], 8.0)
+                second_reader.recv_until([CHARACTER_SELECTION_PROMPT], 8.0)
                 send_line(second_sock, "2")
-                blocked_selection = second_reader.recv_until(["Character number:"], 8.0)
+                blocked_selection = second_reader.recv_until([CHARACTER_SELECTION_PROMPT], 8.0)
                 require_markers(
                     blocked_selection,
                     [
                         f"You are already connected as {play_character_name[:1].upper() + play_character_name[1:].lower()}.",
                         "Linked characters for your account:",
-                        "Character number:",
+                        CHARACTER_SELECTION_PROMPT,
                     ],
                     "Second account login blocked different-character selection",
                 )
@@ -1466,7 +1471,7 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
             expect_account_native_character_assets(account_file, delete_character_name)
 
             send_line(sock, "2")
-            reader.recv_until(["Character number:"], 8.0)
+            reader.recv_until([CHARACTER_SELECTION_PROMPT], 8.0)
             send_line(sock, "3")
 
             wait_for_character_menu(reader, 8.0)
