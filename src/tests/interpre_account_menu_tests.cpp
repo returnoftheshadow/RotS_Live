@@ -875,6 +875,243 @@ TEST(InterpreAccountMenu, AccountMenuPlayChoiceZeroReturnsToAccountMenu)
         "Choice: ");
 }
 
+TEST(InterpreAccountMenu, RosterSortKeypressDoesNotWriteAccountFile)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    const std::string account_path = "accounts/P-T/player@example.com/account.json";
+    std::string before_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &before_write, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+
+    char sort_choice[] = "l";
+    nanny(&descriptor, sort_choice);
+
+    EXPECT_TRUE(descriptor.roster_sort_dirty)
+        << "the keypress should mark the session dirty, even though it must not write yet";
+    EXPECT_EQ(static_cast<account::RosterSort>(descriptor.roster_sort), account::RosterSort::Level);
+
+    std::string after_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &after_write, &error_message)) << error_message;
+    EXPECT_EQ(before_write, after_write)
+        << "a sort keypress must not touch account.json -- the write happens only on leaving the roster";
+}
+
+TEST(InterpreAccountMenu, RosterSortLeavingViaZeroAfterChangeWritesAccountFile)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(stored_account.roster_sort.empty());
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+
+    char sort_choice[] = "l";
+    nanny(&descriptor, sort_choice);
+    ASSERT_TRUE(descriptor.roster_sort_dirty);
+
+    char leave_choice[] = "0";
+    nanny(&descriptor, leave_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    EXPECT_FALSE(descriptor.roster_sort_dirty);
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_EQ(reloaded_account.roster_sort, "level");
+}
+
+TEST(InterpreAccountMenu, RosterSortRedundantKeypressDoesNotMarkDirtyOrWriteOnLeaving)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    stored_account.roster_sort = "level";
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    const std::string account_path = "accounts/P-T/player@example.com/account.json";
+    std::string before_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &before_write, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    descriptor.roster_sort = static_cast<int>(account::RosterSort::Level);
+    descriptor.roster_sort_dirty = false;
+
+    // Pressing the already-active sort key: a player who habitually re-presses 'l' must not
+    // trigger a write on every visit -- that would be a global account_cache flush per visit
+    // against a design budgeted at once or twice per character lifetime.
+    char sort_choice[] = "l";
+    nanny(&descriptor, sort_choice);
+    EXPECT_FALSE(descriptor.roster_sort_dirty)
+        << "pressing the already-active sort key must not mark the session dirty";
+
+    char leave_choice[] = "0";
+    nanny(&descriptor, leave_choice);
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+
+    std::string after_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &after_write, &error_message)) << error_message;
+    EXPECT_EQ(before_write, after_write)
+        << "leaving without an actual sort change must not touch account.json";
+}
+
+TEST(InterpreAccountMenu, RosterSortStoredValueLoadsWhenReenteringRoster)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    stored_account.roster_sort = "level";
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTMENU;
+    // Stale session state from a hypothetical earlier visit -- entering the roster must both
+    // load the stored sort and reset these, not just leave whatever was there.
+    descriptor.roster_sort = static_cast<int>(account::RosterSort::Account);
+    descriptor.roster_filter = static_cast<int>(account::RosterFilter::Warrior);
+    descriptor.roster_sort_dirty = true;
+
+    char play_choice[] = "2";
+    nanny(&descriptor, play_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTSLCT);
+    EXPECT_EQ(static_cast<account::RosterSort>(descriptor.roster_sort), account::RosterSort::Level);
+    EXPECT_EQ(static_cast<account::RosterFilter>(descriptor.roster_filter), account::RosterFilter::None);
+    EXPECT_FALSE(descriptor.roster_sort_dirty);
+}
+
+TEST(InterpreAccountMenu, RosterSortAndFilterKeysMapToTheClaimedEnumerators)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    struct KeyExpectation {
+        char key;
+        bool is_sort_key;
+        account::RosterSort expected_sort;
+        account::RosterFilter expected_filter;
+    };
+    // Tasks 3/4 already prove RosterSort::Race and RosterFilter::Ranger etc. order/filter
+    // correctly; this only proves each KEY maps to the enumerator it claims to (a transposed
+    // label, e.g. 'c' wired to Side instead of Race, would ship undetected otherwise).
+    const KeyExpectation expectations[] = {
+        { 'a', true, account::RosterSort::Name, account::RosterFilter::None },
+        { 'l', true, account::RosterSort::Level, account::RosterFilter::None },
+        { 'c', true, account::RosterSort::Race, account::RosterFilter::None },
+        { 's', true, account::RosterSort::Side, account::RosterFilter::None },
+        { 'w', false, account::RosterSort::Account, account::RosterFilter::Warrior },
+        { 'r', false, account::RosterSort::Account, account::RosterFilter::Ranger },
+        { 't', false, account::RosterSort::Account, account::RosterFilter::Mystic },
+        { 'm', false, account::RosterSort::Account, account::RosterFilter::Mage },
+    };
+
+    for (const KeyExpectation& expectation : expectations) {
+        descriptor_data descriptor = make_descriptor();
+        descriptor.connected = CON_ACCTSLCT;
+
+        char choice[2] = { expectation.key, '\0' };
+        nanny(&descriptor, choice);
+
+        if (expectation.is_sort_key) {
+            EXPECT_EQ(static_cast<account::RosterSort>(descriptor.roster_sort), expectation.expected_sort)
+                << "key '" << expectation.key << "' did not select the sort it claims to";
+        } else {
+            EXPECT_EQ(static_cast<account::RosterFilter>(descriptor.roster_filter), expectation.expected_filter)
+                << "key '" << expectation.key << "' did not select the filter it claims to";
+        }
+    }
+}
+
+TEST(InterpreAccountMenu, RosterSortPersistsOnSuccessfulCharacterSelection)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    static char test_motd[] = "Test MOTD\r\n";
+    ScopedMotdOverride motd_override(test_motd);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    char_file_u legolas = make_stored_character("legolas", 45, RACE_HUMAN);
+    legolas.specials2.idnum = 7373;
+    legolas.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", legolas, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_object_file(".", "acct", "legolas", &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_exploit_file(".", "acct", "legolas", &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
+
+    char sort_choice[] = "l";
+    nanny(&descriptor, sort_choice);
+    ASSERT_TRUE(descriptor.roster_sort_dirty);
+
+    // Selecting a character is how a player normally leaves the roster -- this is the path
+    // Finding 1 says was silently dropping the sort (only "0" persisted it before the fix).
+    char select_choice[] = "1";
+    nanny(&descriptor, select_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_SLCT);
+    ASSERT_NE(descriptor.character, nullptr);
+    ASSERT_NE(descriptor.character->player.name, nullptr);
+    EXPECT_STREQ(descriptor.character->player.name, "legolas")
+        << "selecting must load the character rendered at that row, not merely some character";
+    EXPECT_FALSE(descriptor.roster_sort_dirty);
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_EQ(reloaded_account.roster_sort, "level");
+
+    free_char(descriptor.character);
+    descriptor.character = nullptr;
+}
+
 TEST(InterpreAccountMenu, ActiveLevelNinetyOneBlocksDifferentLinkedCharacterBeforeSelectionSideEffects)
 {
     TemporaryDirectory temp_directory;

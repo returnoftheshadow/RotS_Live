@@ -2832,6 +2832,26 @@ void show_account_character_prompt(struct descriptor_data* d, const account::Acc
     SEND_TO_Q(prompt.c_str(), d);
 }
 
+// Writes the descriptor's current roster sort onto the account only if it actually changed this
+// visit (d->roster_sort_dirty). write_account_file calls account_cache::invalidate_all(), which
+// drops every account's cached entry globally, and save_char consumes that cache on every save
+// (db.cpp) where a miss is a full scan of every account.json on disk -- so this must stay off the
+// per-keypress path and fire only when the player actually leaves the roster (via "0" or by
+// successfully selecting a character).
+void persist_roster_sort_if_dirty(struct descriptor_data* d, account::AccountData& account_data)
+{
+    if (!d->roster_sort_dirty)
+        return;
+
+    account::RosterSort current_sort = static_cast<account::RosterSort>(d->roster_sort);
+    account_data.roster_sort = account::roster_sort_to_string(current_sort);
+    std::string persist_error;
+    if (!account::write_account_file(kAccountStorageRoot, account_data, &persist_error))
+        vmudlog(BRF, "Failed to persist roster sort for %s: %s",
+            d->account_name, persist_error.c_str());
+    d->roster_sort_dirty = false;
+}
+
 void handle_account_authenticated(struct descriptor_data* d, const account::AccountData& account_data)
 {
     set_account_login_name(d, account_data.account_name);
@@ -3404,20 +3424,20 @@ void nanny(struct descriptor_data* d, char* arg)
 
                 switch (key) {
                 case 'a':
+                    sort_changed = (new_sort != account::RosterSort::Name);
                     new_sort = account::RosterSort::Name;
-                    sort_changed = true;
                     break;
                 case 'l':
+                    sort_changed = (new_sort != account::RosterSort::Level);
                     new_sort = account::RosterSort::Level;
-                    sort_changed = true;
                     break;
                 case 'c':
+                    sort_changed = (new_sort != account::RosterSort::Race);
                     new_sort = account::RosterSort::Race;
-                    sort_changed = true;
                     break;
                 case 's':
+                    sort_changed = (new_sort != account::RosterSort::Side);
                     new_sort = account::RosterSort::Side;
-                    sort_changed = true;
                     break;
                 case 'w':
                     new_filter = (new_filter == account::RosterFilter::Warrior) ? account::RosterFilter::None : account::RosterFilter::Warrior;
@@ -3447,19 +3467,9 @@ void nanny(struct descriptor_data* d, char* arg)
             }
 
             if (!strcmp(arg, "0")) {
-                // Write the sort only on leaving, never per keypress: write_account_file calls
-                // account_cache::invalidate_all(), which drops every account's entry globally, and
-                // save_char consumes that cache on every save (db.cpp) where a miss is a full scan
-                // of every account.json on disk.
-                if (d->roster_sort_dirty) {
-                    account::RosterSort current_sort = static_cast<account::RosterSort>(d->roster_sort);
-                    account_data.roster_sort = account::roster_sort_to_string(current_sort);
-                    std::string persist_error;
-                    if (!account::write_account_file(kAccountStorageRoot, account_data, &persist_error))
-                        vmudlog(BRF, "Failed to persist roster sort for %s: %s",
-                            d->account_name, persist_error.c_str());
-                    d->roster_sort_dirty = false;
-                }
+                // Leaving the roster back to the account menu is one of the two places a changed
+                // sort gets persisted (the other is a successful character selection, below).
+                persist_roster_sort_if_dirty(d, account_data);
                 show_account_menu(d, account_data);
                 STATE(d) = CON_ACCTMENU;
                 return;
@@ -3578,6 +3588,10 @@ void nanny(struct descriptor_data* d, char* arg)
                 return;
             }
 
+            // Selecting a character is the other way a player leaves the roster (see the "0"
+            // branch above) -- persist a changed sort here too, or it is silently lost every time
+            // a player actually plays instead of backing out to the account menu first.
+            persist_roster_sort_if_dirty(d, account_data);
             complete_existing_character_login(d, load_result);
         }
         break;
