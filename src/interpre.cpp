@@ -3399,8 +3399,8 @@ void nanny(struct descriptor_data* d, char* arg)
             }
 
             std::string selected_character_name;
-            if (!account::select_linked_character(account_data, arg, account::RosterSort::Account,
-                    account::RosterFilter::None, &selected_character_name, &error_message)) {
+            if (!account::select_linked_character(kAccountStorageRoot, account_data, arg,
+                    account::RosterSort::Account, account::RosterFilter::None, &selected_character_name, &error_message)) {
                 SEND_TO_Q((error_message + "\n\r").c_str(), d);
                 show_account_character_prompt(d, account_data);
                 return;

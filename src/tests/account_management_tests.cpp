@@ -13,9 +13,11 @@
 #include <ctime>
 #include <dirent.h>
 #include <limits.h>
+#include <regex>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <utility>
 
 extern struct player_index_element* player_table;
 extern int top_of_p_table;
@@ -668,12 +670,12 @@ TEST(AccountManagement, SelectsOnlyCharactersLinkedToTheAccount)
     std::string selected_character;
     std::string error_message;
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "2", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "2", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "legolas");
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "gandalf", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "gandalf", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
-    EXPECT_FALSE(account::select_linked_character(account_data, "0", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "0", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
@@ -683,10 +685,10 @@ TEST(AccountManagement, SelectsLinkedCharactersByFullName)
     std::string selected_character;
     std::string error_message;
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "aragorn", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "aragorn", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "aragorn");
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "Legolas", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "Legolas", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "legolas");
 }
 
@@ -696,10 +698,10 @@ TEST(AccountManagement, SelectsLinkedCharactersByNameIgnoringCaseAndSurroundingS
     std::string selected_character;
     std::string error_message;
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "ArAgOrN", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "ArAgOrN", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "aragorn");
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "  Legolas  ", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "  Legolas  ", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "legolas");
 }
 
@@ -709,13 +711,13 @@ TEST(AccountManagement, RejectsCharacterNamesThatAreNotLinkedToTheAccount)
     std::string selected_character;
     std::string error_message;
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "gandalf", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "gandalf", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "arago", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "arago", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "aragorn the second", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "aragorn the second", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
@@ -729,16 +731,16 @@ TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
     std::string selected_character;
     std::string error_message;
 
-    EXPECT_TRUE(account::select_linked_character(account_data, "200", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
+    EXPECT_TRUE(account::select_linked_character(".", account_data, "200", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "character200");
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "201", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "201", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 
-    EXPECT_TRUE(account::select_linked_character(account_data, "character200", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
+    EXPECT_TRUE(account::select_linked_character(".", account_data, "character200", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "character200");
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "character201", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "character201", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
@@ -3611,10 +3613,16 @@ account::AccountData make_sortable_account()
     return account_data;
 }
 
-// Backing reader for ordering tests: level/race/coefficients per character name.
-bool sortable_reader(const std::string&, const std::string&, const std::string& character_name,
+// Backing reader for ordering tests: level/race/coefficients per character name. Asserts the root
+// directory it was called with, so a caller that hardcodes (or drifts to) a different root than the
+// renderer used -- rather than threading root_directory through -- fails loudly here instead of
+// silently reading a disjoint (and therefore all-unreadable) cache entry. Every caller in this file
+// uses "." by convention.
+bool sortable_reader(const std::string& root_directory, const std::string&, const std::string& character_name,
     char_file_u* stored_character, std::string* error_message)
 {
+    EXPECT_EQ(root_directory, ".") << "reader invoked with an unexpected root directory -- selection and "
+                                       "rendering must resolve roster_cache entries against the same root";
     *stored_character = char_file_u {};
     if (character_name == "gimli") {
         stored_character->level = 30;
@@ -3646,6 +3654,20 @@ std::vector<std::string> names_in_order(const account::AccountData& account_data
     for (size_t index : indices)
         names.push_back(account_data.characters[index]);
     return names;
+}
+
+// Parses "N) [ lvl race] Name" row entries out of rendered roster/prompt text, in the order they
+// appear (two entries can share one line, so this scans the whole text rather than per-line). Row
+// numbers are returned exactly as printed and left unvalidated here -- callers assert the
+// numbering themselves, so a renderer that skips, repeats, or 0-indexes rows fails the assertion
+// rather than being silently reindexed away by the parser.
+std::vector<std::pair<int, std::string>> parse_rendered_roster_rows(const std::string& prompt)
+{
+    static const std::regex kRowPattern(R"((\d+)\)\s*\[[^\]]*\]\s*(\S+))");
+    std::vector<std::pair<int, std::string>> rows;
+    for (std::sregex_iterator it(prompt.begin(), prompt.end(), kRowPattern), end; it != end; ++it)
+        rows.emplace_back(std::stoi((*it)[1].str()), (*it)[2].str());
+    return rows;
 }
 
 class RosterOrderTest : public ::testing::Test {
@@ -3903,7 +3925,12 @@ TEST_F(RosterOrderTest, OrderingIsCappedAfterFiltering)
 }
 
 // The PR #289 invariant, generalised: whatever row N shows must be what typing N selects, under
-// every sort and every filter. This is the single most important test in the feature.
+// every sort and every filter. This is the single most important test in the feature. Renders the
+// ACTUAL prompt (format_account_character_prompt) and parses the rows out of the rendered text,
+// rather than comparing select_linked_character against ordered_roster_indices directly -- the
+// latter would only prove the selector agrees with its own ordering helper, not with what the
+// player is actually shown, and could not catch a renderer that diverged (a second cap, a skipped
+// unreadable row, 0-based numbering, ...).
 TEST_F(RosterOrderTest, SelectionByNumberMatchesTheRenderedRowUnderEverySortAndFilter)
 {
     const account::AccountData account_data = make_sortable_account();
@@ -3915,25 +3942,84 @@ TEST_F(RosterOrderTest, SelectionByNumberMatchesTheRenderedRowUnderEverySortAndF
 
     for (account::RosterSort sort : sorts) {
         for (account::RosterFilter filter : filters) {
-            const std::vector<std::string> displayed = names_in_order(account_data, sort, filter);
-            for (size_t row = 0; row < displayed.size(); ++row) {
+            const std::string prompt = account::format_account_character_prompt(".", account_data, sort, filter);
+            const std::vector<std::pair<int, std::string>> rows = parse_rendered_roster_rows(prompt);
+
+            for (size_t index = 0; index < rows.size(); ++index) {
+                ASSERT_EQ(rows[index].first, static_cast<int>(index + 1))
+                    << "rendered roster rows are not numbered sequentially from 1";
+            }
+
+            for (size_t index = 0; index < rows.size(); ++index) {
+                const size_t row = index + 1;
                 std::string selected;
                 std::string error_message;
-                ASSERT_TRUE(account::select_linked_character(account_data,
-                    std::to_string(row + 1), sort, filter, &selected, &error_message))
-                    << "row " << (row + 1) << ": " << error_message;
-                EXPECT_EQ(selected, displayed[row])
-                    << "row " << (row + 1) << " renders " << displayed[row]
+                ASSERT_TRUE(account::select_linked_character(".", account_data,
+                    std::to_string(row), sort, filter, &selected, &error_message))
+                    << "row " << row << ": " << error_message;
+                // Both sides normalised: the renderer prints the display form ("Aragorn"),
+                // select_linked_character returns normalize_account_name's form ("aragorn").
+                EXPECT_EQ(selected, account::normalize_account_name(rows[index].second))
+                    << "row " << row << " renders " << rows[index].second
                     << " but selects " << selected;
             }
 
             std::string selected;
             std::string error_message;
-            EXPECT_FALSE(account::select_linked_character(account_data,
-                std::to_string(displayed.size() + 1), sort, filter, &selected, &error_message))
-                << "a row past the end of the displayed list was selectable";
+            EXPECT_FALSE(account::select_linked_character(".", account_data,
+                std::to_string(rows.size() + 1), sort, filter, &selected, &error_message))
+                << "a row past the end of the rendered roster was selectable";
         }
     }
+}
+
+// The concrete scenario from the review that caught this: 250 linked characters (well over the
+// 200-entry display cap) under a non-Account sort, with one character inserted past the cap
+// boundary (insertion index 210) whose name sorts to the very front. ordered_roster_indices sorts
+// the FULL list and only then truncates to 200, so this character renders at row 1 -- but a name
+// scan bounded by insertion order ([0, 200) of account.characters as stored) would never reach
+// insertion index 210 and would reject the player's own character as "no such character". Both the
+// row-number path and the name path must find it.
+TEST_F(RosterOrderTest, SelectionByNameFindsACharacterPastTheInsertionOrderCapUnderANonAccountSort)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters.clear();
+    for (int index = 0; index < 210; ++index)
+        account_data.characters.push_back("zzfiller" + std::to_string(index));
+    account_data.characters.push_back("aaearly"); // insertion index 210: past a [0, 200) insertion-order scan
+    for (int index = 210; index < 249; ++index)
+        account_data.characters.push_back("zzfiller" + std::to_string(index));
+    ASSERT_EQ(account_data.characters.size(), 250u);
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string&,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->level = 1;
+            stored_character->race = RACE_HUMAN;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    const std::vector<std::string> displayed =
+        names_in_order(account_data, account::RosterSort::Name, account::RosterFilter::None);
+    ASSERT_EQ(displayed.size(), 200u);
+    ASSERT_EQ(displayed.front(), "aaearly") << "test setup: expected the out-of-order character to sort first";
+
+    std::string selected_by_number;
+    std::string error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "1",
+        account::RosterSort::Name, account::RosterFilter::None, &selected_by_number, &error_message))
+        << error_message;
+    EXPECT_EQ(selected_by_number, "aaearly");
+
+    std::string selected_by_name;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "aaearly",
+        account::RosterSort::Name, account::RosterFilter::None, &selected_by_name, &error_message))
+        << error_message;
+    EXPECT_EQ(selected_by_name, "aaearly");
 }
 
 TEST_F(RosterOrderTest, SelectionByNameWorksForACharacterHiddenByTheActiveFilter)
@@ -3944,7 +4030,7 @@ TEST_F(RosterOrderTest, SelectionByNameWorksForACharacterHiddenByTheActiveFilter
     std::string error_message;
     // "aragorn" is a Ranger, so the Warrior filter hides them; selecting by name must still work,
     // because a filter must never make one of a player's characters unreachable.
-    ASSERT_TRUE(account::select_linked_character(account_data, "aragorn",
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "aragorn",
         account::RosterSort::Account, account::RosterFilter::Warrior, &selected, &error_message))
         << error_message;
     EXPECT_EQ(selected, "aragorn");
