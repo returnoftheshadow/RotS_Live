@@ -118,6 +118,59 @@ namespace {
         return line;
     }
 
+    // Derived coefficient for one profession, mirroring get_prof_coof (char_utils.cpp) but reading
+    // the cached raw value instead of a live char_data. The race adjustments matter: they change
+    // WHICH profession is highest for Orcs and Uruk mages, so filtering on raw values would put
+    // those characters under the wrong letter.
+    int derived_prof_coof(const roster_cache::RosterSummary& summary, int profession)
+    {
+        const short raw = summary.prof_coof[profession];
+        int derived = square_root[raw];
+        if (summary.race == RACE_ORC)
+            derived = (derived * 2 + 2) / 3;
+        else if (summary.race == RACE_URUK && profession == PROF_MAGE)
+            derived -= 100;
+        return derived;
+    }
+
+    // Side ordering: gods, lights, darks, third side. Derived from race, never stored.
+    int side_rank_for_race(int race)
+    {
+        if (race == RACE_GOD)
+            return 0;
+        if (race >= RACE_HUMAN && race <= RACE_BEORNING)
+            return 1;
+        if (race == RACE_MAGUS || race == RACE_HARADRIM)
+            return 3;
+        return 2;
+    }
+
+    bool summary_matches_filter(const roster_cache::RosterSummary& summary, RosterFilter filter)
+    {
+        if (filter == RosterFilter::None)
+            return true;
+        if (!summary.readable)
+            return false; // no coefficients known; spec says unreadable rows are excluded by filters
+
+        int wanted = PROF_WARRIOR;
+        if (filter == RosterFilter::Ranger)
+            wanted = PROF_RANGER;
+        else if (filter == RosterFilter::Mystic)
+            wanted = PROF_CLERIC;
+        else if (filter == RosterFilter::Mage)
+            wanted = PROF_MAGE;
+
+        const int wanted_value = derived_prof_coof(summary, wanted);
+        for (int profession = 1; profession <= MAX_PROFS; ++profession) {
+            if (profession == wanted)
+                continue;
+            if (derived_prof_coof(summary, profession) > wanted_value)
+                return false;
+        }
+        // >= every other profession, so ties match under every tied letter.
+        return true;
+    }
+
     std::string format_account_character_short_roster(const std::string& root_directory, const AccountData& account)
     {
         if (account.characters.empty())
@@ -1394,6 +1447,88 @@ namespace {
     }
 
 } // namespace
+
+std::vector<size_t> ordered_roster_indices(const std::string& root_directory,
+    const AccountData& account, RosterSort sort, RosterFilter filter)
+{
+    std::vector<size_t> indices;
+    std::vector<roster_cache::RosterSummary> summaries(account.characters.size());
+
+    for (size_t index = 0; index < account.characters.size(); ++index) {
+        roster_cache::get(root_directory, account.account_name, account.characters[index], &summaries[index]);
+        if (summary_matches_filter(summaries[index], filter))
+            indices.push_back(index);
+    }
+
+    // stable_sort so equal keys keep insertion order and a redraw never reshuffles them.
+    // Unreadable characters have no level/race/coefficients and sort last under every ordering.
+    if (sort != RosterSort::Account) {
+        std::stable_sort(indices.begin(), indices.end(),
+            [&](size_t left, size_t right) {
+                const roster_cache::RosterSummary& a = summaries[left];
+                const roster_cache::RosterSummary& b = summaries[right];
+                if (a.readable != b.readable)
+                    return a.readable;
+                if (!a.readable)
+                    return false;
+
+                if (sort == RosterSort::Name)
+                    return to_lower_copy(account.characters[left]) < to_lower_copy(account.characters[right]);
+                if (sort == RosterSort::Level)
+                    return a.level > b.level;
+                if (sort == RosterSort::Race)
+                    return a.race < b.race;
+                return side_rank_for_race(a.race) < side_rank_for_race(b.race);
+            });
+    }
+
+    if (indices.size() > kMaxDisplayedAccountCharacters)
+        indices.resize(kMaxDisplayedAccountCharacters);
+    return indices;
+}
+
+const char* roster_sort_to_string(RosterSort sort)
+{
+    switch (sort) {
+    case RosterSort::Name:
+        return "name";
+    case RosterSort::Level:
+        return "level";
+    case RosterSort::Race:
+        return "race";
+    case RosterSort::Side:
+        return "side";
+    default:
+        return "";
+    }
+}
+
+bool roster_sort_from_string(const std::string& value, RosterSort* sort)
+{
+    if (sort == nullptr)
+        return false;
+    if (value.empty()) {
+        *sort = RosterSort::Account;
+        return true;
+    }
+    if (value == "name") {
+        *sort = RosterSort::Name;
+        return true;
+    }
+    if (value == "level") {
+        *sort = RosterSort::Level;
+        return true;
+    }
+    if (value == "race") {
+        *sort = RosterSort::Race;
+        return true;
+    }
+    if (value == "side") {
+        *sort = RosterSort::Side;
+        return true;
+    }
+    return false;
+}
 
 // Read an entire text file into *contents (POSIX-backed). Exposed for stage-timing the
 // LOAD pipeline's file-read step.

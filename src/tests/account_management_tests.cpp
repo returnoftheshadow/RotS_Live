@@ -3598,3 +3598,205 @@ TEST(AccountManagement, WritingACharacterFileDropsItsCachedRosterSummary)
     roster_cache::set_enabled(false);
     roster_cache::clear();
 }
+
+namespace {
+
+// Builds an account whose characters are deliberately NOT in name, level, or race order, so a
+// passing sort test cannot be an accident of insertion order.
+account::AccountData make_sortable_account()
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "gimli", "aragorn", "legolas" };
+    return account_data;
+}
+
+// Backing reader for ordering tests: level/race/coefficients per character name.
+bool sortable_reader(const std::string&, const std::string&, const std::string& character_name,
+    char_file_u* stored_character, std::string* error_message)
+{
+    *stored_character = char_file_u {};
+    if (character_name == "gimli") {
+        stored_character->level = 30;
+        stored_character->race = RACE_DWARF;
+        stored_character->profs.prof_coof[PROF_WARRIOR] = 160;
+    } else if (character_name == "aragorn") {
+        stored_character->level = 50;
+        stored_character->race = RACE_HUMAN;
+        stored_character->profs.prof_coof[PROF_RANGER] = 160;
+    } else if (character_name == "legolas") {
+        stored_character->level = 40;
+        stored_character->race = RACE_WOOD;
+        stored_character->profs.prof_coof[PROF_MAGE] = 160;
+    } else {
+        if (error_message)
+            *error_message = "unknown character";
+        return false;
+    }
+    if (error_message)
+        *error_message = "";
+    return true;
+}
+
+std::vector<std::string> names_in_order(const account::AccountData& account_data,
+    account::RosterSort sort, account::RosterFilter filter)
+{
+    const std::vector<size_t> indices = account::ordered_roster_indices(".", account_data, sort, filter);
+    std::vector<std::string> names;
+    for (size_t index : indices)
+        names.push_back(account_data.characters[index]);
+    return names;
+}
+
+class RosterOrderTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        roster_cache::clear();
+        roster_cache::set_backing_reader_for_testing(&sortable_reader);
+        roster_cache::set_enabled(true);
+    }
+    void TearDown() override
+    {
+        roster_cache::set_backing_reader_for_testing(nullptr);
+        roster_cache::set_enabled(false);
+        roster_cache::clear();
+    }
+};
+
+} // namespace
+
+TEST_F(RosterOrderTest, AccountSortPreservesInsertionOrder)
+{
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::None),
+        (std::vector<std::string> { "gimli", "aragorn", "legolas" }));
+}
+
+TEST_F(RosterOrderTest, NameSortIsAlphabetical)
+{
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Name, account::RosterFilter::None),
+        (std::vector<std::string> { "aragorn", "gimli", "legolas" }));
+}
+
+TEST_F(RosterOrderTest, LevelSortIsHighestFirst)
+{
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::None),
+        (std::vector<std::string> { "aragorn", "legolas", "gimli" }));
+}
+
+TEST_F(RosterOrderTest, RaceSortIsAscendingByRaceIndex)
+{
+    // RACE_HUMAN 1 < RACE_DWARF 2 < RACE_WOOD 3
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Race, account::RosterFilter::None),
+        (std::vector<std::string> { "aragorn", "gimli", "legolas" }));
+}
+
+TEST_F(RosterOrderTest, FilterKeepsOnlyCharactersWhoseHighestCoefficientMatches)
+{
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Warrior),
+        (std::vector<std::string> { "gimli" }));
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Ranger),
+        (std::vector<std::string> { "aragorn" }));
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mage),
+        (std::vector<std::string> { "legolas" }));
+    EXPECT_TRUE(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mystic).empty());
+}
+
+TEST_F(RosterOrderTest, FilterAndSortCompose)
+{
+    account::AccountData account_data = make_sortable_account();
+    account_data.characters.push_back("gimli"); // duplicate name is fine: same summary, same filter
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::Warrior),
+        (std::vector<std::string> { "gimli", "gimli" }));
+}
+
+TEST_F(RosterOrderTest, SideSortOrdersGodsLightsDarksThenThirdSide)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "magus1", "orc1", "human1" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            if (character_name == "magus1")
+                stored_character->race = RACE_MAGUS;
+            else if (character_name == "orc1")
+                stored_character->race = RACE_ORC;
+            else
+                stored_character->race = RACE_HUMAN;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Side, account::RosterFilter::None),
+        (std::vector<std::string> { "human1", "orc1", "magus1" }));
+}
+
+TEST_F(RosterOrderTest, TiedHighestCoefficientAppearsUnderEveryTiedFilter)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "twinned" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string&,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_HUMAN;
+            stored_character->profs.prof_coof[PROF_WARRIOR] = 150;
+            stored_character->profs.prof_coof[PROF_MAGE] = 150;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Warrior).size(), 1u);
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mage).size(), 1u);
+    EXPECT_TRUE(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Ranger).empty());
+}
+
+TEST_F(RosterOrderTest, UnreadableCharactersSortLastAndAreExcludedByFilters)
+{
+    account::AccountData account_data = make_sortable_account();
+    account_data.characters.insert(account_data.characters.begin(), "brokenchar");
+
+    // sortable_reader returns false for "brokenchar".
+    const std::vector<std::string> by_level =
+        names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::None);
+    ASSERT_EQ(by_level.size(), 4u);
+    EXPECT_EQ(by_level.back(), "brokenchar");
+
+    const std::vector<std::string> warriors =
+        names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Warrior);
+    EXPECT_EQ(warriors, (std::vector<std::string> { "gimli" }));
+}
+
+TEST_F(RosterOrderTest, OrderingIsCappedAtTheDisplayedRosterLimit)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters.clear();
+    for (int index = 1; index <= 250; ++index)
+        account_data.characters.push_back("character" + std::to_string(index));
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string&,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->level = 1;
+            stored_character->race = RACE_HUMAN;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(account::ordered_roster_indices(".", account_data,
+                  account::RosterSort::Name, account::RosterFilter::None).size(), 200u);
+}

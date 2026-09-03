@@ -8,4 +8,36 @@
 #include "account_management_storage.h"
 #include "account_management_types.h"
 
+#include <string>
+#include <vector>
+
+namespace account {
+
+enum class RosterSort {
+    Account, // insertion order: the pre-feature behaviour, and the default for accounts that never chose
+    Name,
+    Level,
+    Race,
+    Side,
+};
+
+enum class RosterFilter {
+    None,
+    Warrior,
+    Ranger,
+    Mystic,
+    Mage,
+};
+
+// The single ordered, filtered, capped list of positions into account.characters. Rendering and
+// selection MUST both consume this rather than each deriving an order, or a character can be shown
+// at a number that selects someone else.
+std::vector<size_t> ordered_roster_indices(const std::string& root_directory,
+    const AccountData& account, RosterSort sort, RosterFilter filter);
+
+const char* roster_sort_to_string(RosterSort sort);
+bool roster_sort_from_string(const std::string& value, RosterSort* sort);
+
+} // namespace account
+
 #endif
