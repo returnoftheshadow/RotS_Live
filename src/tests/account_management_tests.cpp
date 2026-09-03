@@ -1,6 +1,7 @@
 #include "../account_management.h"
 #include "../exploits_json.h"
 #include "../objects_json.h"
+#include "../roster_cache.h"
 #include "../utils.h"
 
 #include <gtest/gtest.h>
@@ -3557,4 +3558,43 @@ TEST(AccountManagement, VerifyPasswordResetCodeCountsWrongCodesLikeTheCompleting
     account::AccountData after_verify;
     ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_verify, &error_message)) << error_message;
     EXPECT_EQ(after_verify.password_reset_attempt_count, 1);
+}
+
+// write_account_character_file is the single chokepoint for character-file writes (5 call sites,
+// including save_char's autosave path). If it does not drop the cached summary, a level-up would
+// leave the roster showing the old level indefinitely.
+TEST(AccountManagement, WritingACharacterFileDropsItsCachedRosterSummary)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData account_data = make_account();
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", account_data.account_name, account_data.normalized_email,
+        "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
+
+    char_file_u aragorn = make_stored_character("aragorn");
+    aragorn.level = 10;
+    aragorn.race = RACE_WOOD;
+    ASSERT_TRUE(account::write_account_character_file(".", account_data.account_name, aragorn, &error_message))
+        << error_message;
+
+    roster_cache::clear();
+    roster_cache::set_enabled(true);
+
+    roster_cache::RosterSummary summary {};
+    ASSERT_TRUE(roster_cache::get(".", account_data.account_name, "aragorn", &summary));
+    ASSERT_EQ(summary.level, 10);
+
+    aragorn.level = 11;
+    ASSERT_TRUE(account::write_account_character_file(".", account_data.account_name, aragorn, &error_message))
+        << error_message;
+
+    ASSERT_TRUE(roster_cache::get(".", account_data.account_name, "aragorn", &summary));
+    EXPECT_EQ(summary.level, 11) << "cached summary survived a character write";
+
+    roster_cache::set_enabled(false);
+    roster_cache::clear();
 }

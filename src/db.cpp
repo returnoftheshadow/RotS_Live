@@ -32,6 +32,7 @@
 #include "character_json.h"
 #include "exploits_json.h"
 #include "player_file_finalize.h"
+#include "roster_cache.h"
 #include "skill_timer.h"
 #include <cstdio>
 #include <iostream>
@@ -309,6 +310,7 @@ void boot_db(void)
     // O(N) directory scans, with a full flush on every account.json write (write_account_file). See
     // account_cache.h. This is the adopted Phase-1 optimization; JSON serialize/deserialize stay on v1.
     account_cache::set_enabled(true);
+    roster_cache::set_enabled(true);
     log("Account-resolution cache: enabled.");
 
     log("Resetting the game time:");

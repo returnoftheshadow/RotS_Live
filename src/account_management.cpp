@@ -4,6 +4,7 @@
 #include "exploits_json.h"
 #include "json_utils.h"
 #include "objects_json.h"
+#include "roster_cache.h"
 #include "utils.h"
 
 #include <cerrno>

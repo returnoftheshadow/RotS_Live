@@ -26,7 +26,13 @@ bool write_account_character_file(const std::string& root_directory, const std::
 
     const std::string final_path = resolved_character_path(account, root_directory, stored_character.name);
     const std::string json = character_json::serialize_character_to_json(character_data);
-    return write_text_file_atomically(final_path, json, error_message);
+    if (!write_text_file_atomically(final_path, json, error_message))
+        return false;
+
+    // Single character-file write chokepoint: drop this character's cached roster summary so the
+    // next render reflects the new level/race/coefficients. Only this character -- see roster_cache.h.
+    roster_cache::invalidate_character(root_directory, stored_character.name);
+    return true;
 }
 
 bool write_linked_character_file(const std::string& root_directory, const std::string& character_name, const char_file_u& stored_character, std::string* error_message)
