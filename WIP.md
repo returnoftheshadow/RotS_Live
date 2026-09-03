@@ -1,7 +1,7 @@
 # Work In Progress
 
 ## Current Feature Planning Task - MSDP Unit Test Coverage
-- Active implementation slice complete: `msdp_update()` game-state emitter coverage now includes descriptor safety, broad character stat emission, weather branches, and opponent branches.
+- Active implementation slice complete: `GROUP` MSDP reporting now emits all group members with health/mana/movement percentages.
 - User requirement:
   - add as much unit-test coverage for the game's MSDP features as practical
   - keep the work unit-test focused instead of relying on live telnet/proxy smoke tests
@@ -59,6 +59,7 @@
     - [x] emits character name, level, race, alignment, experience-to-next-level, health, mana, movement, money, abilities, permanent abilities, wimpy, spirit, tactic, spell save/pen/power, armor absorption, offense/parry/dodge, attack speed, perception/willpower, encumbrance, regeneration, room name/vnum, and weather
     - [x] emits NPC opponent name/level/health, PC opponent star-name/hidden level, and blank opponent fields when not fighting
     - [x] validates division-by-zero or invalid max-health guard behavior for health percentage if tests expose a gap
+    - [x] emits group member names plus health, mana, and movement percentages as a structured `GROUP` table
   - [ ] Add `msdp_room_update()` tests:
     - skips NPCs and descriptors without protocol state
     - emits room name/vnum, `ROOM_EXITS`, and `ROOM` table with `VNUM`, sanitized `NAME`, `EXITS`, and `TERRAIN`
@@ -99,12 +100,17 @@
   - added indoor and outdoor weather coverage, including newline-stripped outdoor weather text
   - tightened weather global test isolation with a scoped weather guard
   - added assertions that skipped invalid-room descriptors do not mutate stale weather or character-name state before being skipped
+  - added structured `GROUP` MSDP reporting with all group members, sanitized names, health/mana/movement percentages, empty-group clearing, and dirty-state coverage for changed group stats
 - Validation so far:
   - `clang-format -i -style=WebKit src/comm.cpp src/protocol.cpp src/protocol.h src/tests/protocol_tests.cpp` passed
   - focused `./bin/tests '--gtest_filter=MSDPProtocol.MsdpUpdate*'` passed at `9/9` tests after bounds, broad-stat, and weather coverage were added
   - focused `./bin/tests '--gtest_filter=MSDPProtocol.*:ProtocolInput.*'` passed at `39/39` tests
   - `make test` passed at `588/588` tests
   - `make smoke-account` passed the full proxy-backed account flow after the protocol metadata, pre-login hardening, split-subnegotiation, and `msdp_update()` fixes
+  - focused `./bin/tests '--gtest_filter=MSDPProtocol.*:ProtocolInput.*'` passed at `45/45` tests after group reporting was added
+  - `make test` passed at `647/647` tests after group reporting was added
+  - `make smoke-account` initially exposed stale prompt waits in the e2e harness after reset-password logout and at character selection; `tools/account_smoke.py` now reconnects after logout and waits for the actual `Character number or name:` prompt
+  - `make smoke-account` passed after the e2e harness fixes, including shell-quoted verification-email capture path generation
 - Reviewer status:
   - `Bazarat`: requested actual packet-output assertions for `msdp_update()` plus skip-output checks; addressed with exact `expected_msdp_pair(...)` assertions and stale opponent state setup for clear-to-empty branches
   - `Bazarat`: requested room-bounds tests before broad stat expansion, broad character stat coverage, and indoor/outdoor weather coverage; addressed in the follow-up `msdp_update()` slice
@@ -113,6 +119,10 @@
   - `Bazarat`: requested stale weather and skipped character-name assertions for invalid-room descriptors; addressed in the bounds regression test
   - `Vincent`: clear; earlier out-of-range non-`NOWHERE` room-index hardening note has been addressed; longer-term `sprintf` replacement in MSDP packet builders remains a follow-up
   - `Vincent`: noted future hardening for invalid room `sector_type` / weather index values before indexing `weather_info.sky` and `weather_messages`
+  - `Magus`: requested `GROUP` manual documentation, checked WIP status, and changed-payload test coverage; addressed after review
+  - `Vincent`: clear on `GROUP` reporting; noted inherited large MSDP table drop behavior via `MAX_VARIABLE_LENGTH`
+  - `Magus`: clear on the account smoke harness reconnect and prompt-marker fixes
+  - `Vincent`: requested shell-quoting for the generated sendmail capture path; addressed with `shlex.quote(...)`
 
 ## Current Bug Task - Legacy Specialization Smoke Coverage
 - Active slice complete: the proxy-backed legacy-link smoke flow now catches lost specializations with a non-zero legacy fixture and live `info` output assertion.
