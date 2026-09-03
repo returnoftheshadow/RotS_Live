@@ -28,7 +28,15 @@ extern char* race_abbrevs[];
 
 namespace account {
 namespace {
-    constexpr size_t kMaxDisplayedAccountCharacters = 100;
+    // Bounds the roster the account menu renders AND the set select_linked_character will match,
+    // so a character is never displayed without being selectable or vice versa. Characters past
+    // this point are unreachable by number and by name, so the limit is an access ceiling, not
+    // just a display one. The hard ceiling is the descriptor output buffer: rows are 27 bytes at
+    // their widest, two per line, and once a write exceeds LARGE_BUFSIZE write_to_output sets
+    // bufptr = -1 and silently discards everything else bound for that socket, leaving the player
+    // with a blank screen and no prompt. That cliff sits at 585; RendersAFullRosterWithinTheOutputBuffer
+    // guards it.
+    constexpr size_t kMaxDisplayedAccountCharacters = 200;
 
     using CharacterLinkReference = AccountData::CharacterLinkReference;
 
