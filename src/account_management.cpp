@@ -119,9 +119,12 @@ namespace {
     }
 
     // Derived coefficient for one profession, mirroring get_prof_coof (char_utils.cpp) but reading
-    // the cached raw value instead of a live char_data. The race adjustments matter: they change
-    // WHICH profession is highest for Orcs and Uruk mages, so filtering on raw values would put
-    // those characters under the wrong letter.
+    // the cached raw value instead of a live char_data. Only the Uruk-mage -100 is profession-
+    // specific, so it is the one that can change WHICH profession is highest -- filtering on the
+    // raw value would put those characters under the wrong letter. The Orc (x*2+2)/3 scaling is
+    // applied uniformly to every profession of the same character and is monotonic, so on its own
+    // it can only collapse a near-tie into an exact tie (which, under >=, widens who matches); it
+    // can never invert the ordering between two of an Orc's professions.
     int derived_prof_coof(const roster_cache::RosterSummary& summary, int profession)
     {
         const short raw = summary.prof_coof[profession];

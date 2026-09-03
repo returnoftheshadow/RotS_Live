@@ -3714,6 +3714,57 @@ TEST_F(RosterOrderTest, FilterAndSortCompose)
         (std::vector<std::string> { "gimli", "gimli" }));
 }
 
+// square_root[] is monotonic non-decreasing, so a filter that compared RAW prof_coof values would
+// pass every other test in this file identically. This case only distinguishes raw from derived:
+// raw says Mage (40 > 30), but the Uruk-mage penalty flips it (square_root[40]-100=532 <
+// square_root[30]=547), so derived says Warrior.
+TEST_F(RosterOrderTest, FilterUsesDerivedCoefficientsNotRawValues)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "uruk1" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string&,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_URUK;
+            stored_character->profs.prof_coof[PROF_MAGE] = 40;
+            stored_character->profs.prof_coof[PROF_WARRIOR] = 30;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Warrior),
+        (std::vector<std::string> { "uruk1" }));
+    EXPECT_TRUE(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mage).empty());
+}
+
+// stable_sort is load-bearing: a redraw must never reshuffle rows with equal sort keys. Two
+// DISTINCT names ("zed" before "amy" in insertion order, the opposite of alphabetical) share a
+// level, so only a genuinely stable sort reproduces this exact expected order.
+TEST_F(RosterOrderTest, EqualSortKeysPreserveInsertionOrder)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "zed", "mid", "amy" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_HUMAN;
+            stored_character->level = (character_name == "mid") ? 30 : 20; // zed and amy tie
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::None),
+        (std::vector<std::string> { "mid", "zed", "amy" }));
+}
+
 TEST_F(RosterOrderTest, SideSortOrdersGodsLightsDarksThenThirdSide)
 {
     account::AccountData account_data = make_account();
@@ -3778,7 +3829,12 @@ TEST_F(RosterOrderTest, UnreadableCharactersSortLastAndAreExcludedByFilters)
     EXPECT_EQ(warriors, (std::vector<std::string> { "gimli" }));
 }
 
-TEST_F(RosterOrderTest, OrderingIsCappedAtTheDisplayedRosterLimit)
+// Names are character1..character250. Lexicographically "character250" < "character3" (the digit
+// '2' loses to '3' at the first differing position), so a cap-AFTER-sort implementation keeps
+// character250 in its 200-entry result while a cap-BEFORE-sort implementation (insertion prefix
+// character1..character200) never even considers it. Comparing against the fully-sorted-then-
+// truncated expectation catches that difference; asserting size()==200 alone would not.
+TEST_F(RosterOrderTest, OrderingIsCappedAtTheDisplayedRosterLimitAfterSorting)
 {
     account::AccountData account_data = make_account();
     account_data.characters.clear();
@@ -3797,6 +3853,92 @@ TEST_F(RosterOrderTest, OrderingIsCappedAtTheDisplayedRosterLimit)
         });
     roster_cache::clear();
 
+    const std::vector<size_t> indices = account::ordered_roster_indices(
+        ".", account_data, account::RosterSort::Name, account::RosterFilter::None);
+    ASSERT_EQ(indices.size(), 200u);
+
+    std::vector<std::string> actual;
+    for (size_t index : indices)
+        actual.push_back(account_data.characters[index]);
+
+    std::vector<std::string> expected_full_order = account_data.characters;
+    std::sort(expected_full_order.begin(), expected_full_order.end());
+    const std::vector<std::string> expected(expected_full_order.begin(), expected_full_order.begin() + 200);
+
+    EXPECT_EQ(actual, expected);
+    EXPECT_NE(std::find(actual.begin(), actual.end(), "character250"), actual.end())
+        << "a cap-before-sort implementation would never surface character250";
+}
+
+// 250 characters, of which exactly 210 match the Warrior filter (the rest are mages). The cap must
+// apply to the 210 post-filter matches, not to the pre-filter 250 -- so the result is 200, not 210
+// truncated from a smaller filtered set that happened to already fit, and not a filter applied
+// after an incorrect pre-filter cap.
+TEST_F(RosterOrderTest, OrderingIsCappedAfterFiltering)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters.clear();
+    for (int index = 1; index <= 250; ++index)
+        account_data.characters.push_back("character" + std::to_string(index));
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_HUMAN;
+            const int suffix = std::stoi(character_name.substr(std::string("character").size()));
+            if (suffix <= 210)
+                stored_character->profs.prof_coof[PROF_WARRIOR] = 100;
+            else
+                stored_character->profs.prof_coof[PROF_MAGE] = 100;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
     EXPECT_EQ(account::ordered_roster_indices(".", account_data,
-                  account::RosterSort::Name, account::RosterFilter::None).size(), 200u);
+                  account::RosterSort::Account, account::RosterFilter::Warrior).size(), 200u);
+}
+
+// roster_sort_to_string / roster_sort_from_string are named deliverables that Tasks 4 and 5 both
+// build on (a persisted preference and, presumably, a "sort" subcommand). No roster_cache
+// interaction here, so these do not need the RosterOrderTest fixture.
+
+TEST(RosterSortStringConversion, RoundTripsAllEnumValues)
+{
+    const account::RosterSort sorts[] = {
+        account::RosterSort::Account,
+        account::RosterSort::Name,
+        account::RosterSort::Level,
+        account::RosterSort::Race,
+        account::RosterSort::Side,
+    };
+    for (account::RosterSort sort : sorts) {
+        account::RosterSort parsed = account::RosterSort::Level; // sentinel, must be overwritten
+        ASSERT_TRUE(account::roster_sort_from_string(account::roster_sort_to_string(sort), &parsed));
+        EXPECT_EQ(parsed, sort);
+    }
+}
+
+// Pinned explicitly, not just described: "never chose" (empty string) and "chose Account" persist
+// as the same string, so a stored preference round-trips through account::RosterSort::Account.
+TEST(RosterSortStringConversion, AccountSortRoundTripsThroughEmptyString)
+{
+    EXPECT_STREQ(account::roster_sort_to_string(account::RosterSort::Account), "");
+
+    account::RosterSort parsed = account::RosterSort::Level;
+    ASSERT_TRUE(account::roster_sort_from_string("", &parsed));
+    EXPECT_EQ(parsed, account::RosterSort::Account);
+}
+
+TEST(RosterSortStringConversion, GarbageStringIsRejected)
+{
+    account::RosterSort parsed = account::RosterSort::Level;
+    EXPECT_FALSE(account::roster_sort_from_string("not-a-real-sort", &parsed));
+}
+
+TEST(RosterSortStringConversion, NullOutputPointerIsRejected)
+{
+    EXPECT_FALSE(account::roster_sort_from_string("name", nullptr));
 }
