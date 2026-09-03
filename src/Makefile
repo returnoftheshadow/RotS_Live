@@ -26,7 +26,7 @@ CFLAGS = $(MYFLAGS) $(PROFILE) $(OSFLAGS)
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
 	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
-	comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o character_json.o exploits_json.o json_utils.o objects_json.o \
+	comm.o config.o consts.o crashsave_schedule.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o account_cache.o roster_cache.o character_json.o exploits_json.o json_utils.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
 	pkill.o player_file_finalize.o profs.o protocol.o ranger.o save_benchmark.o savebench.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
@@ -49,6 +49,9 @@ account_management.o : account_management.cpp account_management.h account_manag
 
 account_cache.o : account_cache.cpp account_cache.h account_management.h
 	$(CC) -c $(CFLAGS) account_cache.cpp
+
+roster_cache.o : roster_cache.cpp roster_cache.h account_management.h structs.h
+	$(CC) -c $(CFLAGS) roster_cache.cpp
 
 character_json.o : character_json.cpp character_json.h json_utils.h structs.h
 	$(CC) -c $(CFLAGS) character_json.cpp
