@@ -651,14 +651,21 @@ void show_mount_to_char(struct char_data* i, struct char_data* ch, char* line1, 
     int color)
 {
     int vis_count, tmpnum, you_are_riding, riderno;
-    int special_message;
+    int special_message, line_color;
     struct char_data *tmpch, *last_rider;
 
     you_are_riding = special_message = vis_count = 0;
+    /*
+     * The whole line gets ONE colour, deliberately: clients trigger on ANSI
+     * sequences, and colouring a rider's name differently from the rest of its
+     * line confuses or breaks those triggers.  A visible human player among
+     * the riders means the line takes the character colour; riderless or
+     * NPC-ridden mounts are just creatures and take the mob colour.  PERS()
+     * below can still switch to the enemy colour mid-line, so each call is
+     * followed by a switch back.
+     */
+    line_color = COLOR_MOB;
     *buf = 0;
-
-    if (color)
-        strcat(buf, CC_USE(ch, COLOR_CHAR));
 
     /*
      * We NEED to know if there are multiple people riding one mount and
@@ -670,11 +677,16 @@ void show_mount_to_char(struct char_data* i, struct char_data* ch, char* line1, 
          tmpch = tmpch->mount_data.next_rider, ++riderno) {
         if (CAN_SEE(ch, tmpch)) {
             tmpnum = tmpch->mount_data.next_rider_number;
+            if (!IS_NPC(tmpch))
+                line_color = COLOR_CHAR;
             if (GET_POS(tmpch) == POSITION_FIGHTING || GET_POS(tmpch) == POSITION_RESTING)
                 special_message = 1;
         } else
             --riderno;
     }
+
+    if (color)
+        strcat(buf, CC_USE(ch, line_color));
 
     tmpch = i->mount_data.rider;
     tmpnum = i->mount_data.rider_number;
@@ -699,7 +711,7 @@ void show_mount_to_char(struct char_data* i, struct char_data* ch, char* line1, 
                 strcat(buf,
                     !vis_count ? PERS(tmpch, ch, TRUE, FALSE) : PERS(tmpch, ch, FALSE, FALSE));
                 if (color)
-                    strcat(buf, CC_USE(ch, COLOR_CHAR));
+                    strcat(buf, CC_USE(ch, line_color));
             }
 
             get_char_flag_line(ch, tmpch, buf + strlen(buf));
@@ -734,7 +746,7 @@ void show_mount_to_char(struct char_data* i, struct char_data* ch, char* line1, 
                         if (tmpch->in_room == tmpch->specials.fighting->in_room) {
                             strcat(buf, PERS(tmpch->specials.fighting, ch, FALSE, FALSE));
                             if (color)
-                                strcat(buf, CC_USE(ch, COLOR_CHAR));
+                                strcat(buf, CC_USE(ch, line_color));
                         } else
                             strcat(buf, "SOMEONE THAT ALREADY LEFT! *BUG*");
                     }
@@ -849,8 +861,8 @@ void show_char_to_char(struct char_data* i, struct char_data* ch, int mode, char
          */
         if ((!i->player.long_descr || GET_POS(i) != i->specials.default_pos || pos_line) || (IS_NPC(i) && MOB_FLAGGED(i, MOB_ORC_FRIEND) && MOB_FLAGGED(i, MOB_PET) && other_side(ch, i))) {
             if (!pos_line) {
-                sprintf(buf, "%s%s%s", CC_USE(ch, COLOR_CHAR), PERS(i, ch, TRUE, FALSE),
-                    CC_USE(ch, COLOR_CHAR));
+                sprintf(buf, "%s%s%s", CC_USE(ch, char_color_slot(i)), PERS(i, ch, TRUE, FALSE),
+                    CC_USE(ch, char_color_slot(i)));
                 if (!IS_NPC(i) && !other_side(ch, i))
                     sprintf(buf + strlen(buf), " %s", GET_TITLE(i));
 
@@ -863,7 +875,7 @@ void show_char_to_char(struct char_data* i, struct char_data* ch, int mode, char
             }
         } else { /* npc with long that's in the usual position */
             *buf = 0;
-            strcat(buf, CC_USE(ch, COLOR_CHAR));
+            strcat(buf, CC_USE(ch, char_color_slot(i)));
             strcat(buf, i->player.long_descr);
             get_char_flag_line(ch, i, buf + strlen(buf));
         }

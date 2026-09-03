@@ -240,6 +240,7 @@ const char* color_fields[] = {
     "group",
     "magic",
     "weather",
+    "mob",
     "off",
     "on",
     "default",
@@ -247,7 +248,7 @@ const char* color_fields[] = {
 };
 
 int num_of_color_fields = sizeof(color_fields) / sizeof(color_fields[0]);
-static constexpr int kNumConfigurableColorFields = 15;
+static constexpr int kNumConfigurableColorFields = 16;
 static constexpr int kColorCommandOff = kNumConfigurableColorFields;
 static constexpr int kColorCommandOn = kNumConfigurableColorFields + 1;
 static constexpr int kColorCommandDefault = kNumConfigurableColorFields + 2;
@@ -479,6 +480,16 @@ void set_colors_default(struct char_data* ch)
     set_colornum(ch, COLOR_GTELL, CGRN);
     set_colornum(ch, COLOR_MAGIC, CBMAG);
     set_colornum(ch, COLOR_WEATHER, CBCYN);
+    set_colornum(ch, COLOR_MOB, CGRN);
+}
+
+/*
+ * Which colour slot renders 'target's name: mobiles use the 'mob'
+ * slot, player characters keep the older 'character' slot.
+ */
+int char_color_slot(struct char_data* target)
+{
+    return IS_NPC(target) ? COLOR_MOB : COLOR_CHAR;
 }
 
 ACMD(do_color)

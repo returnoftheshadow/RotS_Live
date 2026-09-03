@@ -21,6 +21,7 @@
 #define COLOR_GTELL 12
 #define COLOR_MAGIC 13
 #define COLOR_WEATHER 14
+#define COLOR_MOB 15
 
 #define CNRM 0
 #define CRED 1
@@ -68,6 +69,7 @@ struct color_slot_data {
     (clr((ch)) ? color_sequence[col] : "")
 
 extern const char* color_color[];
+extern const char* color_fields[];
 extern char* color_sequence[];
 
 const char* get_color_sequence(struct char_data*, int);
@@ -76,5 +78,6 @@ void set_truecolor_background(struct char_data*, int, int, int, int);
 void clear_color_background(struct char_data*, int);
 int nearest_ansi_color(int red, int green, int blue);
 void set_colors_default(struct char_data*);
+int char_color_slot(struct char_data*);
 
 #endif /* COLOR_H */

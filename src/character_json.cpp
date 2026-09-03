@@ -138,7 +138,7 @@ namespace {
         "group",
         "magic",
         "weather",
-        "reserved_15",
+        "mob",
     };
 
     ColorValueData default_color_value()
@@ -679,6 +679,15 @@ namespace {
             if (color_key_for_index(index) == key)
                 return index;
         }
+        /*
+         * Slot 15 was a placeholder named "reserved_15" before it became the
+         * 'mob' colour, and convert_old_colormask() forces every slot to
+         * ansi16 on load, so that key is present in every character file
+         * written to date.  An unknown colour key is a fatal parse error, so
+         * keep accepting the old name or none of those files will load.
+         */
+        if (key == "reserved_15")
+            return COLOR_MOB;
         return -1;
     }
 
