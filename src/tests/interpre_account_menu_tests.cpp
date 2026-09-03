@@ -625,7 +625,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListTruncatesVeryLargeRenderedList
 
     account::AccountData account_data;
     account_data.account_name = "acct";
-    for (int index = 0; index < 105; ++index)
+    for (int index = 0; index < 205; ++index)
         account_data.characters.push_back("char" + std::to_string(index));
     std::string error_message;
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
@@ -633,10 +633,10 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListTruncatesVeryLargeRenderedList
     const std::string output = account::format_account_character_list(".", account_data);
 
     EXPECT_NE(output.find("[ ?? ???] Char0"), std::string::npos);
-    EXPECT_NE(output.find("[ ?? ???] Char99"), std::string::npos);
-    EXPECT_EQ(output.find("[ ?? ???] Char100"), std::string::npos);
+    EXPECT_NE(output.find("[ ?? ???] Char199"), std::string::npos);
+    EXPECT_EQ(output.find("[ ?? ???] Char200"), std::string::npos);
     EXPECT_NE(output.find("\n\r... and 5 more\n\r"), std::string::npos);
-    EXPECT_NE(output.find("\n\r100 characters displayed.\n\r"), std::string::npos);
+    EXPECT_NE(output.find("\n\r200 characters displayed.\n\r"), std::string::npos);
 }
 
 TEST(InterpreAccountMenu, AccountMenuChoiceOneWritesCapitalizedCharacterListToDescriptorOutput)

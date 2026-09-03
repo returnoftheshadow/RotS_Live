@@ -722,23 +722,50 @@ TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
 {
     account::AccountData account_data = make_account();
     account_data.characters.clear();
-    for (int index = 1; index <= 101; ++index)
+    for (int index = 1; index <= 201; ++index)
         account_data.characters.push_back("character" + std::to_string(index));
 
     std::string selected_character;
     std::string error_message;
 
-    EXPECT_TRUE(account::select_linked_character(account_data, "100", &selected_character, &error_message)) << error_message;
-    EXPECT_EQ(selected_character, "character100");
+    EXPECT_TRUE(account::select_linked_character(account_data, "200", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "character200");
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "101", &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(account_data, "201", &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 
-    EXPECT_TRUE(account::select_linked_character(account_data, "character100", &selected_character, &error_message)) << error_message;
-    EXPECT_EQ(selected_character, "character100");
+    EXPECT_TRUE(account::select_linked_character(account_data, "character200", &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "character200");
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "character101", &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(account_data, "character201", &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+}
+
+// The roster is written to the descriptor in a single SEND_TO_Q. write_to_output (comm.cpp) grows
+// the descriptor to a LARGE_BUFSIZE buffer and, once a write no longer fits, sets bufptr = -1 and
+// silently drops that write and every later one bound for the socket -- the player sees a blank
+// screen and never gets a prompt back. Nothing else in the codebase bounds the roster against that
+// limit, so raising kMaxDisplayedAccountCharacters past the point where a full roster stops fitting
+// must fail here rather than on a player.
+TEST(AccountManagement, RendersAFullRosterWithinTheOutputBuffer)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters.clear();
+    // Far more characters than any sane cap, so the roster always renders exactly the cap's worth
+    // of rows. This holds the test correct for every cap value: below the cliff it renders `cap`
+    // rows and fits, above it renders `cap` rows and overflows, and a cap beyond this count still
+    // overflows because this many rows alone already exceed the buffer.
+    for (int index = 1; index <= 1000; ++index)
+        account_data.characters.push_back("character" + std::to_string(index));
+
+    // No account exists at this root, so every row takes the "[ ?? ???]" fallback -- which is
+    // exactly as wide as a populated row carrying a three-character race abbreviation, and so is
+    // the widest a row can render.
+    const std::string prompt = account::format_account_character_prompt(".", account_data);
+
+    EXPECT_LT(prompt.size(), static_cast<size_t>(LARGE_BUFSIZE))
+        << "A full roster no longer fits the descriptor output buffer; output would be silently "
+           "discarded. Lower kMaxDisplayedAccountCharacters or shorten the row format.";
 }
 
 TEST(AccountManagement, BlocksAndUnblocksAccountsWithAuditMetadata)
