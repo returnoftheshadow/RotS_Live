@@ -23,6 +23,7 @@
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
+#include "protocol.h"
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
@@ -1143,9 +1144,16 @@ ACMD(do_gen_tog)
         result = flag_modify(ch, PRF_WRAP, tog_messages[13], 0);
         break;
 
-    case SCMD_MSDP:
+    case SCMD_MSDP: {
+        bool was_msdp_on = PRF_FLAGGED(ch, PRF_MSDP);
         result = flag_modify(ch, PRF_MSDP, tog_messages[14], 0);
+        /* Only on a genuine off->on transition: re-prime every reported variable so the
+           client receives a full snapshot -- including login-time constants (name, level,
+           race, profession caps) that are set once and would otherwise never be sent again. */
+        if (!was_msdp_on && PRF_FLAGGED(ch, PRF_MSDP) && ch->desc != NULL && ch->desc->pProtocol != NULL)
+            MSDPMarkAllReportedDirty(ch->desc);
         break;
+    }
 
     case SCMD_MENTAL:
         result = flag_modify(ch, PRF_MENTAL, tog_messages[15], 0);

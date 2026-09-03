@@ -1170,8 +1170,8 @@ void MSDPUpdate(descriptor_t* apDescriptor)
     for (i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i) {
         if (pProtocol && pProtocol->pVariables[i]->bReport) {
             if (pProtocol->pVariables[i]->bDirty) {
-                MSDPSend(apDescriptor, (variable_t)i);
-                pProtocol->pVariables[i]->bDirty = false;
+                if (MSDPSend(apDescriptor, (variable_t)i))
+                    pProtocol->pVariables[i]->bDirty = false;
             }
         }
     }
@@ -1184,20 +1184,32 @@ void MSDPFlush(descriptor_t* apDescriptor, variable_t aMSDP)
 
         if (pProtocol != NULL && pProtocol->pVariables[aMSDP]->bReport) {
             if (pProtocol->pVariables[aMSDP]->bDirty) {
-                MSDPSend(apDescriptor, aMSDP);
-                pProtocol->pVariables[aMSDP]->bDirty = false;
+                if (MSDPSend(apDescriptor, aMSDP))
+                    pProtocol->pVariables[aMSDP]->bDirty = false;
             }
         }
     }
 }
 
-void MSDPSend(descriptor_t* apDescriptor, variable_t aMSDP)
+void MSDPMarkAllReportedDirty(descriptor_t* apDescriptor)
+{
+    protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
+    if (pProtocol == NULL)
+        return;
+
+    for (int i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i) {
+        if (pProtocol->pVariables[i]->bReport)
+            pProtocol->pVariables[i]->bDirty = true;
+    }
+}
+
+bool MSDPSend(descriptor_t* apDescriptor, variable_t aMSDP)
 {
     char MSDPBuffer[MAX_VARIABLE_LENGTH + 1] = { '\0' };
     protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
 
     if (pProtocol == NULL || apDescriptor->character == NULL || !PRF_FLAGGED(apDescriptor->character, PRF_MSDP)) {
-        return;
+        return false;
     }
 
     if (aMSDP > eMSDP_NONE && aMSDP < eMSDP_MAX) {
@@ -1233,9 +1245,12 @@ void MSDPSend(descriptor_t* apDescriptor, variable_t aMSDP)
         }
 
         /* Just in case someone calls this function without checking MSDP/ATCP */
-        if (MSDPBuffer[0] != '\0')
+        if (MSDPBuffer[0] != '\0') {
             Write(apDescriptor, MSDPBuffer);
+            return true;
+        }
     }
+    return false;
 }
 
 void MSDPSendPair(descriptor_t* apDescriptor, const char* apVariable, const char* apValue)
@@ -1462,10 +1477,11 @@ void MSDPSendTable(descriptor_t* apDescriptor, variable_t aMSDP, const char* apV
             if (strcmp(pProtocol->pVariables[aMSDP]->pValueString, pTable)) {
                 free(pProtocol->pVariables[aMSDP]->pValueString);
                 pProtocol->pVariables[aMSDP]->pValueString = pTable;
-                pProtocol->pVariables[aMSDP]->bDirty = false;
+                pProtocol->pVariables[aMSDP]->bDirty = true;
 
                 if (pProtocol->pVariables[aMSDP]->bReport) {
-                    MSDPSend(apDescriptor, (variable_t)aMSDP);
+                    if (MSDPSend(apDescriptor, (variable_t)aMSDP))
+                        pProtocol->pVariables[aMSDP]->bDirty = false;
                 }
             } else /* Just discard the table, we've already got one */
             {

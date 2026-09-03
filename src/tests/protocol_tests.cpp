@@ -1568,4 +1568,93 @@ TEST(MSDPProtocol, MsdpUpdateMasksPlayerOpponentDetails)
             + expected_msdp_pair("OPPONENT_NAME", pc_star_types[RACE_HUMAN]));
 }
 
+// --- Regression tests for the "dirty flag dropped while MSDP is off" bug -------------------------
+// MSDP is off by default for new characters; a client may enable it after login. Values dirtied
+// while MSDP was off (notably login-time constants like CHARACTER_NAME) must NOT be marked clean
+// without actually being sent, or they are lost for the session.
+
+TEST(MSDPProtocol, MsdpUpdateKeepsVariableDirtyWhenMsdpIsOff)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+    ASSERT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
+
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
+}
+
+TEST(MSDPProtocol, MsdpUpdateFlushesValueDirtiedWhileMsdpWasOff)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+    MSDPUpdate(&context.descriptor);
+    context.read_output();
+
+    SET_BIT(context.character.specials2.pref, PRF_MSDP);
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(), expected_msdp_pair("CHARACTER_NAME", "Aragorn"));
+}
+
+TEST(MSDPProtocol, MsdpFlushKeepsVariableDirtyWhenMsdpIsOff)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+
+    MSDPFlush(&context.descriptor, eMSDP_CHARACTER_NAME);
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
+}
+
+TEST(MSDPProtocol, MsdpSendTableKeepsVariableDirtyWhenMsdpIsOff)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_ROOM });
+
+    MSDPSendTable(&context.descriptor, eMSDP_ROOM, "contents");
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_ROOM]->bDirty);
+}
+
+TEST(MSDPProtocol, MarkAllReportedDirtyForcesResendOnNextUpdate)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+    MSDPUpdate(&context.descriptor);
+    context.read_output();
+    ASSERT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
+
+    MSDPMarkAllReportedDirty(&context.descriptor);
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(), expected_msdp_pair("CHARACTER_NAME", "Aragorn"));
+}
+
 } // namespace
