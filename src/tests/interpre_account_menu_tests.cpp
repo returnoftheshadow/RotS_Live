@@ -551,7 +551,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListCapitalizesFirstLetterOfStored
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("aragorn", 50, RACE_WOOD), &error_message)) << error_message;
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("legolas", 45, RACE_HUMAN), &error_message)) << error_message;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_EQ(output,
         "\n\rLinked characters:\n\r"
@@ -576,7 +576,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListOnlyChangesTheFirstByteOfStore
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("mCduck", 12, RACE_WOOD), &error_message)) << error_message;
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("oBrian", 9, RACE_HUMAN), &error_message)) << error_message;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_EQ(output,
         "\n\rLinked characters:\n\r"
@@ -590,7 +590,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListKeepsEmptyMessageForAccountsWi
 {
     account::AccountData account_data;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_EQ(output, "\n\rNo linked characters yet.\n\r");
 }
@@ -608,7 +608,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListFallsBackToUnknownWhoStyleEntr
     std::string error_message;
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_EQ(output,
         "\n\rLinked characters:\n\r"
@@ -630,7 +630,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListTruncatesVeryLargeRenderedList
     std::string error_message;
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_NE(output.find("[ ?? ???] Char0"), std::string::npos);
     EXPECT_NE(output.find("[ ?? ???] Char199"), std::string::npos);
@@ -705,7 +705,8 @@ TEST(InterpreAccountMenu, AccountMenuPlayChoiceWritesWhoStyleCharacterPromptToDe
         "\n\rLinked characters for your account:\n\r"
         "1) [ 50 WdE] Aragorn     2) [ 45 Hum] Legolas     \n\r"
         "\n\r2 characters displayed.\n\r"
-        "\n\r0) Back to Account Menu.\n\r"
+        "\n\rSort: (A)-Z  (L)evel  ra(C)e  (S)ide      Show only: (W)arrior (R)anger (T)mystic (M)age\n\r"
+        "0) Back to Account Menu.\n\r"
         "\n\rCharacter number or name: ");
 }
 

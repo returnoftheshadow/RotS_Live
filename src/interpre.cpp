@@ -2720,7 +2720,8 @@ void show_account_menu(struct descriptor_data* d, const account::AccountData& ac
 
 void show_account_character_list(struct descriptor_data* d, const account::AccountData& account_data)
 {
-    const std::string character_list = account::format_account_character_list(kAccountStorageRoot, account_data);
+    const std::string character_list = account::format_account_character_list(
+        kAccountStorageRoot, account_data, account::RosterSort::Account);
     SEND_TO_Q(character_list.c_str(), d);
 }
 
@@ -2825,7 +2826,8 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
 
 void show_account_character_prompt(struct descriptor_data* d, const account::AccountData& account_data)
 {
-    const std::string prompt = account::format_account_character_prompt(kAccountStorageRoot, account_data);
+    const std::string prompt = account::format_account_character_prompt(
+        kAccountStorageRoot, account_data, account::RosterSort::Account, account::RosterFilter::None);
     SEND_TO_Q(prompt.c_str(), d);
 }
 
@@ -3397,7 +3399,8 @@ void nanny(struct descriptor_data* d, char* arg)
             }
 
             std::string selected_character_name;
-            if (!account::select_linked_character(account_data, arg, &selected_character_name, &error_message)) {
+            if (!account::select_linked_character(account_data, arg, account::RosterSort::Account,
+                    account::RosterFilter::None, &selected_character_name, &error_message)) {
                 SEND_TO_Q((error_message + "\n\r").c_str(), d);
                 show_account_character_prompt(d, account_data);
                 return;

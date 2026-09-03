@@ -324,7 +324,9 @@ bool account_has_character(const AccountData& account, const std::string& charac
         != account.characters.end();
 }
 
-bool select_linked_character(const AccountData& account, const std::string& character_name, std::string* normalized_character_name, std::string* error_message)
+bool select_linked_character(const AccountData& account, const std::string& character_name,
+    RosterSort sort, RosterFilter filter, std::string* normalized_character_name,
+    std::string* error_message)
 {
     if (normalized_character_name == nullptr) {
         set_error(error_message, "Character output parameter must not be null.");
@@ -337,7 +339,7 @@ bool select_linked_character(const AccountData& account, const std::string& char
         return false;
     }
 
-    bool selection_is_numeric = !trimmed_selection.empty();
+    bool selection_is_numeric = true;
     for (char character : trimmed_selection) {
         if (!std::isdigit(static_cast<unsigned char>(character))) {
             selection_is_numeric = false;
@@ -345,24 +347,29 @@ bool select_linked_character(const AccountData& account, const std::string& char
         }
     }
 
-    const size_t displayed_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
+    // The SAME ordered list the roster rendered, so row N always selects the character shown at
+    // row N. Deriving an order here independently is what would reintroduce the PR #289 class of bug.
+    const std::vector<size_t> indices = ordered_roster_indices(".", account, sort, filter);
 
     if (selection_is_numeric) {
         char* end_ptr = nullptr;
-        const unsigned long selected_index = std::strtoul(trimmed_selection.c_str(), &end_ptr, 10);
-        if (end_ptr == nullptr || *end_ptr != '\0' || selected_index == 0 || selected_index > displayed_count) {
+        const unsigned long selected_row = std::strtoul(trimmed_selection.c_str(), &end_ptr, 10);
+        if (end_ptr == nullptr || *end_ptr != '\0' || selected_row == 0 || selected_row > indices.size()) {
             set_error(error_message, "Select a linked character by number or name, or enter 0 to return to the account menu.");
             return false;
         }
 
-        *normalized_character_name = normalize_account_name(account.characters[selected_index - 1]);
+        *normalized_character_name = normalize_account_name(account.characters[indices[selected_row - 1]]);
         set_error(error_message, "");
         return true;
     }
 
-    /* Only the roster entries actually displayed to the player are selectable by name. */
+    // By name, the active filter is deliberately ignored: a filter narrows what is LISTED, it must
+    // never make one of the player's own characters unreachable. Bounded by the display cap so a
+    // character past it stays as unselectable as it is invisible.
     const std::string normalized_selection = normalize_account_name(trimmed_selection);
-    for (size_t index = 0; index < displayed_count; ++index) {
+    const size_t searchable_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
+    for (size_t index = 0; index < searchable_count; ++index) {
         const std::string normalized_linked_name = normalize_account_name(account.characters[index]);
         if (normalized_linked_name != normalized_selection)
             continue;

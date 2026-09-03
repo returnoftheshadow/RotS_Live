@@ -100,21 +100,19 @@ namespace {
         return ::race_abbrevs[race];
     }
 
-    std::string format_account_character_short_entry(const std::string& root_directory, const AccountData& account, size_t index, const std::string& character_name)
+    std::string format_account_character_short_entry(size_t display_row,
+        const std::string& character_name, const roster_cache::RosterSummary& summary)
     {
         const std::string display_name = format_character_name_for_display(character_name);
 
-        char_file_u stored_character {};
-        std::string error_message;
-        if (!read_account_character_file(root_directory, account.account_name, character_name, &stored_character, &error_message))
-        {
-            char line[256];
-            std::snprintf(line, sizeof(line), "%zu) [ ?? ???] %-12.12s", index + 1, display_name.c_str());
+        char line[256];
+        if (!summary.readable) {
+            std::snprintf(line, sizeof(line), "%zu) [ ?? ???] %-12.12s", display_row, display_name.c_str());
             return line;
         }
 
-        char line[256];
-        std::snprintf(line, sizeof(line), "%zu) [%3d %s] %-12.12s", index + 1, stored_character.level, safe_race_abbrev(stored_character.race), display_name.c_str());
+        std::snprintf(line, sizeof(line), "%zu) [%3d %s] %-12.12s", display_row,
+            summary.level, safe_race_abbrev(summary.race), display_name.c_str());
         return line;
     }
 
@@ -174,26 +172,71 @@ namespace {
         return true;
     }
 
-    std::string format_account_character_short_roster(const std::string& root_directory, const AccountData& account)
+    const char* roster_filter_label(RosterFilter filter)
+    {
+        switch (filter) {
+        case RosterFilter::Warrior:
+            return "Warrior";
+        case RosterFilter::Ranger:
+            return "Ranger";
+        case RosterFilter::Mystic:
+            return "Mystic";
+        case RosterFilter::Mage:
+            return "Mage";
+        default:
+            return "";
+        }
+    }
+
+    char roster_filter_key(RosterFilter filter)
+    {
+        switch (filter) {
+        case RosterFilter::Warrior:
+            return 'W';
+        case RosterFilter::Ranger:
+            return 'R';
+        case RosterFilter::Mystic:
+            return 'T';
+        case RosterFilter::Mage:
+            return 'M';
+        default:
+            return ' ';
+        }
+    }
+
+    std::string format_account_character_short_roster(const std::string& root_directory,
+        const AccountData& account, RosterSort sort, RosterFilter filter)
     {
         if (account.characters.empty())
             return "\n\rNo linked characters yet.\n\r";
 
+        const std::vector<size_t> indices = ordered_roster_indices(root_directory, account, sort, filter);
+        if (indices.empty())
+            return "\n\rNo linked characters match that filter.\n\r";
+
         std::ostringstream output;
-        const size_t displayed_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
-        for (size_t index = 0; index < displayed_count; ++index) {
-            output << format_account_character_short_entry(root_directory, account, index, account.characters[index]);
-            if ((index + 1) % 2 == 0)
+        for (size_t row = 0; row < indices.size(); ++row) {
+            roster_cache::RosterSummary summary {};
+            roster_cache::get(root_directory, account.account_name, account.characters[indices[row]], &summary);
+            output << format_account_character_short_entry(row + 1, account.characters[indices[row]], summary);
+            if ((row + 1) % 2 == 0)
                 output << "\n\r";
         }
 
-        if (displayed_count % 2 != 0)
+        if (indices.size() % 2 != 0)
             output << "\n\r";
 
-        if (account.characters.size() > displayed_count)
-            output << "\n\r... and " << (account.characters.size() - displayed_count) << " more\n\r";
-
-        output << "\n\r" << displayed_count << " character" << (displayed_count == 1 ? "" : "s") << " displayed.\n\r";
+        output << "\n\r";
+        if (filter != RosterFilter::None) {
+            // Never let a filtered roster be mistaken for the whole roster.
+            output << indices.size() << " of " << account.characters.size()
+                   << " characters shown (" << roster_filter_label(filter) << ").  Press "
+                   << roster_filter_key(filter) << " to clear.\n\r";
+        } else {
+            if (account.characters.size() > indices.size())
+                output << "... and " << (account.characters.size() - indices.size()) << " more\n\r\n\r";
+            output << indices.size() << " character" << (indices.size() == 1 ? "" : "s") << " displayed.\n\r";
+        }
         return output.str();
     }
 

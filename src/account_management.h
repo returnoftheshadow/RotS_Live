@@ -13,21 +13,7 @@
 
 namespace account {
 
-enum class RosterSort {
-    Account, // insertion order: the pre-feature behaviour, and the default for accounts that never chose
-    Name,
-    Level,
-    Race,
-    Side,
-};
-
-enum class RosterFilter {
-    None,
-    Warrior,
-    Ranger,
-    Mystic,
-    Mage,
-};
+// RosterSort / RosterFilter live in account_management_types.h (see comment there).
 
 // The single ordered, filtered, capped list of positions into account.characters. Rendering and
 // selection MUST both consume this rather than each deriving an order, or a character can be shown
