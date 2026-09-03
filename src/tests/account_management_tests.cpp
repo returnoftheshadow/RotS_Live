@@ -769,6 +769,18 @@ TEST(AccountManagement, RendersAFullRosterWithinTheOutputBuffer)
     EXPECT_LT(prompt.size(), static_cast<size_t>(LARGE_BUFSIZE))
         << "A full roster no longer fits the descriptor output buffer; output would be silently "
            "discarded. Lower kMaxDisplayedAccountCharacters or shorten the row format.";
+
+    // The Side sort adds a section header and inter-section blank lines on top of every row, so it
+    // renders slightly larger than the unsectioned Account sort above -- and that guard alone says
+    // nothing about whether the sectioned path also fits. Every character here is unreadable (no
+    // account exists at this root), so this also renders as a single "-- Unavailable --" section,
+    // the worst case for header overhead relative to row count.
+    const std::string side_sorted_prompt = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Side, account::RosterFilter::None);
+
+    EXPECT_LT(side_sorted_prompt.size(), static_cast<size_t>(LARGE_BUFSIZE))
+        << "A full Side-sorted roster no longer fits the descriptor output buffer; output would be "
+           "silently discarded. Lower kMaxDisplayedAccountCharacters or shorten the row/header format.";
 }
 
 TEST(AccountManagement, BlocksAndUnblocksAccountsWithAuditMetadata)
@@ -3621,11 +3633,14 @@ TEST_F(RosterCacheDropOnWriteTest, WritingACharacterFileDropsItsCachedRosterSumm
 namespace {
 
 // Builds an account whose characters are deliberately NOT in name, level, or race order, so a
-// passing sort test cannot be an accident of insertion order.
+// passing sort test cannot be an accident of insertion order. gimli/aragorn/legolas are all light-
+// side races (side rank 1), so "ugluk" (dark-side, an Orc) is included too -- without it, every
+// Side-sort render in this fixture would collapse to exactly one section, and a test could pass
+// while never exercising row numbering across a section boundary.
 account::AccountData make_sortable_account()
 {
     account::AccountData account_data = make_account();
-    account_data.characters = { "gimli", "aragorn", "legolas" };
+    account_data.characters = { "gimli", "aragorn", "legolas", "ugluk" };
     return account_data;
 }
 
@@ -3652,6 +3667,15 @@ bool sortable_reader(const std::string& root_directory, const std::string&, cons
         stored_character->level = 40;
         stored_character->race = RACE_WOOD;
         stored_character->profs.prof_coof[PROF_MAGE] = 160;
+    } else if (character_name == "ugluk") {
+        // Lowest level and highest race index of the four, so it sorts last under both Level and
+        // Race without disturbing the other three's relative order. Its only nonzero coefficient is
+        // Mystic (Cleric), so it is cleanly excluded from the Warrior/Ranger/Mage filters below and
+        // is the sole match for Mystic -- rather than tying with every profession at the raw-0
+        // baseline and muddying every filter's expected result.
+        stored_character->level = 20;
+        stored_character->race = RACE_ORC;
+        stored_character->profs.prof_coof[PROF_CLERIC] = 160;
     } else {
         if (error_message)
             *error_message = "unknown character";
@@ -3686,6 +3710,26 @@ std::vector<std::pair<int, std::string>> parse_rendered_roster_rows(const std::s
     return rows;
 }
 
+// Splits rendered text into lines on the renderer's own "\n\r" line terminator, so a test can
+// assert actual line structure (which row starts a fresh line, which line a header sits alone on)
+// rather than only which substrings appear somewhere in the blob. A trailing empty element would
+// only ever appear if the text does not end on a terminator; every caller here asserts on that too.
+std::vector<std::string> split_on_terminator(const std::string& text)
+{
+    std::vector<std::string> lines;
+    size_t start = 0;
+    while (start <= text.size()) {
+        const size_t terminator = text.find("\n\r", start);
+        if (terminator == std::string::npos) {
+            lines.push_back(text.substr(start));
+            break;
+        }
+        lines.push_back(text.substr(start, terminator - start));
+        start = terminator + 2;
+    }
+    return lines;
+}
+
 class RosterOrderTest : public ::testing::Test {
 protected:
     void SetUp() override
@@ -3708,29 +3752,29 @@ TEST_F(RosterOrderTest, AccountSortPreservesInsertionOrder)
 {
     const account::AccountData account_data = make_sortable_account();
     EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::None),
-        (std::vector<std::string> { "gimli", "aragorn", "legolas" }));
+        (std::vector<std::string> { "gimli", "aragorn", "legolas", "ugluk" }));
 }
 
 TEST_F(RosterOrderTest, NameSortIsAlphabetical)
 {
     const account::AccountData account_data = make_sortable_account();
     EXPECT_EQ(names_in_order(account_data, account::RosterSort::Name, account::RosterFilter::None),
-        (std::vector<std::string> { "aragorn", "gimli", "legolas" }));
+        (std::vector<std::string> { "aragorn", "gimli", "legolas", "ugluk" }));
 }
 
 TEST_F(RosterOrderTest, LevelSortIsHighestFirst)
 {
     const account::AccountData account_data = make_sortable_account();
     EXPECT_EQ(names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::None),
-        (std::vector<std::string> { "aragorn", "legolas", "gimli" }));
+        (std::vector<std::string> { "aragorn", "legolas", "gimli", "ugluk" }));
 }
 
 TEST_F(RosterOrderTest, RaceSortIsAscendingByRaceIndex)
 {
-    // RACE_HUMAN 1 < RACE_DWARF 2 < RACE_WOOD 3
+    // RACE_HUMAN 1 < RACE_DWARF 2 < RACE_WOOD 3 < RACE_ORC 13
     const account::AccountData account_data = make_sortable_account();
     EXPECT_EQ(names_in_order(account_data, account::RosterSort::Race, account::RosterFilter::None),
-        (std::vector<std::string> { "aragorn", "gimli", "legolas" }));
+        (std::vector<std::string> { "aragorn", "gimli", "legolas", "ugluk" }));
 }
 
 TEST_F(RosterOrderTest, FilterKeepsOnlyCharactersWhoseHighestCoefficientMatches)
@@ -3742,7 +3786,9 @@ TEST_F(RosterOrderTest, FilterKeepsOnlyCharactersWhoseHighestCoefficientMatches)
         (std::vector<std::string> { "aragorn" }));
     EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mage),
         (std::vector<std::string> { "legolas" }));
-    EXPECT_TRUE(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mystic).empty());
+    // ugluk's only nonzero coefficient is Mystic (Cleric), so it is the sole Mystic match.
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mystic),
+        (std::vector<std::string> { "ugluk" }));
 }
 
 TEST_F(RosterOrderTest, FilterAndSortCompose)
@@ -3880,6 +3926,75 @@ TEST_F(RosterOrderTest, SideSortRendersLabelledSectionsWithContinuousNumbering)
     EXPECT_EQ(by_level.find("-- Gods --"), std::string::npos) << by_level;
 }
 
+// The renderer resets its column counter at each section boundary, so a section with an ODD row
+// count does not drag the following section out of pair alignment. Three lights (odd) followed by
+// two darks exercises exactly that: without the "column = 0" reset, the lone trailing light would
+// pair up with the first dark on one line instead of each section starting fresh; and a final-flush
+// check that tested indices.size() % 2 instead of column % 2 would (5 total, odd) wrongly emit an
+// extra blank line after the already-complete final pair. Asserts actual rendered LINE structure,
+// not just substring presence.
+TEST_F(RosterOrderTest, ColumnPairingResetsAtEachSectionBoundary)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "amy", "bob", "cara", "dan", "eve" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            if (character_name == "dan" || character_name == "eve")
+                stored_character->race = RACE_ORC; // dark
+            else
+                stored_character->race = RACE_HUMAN; // light
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    const std::string prompt = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Side, account::RosterFilter::None);
+    const std::vector<std::string> lines = split_on_terminator(prompt);
+
+    const auto lights_it = std::find(lines.begin(), lines.end(), "-- Lights --");
+    ASSERT_NE(lights_it, lines.end()) << prompt;
+    const size_t lights = static_cast<size_t>(lights_it - lines.begin());
+    ASSERT_LE(lights + 7, lines.size() - 1) << "prompt is shorter than expected:\n" << prompt;
+
+    // Lights section (3 rows, odd): row 1 starts a fresh line right after the header, paired with
+    // row 2; row 3 (the odd one out) is alone on its own line, itself properly terminated (not left
+    // dangling into the next header).
+    EXPECT_NE(lines[lights + 1].find("1) ["), std::string::npos) << prompt;
+    EXPECT_NE(lines[lights + 1].find("2) ["), std::string::npos) << prompt;
+    EXPECT_EQ(lines[lights + 1].find("3) ["), std::string::npos)
+        << "row 3 leaked onto the same line as rows 1-2:\n"
+        << prompt;
+
+    EXPECT_NE(lines[lights + 2].find("3) ["), std::string::npos) << prompt;
+    EXPECT_EQ(lines[lights + 2].find("4) ["), std::string::npos)
+        << "row 4 (Darks) leaked onto the odd Lights trailer's line -- the column counter was not "
+           "reset at the section boundary:\n"
+        << prompt;
+
+    // Exactly one blank line separates the odd trailer from the next header.
+    EXPECT_EQ(lines[lights + 3], "") << prompt;
+    EXPECT_EQ(lines[lights + 4], "-- Darks --") << prompt;
+
+    // Darks section (2 rows, even): row 4 starts a fresh line right after its own header, paired
+    // with row 5 -- proving the reset actually put column back to 0 rather than merely happening to
+    // look right after an odd trailer.
+    EXPECT_NE(lines[lights + 5].find("4) ["), std::string::npos) << prompt;
+    EXPECT_NE(lines[lights + 5].find("5) ["), std::string::npos) << prompt;
+
+    // The final section ends on a complete (even) pair, so exactly ONE blank line separates it from
+    // the "N characters displayed." footer -- not two. A final-flush check keyed off the total row
+    // count (5, odd) rather than the actual trailing column parity (2, even) would insert a spurious
+    // extra blank line here.
+    EXPECT_EQ(lines[lights + 6], "") << prompt;
+    EXPECT_NE(lines[lights + 7], "") << "an extra blank line was emitted after the final pair:\n" << prompt;
+    EXPECT_NE(lines[lights + 7].find("characters displayed."), std::string::npos) << prompt;
+}
+
 TEST_F(RosterOrderTest, SideSortOrdersGodsLightsDarksThenThirdSide)
 {
     account::AccountData account_data = make_account();
@@ -3936,12 +4051,66 @@ TEST_F(RosterOrderTest, UnreadableCharactersSortLastAndAreExcludedByFilters)
     // sortable_reader returns false for "brokenchar".
     const std::vector<std::string> by_level =
         names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::None);
-    ASSERT_EQ(by_level.size(), 4u);
+    ASSERT_EQ(by_level.size(), 5u);
     EXPECT_EQ(by_level.back(), "brokenchar");
 
     const std::vector<std::string> warriors =
         names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Warrior);
     EXPECT_EQ(warriors, (std::vector<std::string> { "gimli" }));
+}
+
+// An unreadable summary defaults race to 0, which is also RACE_GOD. If side_rank_for_summary ever
+// dropped its "readable" check, an unreadable character would render under a SECOND "-- Gods --"
+// header instead of "-- Unavailable --", and nothing above would fail: readable_god still renders
+// under the first (and only expected) "-- Gods --" header regardless. This asserts the header
+// count directly, plus which section each character actually renders under.
+TEST_F(RosterOrderTest, UnreadableCharacterRendersUnderUnavailableNotASecondGodsSection)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "godone", "brokenchar" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            if (character_name == "brokenchar") {
+                if (error_message)
+                    *error_message = "unreadable";
+                return false;
+            }
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_GOD;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    const std::string prompt = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Side, account::RosterFilter::None);
+
+    ASSERT_NE(prompt.find("-- Unavailable --"), std::string::npos) << prompt;
+
+    const size_t first_gods = prompt.find("-- Gods --");
+    ASSERT_NE(first_gods, std::string::npos) << prompt;
+    EXPECT_EQ(prompt.find("-- Gods --", first_gods + 1), std::string::npos)
+        << "\"-- Gods --\" rendered more than once -- the unreadable character likely fell into "
+           "its own Gods section instead of Unavailable:\n"
+        << prompt;
+
+    const std::vector<std::pair<int, std::string>> rows = parse_rendered_roster_rows(prompt);
+    ASSERT_EQ(rows.size(), 2u);
+    EXPECT_EQ(rows[0].second, "Godone") << "readable god-race character must render first, under Gods:\n" << prompt;
+    EXPECT_EQ(rows[1].second, "Brokenchar")
+        << "unreadable character must render last, under Unavailable:\n"
+        << prompt;
+
+    const size_t unavailable = prompt.find("-- Unavailable --");
+    const size_t godone_row = prompt.find("Godone");
+    const size_t brokenchar_row = prompt.find("Brokenchar");
+    ASSERT_NE(godone_row, std::string::npos);
+    ASSERT_NE(brokenchar_row, std::string::npos);
+    EXPECT_LT(godone_row, unavailable) << "Godone must render before the Unavailable section:\n" << prompt;
+    EXPECT_GT(brokenchar_row, unavailable) << "Brokenchar must render after the Unavailable header:\n" << prompt;
 }
 
 // Names are character1..character250. Lexicographically "character250" < "character3" (the digit

@@ -35,8 +35,12 @@ namespace {
     // just a display one. The hard ceiling is the descriptor output buffer: rows are 27 bytes at
     // their widest, two per line, and once a write exceeds LARGE_BUFSIZE write_to_output sets
     // bufptr = -1 and silently discards everything else bound for that socket, leaving the player
-    // with a blank screen and no prompt. That cliff sits at 585; RendersAFullRosterWithinTheOutputBuffer
-    // guards it.
+    // with a blank screen and no prompt. For the unsectioned sorts that cliff sits at 585 rows;
+    // under Side sort the section headers and inter-section blank lines add overhead on top of the
+    // same rows, so the cliff sits a few rows lower there. RendersAFullRosterWithinTheOutputBuffer
+    // guards both the unsectioned Account-sort render and the sectioned Side-sort render at the
+    // current cap (200 rows), which is comfortably under either cliff; it does not re-derive either
+    // cliff's exact row count.
     constexpr size_t kMaxDisplayedAccountCharacters = 200;
 
     using CharacterLinkReference = AccountData::CharacterLinkReference;
