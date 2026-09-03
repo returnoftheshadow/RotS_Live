@@ -2826,8 +2826,9 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
 
 void show_account_character_prompt(struct descriptor_data* d, const account::AccountData& account_data)
 {
-    const std::string prompt = account::format_account_character_prompt(
-        kAccountStorageRoot, account_data, account::RosterSort::Account, account::RosterFilter::None);
+    const std::string prompt = account::format_account_character_prompt(kAccountStorageRoot, account_data,
+        static_cast<account::RosterSort>(d->roster_sort),
+        static_cast<account::RosterFilter>(d->roster_filter));
     SEND_TO_Q(prompt.c_str(), d);
 }
 
@@ -3392,7 +3393,73 @@ void nanny(struct descriptor_data* d, char* arg)
                 return;
             }
 
+            // Single-letter sort and filter keys. Unambiguous because character names are a minimum
+            // of 3 characters, enforced by valid_name (ban.cpp) and is_valid_account_name.
+            if (strlen(arg) == 1) {
+                const char key = LOWER(*arg);
+                account::RosterSort new_sort = static_cast<account::RosterSort>(d->roster_sort);
+                account::RosterFilter new_filter = static_cast<account::RosterFilter>(d->roster_filter);
+                bool handled = true;
+                bool sort_changed = false;
+
+                switch (key) {
+                case 'a':
+                    new_sort = account::RosterSort::Name;
+                    sort_changed = true;
+                    break;
+                case 'l':
+                    new_sort = account::RosterSort::Level;
+                    sort_changed = true;
+                    break;
+                case 'c':
+                    new_sort = account::RosterSort::Race;
+                    sort_changed = true;
+                    break;
+                case 's':
+                    new_sort = account::RosterSort::Side;
+                    sort_changed = true;
+                    break;
+                case 'w':
+                    new_filter = (new_filter == account::RosterFilter::Warrior) ? account::RosterFilter::None : account::RosterFilter::Warrior;
+                    break;
+                case 'r':
+                    new_filter = (new_filter == account::RosterFilter::Ranger) ? account::RosterFilter::None : account::RosterFilter::Ranger;
+                    break;
+                case 't':
+                    new_filter = (new_filter == account::RosterFilter::Mystic) ? account::RosterFilter::None : account::RosterFilter::Mystic;
+                    break;
+                case 'm':
+                    new_filter = (new_filter == account::RosterFilter::Mage) ? account::RosterFilter::None : account::RosterFilter::Mage;
+                    break;
+                default:
+                    handled = false;
+                    break;
+                }
+
+                if (handled) {
+                    d->roster_sort = static_cast<int>(new_sort);
+                    d->roster_filter = static_cast<int>(new_filter);
+                    if (sort_changed)
+                        d->roster_sort_dirty = true;
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+            }
+
             if (!strcmp(arg, "0")) {
+                // Write the sort only on leaving, never per keypress: write_account_file calls
+                // account_cache::invalidate_all(), which drops every account's entry globally, and
+                // save_char consumes that cache on every save (db.cpp) where a miss is a full scan
+                // of every account.json on disk.
+                if (d->roster_sort_dirty) {
+                    account::RosterSort current_sort = static_cast<account::RosterSort>(d->roster_sort);
+                    account_data.roster_sort = account::roster_sort_to_string(current_sort);
+                    std::string persist_error;
+                    if (!account::write_account_file(kAccountStorageRoot, account_data, &persist_error))
+                        vmudlog(BRF, "Failed to persist roster sort for %s: %s",
+                            d->account_name, persist_error.c_str());
+                    d->roster_sort_dirty = false;
+                }
                 show_account_menu(d, account_data);
                 STATE(d) = CON_ACCTMENU;
                 return;
@@ -3400,7 +3467,8 @@ void nanny(struct descriptor_data* d, char* arg)
 
             std::string selected_character_name;
             if (!account::select_linked_character(kAccountStorageRoot, account_data, arg,
-                    account::RosterSort::Account, account::RosterFilter::None, &selected_character_name, &error_message)) {
+                    static_cast<account::RosterSort>(d->roster_sort), static_cast<account::RosterFilter>(d->roster_filter),
+                    &selected_character_name, &error_message)) {
                 SEND_TO_Q((error_message + "\n\r").c_str(), d);
                 show_account_character_prompt(d, account_data);
                 return;
@@ -3664,6 +3732,11 @@ void nanny(struct descriptor_data* d, char* arg)
                     SEND_TO_Q("\n\rNo linked characters are available to play.\n\r", d);
                     show_account_menu(d, account_data);
                 } else {
+                    account::RosterSort stored_sort = account::RosterSort::Account;
+                    account::roster_sort_from_string(account_data.roster_sort, &stored_sort);
+                    d->roster_sort = static_cast<int>(stored_sort);
+                    d->roster_filter = static_cast<int>(account::RosterFilter::None);
+                    d->roster_sort_dirty = false;
                     show_account_character_prompt(d, account_data);
                     STATE(d) = CON_ACCTSLCT;
                 }

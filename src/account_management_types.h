@@ -59,6 +59,9 @@ struct AccountData {
     std::string password_salt;
     std::vector<std::string> characters;
     std::vector<CharacterLinkReference> character_links;
+    // Empty means "never chosen": the roster keeps insertion order, matching pre-feature behaviour.
+    // One of "", "name", "level", "race", "side".
+    std::string roster_sort;
     bool email_verified = false;
     std::string email_verified_by;
     long email_verified_at = 0;

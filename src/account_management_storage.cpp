@@ -115,6 +115,11 @@ std::string serialize_account_to_json(const AccountData& account)
     output << "  \"password_reset_code_hash\": \"" << json_utils::escape_json_string(account.password_reset_code_hash) << "\",\n";
     output << "  \"password_reset_code_sent_at\": " << account.password_reset_code_sent_at << ",\n";
     output << "  \"password_reset_code_expires_at\": " << account.password_reset_code_expires_at << ",\n";
+    // roster_sort is written ahead of password_reset_attempt_count, which stays the true last
+    // (comma-less) field: a strict JSON reader rejects a trailing comma before "}", so any field
+    // that a test (or a future one) strips out by deleting its own line must not be the very last
+    // entry in the object.
+    output << "  \"roster_sort\": \"" << json_utils::escape_json_string(account.roster_sort) << "\",\n";
     output << "  \"password_reset_attempt_count\": " << account.password_reset_attempt_count << "\n";
     output << "}\n";
     return output.str();

@@ -1599,6 +1599,9 @@ SocketType pnew_descriptor(SocketType s)
     *pnewd->account_email = '\0';
     *pnewd->account_password = '\0';
     *pnewd->account_character_name = '\0';
+    pnewd->roster_sort = 0;
+    pnewd->roster_filter = 0;
+    pnewd->roster_sort_dirty = false;
     pnewd->pos = -1;
     //   pnewd->wait = 1;
     pnewd->prompt_mode = 0;

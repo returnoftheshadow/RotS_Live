@@ -1468,6 +1468,8 @@ namespace {
             return reader->parse_long(&account->password_reset_code_expires_at, error_message);
         if (key == "password_reset_attempt_count")
             return reader->parse_integer(&account->password_reset_attempt_count, error_message);
+        if (key == "roster_sort")
+            return reader->parse_string(&account->roster_sort, error_message);
 
         return reader->skip_value(error_message);
     }

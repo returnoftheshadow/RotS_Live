@@ -2028,6 +2028,9 @@ struct descriptor_data {
     char account_email[MAX_INPUT_LENGTH]; /* authenticated account email */
     char account_password[MAX_ACCOUNT_PASSWORD_LENGTH + 1]; /* transient account password */
     char account_character_name[MAX_INPUT_LENGTH]; /* pending account character action */
+    int roster_sort; /* account::RosterSort for this session's roster */
+    int roster_filter; /* account::RosterFilter; transient, never persisted */
+    bool roster_sort_dirty; /* sort changed this visit; write it on leaving the roster */
     int bad_pws; /* number of bad pw attemps this login	*/
     time_t state_deadline; /* absolute time the current connection state expires; 0 = none */
     int pos; /* position in player-file		*/

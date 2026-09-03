@@ -4077,3 +4077,39 @@ TEST(RosterSortStringConversion, NullOutputPointerIsRejected)
 {
     EXPECT_FALSE(account::roster_sort_from_string("name", nullptr));
 }
+
+TEST(AccountManagement, RosterSortRoundTripsThroughAccountJson)
+{
+    account::AccountData account_data = make_account();
+    account_data.roster_sort = "level";
+
+    const std::string json = account::serialize_account_to_json(account_data);
+    EXPECT_NE(json.find("\"roster_sort\": \"level\""), std::string::npos) << json;
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &parsed_account, &error_message)) << error_message;
+    EXPECT_EQ(parsed_account.roster_sort, "level");
+}
+
+// Existing account files predate this field. They must load and fall back to insertion order,
+// which is why no schema-version bump or migration is needed.
+TEST(AccountManagement, AccountJsonWithoutRosterSortLoadsWithInsertionOrder)
+{
+    account::AccountData account_data = make_account();
+    std::string json = account::serialize_account_to_json(account_data);
+
+    const size_t field_start = json.find("  \"roster_sort\"");
+    ASSERT_NE(field_start, std::string::npos);
+    const size_t field_end = json.find('\n', field_start);
+    json.erase(field_start, field_end - field_start + 1);
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &parsed_account, &error_message)) << error_message;
+    EXPECT_TRUE(parsed_account.roster_sort.empty());
+
+    account::RosterSort sort = account::RosterSort::Name;
+    ASSERT_TRUE(account::roster_sort_from_string(parsed_account.roster_sort, &sort));
+    EXPECT_EQ(sort, account::RosterSort::Account);
+}
