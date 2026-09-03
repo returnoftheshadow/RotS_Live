@@ -57,7 +57,12 @@ Classic ANSI syntax still works:
 
 The available colour slots include:
   narrate chat yell tell say roomname hit damage character object
-  enemy description group magic weather
+  enemy description group magic weather mob
+
+'character' colours the names of other players on your own side, and
+'enemy' the names of players on the other side.  'mob' colours the
+names of creatures run by the game, so you can tell them apart from
+players at a glance.
 
 The available ANSI colours are:
   normal red green yellow blue magenta cyan white
@@ -2078,7 +2083,7 @@ CLEAR CLS
 
 Clears the screen on many terminals.
 #
-ANSI COLOR COLOUR
+ANSI
 
 If you have a colour-capable terminal and wish to see useful colour-coding
 of information, use the COLOUR command to select a colour scheme.  Note
@@ -2114,6 +2119,9 @@ Examples of colouring a field:
   > colour hit cyan
 Another example:
   > colour enemy bright white
+
+This page covers the classic ANSI colours only.  For the full list of
+colour slots, and for setting RGB or hex colours, see HELP COLOUR.
 #
 SHAPE
    The world here is built by builders through an online interface.
