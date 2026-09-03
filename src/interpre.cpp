@@ -2720,8 +2720,10 @@ void show_account_menu(struct descriptor_data* d, const account::AccountData& ac
 
 void show_account_character_list(struct descriptor_data* d, const account::AccountData& account_data)
 {
+    account::RosterSort stored_sort = account::RosterSort::Account;
+    account::roster_sort_from_string(account_data.roster_sort, &stored_sort);
     const std::string character_list = account::format_account_character_list(
-        kAccountStorageRoot, account_data, account::RosterSort::Account);
+        kAccountStorageRoot, account_data, stored_sort);
     SEND_TO_Q(character_list.c_str(), d);
 }
 
@@ -2838,17 +2840,37 @@ void show_account_character_prompt(struct descriptor_data* d, const account::Acc
 // (db.cpp) where a miss is a full scan of every account.json on disk -- so this must stay off the
 // per-keypress path and fire only when the player actually leaves the roster (via "0" or by
 // successfully selecting a character).
+//
+// Re-reads the account from disk rather than trusting the caller's (possibly stale) copy: on the
+// character-selection call site, ensure_character_migration can run between when the caller's
+// account_data snapshot was taken and this call, and that migration can itself write account.json.
+// Persisting the caller's stale snapshot would clobber that write. account_cache memoises the read,
+// so this is not an extra disk hit in the common case.
 void persist_roster_sort_if_dirty(struct descriptor_data* d, account::AccountData& account_data)
 {
     if (!d->roster_sort_dirty)
         return;
 
+    account::AccountData current_account;
+    std::string read_error;
+    if (!account::read_account_file(kAccountStorageRoot, d->account_name, &current_account, &read_error)) {
+        vmudlog(BRF, "Failed to reload account to persist roster sort for %s: %s",
+            d->account_name, read_error.c_str());
+        d->roster_sort_dirty = false;
+        return;
+    }
+
     account::RosterSort current_sort = static_cast<account::RosterSort>(d->roster_sort);
-    account_data.roster_sort = account::roster_sort_to_string(current_sort);
-    std::string persist_error;
-    if (!account::write_account_file(kAccountStorageRoot, account_data, &persist_error))
-        vmudlog(BRF, "Failed to persist roster sort for %s: %s",
-            d->account_name, persist_error.c_str());
+    const std::string current_sort_string = account::roster_sort_to_string(current_sort);
+    if (current_account.roster_sort != current_sort_string) {
+        current_account.roster_sort = current_sort_string;
+        std::string persist_error;
+        if (!account::write_account_file(kAccountStorageRoot, current_account, &persist_error))
+            vmudlog(BRF, "Failed to persist roster sort for %s: %s",
+                d->account_name, persist_error.c_str());
+        else
+            account_data.roster_sort = current_sort_string;
+    }
     d->roster_sort_dirty = false;
 }
 

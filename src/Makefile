@@ -208,7 +208,7 @@ mudlle.o   : mudlle.cpp structs.h utils.h comm.h interpre.h protos.h mudlle.h
 	$(CC) -c $(CFLAGS) mudlle.cpp
 mudlle2.o   : mudlle2.cpp structs.h utils.h comm.h interpre.h protos.h mudlle.h
 	$(CC) -c $(CFLAGS) mudlle2.cpp
-profs.o   : profs.cpp structs.h utils.h comm.h interpre.h limits.h profs.h comm.h
+profs.o   : profs.cpp structs.h utils.h comm.h interpre.h limits.h profs.h comm.h account_management.h account_management_types.h
 	$(CC) -c $(CFLAGS) profs.cpp
 clerics.o : clerics.cpp structs.h utils.h comm.h handler.h interpre.h db.h spells.h limits.h
 	$(CC) -c $(CFLAGS) clerics.cpp

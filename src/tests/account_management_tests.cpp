@@ -3563,10 +3563,32 @@ TEST(AccountManagement, VerifyPasswordResetCodeCountsWrongCodesLikeTheCompleting
     EXPECT_EQ(after_verify.password_reset_attempt_count, 1);
 }
 
+namespace {
+
+// SetUp/TearDown (rather than toggling roster_cache inline in the test body) so cleanup still runs
+// if an ASSERT_* fails partway through: an inline toggle leaves g_enabled == true leaked into every
+// later test in the binary on a failed assertion, in a suite that already aborts partway through on
+// a known baseline crash. Mirrors RosterCacheTest in roster_cache_tests.cpp.
+class RosterCacheDropOnWriteTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        roster_cache::clear();
+        roster_cache::set_enabled(true);
+    }
+    void TearDown() override
+    {
+        roster_cache::set_enabled(false);
+        roster_cache::clear();
+    }
+};
+
+} // namespace
+
 // write_account_character_file is the single chokepoint for character-file writes (5 call sites,
 // including save_char's autosave path). If it does not drop the cached summary, a level-up would
 // leave the roster showing the old level indefinitely.
-TEST(AccountManagement, WritingACharacterFileDropsItsCachedRosterSummary)
+TEST_F(RosterCacheDropOnWriteTest, WritingACharacterFileDropsItsCachedRosterSummary)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -3584,9 +3606,6 @@ TEST(AccountManagement, WritingACharacterFileDropsItsCachedRosterSummary)
     ASSERT_TRUE(account::write_account_character_file(".", account_data.account_name, aragorn, &error_message))
         << error_message;
 
-    roster_cache::clear();
-    roster_cache::set_enabled(true);
-
     roster_cache::RosterSummary summary {};
     ASSERT_TRUE(roster_cache::get(".", account_data.account_name, "aragorn", &summary));
     ASSERT_EQ(summary.level, 10);
@@ -3597,9 +3616,6 @@ TEST(AccountManagement, WritingACharacterFileDropsItsCachedRosterSummary)
 
     ASSERT_TRUE(roster_cache::get(".", account_data.account_name, "aragorn", &summary));
     EXPECT_EQ(summary.level, 11) << "cached summary survived a character write";
-
-    roster_cache::set_enabled(false);
-    roster_cache::clear();
 }
 
 namespace {

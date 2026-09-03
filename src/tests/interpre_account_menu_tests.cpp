@@ -679,6 +679,39 @@ TEST(InterpreAccountMenu, AccountMenuChoiceOneWritesCapitalizedCharacterListToDe
         "Choice: ");
 }
 
+TEST(InterpreAccountMenu, AccountMenuChoiceOneHonoursThePersistedRosterSort)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+    // Inserted in the opposite order of level, so a level-sorted render can only match by actually
+    // honouring the stored sort -- not by an accident of insertion order (Finding 2: option 1
+    // hardcoded RosterSort::Account regardless of what was persisted).
+    stored_account.characters = { "legolas", "aragorn" };
+    stored_account.roster_sort = "level";
+    stored_account.updated_at = 1700010201;
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("aragorn", 50, RACE_WOOD), &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("legolas", 45, RACE_HUMAN), &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    char choice[] = "1";
+
+    nanny(&descriptor, choice);
+
+    const std::string output = descriptor.output;
+    // A player who reads a number off this screen and later types it under option 2 must land on
+    // the same character -- so the numbering here has to match the persisted sort, even though
+    // option 1 has no selection of its own.
+    EXPECT_NE(output.find("1) [ 50 WdE] Aragorn     2) [ 45 Hum] Legolas     "), std::string::npos) << output;
+}
+
 TEST(InterpreAccountMenu, AccountMenuPlayChoiceWritesWhoStyleCharacterPromptToDescriptorOutput)
 {
     TemporaryDirectory temp_directory;
@@ -979,6 +1012,55 @@ TEST(InterpreAccountMenu, RosterSortRedundantKeypressDoesNotMarkDirtyOrWriteOnLe
     ASSERT_TRUE(account::read_text_file(account_path, &after_write, &error_message)) << error_message;
     EXPECT_EQ(before_write, after_write)
         << "leaving without an actual sort change must not touch account.json";
+}
+
+TEST(InterpreAccountMenu, RosterSortReturningToTheStoredValueDoesNotWriteOnLeaving)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    stored_account.roster_sort = "level";
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    const std::string account_path = "accounts/P-T/player@example.com/account.json";
+    std::string before_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &before_write, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    descriptor.roster_sort = static_cast<int>(account::RosterSort::Level);
+    descriptor.roster_filter = static_cast<int>(account::RosterFilter::None);
+    descriptor.roster_sort_dirty = false;
+
+    // Press away from, then back to, the stored sort. Each keypress differs from the session's
+    // immediately-prior sort, so both mark the session dirty (the keypress handler only compares
+    // against the session's own last sort) -- but the account on disk never actually changes.
+    char away_choice[] = "a";
+    nanny(&descriptor, away_choice);
+    ASSERT_TRUE(descriptor.roster_sort_dirty);
+
+    char back_choice[] = "l";
+    nanny(&descriptor, back_choice);
+    ASSERT_TRUE(descriptor.roster_sort_dirty)
+        << "the keypress handler compares against the session's own last sort, not the stored one";
+
+    char leave_choice[] = "0";
+    nanny(&descriptor, leave_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    EXPECT_FALSE(descriptor.roster_sort_dirty);
+
+    std::string after_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &after_write, &error_message)) << error_message;
+    EXPECT_EQ(before_write, after_write)
+        << "leaving on a sort that matches the stored value must not touch account.json, even though "
+           "the session round-tripped through a dirty state getting there";
 }
 
 TEST(InterpreAccountMenu, RosterSortStoredValueLoadsWhenReenteringRoster)
