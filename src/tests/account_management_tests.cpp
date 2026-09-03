@@ -3804,6 +3804,82 @@ TEST_F(RosterOrderTest, EqualSortKeysPreserveInsertionOrder)
         (std::vector<std::string> { "mid", "zed", "amy" }));
 }
 
+// Side sort groups by side and orders A-Z WITHIN each side, rather than leaving equal-side rows in
+// link order. Without this, an account whose link order already happens to be side-grouped sees no
+// visible change at all when pressing the side key.
+TEST_F(RosterOrderTest, SideSortOrdersAlphabeticallyWithinEachSide)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "zulu", "alpha", "orczz", "orcaa", "mike" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string& root_directory, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            EXPECT_EQ(root_directory, ".");
+            *stored_character = char_file_u {};
+            if (character_name == "orczz" || character_name == "orcaa")
+                stored_character->race = RACE_ORC;   // dark
+            else
+                stored_character->race = RACE_HUMAN; // light
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    // Lights A-Z, then darks A-Z -- not link order within either side.
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Side, account::RosterFilter::None),
+        (std::vector<std::string> { "alpha", "mike", "zulu", "orcaa", "orczz" }));
+}
+
+// The side view is rendered in labelled sections. Numbering stays continuous ACROSS sections, so
+// row N still selects the character printed at row N -- the invariant the whole feature rests on.
+TEST_F(RosterOrderTest, SideSortRendersLabelledSectionsWithContinuousNumbering)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "orcaa", "human1", "godone" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            if (character_name == "orcaa")
+                stored_character->race = RACE_ORC;
+            else if (character_name == "godone")
+                stored_character->race = RACE_GOD;
+            else
+                stored_character->race = RACE_HUMAN;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    const std::string prompt = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Side, account::RosterFilter::None);
+
+    EXPECT_NE(prompt.find("-- Gods --"), std::string::npos) << prompt;
+    EXPECT_NE(prompt.find("-- Lights --"), std::string::npos) << prompt;
+    EXPECT_NE(prompt.find("-- Darks --"), std::string::npos) << prompt;
+    // No third-side character linked, so that header must not appear at all.
+    EXPECT_EQ(prompt.find("-- Third Side --"), std::string::npos) << prompt;
+
+    // Sections appear in side order, and numbering runs 1,2,3 straight through them.
+    const size_t gods = prompt.find("-- Gods --");
+    const size_t lights = prompt.find("-- Lights --");
+    const size_t darks = prompt.find("-- Darks --");
+    EXPECT_LT(gods, lights);
+    EXPECT_LT(lights, darks);
+    EXPECT_NE(prompt.find("1) [  0 Imm] Godone"), std::string::npos) << prompt;
+    EXPECT_NE(prompt.find("2) [  0 Hum] Human1"), std::string::npos) << prompt;
+    EXPECT_NE(prompt.find("3) [  0 Orc] Orcaa"), std::string::npos) << prompt;
+
+    // Other sorts must NOT gain section headers.
+    const std::string by_level = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Level, account::RosterFilter::None);
+    EXPECT_EQ(by_level.find("-- Gods --"), std::string::npos) << by_level;
+}
+
 TEST_F(RosterOrderTest, SideSortOrdersGodsLightsDarksThenThirdSide)
 {
     account::AccountData account_data = make_account();

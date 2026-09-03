@@ -146,6 +146,32 @@ namespace {
         return 2;
     }
 
+    // Side rank reserved for characters whose file could not be read. They have no race and so no
+    // side; ordered_roster_indices already sorts them last, and this keeps them out of a real
+    // side's section rather than silently padding one.
+    constexpr int kUnreadableSideRank = 99;
+
+    const char* side_section_label(int side_rank)
+    {
+        switch (side_rank) {
+        case 0:
+            return "Gods";
+        case 1:
+            return "Lights";
+        case 2:
+            return "Darks";
+        case 3:
+            return "Third Side";
+        default:
+            return "Unavailable";
+        }
+    }
+
+    int side_rank_for_summary(const roster_cache::RosterSummary& summary)
+    {
+        return summary.readable ? side_rank_for_race(summary.race) : kUnreadableSideRank;
+    }
+
     bool summary_matches_filter(const roster_cache::RosterSummary& summary, RosterFilter filter)
     {
         if (filter == RosterFilter::None)
@@ -215,15 +241,35 @@ namespace {
             return "\n\rNo linked characters match that filter.\n\r";
 
         std::ostringstream output;
+        // Column position WITHIN the current section, so a section holding an odd number of rows
+        // does not drag the next section out of alignment. Row NUMBERING stays continuous across
+        // sections regardless -- row N must still select the character printed at row N.
+        size_t column = 0;
+        int previous_side_rank = -1;
         for (size_t row = 0; row < indices.size(); ++row) {
             roster_cache::RosterSummary summary {};
             roster_cache::get(root_directory, account.account_name, account.characters[indices[row]], &summary);
+
+            if (sort == RosterSort::Side) {
+                const int side_rank = side_rank_for_summary(summary);
+                if (side_rank != previous_side_rank) {
+                    if (column % 2 != 0)
+                        output << "\n\r";
+                    if (previous_side_rank != -1)
+                        output << "\n\r";
+                    output << "-- " << side_section_label(side_rank) << " --\n\r";
+                    previous_side_rank = side_rank;
+                    column = 0;
+                }
+            }
+
             output << format_account_character_short_entry(row + 1, account.characters[indices[row]], summary);
-            if ((row + 1) % 2 == 0)
+            ++column;
+            if (column % 2 == 0)
                 output << "\n\r";
         }
 
-        if (indices.size() % 2 != 0)
+        if (column % 2 != 0)
             output << "\n\r";
 
         output << "\n\r";
@@ -1526,7 +1572,14 @@ std::vector<size_t> ordered_roster_indices(const std::string& root_directory,
                     return a.level > b.level;
                 if (sort == RosterSort::Race)
                     return a.race < b.race;
-                return side_rank_for_race(a.race) < side_rank_for_race(b.race);
+                // Side groups by side, then A-Z within the side. Falling back to insertion order
+                // here would make the side key look inert for any account whose link order already
+                // happens to be side-grouped.
+                const int left_side = side_rank_for_race(a.race);
+                const int right_side = side_rank_for_race(b.race);
+                if (left_side != right_side)
+                    return left_side < right_side;
+                return to_lower_copy(account.characters[left]) < to_lower_copy(account.characters[right]);
             });
     }
 
