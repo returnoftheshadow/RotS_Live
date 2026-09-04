@@ -12,7 +12,7 @@ Level 91s (Lower Maias):
   like that particular smell. This also goes for the time of day, and other
   things that change continuously. Remain as Neutral as possible.
   Do not imply characters feelings, for example 'You shiver in fear as you 
-  walk...' is bad, what if the person visits this room for 20Th time? better
+  walk...' is bad, what if the person visits this room for 20th time? better
   to write '..... trees (or whatever) around you look frightening......'
 
 - Avoid the use of the words "You" and "Your" at all costs. Also avoid
@@ -60,7 +60,7 @@ type agrees with the zone it is in, as listed below.
 52 axes
 53 concussion weapons
 54 piercing weapons
-55 spears/pole-arms
+55 spears/polearms
 56 misc. weapons
  
 60 leather armor
@@ -880,14 +880,14 @@ Sets Trophy coef of last mobile loaded to (b)
 A 4 (b) 
 
 Forces last Mobile to follow the (b)th mobile in the room.
-For the last mobile loaded to follow the 2ND mobile in the room
+For the last mobile loaded to follow the 2nd mobile in the room
 use the command : A 4 2
 
 -----
 A 5 (b) (c)
 
 Set the (b)th value of last object loaded to (c)
-For the 4Th value of the last object to be set to 10
+For the 4th value of the last object to be set to 10
 use the command : A 5 4 10
 
 -----
@@ -1405,12 +1405,14 @@ which can be m, f, or n.
           wood elf		3
           hobbit		4
           high elf		5
+          beorn                 6 
           uruk			11
           haradrim		12
 	  common orc		13
 	  easterling		14
           uruk-lhuth            15
           undead                16
+          olog                  17
           troll                 20
 
 Make sure you set correct bodytype depending on race. See 'MAN SHAPE MOB 10'
@@ -1445,15 +1447,18 @@ the mobile should attack on sight. The value is a BITVECTOR, listed as follows
           wood elf		8           3
           hobbit		16          4
           high elf		32          5
+          beorn                 64          6
           uruk			2048        11
           haradrim		4096        12
 	  common orc		8192	    13
 	  easterling		16384       14
           magus			32768       15
+          olog                  131072      17
+          harad (player)        262144      18
  
 Any value of this flag can be set independently of AGGRESSIVE mob flag,
 although if mob is aggressive, this flag doesn't matter. Agg to whities is
-flag value 62, agg to darkies is flag value 63488.
+flag value 126, agg to darkies is flag value 456704. Agg to 3rd side is 294912. Agg to whities and 3rd side is 295038.
 
 The default value is 0, and the input is a BITVECTOR.
 See MAN SHAPE BITVECTOR for details.
@@ -1579,7 +1584,7 @@ corpse.
 #
 "MOB2 36" "MOB2 37"
 
-   Fields 36 and 37 set the mobile's resistance and vulnerability bitvector.
+   Fields 36 and 37 set the mobile's resistance and vulnerability bitvectors.
 Characters can be resistant to spell/skill groups only, which coincide with
 specializations. These groups are:
 
@@ -1671,6 +1676,7 @@ BITVECTOR with the following values:
  SECURITY  16384   14  Do not use! (to be used for shop store rooms, etc).
  PEACE     32768   15  You can't fight in the room. DON'T USE IN MORTAL LANDS!
  NO_TELEPORT 65536 16  You can't teleport to this room
+ HIDE_VNUM 131072  17  Hides VNUMs from advancedview (for mazes)
 
 The use of flag 2 should be avoided. The default value is 8. The input
 is a BITVECTOR.
