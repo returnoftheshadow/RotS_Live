@@ -390,6 +390,11 @@ void check_autowiz(struct char_data* ch)
 /* EXP for a level, is level^2 * 1500 */
 /* EXP for a given min_level is xp_to_level(mini_level)/10000 */
 
+int cap_exp_gain(int gain)
+{
+    return MIN(MAX_EXP_PER_GAIN, gain);
+}
+
 /*
  * Gain experience with sanity checking.
  *
@@ -411,7 +416,7 @@ void gain_exp(struct char_data* ch, int gain)
 
     /* Don't let LEVEL_IMMORT - 1 chars gain exp, otherwise they'll be imms */
     if (gain > 0 && GET_LEVEL(ch) < LEVEL_IMMORT - 1) {
-        gain = MIN(7000, gain);
+        gain = cap_exp_gain(gain);
         gain_exp_regardless(ch, gain);
     }
 
