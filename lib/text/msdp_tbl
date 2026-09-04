@@ -113,6 +113,16 @@ Maintaining a high movement max is important for exploring, escaping, and
 surviving in challenging environments.
 
 #
+GROUP
+
+This variable reports your current group as an MSDP table. The table contains
+a MEMBERS array, and each member entry is a table with NAME, HEALTH, MANA, and
+MOVEMENT. HEALTH, MANA, and MOVEMENT are percentages.
+
+When you are not grouped, MEMBERS is sent as an empty array so clients can
+clear any previous group display.
+
+#
 MONEY
 
 This variable shows the amount of copper your character currently possesses.

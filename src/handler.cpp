@@ -73,6 +73,7 @@ void free_char(struct char_data*);
 void stop_fighting(struct char_data*);
 void remove_follower(struct char_data*);
 void clear_memory(struct char_data*);
+void show_character_menu(struct descriptor_data* d);
 
 ACMD(do_save);
 ACMD(do_return);
@@ -2046,7 +2047,7 @@ void extract_char(struct char_data* ch, int new_room)
             do_look(ch, "", 0, 0, 0);
         } else {
             ch->desc->connected = CON_SLCT;
-            SEND_TO_Q(MENU, ch->desc);
+            show_character_menu(ch->desc);
         }
     } else {
         while (ch->affected)

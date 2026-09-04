@@ -51,7 +51,7 @@ struct mob_csv_data {
     long script {};
     int special_program_number {};
     int call_mask {};
-    long affected_bits{};
+    long affected_bits {};
     int resistances {};
     int vulnerabilities {};
     int body_type {};

@@ -782,7 +782,7 @@ void show_command(char_data* ch, script_data* script)
         sprintf(buf, "[%d] IF_ROOM_SUNLIT:      does %s have sun? (%s)\n\r", script->number,
             get_param_text(script->param[0]), script->text);
         break;
-    
+
     case SCRIPT_IF_STR_CONTAINS:
         sprintf(buf, "[%d] IF_STR_CONTAINS:     does %s contain "
                      "%s"
@@ -1771,7 +1771,7 @@ void shape_center_script(struct char_data* ch, char* arg)
                     ->editflag
                     = 5;
                 break;
-            
+
             case SCRIPT_IF_STR_CONTAINS:
                 SCRIPTPARAMCHANGE("Enter main string variable which you want to check (eg ch1.name, str1)", 1);
                 SHAPE_SCRIPT(ch)

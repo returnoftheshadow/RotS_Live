@@ -19,9 +19,11 @@
 #include <string.h>
 #include <time.h>
 
+#include "account_management.h"
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
+#include "protocol.h"
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
@@ -33,35 +35,38 @@
 #include "warrior_spec_handlers.h"
 
 /* extern variables */
-extern struct descriptor_data *descriptor_list;
-extern struct char_data *waiting_list;
-extern struct index_data *mob_index;
+extern struct descriptor_data* descriptor_list;
+extern struct char_data* waiting_list;
+extern struct index_data* mob_index;
 extern struct skill_data skills[];
 extern struct room_data world;
 extern byte language_skills[];
 extern byte language_number;
-extern char *prof_abbrevs[];
-extern char *race_abbrevs[];
+extern char* prof_abbrevs[];
+extern char* race_abbrevs[];
 extern int top_of_world;
 extern int rev_dir[];
-extern char *dirs[];
+extern char* dirs[];
 
 /* extern procedures */
-extern int old_search_block(char *, int, unsigned int, const char **, int);
-extern int get_followers_level(struct char_data *);
-extern int get_real_stealth(struct char_data *);
-extern void check_break_prep(struct char_data *);
+extern int old_search_block(char*, int, unsigned int, const char**, int);
+extern int echo_off(int);
+extern int get_followers_level(struct char_data*);
+extern int get_real_stealth(struct char_data*);
+extern void check_break_prep(struct char_data*);
 SPECIAL(shop_keeper);
 ACMD(do_gen_com);
 ACMD(do_look);
 ACMD(do_gsay);
 ACMD(do_say);
 ACMD(do_hit);
+ACMD(do_linkaccount);
 
-ACMD(do_quit) {
+ACMD(do_quit)
+{
     int tmp;
-    affected_type *aff = affected_by_spell(ch, SPELL_FAME_WAR);
-    void die(struct char_data *, struct char_data *, int);
+    affected_type* aff = affected_by_spell(ch, SPELL_FAME_WAR);
+    void die(struct char_data*, struct char_data*, int);
 
     if (IS_NPC(ch) || !ch->desc || !ch->desc->descriptor)
         return;
@@ -119,7 +124,8 @@ ACMD(do_quit) {
     }
 }
 
-ACMD(do_save) {
+ACMD(do_save)
+{
     if (IS_NPC(ch) || !ch->desc)
         return;
 
@@ -133,8 +139,43 @@ ACMD(do_save) {
 
 ACMD(do_not_here) { send_to_char("Sorry, but you can't do that here!\n\r", ch); }
 
-ACMD(do_recruit) {
-    struct char_data *victim;
+ACMD(do_linkaccount)
+{
+    char account_name[MAX_INPUT_LENGTH];
+
+    one_argument(argument, account_name);
+
+    if (IS_NPC(ch)) {
+        send_to_char("Only player characters can link accounts.\n\r", ch);
+        return;
+    }
+
+    if (!ch->desc) {
+        send_to_char("You are not connected to a descriptor.\n\r", ch);
+        return;
+    }
+
+    if (!*account_name) {
+        send_to_char("Usage: linkaccount <account>\n\r", ch);
+        return;
+    }
+
+    std::string error_message;
+    if (!account::is_valid_account_name(account_name, &error_message)) {
+        send_to_char((error_message + "\n\r").c_str(), ch);
+        return;
+    }
+
+    strncpy(ch->desc->account_name, account::normalize_account_name(account_name).c_str(), MAX_INPUT_LENGTH - 1);
+    ch->desc->account_name[MAX_INPUT_LENGTH - 1] = '\0';
+    send_to_char("Account password: ", ch);
+    echo_off(ch->desc->descriptor);
+    STATE(ch->desc) = CON_ACCTLINKPWD;
+}
+
+ACMD(do_recruit)
+{
+    struct char_data* victim;
     struct affected_type af;
     struct follow_type *j, *k;
     int level_total = 0, num_followers = 0;
@@ -160,7 +201,7 @@ ACMD(do_recruit) {
         if (!str_cmp(arg, "all")) {
             send_to_char("Recruiting an army cannot be rushed, "
                          "choose one follower at a time.\r\n",
-                         ch);
+                ch);
             return;
         }
     }
@@ -200,7 +241,7 @@ ACMD(do_recruit) {
     if (level_total + GET_LEVEL(victim) > MIN(GET_LEVEL(ch), 48) || num_followers >= 4) {
         send_to_char("You have already recruited too powerful "
                      "a force for this target to be added.\n\r",
-                     ch);
+            ch);
         return;
     }
 
@@ -258,7 +299,8 @@ ACMD(do_recruit) {
     victim->specials2.pref = 0; /* remove mob aggressions */
 }
 
-ACMD(do_title) {
+ACMD(do_title)
+{
     for (; isspace(*argument); argument++)
         ;
 
@@ -286,7 +328,8 @@ ACMD(do_title) {
     }
 }
 
-void roll_for_character(char_data *character, char_data *roll_initiator) {
+void roll_for_character(char_data* character, char_data* roll_initiator)
+{
     if (utils::is_pc(*character)) {
         int roll = number(1, 100);
         sprintf(buf, "%8s -- Rolled: %3d", utils::get_name(*character), roll);
@@ -295,9 +338,10 @@ void roll_for_character(char_data *character, char_data *roll_initiator) {
     }
 }
 
-bool compareByValue(const group_roll &a, const group_roll b) { return a.roll > b.roll; };
+bool compareByValue(const group_roll& a, const group_roll b) { return a.roll > b.roll; };
 
-ACMD(do_grouproll) {
+ACMD(do_grouproll)
+{
     one_argument(argument, buf);
 
     if (IS_SHADOW(ch)) {
@@ -318,7 +362,7 @@ ACMD(do_grouproll) {
     if (string_func::is_null_or_empty(buf)) {
         std::vector<group_roll> group_rolls;
 
-        for (auto &iter : *ch->group) {
+        for (auto& iter : *ch->group) {
             if (utils::is_pc(*iter)) {
                 group_rolls.emplace_back(iter, number(1, 100));
             }
@@ -326,14 +370,14 @@ ACMD(do_grouproll) {
 
         std::sort(group_rolls.begin(), group_rolls.end(), compareByValue);
 
-        for (const auto &group_roll : group_rolls) {
+        for (const auto& group_roll : group_rolls) {
             sprintf(buf, "%8s -- Rolled: %3d", group_roll.character_name, group_roll.roll);
             act(buf, FALSE, ch, nullptr, nullptr, TO_CHAR);
             act(buf, FALSE, ch, nullptr, nullptr, TO_ROOM);
         }
 
     } else {
-        if (char_data *rollee = get_char_room_vis(ch, buf)) {
+        if (char_data* rollee = get_char_room_vis(ch, buf)) {
             if (ch->group == rollee->group) {
                 roll_for_character(rollee, ch);
             } else {
@@ -345,7 +389,8 @@ ACMD(do_grouproll) {
     }
 }
 
-void print_group_leader(const char_data *leader) {
+void print_group_leader(const char_data* leader)
+{
     extern struct prompt_type prompt_hit[];
     extern struct prompt_type prompt_mana[];
     extern struct prompt_type prompt_move[];
@@ -356,7 +401,9 @@ void print_group_leader(const char_data *leader) {
 
     // For loop just gets prompt indices to the correct spot.
     for (health_prompt_index = 0;
-         (1000 * GET_HIT(leader)) / GET_MAX_HIT(leader) > prompt_hit[health_prompt_index].value;
+         health_prompt_index < 7 &&
+         (1000LL * GET_HIT(leader)) / (GET_MAX_HIT(leader) == 0 ? 1 : GET_MAX_HIT(leader)) >
+             prompt_hit[health_prompt_index].value;
          health_prompt_index++)
         ;
 
@@ -379,7 +426,8 @@ void print_group_leader(const char_data *leader) {
         GET_NAME(leader));
 }
 
-void print_group_member(const char_data *group_member) {
+void print_group_member(const char_data* group_member)
+{
     extern struct prompt_type prompt_hit[];
     extern struct prompt_type prompt_mana[];
     extern struct prompt_type prompt_move[];
@@ -390,56 +438,55 @@ void print_group_member(const char_data *group_member) {
 
     // For loop just gets prompt indices to the correct spot.
     for (health_prompt_index = 0;
-         (1000 * GET_HIT(group_member)) /
+         health_prompt_index < 7 &&
+         (1000LL * GET_HIT(group_member)) /
              (GET_MAX_HIT(group_member) == 0 ? 1 : GET_MAX_HIT(group_member)) >
          prompt_hit[health_prompt_index].value;
          health_prompt_index++)
         ;
 
     for (mana_prompt_index = 0;
-         (1000 * GET_MANA(group_member)) /
-             (GET_MAX_MANA(group_member) == 0 ? 1 : GET_MAX_MANA(group_member)) >
-         prompt_mana[mana_prompt_index].value;
+         (1000 * GET_MANA(group_member)) / (GET_MAX_MANA(group_member) == 0 ? 1 : GET_MAX_MANA(group_member)) > prompt_mana[mana_prompt_index].value;
          mana_prompt_index++)
         ;
 
     for (move_prompt_index = 0;
-         (1000 * GET_MOVE(group_member)) /
-             (GET_MAX_MOVE(group_member) == 0 ? 1 : GET_MAX_MOVE(group_member)) >
-         prompt_move[move_prompt_index].value;
+         (1000 * GET_MOVE(group_member)) / (GET_MAX_MOVE(group_member) == 0 ? 1 : GET_MAX_MOVE(group_member)) > prompt_move[move_prompt_index].value;
          move_prompt_index++)
         ;
 
     if (MOB_FLAGGED(group_member, MOB_ORC_FRIEND)) {
         sprintf(buf, "HP:%9s,%11s,%13s -- %s (Lvl:%2d)\n\r",
-                prompt_hit[health_prompt_index].message,
-                *prompt_mana[mana_prompt_index].message == '\0'
-                    ? "S:Full"
-                    : prompt_mana[mana_prompt_index].message,
-                *prompt_move[move_prompt_index].message == '\0'
-                    ? "MV:Energetic"
-                    : prompt_move[move_prompt_index].message,
-                GET_NAME(group_member), GET_LEVEL(group_member));
+            prompt_hit[health_prompt_index].message,
+            *prompt_mana[mana_prompt_index].message == '\0'
+                ? "S:Full"
+                : prompt_mana[mana_prompt_index].message,
+            *prompt_move[move_prompt_index].message == '\0'
+                ? "MV:Energetic"
+                : prompt_move[move_prompt_index].message,
+            GET_NAME(group_member), GET_LEVEL(group_member));
     } else {
         sprintf(buf, "HP:%9s,%11s,%13s -- %s\n\r", prompt_hit[health_prompt_index].message,
-                *prompt_mana[mana_prompt_index].message == '\0'
-                    ? "S:Full"
-                    : prompt_mana[mana_prompt_index].message,
-                *prompt_move[move_prompt_index].message == '\0'
-                    ? "MV:Energetic"
-                    : prompt_move[move_prompt_index].message,
-                GET_NAME(group_member));
+            *prompt_mana[mana_prompt_index].message == '\0'
+                ? "S:Full"
+                : prompt_mana[mana_prompt_index].message,
+            *prompt_move[move_prompt_index].message == '\0'
+                ? "MV:Energetic"
+                : prompt_move[move_prompt_index].message,
+            GET_NAME(group_member));
     }
 }
 
-void display_joined_group(char_data *character, char_data *leader) {
+void display_joined_group(char_data* character, char_data* leader)
+{
     act("You join the group of $N.", FALSE, character, 0, leader, TO_CHAR);
     act("$n joins your group.", TRUE, character, 0, leader, TO_VICT);
     act("$n joins the group of $N.", TRUE, character, 0, leader, TO_NOTVICT);
 }
 
-void add_character_to_group(char_data *character, char_data *group_leader) {
-    group_data *group = group_leader->group;
+void add_character_to_group(char_data* character, char_data* group_leader)
+{
+    group_data* group = group_leader->group;
     if (group == NULL) {
         group = new group_data(group_leader);
     }
@@ -451,11 +498,12 @@ void add_character_to_group(char_data *character, char_data *group_leader) {
     act("$n joins the group of $N.", TRUE, character, 0, group_leader, TO_NOTVICT);
 }
 
-void remove_character_from_group(char_data *character, char_data *group_leader) {
+void remove_character_from_group(char_data* character, char_data* group_leader)
+{
     if (group_leader->group == NULL)
         return;
 
-    group_data *group = group_leader->group;
+    group_data* group = group_leader->group;
     group->remove_member(character);
 
     act("You leave the group of $N.", FALSE, character, 0, group_leader, TO_CHAR);
@@ -470,7 +518,8 @@ void remove_character_from_group(char_data *character, char_data *group_leader) 
     }
 }
 
-ACMD(do_group) {
+ACMD(do_group)
+{
     one_argument(argument, buf);
 
     if (IS_SHADOW(ch)) {
@@ -486,21 +535,21 @@ ACMD(do_group) {
             send_to_char("Your group consists of:\n\r", ch);
 
             // first, display the group leader's status
-            char_data *leader = ch->get_group_leader();
+            char_data* leader = ch->get_group_leader();
             print_group_leader(leader);
             send_to_char(buf, ch);
 
             // now, we display the group members; start with index 1 because index 0 is the group
             // leader
             for (size_t index = 1; index < ch->group->size(); ++index) {
-                char_data *group_member = ch->group->at(index);
+                char_data* group_member = ch->group->at(index);
                 print_group_member(group_member);
                 send_to_char(buf, ch);
             }
         }
     } else {
         // Try to add members to the group.
-        group_data *group = ch->group;
+        group_data* group = ch->group;
         bool can_add_members = group == NULL;
         if (!can_add_members) {
             can_add_members = group->is_leader(ch);
@@ -513,8 +562,8 @@ ACMD(do_group) {
         }
 
         if (string_func::equals(buf, "all")) {
-            for (follow_type *follower = ch->followers; follower; follower = follower->next) {
-                char_data *potential_member = follower->follower;
+            for (follow_type* follower = ch->followers; follower; follower = follower->next) {
+                char_data* potential_member = follower->follower;
                 if (potential_member && char_exists(follower->fol_number)) {
                     // Can only add ungrouped members to your group.
                     if (potential_member->group == NULL && !other_side(ch, potential_member)) {
@@ -529,13 +578,13 @@ ACMD(do_group) {
             return;
         }
 
-        if (char_data *potential_member = get_char_room_vis(ch, buf)) {
+        if (char_data* potential_member = get_char_room_vis(ch, buf)) {
             // Easy error cases are handled up here.
             if (potential_member == ch) {
                 send_to_char("Eww, who wants to group with that guy?\n\r", ch);
             } else if (other_side(ch, potential_member)) {
                 sprintf(buf, "You wouldn't group with that ugly %s!\n\r",
-                        pc_races[GET_RACE(potential_member)]);
+                    pc_races[GET_RACE(potential_member)]);
                 send_to_char(buf, ch);
             } else if (potential_member->group && potential_member->group != group) {
                 act("$N is busy somewhere else already.", FALSE, ch, 0, potential_member, TO_CHAR);
@@ -558,10 +607,11 @@ ACMD(do_group) {
     }
 }
 
-ACMD(do_ungroup) {
+ACMD(do_ungroup)
+{
     one_argument(argument, buf);
 
-    group_data *group = ch->group;
+    group_data* group = ch->group;
 
     // Ungroup was typed in without an argument.
     if (string_func::is_null_or_empty(buf)) {
@@ -582,7 +632,7 @@ ACMD(do_ungroup) {
         if (!group || !group->is_leader(ch)) {
             send_to_char("You are not the leader of a group.\n\r", ch);
         } else {
-            if (char_data *lost_member = get_char_room_vis(ch, buf)) {
+            if (char_data* lost_member = get_char_room_vis(ch, buf)) {
                 if (group->contains(ch)) {
                     act("You have been kicked out of $n's group!", FALSE, ch, 0, lost_member,
                         TO_VICT);
@@ -597,10 +647,11 @@ ACMD(do_ungroup) {
     }
 }
 
-ACMD(do_report) {
+ACMD(do_report)
+{
     char str[255];
     int tmp1, tmp2, tmp3;
-    char *tmpchar;
+    char* tmpchar;
 
     extern struct prompt_type prompt_hit[];
     extern struct prompt_type prompt_mana[];
@@ -611,7 +662,7 @@ ACMD(do_report) {
         return;
     }
 
-    for (tmp1 = 0; (1000 * GET_HIT(ch)) / GET_MAX_HIT(ch) > prompt_hit[tmp1].value; tmp1++)
+    for (tmp1 = 0; tmp1 < 7 && (1000LL * GET_HIT(ch)) / (GET_MAX_HIT(ch) == 0 ? 1 : GET_MAX_HIT(ch)) > prompt_hit[tmp1].value; tmp1++)
         ;
     for (tmp2 = 0; (1000 * GET_MANA(ch)) / GET_MAX_MANA(ch) > prompt_mana[tmp2].value; tmp2++)
         ;
@@ -636,16 +687,16 @@ ACMD(do_report) {
     }
 }
 
-int calculate_gold_amount(char *text, char *argument, char_data *character) {
-    char *current_argument = one_argument(argument, text);
+int calculate_gold_amount(char* text, char* argument, char_data* character)
+{
+    char* current_argument = one_argument(argument, text);
 
     int amount = 0;
     if (is_number(text)) {
         amount = atoi(text);
         if (amount > 0) {
             one_argument(current_argument, text);
-            if (string_func::equals(text, "gold") || string_func::equals(text, "silver") ||
-                string_func::equals(text, "copper")) {
+            if (string_func::equals(text, "gold") || string_func::equals(text, "silver") || string_func::equals(text, "copper")) {
                 /* save some strcmp'ing time since only the previous three
                  * arguments could possibly have made it here */
                 switch (*text) {
@@ -672,14 +723,16 @@ int calculate_gold_amount(char *text, char *argument, char_data *character) {
     return amount;
 }
 
-void give_share(char_data *sender, char_data *receiver, int share_amount) {
+void give_share(char_data* sender, char_data* receiver, int share_amount)
+{
     GET_GOLD(receiver) += share_amount;
     sprintf(buf, "%s splits some money among the group; you receive %s.\r\n", GET_NAME(sender),
-            money_message(share_amount, 0));
+        money_message(share_amount, 0));
     send_to_char(buf, receiver);
 }
 
-ACMD(do_split) {
+ACMD(do_split)
+{
     if (IS_NPC(ch))
         return;
 
@@ -709,7 +762,7 @@ ACMD(do_split) {
     GET_GOLD(ch) -= share_amount * (share_count - 1);
 
     for (char_iter iter = split_group.begin(); iter != split_group.end(); ++iter) {
-        char_data *receiver = *iter;
+        char_data* receiver = *iter;
         if (receiver != ch) {
             give_share(ch, receiver, share_amount);
         }
@@ -719,9 +772,10 @@ ACMD(do_split) {
     send_to_char(buf, ch);
 }
 
-ACMD(do_use) {
+ACMD(do_use)
+{
     int bits;
-    struct char_data *tmp_char;
+    struct char_data* tmp_char;
     struct obj_data *tmp_object, *stick;
 
     argument = one_argument(argument, buf);
@@ -741,14 +795,13 @@ ACMD(do_use) {
             stick->obj_flags.value[2]--;
             if (*skills[stick->obj_flags.value[3]].spell_pointer)
                 ((*skills[stick->obj_flags.value[3]].spell_pointer)(ch, "", SPELL_TYPE_STAFF, 0, 0,
-                                                                    0, 0));
+                    0, 0));
 
         } else
             send_to_char("The staff seems powerless.\n\r", ch);
     } else if (stick->obj_flags.type_flag == ITEM_WAND) {
-        bits =
-            generic_find(argument, FIND_CHAR_ROOM | FIND_OBJ_INV | FIND_OBJ_ROOM | FIND_OBJ_EQUIP,
-                         ch, &tmp_char, &tmp_object);
+        bits = generic_find(argument, FIND_CHAR_ROOM | FIND_OBJ_INV | FIND_OBJ_ROOM | FIND_OBJ_EQUIP,
+            ch, &tmp_char, &tmp_object);
         if (bits) {
             if (bits == FIND_CHAR_ROOM) {
                 act("$n points $p at $N.", TRUE, ch, stick, tmp_char, TO_ROOM);
@@ -771,7 +824,8 @@ ACMD(do_use) {
         send_to_char("Use is normally only for wands and staffs.\n\r", ch);
 }
 
-ACMD(do_wimpy) {
+ACMD(do_wimpy)
+{
     int wimp_lev;
 
     one_argument(argument, arg);
@@ -779,7 +833,7 @@ ACMD(do_wimpy) {
     if (!*arg) {
         if (WIMP_LEVEL(ch)) {
             sprintf(buf, "You will flee if your hit points drop below %d.\n\r",
-                    ch->specials2.wimp_level);
+                ch->specials2.wimp_level);
             send_to_char(buf, ch);
             return;
         } else {
@@ -805,9 +859,10 @@ ACMD(do_wimpy) {
         send_to_char("At how many hit points do you wish to flee?\n\r", ch);
 }
 
-char *logtypes[] = {"off", "brief", "normal", "spell", "complete", "\n"};
+char* logtypes[] = { "off", "brief", "normal", "spell", "complete", "\n" };
 
-ACMD(do_syslog) {
+ACMD(do_syslog)
+{
     int tp;
 
     if (IS_NPC(ch))
@@ -816,8 +871,7 @@ ACMD(do_syslog) {
     one_argument(argument, arg);
 
     if (!*arg) {
-        tp = ((PRF_FLAGGED(ch, PRF_LOG1) ? 1 : 0) + (PRF_FLAGGED(ch, PRF_LOG2) ? 2 : 0) +
-              (PRF_FLAGGED(ch, PRF_LOG3) ? 4 : 0));
+        tp = ((PRF_FLAGGED(ch, PRF_LOG1) ? 1 : 0) + (PRF_FLAGGED(ch, PRF_LOG2) ? 2 : 0) + (PRF_FLAGGED(ch, PRF_LOG3) ? 4 : 0));
         sprintf(buf, "Your syslog is currently %s.\n\r", logtypes[tp]);
         send_to_char(buf, ch);
         return;
@@ -830,7 +884,7 @@ ACMD(do_syslog) {
 
     REMOVE_BIT(PRF_FLAGS(ch), PRF_LOG1 | PRF_LOG2 | PRF_LOG3);
     SET_BIT(PRF_FLAGS(ch),
-            (PRF_LOG1 * (tp & 1)) | (PRF_LOG2 * (tp & 2) >> 1) | (PRF_LOG3 * (tp & 4) >> 2));
+        (PRF_LOG1 * (tp & 1)) | (PRF_LOG2 * (tp & 2) >> 1) | (PRF_LOG3 * (tp & 4) >> 2));
 
     sprintf(buf, "Your syslog is now %s.\n\r", logtypes[tp]);
     send_to_char(buf, ch);
@@ -841,7 +895,8 @@ ACMD(do_syslog) {
 
 #define PRF_TOG_CHK(ch, flag) ((TOGGLE_BIT(PRF_FLAGS(ch), (flag))) & (flag))
 
-int flag_on(struct char_data *ch, int flag, char **message, int which) {
+int flag_on(struct char_data* ch, int flag, char** message, int which)
+{
     if (!which)
         SET_BIT(PRF_FLAGS(ch), (flag));
     else
@@ -851,7 +906,8 @@ int flag_on(struct char_data *ch, int flag, char **message, int which) {
     return 1;
 }
 
-int flag_off(struct char_data *ch, int flag, char **message, int which) {
+int flag_off(struct char_data* ch, int flag, char** message, int which)
+{
     if (!which)
         REMOVE_BIT(PRF_FLAGS(ch), (flag));
     else
@@ -860,7 +916,8 @@ int flag_off(struct char_data *ch, int flag, char **message, int which) {
     return 0;
 }
 
-int flag_toggle(struct char_data *ch, int flag, char **message, int which) {
+int flag_toggle(struct char_data* ch, int flag, char** message, int which)
+{
     int i;
     if (!which) {
         TOGGLE_BIT(PRF_FLAGS(ch), (flag));
@@ -876,7 +933,8 @@ int flag_toggle(struct char_data *ch, int flag, char **message, int which) {
     return i;
 }
 
-int flag_void(struct char_data *ch, int flag, char **message, int which) {
+int flag_void(struct char_data* ch, int flag, char** message, int which)
+{
     int i;
     if (!which)
         i = IS_SET(PRF_FLAGS(ch), (flag));
@@ -891,68 +949,70 @@ int flag_void(struct char_data *ch, int flag, char **message, int which) {
     return i;
 }
 
-int (*flag_modify)(struct char_data *, int, char **, int);
-char *tog_messages[][4] = {
-    {"You are now safe from summoning by other players.\n\r",
-     "You may now be summoned by other players.\n\r",
-     "You are safe from summoning by other players.\n\r",
-     "You may be summoned by other players.\n\r"},
+int (*flag_modify)(struct char_data*, int, char**, int);
+char* tog_messages[][4] = {
+    { "You are now safe from summoning by other players.\n\r",
+        "You may now be summoned by other players.\n\r",
+        "You are safe from summoning by other players.\n\r",
+        "You may be summoned by other players.\n\r" },
     {
         "You will now have your communication repeated.\r\n",
         "You will no longer have your communication repeated.\r\n",
         "You have your communication repeated.\r\n",
         "You don't have your communication repeated.\r\n",
     },
-    {"Brief mode now on.\n\r", "Brief mode now off.\n\r", "Brief mode on.\n\r",
-     "Brief mode off.\n\r"},
-    {"Spam mode now on.\n\r", "Spam mode now off.\n\r", "Spam mode on.\n\r", "Spam mode off.\n\r"},
-    {"Compact mode now on.\n\r", "Compact mode now off.\n\r", "Compact mode on.\n\r",
-     "Compact mode off.\n\r"},
-    {"You are now deaf to tells.\n\r", "You can now hear tells.\n\r", "You are deaf to tells.\n\r",
-     "You can hear tells.\n\r"},
-    {"You can now hear narrates.\n\r", "You are now deaf to narrates.\n\r",
-     "You can hear narrates.\n\r", "You are deaf to narrates.\n\r"},
-    {"You can now hear chat.\n\r", "You are now deaf to chat.\n\r", "You can hear chat.\n\r",
-     "You are deaf to chat.\n\r"},
-    {"You can now hear the wiz-channel.\n\r", "You are now deaf to the wiz-channel.\n\r",
-     "You can hear the wiz-channel.\n\r", "You are deaf to the wiz-channel.\n\r"},
-    {"You will now see the room flags.\n\r", "You will no longer see the room flags.\n\r",
-     "You see the room flags.\n\r", "You don't see the room flags.\n\r"},
-    {"Nohassle now enabled.\n\r", "Nohassle now disabled.\n\r", "Nohassle enabled.\n\r",
-     "Nohassle disabled.\n\r"},
-    {"Holylight mode is now on.\n\r", "Holylight mode is now off.\n\r", "Holylight mode is on.\n\r",
-     "Holylight mode is off.\n\r"},
-    {"Nameserver_is_slow changed to NO; IP addresses will now be resolved.\n\r",
-     "Nameserver_is_slow changed to YES; sitenames will no longer be resolved.\n\r",
-     "Nameserver_is_slow is set to NO; IP addresses will be resolved.\n\r",
-     "Nameserver_is_slow is set to YES; sitenames will not be resolved.\n\r"},
-    {"Line wrapping is now on.\n\r", "Line wrapping is now off.\n\r", "Line wrapping is on.\n\r",
-     "Line wrapping is off.\n\r"},
-    {"Msdp mode is now on.\n\r", "Msdp mode is now off.\n\r", "Msdp mode is on.\n\r",
-     "Msdp mode is off.\n\r"},
-    {"AutoMental mode is now on.\n\r", "AutoMental mode is now off.\n\r",
-     "AutoMental mode is on.\n\r", "AutoMental mode is off.\n\r"},
-    {"Incognito mode is now on.\n\r", "Incognito mode is now off.\n\r", "Incognito mode is on.\n\r",
-     "Incognito mode is off.\n\r"},
-    {"You can now hear singing.\n\r", "You are now deaf to singing.\n\r",
-     "You can hear singing.\n\r", "You are deaf to singing.\n\r"},
-    {"Prompt is now on.\n\r", "Prompt is now off.\n\r", "Prompt is on.\n\r", "Prompt is off.\n\r"},
-    {"You will now attempt to swim if needed.\r\n", "You will no longer attempt to swim.\r\n",
-     "You swim when needed.\r\n", "You refuse to swim.\r\n"},
-    {"You will now use the latin-1 character set.\r\n",
-     "You will no longer use the latin-1 character set.\r\n",
-     "You are currently using the latin-1 character set.\r\n",
-     "You are currently using the standard character set.\r\n"},
-    {"You will now see a spinner during skill and spell delays.\r\n",
-     "You will no longer see a spinner during skill and spell delays.\r\n",
-     "You currently see a spinner during skill and spell delays.\r\n",
-     "You currently do not see a spinner during skill and spell delays.\r\n"},
-    {"Advanced view is now on.\r\n", "Advanced view is off.\r\n", "Advanced view is on.\r\n",
-     "Advanced view is off.\r\n"},
-    {"Advanced prompt is now on.\r\n", "Advanced prompt is off.\r\n", "Advanced prompt is on.\r\n",
-     "Advanced prompt is off.\r\n"}};
+    { "Brief mode now on.\n\r", "Brief mode now off.\n\r", "Brief mode on.\n\r",
+        "Brief mode off.\n\r" },
+    { "Spam mode now on.\n\r", "Spam mode now off.\n\r", "Spam mode on.\n\r", "Spam mode off.\n\r" },
+    { "Compact mode now on.\n\r", "Compact mode now off.\n\r", "Compact mode on.\n\r",
+        "Compact mode off.\n\r" },
+    { "You are now deaf to tells.\n\r", "You can now hear tells.\n\r", "You are deaf to tells.\n\r",
+        "You can hear tells.\n\r" },
+    { "You can now hear narrates.\n\r", "You are now deaf to narrates.\n\r",
+        "You can hear narrates.\n\r", "You are deaf to narrates.\n\r" },
+    { "You can now hear chat.\n\r", "You are now deaf to chat.\n\r", "You can hear chat.\n\r",
+        "You are deaf to chat.\n\r" },
+    { "You can now hear the wiz-channel.\n\r", "You are now deaf to the wiz-channel.\n\r",
+        "You can hear the wiz-channel.\n\r", "You are deaf to the wiz-channel.\n\r" },
+    { "You will now see the room flags.\n\r", "You will no longer see the room flags.\n\r",
+        "You see the room flags.\n\r", "You don't see the room flags.\n\r" },
+    { "Nohassle now enabled.\n\r", "Nohassle now disabled.\n\r", "Nohassle enabled.\n\r",
+        "Nohassle disabled.\n\r" },
+    { "Holylight mode is now on.\n\r", "Holylight mode is now off.\n\r", "Holylight mode is on.\n\r",
+        "Holylight mode is off.\n\r" },
+    { "Nameserver_is_slow changed to NO; IP addresses will now be resolved.\n\r",
+        "Nameserver_is_slow changed to YES; sitenames will no longer be resolved.\n\r",
+        "Nameserver_is_slow is set to NO; IP addresses will be resolved.\n\r",
+        "Nameserver_is_slow is set to YES; sitenames will not be resolved.\n\r" },
+    { "Line wrapping is now on.\n\r", "Line wrapping is now off.\n\r", "Line wrapping is on.\n\r",
+        "Line wrapping is off.\n\r" },
+    { "Msdp mode is now on.\n\r", "Msdp mode is now off.\n\r", "Msdp mode is on.\n\r",
+        "Msdp mode is off.\n\r" },
+    { "AutoMental mode is now on.\n\r", "AutoMental mode is now off.\n\r",
+        "AutoMental mode is on.\n\r", "AutoMental mode is off.\n\r" },
+    { "Incognito mode is now on.\n\r", "Incognito mode is now off.\n\r", "Incognito mode is on.\n\r",
+        "Incognito mode is off.\n\r" },
+    { "You can now hear singing.\n\r", "You are now deaf to singing.\n\r",
+        "You can hear singing.\n\r", "You are deaf to singing.\n\r" },
+    { "Prompt is now on.\n\r", "Prompt is now off.\n\r", "Prompt is on.\n\r", "Prompt is off.\n\r" },
+    { "You will now attempt to swim if needed.\r\n", "You will no longer attempt to swim.\r\n",
+        "You swim when needed.\r\n", "You refuse to swim.\r\n" },
+    { "You will now use the latin-1 character set.\r\n",
+        "You will no longer use the latin-1 character set.\r\n",
+        "You are currently using the latin-1 character set.\r\n",
+        "You are currently using the standard character set.\r\n" },
+    { "You will now see a spinner during skill and spell delays.\r\n",
+        "You will no longer see a spinner during skill and spell delays.\r\n",
+        "You currently see a spinner during skill and spell delays.\r\n",
+        "You currently do not see a spinner during skill and spell delays.\r\n" },
+    { "Advanced view is now on.\r\n", "Advanced view is off.\r\n", "Advanced view is on.\r\n",
+        "Advanced view is off.\r\n" },
+    { "Advanced prompt is now on.\r\n", "Advanced prompt is off.\r\n", "Advanced prompt is on.\r\n",
+        "Advanced prompt is off.\r\n" }
+};
 
-ACMD(do_gen_tog) {
+ACMD(do_gen_tog)
+{
     long result;
     char str[10];
     int len, mod, tmp;
@@ -1084,9 +1144,16 @@ ACMD(do_gen_tog) {
         result = flag_modify(ch, PRF_WRAP, tog_messages[13], 0);
         break;
 
-    case SCMD_MSDP:
+    case SCMD_MSDP: {
+        bool was_msdp_on = PRF_FLAGGED(ch, PRF_MSDP);
         result = flag_modify(ch, PRF_MSDP, tog_messages[14], 0);
+        /* Only on a genuine off->on transition: re-prime every reported variable so the
+           client receives a full snapshot -- including login-time constants (name, level,
+           race, profession caps) that are set once and would otherwise never be sent again. */
+        if (!was_msdp_on && PRF_FLAGGED(ch, PRF_MSDP) && ch->desc != NULL && ch->desc->pProtocol != NULL)
+            MSDPMarkAllReportedDirty(ch->desc);
         break;
+    }
 
     case SCMD_MENTAL:
         result = flag_modify(ch, PRF_MENTAL, tog_messages[15], 0);
@@ -1099,15 +1166,16 @@ ACMD(do_gen_tog) {
     }
 }
 
-extern char *casting[];
-ACMD(do_casting) {
+extern char* casting[];
+ACMD(do_casting)
+{
     if (GET_SPEC(ch) != PLRSPEC_ARCANE) {
         send_to_char("Only players specialized in arcane may set their casting speed.\n\r", ch);
         return;
     }
-    char *s1 = "You are presently using";
-    char *s2 = "You are now using";
-    char *s;
+    char* s1 = "You are presently using";
+    char* s2 = "You are now using";
+    char* s;
     int tmp, len;
     if (!*argument) {
         s = s1;
@@ -1164,16 +1232,17 @@ ACMD(do_casting) {
     send_to_char(buf, ch);
 }
 
-extern char *shooting[];
-ACMD(do_shooting) {
+extern char* shooting[];
+ACMD(do_shooting)
+{
     if (GET_SPEC(ch) != PLRSPEC_ARCH) {
         send_to_char("Only players specialized in archery may set their speed.\n\r", ch);
         return;
     }
-    char *s1 = "You are presently using";
-    char *s2 = "You are now using";
+    char* s1 = "You are presently using";
+    char* s2 = "You are now using";
 
-    char *s;
+    char* s;
     int tmp, len;
     if (!*argument)
         s = s1;
@@ -1231,12 +1300,13 @@ ACMD(do_shooting) {
     send_to_char(buf, ch);
 }
 
-std::array<std::string_view, 4> inv_sorting = {"default", "grouped", "alpha", "length"};
+std::array<std::string_view, 4> inv_sorting = { "default", "grouped", "alpha", "length" };
 
 namespace {
-bool has_argument(const char *argument) { return *argument != 0; }
+bool has_argument(const char* argument) { return *argument != 0; }
 
-int get_sort_index(const char *argument) {
+int get_sort_index(const char* argument)
+{
     for (int index = 0; index < inv_sorting.size(); ++index) {
         if (inv_sorting[index].find(argument) != std::string::npos) {
             return index;
@@ -1246,7 +1316,8 @@ int get_sort_index(const char *argument) {
     return -1;
 }
 
-void set_sort_value(int sort_index, char_data *character) {
+void set_sort_value(int sort_index, char_data* character)
+{
     int high_bit_value = (sort_index & 2) >> 1;
     int low_bit_value = sort_index & 1;
 
@@ -1263,10 +1334,11 @@ void set_sort_value(int sort_index, char_data *character) {
     }
 }
 
-void report_sort_choices_to(char_data *character) {
+void report_sort_choices_to(char_data* character)
+{
     std::ostringstream message_writer;
     message_writer << "Possible sort choices are:" << std::endl;
-    for (const auto &sort_name : inv_sorting) {
+    for (const auto& sort_name : inv_sorting) {
         message_writer << "\t" << sort_name << std::endl;
     }
     message_writer << std::endl;
@@ -1274,42 +1346,45 @@ void report_sort_choices_to(char_data *character) {
     send_to_char(message_writer.str().c_str(), character);
 }
 
-void report_inventory_sorting_to(char_data *character, const char *intro_string) {
+void report_inventory_sorting_to(char_data* character, const char* intro_string)
+{
     bool high_bit_set = PRF_FLAGGED(character, PRF_INV_SORT2) != 0;
     bool low_bit_set = PRF_FLAGGED(character, PRF_INV_SORT1) != 0;
 
     int sort_value = high_bit_set << 1 | low_bit_set;
 
-    const char *sort_name = inv_sorting[sort_value].data();
+    const char* sort_name = inv_sorting[sort_value].data();
 
     sprintf(buf, "%s %s.\r\n", intro_string, sort_name);
     send_to_char(buf, character);
 }
 } // namespace
 
-ACMD(do_inventory_sort) {
+ACMD(do_inventory_sort)
+{
     if (has_argument(argument)) {
         int sort_index = get_sort_index(argument);
         if (sort_index >= 0) {
             set_sort_value(sort_index, ch);
 
-            static const char *report_new_sort_string = "Your new inventory sorting method is";
+            static const char* report_new_sort_string = "Your new inventory sorting method is";
             report_inventory_sorting_to(ch, report_new_sort_string);
         } else {
             report_sort_choices_to(ch);
         }
     } else {
-        static const char *report_sort_string = "Your current inventory sorting method is";
+        static const char* report_sort_string = "Your current inventory sorting method is";
         report_inventory_sorting_to(ch, report_sort_string);
         report_sort_choices_to(ch);
     }
 }
 
-extern char *tactics[];
-ACMD(do_tactics) {
-    char *s1 = "You are presently employing";
-    char *s2 = "You are now employing";
-    char *s;
+extern char* tactics[];
+ACMD(do_tactics)
+{
+    char* s1 = "You are presently employing";
+    char* s2 = "You are now employing";
+    char* s;
     int tmp, len;
 
     if (utils::is_affected_by_spell(*ch, SKILL_FRENZY) && utils::get_race(*ch) == RACE_OLOGHAI) {
@@ -1406,13 +1481,14 @@ ACMD(do_tactics) {
     send_to_char(buf, ch);
 }
 
-ACMD(do_language) {
+ACMD(do_language)
+{
     char str[200];
     int len, tmp;
 
     if (!*argument) {
         sprintf(str, "You are using %s.\n\r",
-                (ch->player.language) ? skills[ch->player.language].name : "common language");
+            (ch->player.language) ? skills[ch->player.language].name : "common language");
         send_to_char(str, ch);
         return;
     }
@@ -1450,21 +1526,23 @@ ACMD(do_language) {
 
 #define SORTING_COMMAND_INDEX 30
 
-char *change_comm[] = {
-    "prompt",                                                                 /* 0 */
-    "tactics",      "nosummon",       "echo",     "brief",     "spam",        /* 5 */
-    "compact",      "notell",         "narrate",  "chat",      "title",       /* 10 */
-    "wimpy",        "wrap",           "msdp",     "language",  "description", /* 15 */
-    "incognito",    "time",           "sing",     "mental",    "swim",        /* 20 */
-    "latin1",       "spinner",        "wiz",      "roomflags", "nohassle",    /* 25 */
-    "holylight",    "slowns",         "shooting", "casting",   "sorting",     /* 30 */
-    "advancedview", "advancedprompt", "\n"};
+char* change_comm[] = {
+    "prompt", /* 0 */
+    "tactics", "nosummon", "echo", "brief", "spam", /* 5 */
+    "compact", "notell", "narrate", "chat", "title", /* 10 */
+    "wimpy", "wrap", "msdp", "language", "description", /* 15 */
+    "incognito", "time", "sing", "mental", "swim", /* 20 */
+    "latin1", "spinner", "wiz", "roomflags", "nohassle", /* 25 */
+    "holylight", "slowns", "shooting", "casting", "sorting", /* 30 */
+    "advancedview", "advancedprompt", "\n"
+};
 
 ACMD(do_toggle);
 ACMD(do_title);
 ACMD(do_wimpy);
 
-ACMD(do_set) {
+ACMD(do_set)
+{
     char command[50];
     char arg[250];
 
@@ -1667,12 +1745,14 @@ ACMD(do_set) {
     }
 }
 
-ACMD(do_next) {
+ACMD(do_next)
+{
     send_to_char("You see no boards here.\n\r", ch);
     return;
 }
 
-ACMD(do_knock) {
+ACMD(do_knock)
+{
     int tmp, room, oldroom;
     char str[200];
 
@@ -1704,14 +1784,13 @@ ACMD(do_knock) {
                         oldroom = ch->in_room;
                         ch->in_room = room;
                         if (EXIT(ch, rev_dir[tmp])) {
-                            if (IS_SET(EXIT(ch, rev_dir[tmp])->exit_info, EX_ISDOOR) &&
-                                EXIT(ch, rev_dir[tmp])->keyword) {
+                            if (IS_SET(EXIT(ch, rev_dir[tmp])->exit_info, EX_ISDOOR) && EXIT(ch, rev_dir[tmp])->keyword) {
                                 sprintf(str, "You hear a knock on the %s.\n",
-                                        EXIT(ch, rev_dir[tmp])->keyword);
+                                    EXIT(ch, rev_dir[tmp])->keyword);
                                 act(str, FALSE, ch, 0, 0, TO_ROOM);
                             } else {
                                 sprintf(str, "You hear a knock sounding %sward.\n\r",
-                                        dirs[rev_dir[tmp]]);
+                                    dirs[rev_dir[tmp]]);
                                 act(str, FALSE, ch, 0, 0, TO_ROOM);
                             }
                         } else
@@ -1736,7 +1815,8 @@ ACMD(do_knock) {
     send_to_char("There is nothing like that here.\n", ch);
 }
 
-ACMD(do_jig) {
+ACMD(do_jig)
+{
     if (IS_NPC(ch) && MOB_FLAGGED(ch, MOB_SPEC)) {
         act("$n tries to jig, but decides against it.", TRUE, ch, 0, 0, TO_ROOM);
         return;
@@ -1754,7 +1834,8 @@ ACMD(do_jig) {
 
 #define FIRST_BLOCK_PROC 8;
 
-ACMD(do_block) {
+ACMD(do_block)
+{
     int tmp, len;
     char str[255];
 
@@ -1822,8 +1903,9 @@ ACMD(do_block) {
     return;
 }
 
-ACMD(do_specialize) {
-    extern const char *specialize_name[];
+ACMD(do_specialize)
+{
+    extern const char* specialize_name[];
 
     if (GET_LEVEL(ch) < 12) {
         send_to_char("You are too young to specialize.\n\r", ch);
@@ -1839,7 +1921,7 @@ ACMD(do_specialize) {
             return;
         }
 
-        const char *spec_argument = argument + 1;
+        const char* spec_argument = argument + 1;
 
         int len = strlen(spec_argument);
         if (len == 0)
@@ -1886,10 +1968,11 @@ ACMD(do_specialize) {
     }
 }
 
-ACMD(do_fish) {
+ACMD(do_fish)
+{
     int fish = 7230;
-    struct obj_data *tmpobj;
-    struct room_data *cur_room;
+    struct obj_data* tmpobj;
+    struct room_data* cur_room;
 
     if (IS_SHADOW(ch)) {
         send_to_char("You are too insubstantial to do that.\n\r", ch);
@@ -1929,7 +2012,7 @@ ACMD(do_fish) {
         send_to_char("You cast your line into the water and begin to wait.\n\r", ch);
 
         WAIT_STATE_FULL(ch, MIN(20, 44 - GET_SKILL(ch, SKILL_GATHER_FOOD) / 5), CMD_FISH, 1, 30, 0,
-                        0, 0, AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
+            0, 0, AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
         break;
 
     case 1:
@@ -1955,9 +2038,9 @@ ACMD(do_fish) {
 }
 
 struct {
-    char *field;
+    char* field;
     int subcmd;
-} apply_options[] = {{"poison", SCMD_APPLY_POISON}, {"antidote", SCMD_APPLY_ANTIDOTE}};
+} apply_options[] = { { "poison", SCMD_APPLY_POISON }, { "antidote", SCMD_APPLY_ANTIDOTE } };
 
 const int num_of_apply = 2;
 
@@ -1970,9 +2053,10 @@ const int num_of_apply = 2;
    ------------------------------Change Log---------------------------------------
    slyon: June 4, 2018 - Created ACMD
 ==================================================================================*/
-ACMD(do_apply) {
-    struct char_data *vict;
-    struct obj_data *tmp_object;
+ACMD(do_apply)
+{
+    struct char_data* vict;
+    struct obj_data* tmp_object;
     int percent, bits, tmp;
 
     if (IS_NPC(ch)) {

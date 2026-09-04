@@ -7,10 +7,11 @@
 # Build/run with docker compose (see docker-compose.yml) or scripts/rots-docker.sh.
 FROM --platform=linux/386 i386/debian:bullseye
 
-# g++ 10 (supports the Makefile's -std=c++1z) + make. The Makefile links no extra
-# libraries, so no other build deps are needed. telnet/procps are dev conveniences.
+# g++ 10 (supports -std=c++1z/c++17) + make. The CMake build (src/CMakeLists.txt) also
+# needs cmake, GoogleTest (libgtest-dev) for the ageland_tests suite, and libcrypt-dev for
+# the crypt() link; pkg-config is a CMake convenience. telnet/procps are dev conveniences.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        g++ make telnet procps ca-certificates \
+        g++ make cmake libgtest-dev libcrypt-dev pkg-config telnet procps ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /rots

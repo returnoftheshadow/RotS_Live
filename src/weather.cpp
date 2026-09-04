@@ -157,11 +157,22 @@ void weather_to_char(char_data* ch);
 
 extern char* moon_phase[];
 
+// weather_messages[] entries end in "\n\r" for direct display to the
+// terminal; MSDP values are discrete data, not display text, so strip it.
+std::string strip_trailing_line_break(const char* text)
+{
+    std::string result(text);
+    while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
+        result.pop_back();
+    }
+    return result;
+}
+
 void send_msdp_function(void (*func)(descriptor_data* desc))
 {
-    extern struct descriptor_data *descriptor_list;
+    extern struct descriptor_data* descriptor_list;
 
-    for(auto desc = descriptor_list; desc; desc = desc->next) {
+    for (auto desc = descriptor_list; desc; desc = desc->next) {
         if (!desc->character || IS_NPC(desc->character)) {
             continue;
         }
@@ -417,11 +428,11 @@ void another_hour(int mode)
     send_msdp_function([](descriptor_data* desc) {
         char time[64];
         sprintf(time, "It is about %d:00 %s on ",
-        time_info.hours % 12 == 0 ? 12 : time_info.hours % 12,
-        time_info.hours >= 12 ? "PM" : "AM");
+            time_info.hours % 12 == 0 ? 12 : time_info.hours % 12,
+            time_info.hours >= 12 ? "PM" : "AM");
 
         MSDPSetString(desc, eMSDP_WORLD_TIME, time);
-        MSDPSend(desc, eMSDP_WORLD_TIME);
+        MSDPFlush(desc, eMSDP_WORLD_TIME);
     });
 }
 
@@ -545,20 +556,13 @@ void weather_change(void)
     for (SectorType = 1; SectorType < 13; SectorType++)
         send_to_sector(weather_messages[weather_info.sky[SectorType] + 2][SectorType], SectorType);
 
-    extern struct descriptor_data *descriptor_list;
-
-    send_msdp_function([](descriptor_data* desc) {
-        auto sector_type = world[desc->character->in_room].sector_type;
-        auto weather_type = weather_info.sky[sector_type];
-        if (OUTSIDE(desc->character)) {
-            MSDPSetString(desc, eMDSP_WEATHER, weather_messages[weather_type + 2][sector_type]);
-        } else {
-            MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
-        }
-        MSDPSend(desc, eMDSP_WEATHER);
-    });
+    // WEATHER MSDP variable is recomputed and sent every pulse by
+    // msdp_update() (comm.cpp), which already picks up this change within
+    // the same pulse (weather_and_time() runs before msdp_update() in the
+    // main loop) — an additional immediate push here only duplicated the
+    // send, since MSDPSend() doesn't clear the dirty flag msdp_update()
+    // checks next.
 }
-
 
 //=============================================================================
 int get_sunlight_level(int current_time, int sun_rise_time, int sun_set_time)

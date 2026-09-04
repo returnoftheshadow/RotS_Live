@@ -10,6 +10,7 @@
 
 #include "platdef.h"
 #include <ctype.h>
+#include <cctype>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,10 +26,12 @@
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
+#include "account_management.h"
 
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 /* these factors should be unique integers */
 #define RENT_FACTOR 1
@@ -66,9 +69,183 @@ SPECIAL(cryogenicist);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
 void Crash_follower_load(struct char_data* ch, FILE* fp);
 int calc_load_room(struct char_data* ch, int load_result);
+int Crash_get_filename(char* orig_name, char* filename);
 
 FILE* fd;
 int Crash_is_unrentable(struct obj_data* obj);
+
+namespace {
+
+std::unordered_map<std::string, std::string> g_staged_account_backed_object_bytes;
+
+std::string account_backed_object_stage_key(const char_data* character)
+{
+    if (character == nullptr || GET_NAME(character) == nullptr || *GET_NAME(character) == '\0')
+        return "";
+
+    std::string key = GET_NAME(character);
+    for (char& ch : key)
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    return key;
+}
+
+std::string build_empty_account_backed_object_bytes()
+{
+    std::string bytes;
+
+    rent_info rent {};
+    rent.rentcode = RENT_CRASH;
+    const follower_file_elem follower_sentinel { -17, 0, 0, 0, 0, 0, 0 };
+
+    obj_file_elem object_sentinel {};
+    object_sentinel.item_number = SENTINEL_ITEM_ID_VALUE;
+    object_sentinel.item_number_deprecated = DEPRECATED_ID_VALUE;
+
+    const sh_int board_points[MAX_MAXBOARD] = {};
+    const char alias_terminator[20] = {};
+
+    bytes.append(reinterpret_cast<const char*>(&rent), sizeof(rent));
+    bytes.append(reinterpret_cast<const char*>(&object_sentinel), sizeof(object_sentinel));
+    bytes.append(reinterpret_cast<const char*>(board_points), sizeof(board_points));
+    bytes.append(alias_terminator, sizeof(alias_terminator));
+    bytes.append(reinterpret_cast<const char*>(&follower_sentinel), sizeof(follower_sentinel));
+    return bytes;
+}
+
+bool read_crashsave_record(FILE* file, void* buffer, size_t size, size_t count, const char* context)
+{
+    if (std::fread(buffer, size, count, file) == count)
+        return true;
+
+    if (std::ferror(file))
+        perror(context);
+    else {
+        sprintf(buf1, "SYSERR: truncated crashsave data while %s.", context);
+        log(buf1);
+    }
+
+    return false;
+}
+
+bool take_staged_account_backed_object_bytes_for_character(const char_data* character, std::string* bytes)
+{
+    const std::string stage_key = account_backed_object_stage_key(character);
+    if (stage_key.empty())
+        return false;
+
+    const auto it = g_staged_account_backed_object_bytes.find(stage_key);
+    if (it == g_staged_account_backed_object_bytes.end())
+        return false;
+
+    *bytes = it->second.empty() ? build_empty_account_backed_object_bytes() : it->second;
+    g_staged_account_backed_object_bytes.erase(it);
+    return true;
+}
+
+FILE* open_account_backed_object_stream(const char_data* character)
+{
+    std::string object_bytes;
+    if (!take_staged_account_backed_object_bytes_for_character(character, &object_bytes))
+        return nullptr;
+
+    FILE* stream = tmpfile();
+    if (stream == nullptr) {
+        sprintf(buf1, "SYSERR: unable to create temporary object stream for %s: %s", GET_NAME(character), strerror(errno));
+        log(buf1);
+        return nullptr;
+    }
+
+    if (std::fwrite(object_bytes.data(), sizeof(char), object_bytes.size(), stream) != object_bytes.size()) {
+        sprintf(buf1, "SYSERR: unable to stage account-backed object data for %s.", GET_NAME(character));
+        log(buf1);
+        std::fclose(stream);
+        return nullptr;
+    }
+
+    if (std::fflush(stream) != 0 || std::fseek(stream, 0, SEEK_SET) != 0) {
+        sprintf(buf1, "SYSERR: unable to rewind account-backed object stream for %s.", GET_NAME(character));
+        log(buf1);
+        std::fclose(stream);
+        return nullptr;
+    }
+
+    return stream;
+}
+
+bool read_binary_file_contents(const char* path, std::string* bytes)
+{
+    if (path == nullptr || bytes == nullptr)
+        return false;
+
+    FILE* file = std::fopen(path, "rb");
+    if (file == nullptr)
+        return false;
+
+    std::string loaded_bytes;
+    char buffer[1024];
+    while (true) {
+        const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+        if (bytes_read > 0)
+            loaded_bytes.append(buffer, bytes_read);
+
+        if (bytes_read < sizeof(buffer)) {
+            const bool had_error = std::ferror(file) != 0;
+            std::fclose(file);
+            if (had_error)
+                return false;
+            break;
+        }
+    }
+
+    *bytes = std::move(loaded_bytes);
+    return true;
+}
+
+void refresh_account_backed_object_file(const char_data* character)
+{
+    if (character == nullptr || IS_NPC(character))
+        return;
+
+    char path[MAX_INPUT_LENGTH];
+    if (!Crash_get_filename(const_cast<char*>(GET_NAME(character)), path))
+        return;
+
+    std::string object_bytes;
+    if (!read_binary_file_contents(path, &object_bytes))
+        return;
+
+    std::string error_message;
+    if (!account::write_linked_character_object_file(".", GET_NAME(character), object_bytes, &error_message) && !error_message.empty()) {
+        sprintf(buf1, "SYSERR: failed to refresh account-native object file for %s: %s",
+            GET_NAME(character), error_message.c_str());
+        log(buf1);
+    }
+}
+
+} // namespace
+
+void stage_account_backed_object_bytes_for_character(const struct char_data* ch, const char* bytes, size_t length)
+{
+    const std::string stage_key = account_backed_object_stage_key(ch);
+    if (stage_key.empty())
+        return;
+
+    if (bytes == nullptr || length == 0) {
+        g_staged_account_backed_object_bytes[stage_key] = std::string();
+        return;
+    }
+
+    g_staged_account_backed_object_bytes[stage_key] = std::string(bytes, length);
+}
+
+void clear_account_backed_object_bytes_for_character(const struct char_data* ch)
+{
+    const std::string stage_key = account_backed_object_stage_key(ch);
+    if (stage_key.empty())
+        return;
+
+    g_staged_account_backed_object_bytes.erase(stage_key);
+}
 
 int Crash_get_filename(char* orig_name, char* filename)
 {
@@ -132,7 +309,12 @@ FILE* Crash_get_file_by_name(char* name, char* mode)
     if (!Crash_get_filename(name, buf))
         return 0;
     if (!(fp = fopen(buf, mode))) {
-        log("crashsave: mark0");
+        const bool suppress_missing_read_side_file = (errno == ENOENT) && (mode != nullptr) && (mode[0] == 'r');
+        if (!suppress_missing_read_side_file) {
+            snprintf(buf1, sizeof(buf1), "SYSERR: unable to open crashsave file '%s' for %s: %s",
+                buf, name, strerror(errno));
+            log(buf1);
+        }
         return 0;
     }
     return fp;
@@ -400,6 +582,10 @@ FILE* Crash_load(char_data* character)
     int cost, orig_rent_code, equip_lost;
     int num_of_hours, tmp, equip_counter;
     struct obj_data dummy_sack;
+    auto fail_closed = [&character]() -> FILE* {
+        REMOVE_BIT(character->specials.affected_by, AFF_TWOHANDED);
+        return nullptr;
+    };
 
     clear_object(&dummy_sack);
 
@@ -410,7 +596,12 @@ FILE* Crash_load(char_data* character)
         equip_array[tmp] = 0;
 
     /* ok. is their rent file intact? */
-    if (!(fl = Crash_get_file_by_name(GET_NAME(character), "r+b"))) {
+    fl = Crash_get_file_by_name(GET_NAME(character), "r+b");
+    if (!fl)
+        fl = open_account_backed_object_stream(character);
+
+    if (!fl) {
+        REMOVE_BIT(character->specials.affected_by, AFF_TWOHANDED);
         send_to_char("*** Your equipment was lost! Please contact an immortal. ***\n\r", character);
         sprintf(buf, "%s entering game with no equipment.", GET_NAME(character));
         GET_ALIAS(character) = 0;
@@ -418,8 +609,10 @@ FILE* Crash_load(char_data* character)
         character->specials2.load_room = calc_load_room(character, RENT_UNDEF);
         return fl;
     }
-    if (!feof(fl))
-        fread(&rent, sizeof(struct rent_info), 1, fl);
+    if (!read_crashsave_record(fl, &rent, sizeof(struct rent_info), 1, "reading crash rent data in Crash_load")) {
+        std::fclose(fl);
+        return fail_closed();
+    }
 
     /* ok, we have a file. now we find out how much to charge them */
     cost = (rent.net_cost_per_hour * RENT_HALFTIME * num_of_hours / (RENT_HALFTIME + num_of_hours));
@@ -477,12 +670,10 @@ FILE* Crash_load(char_data* character)
     }
 
     equip_counter = 1;
-    while (!feof(fl)) {
-        fread(&object, sizeof(struct obj_file_elem), 1, fl);
-        if (ferror(fl)) {
-            perror("Reading crash file: Crash_load.");
-            fclose(fl);
-            return fl;
+    while (true) {
+        if (!read_crashsave_record(fl, &object, sizeof(struct obj_file_elem), 1, "reading crash object data in Crash_load")) {
+            std::fclose(fl);
+            return fail_closed();
         }
 
         if (object.item_number_deprecated != DEPRECATED_ID_VALUE) {
@@ -493,7 +684,7 @@ FILE* Crash_load(char_data* character)
         if (object.item_number == SENTINEL_ITEM_ID_VALUE) /* the alias marker */
             break;
 
-        if (!feof(fl) && !equip_lost) {
+        if (!equip_lost) {
             if (object.item_number < 0)
                 obj = &dummy_sack;
             else
@@ -539,6 +730,8 @@ FILE* Crash_load(char_data* character)
     }
 
     recalc_worn_weight(character);
+    if (IS_TWOHANDED(character) && (!character->equipment[WIELD] || character->equipment[WEAR_SHIELD]))
+        REMOVE_BIT(character->specials.affected_by, AFF_TWOHANDED);
 
     character->specials2.load_room = calc_load_room(character, rent.rentcode);
 
@@ -763,11 +956,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
     int tmp;
 
     do {
-        if (feof(fp))
-            return;
-        fread(&fol_elem, sizeof(struct follower_file_elem), 1, fp);
-        if (ferror(fp)) {
-            perror("Reading crash file: Crash_follower_load.");
+        if (!read_crashsave_record(fp, &fol_elem, sizeof(struct follower_file_elem), 1, "reading follower data in Crash_follower_load")) {
             fclose(fp);
             return;
         }
@@ -778,11 +967,10 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
         mob = read_mobile(tmp, REAL);
         char_to_room(mob, ch->in_room);
 
-        while (!feof(fp)) {
-            fread(&object, sizeof(struct obj_file_elem), 1, fp);
-            if (ferror(fp)) {
-                perror("Reading crash file: Crash_load.");
+        while (true) {
+            if (!read_crashsave_record(fp, &object, sizeof(struct obj_file_elem), 1, "reading follower object data in Crash_follower_load")) {
                 fclose(fp);
+                return;
             }
 
             if (object.item_number_deprecated != DEPRECATED_ID_VALUE) {
@@ -915,27 +1103,37 @@ int Crash_alias_load(struct char_data* ch, FILE* fp)
 
     GET_ALIAS(ch) = 0;
     count = 0;
-    if (!feof(fp))
-        tmp = fread(ch->specials.board_point, sizeof(sh_int), MAX_MAXBOARD, fp);
+    tmp = 0;
+    if (!read_crashsave_record(fp, ch->specials.board_point, sizeof(sh_int), MAX_MAXBOARD, "reading board points in Crash_alias_load"))
+        return FALSE;
     do {
         CREATE1(list2, alias_list);
-        fread(&(list2->keyword), 20, 1, fp);
+        if (!read_crashsave_record(fp, &(list2->keyword), 20, 1, "reading alias keyword in Crash_alias_load")) {
+            RELEASE(list2);
+            return FALSE;
+        }
         if (!*(list2->keyword)) {
             RELEASE(list2);
             return TRUE;
         }
-        fread(&tmp, sizeof(int), 1, fp);
+        if (!read_crashsave_record(fp, &tmp, sizeof(int), 1, "reading alias length in Crash_alias_load")) {
+            RELEASE(list2);
+            return FALSE;
+        }
         if (tmp <= 0) {
             log("Alias_load error!");
+            RELEASE(list2);
             return FALSE;
         }
         CREATE(list2->command, char, tmp + 1);
-        fread(list2->command, tmp, 1, fp);
-        if (ferror(fp)) {
-            perror("Reading crash file: Crash_load.");
+        if (!read_crashsave_record(fp, list2->command, tmp, 1, "reading alias command in Crash_alias_load")) {
+            RELEASE(list2->command);
+            RELEASE(list2);
             return FALSE;
         }
+        list2->command[tmp] = '\0';
         if (count > MAX_ALIAS) { // We should have a create_alias function
+            RELEASE(list2->command);
             RELEASE(list2); // to take care of this stuff
             continue;
         }
@@ -1121,6 +1319,7 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
     Crash_alias_save(ch, fp);
     Crash_follower_save(ch, fp);
     fclose(fp);
+    refresh_account_backed_object_file(ch);
     REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
 }
 
@@ -1167,9 +1366,10 @@ void Crash_idlesave(struct char_data* ch)
                 fclose(fp);
                 return;
             }
-        }
+    }
     Crash_alias_save(ch, fp);
     fclose(fp);
+    refresh_account_backed_object_file(ch);
 
     Crash_extract_objs(ch->carrying);
 }
@@ -1219,6 +1419,7 @@ void Crash_rentsave(struct char_data* ch, int cost)
     Crash_follower_save(ch, fp);
     extract_followers(ch);
     fclose(fp);
+    refresh_account_backed_object_file(ch);
 
     Crash_extract_objs(ch->carrying);
 }
@@ -1599,8 +1800,15 @@ int gen_receptionist(struct char_data* ch, int cmd, char* arg, int mode)
         act("$n helps $N into $S private chamber.", FALSE, recep, 0, ch, TO_NOTVICT);
         save_room = ch->in_room;
         extract_char(ch);
-        ch->in_room = world[save_room].number;
-        save_char(ch, ch->in_room, 0);
+        /* save_char() wants the room's VNUM, but ch->in_room is an INDEX into world[].
+           Pass the vnum straight through instead of staging it in in_room: writing it
+           there left a live char_data whose in_room held a vnum, and msdp_update() then
+           published world[<vnum>] -- a real, valid, completely unrelated room -- to the
+           client. That was the origin of the bogus MSDP rooms seen at rent. extract_char()
+           has already removed the character from the world, and load_character() re-derives
+           the room from specials2.load_room (which save_char is writing right here), so
+           leaving in_room as NOWHERE is both correct and what the re-entry path expects. */
+        save_char(ch, world[save_room].number, 0);
     } else { /* Offer */
         Crash_offer_rent(ch, recep, mode, TRUE);
         act("$N gives $n an offer.", FALSE, ch, 0, recep, TO_ROOM);
@@ -1652,24 +1860,30 @@ ACMD(do_rent)
 
     save_room = ch->in_room;
     extract_char(ch);
-    ch->in_room = world[save_room].number;
-    save_char(ch, ch->in_room, 0);
+    /* Same vnum-into-an-index-field hazard as the receptionist rent path above. */
+    save_char(ch, world[save_room].number, 0);
 }
 
 void Crash_save_all(void)
 {
     struct descriptor_data* d;
     for (d = descriptor_list; d; d = d->next) {
-        if ((d->connected == CON_PLYNG) && !IS_NPC(d->character)) {
-            if (PLR_FLAGGED(d->character, PLR_CRASH)) {
-                Crash_crashsave(d->character);
-                if (GET_LEVEL(d->character) < LEVEL_IMMORT)
-                    save_char(d->character, NOWHERE, 1);
-                else
-                    save_char(d->character, NOWHERE, 0);
-                REMOVE_BIT(PLR_FLAGS(d->character), PLR_CRASH);
-            }
+        if (d->connected != CON_PLYNG)
+            continue;
+        if (d->character == nullptr) {
+            // Defensive: a CON_PLYNG descriptor should always have a character. Skip and log a
+            // broken one rather than aborting the whole point-in-time snapshot for everyone else.
+            log("Crash_save_all: CON_PLYNG descriptor with no character; skipping its snapshot.");
+            continue;
         }
+        if (IS_NPC(d->character))
+            continue;
+        // Point-in-time snapshot: save EVERY connected player each cadence (no PLR_CRASH dirty
+        // gate) so PvP/group participants recover to the same moment, silently (notify=0) so a
+        // routine snapshot does not spam "Saving X.". Crash_crashsave also clears PLR_CRASH, so
+        // the previous explicit REMOVE_BIT here is now redundant. Modeled on Emergency_save below.
+        Crash_crashsave(d->character);
+        save_char(d->character, NOWHERE, 0);
     }
 }
 

@@ -31,6 +31,69 @@ Additionally, if an offense is sufficiently severe or repetitive,
 the immortal in charge of punishment may choose to add a note to
 any punished character's exploits.
 #
+COLOR COLOUR COLORS COLOURS
+
+The COLOR command controls how different kinds of game text are shown
+in your client.  You can still use the classic ANSI colour syntax, or
+you can set foreground and background colours directly with RGB or hex
+values if your client supports true colour.
+
+Both COLOR and COLOUR are accepted in game.
+
+To see your current settings:
+
+> color
+
+To turn colours on or off:
+
+> color on
+> color off
+> color default
+
+Classic ANSI syntax still works:
+
+> color chat magenta
+> color weather bright cyan
+
+The available colour slots include:
+  narrate chat yell tell say roomname hit damage character object
+  enemy description group magic weather mob
+
+'character' colours the names of other players on your own side, and
+'enemy' the names of players on the other side.  'mob' colours the
+names of creatures run by the game, so you can tell them apart from
+players at a glance.
+
+The available ANSI colours are:
+  normal red green yellow blue magenta cyan white
+  bright red bright green bright yellow bright blue
+  bright magenta bright cyan bright white
+
+For explicit foreground or background control, use one of these forms:
+
+> color <slot> fg ansi <ansi colour>
+> color <slot> fg rgb <red> <green> <blue>
+> color <slot> fg hex #RRGGBB
+> color <slot> fg default
+
+> color <slot> bg ansi <ansi colour>
+> color <slot> bg rgb <red> <green> <blue>
+> color <slot> bg hex #RRGGBB
+> color <slot> bg default
+
+Examples:
+
+> color magic fg hex #B450FF
+> color weather bg hex #0A1423
+> color roomname fg ansi bright yellow
+> color chat bg default
+
+RGB values must be between 0 and 255. Hex values must look like
+#RRGGBB.
+
+If your terminal does not fully support true colour, these colours may
+not display exactly as chosen.
+#
 STEALTH
 
 Stealth, as commonly referred to in many of the skill manual
@@ -1858,7 +1921,7 @@ set <parameter> [on|off|number|toggle]
 > set <parameter> toggle    -- will toggle from on to off and from off to on.
 
 See also: PROMPT, WIMPY, BRIEF, COMPACT, SPAM, NOTELL, NOCHAT, NONARRATE,
-NOSUMMON, ECHO, AUTOEXIT, INCOGNITO, SWIM, LATIN1
+NOSUMMON, ECHO, INCOGNITO, SWIM, LATIN1
 #
 AFK
 
@@ -2020,12 +2083,14 @@ CLEAR CLS
 
 Clears the screen on many terminals.
 #
-ANSI COLOR COLOUR
+ANSI
 
 If you have a colour-capable terminal and wish to see useful colour-coding
 of information, use the COLOUR command to select a colour scheme.  Note
 that simply enabling colours is not equivalent to setting colours; choosing
 a colour set is described in more detail below.
+
+Both COLOUR and COLOR are accepted in game.
 
 To enable ANSI colours, use:
   > colour on
@@ -2054,6 +2119,9 @@ Examples of colouring a field:
   > colour hit cyan
 Another example:
   > colour enemy bright white
+
+This page covers the classic ANSI colours only.  For the full list of
+colour slots, and for setting RGB or hex colours, see HELP COLOUR.
 #
 SHAPE
    The world here is built by builders through an online interface.
