@@ -17,7 +17,9 @@ bool verify_password(const std::string& password, const std::string& password_ha
 bool initialize_new_account(const std::string& account_name, const std::string& email, const std::string& password, long created_at, AccountData* account, std::string* error_message = nullptr);
 bool add_character_to_account(AccountData* account, const std::string& character_name, std::string* error_message = nullptr);
 bool account_has_character(const AccountData& account, const std::string& character_name);
-bool select_linked_character(const AccountData& account, const std::string& character_name, std::string* normalized_character_name, std::string* error_message = nullptr);
+bool select_linked_character(const std::string& root_directory, const AccountData& account,
+    const std::string& character_name, RosterSort sort, RosterFilter filter,
+    std::string* normalized_character_name, std::string* error_message = nullptr);
 bool prepare_email_verification_code(AccountData* account, long sent_at, std::string* verification_code, std::string* error_message = nullptr);
 bool confirm_email_verification_code(AccountData* account, const std::string& verification_code, const std::string& verified_by, long verified_at, std::string* error_message = nullptr);
 void verify_email(AccountData* account, const std::string& verified_by, long verified_at);

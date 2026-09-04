@@ -4,6 +4,7 @@
 #include "exploits_json.h"
 #include "json_utils.h"
 #include "objects_json.h"
+#include "roster_cache.h"
 #include "utils.h"
 
 #include <cerrno>
@@ -34,8 +35,12 @@ namespace {
     // just a display one. The hard ceiling is the descriptor output buffer: rows are 27 bytes at
     // their widest, two per line, and once a write exceeds LARGE_BUFSIZE write_to_output sets
     // bufptr = -1 and silently discards everything else bound for that socket, leaving the player
-    // with a blank screen and no prompt. That cliff sits at 585; RendersAFullRosterWithinTheOutputBuffer
-    // guards it.
+    // with a blank screen and no prompt. For the unsectioned sorts that cliff sits at 585 rows;
+    // under Side sort the section headers and inter-section blank lines add overhead on top of the
+    // same rows, so the cliff sits a few rows lower there. RendersAFullRosterWithinTheOutputBuffer
+    // guards both the unsectioned Account-sort render and the sectioned Side-sort render at the
+    // current cap (200 rows), which is comfortably under either cliff; it does not re-derive either
+    // cliff's exact row count.
     constexpr size_t kMaxDisplayedAccountCharacters = 200;
 
     using CharacterLinkReference = AccountData::CharacterLinkReference;
@@ -99,44 +104,189 @@ namespace {
         return ::race_abbrevs[race];
     }
 
-    std::string format_account_character_short_entry(const std::string& root_directory, const AccountData& account, size_t index, const std::string& character_name)
+    std::string format_account_character_short_entry(size_t display_row,
+        const std::string& character_name, const roster_cache::RosterSummary& summary)
     {
         const std::string display_name = format_character_name_for_display(character_name);
 
-        char_file_u stored_character {};
-        std::string error_message;
-        if (!read_account_character_file(root_directory, account.account_name, character_name, &stored_character, &error_message))
-        {
-            char line[256];
-            std::snprintf(line, sizeof(line), "%zu) [ ?? ???] %-12.12s", index + 1, display_name.c_str());
+        char line[256];
+        if (!summary.readable) {
+            std::snprintf(line, sizeof(line), "%zu) [ ?? ???] %-12.12s", display_row, display_name.c_str());
             return line;
         }
 
-        char line[256];
-        std::snprintf(line, sizeof(line), "%zu) [%3d %s] %-12.12s", index + 1, stored_character.level, safe_race_abbrev(stored_character.race), display_name.c_str());
+        std::snprintf(line, sizeof(line), "%zu) [%3d %s] %-12.12s", display_row,
+            summary.level, safe_race_abbrev(summary.race), display_name.c_str());
         return line;
     }
 
-    std::string format_account_character_short_roster(const std::string& root_directory, const AccountData& account)
+    // Derived coefficient for one profession, mirroring get_prof_coof (char_utils.cpp) but reading
+    // the cached raw value instead of a live char_data. Only the Uruk-mage -100 is profession-
+    // specific, so it is the one that can change WHICH profession is highest -- filtering on the
+    // raw value would put those characters under the wrong letter. The Orc (x*2+2)/3 scaling is
+    // applied uniformly to every profession of the same character and is monotonic, so on its own
+    // it can only collapse a near-tie into an exact tie (which, under >=, widens who matches); it
+    // can never invert the ordering between two of an Orc's professions.
+    int derived_prof_coof(const roster_cache::RosterSummary& summary, int profession)
+    {
+        const short raw = summary.prof_coof[profession];
+        int derived = square_root[raw];
+        if (summary.race == RACE_ORC)
+            derived = (derived * 2 + 2) / 3;
+        else if (summary.race == RACE_URUK && profession == PROF_MAGE)
+            derived -= 100;
+        return derived;
+    }
+
+    // Side ordering: gods, lights, darks, third side. Derived from race, never stored.
+    int side_rank_for_race(int race)
+    {
+        if (race == RACE_GOD)
+            return 0;
+        if (race >= RACE_HUMAN && race <= RACE_BEORNING)
+            return 1;
+        if (race == RACE_MAGUS || race == RACE_HARADRIM)
+            return 3;
+        return 2;
+    }
+
+    // Side rank reserved for characters whose file could not be read. They have no race and so no
+    // side; ordered_roster_indices already sorts them last, and this keeps them out of a real
+    // side's section rather than silently padding one.
+    constexpr int kUnreadableSideRank = 99;
+
+    const char* side_section_label(int side_rank)
+    {
+        switch (side_rank) {
+        case 0:
+            return "Gods";
+        case 1:
+            return "Lights";
+        case 2:
+            return "Darks";
+        case 3:
+            return "Third Side";
+        default:
+            return "Unavailable";
+        }
+    }
+
+    int side_rank_for_summary(const roster_cache::RosterSummary& summary)
+    {
+        return summary.readable ? side_rank_for_race(summary.race) : kUnreadableSideRank;
+    }
+
+    bool summary_matches_filter(const roster_cache::RosterSummary& summary, RosterFilter filter)
+    {
+        if (filter == RosterFilter::None)
+            return true;
+        if (!summary.readable)
+            return false; // no coefficients known; spec says unreadable rows are excluded by filters
+
+        int wanted = PROF_WARRIOR;
+        if (filter == RosterFilter::Ranger)
+            wanted = PROF_RANGER;
+        else if (filter == RosterFilter::Mystic)
+            wanted = PROF_CLERIC;
+        else if (filter == RosterFilter::Mage)
+            wanted = PROF_MAGE;
+
+        const int wanted_value = derived_prof_coof(summary, wanted);
+        for (int profession = 1; profession <= MAX_PROFS; ++profession) {
+            if (profession == wanted)
+                continue;
+            if (derived_prof_coof(summary, profession) > wanted_value)
+                return false;
+        }
+        // >= every other profession, so ties match under every tied letter.
+        return true;
+    }
+
+    const char* roster_filter_label(RosterFilter filter)
+    {
+        switch (filter) {
+        case RosterFilter::Warrior:
+            return "Warrior";
+        case RosterFilter::Ranger:
+            return "Ranger";
+        case RosterFilter::Mystic:
+            return "Mystic";
+        case RosterFilter::Mage:
+            return "Mage";
+        default:
+            return "";
+        }
+    }
+
+    char roster_filter_key(RosterFilter filter)
+    {
+        switch (filter) {
+        case RosterFilter::Warrior:
+            return 'W';
+        case RosterFilter::Ranger:
+            return 'R';
+        case RosterFilter::Mystic:
+            return 'T';
+        case RosterFilter::Mage:
+            return 'M';
+        default:
+            return ' ';
+        }
+    }
+
+    std::string format_account_character_short_roster(const std::string& root_directory,
+        const AccountData& account, RosterSort sort, RosterFilter filter)
     {
         if (account.characters.empty())
             return "\n\rNo linked characters yet.\n\r";
 
+        const std::vector<size_t> indices = ordered_roster_indices(root_directory, account, sort, filter);
+        if (indices.empty())
+            return "\n\rNo linked characters match that filter.\n\r";
+
         std::ostringstream output;
-        const size_t displayed_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
-        for (size_t index = 0; index < displayed_count; ++index) {
-            output << format_account_character_short_entry(root_directory, account, index, account.characters[index]);
-            if ((index + 1) % 2 == 0)
+        // Column position WITHIN the current section, so a section holding an odd number of rows
+        // does not drag the next section out of alignment. Row NUMBERING stays continuous across
+        // sections regardless -- row N must still select the character printed at row N.
+        size_t column = 0;
+        int previous_side_rank = -1;
+        for (size_t row = 0; row < indices.size(); ++row) {
+            roster_cache::RosterSummary summary {};
+            roster_cache::get(root_directory, account.account_name, account.characters[indices[row]], &summary);
+
+            if (sort == RosterSort::Side) {
+                const int side_rank = side_rank_for_summary(summary);
+                if (side_rank != previous_side_rank) {
+                    if (column % 2 != 0)
+                        output << "\n\r";
+                    if (previous_side_rank != -1)
+                        output << "\n\r";
+                    output << "-- " << side_section_label(side_rank) << " --\n\r";
+                    previous_side_rank = side_rank;
+                    column = 0;
+                }
+            }
+
+            output << format_account_character_short_entry(row + 1, account.characters[indices[row]], summary);
+            ++column;
+            if (column % 2 == 0)
                 output << "\n\r";
         }
 
-        if (displayed_count % 2 != 0)
+        if (column % 2 != 0)
             output << "\n\r";
 
-        if (account.characters.size() > displayed_count)
-            output << "\n\r... and " << (account.characters.size() - displayed_count) << " more\n\r";
-
-        output << "\n\r" << displayed_count << " character" << (displayed_count == 1 ? "" : "s") << " displayed.\n\r";
+        output << "\n\r";
+        if (filter != RosterFilter::None) {
+            // Never let a filtered roster be mistaken for the whole roster.
+            output << indices.size() << " of " << account.characters.size()
+                   << " characters shown (" << roster_filter_label(filter) << ").  Press "
+                   << roster_filter_key(filter) << " to clear.\n\r";
+        } else {
+            if (account.characters.size() > indices.size())
+                output << "... and " << (account.characters.size() - indices.size()) << " more\n\r\n\r";
+            output << indices.size() << " character" << (indices.size() == 1 ? "" : "s") << " displayed.\n\r";
+        }
         return output.str();
     }
 
@@ -1368,6 +1518,8 @@ namespace {
             return reader->parse_long(&account->password_reset_code_expires_at, error_message);
         if (key == "password_reset_attempt_count")
             return reader->parse_integer(&account->password_reset_attempt_count, error_message);
+        if (key == "roster_sort")
+            return reader->parse_string(&account->roster_sort, error_message);
 
         return reader->skip_value(error_message);
     }
@@ -1393,6 +1545,95 @@ namespace {
     }
 
 } // namespace
+
+std::vector<size_t> ordered_roster_indices(const std::string& root_directory,
+    const AccountData& account, RosterSort sort, RosterFilter filter)
+{
+    std::vector<size_t> indices;
+    std::vector<roster_cache::RosterSummary> summaries(account.characters.size());
+
+    for (size_t index = 0; index < account.characters.size(); ++index) {
+        roster_cache::get(root_directory, account.account_name, account.characters[index], &summaries[index]);
+        if (summary_matches_filter(summaries[index], filter))
+            indices.push_back(index);
+    }
+
+    // stable_sort so equal keys keep insertion order and a redraw never reshuffles them.
+    // Unreadable characters have no level/race/coefficients and sort last under every ordering.
+    if (sort != RosterSort::Account) {
+        std::stable_sort(indices.begin(), indices.end(),
+            [&](size_t left, size_t right) {
+                const roster_cache::RosterSummary& a = summaries[left];
+                const roster_cache::RosterSummary& b = summaries[right];
+                if (a.readable != b.readable)
+                    return a.readable;
+                if (!a.readable)
+                    return false;
+
+                if (sort == RosterSort::Name)
+                    return to_lower_copy(account.characters[left]) < to_lower_copy(account.characters[right]);
+                if (sort == RosterSort::Level)
+                    return a.level > b.level;
+                if (sort == RosterSort::Race)
+                    return a.race < b.race;
+                // Side groups by side, then A-Z within the side. Falling back to insertion order
+                // here would make the side key look inert for any account whose link order already
+                // happens to be side-grouped.
+                const int left_side = side_rank_for_race(a.race);
+                const int right_side = side_rank_for_race(b.race);
+                if (left_side != right_side)
+                    return left_side < right_side;
+                return to_lower_copy(account.characters[left]) < to_lower_copy(account.characters[right]);
+            });
+    }
+
+    if (indices.size() > kMaxDisplayedAccountCharacters)
+        indices.resize(kMaxDisplayedAccountCharacters);
+    return indices;
+}
+
+const char* roster_sort_to_string(RosterSort sort)
+{
+    switch (sort) {
+    case RosterSort::Name:
+        return "name";
+    case RosterSort::Level:
+        return "level";
+    case RosterSort::Race:
+        return "race";
+    case RosterSort::Side:
+        return "side";
+    default:
+        return "";
+    }
+}
+
+bool roster_sort_from_string(const std::string& value, RosterSort* sort)
+{
+    if (sort == nullptr)
+        return false;
+    if (value.empty()) {
+        *sort = RosterSort::Account;
+        return true;
+    }
+    if (value == "name") {
+        *sort = RosterSort::Name;
+        return true;
+    }
+    if (value == "level") {
+        *sort = RosterSort::Level;
+        return true;
+    }
+    if (value == "race") {
+        *sort = RosterSort::Race;
+        return true;
+    }
+    if (value == "side") {
+        *sort = RosterSort::Side;
+        return true;
+    }
+    return false;
+}
 
 // Read an entire text file into *contents (POSIX-backed). Exposed for stage-timing the
 // LOAD pipeline's file-read step.

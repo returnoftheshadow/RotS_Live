@@ -9,6 +9,25 @@
 
 namespace account {
 
+// Declared here (rather than in account_management.h, which pulls in identity/presentation
+// headers before defining its own types) because select_linked_character (identity.h) and
+// format_account_character_prompt (presentation.h) both need these types in their signatures.
+enum class RosterSort {
+    Account, // insertion order: the pre-feature behaviour, and the default for accounts that never chose
+    Name,
+    Level,
+    Race,
+    Side,
+};
+
+enum class RosterFilter {
+    None,
+    Warrior,
+    Ranger,
+    Mystic,
+    Mage,
+};
+
 static constexpr int ACCOUNT_SCHEMA_VERSION = 1;
 static constexpr int MIN_PASSWORD_LENGTH = 8;
 static constexpr int MIN_ACCOUNT_NAME_LENGTH = 3;
@@ -40,6 +59,9 @@ struct AccountData {
     std::string password_salt;
     std::vector<std::string> characters;
     std::vector<CharacterLinkReference> character_links;
+    // Empty means "never chosen": the roster keeps insertion order, matching pre-feature behaviour.
+    // One of "", "name", "level", "race", "side".
+    std::string roster_sort;
     bool email_verified = false;
     std::string email_verified_by;
     long email_verified_at = 0;
