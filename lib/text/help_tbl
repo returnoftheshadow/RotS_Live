@@ -1921,7 +1921,7 @@ set <parameter> [on|off|number|toggle]
 > set <parameter> toggle    -- will toggle from on to off and from off to on.
 
 See also: PROMPT, WIMPY, BRIEF, COMPACT, SPAM, NOTELL, NOCHAT, NONARRATE,
-NOSUMMON, ECHO, AUTOEXIT, INCOGNITO, SWIM, LATIN1
+NOSUMMON, ECHO, INCOGNITO, SWIM, LATIN1
 #
 AFK
 
