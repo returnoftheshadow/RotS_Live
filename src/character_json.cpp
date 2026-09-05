@@ -773,8 +773,15 @@ namespace {
         return named_values;
     }
 
+    // skip_unknown_modes exists for the same reason as parse_color_slots_object's
+    // skip_unknown_keys: an account file is read at boot (db.cpp), and a failed parse there is
+    // fatal (exit(1)). If a later build adds a colour mode, writes accounts carrying it, and is
+    // then rolled back, every such account must still load. When the flag is set an
+    // unrecognised mode makes that one colour value fall back to the default rather than
+    // failing the parse; the other axis of the slot, and every other slot, is kept. Character
+    // files pass false and stay strict.
     template <class Reader>
-    bool parse_color_value_object(Reader* reader, ColorValueData* value, std::string* error_message)
+    bool parse_color_value_object(Reader* reader, ColorValueData* value, std::string* error_message, bool skip_unknown_modes)
     {
         if (reader == nullptr || value == nullptr) {
             set_error(error_message, "Color value parser requires non-null parameters.");
@@ -782,12 +789,13 @@ namespace {
         }
 
         ColorValueData parsed = default_color_value();
+        bool unknown_mode = false;
         bool saw_mode = false;
         bool saw_value = false;
         bool saw_red = false;
         bool saw_green = false;
         bool saw_blue = false;
-        if (!reader->parse_object([&parsed, &saw_mode, &saw_value, &saw_red, &saw_green, &saw_blue](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([&parsed, &unknown_mode, &saw_mode, &saw_value, &saw_red, &saw_green, &saw_blue, skip_unknown_modes](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
                 if (key == "mode") {
                     std::string mode;
                     if (!nested_reader->parse_string(&mode, nested_error_message))
@@ -799,6 +807,8 @@ namespace {
                         parsed.mode = COLOR_VALUE_ANSI16;
                     else if (mode == "truecolor")
                         parsed.mode = COLOR_VALUE_TRUECOLOR;
+                    else if (skip_unknown_modes)
+                        unknown_mode = true;
                     else {
                         set_error(nested_error_message, "Unknown color mode.");
                         return false;
@@ -817,6 +827,13 @@ namespace {
             },
                 error_message))
             return false;
+
+        if (unknown_mode) {
+            // A mode this build does not know about: keep the default rather than guessing at
+            // what the rest of the object meant, and let the surrounding parse succeed.
+            *value = default_color_value();
+            return true;
+        }
 
         if (!saw_mode) {
             set_error(error_message, "Color value object must include mode.");
@@ -841,7 +858,7 @@ namespace {
     }
 
     template <class Reader>
-    bool parse_color_setting_value(Reader* reader, ColorSettingData* setting, std::vector<int>* colors, int index, std::string* error_message)
+    bool parse_color_setting_value(Reader* reader, ColorSettingData* setting, std::vector<int>* colors, int index, std::string* error_message, bool skip_unknown_modes)
     {
         if (reader == nullptr || setting == nullptr || colors == nullptr) {
             set_error(error_message, "Color setting parser requires non-null parameters.");
@@ -860,11 +877,11 @@ namespace {
         *setting = default_color_setting();
         bool saw_foreground = false;
         bool saw_background = false;
-        if (!reader->parse_object([&saw_foreground, &saw_background, setting](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
+        if (!reader->parse_object([&saw_foreground, &saw_background, setting, skip_unknown_modes](const std::string& key, Reader* nested_reader, std::string* nested_error_message) {
                 if (key == "foreground")
-                    return saw_foreground = true, parse_color_value_object(nested_reader, &setting->foreground, nested_error_message);
+                    return saw_foreground = true, parse_color_value_object(nested_reader, &setting->foreground, nested_error_message, skip_unknown_modes);
                 if (key == "background")
-                    return saw_background = true, parse_color_value_object(nested_reader, &setting->background, nested_error_message);
+                    return saw_background = true, parse_color_value_object(nested_reader, &setting->background, nested_error_message, skip_unknown_modes);
                 return nested_reader->skip_value(nested_error_message);
             },
                 error_message))
@@ -897,7 +914,7 @@ namespace {
                 set_error(nested_error_message, "Unknown color key.");
                 return false;
             }
-            return parse_color_setting_value(nested_reader, &character->color_settings[index], &character->colors, index, nested_error_message);
+            return parse_color_setting_value(nested_reader, &character->color_settings[index], &character->colors, index, nested_error_message, /*skip_unknown_modes=*/false);
         },
             error_message);
     }
@@ -1876,7 +1893,7 @@ bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
                 set_error(nested_error_message, "Unknown color key.");
                 return false;
             }
-            return parse_color_setting_value(nested_reader, &parsed_settings[index], &parsed_colors, index, nested_error_message);
+            return parse_color_setting_value(nested_reader, &parsed_settings[index], &parsed_colors, index, nested_error_message, /*skip_unknown_modes=*/skip_unknown_keys);
         },
             error_message))
         return false;

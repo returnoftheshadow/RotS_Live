@@ -4399,6 +4399,8 @@ void nanny(struct descriptor_data* d, char* arg)
             // over whatever a sibling character last changed. ppc_store_character_to_account
             // also refuses to write until the apply has happened, so the invariant holds even
             // if this ordering is later disturbed -- but the order is what a reader sees first.
+            // The apply also prefers an already-playing sibling's in-memory PPC over the
+            // account file, which can be an autosave interval behind it.
             ppc_apply_account_to_character(d->account_name, d->character);
             save_char(d->character, d->character->in_room, 0);
             STATE(d) = CON_PLYNG;

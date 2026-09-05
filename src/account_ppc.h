@@ -63,6 +63,17 @@ void ppc_copy_between_characters(const struct char_data* source, struct char_dat
    connected sockets, not linked characters -- so the cost is bounded by players online. */
 void ppc_propagate_from(const struct char_data* ch);
 
+/* The account's other character that is currently in the game (CON_PLYNG), or null. Shares its
+   descriptor walk and account matching with ppc_propagate_from. Skips ch itself, NPCs and
+   descriptors whose character has been detached. Exposed for tests. */
+struct char_data* ppc_find_playing_sibling(const struct char_data* ch);
+
+/* If such a sibling exists, adopt its in-memory PPC. Called by ppc_apply_account_to_character
+   right after the account file has been applied, because the file can be a full autosave
+   interval behind a change a sibling has already made. Deliberately CON_PLYNG only -- see the
+   reasoning at ppc_find_playing_sibling. A no-op when there is no sibling. */
+void ppc_prefer_playing_sibling(struct char_data* ch);
+
 /* True when this account already has a stored PPC. Character creation uses it to skip the
    colour and latin-1 prompts, which would otherwise overwrite a scheme the player has
    already tuned. False for an unknown or unreadable account. */

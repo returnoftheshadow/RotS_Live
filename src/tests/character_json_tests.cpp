@@ -591,6 +591,23 @@ TEST(CharacterJson, RejectsOutOfRangeNamedColorValuesDuringDeserialization)
     EXPECT_NE(error_message.find("colors[1]"), std::string::npos);
 }
 
+// The account store deliberately tolerates an unrecognised colour mode (see
+// AccountPpcStorage.PreferencesBlockSkipsAnUnknownColourModeInsteadOfFailingToParse): a failed
+// account parse is fatal at boot. Character files opt out of that leniency and stay strict, so
+// a character file carrying a mode this build does not know about is still rejected outright.
+TEST(CharacterJson, RejectsUnknownColorModesDuringDeserialization)
+{
+    std::string json = make_valid_character_json();
+    json = replace_once(json,
+        "\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 5}, \"background\": {\"mode\": \"default\"}}",
+        "\"chat\": {\"foreground\": {\"mode\": \"palette256\", \"value\": 137}, \"background\": {\"mode\": \"default\"}}");
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    EXPECT_FALSE(character_json::deserialize_character_from_json(json, &parsed, &error_message));
+    EXPECT_FALSE(error_message.empty());
+}
+
 TEST(CharacterJson, SerializesSkillsAndTalksAsNamedObjects)
 {
     const std::string json = character_json::serialize_character_to_json(character_json::character_data_from_store(make_stored_character()));

@@ -9,6 +9,39 @@
 
 extern struct descriptor_data* descriptor_list;
 
+namespace {
+
+/* The normalized account name a character is playing under, or empty when it has no
+   descriptor or no account name on it. */
+std::string playing_account_name(const struct char_data* ch)
+{
+    if (ch == nullptr || ch->desc == nullptr || *ch->desc->account_name == '\0')
+        return std::string();
+    return account::normalize_account_name(ch->desc->account_name);
+}
+
+/* The one definition of "this descriptor is holding another character of the same account":
+   not this character's own descriptor, an attached non-NPC character that still points back at
+   the descriptor it is listed under, and a matching normalized account name. Both the
+   propagation walk and the login-time live-sibling lookup go through it so the matching rules
+   exist in exactly one place. Connection state is deliberately NOT checked here -- the two
+   callers want different sets of states, and each says which. */
+struct char_data* account_sibling_on_descriptor(const struct descriptor_data* descriptor,
+    const std::string& account_name, const struct char_data* ch)
+{
+    if (descriptor == nullptr || ch == nullptr || descriptor == ch->desc)
+        return nullptr;
+
+    char_data* other = descriptor->character;
+    if (other == nullptr || other == ch || IS_NPC(other) || other->desc != descriptor)
+        return nullptr;
+    if (account::normalize_account_name(descriptor->account_name) != account_name)
+        return nullptr;
+    return other;
+}
+
+} // namespace
+
 account::AccountPreferences ppc_read_from_character(const struct char_data* ch)
 {
     account::AccountPreferences preferences;
@@ -91,6 +124,12 @@ void ppc_apply_account_to_character_in(const std::string& root_directory,
 void ppc_apply_account_to_character(const char* account_name, struct char_data* ch)
 {
     ppc_apply_account_to_character_in(".", account_name, ch);
+    /* The account file is only as fresh as the last save that wrote it, so it can be up to one
+       autosave behind: change `brief` on character A, log in character B before A's next
+       autosave, and B would read -- and then write back -- the superseded value. A sibling that
+       is already CON_PLYNG holds the current value in memory by construction, so prefer it.
+       Done here rather than at each of interpre.cpp's entry points, which keep multiplying. */
+    ppc_prefer_playing_sibling(ch);
 }
 
 bool ppc_store_character_to_account_in(const std::string& root_directory,
@@ -157,16 +196,11 @@ void ppc_copy_between_characters(const struct char_data* source, struct char_dat
 
 void ppc_propagate_from(const struct char_data* ch)
 {
-    if (ch == nullptr || ch->desc == nullptr || *ch->desc->account_name == '\0')
-        return;
-
-    const std::string account_name = account::normalize_account_name(ch->desc->account_name);
+    const std::string account_name = playing_account_name(ch);
     if (account_name.empty())
         return;
 
     for (descriptor_data* descriptor = descriptor_list; descriptor; descriptor = descriptor->next) {
-        if (descriptor == ch->desc)
-            continue;
         /* Cover CON_LINKLS as well as CON_PLYNG: a linkdead body is still resident in
            character_list with ch->desc attached (see comm.cpp's close_socket, which
            deliberately leaves that pointer set), and the shutdown/reboot save loop in
@@ -176,13 +210,45 @@ void ppc_propagate_from(const struct char_data* ch)
            in-memory copy the next time the server saves everyone at shutdown. */
         if (descriptor->connected != CON_PLYNG && descriptor->connected != CON_LINKLS)
             continue;
-        char_data* other = descriptor->character;
-        if (other == nullptr || other == ch || IS_NPC(other) || other->desc != descriptor)
-            continue;
-        if (account::normalize_account_name(descriptor->account_name) != account_name)
+        char_data* other = account_sibling_on_descriptor(descriptor, account_name, ch);
+        if (other == nullptr)
             continue;
         ppc_copy_between_characters(ch, other);
     }
+}
+
+struct char_data* ppc_find_playing_sibling(const struct char_data* ch)
+{
+    const std::string account_name = playing_account_name(ch);
+    if (account_name.empty())
+        return nullptr;
+
+    for (descriptor_data* descriptor = descriptor_list; descriptor; descriptor = descriptor->next) {
+        /* CON_PLYNG only, unlike ppc_propagate_from above. A playing sibling is by construction
+           at least as fresh as the account file: it reconciled with the account at its own
+           login, and every change since then reached its memory before it could reach the file.
+           A CON_LINKLS body carries no such guarantee. Its own transition to linkdead flushed
+           its PPC to the account (close_socket saves before setting CON_LINKLS), so it starts
+           out no fresher than the file, and from then on it only stays current for as long as
+           every future PPC-changing path remembers to call ppc_propagate_from. The account is
+           the store that receives every change by definition. So a linkdead body can only ever
+           match the file or lag it -- never lead it -- which makes preferring it pure risk. */
+        if (descriptor->connected != CON_PLYNG)
+            continue;
+        char_data* other = account_sibling_on_descriptor(descriptor, account_name, ch);
+        if (other != nullptr)
+            return other;
+    }
+    return nullptr;
+}
+
+void ppc_prefer_playing_sibling(struct char_data* ch)
+{
+    /* Note what is deliberately not touched: ch->ppc_account_loaded. Whether this character is
+       allowed to write the account is decided by its reconciliation with the account file, and
+       adopting a sibling's copy does not change that analysis. When the flag is set, ch's next
+       save carries the sibling's fresher value into the account, which is the point. */
+    ppc_copy_between_characters(ppc_find_playing_sibling(ch), ch);
 }
 
 bool ppc_account_has_preferences_in(const std::string& root_directory, const char* account_name)

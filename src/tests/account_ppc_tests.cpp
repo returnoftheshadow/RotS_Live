@@ -299,6 +299,54 @@ TEST(AccountPpcStorage, PreferencesBlockSkipsUnknownFlagAndColorNamesInsteadOfFa
     EXPECT_EQ(reloaded.preferences.color_settings[COLOR_NARR].foreground.ansi, CRED);
 }
 
+// Same hazard as the test above on a different axis: an unrecognised colour *mode* used to
+// fail the whole parse, and db.cpp:661 turns a failed account parse at boot into exit(1). A
+// future build that adds a colour mode, writes accounts carrying it, and is then rolled back
+// must not stop this binary starting.
+TEST(AccountPpcStorage, PreferencesBlockSkipsAnUnknownColourModeInsteadOfFailingToParse)
+{
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    account.preferences.colors[COLOR_NARR] = CRED;
+    account.preferences.color_settings[COLOR_NARR].foreground.mode = COLOR_VALUE_ANSI16;
+    account.preferences.color_settings[COLOR_NARR].foreground.ansi = CRED;
+    account.preferences.color_settings[COLOR_NARR].background.mode = COLOR_VALUE_ANSI16;
+    account.preferences.color_settings[COLOR_NARR].background.ansi = CBLU;
+    account.preferences.colors[COLOR_YELL] = CGRN;
+    account.preferences.color_settings[COLOR_YELL].foreground.mode = COLOR_VALUE_ANSI16;
+    account.preferences.color_settings[COLOR_YELL].foreground.ansi = CGRN;
+
+    std::string json = account::serialize_account_to_json(account);
+    const std::string narrate_slot = "\"narrate\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 1}, "
+                                     "\"background\": {\"mode\": \"ansi16\", \"value\": 4}}";
+    ASSERT_NE(json.find(narrate_slot), std::string::npos) << json;
+
+    // A mode a later build might add, in an account this build then has to read.
+    json.replace(json.find(narrate_slot), narrate_slot.size(),
+        "\"narrate\": {\"foreground\": {\"mode\": \"palette256\", \"value\": 137}, "
+        "\"background\": {\"mode\": \"ansi16\", \"value\": 4}}");
+
+    account::AccountData reloaded;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &reloaded, &error_message)) << error_message;
+
+    EXPECT_TRUE(reloaded.preferences.present);
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF);
+
+    // Only the colour value that carried the unknown mode falls back to the default. The other
+    // axis of the same slot survives, because nothing about it was unreadable.
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_NARR].foreground.mode, COLOR_VALUE_DEFAULT);
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_NARR], CNRM);
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_NARR].background.mode, COLOR_VALUE_ANSI16);
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_NARR].background.ansi, CBLU);
+
+    // And every other slot is untouched.
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_YELL], CGRN);
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_YELL].foreground.mode, COLOR_VALUE_ANSI16);
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_YELL].foreground.ansi, CGRN);
+}
+
 TEST(AccountPpcStorage, MasksNonPpcBitsOutOnWriteAndRead)
 {
     account::AccountData account = make_minimal_account();
@@ -675,6 +723,80 @@ TEST(AccountPpcColorSlots, AnsiOverwriteAfterTruecolorRoundTripsCleanly)
            "compare unequal to its own serialized-and-reloaded form.";
 }
 
+// THE SELF-ROUND-TRIP PROPERTY, generalised from the single-slot regression test above.
+// A character's in-memory PPC must be byte-identical to the same PPC serialized into an account
+// and parsed back. Where it is not, ppc_equal reports a difference that never goes away, and
+// every single save writes the account file and flushes the account cache -- silently, with no
+// other test failing. The stale-RGB bug was exactly this, so this test drives a mixed scheme
+// across all sixteen slots, through the functions the `color` command actually calls, and
+// asserts the property for the whole thing rather than for one transition.
+TEST(AccountPpcColorSlots, EveryReachableSlotStateRoundTripsCleanly)
+{
+    PpcTestCharacter subject;
+    set_colors_default(subject.character);
+
+    for (int slot = 0; slot < MAX_COLOR_FIELDS; ++slot) {
+        switch (slot % 5) {
+        case 0:
+            // truecolor foreground
+            set_truecolor_foreground(subject.character, slot, 10 + slot * 7, 200 - slot * 3, 40 + slot);
+            break;
+        case 1:
+            // ansi background over an ansi foreground
+            set_ansi_background(subject.character, slot, slot % (CBWHT + 1));
+            break;
+        case 2:
+            // a background that was truecolor and has been cleared again
+            set_truecolor_background(subject.character, slot, 1 + slot, 2 + slot, 3 + slot);
+            clear_color_background(subject.character, slot);
+            break;
+        case 3:
+            // `fg default` on a slot that still has a background
+            set_ansi_background(subject.character, slot, CBLU);
+            clear_color_foreground(subject.character, slot);
+            break;
+        default:
+            // the transition that produced the stale-RGB bug: ansi over truecolor
+            set_truecolor_foreground(subject.character, slot, 255, 128, slot);
+            set_colornum(subject.character, slot, slot % (CBWHT + 1));
+            break;
+        }
+    }
+
+    // A couple of slots carrying two of the shapes at once, so the combinations are covered too.
+    set_truecolor_foreground(subject.character, COLOR_MOB, 12, 240, 96);
+    set_ansi_background(subject.character, COLOR_MOB, CBRED);
+    set_truecolor_background(subject.character, COLOR_MAGIC, 30, 30, 30);
+    set_truecolor_foreground(subject.character, COLOR_MAGIC, 90, 10, 200);
+
+    const account::AccountPreferences original = ppc_read_from_character(subject.character);
+    ASSERT_TRUE(original.present);
+
+    account::AccountData account = make_minimal_account();
+    account.preferences = original;
+    const std::string json = account::serialize_account_to_json(account);
+
+    account::AccountData reloaded;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &reloaded, &error_message)) << error_message;
+
+    EXPECT_TRUE(ppc_equal(original, reloaded.preferences))
+        << "Every state the colour commands can reach must survive its own serialize/parse "
+           "round trip, or ppc_equal reports a permanent difference and every save rewrites "
+           "the account file.";
+
+    // Report which slot is at fault rather than just "not equal", if it ever comes to that.
+    for (int slot = 0; slot < MAX_COLOR_FIELDS; ++slot) {
+        EXPECT_EQ(original.colors[slot], reloaded.preferences.colors[slot]) << "slot " << slot;
+        EXPECT_EQ(std::memcmp(&original.color_settings[slot], &reloaded.preferences.color_settings[slot],
+                      sizeof(original.color_settings[slot])),
+            0)
+            << "slot " << slot
+            << " foreground mode " << static_cast<int>(original.color_settings[slot].foreground.mode)
+            << " background mode " << static_cast<int>(original.color_settings[slot].background.mode);
+    }
+}
+
 TEST(AccountPpcSave, WritesWhenAFlagChanged)
 {
     TemporaryDirectory root;
@@ -1031,6 +1153,177 @@ TEST(AccountPpcPropagate, ReachesPlyngAndLinklsSiblingsButNotAnotherAccount)
     EXPECT_FALSE(PRF_FLAGGED(other_account_character.character, PRF_BRIEF))
         << "A descriptor on a different account must not receive the change.";
     EXPECT_TRUE(PRF_FLAGGED(other_account_character.character, PRF_SPAM));
+}
+
+// A small fake descriptor chain, since descriptor_list is a real global (comm.cpp) and these
+// tests need to hang characters off it. Restores whatever was there on the way out.
+class ScopedDescriptorList {
+public:
+    explicit ScopedDescriptorList(descriptor_data* head)
+        : m_original(descriptor_list)
+    {
+        descriptor_list = head;
+    }
+    ~ScopedDescriptorList() { descriptor_list = m_original; }
+
+private:
+    descriptor_data* m_original;
+};
+
+void attach_descriptor(descriptor_data* descriptor, PpcTestCharacter* holder,
+    const char* account_name, int connected_state)
+{
+    std::strcpy(descriptor->account_name, account_name);
+    descriptor->character = holder->character;
+    descriptor->connected = connected_state;
+    holder->character->desc = descriptor;
+}
+
+// The login-vs-propagation race: a player changes `brief` on character A, then logs in
+// character B before A's next autosave. B applies the account file, which is still a whole
+// autosave interval behind, and B's own autosave then writes that superseded value back --
+// leaving A and B disagreeing. A CON_PLYNG sibling holds the newer value in memory, so the
+// apply prefers it over the file.
+TEST(AccountPpcLiveSibling, PrefersAPlayingSiblingOverTheAccountFilesCopy)
+{
+    PpcTestCharacter subject;
+    PpcTestCharacter playing_sibling;
+    PpcTestCharacter linkless_sibling;
+    PpcTestCharacter other_account;
+
+    descriptor_data subject_desc {};
+    descriptor_data other_desc {};
+    descriptor_data linkless_desc {};
+    descriptor_data playing_desc {};
+
+    attach_descriptor(&subject_desc, &subject, "PpcTester", CON_PLYNG);
+    attach_descriptor(&other_desc, &other_account, "SomeoneElse", CON_PLYNG);
+    attach_descriptor(&linkless_desc, &linkless_sibling, "PpcTester", CON_LINKLS);
+    attach_descriptor(&playing_desc, &playing_sibling, "PpcTester", CON_PLYNG);
+
+    // The playing sibling deliberately sits last, behind two descriptors that must be passed
+    // over -- a different account, and a link-dead body of this one.
+    subject_desc.next = &other_desc;
+    other_desc.next = &linkless_desc;
+    linkless_desc.next = &playing_desc;
+    playing_desc.next = nullptr;
+    ScopedDescriptorList scoped(&subject_desc);
+
+    // What the stale account file just gave the character logging in.
+    PRF_FLAGS(subject.character) = PRF_COMPACT;
+    subject.character->profs->colors[COLOR_SAY] = CRED;
+
+    PRF_FLAGS(playing_sibling.character) = PRF_BRIEF;
+    set_colornum(playing_sibling.character, COLOR_SAY, CBMAG);
+
+    PRF_FLAGS(other_account.character) = PRF_SPAM;
+    PRF_FLAGS(linkless_sibling.character) = PRF_ECHO;
+
+    EXPECT_EQ(ppc_find_playing_sibling(subject.character), playing_sibling.character);
+
+    ppc_prefer_playing_sibling(subject.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_BRIEF))
+        << "The playing sibling's in-memory PPC is at least as fresh as the account file.";
+    EXPECT_FALSE(PRF_FLAGGED(subject.character, PRF_COMPACT))
+        << "The stale value read from the account file must be replaced, not merged.";
+    EXPECT_FALSE(PRF_FLAGGED(subject.character, PRF_ECHO));
+    EXPECT_FALSE(PRF_FLAGGED(subject.character, PRF_SPAM));
+    EXPECT_EQ(subject.character->profs->colors[COLOR_SAY], CBMAG);
+
+    // The sibling is a source here, never a destination: propagation is the other direction.
+    EXPECT_TRUE(PRF_FLAGGED(playing_sibling.character, PRF_BRIEF));
+    EXPECT_TRUE(PRF_FLAGGED(other_account.character, PRF_SPAM));
+    EXPECT_TRUE(PRF_FLAGGED(linkless_sibling.character, PRF_ECHO));
+}
+
+// Deliberately narrower than ppc_propagate_from, which does push to CON_LINKLS bodies. A
+// link-dead body is not a fresher source than the account: close_socket saves it before moving
+// it to CON_LINKLS, so it starts out equal to the file and can only fall behind it afterwards.
+TEST(AccountPpcLiveSibling, DoesNotPreferALinklessSiblingOverTheAccountFile)
+{
+    PpcTestCharacter subject;
+    PpcTestCharacter linkless_sibling;
+
+    descriptor_data subject_desc {};
+    descriptor_data linkless_desc {};
+
+    attach_descriptor(&subject_desc, &subject, "PpcTester", CON_PLYNG);
+    attach_descriptor(&linkless_desc, &linkless_sibling, "PpcTester", CON_LINKLS);
+    subject_desc.next = &linkless_desc;
+    linkless_desc.next = nullptr;
+    ScopedDescriptorList scoped(&subject_desc);
+
+    PRF_FLAGS(subject.character) = PRF_COMPACT;
+    PRF_FLAGS(linkless_sibling.character) = PRF_BRIEF;
+
+    EXPECT_EQ(ppc_find_playing_sibling(subject.character), nullptr);
+    ppc_prefer_playing_sibling(subject.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_COMPACT))
+        << "With no playing sibling, the account file's copy stands.";
+    EXPECT_FALSE(PRF_FLAGGED(subject.character, PRF_BRIEF));
+}
+
+TEST(AccountPpcLiveSibling, IgnoresItselfNpcsMenuStatesAndOtherAccounts)
+{
+    PpcTestCharacter subject;
+    PpcTestCharacter npc_sibling;
+    PpcTestCharacter menu_sibling;
+
+    descriptor_data subject_desc {};
+    descriptor_data npc_desc {};
+    descriptor_data menu_desc {};
+    descriptor_data empty_desc {};
+    descriptor_data detached_desc {};
+
+    attach_descriptor(&subject_desc, &subject, "PpcTester", CON_PLYNG);
+    attach_descriptor(&npc_desc, &npc_sibling, "PpcTester", CON_PLYNG);
+    attach_descriptor(&menu_desc, &menu_sibling, "PpcTester", CON_SLCT);
+    SET_BIT(MOB_FLAGS(npc_sibling.character), MOB_ISNPC);
+
+    // A descriptor with no character at all, and one whose character points elsewhere (the
+    // half-detached shape the usurp path leaves behind mid-swap).
+    std::strcpy(empty_desc.account_name, "PpcTester");
+    empty_desc.connected = CON_PLYNG;
+    std::strcpy(detached_desc.account_name, "PpcTester");
+    detached_desc.connected = CON_PLYNG;
+    detached_desc.character = menu_sibling.character;
+
+    subject_desc.next = &npc_desc;
+    npc_desc.next = &menu_desc;
+    menu_desc.next = &empty_desc;
+    empty_desc.next = &detached_desc;
+    detached_desc.next = nullptr;
+    ScopedDescriptorList scoped(&subject_desc);
+
+    PRF_FLAGS(subject.character) = PRF_COMPACT;
+    PRF_FLAGS(npc_sibling.character) = PRF_BRIEF;
+    PRF_FLAGS(menu_sibling.character) = PRF_BRIEF;
+
+    EXPECT_EQ(ppc_find_playing_sibling(subject.character), nullptr);
+    ppc_prefer_playing_sibling(subject.character);
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_COMPACT));
+    EXPECT_FALSE(PRF_FLAGGED(subject.character, PRF_BRIEF));
+}
+
+TEST(AccountPpcLiveSibling, IsSafeWithoutADescriptorOrAnAccountName)
+{
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_COMPACT;
+
+    EXPECT_EQ(ppc_find_playing_sibling(nullptr), nullptr);
+    EXPECT_EQ(ppc_find_playing_sibling(subject.character), nullptr);
+    ppc_prefer_playing_sibling(nullptr);
+    ppc_prefer_playing_sibling(subject.character);
+
+    descriptor_data nameless_desc {};
+    attach_descriptor(&nameless_desc, &subject, "", CON_PLYNG);
+    nameless_desc.next = nullptr;
+    ScopedDescriptorList scoped(&nameless_desc);
+    EXPECT_EQ(ppc_find_playing_sibling(subject.character), nullptr);
+
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_COMPACT));
 }
 
 TEST(AccountPpcQuery, ReportsWhetherAnAccountHasPreferences)

@@ -214,18 +214,6 @@ namespace {
         send_to_char("  color <slot> bg default\n\r", ch);
     }
 
-    void set_ansi_background(struct char_data* ch, int col, int value)
-    {
-        if (!ch || !ch->profs || col < 0 || col >= MAX_COLOR_FIELDS)
-            return;
-
-        ch->profs->color_settings[col].background.mode = COLOR_VALUE_ANSI16;
-        ch->profs->color_settings[col].background.ansi = static_cast<unsigned char>(value);
-        ch->profs->color_settings[col].background.red = 0;
-        ch->profs->color_settings[col].background.green = 0;
-        ch->profs->color_settings[col].background.blue = 0;
-    }
-
 } // namespace
 
 const char* color_fields[] = {
@@ -415,12 +403,40 @@ void set_truecolor_background(struct char_data* ch, int col, int red, int green,
     slot.background.ansi = static_cast<unsigned char>(nearest_ansi_color(red, green, blue));
 }
 
+/* At file scope, next to the other colour setters, rather than file-static: the colour-slot
+   round-trip test drives every reachable slot state through these functions. */
+void set_ansi_background(struct char_data* ch, int col, int value)
+{
+    if (!ch || !ch->profs || col < 0 || col >= MAX_COLOR_FIELDS)
+        return;
+
+    color_slot_data& slot = ch->profs->color_settings[col];
+    slot.background.mode = COLOR_VALUE_ANSI16;
+    slot.background.ansi = static_cast<unsigned char>(value);
+    slot.background.red = 0;
+    slot.background.green = 0;
+    slot.background.blue = 0;
+}
+
 void clear_color_background(struct char_data* ch, int col)
 {
     if (!ch || !ch->profs || col < 0 || col >= MAX_COLOR_FIELDS)
         return;
 
     ch->profs->color_settings[col].background = color_value_data {};
+}
+
+void clear_color_foreground(struct char_data* ch, int col)
+{
+    if (!ch || !ch->profs || col < 0 || col >= MAX_COLOR_FIELDS)
+        return;
+
+    ch->profs->color_settings[col].foreground = color_value_data {};
+    /* colors[] has to be cleared with it. The serializers read a non-CNRM legacy entry as an
+       ANSI16 foreground whenever the slot itself says default (that is how pre-color_settings
+       characters are still understood), so leaving it set would both resurrect the old colour
+       on the next load and make the in-memory slot differ from its own reloaded form. */
+    ch->profs->colors[col] = CNRM;
 }
 
 const char* get_color_sequence(struct char_data* ch, int col)
@@ -563,8 +579,7 @@ static void do_color_impl(struct char_data* ch, char* argument, struct waiting_t
 
         if (!strcasecmp(mode, "default")) {
             if (foreground) {
-                ch->profs->color_settings[num].foreground = color_value_data {};
-                ch->profs->colors[num] = CNRM;
+                clear_color_foreground(ch, num);
                 vsend_to_char(ch, "You set %s foreground to default.\n\r", color_fields[num]);
             } else {
                 clear_color_background(ch, num);

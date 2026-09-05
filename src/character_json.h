@@ -176,6 +176,9 @@ bool decode_hide_flags(const std::vector<std::string>& names, long* flags, std::
 // colour format. encode returns the object BODY (no surrounding braces), sparse: only
 // slots that differ from the default appear. parse resets both arrays to defaults and
 // then fills them from one JSON object; both arrays must hold MAX_COLOR_FIELDS entries.
+// skip_unknown_keys makes the parse forward-compatible for the account store, whose parse
+// failures are fatal at boot: both an unrecognised slot name and an unrecognised colour mode
+// are skipped (the affected colour value falls back to the default) instead of failing.
 std::string encode_color_slots_object(const char* colors, const color_slot_data* color_settings);
 bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
     color_slot_data* color_settings, std::string* error_message = nullptr, bool skip_unknown_keys = false);
