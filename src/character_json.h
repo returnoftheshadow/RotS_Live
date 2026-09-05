@@ -1,6 +1,8 @@
 #ifndef CHARACTER_JSON_H
 #define CHARACTER_JSON_H
 
+#include "color.h"
+#include "json_utils.h"
 #include "structs.h"
 
 #include <array>
@@ -169,6 +171,14 @@ bool decode_player_flags(const std::vector<std::string>& names, long* flags, std
 bool decode_preference_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
 bool decode_affected_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
 bool decode_hide_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
+
+// Colour-slot JSON, shared with the account-level PPC store so the codebase has one
+// colour format. encode returns the object BODY (no surrounding braces), sparse: only
+// slots that differ from the default appear. parse resets both arrays to defaults and
+// then fills them from one JSON object; both arrays must hold MAX_COLOR_FIELDS entries.
+std::string encode_color_slots_object(const char* colors, const color_slot_data* color_settings);
+bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
+    color_slot_data* color_settings, std::string* error_message = nullptr);
 
 } // namespace character_json
 

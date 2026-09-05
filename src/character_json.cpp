@@ -1826,6 +1826,65 @@ namespace {
 
 } // namespace
 
+std::string encode_color_slots_object(const char* colors, const color_slot_data* color_settings)
+{
+    if (colors == nullptr || color_settings == nullptr)
+        return std::string();
+
+    std::ostringstream output;
+    bool wrote_any = false;
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index) {
+        ColorSettingData setting;
+        setting.foreground = color_value_from_store(color_settings[index].foreground);
+        setting.background = color_value_from_store(color_settings[index].background);
+        if (is_default_color_value(setting.foreground) && colors[index] != CNRM) {
+            setting.foreground.mode = COLOR_VALUE_ANSI16;
+            setting.foreground.value = colors[index];
+        }
+        normalize_color_setting(&setting);
+        if (is_default_color_value(setting.foreground) && is_default_color_value(setting.background))
+            continue;
+
+        if (wrote_any)
+            output << ", ";
+        output << "\"" << json_utils::escape_json_string(color_key_for_index(index)) << "\": ";
+        write_color_setting(output, setting);
+        wrote_any = true;
+    }
+    return output.str();
+}
+
+bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
+    color_slot_data* color_settings, std::string* error_message)
+{
+    if (reader == nullptr || colors == nullptr || color_settings == nullptr) {
+        set_error(error_message, "Colour slot parser requires non-null parameters.");
+        return false;
+    }
+
+    std::vector<int> parsed_colors(MAX_COLOR_FIELDS, 0);
+    std::vector<ColorSettingData> parsed_settings(MAX_COLOR_FIELDS, default_color_setting());
+
+    if (!reader->parse_object([&parsed_colors, &parsed_settings](const std::string& key,
+                                  json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+            const int index = color_index_for_key(key);
+            if (index < 0) {
+                set_error(nested_error_message, "Unknown color key.");
+                return false;
+            }
+            return parse_color_setting_value(nested_reader, &parsed_settings[index], &parsed_colors, index, nested_error_message);
+        },
+            error_message))
+        return false;
+
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index) {
+        colors[index] = static_cast<char>(parsed_colors[index]);
+        color_settings[index].foreground = color_value_to_store(parsed_settings[index].foreground);
+        color_settings[index].background = color_value_to_store(parsed_settings[index].background);
+    }
+    return true;
+}
+
 CharacterData character_data_from_store(const char_file_u& stored_character)
 {
     CharacterData character;
