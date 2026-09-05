@@ -80,3 +80,38 @@ void ppc_apply_account_to_character(const char* account_name, struct char_data* 
 {
     ppc_apply_account_to_character_in(".", account_name, ch);
 }
+
+bool ppc_store_character_to_account_in(const std::string& root_directory,
+    const std::string& account_name, const struct char_data* ch)
+{
+    if (account_name.empty() || ch == nullptr || ch->profs == nullptr)
+        return false;
+
+    const account::AccountPreferences current = ppc_read_from_character(ch);
+    if (!current.present)
+        return false;
+
+    account::AccountData account;
+    std::string error_message;
+    if (!account::read_account_file(root_directory, account_name, &account, &error_message)) {
+        vmudlog(NRM, "ppc: could not read account %s to store preferences: %s",
+            account_name.c_str(), error_message.c_str());
+        return false;
+    }
+
+    if (account.preferences.present && ppc_equal(account.preferences, current))
+        return false;
+
+    account.preferences = current;
+    if (!account::write_account_file(root_directory, account, &error_message)) {
+        vmudlog(NRM, "ppc: could not store preferences for account %s: %s",
+            account_name.c_str(), error_message.c_str());
+        return false;
+    }
+    return true;
+}
+
+void ppc_store_character_to_account(const std::string& account_name, const struct char_data* ch)
+{
+    ppc_store_character_to_account_in(".", account_name, ch);
+}

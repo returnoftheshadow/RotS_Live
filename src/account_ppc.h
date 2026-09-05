@@ -37,4 +37,12 @@ void ppc_apply_account_to_character(const char* account_name, struct char_data* 
 void ppc_apply_account_to_character_in(const std::string& root_directory,
     const char* account_name, struct char_data* ch);
 
+/* Write a character's PPC back to its account, but only when it actually differs from what
+   is stored. The compare matters: write_account_file triggers a full account_cache flush,
+   and the cache assumes account mutations never happen on the save path. Returns true only
+   when a write occurred. */
+bool ppc_store_character_to_account_in(const std::string& root_directory,
+    const std::string& account_name, const struct char_data* ch);
+void ppc_store_character_to_account(const std::string& account_name, const struct char_data* ch);
+
 #endif /* ACCOUNT_PPC_H */

@@ -529,4 +529,81 @@ TEST(AccountPpcLogin, SeedsFromABrandNewCharacterWhenItIsTheOnlyLinkedCharacter)
     EXPECT_EQ(reloaded.preferences.colors[COLOR_SAY], CYEL);
 }
 
+TEST(AccountPpcSave, DoesNotWriteWhenNothingChanged)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF | PRF_WRAP;
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_WRAP | PRF_NOTELL;
+
+    EXPECT_FALSE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
+        << "An unchanged PPC must not write the account: every write flushes the account cache.";
+}
+
+TEST(AccountPpcSave, WritesWhenAFlagChanged)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_COMPACT;
+
+    EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character));
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF | PRF_COMPACT);
+}
+
+TEST(AccountPpcSave, WritesWhenAColourChanged)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF;
+    subject.character->profs->colors[COLOR_YELL] = CBMAG;
+    subject.character->profs->color_settings[COLOR_YELL].foreground.mode = COLOR_VALUE_ANSI16;
+    subject.character->profs->color_settings[COLOR_YELL].foreground.ansi = CBMAG;
+
+    EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character));
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_YELL], CBMAG);
+}
+
+TEST(AccountPpcSave, PreservesUnrelatedAccountFields)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.roster_sort = "level";
+    account.email_verified = true;
+    account.characters.push_back("someone");
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_COMPACT;
+    ASSERT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character));
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_EQ(reloaded.roster_sort, "level");
+    EXPECT_TRUE(reloaded.email_verified);
+    ASSERT_EQ(reloaded.characters.size(), 1u);
+    EXPECT_EQ(reloaded.characters[0], "someone");
+}
+
 } // namespace
