@@ -99,8 +99,18 @@ bool ppc_store_character_to_account_in(const std::string& root_directory,
         return false;
     }
 
-    if (account.preferences.present && ppc_equal(account.preferences, current))
-        return false;
+    if (account.preferences.present) {
+        if (ppc_equal(account.preferences, current))
+            return false;
+    } else {
+        /* Mirror the seeding guard in ppc_apply_account_to_character_in: a brand-new
+           (level 0) character on an account that already has other linked characters must
+           not seed the account either, on save any more than on login -- otherwise the
+           very autosave a minute after login writes back exactly the default scheme the
+           login-time guard refused to write. */
+        if (GET_LEVEL(ch) == 0 && account.characters.size() > 1)
+            return false;
+    }
 
     account.preferences = current;
     if (!account::write_account_file(root_directory, account, &error_message)) {

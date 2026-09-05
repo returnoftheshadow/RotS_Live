@@ -50,6 +50,9 @@ namespace {
 
         profs->color_settings[col].foreground.mode = COLOR_VALUE_ANSI16;
         profs->color_settings[col].foreground.ansi = static_cast<unsigned char>(profs->colors[col]);
+        profs->color_settings[col].foreground.red = 0;
+        profs->color_settings[col].foreground.green = 0;
+        profs->color_settings[col].foreground.blue = 0;
     }
 
     void append_escape(char* buffer, size_t buffer_size, size_t* length, const char* escape_sequence)

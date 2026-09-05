@@ -537,11 +537,116 @@ TEST(AccountPpcSave, DoesNotWriteWhenNothingChanged)
     account.preferences.preference_flags = PRF_BRIEF | PRF_WRAP;
     ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
 
+    const std::string account_path = account::account_file_path(root.path(), account.normalized_email);
+    std::string bytes_before;
+    ASSERT_TRUE(account::read_text_file(account_path, &bytes_before, nullptr));
+
     PpcTestCharacter subject;
     PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_WRAP | PRF_NOTELL;
 
     EXPECT_FALSE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
         << "An unchanged PPC must not write the account: every write flushes the account cache.";
+
+    std::string bytes_after;
+    ASSERT_TRUE(account::read_text_file(account_path, &bytes_after, nullptr));
+    EXPECT_EQ(bytes_before, bytes_after)
+        << "The account file's bytes must be untouched -- a false return with a broken read "
+           "would otherwise pass this test just as easily as a genuine no-op.";
+}
+
+TEST(AccountPpcSave, DoesNotWriteWhenTheAccountHasNoPreferencesYet)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+    ASSERT_FALSE(account.preferences.present);
+
+    PpcTestCharacter subject;
+    // Above level 0 so this exercises the plain absent-preferences path, not the level-0
+    // seeding guard (which AccountPpcSave.DoesNotSeedFromABrandNewCharacter... covers).
+    GET_LEVEL(subject.character) = 10;
+    PRF_FLAGS(subject.character) = PRF_BRIEF;
+
+    EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
+        << "A character's first save must store the account's not-yet-present PPC.";
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_TRUE(reloaded.preferences.present);
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF);
+}
+
+// Mirrors AccountPpcLogin.DoesNotSeedFromABrandNewCharacterWhenTheAccountHasOtherLinkedCharacters:
+// without this guard, a level-0 character that login refused to seed from writes its default
+// scheme back at its very first autosave a minute later, defeating the login-time guard.
+TEST(AccountPpcSave, DoesNotSeedFromABrandNewCharacterWhenTheAccountHasOtherLinkedCharacters)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "established", "brandnew" };
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    ASSERT_EQ(GET_LEVEL(subject.character), 0);
+    PRF_FLAGS(subject.character) = PRF_BRIEF;
+    subject.character->profs->colors[COLOR_SAY] = CYEL;
+
+    EXPECT_FALSE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
+        << "A brand-new character's untouched defaults must not seed an account that already "
+           "has other linked characters.";
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_FALSE(reloaded.preferences.present);
+}
+
+// The very first character linked to a brand-new account is the legitimate case, matching
+// AccountPpcLogin.SeedsFromABrandNewCharacterWhenItIsTheOnlyLinkedCharacter.
+TEST(AccountPpcSave, SeedsFromABrandNewCharacterWhenItIsTheOnlyLinkedCharacter)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "brandnew" };
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    ASSERT_EQ(GET_LEVEL(subject.character), 0);
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_LATIN1;
+    subject.character->profs->colors[COLOR_SAY] = CYEL;
+
+    EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
+        << "The first character on a brand-new account must still be able to store its PPC.";
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_TRUE(reloaded.preferences.present);
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF | PRF_LATIN1);
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_SAY], CYEL);
+}
+
+// Regression test for the stale-RGB bug in sync_color_slot_foreground_from_ansi: switching a
+// slot from truecolor back to ANSI16 used to leave the previous red/green/blue bytes behind,
+// so the in-memory struct never matched its own serialized-and-reloaded form and ppc_equal
+// would report a difference on every single save.
+TEST(AccountPpcColorSlots, AnsiOverwriteAfterTruecolorRoundTripsCleanly)
+{
+    PpcTestCharacter subject;
+    set_truecolor_foreground(subject.character, COLOR_SAY, 255, 0, 0);
+    set_colornum(subject.character, COLOR_SAY, CRED);
+
+    const account::AccountPreferences original = ppc_read_from_character(subject.character);
+    ASSERT_EQ(original.color_settings[COLOR_SAY].foreground.mode, COLOR_VALUE_ANSI16);
+
+    account::AccountData account = make_minimal_account();
+    account.preferences = original;
+    const std::string json = account::serialize_account_to_json(account);
+    account::AccountData reloaded;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &reloaded, &error_message)) << error_message;
+
+    EXPECT_TRUE(ppc_equal(original, reloaded.preferences))
+        << "A slot switched back to ANSI16 must not carry stale RGB bytes that make it "
+           "compare unequal to its own serialized-and-reloaded form.";
 }
 
 TEST(AccountPpcSave, WritesWhenAFlagChanged)
