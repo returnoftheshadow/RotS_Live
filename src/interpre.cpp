@@ -2990,6 +2990,48 @@ static bool ensure_descriptor_character_for_account_selection(struct descriptor_
     return true;
 }
 
+/* The tail of character creation, shared by the prompted and the skipped path so the two
+   cannot drift apart. */
+static void finish_new_character_creation(struct descriptor_data* d)
+{
+    /* Give them an autowimpy of 10 */
+    WIMP_LEVEL(d->character) = 10;
+    introduce_char(d);
+    show_character_menu(d);
+    STATE(d) = CON_SLCT;
+    vmudlog(NRM, "%s [%s] new player.", GET_NAME(d->character), d->host);
+}
+
+static const char* const kDefaultColourSetPrompt = "\r\n"
+                                                   "On RotS, you are allowed to create your own colour scheme.\r\n"
+                                                   "However, many new players find this burdensome, and prefer\r\n"
+                                                   "a quick way to enable colours; thus, we have made available\r\n"
+                                                   "a default set of colours to satisfy those players who rather\r\n"
+                                                   "dive into the game than muck around in the RotS manual pages.\r\n"
+                                                   "\r\n"
+                                                   "Please note that you may disable ANSI colours at any time by\r\n"
+                                                   "typing 'colour off'; furthermore, we encourage you to read\r\n"
+                                                   "our manual entry on how to define your own, personalized set\r\n"
+                                                   "of colours via the 'help colour' or 'manual general colour'\r\n"
+                                                   "commands.\r\n"
+                                                   "\r\n"
+                                                   "Do you wish to enable the default colour set (Y/N)? ";
+
+/* A player's colour scheme and latin-1 choice live on the account, so ask for them only
+   on the account's first character. On any later character, answering would overwrite a
+   scheme the player already tuned; inherit it silently instead. */
+static int begin_creation_appearance_prompts(struct descriptor_data* d)
+{
+    if (ppc_account_has_preferences(d->account_name)) {
+        ppc_apply_account_to_character(d->account_name, d->character);
+        finish_new_character_creation(d);
+        return CON_SLCT;
+    }
+
+    SEND_TO_Q(kDefaultColourSetPrompt, d);
+    return CON_COLOR;
+}
+
 void nanny(struct descriptor_data* d, char* arg)
 /* deal with newcomers and other non-playing sockets */
 {
@@ -4220,22 +4262,7 @@ void nanny(struct descriptor_data* d, char* arg)
             if (*arg == existing_profs[tmp].letter)
                 for (i = 0; i < 5; i++)
                     GET_PROF_POINTS(i, d->character) = existing_profs[tmp].Class_points[i];
-        SEND_TO_Q("\r\n"
-                  "On RotS, you are allowed to create your own colour scheme.\r\n"
-                  "However, many new players find this burdensome, and prefer\r\n"
-                  "a quick way to enable colours; thus, we have made available\r\n"
-                  "a default set of colours to satisfy those players who rather\r\n"
-                  "dive into the game than muck around in the RotS manual pages.\r\n"
-                  "\r\n"
-                  "Please note that you may disable ANSI colours at any time by\r\n"
-                  "typing 'colour off'; furthermore, we encourage you to read\r\n"
-                  "our manual entry on how to define your own, personalized set\r\n"
-                  "of colours via the 'help colour' or 'manual general colour'\r\n"
-                  "commands.\r\n"
-                  "\r\n"
-                  "Do you wish to enable the default colour set (Y/N)? ",
-            d);
-        STATE(d) = CON_COLOR;
+        STATE(d) = begin_creation_appearance_prompts(d);
         break;
     case CON_COLOR:
         if (is_abbrev(arg, "yes")) {
@@ -4273,13 +4300,7 @@ void nanny(struct descriptor_data* d, char* arg)
         } else
             SEND_TO_Q("\r\nOk, you will use the latin-1 character set.\r\n", d);
 
-        /* Give them an autowimpy of 10 */
-        WIMP_LEVEL(d->character) = 10;
-        introduce_char(d);
-        show_character_menu(d);
-        STATE(d) = CON_SLCT;
-        vmudlog(NRM, "%s [%s] new player.",
-            GET_NAME(d->character), d->host);
+        finish_new_character_creation(d);
         break;
     case CON_QOWN:
         break;
@@ -4698,24 +4719,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
 
         if (*arg == '=') {
             if (points_used(d->character) <= 150) {
-                /* Must sync with message in CON_COLOR above */
-                SEND_TO_Q("\r\n"
-                          "On RotS, you are allowed to create your own colour scheme.\r\n"
-                          "However, many new players find this burdensome, and prefer\r\n"
-                          "a quick way to enable colours; thus, we have made available\r\n"
-                          "a default set of colours to satisfy those players who rather\r\n"
-                          "dive into the game than muck around in the RotS manual pages.\r\n"
-                          "\r\n"
-                          "Please note that you may disable ANSI colours at any time by\r\n"
-                          "typing 'colour off'; furthermore, we encourage you to read\r\n"
-                          "our manual entry on how to define your own, personalized set\r\n"
-                          "of colours via the 'help colour' or 'manual general colour'\r\n"
-                          "commands.\r\n"
-                          "\r\n"
-                          "Do you wish to enable the default colour set (Y/N)? ",
-                    d);
-
-                return CON_COLOR;
+                return begin_creation_appearance_prompts(d);
             } else {
                 SEND_TO_Q("You've allocated more than 150 creation points.\r\n"
                           "Please revise your decisions.\r\n"

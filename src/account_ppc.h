@@ -55,4 +55,10 @@ void ppc_copy_between_characters(const struct char_data* source, struct char_dat
    connected sockets, not linked characters -- so the cost is bounded by players online. */
 void ppc_propagate_from(const struct char_data* ch);
 
+/* True when this account already has a stored PPC. Character creation uses it to skip the
+   colour and latin-1 prompts, which would otherwise overwrite a scheme the player has
+   already tuned. False for an unknown or unreadable account. */
+bool ppc_account_has_preferences(const char* account_name);
+bool ppc_account_has_preferences_in(const std::string& root_directory, const char* account_name);
+
 #endif /* ACCOUNT_PPC_H */

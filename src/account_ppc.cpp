@@ -164,3 +164,19 @@ void ppc_propagate_from(const struct char_data* ch)
         ppc_copy_between_characters(ch, other);
     }
 }
+
+bool ppc_account_has_preferences_in(const std::string& root_directory, const char* account_name)
+{
+    if (account_name == nullptr || *account_name == '\0')
+        return false;
+
+    account::AccountData account;
+    if (!account::read_account_file(root_directory, account_name, &account, nullptr))
+        return false;
+    return account.preferences.present;
+}
+
+bool ppc_account_has_preferences(const char* account_name)
+{
+    return ppc_account_has_preferences_in(".", account_name);
+}

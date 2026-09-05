@@ -815,4 +815,21 @@ TEST(AccountPpcPropagate, ReachesPlyngAndLinklsSiblingsButNotAnotherAccount)
     EXPECT_TRUE(PRF_FLAGGED(other_account_character.character, PRF_SPAM));
 }
 
+TEST(AccountPpcQuery, ReportsWhetherAnAccountHasPreferences)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+    EXPECT_FALSE(ppc_account_has_preferences_in(root.path(), account.account_name.c_str()));
+
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+    EXPECT_TRUE(ppc_account_has_preferences_in(root.path(), account.account_name.c_str()));
+
+    EXPECT_FALSE(ppc_account_has_preferences_in(root.path(), "nosuchaccount"));
+    EXPECT_FALSE(ppc_account_has_preferences_in(root.path(), ""));
+    EXPECT_FALSE(ppc_account_has_preferences_in(root.path(), nullptr));
+}
+
 } // namespace
