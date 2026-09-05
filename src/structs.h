@@ -997,6 +997,16 @@ extern char* pc_named_star_types[];
 #define PRF_ADVANCED_VIEW (1 << 30)
 #define PRF_ADVANCED_PROMPT (1 << 31)
 
+/* Player Preferred Config (PPC): the settings that describe how a player wants to see
+   and hear the game, rather than anything about a character. These live on the account
+   and are shared by every character on it; see
+   docs/superpowers/specs/2026-09-05-account-level-player-preferred-config-design.md.
+   This mask is the single definition of PPC membership -- every apply, read and compare
+   against the account is masked with it, so no other preference bit is ever touched. */
+#define PPC_PRF_MASK (PRF_PROMPT | PRF_ADVANCED_PROMPT | PRF_ADVANCED_VIEW \
+    | PRF_BRIEF | PRF_COMPACT | PRF_SPAM | PRF_WRAP | PRF_ECHO | PRF_MSDP  \
+    | PRF_LATIN1 | PRF_SPINNER | PRF_INV_SORT1 | PRF_INV_SORT2 | PRF_COLOR)
+
 struct memory_rec {
     struct char_data* enemy;
     int enemy_number;
