@@ -478,4 +478,55 @@ TEST(AccountPpcLogin, IsSafeWithNoAccountName)
     EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_BRIEF));
 }
 
+// A brand-new (level 0) character reaches the apply/seed call before do_start runs, so it is
+// still at default colours/flags. On an account that already has other linked characters, a
+// player might create a new character before returning to an established one -- seeding from
+// that new character's untouched defaults would clobber the account's real scheme the next time
+// it saves. Must not seed, and therefore must not write the account, in that situation.
+TEST(AccountPpcLogin, DoesNotSeedFromABrandNewCharacterWhenTheAccountHasOtherLinkedCharacters)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "established", "brandnew" };
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    ASSERT_EQ(GET_LEVEL(subject.character), 0);
+    PRF_FLAGS(subject.character) = PRF_BRIEF;
+    subject.character->profs->colors[COLOR_SAY] = CYEL;
+
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), subject.character);
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_FALSE(reloaded.preferences.present)
+        << "A level-0 character must not seed an account that already has other linked characters.";
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_BRIEF))
+        << "Skipping the seed must not disturb the character.";
+}
+
+// The very first character linked to a brand-new account is the legitimate case: it still
+// seeds, including whatever colour/latin-1 answers the player just gave during creation.
+TEST(AccountPpcLogin, SeedsFromABrandNewCharacterWhenItIsTheOnlyLinkedCharacter)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "brandnew" };
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    ASSERT_EQ(GET_LEVEL(subject.character), 0);
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_LATIN1;
+    subject.character->profs->colors[COLOR_SAY] = CYEL;
+
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), subject.character);
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_TRUE(reloaded.preferences.present)
+        << "The first character on a brand-new account must still seed.";
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF | PRF_LATIN1);
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_SAY], CYEL);
+}
+
 } // namespace

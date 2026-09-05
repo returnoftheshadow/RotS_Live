@@ -2,7 +2,6 @@
 
 #include "account_management.h"
 #include "color.h"
-#include "comm.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -59,7 +58,15 @@ void ppc_apply_account_to_character_in(const std::string& root_directory,
         return;
     }
 
-    /* No stored PPC yet: seed it from the character being played. */
+    /* No stored PPC yet: seed it from the character being played -- but not from a brand-new
+       (level 0) character on an account that already has other linked characters. A player
+       who creates a fresh character before returning to an established one must not have their
+       tuned scheme clobbered by that new character's untouched defaults. The very first
+       character linked to a brand-new account still seeds (account.characters.size() <= 1),
+       including whatever colour/latin-1 answers the player just gave during creation. */
+    if (GET_LEVEL(ch) == 0 && account.characters.size() > 1)
+        return;
+
     account.preferences = ppc_read_from_character(ch);
     if (!account.preferences.present)
         return;

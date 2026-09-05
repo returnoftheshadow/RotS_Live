@@ -3648,6 +3648,7 @@ void nanny(struct descriptor_data* d, char* arg)
                 + format_account_character_name_for_display(GET_NAME(d->character))
                 + " to your account.\n\r";
             SEND_TO_Q(success_message.c_str(), d);
+            ppc_apply_account_to_character(account_data.account_name.c_str(), d->character);
             clear_account_login_state(d);
             STATE(d) = CON_PLYNG;
         }
