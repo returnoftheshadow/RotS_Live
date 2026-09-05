@@ -1,9 +1,12 @@
 #include "../account_management.h"
 #include "../account_management_types.h"
+#include "../account_ppc.h"
 #include "../character_json.h"
 #include "../color.h"
+#include "../db.h"
 #include "../json_utils.h"
 #include "../structs.h"
+#include "../utils.h"
 
 #include <gtest/gtest.h>
 
@@ -249,6 +252,106 @@ TEST(AccountPpcStorage, MasksNonPpcBitsOutOnWriteAndRead)
     EXPECT_EQ(reloaded.preferences.preference_flags & PRF_NOTELL, 0)
         << "PRF_NOTELL must not survive deserialization either.";
     EXPECT_NE(reloaded.preferences.preference_flags & PRF_BRIEF, 0);
+}
+
+struct PpcTestCharacter {
+    PpcTestCharacter()
+        : character(new char_data {})
+    {
+        clear_char(character, MOB_VOID);
+        character->profs = &prof_storage;
+    }
+    ~PpcTestCharacter() { delete character; }
+
+    char_prof_data prof_storage {};
+    char_data* character;
+};
+
+TEST(AccountPpcApply, PreservesNonPpcPreferenceBits)
+{
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_NOTELL | PRF_SING | PRF_MENTAL | PRF_SWIM | PRF_BRIEF;
+
+    account::AccountPreferences preferences;
+    preferences.present = true;
+    preferences.preference_flags = PRF_COMPACT | PRF_MSDP;
+
+    ppc_write_to_character(preferences, subject.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_NOTELL));
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_SING));
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_MENTAL));
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_SWIM));
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_COMPACT));
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_MSDP));
+    EXPECT_FALSE(PRF_FLAGGED(subject.character, PRF_BRIEF))
+        << "A PPC bit clear on the account must be cleared on the character.";
+}
+
+TEST(AccountPpcApply, IsANoOpWhenPreferencesAreAbsent)
+{
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_NOTELL;
+
+    account::AccountPreferences preferences;
+    ppc_write_to_character(preferences, subject.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_BRIEF));
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_NOTELL));
+}
+
+TEST(AccountPpcApply, RoundTripsThroughACharacter)
+{
+    PpcTestCharacter source;
+    PRF_FLAGS(source.character) = PRF_BRIEF | PRF_WRAP | PRF_COLOR | PRF_NOTELL;
+    source.character->profs->colors[COLOR_CHAT] = CGRN;
+    source.character->profs->color_settings[COLOR_CHAT].foreground.mode = COLOR_VALUE_ANSI16;
+    source.character->profs->color_settings[COLOR_CHAT].foreground.ansi = CGRN;
+
+    const account::AccountPreferences preferences = ppc_read_from_character(source.character);
+    EXPECT_TRUE(preferences.present);
+    EXPECT_EQ(preferences.preference_flags & PRF_NOTELL, 0)
+        << "ppc_read_from_character must mask out non-PPC bits.";
+
+    PpcTestCharacter destination;
+    ppc_write_to_character(preferences, destination.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(destination.character, PRF_BRIEF));
+    EXPECT_TRUE(PRF_FLAGGED(destination.character, PRF_WRAP));
+    EXPECT_TRUE(PRF_FLAGGED(destination.character, PRF_COLOR));
+    EXPECT_EQ(destination.character->profs->colors[COLOR_CHAT], CGRN);
+    EXPECT_EQ(destination.character->profs->color_settings[COLOR_CHAT].foreground.ansi, CGRN);
+}
+
+TEST(AccountPpcEqual, DetectsFlagAndColourDifferences)
+{
+    account::AccountPreferences left;
+    left.present = true;
+    left.preference_flags = PRF_BRIEF;
+    account::AccountPreferences right = left;
+    EXPECT_TRUE(ppc_equal(left, right));
+
+    right.preference_flags |= PRF_COMPACT;
+    EXPECT_FALSE(ppc_equal(left, right));
+
+    right = left;
+    right.colors[COLOR_SAY] = CYEL;
+    EXPECT_FALSE(ppc_equal(left, right));
+
+    right = left;
+    right.color_settings[COLOR_SAY].background.mode = COLOR_VALUE_TRUECOLOR;
+    EXPECT_FALSE(ppc_equal(left, right));
+}
+
+TEST(AccountPpcEqual, IgnoresNonPpcBitsAndPresence)
+{
+    account::AccountPreferences left;
+    left.present = true;
+    left.preference_flags = PRF_BRIEF | PRF_NOTELL;
+    account::AccountPreferences right;
+    right.present = false;
+    right.preference_flags = PRF_BRIEF | PRF_SING;
+    EXPECT_TRUE(ppc_equal(left, right));
 }
 
 } // namespace

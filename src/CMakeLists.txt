@@ -38,6 +38,7 @@ set(ROTS_SERVER_SOURCES
     act_wiz.cpp
     account_management.cpp
     account_cache.cpp
+    account_ppc.cpp
     roster_cache.cpp
     character_json.cpp
     exploits_json.cpp
