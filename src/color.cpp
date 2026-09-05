@@ -496,7 +496,7 @@ int char_color_slot(struct char_data* target)
     return IS_NPC(target) ? COLOR_MOB : COLOR_CHAR;
 }
 
-ACMD(do_color)
+static void do_color_impl(struct char_data* ch, char* argument, struct waiting_type* wtl, int cmd, int subcmd)
 {
     int tmp, num, col;
     char option[MAX_INPUT_LENGTH];
@@ -660,5 +660,10 @@ ACMD(do_color)
         CC_USE(ch, num),
         color_color[col],
         CC_NORM(ch));
+}
+
+ACMD(do_color)
+{
+    do_color_impl(ch, argument, wtl, cmd, subcmd);
     ppc_propagate_from(ch);
 }

@@ -16,6 +16,12 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+// Declared exactly like account_ppc.cpp/act_othe.cpp/interpre.cpp -- descriptor_list has no
+// header declaration anywhere in the codebase. Must live at file scope (not inside the
+// anonymous namespace below) or it names a distinct per-translation-unit symbol instead of
+// the real global in comm.cpp.
+extern struct descriptor_data* descriptor_list;
+
 namespace {
 
 class TemporaryDirectory {
@@ -740,6 +746,73 @@ TEST(AccountPpcPropagate, IsSafeForNullAndSelf)
     ppc_copy_between_characters(subject.character, nullptr);
     ppc_copy_between_characters(subject.character, subject.character);
     EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_BRIEF));
+}
+
+TEST(AccountPpcPropagate, ReachesPlyngAndLinklsSiblingsButNotAnotherAccount)
+{
+    // descriptor_list is a real global (comm.cpp); hang a small fake chain off it for the
+    // duration of this test and restore whatever was there before we leave.
+    struct descriptor_data* const original_descriptor_list = descriptor_list;
+
+    PpcTestCharacter source;
+    PpcTestCharacter online_sibling;
+    PpcTestCharacter linkless_sibling;
+    PpcTestCharacter other_account_character;
+
+    descriptor_data source_desc {};
+    descriptor_data online_desc {};
+    descriptor_data linkless_desc {};
+    descriptor_data other_desc {};
+
+    std::strcpy(source_desc.account_name, "PropagateTester");
+    std::strcpy(online_desc.account_name, "PropagateTester");
+    std::strcpy(linkless_desc.account_name, "PropagateTester");
+    std::strcpy(other_desc.account_name, "SomeoneElse");
+
+    source_desc.character = source.character;
+    online_desc.character = online_sibling.character;
+    linkless_desc.character = linkless_sibling.character;
+    other_desc.character = other_account_character.character;
+
+    source.character->desc = &source_desc;
+    online_sibling.character->desc = &online_desc;
+    linkless_sibling.character->desc = &linkless_desc;
+    other_account_character.character->desc = &other_desc;
+
+    source_desc.connected = CON_PLYNG;
+    online_desc.connected = CON_PLYNG;
+    linkless_desc.connected = CON_LINKLS;
+    other_desc.connected = CON_PLYNG;
+
+    source_desc.next = &online_desc;
+    online_desc.next = &linkless_desc;
+    linkless_desc.next = &other_desc;
+    other_desc.next = nullptr;
+
+    descriptor_list = &source_desc;
+
+    PRF_FLAGS(source.character) = PRF_BRIEF;
+    PRF_FLAGS(online_sibling.character) = PRF_SPAM;
+    PRF_FLAGS(linkless_sibling.character) = PRF_SPAM;
+    PRF_FLAGS(other_account_character.character) = PRF_SPAM;
+
+    ppc_propagate_from(source.character);
+
+    descriptor_list = original_descriptor_list;
+
+    EXPECT_TRUE(PRF_FLAGGED(online_sibling.character, PRF_BRIEF))
+        << "A CON_PLYNG sibling on the same account must receive the change.";
+    EXPECT_FALSE(PRF_FLAGGED(online_sibling.character, PRF_SPAM));
+
+    EXPECT_TRUE(PRF_FLAGGED(linkless_sibling.character, PRF_BRIEF))
+        << "A CON_LINKLS sibling must receive the change too -- it stays resident with desc "
+           "attached and can otherwise be swept into the shutdown/reboot save loop with a "
+           "stale copy that clobbers this change.";
+    EXPECT_FALSE(PRF_FLAGGED(linkless_sibling.character, PRF_SPAM));
+
+    EXPECT_FALSE(PRF_FLAGGED(other_account_character.character, PRF_BRIEF))
+        << "A descriptor on a different account must not receive the change.";
+    EXPECT_TRUE(PRF_FLAGGED(other_account_character.character, PRF_SPAM));
 }
 
 } // namespace
