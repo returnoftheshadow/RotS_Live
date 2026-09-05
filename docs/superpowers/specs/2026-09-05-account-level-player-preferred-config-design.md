@@ -57,7 +57,7 @@ colour scheme per character.
 | The 12 PPC toggles | `PRF_*` bits in `char_data`, serialized by `kPreferenceFlags[]`, `character_json.cpp:55` |
 | Colour slots | `ch->profs->colors[16]` and `ch->profs->color_settings[16]`, `structs.h:1291` |
 | Colour on/off | `PRF_COLOR` |
-| Account record | `AccountData`, `account_management_types.h:28` — no preference storage of any kind, schema version 1 |
+| Account record | `AccountData`, `account_management_types.h:54` — schema version 1. Already carries one account-level player preference, `roster_sort` (`account_management_types.h:64`), added by the merged roster sort/filter work |
 | Account name at runtime | `d->account_name`, `structs.h:2027`, set at login, valid for the whole session |
 
 Relevant existing behaviour:
@@ -129,9 +129,20 @@ integer — the file stays human-readable and survives any future bit renumberin
 reuse the existing `ColorSettingData` JSON shape verbatim so the codebase has one colour
 serialization format rather than two.
 
-`ACCOUNT_SCHEMA_VERSION` goes from 1 to 2. A version-1 file has no `preferences` key and loads
-successfully with `present == false`, which is exactly the signal that the account still needs
-seeding. Old files are never rejected.
+**`ACCOUNT_SCHEMA_VERSION` stays at 1. Do not bump it.**
+`deserialize_account_from_json` rejects any file whose version is not *exactly*
+`ACCOUNT_SCHEMA_VERSION` (`account_management_storage.cpp:143`), so a bump would make every
+existing account file fail to load rather than migrating it — a total lockout.
+
+The additive path is already proven on this branch: `roster_sort` was added to `AccountData`
+without a version bump, because `parse_account_property` ends in `return reader->skip_value(...)`
+(`account_management.cpp:1489`) — an unrecognised key is skipped, never fatal. So `preferences`
+is written as an optional key at version 1. An account file without it parses fine and yields
+`present == false`, which is the seeding signal; and a binary rolled back to before this change
+skips the key harmlessly instead of choking on it.
+
+Placement in the serializer follows the existing `roster_sort` convention: written *before*
+`password_reset_attempt_count`, which must remain the final comma-less field.
 
 ### Runtime flow
 
@@ -212,7 +223,8 @@ A brand-new account's first character still sees both prompts, and its answers s
 - **Account write fails at save:** log and continue. The character save itself is unaffected.
   This matches how `save_char` already handles a failed account-character-file write
   (`db.cpp:3223`).
-- **Version-1 account file:** loads with `present == false` and is seeded on next play.
+- **Account file with no `preferences` key:** loads with `present == false` and is seeded on
+  next play. This is the normal state of every account before this change ships.
 
 ## Testing
 
@@ -220,8 +232,10 @@ A brand-new account's first character still sees both prompts, and its answers s
 
 - `preferences` round-trips through serialize/deserialize, including a mix of default, ANSI-16
   and truecolor slots.
-- A version-1 `account.json` with no `preferences` key loads successfully with
-  `present == false`.
+- An `account.json` with no `preferences` key loads successfully with `present == false` and
+  `version == 1` — the pre-change state of every live account.
+- An `account.json` containing a `preferences` key still reports `version == 1`, confirming no
+  bump was introduced.
 - Masked apply: a character with `notell`, `sing` and `incognito` set retains all three after an
   account PPC apply in which those bits are clear.
 - Compare-before-write: an unchanged PPC produces zero account writes; a single changed bit
@@ -254,8 +268,9 @@ character left in the world causes later selections to reconnect to it and fakes
 
 | File | Change |
 |---|---|
-| `account_management_types.h` | `AccountPreferences` struct; `AccountData::preferences`; schema version 1 → 2 |
-| `account_management_storage.cpp` | Serialize and deserialize the `preferences` object |
+| `account_management_types.h` | `AccountPreferences` struct; `AccountData::preferences`. Schema version stays 1 |
+| `account_management_storage.cpp` | Serialize the `preferences` object |
+| `account_management.cpp` | Parse the `preferences` key in `parse_account_property` |
 | `structs.h` | The PPC mask constant, beside the `PRF_*` defines it is built from |
 | `db.cpp` | Compare-and-write the account PPC in `save_char` |
 | `interpre.cpp` | `apply_account_ppc_to_character` calls on the enter-game paths; the two creation helpers; skip logic |
