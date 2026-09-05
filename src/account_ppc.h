@@ -45,4 +45,14 @@ bool ppc_store_character_to_account_in(const std::string& root_directory,
     const std::string& account_name, const struct char_data* ch);
 void ppc_store_character_to_account(const std::string& account_name, const struct char_data* ch);
 
+/* Copy one character's PPC onto another, masked. Used to keep an account's characters in
+   step while more than one is online. */
+void ppc_copy_between_characters(const struct char_data* source, struct char_data* destination);
+
+/* Push this character's PPC to every other playing character on the same account. Called
+   after any command that can change a PPC value. Without it, a second character's save
+   would write its stale copy over the change the player just made. Walks descriptor_list --
+   connected sockets, not linked characters -- so the cost is bounded by players online. */
+void ppc_propagate_from(const struct char_data* ch);
+
 #endif /* ACCOUNT_PPC_H */

@@ -7,6 +7,8 @@
 
 #include <cstring>
 
+extern struct descriptor_data* descriptor_list;
+
 account::AccountPreferences ppc_read_from_character(const struct char_data* ch)
 {
     account::AccountPreferences preferences;
@@ -124,4 +126,41 @@ bool ppc_store_character_to_account_in(const std::string& root_directory,
 void ppc_store_character_to_account(const std::string& account_name, const struct char_data* ch)
 {
     ppc_store_character_to_account_in(".", account_name, ch);
+}
+
+void ppc_copy_between_characters(const struct char_data* source, struct char_data* destination)
+{
+    if (source == nullptr || destination == nullptr || source == destination)
+        return;
+    ppc_write_to_character(ppc_read_from_character(source), destination);
+}
+
+void ppc_propagate_from(const struct char_data* ch)
+{
+    if (ch == nullptr || ch->desc == nullptr || *ch->desc->account_name == '\0')
+        return;
+
+    const std::string account_name = account::normalize_account_name(ch->desc->account_name);
+    if (account_name.empty())
+        return;
+
+    for (descriptor_data* descriptor = descriptor_list; descriptor; descriptor = descriptor->next) {
+        if (descriptor == ch->desc)
+            continue;
+        /* Cover CON_LINKLS as well as CON_PLYNG: a linkdead body is still resident in
+           character_list with ch->desc attached (see comm.cpp's close_socket, which
+           deliberately leaves that pointer set), and the shutdown/reboot save loop in
+           comm.cpp saves every non-NPC character with a desc regardless of connection
+           state. Without this, a sibling who goes linkless right before another
+           character's change would have that change clobbered by its own stale
+           in-memory copy the next time the server saves everyone at shutdown. */
+        if (descriptor->connected != CON_PLYNG && descriptor->connected != CON_LINKLS)
+            continue;
+        char_data* other = descriptor->character;
+        if (other == nullptr || other == ch || IS_NPC(other) || other->desc != descriptor)
+            continue;
+        if (account::normalize_account_name(descriptor->account_name) != account_name)
+            continue;
+        ppc_copy_between_characters(ch, other);
+    }
 }

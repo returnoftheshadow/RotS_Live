@@ -711,4 +711,35 @@ TEST(AccountPpcSave, PreservesUnrelatedAccountFields)
     EXPECT_EQ(reloaded.characters[0], "someone");
 }
 
+TEST(AccountPpcPropagate, CopiesPpcBitsAndColoursBetweenCharacters)
+{
+    PpcTestCharacter source;
+    PpcTestCharacter destination;
+    PRF_FLAGS(source.character) = PRF_BRIEF | PRF_COMPACT | PRF_NOTELL;
+    source.character->profs->colors[COLOR_HIT] = CBRED;
+    PRF_FLAGS(destination.character) = PRF_SPAM | PRF_SING;
+
+    ppc_copy_between_characters(source.character, destination.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(destination.character, PRF_BRIEF));
+    EXPECT_TRUE(PRF_FLAGGED(destination.character, PRF_COMPACT));
+    EXPECT_FALSE(PRF_FLAGGED(destination.character, PRF_SPAM))
+        << "A PPC bit clear on the source must be cleared on the destination.";
+    EXPECT_TRUE(PRF_FLAGGED(destination.character, PRF_SING))
+        << "Non-PPC bits belong to the character and must survive.";
+    EXPECT_FALSE(PRF_FLAGGED(destination.character, PRF_NOTELL))
+        << "A non-PPC bit must not be carried across from the source.";
+    EXPECT_EQ(destination.character->profs->colors[COLOR_HIT], CBRED);
+}
+
+TEST(AccountPpcPropagate, IsSafeForNullAndSelf)
+{
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF;
+    ppc_copy_between_characters(nullptr, subject.character);
+    ppc_copy_between_characters(subject.character, nullptr);
+    ppc_copy_between_characters(subject.character, subject.character);
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_BRIEF));
+}
+
 } // namespace

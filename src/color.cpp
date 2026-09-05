@@ -7,6 +7,7 @@
 #include <string>
 #include <string.h>
 
+#include "account_ppc.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -659,4 +660,5 @@ ACMD(do_color)
         CC_USE(ch, num),
         color_color[col],
         CC_NORM(ch));
+    ppc_propagate_from(ch);
 }
