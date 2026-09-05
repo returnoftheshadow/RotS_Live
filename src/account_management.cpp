@@ -1529,14 +1529,15 @@ namespace {
                     if (!nested_reader->parse_string_array(&flag_names, nested_error_message))
                         return false;
                     long flags = 0;
-                    if (!character_json::decode_preference_flags(flag_names, &flags, nested_error_message))
+                    if (!character_json::decode_preference_flags(flag_names, &flags, nested_error_message, /*skip_unknown_names=*/true))
                         return false;
                     account->preferences.preference_flags = flags & PPC_PRF_MASK;
                     return true;
                 }
                 if (nested_key == "colors") {
                     return character_json::parse_color_slots_object(nested_reader,
-                        account->preferences.colors, account->preferences.color_settings, nested_error_message);
+                        account->preferences.colors, account->preferences.color_settings, nested_error_message,
+                        /*skip_unknown_keys=*/true);
                 }
                 return nested_reader->skip_value(nested_error_message);
             },

@@ -168,7 +168,7 @@ std::vector<std::string> encode_affected_flags(long flags);
 std::vector<std::string> encode_hide_flags(long flags);
 
 bool decode_player_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
-bool decode_preference_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
+bool decode_preference_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr, bool skip_unknown_names = false);
 bool decode_affected_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
 bool decode_hide_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
 
@@ -178,7 +178,7 @@ bool decode_hide_flags(const std::vector<std::string>& names, long* flags, std::
 // then fills them from one JSON object; both arrays must hold MAX_COLOR_FIELDS entries.
 std::string encode_color_slots_object(const char* colors, const color_slot_data* color_settings);
 bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
-    color_slot_data* color_settings, std::string* error_message = nullptr);
+    color_slot_data* color_settings, std::string* error_message = nullptr, bool skip_unknown_keys = false);
 
 } // namespace character_json
 

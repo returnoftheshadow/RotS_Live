@@ -194,4 +194,61 @@ TEST(AccountPpcStorage, PreferencesKeyIsNotTheFinalField)
         << "password_reset_attempt_count must stay the last, comma-less field.";
 }
 
+// A rolled-back binary must still boot when an account.json was written by a later build that
+// added a PRF flag or colour slot this binary doesn't know about (db.cpp aborts the whole boot
+// on any account that fails to parse). An unrecognised name inside "preferences" must be
+// skipped, not fatal -- unlike the "unknown name is fatal" behaviour for character files, which
+// is untouched (see CharacterJson.RejectsUnknownPreferenceFlagNameByDefault below).
+TEST(AccountPpcStorage, PreferencesBlockSkipsUnknownFlagAndColorNamesInsteadOfFailingToParse)
+{
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    account.preferences.colors[COLOR_NARR] = CRED;
+    account.preferences.color_settings[COLOR_NARR].foreground.mode = COLOR_VALUE_ANSI16;
+    account.preferences.color_settings[COLOR_NARR].foreground.ansi = CRED;
+
+    std::string json = account::serialize_account_to_json(account);
+    ASSERT_NE(json.find("\"flags\": [\"brief\"]"), std::string::npos) << json;
+    ASSERT_NE(json.find("\"colors\": {\"narrate\""), std::string::npos) << json;
+
+    // Simulate a future build's account.json: an unrecognised flag name mixed in with a known
+    // one, and an unrecognised colour key (with an arbitrary value shape -- skip_value must
+    // accept any well-formed JSON value) alongside a known colour slot.
+    json.replace(json.find("\"flags\": [\"brief\"]"), std::string("\"flags\": [\"brief\"]").size(),
+        "\"flags\": [\"brief\", \"future_flag_from_a_later_build\"]");
+    json.replace(json.find("\"colors\": {\"narrate\""), std::string("\"colors\": {").size(),
+        "\"colors\": {\"future_color_slot\": 12345, ");
+
+    account::AccountData reloaded;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &reloaded, &error_message)) << error_message;
+
+    EXPECT_TRUE(reloaded.preferences.present);
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF);
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_NARR], CRED);
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_NARR].foreground.mode, COLOR_VALUE_ANSI16);
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_NARR].foreground.ansi, CRED);
+}
+
+TEST(AccountPpcStorage, MasksNonPpcBitsOutOnWriteAndRead)
+{
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    // PRF_NOTELL is a character/mood setting, not a PPC option -- it must never survive the
+    // account-level round trip.
+    account.preferences.preference_flags = PRF_BRIEF | PRF_NOTELL;
+
+    const std::string json = account::serialize_account_to_json(account);
+    EXPECT_EQ(json.find("\"notell\""), std::string::npos)
+        << "PRF_NOTELL is not a PPC bit and must not be emitted.";
+
+    account::AccountData reloaded;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &reloaded, &error_message)) << error_message;
+    EXPECT_EQ(reloaded.preferences.preference_flags & PRF_NOTELL, 0)
+        << "PRF_NOTELL must not survive deserialization either.";
+    EXPECT_NE(reloaded.preferences.preference_flags & PRF_BRIEF, 0);
+}
+
 } // namespace

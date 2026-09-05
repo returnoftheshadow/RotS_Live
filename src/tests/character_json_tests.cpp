@@ -259,6 +259,20 @@ TEST(CharacterJson, RejectsUnknownFlagNamesWhenDecoding)
     EXPECT_NE(error_message.find("Unknown player flag"), std::string::npos);
 }
 
+// decode_preference_flags gained a defaulted skip_unknown_names parameter so the account-level
+// PPC store can tolerate a name it doesn't recognise (a rolled-back binary must still boot).
+// Character-file parsing must keep calling it with the default (false) and keep rejecting an
+// unknown name outright -- this is a deliberately separate, still-open issue for character
+// files, not something this change should silently fix.
+TEST(CharacterJson, RejectsUnknownPreferenceFlagNameByDefault)
+{
+    long flags = 0;
+    std::string error_message;
+
+    EXPECT_FALSE(character_json::decode_preference_flags({ "brief", "mystery_flag" }, &flags, &error_message));
+    EXPECT_NE(error_message.find("Unknown preference flag"), std::string::npos);
+}
+
 TEST(CharacterJson, BuildsCharacterDataFromStoredCharacterUsingMysticProfessionName)
 {
     const char_file_u stored = make_stored_character();

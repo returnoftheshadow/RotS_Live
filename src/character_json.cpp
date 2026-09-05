@@ -524,7 +524,7 @@ namespace {
         return names;
     }
 
-    bool decode_flags(const std::vector<std::string>& names, const FlagDefinition* definitions, size_t definition_count, long* flags, const char* flag_type, std::string* error_message)
+    bool decode_flags(const std::vector<std::string>& names, const FlagDefinition* definitions, size_t definition_count, long* flags, const char* flag_type, std::string* error_message, bool skip_unknown_names = false)
     {
         if (flags == nullptr) {
             set_error(error_message, std::string(flag_type) + " flags output parameter must not be null.");
@@ -538,6 +538,8 @@ namespace {
             });
 
             if (definition == definitions + definition_count) {
+                if (skip_unknown_names)
+                    continue;
                 set_error(error_message, "Unknown " + std::string(flag_type) + " flag '" + name + "'.");
                 return false;
             }
@@ -1855,7 +1857,7 @@ std::string encode_color_slots_object(const char* colors, const color_slot_data*
 }
 
 bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
-    color_slot_data* color_settings, std::string* error_message)
+    color_slot_data* color_settings, std::string* error_message, bool skip_unknown_keys)
 {
     if (reader == nullptr || colors == nullptr || color_settings == nullptr) {
         set_error(error_message, "Colour slot parser requires non-null parameters.");
@@ -1865,10 +1867,12 @@ bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
     std::vector<int> parsed_colors(MAX_COLOR_FIELDS, 0);
     std::vector<ColorSettingData> parsed_settings(MAX_COLOR_FIELDS, default_color_setting());
 
-    if (!reader->parse_object([&parsed_colors, &parsed_settings](const std::string& key,
+    if (!reader->parse_object([&parsed_colors, &parsed_settings, skip_unknown_keys](const std::string& key,
                                   json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
             const int index = color_index_for_key(key);
             if (index < 0) {
+                if (skip_unknown_keys)
+                    return nested_reader->skip_value(nested_error_message);
                 set_error(nested_error_message, "Unknown color key.");
                 return false;
             }
@@ -3066,9 +3070,9 @@ bool decode_player_flags(const std::vector<std::string>& names, long* flags, std
     return decode_flags(names, kPlayerFlags, sizeof(kPlayerFlags) / sizeof(kPlayerFlags[0]), flags, "player", error_message);
 }
 
-bool decode_preference_flags(const std::vector<std::string>& names, long* flags, std::string* error_message)
+bool decode_preference_flags(const std::vector<std::string>& names, long* flags, std::string* error_message, bool skip_unknown_names)
 {
-    return decode_flags(names, kPreferenceFlags, sizeof(kPreferenceFlags) / sizeof(kPreferenceFlags[0]), flags, "preference", error_message);
+    return decode_flags(names, kPreferenceFlags, sizeof(kPreferenceFlags) / sizeof(kPreferenceFlags[0]), flags, "preference", error_message, skip_unknown_names);
 }
 
 bool decode_affected_flags(const std::vector<std::string>& names, long* flags, std::string* error_message)
