@@ -25,6 +25,13 @@ void ppc_write_to_character(const account::AccountPreferences& preferences, stru
    save_char uses this to write the account only when something actually changed. */
 bool ppc_equal(const account::AccountPreferences& left, const account::AccountPreferences& right);
 
+/* THE INVARIANT: a character may never write its PPC to the account before it has read the
+   account's PPC. ppc_apply_account_to_character_in is the only thing that sets
+   char_data::ppc_account_loaded (a runtime-only, never-serialized flag), and
+   ppc_store_character_to_account_in refuses to write the account while it is false. Callers
+   should still apply before they save -- it reads better -- but correctness does not depend on
+   them getting the order right. */
+
 /* Apply the account's stored PPC to a character at login. When the account has none yet,
    seed it from this character and write it once -- that is the migration path, and the
    seeding character is by definition the account's most recently played one.
@@ -38,7 +45,8 @@ void ppc_apply_account_to_character_in(const std::string& root_directory,
     const char* account_name, struct char_data* ch);
 
 /* Write a character's PPC back to its account, but only when it actually differs from what
-   is stored. The compare matters: write_account_file triggers a full account_cache flush,
+   is stored, and only once this character has read the account's PPC (see THE INVARIANT
+   above). The compare matters: write_account_file triggers a full account_cache flush,
    and the cache assumes account mutations never happen on the save path. Returns true only
    when a write occurred. */
 bool ppc_store_character_to_account_in(const std::string& root_directory,

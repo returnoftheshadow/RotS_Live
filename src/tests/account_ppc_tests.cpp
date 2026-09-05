@@ -332,6 +332,22 @@ struct PpcTestCharacter {
     char_data* character;
 };
 
+// ppc_store_character_to_account_in refuses to write the account until the character has read
+// it (char_data::ppc_account_loaded, set only by ppc_apply_account_to_character_in). Tests that
+// are about the *store* logic rather than about the invariant itself stand in for that read
+// with this helper, so they keep asserting what they were written to assert.
+void mark_account_ppc_read(char_data* character)
+{
+    character->ppc_account_loaded = true;
+}
+
+TEST(AccountPpcInvariant, AFreshCharacterHasNotReadItsAccountYet)
+{
+    PpcTestCharacter subject;
+    EXPECT_FALSE(subject.character->ppc_account_loaded)
+        << "clear_char must leave the flag false, or the guard is open on every new character.";
+}
+
 TEST(AccountPpcApply, PreservesNonPpcPreferenceBits)
 {
     PpcTestCharacter subject;
@@ -549,6 +565,7 @@ TEST(AccountPpcSave, DoesNotWriteWhenNothingChanged)
 
     PpcTestCharacter subject;
     PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_WRAP | PRF_NOTELL;
+    mark_account_ppc_read(subject.character);
 
     EXPECT_FALSE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
         << "An unchanged PPC must not write the account: every write flushes the account cache.";
@@ -572,6 +589,7 @@ TEST(AccountPpcSave, DoesNotWriteWhenTheAccountHasNoPreferencesYet)
     // seeding guard (which AccountPpcSave.DoesNotSeedFromABrandNewCharacter... covers).
     GET_LEVEL(subject.character) = 10;
     PRF_FLAGS(subject.character) = PRF_BRIEF;
+    mark_account_ppc_read(subject.character);
 
     EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
         << "A character's first save must store the account's not-yet-present PPC.";
@@ -596,6 +614,7 @@ TEST(AccountPpcSave, DoesNotSeedFromABrandNewCharacterWhenTheAccountHasOtherLink
     ASSERT_EQ(GET_LEVEL(subject.character), 0);
     PRF_FLAGS(subject.character) = PRF_BRIEF;
     subject.character->profs->colors[COLOR_SAY] = CYEL;
+    mark_account_ppc_read(subject.character);
 
     EXPECT_FALSE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
         << "A brand-new character's untouched defaults must not seed an account that already "
@@ -619,6 +638,7 @@ TEST(AccountPpcSave, SeedsFromABrandNewCharacterWhenItIsTheOnlyLinkedCharacter)
     ASSERT_EQ(GET_LEVEL(subject.character), 0);
     PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_LATIN1;
     subject.character->profs->colors[COLOR_SAY] = CYEL;
+    mark_account_ppc_read(subject.character);
 
     EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
         << "The first character on a brand-new account must still be able to store its PPC.";
@@ -665,6 +685,7 @@ TEST(AccountPpcSave, WritesWhenAFlagChanged)
 
     PpcTestCharacter subject;
     PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_COMPACT;
+    mark_account_ppc_read(subject.character);
 
     EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character));
 
@@ -686,6 +707,7 @@ TEST(AccountPpcSave, WritesWhenAColourChanged)
     subject.character->profs->colors[COLOR_YELL] = CBMAG;
     subject.character->profs->color_settings[COLOR_YELL].foreground.mode = COLOR_VALUE_ANSI16;
     subject.character->profs->color_settings[COLOR_YELL].foreground.ansi = CBMAG;
+    mark_account_ppc_read(subject.character);
 
     EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character));
 
@@ -707,6 +729,7 @@ TEST(AccountPpcSave, PreservesUnrelatedAccountFields)
 
     PpcTestCharacter subject;
     PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_COMPACT;
+    mark_account_ppc_read(subject.character);
     ASSERT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character));
 
     account::AccountData reloaded;
@@ -715,6 +738,201 @@ TEST(AccountPpcSave, PreservesUnrelatedAccountFields)
     EXPECT_TRUE(reloaded.email_verified);
     ASSERT_EQ(reloaded.characters.size(), 1u);
     EXPECT_EQ(reloaded.characters[0], "someone");
+}
+
+// THE regression test for the live bug found on a booted server: logging into any character
+// silently reverted the account's shared PPC to that character's last-saved values, because the
+// enter-game path called save_char (which stores the PPC) before it applied the account's PPC.
+// This is that shape reduced to its essentials -- a store with no apply anywhere before it --
+// and it fails against the pre-fix code, which happily overwrites the account here.
+TEST(AccountPpcInvariant, StoringBeforeAnyApplyLeavesTheAccountUntouched)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "established", "justloggedin" };
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF | PRF_COMPACT;
+    account.preferences.colors[COLOR_NARR] = CRED;
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    const std::string account_path = account::account_file_path(root.path(), account.normalized_email);
+    std::string bytes_before;
+    ASSERT_TRUE(account::read_text_file(account_path, &bytes_before, nullptr));
+
+    // A character freshly loaded from its own player file: level 10 so no seeding guard is in
+    // play, and a PPC that genuinely differs from the account's, exactly like the live repro
+    // where one character had brief/compact/red narrate and the other did not.
+    PpcTestCharacter subject;
+    GET_LEVEL(subject.character) = 10;
+    PRF_FLAGS(subject.character) = PRF_SPAM | PRF_NOTELL;
+    subject.character->profs->colors[COLOR_NARR] = CYEL;
+    ASSERT_FALSE(subject.character->ppc_account_loaded);
+
+    EXPECT_FALSE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
+        << "A character that has not read the account's PPC must never write it.";
+
+    std::string bytes_after;
+    ASSERT_TRUE(account::read_text_file(account_path, &bytes_after, nullptr));
+    EXPECT_EQ(bytes_before, bytes_after)
+        << "The account file must be byte-identical: a stale character overwriting it here is "
+           "exactly how one character's login used to discard another character's settings.";
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF | PRF_COMPACT);
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_NARR], CRED);
+}
+
+// The other half of the same guarantee: once the character has read the account, an actual
+// change made during play still reaches the account. A guard that blocked everything would pass
+// the test above and break the feature outright.
+TEST(AccountPpcInvariant, ApplyThenChangeThenStoreUpdatesTheAccount)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "established", "justloggedin" };
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    account.preferences.colors[COLOR_NARR] = CRED;
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    GET_LEVEL(subject.character) = 10;
+    PRF_FLAGS(subject.character) = PRF_SPAM | PRF_NOTELL;
+    subject.character->profs->colors[COLOR_NARR] = CYEL;
+
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), subject.character);
+    EXPECT_TRUE(subject.character->ppc_account_loaded)
+        << "A successful apply is what opens the guard.";
+    ASSERT_TRUE(PRF_FLAGGED(subject.character, PRF_BRIEF));
+    ASSERT_EQ(subject.character->profs->colors[COLOR_NARR], CRED);
+
+    // The player now changes something in game, as do_gen_tog/do_color would. set_colornum is
+    // what do_color uses: it updates the colour slot's setting as well as the legacy colors[]
+    // byte, and it is the setting that the account file is encoded from.
+    SET_BIT(PRF_FLAGS(subject.character), PRF_COMPACT);
+    set_colornum(subject.character, COLOR_NARR, CBLU);
+
+    EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character))
+        << "A real change made after the apply must still reach the account.";
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF | PRF_COMPACT);
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_NARR], CBLU);
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_NOTELL))
+        << "Non-PPC bits stay the character's own throughout.";
+}
+
+// The live sequence, in the wrong order on purpose: this is what interpre.cpp's enter-game
+// branch did (save_char, then apply). The ordering there is fixed, but the point of the guard is
+// that even this order is harmless -- the account keeps the sibling's settings and the character
+// still ends up wearing them.
+TEST(AccountPpcInvariant, SavingBeforeApplyingCannotDiscardASiblingsSettings)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "debugbot", "bashtest" };
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    // Character A plays and stores brief + compact + red narrate on the account.
+    PpcTestCharacter first;
+    GET_LEVEL(first.character) = 10;
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), first.character);
+    PRF_FLAGS(first.character) = PRF_BRIEF | PRF_COMPACT;
+    first.character->profs->colors[COLOR_NARR] = CRED;
+    ASSERT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, first.character));
+
+    // Character B now logs in with its own older settings still in the struct, and its login
+    // path saves before it applies.
+    PpcTestCharacter second;
+    GET_LEVEL(second.character) = 10;
+    PRF_FLAGS(second.character) = PRF_SPAM;
+    second.character->profs->colors[COLOR_NARR] = CYEL;
+
+    EXPECT_FALSE(ppc_store_character_to_account_in(root.path(), account.account_name, second.character))
+        << "The save that runs before the apply must be refused, not merely harmless.";
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), second.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(second.character, PRF_BRIEF));
+    EXPECT_TRUE(PRF_FLAGGED(second.character, PRF_COMPACT));
+    EXPECT_FALSE(PRF_FLAGGED(second.character, PRF_SPAM));
+    EXPECT_EQ(second.character->profs->colors[COLOR_NARR], CRED)
+        << "Settings must follow the player onto the character that just logged in.";
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF | PRF_COMPACT)
+        << "The account must still hold the sibling's settings, not the logging-in "
+           "character's stale copy.";
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_NARR], CRED);
+}
+
+// Seeding is the migration path, and it leaves the account holding exactly this character's
+// PPC -- the same reconciled state a successful apply leaves -- so it opens the guard too.
+// Without this, the first character on a brand-new account could never save a later change.
+TEST(AccountPpcInvariant, SeedingAnEmptyAccountAlsoCountsAsHavingRead)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "onlyone" };
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_LATIN1;
+
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), subject.character);
+    EXPECT_TRUE(subject.character->ppc_account_loaded);
+
+    SET_BIT(PRF_FLAGS(subject.character), PRF_COMPACT);
+    EXPECT_TRUE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character));
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF | PRF_LATIN1 | PRF_COMPACT);
+}
+
+// An apply that could not read the account learned nothing, so it must not open the guard:
+// otherwise a transient read failure at login would licence the next save to overwrite the
+// account with whatever the character happened to be carrying.
+TEST(AccountPpcInvariant, AFailedApplyDoesNotOpenTheGuard)
+{
+    TemporaryDirectory root;
+    PpcTestCharacter subject;
+    GET_LEVEL(subject.character) = 10;
+    PRF_FLAGS(subject.character) = PRF_BRIEF;
+
+    ppc_apply_account_to_character_in(root.path(), "nosuchaccount", subject.character);
+    EXPECT_FALSE(subject.character->ppc_account_loaded);
+
+    ppc_apply_account_to_character_in(root.path(), "", subject.character);
+    ppc_apply_account_to_character_in(root.path(), nullptr, subject.character);
+    EXPECT_FALSE(subject.character->ppc_account_loaded);
+}
+
+// The level-0 refusal in ppc_apply_account_to_character_in deliberately leaves the account
+// alone, so the character has not reconciled with it and must not be able to write it later
+// either -- the store path's own level-0 guard stops caring the moment the character levels.
+TEST(AccountPpcInvariant, RefusingToSeedFromABrandNewCharacterDoesNotOpenTheGuard)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "established", "brandnew" };
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    ASSERT_EQ(GET_LEVEL(subject.character), 0);
+    PRF_FLAGS(subject.character) = PRF_BRIEF;
+
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), subject.character);
+    EXPECT_FALSE(subject.character->ppc_account_loaded);
+
+    GET_LEVEL(subject.character) = 1;
+    EXPECT_FALSE(ppc_store_character_to_account_in(root.path(), account.account_name, subject.character));
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_FALSE(reloaded.preferences.present);
 }
 
 TEST(AccountPpcPropagate, CopiesPpcBitsAndColoursBetweenCharacters)

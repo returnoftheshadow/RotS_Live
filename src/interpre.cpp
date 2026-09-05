@@ -4394,8 +4394,13 @@ void nanny(struct descriptor_data* d, char* arg)
             // endnew
             reset_char(d->character);
             load_character(d->character); // new function in objsave
-            save_char(d->character, d->character->in_room, 0);
+            // Apply before saving, never after: save_char writes the character's PPC back to
+            // the account, so saving first would push this character's stale, just-loaded copy
+            // over whatever a sibling character last changed. ppc_store_character_to_account
+            // also refuses to write until the apply has happened, so the invariant holds even
+            // if this ordering is later disturbed -- but the order is what a reader sees first.
             ppc_apply_account_to_character(d->account_name, d->character);
+            save_char(d->character, d->character->in_room, 0);
             STATE(d) = CON_PLYNG;
             report_news(d->character);
             report_mail(d->character);
@@ -4900,6 +4905,10 @@ void introduce_char(struct descriptor_data* d)
         }
         if (GET_LEVEL(d->character) == 1)
             add_exploit_record(EXPLOIT_BIRTH, d->character, 0, NULL);
+        // Same apply-before-save rule as the enter-game path. On a brand-new account this is
+        // what seeds the account from the colour/latin-1 answers just given; on an account that
+        // already has a scheme it re-applies it, so the save below cannot write anything else.
+        ppc_apply_account_to_character(d->account_name, d->character);
         save_char(d->character, initial_load_room, 0);
     } else
         save_char(d->character, NOWHERE, 0);

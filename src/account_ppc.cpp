@@ -57,6 +57,8 @@ void ppc_apply_account_to_character_in(const std::string& root_directory,
 
     if (account.preferences.present) {
         ppc_write_to_character(account.preferences, ch);
+        /* The character has now read the account: it is allowed to write back. */
+        ch->ppc_account_loaded = true;
         return;
     }
 
@@ -75,7 +77,15 @@ void ppc_apply_account_to_character_in(const std::string& root_directory,
     if (!account::write_account_file(root_directory, account, &error_message)) {
         vmudlog(NRM, "ppc: could not seed preferences for account %s: %s",
             account_name, error_message.c_str());
+        return;
     }
+
+    /* The account now holds exactly this character's PPC, which is the same reconciled state
+       the apply branch above leaves behind, so this character may write back too. Note what is
+       deliberately NOT marked: a failed read, a failed seed write, and the level-0 "refused to
+       seed" case above all leave the flag false, because in none of them is the character's PPC
+       known to agree with the account's. */
+    ch->ppc_account_loaded = true;
 }
 
 void ppc_apply_account_to_character(const char* account_name, struct char_data* ch)
@@ -87,6 +97,16 @@ bool ppc_store_character_to_account_in(const std::string& root_directory,
     const std::string& account_name, const struct char_data* ch)
 {
     if (account_name.empty() || ch == nullptr || ch->profs == nullptr)
+        return false;
+
+    /* The invariant: a character may never write its PPC to the account before it has read the
+       account's PPC. Enforced here rather than by ordering the callers, because save_char is
+       reached from several connection-state branches (bad password, character selection, enter
+       the game, self-delete, character creation) and the state machine keeps growing new ones.
+       Without this, a character whose local copy has gone stale -- every login loads the
+       character file before the account is consulted -- silently overwrites whatever a sibling
+       character last changed, which is exactly the account-level promise the feature makes. */
+    if (!ch->ppc_account_loaded)
         return false;
 
     const account::AccountPreferences current = ppc_read_from_character(ch);

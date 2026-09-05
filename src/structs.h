@@ -1796,6 +1796,15 @@ public:
     int interrupt_time = 0; /* Meant to be a countdown timer to remove 1 from interrupt_count */
 
     bool spec_busy;
+
+    /* Runtime only -- deliberately NOT part of char_file_u, so it is never serialized:
+       char_to_store/store_to_char copy field by field and neither knows about this. True once
+       this character has read its account's Player Preferred Config (see account_ppc.cpp).
+       ppc_store_character_to_account refuses to write the account until it is true, which is
+       what stops any login path from overwriting a sibling character's shared settings with
+       this character's stale, pre-login copy. clear_char() memsets char_data, so it starts
+       false for every freshly created character regardless of call ordering. */
+    bool ppc_account_loaded = false;
 };
 
 struct race_bodypart_data {
