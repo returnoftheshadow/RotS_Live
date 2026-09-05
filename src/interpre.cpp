@@ -3691,7 +3691,21 @@ void nanny(struct descriptor_data* d, char* arg)
                 + " to your account.\n\r";
             SEND_TO_Q(success_message.c_str(), d);
             ppc_apply_account_to_character(account_data.account_name.c_str(), d->character);
+            /* Unlike every other caller of clear_account_login_state, this one hands the
+               descriptor straight back to CON_PLYNG instead of ending or restarting the
+               session, so the login scratch state (email, password, pending character name)
+               must go but the account identity must not: from here on this descriptor really
+               is an authenticated session of that account, and every account-level path keyed
+               off d->account_name -- PPC propagation, the live-sibling lookup, the account
+               menu's active-session scan -- reads an empty name as "not an account session".
+               save_char meanwhile resolves the owning account from the character-link index,
+               not from this field, so it keeps writing the account regardless. Leaving the
+               name cleared is what makes two characters of one account write each other's
+               settings back and forth on alternating autosaves, each write also flushing the
+               global account cache. Restore it, the way every other route into CON_PLYNG
+               leaves it populated. */
             clear_account_login_state(d);
+            set_account_login_name(d, account_data.account_name);
             STATE(d) = CON_PLYNG;
         }
         break;

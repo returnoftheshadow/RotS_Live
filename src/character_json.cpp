@@ -853,6 +853,18 @@ namespace {
                 parsed.value = nearest_ansi_color(parsed.red, parsed.green, parsed.blue);
         } else if (parsed.mode == COLOR_VALUE_DEFAULT)
             parsed.value = CNRM;
+        else if (skip_unknown_modes && parsed.mode == COLOR_VALUE_ANSI16
+            && (parsed.value < CNRM || parsed.value > CBWHT)) {
+            // Same leniency, and the same reason, as the unknown-mode branch above: on the
+            // account path a failed parse is fatal at boot, so an ANSI16 index that is not in
+            // color_sequence[] falls back to the default instead of taking the whole account
+            // file down. It matters more here than it used to: an account's preferences are
+            // copied onto every character on the account. Character files pass
+            // skip_unknown_modes = false and keep rejecting the value outright
+            // (validate_color_value_data), which is deliberate -- see
+            // CharacterJson.RejectsOutOfRangeNamedColorValuesDuringDeserialization.
+            parsed.value = CNRM;
+        }
         *value = parsed;
         return true;
     }

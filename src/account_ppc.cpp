@@ -2,6 +2,7 @@
 
 #include "account_management.h"
 #include "color.h"
+#include "protocol.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -11,11 +12,29 @@ extern struct descriptor_data* descriptor_list;
 
 namespace {
 
+/* A character's name for a log line. GET_NAME is not safe on a half-built character -- the
+   login state machine reaches these paths before the player file has been read -- and a log
+   line is never worth a crash. */
+const char* ppc_log_name(const struct char_data* ch)
+{
+    if (ch == nullptr || IS_NPC(ch) || ch->player.name == nullptr || *ch->player.name == '\0')
+        return "an unnamed character";
+    return ch->player.name;
+}
+
 /* The normalized account name a character is playing under, or empty when it has no
-   descriptor or no account name on it. */
+   descriptor or no account name on it.
+
+   An NPC never has one, even with a live descriptor attached. An immortal who has SWITCHed is
+   driving a mob: ch is the mob while ch->desc is still their own socket, account name and all.
+   read_mobile copies the prototype wholesale (`*mob = mob_proto[i]`), so every instance of a
+   mob shares the prototype's char_prof_data -- reading a PPC off one means reading the
+   prototype's zeroed colours, and writing one means scribbling on the prototype. Checked in
+   this one helper because both the propagation walk and the sibling lookup go through it, so
+   `sort`, `colour` and every toggle are covered by a single guard. */
 std::string playing_account_name(const struct char_data* ch)
 {
-    if (ch == nullptr || ch->desc == nullptr || *ch->desc->account_name == '\0')
+    if (ch == nullptr || IS_NPC(ch) || ch->desc == nullptr || *ch->desc->account_name == '\0')
         return std::string();
     return account::normalize_account_name(ch->desc->account_name);
 }
@@ -74,12 +93,14 @@ bool ppc_equal(const account::AccountPreferences& left, const account::AccountPr
     return std::memcmp(left.color_settings, right.color_settings, sizeof(left.color_settings)) == 0;
 }
 
-void ppc_apply_account_to_character_in(const std::string& root_directory,
+namespace {
+
+/* The account-file half of the login-time apply. Split out from
+   ppc_apply_account_to_character_in so that the "now consider a live sibling" step below it is
+   ordered -- and conditional -- in exactly one place. */
+void apply_account_file_to_character(const std::string& root_directory,
     const char* account_name, struct char_data* ch)
 {
-    if (account_name == nullptr || *account_name == '\0' || ch == nullptr || ch->profs == nullptr)
-        return;
-
     account::AccountData account;
     std::string error_message;
     if (!account::read_account_file(root_directory, account_name, &account, &error_message)) {
@@ -113,6 +134,11 @@ void ppc_apply_account_to_character_in(const std::string& root_directory,
         return;
     }
 
+    /* Logged because it happens once per account, ever, and it decides which character's
+       scheme every other character on the account inherits. When a player reports "my colours
+       changed", this is the line that says whose scheme won. */
+    vmudlog(NRM, "ppc: seeded account %s preferences from %s", account_name, ppc_log_name(ch));
+
     /* The account now holds exactly this character's PPC, which is the same reconciled state
        the apply branch above leaves behind, so this character may write back too. Note what is
        deliberately NOT marked: a failed read, a failed seed write, and the level-0 "refused to
@@ -121,15 +147,37 @@ void ppc_apply_account_to_character_in(const std::string& root_directory,
     ch->ppc_account_loaded = true;
 }
 
+} // namespace
+
+void ppc_apply_account_to_character_in(const std::string& root_directory,
+    const char* account_name, struct char_data* ch)
+{
+    if (account_name == nullptr || *account_name == '\0' || ch == nullptr || ch->profs == nullptr)
+        return;
+
+    /* Step one: the stored PPC. Sets ppc_account_loaded, and only when this character's PPC is
+       known to agree with the account's. */
+    apply_account_file_to_character(root_directory, account_name, ch);
+
+    /* Step two, and only ever after step one: the account file is only as fresh as the last
+       save that wrote it, so it can be up to one autosave behind. Change `brief` on character
+       A, log in character B before A's next autosave, and B would read -- and then write back
+       -- the superseded value. A sibling that is already CON_PLYNG holds the current value in
+       memory by construction, so prefer it.
+
+       Conditional on the apply having actually reconciled this character. When the account
+       could not be read, or seeding was refused, ch still holds whatever its own character
+       file gave it, and the promise the feature makes is that an unreadable account never
+       blanks a player's colours -- reaching for a sibling here would break that promise by the
+       side door. Kept inside this function rather than in the "." wrapper below so no entry
+       point into the login state machine can get the ordering wrong. */
+    if (ch->ppc_account_loaded)
+        ppc_prefer_playing_sibling(ch);
+}
+
 void ppc_apply_account_to_character(const char* account_name, struct char_data* ch)
 {
     ppc_apply_account_to_character_in(".", account_name, ch);
-    /* The account file is only as fresh as the last save that wrote it, so it can be up to one
-       autosave behind: change `brief` on character A, log in character B before A's next
-       autosave, and B would read -- and then write back -- the superseded value. A sibling that
-       is already CON_PLYNG holds the current value in memory by construction, so prefer it.
-       Done here rather than at each of interpre.cpp's entry points, which keep multiplying. */
-    ppc_prefer_playing_sibling(ch);
 }
 
 bool ppc_store_character_to_account_in(const std::string& root_directory,
@@ -191,13 +239,33 @@ void ppc_copy_between_characters(const struct char_data* source, struct char_dat
 {
     if (source == nullptr || destination == nullptr || source == destination)
         return;
+
+    /* THE INVARIANT, the other half of it. ppc_store_character_to_account_in refuses to write
+       the account from a character that has not read it; this refuses to let such a character
+       launder its PPC through one that has. Without it: an account with no stored preferences
+       yet, a freshly created alt that the level-0 guard rightly refused to seed from (blank
+       defaults, flag false), and then the player's established character logs in, seeds the
+       account from its tuned scheme -- and immediately adopts the alt's blanks from the
+       sibling walk, which its next save writes into both its character file and the account.
+       Both copy paths (propagation and the login-time sibling preference) funnel through here,
+       so the check is in the one place a future caller cannot route around. */
+    if (!source->ppc_account_loaded)
+        return;
+
     ppc_write_to_character(ppc_read_from_character(source), destination);
 }
 
 void ppc_propagate_from(const struct char_data* ch)
 {
+    /* playing_account_name is where the NPC guard lives: a SWITCHed immortal is holding a mob
+       whose char_prof_data belongs to the shared mob prototype, and must propagate nothing. */
     const std::string account_name = playing_account_name(ch);
     if (account_name.empty())
+        return;
+
+    /* Only a reconciled character may be a source (see ppc_copy_between_characters). Checked
+       again here so the whole walk is skipped rather than copying nothing once per descriptor. */
+    if (!ch->ppc_account_loaded)
         return;
 
     for (descriptor_data* descriptor = descriptor_list; descriptor; descriptor = descriptor->next) {
@@ -213,7 +281,17 @@ void ppc_propagate_from(const struct char_data* ch)
         char_data* other = account_sibling_on_descriptor(descriptor, account_name, ch);
         if (other == nullptr)
             continue;
+
+        const bool sibling_msdp_was_on = PRF_FLAGGED(other, PRF_MSDP) != 0;
         ppc_copy_between_characters(ch, other);
+
+        /* The same thing do_gen_tog does for the character that typed the command, for the
+           same reason: on a genuine off->on transition the client has to be re-sent every
+           reported variable, including the login-time constants (name, level, race, profession
+           caps) that are set once and would otherwise never be sent again. A sibling switched
+           on by propagation needs that snapshot just as much as the player who typed it. */
+        if (!sibling_msdp_was_on && PRF_FLAGGED(other, PRF_MSDP) && descriptor->pProtocol != nullptr)
+            MSDPMarkAllReportedDirty(descriptor);
     }
 }
 
@@ -236,8 +314,17 @@ struct char_data* ppc_find_playing_sibling(const struct char_data* ch)
         if (descriptor->connected != CON_PLYNG)
             continue;
         char_data* other = account_sibling_on_descriptor(descriptor, account_name, ch);
-        if (other != nullptr)
-            return other;
+        if (other == nullptr)
+            continue;
+
+        /* Freshness is the whole argument for preferring a sibling, and only a sibling that
+           has itself reconciled with the account has any. One that has not is still carrying
+           whatever its own character file held -- the blank defaults of a just-created alt, in
+           the case that actually bites -- so it is not a fresher copy of the account's PPC, it
+           is a different one. Skip it and keep looking. */
+        if (!other->ppc_account_loaded)
+            continue;
+        return other;
     }
     return nullptr;
 }
@@ -248,7 +335,17 @@ void ppc_prefer_playing_sibling(struct char_data* ch)
        allowed to write the account is decided by its reconciliation with the account file, and
        adopting a sibling's copy does not change that analysis. When the flag is set, ch's next
        save carries the sibling's fresher value into the account, which is the point. */
-    ppc_copy_between_characters(ppc_find_playing_sibling(ch), ch);
+    char_data* sibling = ppc_find_playing_sibling(ch);
+    if (sibling == nullptr)
+        return;
+
+    ppc_copy_between_characters(sibling, ch);
+
+    /* One line per login that finds another of the player's characters already online -- rare
+       enough to be cheap, and the only record that a character started the session with
+       something other than what its own file and the account file held. */
+    vmudlog(NRM, "ppc: %s adopted the preferences of its playing sibling %s",
+        ppc_log_name(ch), ppc_log_name(sibling));
 }
 
 bool ppc_account_has_preferences_in(const std::string& root_directory, const char* account_name)

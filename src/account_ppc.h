@@ -26,15 +26,19 @@ void ppc_write_to_character(const account::AccountPreferences& preferences, stru
 bool ppc_equal(const account::AccountPreferences& left, const account::AccountPreferences& right);
 
 /* THE INVARIANT: a character may never write its PPC to the account before it has read the
-   account's PPC. ppc_apply_account_to_character_in is the only thing that sets
-   char_data::ppc_account_loaded (a runtime-only, never-serialized flag), and
-   ppc_store_character_to_account_in refuses to write the account while it is false. Callers
-   should still apply before they save -- it reads better -- but correctness does not depend on
-   them getting the order right. */
+   account's PPC, and may never hand its PPC to another character either. Nothing but
+   ppc_apply_account_to_character_in sets char_data::ppc_account_loaded (a runtime-only,
+   never-serialized flag); ppc_store_character_to_account_in refuses to write the account while
+   it is false, and ppc_copy_between_characters refuses to copy FROM a character while it is
+   false -- otherwise an unreconciled character launders its settings into one that is allowed
+   to write, and the account ends up holding them anyway. Callers should still apply before they
+   save -- it reads better -- but correctness does not depend on them getting the order right. */
 
-/* Apply the account's stored PPC to a character at login. When the account has none yet,
-   seed it from this character and write it once -- that is the migration path, and the
-   seeding character is by definition the account's most recently played one.
+/* Apply the account's stored PPC to a character at login, and then -- only if that apply
+   actually reconciled the character -- adopt a live sibling's copy over it (see
+   ppc_prefer_playing_sibling). When the account has none yet, seed it from this character and
+   write it once -- that is the migration path, and the seeding character is by definition the
+   account's most recently played one.
    Never blocks login: a null/empty account name, a null character, or a failed read is a
    silent no-op, and a failed write is logged and otherwise ignored. */
 void ppc_apply_account_to_character(const char* account_name, struct char_data* ch);
@@ -54,18 +58,24 @@ bool ppc_store_character_to_account_in(const std::string& root_directory,
 void ppc_store_character_to_account(const std::string& account_name, const struct char_data* ch);
 
 /* Copy one character's PPC onto another, masked. Used to keep an account's characters in
-   step while more than one is online. */
+   step while more than one is online. Refuses to copy from a source that has not read the
+   account (see THE INVARIANT): both copy paths funnel through here, so that check cannot be
+   forgotten by a future caller. */
 void ppc_copy_between_characters(const struct char_data* source, struct char_data* destination);
 
-/* Push this character's PPC to every other playing character on the same account. Called
-   after any command that can change a PPC value. Without it, a second character's save
+/* Push this character's PPC to every other playing character on the same account. A no-op for
+   an NPC (a SWITCHed immortal's mob shares the mob prototype's char_prof_data) and for a
+   character that has not read the account. Called after any command that can change a PPC
+   value. Without it, a second character's save
    would write its stale copy over the change the player just made. Walks descriptor_list --
    connected sockets, not linked characters -- so the cost is bounded by players online. */
 void ppc_propagate_from(const struct char_data* ch);
 
-/* The account's other character that is currently in the game (CON_PLYNG), or null. Shares its
-   descriptor walk and account matching with ppc_propagate_from. Skips ch itself, NPCs and
-   descriptors whose character has been detached. Exposed for tests. */
+/* The account's other character that is currently in the game (CON_PLYNG) and has itself read
+   the account, or null. Shares its descriptor walk and account matching with
+   ppc_propagate_from. Skips ch itself, NPCs, descriptors whose character has been detached, and
+   siblings that have not reconciled -- an unreconciled sibling is not a fresher copy of the
+   account's PPC, just a different one. Exposed for tests. */
 struct char_data* ppc_find_playing_sibling(const struct char_data* ch);
 
 /* If such a sibling exists, adopt its in-memory PPC. Called by ppc_apply_account_to_character

@@ -5,6 +5,7 @@
 #include "../color.h"
 #include "../db.h"
 #include "../json_utils.h"
+#include "../protocol.h"
 #include "../structs.h"
 #include "../utils.h"
 
@@ -13,8 +14,10 @@
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 // Declared exactly like account_ppc.cpp/act_othe.cpp/interpre.cpp -- descriptor_list has no
 // header declaration anywhere in the codebase. Must live at file scope (not inside the
@@ -75,6 +78,31 @@ private:
     }
 
     std::string m_path;
+};
+
+// ppc_apply_account_to_character reads the account through the storage root ".", so a test
+// that needs to drive that exact entry point (rather than its _in form) has to move the
+// process into a scratch directory for the duration.
+class ScopedWorkingDirectory {
+public:
+    explicit ScopedWorkingDirectory(const std::string& path)
+    {
+        char buffer[PATH_MAX];
+        char* current = getcwd(buffer, sizeof(buffer));
+        EXPECT_NE(current, nullptr);
+        if (current != nullptr)
+            m_original_path = current;
+        EXPECT_EQ(chdir(path.c_str()), 0);
+    }
+
+    ~ScopedWorkingDirectory()
+    {
+        if (!m_original_path.empty())
+            EXPECT_EQ(chdir(m_original_path.c_str()), 0);
+    }
+
+private:
+    std::string m_original_path;
 };
 
 TEST(AccountPpcMask, CoversEveryPpcOptionAndNothingElse)
@@ -345,6 +373,35 @@ TEST(AccountPpcStorage, PreferencesBlockSkipsAnUnknownColourModeInsteadOfFailing
     EXPECT_EQ(reloaded.preferences.colors[COLOR_YELL], CGRN);
     EXPECT_EQ(reloaded.preferences.color_settings[COLOR_YELL].foreground.mode, COLOR_VALUE_ANSI16);
     EXPECT_EQ(reloaded.preferences.color_settings[COLOR_YELL].foreground.ansi, CGRN);
+}
+
+// An ANSI16 index that is not in color_sequence[]: clamped on the way in, never fatal. A
+// preferences block that failed to parse would take the whole account file with it, and an
+// account file that fails to parse stops the server booting.
+TEST(AccountPpcStorage, PreferencesBlockClampsAnOutOfRangeAnsiColourInsteadOfKeepingIt)
+{
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    account.preferences.colors[COLOR_NARR] = CRED;
+    account.preferences.color_settings[COLOR_NARR].foreground.mode = COLOR_VALUE_ANSI16;
+    account.preferences.color_settings[COLOR_NARR].foreground.ansi = CRED;
+
+    std::string json = account::serialize_account_to_json(account);
+    const std::string narrate_slot = "\"narrate\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 1}, "
+                                     "\"background\": {\"mode\": \"default\"}}";
+    ASSERT_NE(json.find(narrate_slot), std::string::npos) << json;
+    json.replace(json.find(narrate_slot), narrate_slot.size(),
+        "\"narrate\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 200}, "
+        "\"background\": {\"mode\": \"default\"}}");
+
+    account::AccountData reloaded;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &reloaded, &error_message)) << error_message;
+
+    EXPECT_TRUE(reloaded.preferences.present);
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_NARR].foreground.ansi, CNRM);
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_NARR], CNRM);
 }
 
 TEST(AccountPpcStorage, MasksNonPpcBitsOutOnWriteAndRead)
@@ -1061,6 +1118,9 @@ TEST(AccountPpcPropagate, CopiesPpcBitsAndColoursBetweenCharacters)
 {
     PpcTestCharacter source;
     PpcTestCharacter destination;
+    // Only a character that has read its account may be a copy source (THE INVARIANT); this
+    // test is about what gets copied, not about that guard.
+    mark_account_ppc_read(source.character);
     PRF_FLAGS(source.character) = PRF_BRIEF | PRF_COMPACT | PRF_NOTELL;
     source.character->profs->colors[COLOR_HIT] = CBRED;
     PRF_FLAGS(destination.character) = PRF_SPAM | PRF_SING;
@@ -1131,6 +1191,7 @@ TEST(AccountPpcPropagate, ReachesPlyngAndLinklsSiblingsButNotAnotherAccount)
 
     descriptor_list = &source_desc;
 
+    mark_account_ppc_read(source.character);
     PRF_FLAGS(source.character) = PRF_BRIEF;
     PRF_FLAGS(online_sibling.character) = PRF_SPAM;
     PRF_FLAGS(linkless_sibling.character) = PRF_SPAM;
@@ -1213,6 +1274,9 @@ TEST(AccountPpcLiveSibling, PrefersAPlayingSiblingOverTheAccountFilesCopy)
     PRF_FLAGS(subject.character) = PRF_COMPACT;
     subject.character->profs->colors[COLOR_SAY] = CRED;
 
+    mark_account_ppc_read(playing_sibling.character);
+    mark_account_ppc_read(linkless_sibling.character);
+    mark_account_ppc_read(other_account.character);
     PRF_FLAGS(playing_sibling.character) = PRF_BRIEF;
     set_colornum(playing_sibling.character, COLOR_SAY, CBMAG);
 
@@ -1254,6 +1318,8 @@ TEST(AccountPpcLiveSibling, DoesNotPreferALinklessSiblingOverTheAccountFile)
     linkless_desc.next = nullptr;
     ScopedDescriptorList scoped(&subject_desc);
 
+    // Reconciled, so the only reason to pass it over is that it is link-dead.
+    mark_account_ppc_read(linkless_sibling.character);
     PRF_FLAGS(subject.character) = PRF_COMPACT;
     PRF_FLAGS(linkless_sibling.character) = PRF_BRIEF;
 
@@ -1297,6 +1363,10 @@ TEST(AccountPpcLiveSibling, IgnoresItselfNpcsMenuStatesAndOtherAccounts)
     detached_desc.next = nullptr;
     ScopedDescriptorList scoped(&subject_desc);
 
+    // Both reconciled, so this test keeps asserting what it was written to assert: that being
+    // an NPC and being at a menu state are each on their own enough to be skipped.
+    mark_account_ppc_read(npc_sibling.character);
+    mark_account_ppc_read(menu_sibling.character);
     PRF_FLAGS(subject.character) = PRF_COMPACT;
     PRF_FLAGS(npc_sibling.character) = PRF_BRIEF;
     PRF_FLAGS(menu_sibling.character) = PRF_BRIEF;
@@ -1324,6 +1394,202 @@ TEST(AccountPpcLiveSibling, IsSafeWithoutADescriptorOrAnAccountName)
     EXPECT_EQ(ppc_find_playing_sibling(subject.character), nullptr);
 
     EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_COMPACT));
+}
+
+// The laundering path, start to finish, entirely inside the migration window after deploy.
+// An established account has no stored preferences yet. The player creates an alt: the level-0
+// seeding guard rightly refuses to seed the account from its blank defaults, so the alt keeps
+// them and stays unreconciled. Then the player enters their tuned main on a second connection.
+// The main seeds the account from its own scheme -- and then the sibling walk hands it the
+// alt's blanks, which its next save writes into the account as well. Two stores destroyed in
+// one login, by a character that was never allowed to write anything.
+TEST(AccountPpcInvariant, AnUnreconciledSiblingCannotLaunderItsBlanksOntoAReconciledCharacter)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.characters = { "established", "brandnew" };
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter established;
+    PpcTestCharacter fresh_alt;
+
+    descriptor_data established_desc {};
+    descriptor_data alt_desc {};
+    attach_descriptor(&established_desc, &established, "PpcTester", CON_PLYNG);
+    attach_descriptor(&alt_desc, &fresh_alt, "PpcTester", CON_PLYNG);
+    established_desc.next = &alt_desc;
+    alt_desc.next = nullptr;
+    ScopedDescriptorList scoped(&established_desc);
+
+    // The alt logged in first and was refused the seed: blank PPC, guard still shut.
+    ASSERT_EQ(GET_LEVEL(fresh_alt.character), 0);
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), fresh_alt.character);
+    ASSERT_FALSE(fresh_alt.character->ppc_account_loaded);
+    ASSERT_EQ(PRF_FLAGS(fresh_alt.character) & PPC_PRF_MASK, 0);
+
+    // Now the tuned main comes in and seeds the account from itself.
+    GET_LEVEL(established.character) = 30;
+    PRF_FLAGS(established.character) = PRF_BRIEF | PRF_COLOR;
+    set_colornum(established.character, COLOR_SAY, CBMAG);
+
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), established.character);
+    // The apply now does this itself; called again because at the time this test was written
+    // the two steps lived in ppc_apply_account_to_character, and the guard has to hold for a
+    // caller that reaches for the sibling on its own.
+    ppc_prefer_playing_sibling(established.character);
+
+    ASSERT_TRUE(established.character->ppc_account_loaded);
+    EXPECT_EQ(ppc_find_playing_sibling(established.character), nullptr)
+        << "An unreconciled character is not a valid source, so it is not a preferable sibling.";
+    EXPECT_TRUE(PRF_FLAGGED(established.character, PRF_BRIEF))
+        << "The alt never read the account; it must not overwrite a character that did.";
+    EXPECT_TRUE(PRF_FLAGGED(established.character, PRF_COLOR));
+    EXPECT_EQ(established.character->profs->colors[COLOR_SAY], CBMAG);
+
+    // ...and the next autosave must not carry the blanks into the account either.
+    ppc_store_character_to_account_in(root.path(), account.account_name, established.character);
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    ASSERT_TRUE(reloaded.preferences.present);
+    EXPECT_NE(reloaded.preferences.preference_flags & PRF_BRIEF, 0)
+        << "The account must still hold the scheme it was seeded with.";
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_SAY], CBMAG);
+
+    // The same guard in the other direction: the alt typing `colour` propagates nothing.
+    PRF_FLAGS(fresh_alt.character) = PRF_COMPACT;
+    ppc_propagate_from(fresh_alt.character);
+    EXPECT_TRUE(PRF_FLAGGED(established.character, PRF_BRIEF))
+        << "An unreconciled character must not propagate either.";
+    EXPECT_FALSE(PRF_FLAGGED(established.character, PRF_COMPACT));
+}
+
+// The design promise is that a broken or unreadable account file never blanks a player's
+// colours. The sibling preference is part of the apply, so it has to keep that promise too: if
+// the account could not be read, the character keeps what its own file gave it and reaches for
+// nothing. Drives ppc_apply_account_to_character (the "." form used by the login states) from
+// inside an empty scratch directory, so the account read genuinely fails.
+TEST(AccountPpcLogin, AFailedApplyDoesNotAdoptAPlayingSibling)
+{
+    TemporaryDirectory root;
+    ScopedWorkingDirectory working_directory(root.path());
+
+    PpcTestCharacter subject;
+    PpcTestCharacter sibling;
+
+    descriptor_data subject_desc {};
+    descriptor_data sibling_desc {};
+    attach_descriptor(&subject_desc, &subject, "PpcTester", CON_PLYNG);
+    attach_descriptor(&sibling_desc, &sibling, "PpcTester", CON_PLYNG);
+    subject_desc.next = &sibling_desc;
+    sibling_desc.next = nullptr;
+    ScopedDescriptorList scoped(&subject_desc);
+
+    // A perfectly good sibling -- the point is that the apply failed, not that the sibling is
+    // unusable.
+    mark_account_ppc_read(sibling.character);
+    PRF_FLAGS(sibling.character) = PRF_BRIEF;
+    set_colornum(sibling.character, COLOR_SAY, CBMAG);
+
+    GET_LEVEL(subject.character) = 30;
+    PRF_FLAGS(subject.character) = PRF_COMPACT;
+    set_colornum(subject.character, COLOR_SAY, CRED);
+
+    ppc_apply_account_to_character("nosuchaccount", subject.character);
+
+    EXPECT_FALSE(subject.character->ppc_account_loaded)
+        << "A failed read must leave the write guard shut.";
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_COMPACT))
+        << "An unreadable account must never blank a character's settings, sibling or no sibling.";
+    EXPECT_FALSE(PRF_FLAGGED(subject.character, PRF_BRIEF));
+    EXPECT_EQ(subject.character->profs->colors[COLOR_SAY], CRED);
+}
+
+// An immortal who has SWITCHed is holding a mob: ch is the mob, ch->desc is still their own
+// socket with their account name on it. read_mobile copies the prototype wholesale, so the
+// mob's char_prof_data is the prototype's -- shared by every instance of that mob and full of
+// zeroes. Typing `sort` or `colour` in that body must not push those zeroes at the account's
+// real characters. Marked as reconciled deliberately, so this tests the NPC guard rather than
+// falling through to the reconciliation one.
+TEST(AccountPpcPropagate, ASwitchedImmortalsMobIsNeverAPropagationSource)
+{
+    PpcTestCharacter switched_mob;
+    PpcTestCharacter own_character;
+
+    SET_BIT(MOB_FLAGS(switched_mob.character), MOB_ISNPC);
+    mark_account_ppc_read(switched_mob.character);
+    mark_account_ppc_read(own_character.character);
+
+    descriptor_data mob_desc {};
+    descriptor_data own_desc {};
+    attach_descriptor(&mob_desc, &switched_mob, "PpcTester", CON_PLYNG);
+    attach_descriptor(&own_desc, &own_character, "PpcTester", CON_PLYNG);
+    mob_desc.next = &own_desc;
+    own_desc.next = nullptr;
+    ScopedDescriptorList scoped(&mob_desc);
+
+    PRF_FLAGS(switched_mob.character) = 0; // what a mob prototype's profs actually hold
+    PRF_FLAGS(own_character.character) = PRF_BRIEF | PRF_COLOR;
+    set_colornum(own_character.character, COLOR_SAY, CBMAG);
+
+    ppc_propagate_from(switched_mob.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(own_character.character, PRF_BRIEF))
+        << "A mob prototype's zeroed preferences must not reach a player's character.";
+    EXPECT_TRUE(PRF_FLAGGED(own_character.character, PRF_COLOR));
+    EXPECT_EQ(own_character.character->profs->colors[COLOR_SAY], CBMAG);
+
+    EXPECT_EQ(ppc_find_playing_sibling(switched_mob.character), nullptr)
+        << "Nor may a mob adopt a player's settings and scribble them on the prototype.";
+    ppc_prefer_playing_sibling(switched_mob.character);
+    EXPECT_EQ(PRF_FLAGS(switched_mob.character) & PPC_PRF_MASK, 0);
+}
+
+// do_gen_tog re-primes every reported MSDP variable when the player turns MSDP on, so the
+// client gets a full snapshot including the login-time constants that are sent once and never
+// again. A sibling switched on by propagation needs exactly the same treatment.
+TEST(AccountPpcPropagate, ASiblingSwitchedOntoMsdpGetsAFullSnapshot)
+{
+    PpcTestCharacter source;
+    PpcTestCharacter sibling;
+    PpcTestCharacter already_on_sibling;
+
+    descriptor_data source_desc {};
+    descriptor_data sibling_desc {};
+    descriptor_data already_on_desc {};
+    attach_descriptor(&source_desc, &source, "PpcTester", CON_PLYNG);
+    attach_descriptor(&sibling_desc, &sibling, "PpcTester", CON_PLYNG);
+    attach_descriptor(&already_on_desc, &already_on_sibling, "PpcTester", CON_PLYNG);
+    source_desc.next = &sibling_desc;
+    sibling_desc.next = &already_on_desc;
+    already_on_desc.next = nullptr;
+    ScopedDescriptorList scoped(&source_desc);
+
+    sibling_desc.pProtocol = ProtocolCreate();
+    already_on_desc.pProtocol = ProtocolCreate();
+    ASSERT_NE(sibling_desc.pProtocol, nullptr);
+    ASSERT_NE(already_on_desc.pProtocol, nullptr);
+
+    mark_account_ppc_read(source.character);
+    PRF_FLAGS(source.character) = PRF_MSDP;
+    PRF_FLAGS(sibling.character) = 0;
+    PRF_FLAGS(already_on_sibling.character) = PRF_MSDP;
+
+    for (int index = eMSDP_NONE + 1; index < eMSDP_MAX; ++index) {
+        sibling_desc.pProtocol->pVariables[index]->bDirty = false;
+        already_on_desc.pProtocol->pVariables[index]->bDirty = false;
+    }
+
+    ppc_propagate_from(source.character);
+
+    ASSERT_TRUE(PRF_FLAGGED(sibling.character, PRF_MSDP));
+    EXPECT_TRUE(sibling_desc.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty)
+        << "An off->on transition on a sibling must re-prime its reported variables.";
+    EXPECT_FALSE(already_on_desc.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty)
+        << "A sibling that already had MSDP on has not transitioned and needs no snapshot.";
+
+    ProtocolDestroy(sibling_desc.pProtocol);
+    ProtocolDestroy(already_on_desc.pProtocol);
 }
 
 TEST(AccountPpcQuery, ReportsWhetherAnAccountHasPreferences)

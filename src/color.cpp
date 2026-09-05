@@ -467,7 +467,13 @@ const char* get_color_sequence(struct char_data* ch, int col)
         const int ansi_index = (foreground.mode == COLOR_VALUE_ANSI16)
             ? static_cast<int>(foreground.ansi)
             : static_cast<int>(ch->profs->colors[col]);
-        if (ansi_index != CNRM)
+        /* Range-checked at the point of use, not trusted from the store: colors[] and an
+           ANSI16 slot both hold a raw index into color_sequence[], every live setter clamps it,
+           but a hand-edited or corrupt character *or account* file does not have to -- and a
+           bad value in an account file is now copied onto every character on that account.
+           color_value_data::ansi is a byte, so a nonsense value reads whatever follows the
+           table. Out of range renders as no colour rather than refusing to load the file. */
+        if (ansi_index > CNRM && ansi_index <= CBWHT)
             append_escape(buffer, kColorRenderBufferSize, &length, color_sequence[ansi_index]);
     }
 
