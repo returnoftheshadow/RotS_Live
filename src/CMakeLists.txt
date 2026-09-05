@@ -38,6 +38,7 @@ set(ROTS_SERVER_SOURCES
     act_wiz.cpp
     account_management.cpp
     account_cache.cpp
+    account_ppc.cpp
     roster_cache.cpp
     character_json.cpp
     exploits_json.cpp
@@ -110,6 +111,7 @@ set(ROTS_TEST_SOURCES
     tests/account_management_tests.cpp
     tests/account_cache_tests.cpp
     tests/roster_cache_tests.cpp
+    tests/account_ppc_tests.cpp
     tests/account_management_assets_header_compile.cpp
     tests/account_management_identity_header_compile.cpp
     tests/account_management_migration_header_compile.cpp

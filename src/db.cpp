@@ -27,6 +27,7 @@
 
 #include "account_cache.h"
 #include "account_management.h"
+#include "account_ppc.h"
 #include "big_brother.h"
 #include "char_utils.h"
 #include "character_json.h"
@@ -3253,6 +3254,7 @@ void save_char(struct char_data* ch, int load_room, int notify_char)
                 log(buf);
             }
         }
+        ppc_store_character_to_account(owner_account_name, ch);
     } else if (account_native_player_entry) {
         if (account_error.empty())
             sprintf(buf, "save_char: refusing legacy fallback for account-native character %s because linked ownership could not be resolved", GET_NAME(ch));

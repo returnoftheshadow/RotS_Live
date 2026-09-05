@@ -1,6 +1,7 @@
 #ifndef ACCOUNT_MANAGEMENT_TYPES_H
 #define ACCOUNT_MANAGEMENT_TYPES_H
 
+#include "color.h"
 #include "db.h"
 #include "structs.h"
 
@@ -44,6 +45,16 @@ static constexpr long PASSWORD_RESET_WINDOW_SECONDS = EMAIL_VERIFICATION_WINDOW_
 static constexpr long PASSWORD_RESET_RESEND_COOLDOWN_SECONDS = EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS;
 static constexpr int MAX_PASSWORD_RESET_ATTEMPTS = MAX_EMAIL_VERIFICATION_ATTEMPTS;
 
+// A player's preferred configuration: how they want to see and hear the game. Shared by
+// every character on the account. `present` is false for an account that has never stored
+// one -- that is the signal to seed it from the next character that plays.
+struct AccountPreferences {
+    bool present = false;
+    long preference_flags = 0;
+    char colors[MAX_COLOR_FIELDS] = {};
+    color_slot_data color_settings[MAX_COLOR_FIELDS] = {};
+};
+
 struct AccountData {
     struct CharacterLinkReference {
         std::string character_name;
@@ -62,6 +73,7 @@ struct AccountData {
     // Empty means "never chosen": the roster keeps insertion order, matching pre-feature behaviour.
     // One of "", "name", "level", "race", "side".
     std::string roster_sort;
+    AccountPreferences preferences;
     bool email_verified = false;
     std::string email_verified_by;
     long email_verified_at = 0;

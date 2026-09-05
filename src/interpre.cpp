@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "account_management.h"
+#include "account_ppc.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -2763,6 +2764,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
             SEND_TO_Q("Reconnecting to unswitched char.", d);
             REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
             clear_account_backed_object_bytes_for_character(d->character);
+            ppc_apply_account_to_character(d->account_name, d->character);
             STATE(d) = CON_PLYNG;
             if (!d->pProtocol)
                 d->pProtocol = ProtocolCreate();
@@ -2800,6 +2802,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
             d->character = tmp_ch;
             tmp_ch->specials.timer = 0;
             REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+            ppc_apply_account_to_character(d->account_name, d->character);
             STATE(d) = CON_PLYNG;
             if (!d->pProtocol)
                 d->pProtocol = ProtocolCreate();
@@ -2985,6 +2988,48 @@ static bool ensure_descriptor_character_for_account_selection(struct descriptor_
     d->character->desc = d;
     SET_BIT(PRF_FLAGS(d->character), PRF_LATIN1);
     return true;
+}
+
+/* The tail of character creation, shared by the prompted and the skipped path so the two
+   cannot drift apart. */
+static void finish_new_character_creation(struct descriptor_data* d)
+{
+    /* Give them an autowimpy of 10 */
+    WIMP_LEVEL(d->character) = 10;
+    introduce_char(d);
+    show_character_menu(d);
+    STATE(d) = CON_SLCT;
+    vmudlog(NRM, "%s [%s] new player.", GET_NAME(d->character), d->host);
+}
+
+static const char* const kDefaultColourSetPrompt = "\r\n"
+                                                   "On RotS, you are allowed to create your own colour scheme.\r\n"
+                                                   "However, many new players find this burdensome, and prefer\r\n"
+                                                   "a quick way to enable colours; thus, we have made available\r\n"
+                                                   "a default set of colours to satisfy those players who rather\r\n"
+                                                   "dive into the game than muck around in the RotS manual pages.\r\n"
+                                                   "\r\n"
+                                                   "Please note that you may disable ANSI colours at any time by\r\n"
+                                                   "typing 'colour off'; furthermore, we encourage you to read\r\n"
+                                                   "our manual entry on how to define your own, personalized set\r\n"
+                                                   "of colours via the 'help colour' or 'manual general colour'\r\n"
+                                                   "commands.\r\n"
+                                                   "\r\n"
+                                                   "Do you wish to enable the default colour set (Y/N)? ";
+
+/* A player's colour scheme and latin-1 choice live on the account, so ask for them only
+   on the account's first character. On any later character, answering would overwrite a
+   scheme the player already tuned; inherit it silently instead. */
+static int begin_creation_appearance_prompts(struct descriptor_data* d)
+{
+    if (ppc_account_has_preferences(d->account_name)) {
+        ppc_apply_account_to_character(d->account_name, d->character);
+        finish_new_character_creation(d);
+        return CON_SLCT;
+    }
+
+    SEND_TO_Q(kDefaultColourSetPrompt, d);
+    return CON_COLOR;
 }
 
 void nanny(struct descriptor_data* d, char* arg)
@@ -3645,7 +3690,22 @@ void nanny(struct descriptor_data* d, char* arg)
                 + format_account_character_name_for_display(GET_NAME(d->character))
                 + " to your account.\n\r";
             SEND_TO_Q(success_message.c_str(), d);
+            ppc_apply_account_to_character(account_data.account_name.c_str(), d->character);
+            /* Unlike every other caller of clear_account_login_state, this one hands the
+               descriptor straight back to CON_PLYNG instead of ending or restarting the
+               session, so the login scratch state (email, password, pending character name)
+               must go but the account identity must not: from here on this descriptor really
+               is an authenticated session of that account, and every account-level path keyed
+               off d->account_name -- PPC propagation, the live-sibling lookup, the account
+               menu's active-session scan -- reads an empty name as "not an account session".
+               save_char meanwhile resolves the owning account from the character-link index,
+               not from this field, so it keeps writing the account regardless. Leaving the
+               name cleared is what makes two characters of one account write each other's
+               settings back and forth on alternating autosaves, each write also flushing the
+               global account cache. Restore it, the way every other route into CON_PLYNG
+               leaves it populated. */
             clear_account_login_state(d);
+            set_account_login_name(d, account_data.account_name);
             STATE(d) = CON_PLYNG;
         }
         break;
@@ -4216,22 +4276,7 @@ void nanny(struct descriptor_data* d, char* arg)
             if (*arg == existing_profs[tmp].letter)
                 for (i = 0; i < 5; i++)
                     GET_PROF_POINTS(i, d->character) = existing_profs[tmp].Class_points[i];
-        SEND_TO_Q("\r\n"
-                  "On RotS, you are allowed to create your own colour scheme.\r\n"
-                  "However, many new players find this burdensome, and prefer\r\n"
-                  "a quick way to enable colours; thus, we have made available\r\n"
-                  "a default set of colours to satisfy those players who rather\r\n"
-                  "dive into the game than muck around in the RotS manual pages.\r\n"
-                  "\r\n"
-                  "Please note that you may disable ANSI colours at any time by\r\n"
-                  "typing 'colour off'; furthermore, we encourage you to read\r\n"
-                  "our manual entry on how to define your own, personalized set\r\n"
-                  "of colours via the 'help colour' or 'manual general colour'\r\n"
-                  "commands.\r\n"
-                  "\r\n"
-                  "Do you wish to enable the default colour set (Y/N)? ",
-            d);
-        STATE(d) = CON_COLOR;
+        STATE(d) = begin_creation_appearance_prompts(d);
         break;
     case CON_COLOR:
         if (is_abbrev(arg, "yes")) {
@@ -4269,13 +4314,7 @@ void nanny(struct descriptor_data* d, char* arg)
         } else
             SEND_TO_Q("\r\nOk, you will use the latin-1 character set.\r\n", d);
 
-        /* Give them an autowimpy of 10 */
-        WIMP_LEVEL(d->character) = 10;
-        introduce_char(d);
-        show_character_menu(d);
-        STATE(d) = CON_SLCT;
-        vmudlog(NRM, "%s [%s] new player.",
-            GET_NAME(d->character), d->host);
+        finish_new_character_creation(d);
         break;
     case CON_QOWN:
         break;
@@ -4356,6 +4395,7 @@ void nanny(struct descriptor_data* d, char* arg)
                     d->character = tmp_ch;
                     tmp_ch->specials.timer = 0;
                     REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+                    ppc_apply_account_to_character(d->account_name, d->character);
                     STATE(d) = CON_PLYNG;
                     if (!d->pProtocol)
                         d->pProtocol = ProtocolCreate();
@@ -4368,6 +4408,14 @@ void nanny(struct descriptor_data* d, char* arg)
             // endnew
             reset_char(d->character);
             load_character(d->character); // new function in objsave
+            // Apply before saving, never after: save_char writes the character's PPC back to
+            // the account, so saving first would push this character's stale, just-loaded copy
+            // over whatever a sibling character last changed. ppc_store_character_to_account
+            // also refuses to write until the apply has happened, so the invariant holds even
+            // if this ordering is later disturbed -- but the order is what a reader sees first.
+            // The apply also prefers an already-playing sibling's in-memory PPC over the
+            // account file, which can be an autosave interval behind it.
+            ppc_apply_account_to_character(d->account_name, d->character);
             save_char(d->character, d->character->in_room, 0);
             STATE(d) = CON_PLYNG;
             report_news(d->character);
@@ -4692,24 +4740,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
 
         if (*arg == '=') {
             if (points_used(d->character) <= 150) {
-                /* Must sync with message in CON_COLOR above */
-                SEND_TO_Q("\r\n"
-                          "On RotS, you are allowed to create your own colour scheme.\r\n"
-                          "However, many new players find this burdensome, and prefer\r\n"
-                          "a quick way to enable colours; thus, we have made available\r\n"
-                          "a default set of colours to satisfy those players who rather\r\n"
-                          "dive into the game than muck around in the RotS manual pages.\r\n"
-                          "\r\n"
-                          "Please note that you may disable ANSI colours at any time by\r\n"
-                          "typing 'colour off'; furthermore, we encourage you to read\r\n"
-                          "our manual entry on how to define your own, personalized set\r\n"
-                          "of colours via the 'help colour' or 'manual general colour'\r\n"
-                          "commands.\r\n"
-                          "\r\n"
-                          "Do you wish to enable the default colour set (Y/N)? ",
-                    d);
-
-                return CON_COLOR;
+                return begin_creation_appearance_prompts(d);
             } else {
                 SEND_TO_Q("You've allocated more than 150 creation points.\r\n"
                           "Please revise your decisions.\r\n"
@@ -4890,6 +4921,10 @@ void introduce_char(struct descriptor_data* d)
         }
         if (GET_LEVEL(d->character) == 1)
             add_exploit_record(EXPLOIT_BIRTH, d->character, 0, NULL);
+        // Same apply-before-save rule as the enter-game path. On a brand-new account this is
+        // what seeds the account from the colour/latin-1 answers just given; on an account that
+        // already has a scheme it re-applies it, so the save below cannot write anything else.
+        ppc_apply_account_to_character(d->account_name, d->character);
         save_char(d->character, initial_load_room, 0);
     } else
         save_char(d->character, NOWHERE, 0);

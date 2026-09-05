@@ -259,6 +259,20 @@ TEST(CharacterJson, RejectsUnknownFlagNamesWhenDecoding)
     EXPECT_NE(error_message.find("Unknown player flag"), std::string::npos);
 }
 
+// decode_preference_flags gained a defaulted skip_unknown_names parameter so the account-level
+// PPC store can tolerate a name it doesn't recognise (a rolled-back binary must still boot).
+// Character-file parsing must keep calling it with the default (false) and keep rejecting an
+// unknown name outright -- this is a deliberately separate, still-open issue for character
+// files, not something this change should silently fix.
+TEST(CharacterJson, RejectsUnknownPreferenceFlagNameByDefault)
+{
+    long flags = 0;
+    std::string error_message;
+
+    EXPECT_FALSE(character_json::decode_preference_flags({ "brief", "mystery_flag" }, &flags, &error_message));
+    EXPECT_NE(error_message.find("Unknown preference flag"), std::string::npos);
+}
+
 TEST(CharacterJson, BuildsCharacterDataFromStoredCharacterUsingMysticProfessionName)
 {
     const char_file_u stored = make_stored_character();
@@ -575,6 +589,23 @@ TEST(CharacterJson, RejectsOutOfRangeNamedColorValuesDuringDeserialization)
     std::string error_message;
     EXPECT_FALSE(character_json::deserialize_character_from_json(json, &parsed, &error_message));
     EXPECT_NE(error_message.find("colors[1]"), std::string::npos);
+}
+
+// The account store deliberately tolerates an unrecognised colour mode (see
+// AccountPpcStorage.PreferencesBlockSkipsAnUnknownColourModeInsteadOfFailingToParse): a failed
+// account parse is fatal at boot. Character files opt out of that leniency and stay strict, so
+// a character file carrying a mode this build does not know about is still rejected outright.
+TEST(CharacterJson, RejectsUnknownColorModesDuringDeserialization)
+{
+    std::string json = make_valid_character_json();
+    json = replace_once(json,
+        "\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 5}, \"background\": {\"mode\": \"default\"}}",
+        "\"chat\": {\"foreground\": {\"mode\": \"palette256\", \"value\": 137}, \"background\": {\"mode\": \"default\"}}");
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    EXPECT_FALSE(character_json::deserialize_character_from_json(json, &parsed, &error_message));
+    EXPECT_FALSE(error_message.empty());
 }
 
 TEST(CharacterJson, SerializesSkillsAndTalksAsNamedObjects)

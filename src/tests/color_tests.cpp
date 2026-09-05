@@ -44,6 +44,30 @@ TEST(Color, RendersLegacyAnsiForegroundSelections)
     EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_CHAT)), std::string(color_sequence[CMAG]));
 }
 
+// Every live setter clamps, but nothing on the parse path does: a hand-edited or corrupt
+// character file -- or, now that preferences are account-owned, one bad value in account.json
+// copied onto every character on the account -- can carry an ANSI index that is not in
+// color_sequence[]. Render nothing rather than whatever follows the table.
+TEST(Color, IgnoresOutOfRangeStoredAnsiForegroundValues)
+{
+    char_data character {};
+    initialize_player_character(&character);
+
+    character.profs->color_settings[COLOR_CHAT].foreground.mode = COLOR_VALUE_ANSI16;
+    character.profs->color_settings[COLOR_CHAT].foreground.ansi = 200;
+    character.profs->colors[COLOR_CHAT] = CNRM;
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_CHAT)), std::string(""));
+
+    // The same value reached through the legacy colors[] array, which is a signed char.
+    character.profs->color_settings[COLOR_SAY].foreground.mode = COLOR_VALUE_DEFAULT;
+    character.profs->colors[COLOR_SAY] = static_cast<char>(120);
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_SAY)), std::string(""));
+
+    // A valid index still renders.
+    set_colornum(&character, COLOR_TELL, CBWHT);
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_TELL)), std::string(color_sequence[CBWHT]));
+}
+
 TEST(Color, RendersTrueColorForegroundSelections)
 {
     char_data character {};

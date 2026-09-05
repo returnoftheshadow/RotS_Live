@@ -7,6 +7,7 @@
 #include <string>
 #include <string.h>
 
+#include "account_ppc.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -50,6 +51,9 @@ namespace {
 
         profs->color_settings[col].foreground.mode = COLOR_VALUE_ANSI16;
         profs->color_settings[col].foreground.ansi = static_cast<unsigned char>(profs->colors[col]);
+        profs->color_settings[col].foreground.red = 0;
+        profs->color_settings[col].foreground.green = 0;
+        profs->color_settings[col].foreground.blue = 0;
     }
 
     void append_escape(char* buffer, size_t buffer_size, size_t* length, const char* escape_sequence)
@@ -208,18 +212,6 @@ namespace {
         send_to_char("  color <slot> bg rgb <red> <green> <blue>\n\r", ch);
         send_to_char("  color <slot> bg hex #RRGGBB\n\r", ch);
         send_to_char("  color <slot> bg default\n\r", ch);
-    }
-
-    void set_ansi_background(struct char_data* ch, int col, int value)
-    {
-        if (!ch || !ch->profs || col < 0 || col >= MAX_COLOR_FIELDS)
-            return;
-
-        ch->profs->color_settings[col].background.mode = COLOR_VALUE_ANSI16;
-        ch->profs->color_settings[col].background.ansi = static_cast<unsigned char>(value);
-        ch->profs->color_settings[col].background.red = 0;
-        ch->profs->color_settings[col].background.green = 0;
-        ch->profs->color_settings[col].background.blue = 0;
     }
 
 } // namespace
@@ -411,12 +403,40 @@ void set_truecolor_background(struct char_data* ch, int col, int red, int green,
     slot.background.ansi = static_cast<unsigned char>(nearest_ansi_color(red, green, blue));
 }
 
+/* At file scope, next to the other colour setters, rather than file-static: the colour-slot
+   round-trip test drives every reachable slot state through these functions. */
+void set_ansi_background(struct char_data* ch, int col, int value)
+{
+    if (!ch || !ch->profs || col < 0 || col >= MAX_COLOR_FIELDS)
+        return;
+
+    color_slot_data& slot = ch->profs->color_settings[col];
+    slot.background.mode = COLOR_VALUE_ANSI16;
+    slot.background.ansi = static_cast<unsigned char>(value);
+    slot.background.red = 0;
+    slot.background.green = 0;
+    slot.background.blue = 0;
+}
+
 void clear_color_background(struct char_data* ch, int col)
 {
     if (!ch || !ch->profs || col < 0 || col >= MAX_COLOR_FIELDS)
         return;
 
     ch->profs->color_settings[col].background = color_value_data {};
+}
+
+void clear_color_foreground(struct char_data* ch, int col)
+{
+    if (!ch || !ch->profs || col < 0 || col >= MAX_COLOR_FIELDS)
+        return;
+
+    ch->profs->color_settings[col].foreground = color_value_data {};
+    /* colors[] has to be cleared with it. The serializers read a non-CNRM legacy entry as an
+       ANSI16 foreground whenever the slot itself says default (that is how pre-color_settings
+       characters are still understood), so leaving it set would both resurrect the old colour
+       on the next load and make the in-memory slot differ from its own reloaded form. */
+    ch->profs->colors[col] = CNRM;
 }
 
 const char* get_color_sequence(struct char_data* ch, int col)
@@ -447,7 +467,13 @@ const char* get_color_sequence(struct char_data* ch, int col)
         const int ansi_index = (foreground.mode == COLOR_VALUE_ANSI16)
             ? static_cast<int>(foreground.ansi)
             : static_cast<int>(ch->profs->colors[col]);
-        if (ansi_index != CNRM)
+        /* Range-checked at the point of use, not trusted from the store: colors[] and an
+           ANSI16 slot both hold a raw index into color_sequence[], every live setter clamps it,
+           but a hand-edited or corrupt character *or account* file does not have to -- and a
+           bad value in an account file is now copied onto every character on that account.
+           color_value_data::ansi is a byte, so a nonsense value reads whatever follows the
+           table. Out of range renders as no colour rather than refusing to load the file. */
+        if (ansi_index > CNRM && ansi_index <= CBWHT)
             append_escape(buffer, kColorRenderBufferSize, &length, color_sequence[ansi_index]);
     }
 
@@ -492,7 +518,7 @@ int char_color_slot(struct char_data* target)
     return IS_NPC(target) ? COLOR_MOB : COLOR_CHAR;
 }
 
-ACMD(do_color)
+static void do_color_impl(struct char_data* ch, char* argument, struct waiting_type* wtl, int cmd, int subcmd)
 {
     int tmp, num, col;
     char option[MAX_INPUT_LENGTH];
@@ -559,8 +585,7 @@ ACMD(do_color)
 
         if (!strcasecmp(mode, "default")) {
             if (foreground) {
-                ch->profs->color_settings[num].foreground = color_value_data {};
-                ch->profs->colors[num] = CNRM;
+                clear_color_foreground(ch, num);
                 vsend_to_char(ch, "You set %s foreground to default.\n\r", color_fields[num]);
             } else {
                 clear_color_background(ch, num);
@@ -656,4 +681,10 @@ ACMD(do_color)
         CC_USE(ch, num),
         color_color[col],
         CC_NORM(ch));
+}
+
+ACMD(do_color)
+{
+    do_color_impl(ch, argument, wtl, cmd, subcmd);
+    ppc_propagate_from(ch);
 }

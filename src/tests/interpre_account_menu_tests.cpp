@@ -1,4 +1,5 @@
 #include "../account_management.h"
+#include "../account_ppc.h"
 #include "../db.h"
 #include "../handler.h"
 #include "../interpre.h"
@@ -2807,6 +2808,95 @@ TEST(InterpreAccountMenu, InGameLinkChoiceUsesPlayerFacingSuccessMessage)
     EXPECT_EQ(std::string(descriptor.output).find("account storage"), std::string::npos);
     EXPECT_TRUE(account::account_has_character(reloaded_account, "aragorn"));
 
+    free_char(descriptor.character);
+    descriptor.character = nullptr;
+}
+
+// Linking in-game is the one route that clears the login state and then hands the descriptor
+// straight back to CON_PLYNG. The account identity has to survive that clear: everything
+// account-level reads d->account_name (PPC propagation, the live-sibling lookup, the account
+// menu's active-session scan) and treats an empty one as "not an account session", while
+// save_char resolves the owning account from the character-link index and writes the account
+// regardless. A descriptor left nameless therefore keeps writing the account while receiving
+// nothing -- two characters of one account then overwrite each other on alternating autosaves.
+TEST(InterpreAccountMenu, InGameLinkKeepsTheDescriptorsAccountName)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("players/ZZZ", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("exploits", 0700), 0);
+    ASSERT_EQ(mkdir("exploits/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+
+    char_file_u legacy_character = make_stored_character("aragorn", 50, RACE_WOOD);
+    legacy_character.specials2.idnum = 4242;
+    legacy_character.last_logon = 1700010202;
+    const std::string legacy_player_path = write_valid_legacy_player_file(temp_directory.path(), legacy_character);
+    const int legacy_player_index = create_entry(const_cast<char*>("aragorn"));
+    ASSERT_GE(legacy_player_index, 0);
+    std::snprintf(player_table[legacy_player_index].ch_file, sizeof(player_table[legacy_player_index].ch_file), "%s", legacy_player_path.c_str());
+    player_table[legacy_player_index].level = legacy_character.level;
+    player_table[legacy_player_index].race = legacy_character.race;
+    player_table[legacy_player_index].idnum = legacy_character.specials2.idnum;
+    player_table[legacy_player_index].log_time = legacy_character.last_logon;
+    player_table[legacy_player_index].flags = legacy_character.specials2.act;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTLINKPWD;
+    descriptor.character = new char_data {};
+    clear_char(descriptor.character, MOB_VOID);
+    register_pc_char(descriptor.character);
+    descriptor.character->desc = &descriptor;
+    descriptor.character->player.name = strdup("aragorn");
+    descriptor.character->player.level = 50;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+    std::snprintf(descriptor.account_character_name, sizeof(descriptor.account_character_name), "%s", "aragorn");
+
+    // A second character of the same account, already playing.
+    descriptor_data sibling_descriptor = make_descriptor();
+    sibling_descriptor.connected = CON_PLYNG;
+    char_data* sibling = attach_active_character(&sibling_descriptor, "legolas", 40, 5151);
+    sibling->ppc_account_loaded = true;
+    descriptor_list = &sibling_descriptor;
+
+    char password_choice[] = "ValidPass1";
+    nanny(&descriptor, password_choice);
+
+    ASSERT_EQ(descriptor.connected, CON_PLYNG);
+    EXPECT_STREQ(descriptor.account_name, "acct")
+        << "the linked character is now an authenticated session of that account and must stay one";
+    EXPECT_STREQ(descriptor.account_email, "")
+        << "the rest of the login scratch state must still be cleared";
+    EXPECT_STREQ(descriptor.account_password, "");
+    EXPECT_STREQ(descriptor.account_character_name, "");
+
+    // The consequence that matters: this descriptor is reachable by the account-level walks
+    // again, so a settings change on it is pushed to the account's other online character
+    // instead of being silently reverted by that character's next autosave.
+    ASSERT_TRUE(descriptor.character->ppc_account_loaded);
+    SET_BIT(PRF_FLAGS(descriptor.character), PRF_BRIEF);
+    ppc_propagate_from(descriptor.character);
+    EXPECT_TRUE(PRF_FLAGGED(sibling, PRF_BRIEF))
+        << "a nameless descriptor is invisible to propagation while still writing the account";
+
+    free_char(sibling);
+    sibling_descriptor.character = nullptr;
     free_char(descriptor.character);
     descriptor.character = nullptr;
 }

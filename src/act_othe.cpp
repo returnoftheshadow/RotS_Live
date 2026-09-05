@@ -20,15 +20,16 @@
 #include <time.h>
 
 #include "account_management.h"
+#include "account_ppc.h"
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
-#include "protocol.h"
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
 #include "profs.h"
+#include "protocol.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -1164,6 +1165,8 @@ ACMD(do_gen_tog)
         return;
         break;
     }
+
+    ppc_propagate_from(ch);
 }
 
 extern char* casting[];
@@ -1377,6 +1380,8 @@ ACMD(do_inventory_sort)
         report_inventory_sorting_to(ch, report_sort_string);
         report_sort_choices_to(ch);
     }
+
+    ppc_propagate_from(ch);
 }
 
 extern char* tactics[];

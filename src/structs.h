@@ -997,6 +997,16 @@ extern char* pc_named_star_types[];
 #define PRF_ADVANCED_VIEW (1 << 30)
 #define PRF_ADVANCED_PROMPT (1 << 31)
 
+/* Player Preferred Config (PPC): the settings that describe how a player wants to see
+   and hear the game, rather than anything about a character. These live on the account
+   and are shared by every character on it; see
+   docs/superpowers/specs/2026-09-05-account-level-player-preferred-config-design.md.
+   This mask is the single definition of PPC membership -- every apply, read and compare
+   against the account is masked with it, so no other preference bit is ever touched. */
+#define PPC_PRF_MASK (PRF_PROMPT | PRF_ADVANCED_PROMPT | PRF_ADVANCED_VIEW \
+    | PRF_BRIEF | PRF_COMPACT | PRF_SPAM | PRF_WRAP | PRF_ECHO | PRF_MSDP  \
+    | PRF_LATIN1 | PRF_SPINNER | PRF_INV_SORT1 | PRF_INV_SORT2 | PRF_COLOR)
+
 struct memory_rec {
     struct char_data* enemy;
     int enemy_number;
@@ -1786,6 +1796,15 @@ public:
     int interrupt_time = 0; /* Meant to be a countdown timer to remove 1 from interrupt_count */
 
     bool spec_busy;
+
+    /* Runtime only -- deliberately NOT part of char_file_u, so it is never serialized:
+       char_to_store/store_to_char copy field by field and neither knows about this. True once
+       this character has read its account's Player Preferred Config (see account_ppc.cpp).
+       ppc_store_character_to_account refuses to write the account until it is true, which is
+       what stops any login path from overwriting a sibling character's shared settings with
+       this character's stale, pre-login copy. clear_char() memsets char_data, so it starts
+       false for every freshly created character regardless of call ordering. */
+    bool ppc_account_loaded = false;
 };
 
 struct race_bodypart_data {
