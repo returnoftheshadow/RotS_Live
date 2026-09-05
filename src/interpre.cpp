@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "account_management.h"
+#include "account_ppc.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -2763,6 +2764,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
             SEND_TO_Q("Reconnecting to unswitched char.", d);
             REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
             clear_account_backed_object_bytes_for_character(d->character);
+            ppc_apply_account_to_character(d->account_name, d->character);
             STATE(d) = CON_PLYNG;
             if (!d->pProtocol)
                 d->pProtocol = ProtocolCreate();
@@ -2800,6 +2802,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
             d->character = tmp_ch;
             tmp_ch->specials.timer = 0;
             REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+            ppc_apply_account_to_character(d->account_name, d->character);
             STATE(d) = CON_PLYNG;
             if (!d->pProtocol)
                 d->pProtocol = ProtocolCreate();
@@ -4356,6 +4359,7 @@ void nanny(struct descriptor_data* d, char* arg)
                     d->character = tmp_ch;
                     tmp_ch->specials.timer = 0;
                     REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+                    ppc_apply_account_to_character(d->account_name, d->character);
                     STATE(d) = CON_PLYNG;
                     if (!d->pProtocol)
                         d->pProtocol = ProtocolCreate();
@@ -4369,6 +4373,7 @@ void nanny(struct descriptor_data* d, char* arg)
             reset_char(d->character);
             load_character(d->character); // new function in objsave
             save_char(d->character, d->character->in_room, 0);
+            ppc_apply_account_to_character(d->account_name, d->character);
             STATE(d) = CON_PLYNG;
             report_news(d->character);
             report_mail(d->character);

@@ -10,7 +10,66 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdio>
+#include <cstring>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
 namespace {
+
+class TemporaryDirectory {
+public:
+    TemporaryDirectory()
+    {
+        char directory_template[] = "/tmp/rots-account-tests-XXXXXX";
+        char* created_path = mkdtemp(directory_template);
+        EXPECT_NE(created_path, nullptr) << "Expected mkdtemp to create a temporary directory for account-management tests.";
+        if (created_path)
+            m_path = created_path;
+    }
+
+    ~TemporaryDirectory()
+    {
+        if (!m_path.empty())
+            remove_tree(m_path);
+    }
+
+    const std::string& path() const
+    {
+        return m_path;
+    }
+
+private:
+    static void remove_tree(const std::string& path)
+    {
+        DIR* directory = opendir(path.c_str());
+        if (directory == nullptr) {
+            std::remove(path.c_str());
+            return;
+        }
+
+        while (dirent* entry = readdir(directory)) {
+            if (std::strcmp(entry->d_name, ".") == 0 || std::strcmp(entry->d_name, "..") == 0)
+                continue;
+
+            const std::string child_path = path + "/" + entry->d_name;
+            struct stat file_info { };
+            if (stat(child_path.c_str(), &file_info) != 0)
+                continue;
+
+            if (S_ISDIR(file_info.st_mode))
+                remove_tree(child_path);
+            else
+                std::remove(child_path.c_str());
+        }
+
+        closedir(directory);
+        rmdir(path.c_str());
+    }
+
+    std::string m_path;
+};
 
 TEST(AccountPpcMask, CoversEveryPpcOptionAndNothingElse)
 {
@@ -352,6 +411,71 @@ TEST(AccountPpcEqual, IgnoresNonPpcBitsAndPresence)
     right.present = false;
     right.preference_flags = PRF_BRIEF | PRF_SING;
     EXPECT_TRUE(ppc_equal(left, right));
+}
+
+TEST(AccountPpcLogin, SeedsAnAccountThatHasNoPreferences)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_WRAP | PRF_NOTELL;
+    subject.character->profs->colors[COLOR_SAY] = CYEL;
+
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), subject.character);
+
+    account::AccountData reloaded;
+    ASSERT_TRUE(account::read_account_file_uncached(root.path(), account.account_name, &reloaded, nullptr));
+    EXPECT_TRUE(reloaded.preferences.present);
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF | PRF_WRAP);
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_SAY], CYEL);
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_NOTELL))
+        << "Seeding must not disturb the character.";
+}
+
+TEST(AccountPpcLogin, AppliesStoredPreferencesToTheCharacter)
+{
+    TemporaryDirectory root;
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_COMPACT | PRF_MSDP;
+    account.preferences.colors[COLOR_TELL] = CBCYN;
+    ASSERT_TRUE(account::write_account_file(root.path(), account, nullptr));
+
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_SING;
+
+    ppc_apply_account_to_character_in(root.path(), account.account_name.c_str(), subject.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_COMPACT));
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_MSDP));
+    EXPECT_FALSE(PRF_FLAGGED(subject.character, PRF_BRIEF));
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_SING)) << "Non-PPC bits survive.";
+    EXPECT_EQ(subject.character->profs->colors[COLOR_TELL], CBCYN);
+}
+
+TEST(AccountPpcLogin, IsSafeWhenTheAccountCannotBeRead)
+{
+    TemporaryDirectory root;
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF | PRF_NOTELL;
+
+    ppc_apply_account_to_character_in(root.path(), "nosuchaccount", subject.character);
+
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_BRIEF))
+        << "An unreadable account must never blank a player's settings.";
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_NOTELL));
+}
+
+TEST(AccountPpcLogin, IsSafeWithNoAccountName)
+{
+    TemporaryDirectory root;
+    PpcTestCharacter subject;
+    PRF_FLAGS(subject.character) = PRF_BRIEF;
+    ppc_apply_account_to_character_in(root.path(), "", subject.character);
+    ppc_apply_account_to_character_in(root.path(), nullptr, subject.character);
+    EXPECT_TRUE(PRF_FLAGGED(subject.character, PRF_BRIEF));
 }
 
 } // namespace
