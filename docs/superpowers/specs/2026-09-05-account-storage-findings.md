@@ -127,3 +127,40 @@ and the PPC design are unaffected.
 The one interaction worth noting: PPC put more content into `account.json`, so a serialization defect
 there could reach the boot `exit(1)`. Unknown flag names and unknown colour modes inside the
 `preferences` block are already skipped rather than fatal for exactly this reason.
+
+## Deferred follow-ups from the PPC branch — review alongside this work
+
+Two known defects were deliberately left unfixed on `feat/account-level-ppc`. Both are cosmetic or
+near-unreachable, and both live in code this project will rewrite anyway, so they were parked to be
+reconsidered here rather than patched under a branch that was already verified.
+
+They were deferred for a specific reason worth carrying: **two separate fix waves on that branch each
+introduced a new defect** (the sibling preference, added to close a login race, produced a critical
+data-loss path; the wave before it produced its own). The branch is currently green under three
+adversarial review passes, a code re-review and live server testing. Any further change there would
+require re-running all of it to hold the same confidence, for very little gain.
+
+**1. A freshly created alt does not adopt an online sibling's live scheme in its first session.**
+`ppc_apply_account_to_character_in` gates the sibling preference on `ch->ppc_account_loaded`, and the
+level-0 seeding guard leaves that flag false. So a new character on an account that has no stored
+preferences yet keeps its creation defaults for that session even when the player's main is online
+with the real scheme. Scope is narrow: it only applies while the account is UNSEEDED — once the
+account has preferences, the apply branch sets the flag and sibling adoption works normally. So this
+is new-characters-only, during the migration window, and it self-resolves.
+
+The fix means separating "account read failed" from "level-0 seed refused" into distinct signals.
+That is exactly the area that produced the critical bug, which is why it was not attempted late in
+the branch.
+
+**2. The colour clamp misses a legacy bare-integer slot form.**
+`parse_color_setting_value` (`character_json.cpp`) accepts a slot written as a bare integer and
+returns before `parse_color_value_object`, so that form skips the range clamp even on the lenient
+account path. Reaching it requires a hand-edited `account.json`; no legacy corpus exists, because
+account files carrying colour data were introduced by the PPC feature itself. The crash it could
+have caused is already closed by the bounds check in `get_color_sequence` (`color.cpp:476`) — that
+one was a genuine out-of-bounds read whose regression test segfaulted the binary before the fix.
+What remains is an out-of-range value rendering as nothing.
+
+**When picking these up:** re-run the adversarial passes and the live scenarios afterwards. Live
+evidence and the full review history from the PPC branch are preserved outside the repo at
+`/home/ahumbert/parked/ppc-live-evidence/`.
