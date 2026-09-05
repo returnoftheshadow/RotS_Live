@@ -120,6 +120,20 @@ std::string serialize_account_to_json(const AccountData& account)
     // that a test (or a future one) strips out by deleting its own line must not be the very last
     // entry in the object.
     output << "  \"roster_sort\": \"" << json_utils::escape_json_string(account.roster_sort) << "\",\n";
+    if (account.preferences.present) {
+        output << "  \"preferences\": {\"flags\": [";
+        const std::vector<std::string> flag_names
+            = character_json::encode_preference_flags(account.preferences.preference_flags & PPC_PRF_MASK);
+        for (size_t index = 0; index < flag_names.size(); ++index) {
+            if (index > 0)
+                output << ", ";
+            output << "\"" << json_utils::escape_json_string(flag_names[index]) << "\"";
+        }
+        output << "], \"colors\": {"
+               << character_json::encode_color_slots_object(
+                      account.preferences.colors, account.preferences.color_settings)
+               << "}},\n";
+    }
     output << "  \"password_reset_attempt_count\": " << account.password_reset_attempt_count << "\n";
     output << "}\n";
     return output.str();

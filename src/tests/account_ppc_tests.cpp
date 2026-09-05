@@ -1,3 +1,4 @@
+#include "../account_management.h"
 #include "../account_management_types.h"
 #include "../character_json.h"
 #include "../color.h"
@@ -120,6 +121,77 @@ TEST(AccountPpcColorSlots, OmitsDefaultSlotsAndResetsOnParse)
         EXPECT_EQ(decoded_colors[index], 0) << "slot " << index;
         EXPECT_EQ(decoded_settings[index].foreground.mode, COLOR_VALUE_DEFAULT) << "slot " << index;
     }
+}
+
+account::AccountData make_minimal_account()
+{
+    account::AccountData account;
+    account.account_name = "ppctester";
+    account.normalized_email = "ppctester@example.com";
+    account.password_hash = "hash";
+    account.password_salt = "salt";
+    return account;
+}
+
+TEST(AccountPpcStorage, RoundTripsPreferences)
+{
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF | PRF_COMPACT | PRF_MSDP;
+    account.preferences.colors[COLOR_NARR] = CRED;
+    account.preferences.color_settings[COLOR_NARR].foreground.mode = COLOR_VALUE_ANSI16;
+    account.preferences.color_settings[COLOR_NARR].foreground.ansi = CRED;
+
+    const std::string json = account::serialize_account_to_json(account);
+    account::AccountData reloaded;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &reloaded, &error_message)) << error_message;
+
+    EXPECT_TRUE(reloaded.preferences.present);
+    EXPECT_EQ(reloaded.preferences.preference_flags, PRF_BRIEF | PRF_COMPACT | PRF_MSDP);
+    EXPECT_EQ(reloaded.preferences.colors[COLOR_NARR], CRED);
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_NARR].foreground.mode, COLOR_VALUE_ANSI16);
+    EXPECT_EQ(reloaded.preferences.color_settings[COLOR_NARR].foreground.ansi, CRED);
+}
+
+TEST(AccountPpcStorage, AbsentPreferencesKeyYieldsNotPresent)
+{
+    account::AccountData account = make_minimal_account();
+    const std::string json = account::serialize_account_to_json(account);
+    ASSERT_EQ(json.find("\"preferences\""), std::string::npos)
+        << "An account with no PPC must not emit a preferences key.";
+
+    account::AccountData reloaded;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &reloaded, &error_message)) << error_message;
+    EXPECT_FALSE(reloaded.preferences.present);
+    EXPECT_EQ(reloaded.version, 1);
+}
+
+TEST(AccountPpcStorage, SchemaVersionIsNotBumped)
+{
+    EXPECT_EQ(account::ACCOUNT_SCHEMA_VERSION, 1)
+        << "Bumping the version makes deserialize reject every existing account file.";
+
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    account::AccountData reloaded;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(
+        account::serialize_account_to_json(account), &reloaded, &error_message))
+        << error_message;
+    EXPECT_EQ(reloaded.version, 1);
+}
+
+TEST(AccountPpcStorage, PreferencesKeyIsNotTheFinalField)
+{
+    account::AccountData account = make_minimal_account();
+    account.preferences.present = true;
+    account.preferences.preference_flags = PRF_BRIEF;
+    const std::string json = account::serialize_account_to_json(account);
+    EXPECT_LT(json.find("\"preferences\""), json.find("\"password_reset_attempt_count\""))
+        << "password_reset_attempt_count must stay the last, comma-less field.";
 }
 
 } // namespace

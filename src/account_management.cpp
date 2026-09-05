@@ -1520,6 +1520,28 @@ namespace {
             return reader->parse_integer(&account->password_reset_attempt_count, error_message);
         if (key == "roster_sort")
             return reader->parse_string(&account->roster_sort, error_message);
+        if (key == "preferences") {
+            account->preferences.present = true;
+            return reader->parse_object([account](const std::string& nested_key,
+                                            json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+                if (nested_key == "flags") {
+                    std::vector<std::string> flag_names;
+                    if (!nested_reader->parse_string_array(&flag_names, nested_error_message))
+                        return false;
+                    long flags = 0;
+                    if (!character_json::decode_preference_flags(flag_names, &flags, nested_error_message))
+                        return false;
+                    account->preferences.preference_flags = flags & PPC_PRF_MASK;
+                    return true;
+                }
+                if (nested_key == "colors") {
+                    return character_json::parse_color_slots_object(nested_reader,
+                        account->preferences.colors, account->preferences.color_settings, nested_error_message);
+                }
+                return nested_reader->skip_value(nested_error_message);
+            },
+                error_message);
+        }
 
         return reader->skip_value(error_message);
     }
