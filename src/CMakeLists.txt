@@ -137,6 +137,7 @@ set(ROTS_TEST_SOURCES
     tests/objects_json_tests.cpp
     tests/player_finalize_tests.cpp
     tests/protocol_tests.cpp
+    tests/rescue_tests.cpp
     tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp
