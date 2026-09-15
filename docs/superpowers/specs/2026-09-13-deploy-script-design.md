@@ -32,7 +32,8 @@ and help-file upload.
   wizlists). They are never uploaded.
 - *Deleting remote files.* A help file removed from the repo is not removed from the server.
 - *ssh keys.* There are none. The one password prompt per run is intentional and serves as the
-  confirmation step — no separate "are you sure" prompt.
+  confirmation step — no separate "are you sure" prompt. `--password <password>` answers that
+  prompt instead, which also skips the confirmation; it covers the ssh login only, never sudo.
 - *Third-party packages.* Standard library only (Python 3.10), driving the system `ssh`/`sftp`.
 
 ## Environments
@@ -89,9 +90,19 @@ scripts/deploy.py deploy <env> <user>@<host> <ssh-port>
 scripts/deploy.py deploy <env> <user>@<host> <ssh-port> --dry-run
 scripts/deploy.py deploy test <user>@<host> <ssh-port> --restart
 scripts/deploy.py revert <env> <user>@<host> <ssh-port>
+scripts/deploy.py deploy|revert <env> <user>@<host> <ssh-port> --password <password>
 ```
 
 `<env>` must be an approved env (see **Environments**); `--restart` is only accepted for `test`.
+
+`--password` (deploy and revert) answers the ssh login prompt so the run does not stop for it. The
+script passes the value to the master connection through `SSH_ASKPASS` with
+`SSH_ASKPASS_REQUIRE=force` (OpenSSH 8.4+): a helper script in the private temp directory prints the
+`ROTS_DEPLOY_PASSWORD` environment variable, so the password is never written to disk or put on the
+`ssh` command line. `-o NumberOfPasswordPrompts=1` is added so a wrong password fails at once instead
+of being sent to the server three times. The dry run shows those options but never the password. It
+does not answer sudo (step 3's chown still asks), and it is still visible in the deployer's shell
+history and to `ps` on the local machine while the script runs.
 
 `revert` puts an env with a backup back to its `src/backup`: it asks for the ssh password once,
 restores `src/` and the help files, forces a relink, clears `src/DEPLOY_IN_PROGRESS`, and checks
@@ -123,7 +134,8 @@ Each step checks its result; any failure stops the run, skips to step 10, and na
    help-file set and run the format check (see **Help files**).
 2. **Banner, then connect.** Print the target (`<user>@<host>:/rots/<dir>`, dir in the env's
    color), the commit, any source edits, and the help files to upload. Then open an OpenSSH master
-   connection (`ssh -M -S <socket> -fN -p <ssh-port> <user>@<host>`); this is the only password prompt.
+   connection (`ssh -M -S <socket> -fN -p <ssh-port> <user>@<host>`); this is the only password prompt
+   (answered by `--password` when given; see **Usage**).
    The socket lives in a fresh private (0700) temp directory. All later `ssh` and `sftp` calls pass
    `-S`/`-o ControlPath=<socket>` and do not prompt.
 
