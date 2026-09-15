@@ -27,13 +27,13 @@
 #endif
 
 #include <assert.h>
+#include <cstring>
 #include <ctype.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <cstring>
 
 #include "color.h"
 #include "comm.h"
@@ -50,6 +50,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 
 extern struct time_data time_info;
 extern struct room_data world;
@@ -1102,12 +1103,14 @@ void mudlog(char* str, char type, sh_int level, byte file)
     return;
 }
 
-void mudlog_debug_mob(char *buf, char_data *ch) {
+void mudlog_debug_mob(char* buf, char_data* ch)
+{
     mudlog_aliased_mob(buf, ch, "debug");
 }
 
-void mudlog_aliased_mob(char *buf, char_data *ch, char *mob_alias) {
-    if(strstr(ch->player.name, mob_alias)) {
+void mudlog_aliased_mob(char* buf, char_data* ch, char* mob_alias)
+{
+    if (strstr(ch->player.name, mob_alias)) {
         mudlog(buf, SPL, LEVEL_GOD, FALSE);
     }
 }
@@ -2202,8 +2205,18 @@ char* PERS(struct char_data* target, struct char_data* observer,
     return name;
 }
 
-int has_alias(char_data* host, char *keyword) {
-    if(strstr(host->player.name, keyword)) {
+int has_alias(char_data* host, char* keyword)
+{
+    if (strstr(host->player.name, keyword)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int has_program(char_data* host, int num)
+{
+    if ((int)host->specials.store_prog_number == num) {
         return 1;
     } else {
         return 0;

@@ -1,4 +1,5 @@
 #include "platdef.h"
+#include <algorithm>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,7 @@
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "limits.h"
 #include "mudlle.h"
 #include "protos.h"
 #include "structs.h"
@@ -599,6 +601,16 @@ void question_proc(struct char_data* host)
 }
 
 /*
+ * A script may write directly into a character's hit points via
+ * the 'h' case below, bypassing update_pos()/normal death processing
+ * entirely.  Clamp to a range far beyond any real character's hit
+ * points but well inside int range (mirrors script.cpp's
+ * MIN/MAX_SCRIPT_HIT_VALUE for the SET_INT_VALUE opcode).
+ */
+static const int MIN_MUDLLE_HIT_VALUE = -1000000;
+static const int MAX_MUDLLE_HIT_VALUE = 1000000;
+
+/*
  * Sets parameters of the item in list, taking
  * them from the stack.
  */
@@ -615,10 +627,30 @@ void int_fromstack(struct char_data* host, char* arg, int cmd,
         break;
 
     case 'h':
-        if ((SPECIAL_LIST_TYPE(host) == TARGET_CHAR) && (SPECIAL_LIST(host).ptr.ch))
-            SPECIAL_LIST(host)
-                .ptr.ch->tmpabilities.hit
-                = val;
+        if ((SPECIAL_LIST_TYPE(host) == TARGET_CHAR) && (SPECIAL_LIST(host).ptr.ch)) {
+            char_data* target = SPECIAL_LIST(host).ptr.ch;
+            val = std::max(MIN_MUDLLE_HIT_VALUE, std::min(val, MAX_MUDLLE_HIT_VALUE));
+            target->tmpabilities.hit = val;
+            /* Only resync when the write pushes hit non-positive, or
+             * when the character was already sitting at DEAD/INCAP/
+             * STUNNED from an earlier script write and needs releasing
+             * now that they've been healed - not on every positive
+             * write, since update_pos() forces STANDING/FIGHTING
+             * whenever hit > 0 (would wrongly stand up a resting/
+             * sleeping character). Without the second condition a
+             * character healed from a prior scripted DEAD/INCAP/
+             * STUNNED would stay stuck at that stale position - a
+             * soft-lock until the next point_update() sweep, since the
+             * command dispatcher requires a higher position for nearly
+             * everything. POSITION_SHAPING is deliberately excluded -
+             * it's the OLC "shape" editor state (interpre.cpp),
+             * unrelated to dying. */
+            bool already_dying = GET_POS(target) == POSITION_DEAD ||
+                GET_POS(target) == POSITION_INCAP ||
+                GET_POS(target) == POSITION_STUNNED;
+            if (val <= 0 || already_dying)
+                update_pos(target);
+        }
         break;
 
     case 'm':
