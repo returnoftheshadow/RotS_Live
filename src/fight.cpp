@@ -1678,13 +1678,6 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
                 stop_riding(attacker);
             if (IS_RIDING(victim) && (victim->mount_data.mount == attacker))
                 stop_riding(victim);
-
-            if (IS_NPC(attacker) && IS_NPC(victim) && victim->master && !number(0, 10) && IS_AFFECTED(victim, AFF_CHARM) && (victim->master->in_room == attacker->in_room)) {
-                if (attacker->specials.fighting)
-                    stop_fighting(attacker);
-                hit(attacker, victim->master, TYPE_UNDEFINED);
-                return 0;
-            }
         }
 
         if (GET_POS(victim) > POSITION_STUNNED) {
