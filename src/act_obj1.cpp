@@ -884,7 +884,10 @@ obj_data* load_scalp(int number)
     if (number > 0) {
         trophy_num = real_mobile(number);
         w_type = 0;
-        if (mob_proto[trophy_num].player.bodytype == 0)
+        // real_mobile is -1 when the mob has since been removed from the world; indexing with it
+        // read mob_proto[-1]. Such a scalp falls through to the "old skull" below, as a deleted
+        // player's head already does, instead of being lost at login.
+        if (trophy_num >= 0 && mob_proto[trophy_num].player.bodytype == 0)
             return 0;
     }
     if (number < 0) {
