@@ -2027,7 +2027,7 @@ namespace {
     {
         if (!is_valid_account_name(migration.account_name, error_message))
             return false;
-        if (!validate_identifier_for_path(migration.character_name, "Character name", error_message))
+        if (!is_valid_character_name(migration.character_name, error_message))
             return false;
 
         if (normalize_account_name(expected_account_name) != normalize_account_name(migration.account_name)) {

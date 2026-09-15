@@ -42,6 +42,34 @@ bool is_valid_account_name(const std::string& account_name, std::string* error_m
     return true;
 }
 
+// An EXISTING character's name, as the account layer stores it and builds paths from it. No
+// 3-character minimum: live data still holds legacy characters from before that rule (Ao, El, Pi,
+// ...), and linking them must not fail on length. New names are held to MIN_NAME_LENGTH by
+// valid_name (ban.cpp) before they ever reach here; this only guards the path component.
+bool is_valid_character_name(const std::string& character_name, std::string* error_message)
+{
+    const std::string normalized_name = normalize_account_name(character_name);
+    if (normalized_name.empty()) {
+        set_error(error_message, "Character names must not be empty.");
+        return false;
+    }
+
+    if (normalized_name.length() > MAX_ACCOUNT_NAME_LENGTH) {
+        set_error(error_message, "Character names must be 20 characters or fewer.");
+        return false;
+    }
+
+    for (char character : normalized_name) {
+        if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '-') {
+            set_error(error_message, "Character names may only contain letters, numbers, '-' and '_'.");
+            return false;
+        }
+    }
+
+    set_error(error_message, "");
+    return true;
+}
+
 bool is_valid_email(const std::string& email, std::string* error_message)
 {
     const std::string normalized_email = normalize_email(email);
@@ -1016,7 +1044,7 @@ bool complete_email_verification(const std::string& root_directory, const std::s
 
 bool find_linked_character_owner_account_uncached(const std::string& root_directory, const std::string& character_name, std::string* owner_account_name, std::string* error_message)
 {
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     // Index fast path. The scan below (find_character_owner_account) is what runs when the index is
@@ -1089,7 +1117,7 @@ bool admin_link_character(const std::string& root_directory, const std::string& 
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     AccountData stored_account;
@@ -1122,7 +1150,7 @@ bool admin_rename_linked_character(const std::string& root_directory, const std:
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
     if (!validate_identifier_for_path(new_character_name, "New character name", error_message))
         return false;
@@ -1281,7 +1309,7 @@ bool admin_link_and_migrate_character(const std::string& root_directory, const s
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     AccountData stored_account;
@@ -1430,7 +1458,7 @@ bool admin_delete_linked_character(const std::string& root_directory, const std:
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     AccountData stored_account;
@@ -1559,7 +1587,7 @@ bool link_and_migrate_character(const std::string& root_directory, const std::st
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     AccountData authenticated_account;

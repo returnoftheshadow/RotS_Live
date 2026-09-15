@@ -296,7 +296,7 @@ namespace {
 
         if (!validate_identifier_for_path(account_name, "Account name", error_message))
             return false;
-        if (!validate_identifier_for_path(character_name, "Character name", error_message))
+        if (!is_valid_character_name(character_name, error_message))
             return false;
 
         AccountData account;
@@ -440,7 +440,7 @@ namespace {
     {
         if (!validate_identifier_for_path(account_name, "Account name", error_message))
             return false;
-        if (!validate_identifier_for_path(character_name, "Character name", error_message))
+        if (!is_valid_character_name(character_name, error_message))
             return false;
 
         AccountData account;

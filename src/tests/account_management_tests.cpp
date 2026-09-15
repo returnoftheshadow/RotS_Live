@@ -419,6 +419,29 @@ TEST(AccountManagement, RejectsAccountNamesWithUnsupportedCharacters)
         << "Expected invalid account-name failures to explain the supported character set.";
 }
 
+// Live data holds legacy characters older than the 3-character creation minimum (Ao, El, Fy, Ia,
+// Li, Pi, Ru). New names still go through valid_name (ban.cpp); the account layer must only refuse
+// what cannot be a safe path component, never an existing character for being short.
+TEST(AccountManagement, AcceptsShortExistingCharacterNames)
+{
+    std::string error_message;
+
+    EXPECT_TRUE(account::is_valid_character_name("pi", &error_message)) << error_message;
+    EXPECT_TRUE(account::is_valid_character_name("A", &error_message)) << error_message;
+    EXPECT_FALSE(account::is_valid_account_name("pi", &error_message));
+}
+
+TEST(AccountManagement, RejectsCharacterNamesThatAreNotSafePathComponents)
+{
+    std::string error_message;
+
+    EXPECT_FALSE(account::is_valid_character_name("", &error_message));
+    EXPECT_FALSE(error_message.empty());
+    EXPECT_FALSE(account::is_valid_character_name("../pi", &error_message));
+    EXPECT_NE(error_message.find("letters"), std::string::npos) << error_message;
+    EXPECT_FALSE(account::is_valid_character_name(std::string(account::MAX_ACCOUNT_NAME_LENGTH + 1, 'a'), &error_message));
+}
+
 TEST(AccountManagement, RejectsPasswordsMissingRequiredComplexity)
 {
     std::string error_message;
@@ -1496,6 +1519,57 @@ TEST(AccountManagement, LinksAndMigratesCharacterAfterAuthenticatingAccount)
 
     EXPECT_FALSE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin", "WrongPass1", "aragorn", 1700012224, nullptr, nullptr, &error_message));
     EXPECT_EQ(error_message, "Account authentication failed.");
+}
+
+TEST(AccountManagement, LinksAndMigratesTwoLetterLegacyCharacter)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/P-T").c_str(), 0700), 0);
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("Pi"));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700012222, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(temp_directory.path(), "alpha-admin", "VerifierAdmin", 1700012222, nullptr, &error_message)) << error_message;
+
+    account::AccountData linked_account;
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin", "ValidPass1", "Pi", 1700012223, &linked_account, &migration, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(linked_account, "pi"));
+    EXPECT_EQ(migration.character_name, "pi");
+    EXPECT_TRUE(migration.player_file.present);
+
+    // The record that now lists "pi" has to read back, or the whole account becomes unreadable.
+    account::AccountData reread_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), "alpha-admin", &reread_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(reread_account, "pi"));
+
+    std::string owner_account_name;
+    ASSERT_TRUE(account::find_linked_character_owner_account(temp_directory.path(), "pi", &owner_account_name, &error_message)) << error_message;
+    EXPECT_EQ(owner_account_name, "alpha-admin");
+
+    // Renaming INTO a short name is a new name, so the creation minimum still applies.
+    EXPECT_FALSE(account::admin_rename_linked_character(temp_directory.path(), "alpha-admin", "pi", "ab", 1700012224, nullptr, &error_message));
+
+    ASSERT_TRUE(account::admin_delete_linked_character(temp_directory.path(), "alpha-admin", "pi", 1700012225, &reread_account, &error_message)) << error_message;
+    EXPECT_FALSE(account::account_has_character(reread_account, "pi"));
+}
+
+TEST(AccountManagement, AdminLinksAndMigratesTwoLetterLegacyCharacter)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("El"));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700012230, nullptr, &error_message)) << error_message;
+
+    account::AccountData linked_account;
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::admin_link_and_migrate_character(temp_directory.path(), "alpha-admin", "El", 1700012231, &linked_account, &migration, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(linked_account, "el"));
+    EXPECT_TRUE(migration.player_file.present);
 }
 
 TEST(AccountManagement, DoesNotLeaveCharacterLinkedWhenMigrationFails)

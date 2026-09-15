@@ -2,7 +2,7 @@ bool write_account_character_file(const std::string& root_directory, const std::
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(stored_character.name, "Character name", error_message))
+    if (!is_valid_character_name(stored_character.name, error_message))
         return false;
 
     AccountData account;
@@ -356,7 +356,7 @@ bool remove_account_exploit_file(const std::string& root_directory, const std::s
 
 bool clear_account_character_runtime_support_files(const std::string& root_directory, const std::string& character_name, std::string* error_message)
 {
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     const std::string object_path = legacy_object_file_path(root_directory, character_name);

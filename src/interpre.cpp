@@ -3481,8 +3481,9 @@ void nanny(struct descriptor_data* d, char* arg)
                 return;
             }
 
-            // Single-letter sort and filter keys. Unambiguous because character names are a minimum
-            // of 3 characters, enforced by valid_name (ban.cpp) and is_valid_account_name.
+            // Single-letter sort and filter keys. New names are a minimum of 3 characters (valid_name,
+            // ban.cpp); the shortest linked legacy names in live data are 2, so no name collides. A
+            // one-letter legacy character, were one ever linked, is still selectable by number.
             if (strlen(arg) == 1) {
                 const char key = LOWER(*arg);
                 account::RosterSort new_sort = static_cast<account::RosterSort>(d->roster_sort);
