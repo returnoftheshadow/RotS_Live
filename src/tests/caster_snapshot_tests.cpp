@@ -113,6 +113,35 @@ TEST(CasterSnapshot, ResolveRequiresTheSameRegisteredCharacter)
     remove_char_exists(slot); // restore: leave the slot unregistered
 }
 
+// Pin: the slot is recycled to a character allocated at the SAME address --
+// the case pointer-plus-number identity cannot see. register_npc_char()'s
+// cursor wraps back to a freed slot and the allocator reuses the freed block,
+// so the snapshot matches both halves; only the registration serial stamped
+// by the new set_char_exists() tells the two apart.
+TEST(CasterSnapshot, ResolveRejectsTheSameSlotAndAddressOnceReRegistered)
+{
+    CasterSnapshotTestContext context;
+    const int slot = MAX_CHARACTERS - 402;
+    remove_char_exists(slot);
+    context.character.abs_number = slot;
+
+    set_char_exists(slot, &context.character);
+    const caster_snapshot snap = caster_snapshot::capture(context.character);
+    ASSERT_EQ(snap.resolve(), &context.character);
+    EXPECT_TRUE(snap.same_character_as(context.character));
+
+    // Extracted, then a new character registered in the same slot at the
+    // same address (the same object stands in for the reused block).
+    remove_char_exists(slot);
+    set_char_exists(slot, &context.character);
+    ASSERT_EQ(char_by_abs_number(slot), &context.character) << "slot and address both match the snapshot";
+
+    EXPECT_EQ(snap.resolve(), nullptr) << "a re-registration is a different character, whatever its address";
+    EXPECT_FALSE(snap.same_character_as(context.character));
+
+    remove_char_exists(slot);
+}
+
 TEST(CasterSnapshot, SameCharacterAsRequiresPointerAndNumberToMatch)
 {
     CasterSnapshotTestContext context;

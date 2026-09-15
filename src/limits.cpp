@@ -1600,9 +1600,11 @@ extern universal_list* affected_list_pool;
 // cursor reaches, and a death earlier in the SAME affect_update() can load a
 // new mobile into that very slot before this entry is revisited. So the
 // number is resolved back to a live pointer via char_by_abs_number() and
-// that pointer must be the SAME one the entry named -- the identity compare
-// used everywhere else a stale character reference must be recovered
-// safely -- before anything is dereferenced.
+// that pointer must be the SAME one the entry named, still carrying the
+// registration serial the entry recorded -- the identity compare used
+// everywhere else a stale character reference must be recovered safely --
+// before anything is dereferenced. The serial is what tells a slot recycled
+// to a new character at the same address apart from the original.
 namespace {
 
 // One affected_list entry's identity, captured before any body runs.
@@ -1613,6 +1615,7 @@ struct affected_list_entry {
     // char_by_abs_number(number) lookup -- never dereferenced on its own, so
     // a character freed since the snapshot cannot be read through it.
     char_data* ch;
+    long serial; // registration_serial the node recorded for ch (TARGET_CHAR only)
     room_data* room; // the node's room pointer
 };
 
@@ -1641,6 +1644,7 @@ void affect_update()
         entry.number = node->number;
         if (node->type == TARGET_CHAR) {
             entry.ch = node->ptr.ch;
+            entry.serial = node->serial;
         } else if (node->type == TARGET_ROOM) {
             entry.room = node->ptr.room;
         }
@@ -1651,10 +1655,11 @@ void affect_update()
     for (const affected_list_entry& entry : snapshot) {
         if (entry.type == TARGET_CHAR) {
             char_data* const live = char_by_abs_number(entry.number);
-            if (live != nullptr && live == entry.ch && live->affected) {
+            const bool same_character = live != nullptr && live == entry.ch && live->registration_serial == entry.serial;
+            if (same_character && live->affected) {
                 affect_update_person(live, 0);
             } else {
-                if (live != nullptr && live == entry.ch) {
+                if (same_character) {
                     sprintf(mybuf, "Getting %s off the affected_list.", GET_NAME(live));
                 } else {
                     strcpy(mybuf, "Getting Unknown char off the affected_list.");

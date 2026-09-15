@@ -31,6 +31,8 @@ extern int top_of_world;
 extern struct char_data* character_list;
 extern struct index_data* mob_index;
 extern struct obj_data* object_list;
+extern struct char_data* combat_list;
+extern struct char_data* combat_next_dude;
 
 namespace {
 
@@ -203,7 +205,15 @@ class MageProcTest : public ::testing::Test {
   protected:
     void SetUp() override { ensure_test_world(32); }
 
-    void TearDown() override { clear_test_random_values(); }
+    // The spell pins engage stack-local casters and victims through damage()'s
+    // set_fighting() and never stop_fighting() them, so the global combat_list
+    // would keep dangling stack addresses for every later suite that walks it
+    // (extract_char() -> stop_fighting_him()). Reset it the way damage_tests.cpp does.
+    void TearDown() override {
+        clear_test_random_values();
+        combat_list = nullptr;
+        combat_next_dude = nullptr;
+    }
 };
 
 TEST_F(MageProcTest, MageCasterLevelUsesCurrentIntelRoundingPath) {

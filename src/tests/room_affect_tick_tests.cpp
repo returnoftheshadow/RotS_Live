@@ -28,6 +28,7 @@
 // resolve_poisoner(), room_affect_caster()) rather than an exact hit-point
 // count wrung out of the whole damage() pipeline.
 
+#include "../big_brother.h"
 #include "../caster_snapshot.h"
 #include "../comm.h"
 #include "../db.h"
@@ -43,6 +44,7 @@
 #include <string>
 
 extern struct room_data world;
+extern struct weather_data weather_info;
 extern int top_of_world;
 extern struct char_data* character_list;
 extern struct obj_data* object_list;
@@ -489,20 +491,40 @@ TEST(RoomAffectTick, BlazeTickDamageComesFromTheSnapshotNotTheCastersCurrentStat
 // ---------------------------------------------------------------------------
 // blaze: a lethal tick credits the recorded caster and never engages it
 // ---------------------------------------------------------------------------
+// Who was credited is read back through Big Brother: raw_kill() hands every
+// death to on_character_died(), which for an orc-friend NPC victim with a
+// non-empty corpse records the killer, and is_corpse_protected() then answers
+// true only when that recorded killer was a player. The corpse's gear moving
+// out of its container is NOT a credit signature -- make_physical_corpse()
+// moves it for a null killer too -- which the null-credit control below pins.
+// Boot creates the Big Brother singleton (db.cpp); gtest_main does not, and
+// raw_kill() reports every death to it. A plain NPC corpse never touches its
+// members, but an orc-friend corpse is recorded, so the pins below need the
+// real instance. create() keeps one function-local static, so repeating it
+// is harmless.
+void ensure_big_brother()
+{
+    game_rules::big_brother::create(weather_info, &world);
+}
+
 TEST(RoomAffectTick, BlazeTickCreditsTheRecordedCasterWithoutEngagingIt)
 {
+    ensure_big_brother();
     ScopedMobIndex prototype_table;
     RoomFixture occupant_room(kBlazeRoomA);
     RoomFixture caster_room(kAwayRoom);
 
     char occupant_short_descr[] = "a testing blaze victim";
     char_data* occupant = make_heap_occupant(occupant_room.slot(), occupant_short_descr, 1); // any blaze tick is lethal
+    occupant->specials2.act |= MOB_ORC_FRIEND; // so Big Brother records this corpse's killer
     character_list = occupant;
     occupant->next = nullptr;
     occupant_room.room()->people = occupant;
     occupant->next_in_room = nullptr;
+    ASSERT_TRUE(IS_NPC(occupant)) << "precondition: the victim is a mob, so the caster is the only player in scope";
 
     CasterFixture caster(25, 0, game_types::PS_None, kAwayRoom); // standing elsewhere entirely
+    ASSERT_FALSE(IS_NPC(&caster.ch)) << "precondition: the recorded caster is a player";
     ScopedCharExists caster_registration(caster.ch, kCasterASlot);
     set_room_affect_caster(occupant_room.room(), SPELL_BLAZE, caster_snapshot::capture(caster.ch));
 
@@ -528,12 +550,74 @@ TEST(RoomAffectTick, BlazeTickCreditsTheRecordedCasterWithoutEngagingIt)
 
     obj_data* const corpse = occupant_room.room()->contents;
     ASSERT_NE(corpse, nullptr) << "raw_kill() must have created a corpse in the death room";
+    EXPECT_EQ(gear.item.in_obj, corpse) << "the corpse must hold the victim's gear (Big Brother ignores empty corpses)";
+
+    // Big Brother exposes only whether the recorded killer was a player, so
+    // the identity claim rests on this scenario holding exactly one player:
+    // the occupant is a mob (asserted before the tick) and the caster is the
+    // only other character in scope.
+    game_rules::big_brother& big_brother = game_rules::big_brother::instance();
+    EXPECT_TRUE(big_brother.is_corpse_protected(&caster.ch, corpse))
+        << "Big Brother must have been told a PLAYER killed this orc-friend: the recorded caster "
+           "is the only player in this scenario, so this is the credited identity";
+
+    big_brother.on_corpse_decayed(corpse);
+    release_corpse(*occupant_room.room(), previous_object_list);
+}
+
+// Control for the pin above: the same tick with a recorded caster who can no
+// longer be resolved (never registered, as an extracted caster would be)
+// credits nobody. The gear still moves -- proving it cannot stand in for a
+// credit assertion -- while Big Brother, told of a null killer, leaves a
+// same-side looter unprotected.
+TEST(RoomAffectTick, BlazeTickWithAnUnresolvableCasterCreditsNobody)
+{
+    ensure_big_brother();
+    ScopedMobIndex prototype_table;
+    RoomFixture occupant_room(kBlazeRoomA);
+    RoomFixture caster_room(kAwayRoom);
+
+    char occupant_short_descr[] = "a testing blaze victim";
+    char_data* occupant = make_heap_occupant(occupant_room.slot(), occupant_short_descr, 1);
+    occupant->specials2.act |= MOB_ORC_FRIEND;
+    character_list = occupant;
+    occupant->next = nullptr;
+    occupant_room.room()->people = occupant;
+    occupant->next_in_room = nullptr;
+
+    CasterFixture caster(25, 0, game_types::PS_None, kAwayRoom);
+    caster.ch.abs_number = kCasterASlot;
+    remove_char_exists(kCasterASlot); // deliberately NOT registered: the snapshot must not resolve
+    const caster_snapshot recorded = caster_snapshot::capture(caster.ch);
+    ASSERT_EQ(recorded.resolve(), nullptr) << "precondition: the recorded caster is unresolvable";
+    set_room_affect_caster(occupant_room.room(), SPELL_BLAZE, recorded);
+
+    CarriedGear gear;
+    gear.attach_to(*occupant);
+
+    affected_type affect = dummy_affect();
+    obj_data* const previous_object_list = object_list;
+
+    queue_mid_rolls();
+    room_affect_tick(SPELL_BLAZE, occupant_room.room(), occupant, affect);
+    clear_test_random_values();
+
+    EXPECT_EQ(character_list, nullptr) << "the occupant still dies";
+    EXPECT_EQ(caster.ch.specials.fighting, nullptr);
+
+    obj_data* const corpse = occupant_room.room()->contents;
+    ASSERT_NE(corpse, nullptr) << "raw_kill() must have created a corpse in the death room";
     EXPECT_EQ(gear.container.contains, nullptr)
-        << "move_wearables_to_corpse() only runs for a non-NPC killer -- the recorded (PC) caster "
-           "-- so the wearable being pulled out of its container is this test's signature that "
-           "the caster, not the (NPC) occupant, was credited with the kill";
+        << "the gear moves for a null killer exactly as for a player killer, so gear movement "
+           "proves nothing about credit";
     EXPECT_EQ(gear.item.in_obj, corpse);
 
+    game_rules::big_brother& big_brother = game_rules::big_brother::instance();
+    EXPECT_FALSE(big_brother.is_corpse_protected(&caster.ch, corpse))
+        << "with nobody credited, Big Brother recorded no player killer: a same-side (human) "
+           "looter is not kept off this human orc-friend's corpse";
+
+    big_brother.on_corpse_decayed(corpse);
     release_corpse(*occupant_room.room(), previous_object_list);
 }
 

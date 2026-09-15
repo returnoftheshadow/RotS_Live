@@ -1117,3 +1117,41 @@ TEST(FightCredit, RemoteCreditedKillerDeathStillPaysEngagedRoomFighters)
 
     release_corpse(kPayoutDeathRoom, previous_object_list);
 }
+
+// die() pays XP through group_gain() whether or not anyone is credited: a
+// poison tick whose poisoner is gone reaches die() with a null killer while
+// an opponent may still be fighting the victim (an incapacitating tick clears
+// the victim's own target, not the opponent's). The fighter in the death
+// room must still get their share; a bystander in the room gets nothing.
+// Fixtures follow the harness notes of the group_gain() section above.
+TEST(GroupGain, PaysRoomFightersTheirShareWhenNobodyIsCredited)
+{
+    constexpr int kNobodyCreditedRoom = 907; // continues this file's out-of-band numbering
+    RoomGuard room_guard(kNobodyCreditedRoom);
+
+    char victim_short_descr[] = "a testing uncredited payout victim";
+    char_data victim {};
+    init_payout_victim(victim, victim_short_descr, kNobodyCreditedRoom);
+    victim.specials.fighting = nullptr; // an incapacitating tick already cleared the victim's own target
+
+    char fighter_name[] = "test_uncredited_fighter";
+    char_data fighter {};
+    init_payout_pc(fighter, fighter_name, kNobodyCreditedRoom);
+    fighter.specials.fighting = &victim;
+
+    char bystander_name[] = "test_uncredited_bystander";
+    char_data bystander {};
+    init_payout_pc(bystander, bystander_name, kNobodyCreditedRoom);
+    bystander.specials.fighting = nullptr;
+
+    world[kNobodyCreditedRoom].people = &fighter;
+    fighter.next_in_room = &bystander;
+    bystander.next_in_room = nullptr;
+
+    group_gain(nullptr, &victim);
+
+    EXPECT_GT(fighter.points.exp, 1000)
+        << "the character fighting the victim in the death room must be paid even when die() credits nobody";
+    EXPECT_EQ(bystander.points.exp, 1000)
+        << "a bystander who was not fighting the victim gets no share";
+}

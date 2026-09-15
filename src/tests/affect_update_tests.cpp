@@ -25,6 +25,7 @@
 // dead occupant.
 #include "../db.h"
 #include "../handler.h"
+#include "../interpre.h"
 #include "../spells.h"
 #include "../utils.h"
 #include "test_random_utils.h"
@@ -40,6 +41,7 @@ extern struct index_data* mob_index;
 extern universal_list* affected_list;
 extern universal_list* affected_list_pool;
 extern struct skill_data skills[];
+ACMD(do_rehash); // act_wiz.cpp: rebuilds affected_list from character_list and the world's rooms
 extern struct char_data* combat_list;
 extern struct char_data* combat_next_dude;
 
@@ -240,6 +242,8 @@ void queue_blaze_rolls(int count = 100) {
 // MAX_CHARACTERS - 17/-18, so this file stays clear of those too.
 constexpr int kSentinelSlot = MAX_CHARACTERS - 201;
 constexpr int kRecycledSlot = MAX_CHARACTERS - 202;
+constexpr int kReRegisteredSlot = MAX_CHARACTERS - 203; // the same-address re-registration pin below
+constexpr int kRehashSlot = MAX_CHARACTERS - 204; // the do_rehash rebuild pin below
 
 } // namespace
 
@@ -381,6 +385,47 @@ TEST(AffectUpdateWalk, DoesNotUpdateACharacterWhoseAbsNumberSlotWasRecycled) {
     EXPECT_EQ(imposter.affected, nullptr) << "and the new owner gains nothing from the old entry";
 }
 
+// Pin: the slot is recycled to a character allocated at the SAME address, so
+// both halves of the pointer-plus-number identity still match the snapshotted
+// entry; the registration serial recorded on the node is what retires it.
+TEST(AffectUpdateWalk, DoesNotUpdateACharacterWhoseSlotWasReRegisteredAtTheSameAddress) {
+    char_data victim {};
+    char_prof_data victim_profs {};
+    make_npc(victim, victim_profs, 500);
+    victim.abs_number = kReRegisteredSlot;
+    set_char_exists(kReRegisteredSlot, &victim);
+
+    affected_type victim_af = inert_affect(50);
+    affect_to_char(&victim, &victim_af);
+    ASSERT_TRUE(affected_list_holds(&victim)) << "the victim must be on the walk";
+    ASSERT_NE(victim.affected, nullptr);
+
+    // Extracted, then a new character registered in the same slot at the
+    // same address (the same object stands in for the reused block).
+    remove_char_exists(kReRegisteredSlot);
+    set_char_exists(kReRegisteredSlot, &victim);
+    ASSERT_EQ(char_by_abs_number(kReRegisteredSlot), &victim) << "slot and address both match the entry";
+
+    testing::internal::CaptureStderr();
+    affect_update();
+    const std::string captured = testing::internal::GetCapturedStderr();
+
+    const int duration_after = victim.affected ? victim.affected->duration : -1;
+    const bool victim_node_gone = !affected_list_holds(&victim);
+    while (victim.affected) {
+        affect_remove(&victim, victim.affected);
+    }
+    remove_char_exists(kReRegisteredSlot);
+
+    EXPECT_EQ(duration_after, 50)
+        << "an entry recorded for an earlier registration must not tick the slot's new owner, "
+           "even at the same address; stderr was: "
+        << captured;
+    EXPECT_TRUE(victim_node_gone) << "and the stale entry is retired";
+    EXPECT_NE(captured.find("Getting Unknown char off the affected_list."), std::string::npos)
+        << "the housekeeping arm must treat the entry as a stranger; stderr was: " << captured;
+}
+
 TEST(AffectUpdateWalk, DoesNotDereferenceAFreedCharacterThroughARecycledSlot) {
     // A character that has already been extracted and freed, with its
     // affected_list node still in place -- the node is fabricated directly
@@ -409,4 +454,64 @@ TEST(AffectUpdateWalk, DoesNotDereferenceAFreedCharacterThroughARecycledSlot) {
         << "the freed character's entry must be retired, not walked; stderr was: " << captured;
     EXPECT_NE(captured.find("Getting Unknown char off the affected_list."), std::string::npos)
         << "and reported without naming it; stderr was: " << captured;
+}
+
+// Pin: `rehash` throws the whole affected_list away and rebuilds it from
+// character_list; every rebuilt character node must carry that character's
+// registration serial, or affect_update() would treat every affected
+// character in the game as a stranger and evict them on the next tick.
+// top_of_world is parked at -1 for the call so the rebuild's room walk does
+// not read rooms other suites in this binary may have left behind.
+TEST(AffectUpdateWalk, RehashRebuildsCharacterEntriesWithTheirRegistrationSerial) {
+    char_data victim {};
+    char_prof_data victim_profs {};
+    make_npc(victim, victim_profs, 500);
+    ScopedCharExists victim_exists { victim, kRehashSlot };
+    ASSERT_NE(victim.registration_serial, 0L) << "registration must have stamped a serial";
+
+    affected_type victim_af = inert_affect(50);
+    affect_to_char(&victim, &victim_af);
+    ASSERT_TRUE(affected_list_holds(&victim));
+
+    char immortal_name[] = "test_rehasher";
+    char_data immortal {};
+    immortal.player.name = immortal_name;
+    immortal.player.level = LEVEL_GRGOD;
+
+    char_data* const previous_character_list = character_list;
+    const int previous_top_of_world = top_of_world;
+    character_list = &victim;
+    victim.next = nullptr;
+    top_of_world = -1;
+    char empty_argument[] = "";
+    testing::internal::CaptureStderr();
+    do_rehash(&immortal, empty_argument, nullptr, 0, 0);
+    testing::internal::GetCapturedStderr();
+    top_of_world = previous_top_of_world;
+    character_list = previous_character_list;
+
+    universal_list* rebuilt = nullptr;
+    for (universal_list* node = affected_list; node; node = node->next) {
+        if (node->type == TARGET_CHAR && node->ptr.ch == &victim) {
+            rebuilt = node;
+        }
+    }
+    ASSERT_NE(rebuilt, nullptr) << "rehash must have rebuilt the victim's entry";
+    EXPECT_EQ(rebuilt->number, victim.abs_number);
+    EXPECT_EQ(rebuilt->serial, victim.registration_serial) << "the rebuilt node must carry the live serial";
+
+    testing::internal::CaptureStderr();
+    affect_update();
+    const std::string captured = testing::internal::GetCapturedStderr();
+
+    const int duration_after = victim.affected ? victim.affected->duration : -1;
+    const bool still_listed = affected_list_holds(&victim);
+    while (victim.affected) {
+        affect_remove(&victim, victim.affected);
+    }
+
+    EXPECT_EQ(duration_after, 49) << "the rebuilt entry must tick the character, not evict it; stderr was: " << captured;
+    EXPECT_TRUE(still_listed);
+    EXPECT_EQ(captured.find("Getting Unknown char off the affected_list."), std::string::npos)
+        << "a rebuilt entry must not be treated as a stranger; stderr was: " << captured;
 }

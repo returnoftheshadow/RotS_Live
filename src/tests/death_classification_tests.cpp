@@ -291,3 +291,20 @@ TEST(MobdeathRecordMob, PlayerDeathSuppressesTheRecordEvenForAMobKiller)
     EXPECT_EQ(mobdeath_record_mob(&mob, nullptr, death_punishment::player_death), nullptr)
         << "an unengaged mob-poison death is not recorded as a mob death";
 }
+
+// Pin: die()'s EXPLOIT_DEATH gate. A player's killing blow and an uncredited
+// death (null killer, as a poison tick whose poisoner is gone hands die())
+// both name the player contributors; a mob's killing blow keeps the legacy
+// mob-death-only shape.
+TEST(DeathNamesPlayerContributors, TrueForPlayerOrNobodyFalseForMob)
+{
+    char_data mob { };
+    make_plain_mob(mob);
+    char_data player { };
+    player.player.level = 20;
+
+    EXPECT_TRUE(death_names_player_contributors(&player));
+    EXPECT_TRUE(death_names_player_contributors(nullptr))
+        << "an uncredited death must still record who was fighting the victim";
+    EXPECT_FALSE(death_names_player_contributors(&mob));
+}

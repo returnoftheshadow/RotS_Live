@@ -18,6 +18,7 @@ struct caster_snapshot {
 
     int abs_number; // identity for kill credit only; never used to read stats
     char_data* identity_ptr; // the pointer at capture; meaningful only through resolve()
+    long identity_serial; // registration_serial at capture; resolve() requires the slot's owner to still carry it
     int level_a; // GET_LEVELA at cast time
     int mage_prof_level; // utils::get_prof_level(PROF_MAGE, caster)
     int cleric_prof_level; // utils::get_prof_level(PROF_CLERIC, caster)

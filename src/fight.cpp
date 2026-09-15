@@ -894,7 +894,7 @@ char_data* resolve_poisoner(const char_data& victim)
         return nullptr;
     }
     char_data* live = char_by_abs_number(number);
-    if (live != nullptr && live == ptr) {
+    if (live != nullptr && live == ptr && live->registration_serial == victim.specials.poisoned_by_serial) {
         return live;
     }
     return nullptr;
@@ -919,8 +919,13 @@ void record_poison_origin(char_data* victim, char_data* poisoner)
     if (poisoner != nullptr) {
         poisoner_abs_number = poisoner->abs_number;
     }
+    long poisoner_serial = 0;
+    if (poisoner != nullptr) {
+        poisoner_serial = poisoner->registration_serial;
+    }
     victim->specials.poisoned_by_abs_number = poisoner_abs_number;
     victim->specials.poisoned_by = poisoner;
+    victim->specials.poisoned_by_serial = poisoner_serial;
 }
 
 namespace {
@@ -1049,6 +1054,14 @@ bool death_takes_full_mob_xp_loss(const char_data* killer, death_punishment puni
         return false;
     }
     return is_real_mob(killer);
+}
+
+bool death_names_player_contributors(const char_data* killer)
+{
+    // IS_NPC() already treats a null pointer as "not a mob"; the explicit
+    // null case documents that an uncredited death (a poison or room tick
+    // whose source is gone) still records who was fighting the victim.
+    return killer == nullptr || !IS_NPC(killer);
 }
 
 bool death_counts_as_player_kill(const char_data* killer, death_punishment punishment)
@@ -1238,12 +1251,14 @@ void die(char_data* dead_man, char_data* killer, int attack_type, char_data* eng
     }
 
     /* the following piece is moved here, might cause problems... */
-    if (killer) {
-        // Only grant gains for kills on NPCs and connected players.
-        if (IS_NPC(dead_man) || dead_man->desc) {
-            group_gain(killer, dead_man);
-        }
+    // Only grant gains for kills on NPCs and connected players. `killer` may
+    // be nobody (a poison or room tick whose source is gone); group_gain()
+    // still pays everyone fighting the victim in the death room.
+    if (IS_NPC(dead_man) || dead_man->desc) {
+        group_gain(killer, dead_man);
+    }
 
+    if (killer) {
         if (!IS_NPC(dead_man)) {
             const room_data& death_room = world[dead_man->in_room];
             const char* room_name = death_room.name;
@@ -1298,24 +1313,27 @@ void die(char_data* dead_man, char_data* killer, int attack_type, char_data* eng
         add_exploit_record(EXPLOIT_POISON, dead_man, 0, NULL);
     }
 
-    if (killer) {
-        // TASK-026 port: who took part is decided here, once, and handed to
-        // the record builder -- pkill.cpp's own combat_list walks could not
-        // see a poisoner or a remote room-affect caster.
-        //
-        // PK records are created regardless of death cause, but then early out
-        // if it's all NPCs killing the character.  Heh...
-        const kill_contributor_list contributors = kill_contributors(dead_man, killer);
-        if (contributors.count > 0) {
-            pkill_create(dead_man, contributors);
-            add_exploit_record(EXPLOIT_PK, dead_man, 0, NULL); /* pk records to killers */
-        }
+    // TASK-026 port: who took part is decided here, once, and handed to the
+    // record builder -- pkill.cpp's own combat_list walks could not see a
+    // poisoner or a remote room-affect caster. Built whether or not anyone
+    // is credited: an incapacitating poison tick clears the victim's own
+    // target but not its opponents', so a later lethal tick whose poisoner
+    // is gone still finds them fighting, and they keep their records.
+    //
+    // PK records are created regardless of death cause, but then early out
+    // if it's all NPCs killing the character.  Heh...
+    const kill_contributor_list contributors = kill_contributors(dead_man, killer);
+    if (contributors.count > 0) {
+        pkill_create(dead_man, contributors);
+        add_exploit_record(EXPLOIT_PK, dead_man, contributors); /* pk records to killers */
+    }
 
-        /* add death records to dead player */
-        /* Fingolfin: Jul 19: since we record mobdeaths earlier */
-        if (!IS_NPC(killer)) {
-            add_exploit_record(EXPLOIT_DEATH, dead_man, 0, NULL);
-        }
+    /* add death records to dead player */
+    /* Fingolfin: Jul 19: since we record mobdeaths earlier */
+    // A mob's killing blow keeps the legacy shape (the mob-death record above
+    // stands alone); a player's, or nobody's, names the player contributors.
+    if (death_names_player_contributors(killer)) {
+        add_exploit_record(EXPLOIT_DEATH, dead_man, contributors);
     }
 
     if (death_takes_full_mob_xp_loss(killer, punishment)) {
@@ -1405,15 +1423,17 @@ bool master_gets_credit(const char_data* character)
 
 void group_gain(char_data* killer, char_data* dead_man)
 {
-    if (killer == nullptr || dead_man == nullptr)
+    if (dead_man == nullptr)
         return;
 
     if (dead_man->in_room == NOWHERE)
         return;
 
-    // killer may be remote (a room-affect or poison tick); presence gates only its own share.
+    // killer may be remote, or nobody at all (a room-affect or poison tick whose source is
+    // gone); presence gates only its own share. Everyone fighting the victim in the death
+    // room is paid either way.
     bool killer_is_present = false;
-    if (killer->in_room != NOWHERE && killer->in_room == dead_man->in_room) {
+    if (killer != nullptr && killer->in_room != NOWHERE && killer->in_room == dead_man->in_room) {
         killer_is_present = true;
     }
 

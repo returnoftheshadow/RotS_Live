@@ -31,6 +31,7 @@
 #include "char_utils.h"
 #include "character_json.h"
 #include "exploits_json.h"
+#include "kill_contributors.h"
 #include "player_file_finalize.h"
 #include "skill_timer.h"
 #include <cstdio>
@@ -3623,6 +3624,7 @@ void clear_char(struct char_data* ch, int mode)
     // reset a character.
     ch->specials.poisoned_by_abs_number = -1;
     ch->specials.poisoned_by = nullptr;
+    ch->specials.poisoned_by_serial = 0;
     ch->specials.position = POSITION_STANDING;
     ch->specials.default_pos = POSITION_STANDING;
     SET_TACTICS(ch, TACTICS_NORMAL);
@@ -4302,79 +4304,6 @@ bool read_binary_file_contents(const std::string& path, std::string* contents, s
     return true;
 }
 
-bool load_exploit_history_bytes(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message)
-{
-    if (bytes == nullptr) {
-        set_db_error(error_message, "Exploit history output buffer must not be null.");
-        return false;
-    }
-
-    std::string owner_account_name;
-    if (!account::find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
-        return false;
-
-    if (!owner_account_name.empty()) {
-        std::vector<exploit_record> account_records;
-        if (account::read_account_exploit_file(root_directory, owner_account_name, character_name, &account_records, error_message)) {
-            if (!exploits_json::exploit_records_to_binary(account_records, bytes, error_message))
-                return false;
-
-            const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
-            if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
-                set_db_error(error_message, "Failed to retire legacy exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
-                return false;
-            }
-
-            return true;
-        }
-
-        const std::string read_error = error_message ? *error_message : "";
-        bool account_file_exists = false;
-        std::string inspect_error;
-        if (!account::inspect_account_exploit_file(root_directory, owner_account_name, character_name, &account_file_exists, &inspect_error)) {
-            set_db_error(error_message, inspect_error);
-            return false;
-        }
-        if (account_file_exists) {
-            set_db_error(error_message, read_error);
-            return false;
-        }
-
-        set_db_error(error_message, "");
-    }
-
-    const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
-    FILE* runtime_file = std::fopen(runtime_path.c_str(), "rb");
-    if (runtime_file != nullptr) {
-        std::fclose(runtime_file);
-        if (!read_binary_file_contents(runtime_path, bytes, error_message))
-            return false;
-
-        if (bytes->size() % sizeof(exploit_record) == 0) {
-            set_db_error(error_message, "");
-            return true;
-        }
-
-        if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
-            set_db_error(error_message, "Failed to remove malformed exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
-            return false;
-        }
-    } else if (errno != ENOENT) {
-        set_db_error(error_message, "Failed to open exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
-        return false;
-    }
-
-    if (owner_account_name.empty()) {
-        bytes->clear();
-        set_db_error(error_message, "");
-        return true;
-    }
-
-    bytes->clear();
-    set_db_error(error_message, "");
-    return true;
-}
-
 FILE* open_secure_temp_output_file(const std::string& path, std::string* error_message)
 {
     const int file_descriptor = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
@@ -4397,6 +4326,11 @@ FILE* open_secure_temp_output_file(const std::string& path, std::string* error_m
 
 } // namespace
 
+// Reads the whole history from the account-native JSON file when the character is linked to an
+// account (retiring any leftover legacy file beside it), otherwise from the legacy exploits/
+// binary file. A legacy file that is not a whole number of records is removed and read as
+// empty. Only the JSON path carries full idnums, so account-owned histories never pass through
+// the 16-bit legacy encoding on the way in.
 bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message)
 {
     if (records == nullptr) {
@@ -4404,15 +4338,73 @@ bool load_exploit_records_for_character(const std::string& root_directory, const
         return false;
     }
 
-    std::string bytes;
-    if (!load_exploit_history_bytes(root_directory, character_name, &bytes, error_message))
+    std::string owner_account_name;
+    if (!account::find_linked_character_owner_account(root_directory, character_name, &owner_account_name, error_message))
         return false;
 
-    if (!exploits_json::exploit_records_from_binary(bytes, records, error_message)) {
-        set_db_error(error_message, "Exploit history for '" + character_name + "' is malformed.");
+    if (!owner_account_name.empty()) {
+        std::vector<exploit_record> account_records;
+        if (account::read_account_exploit_file(root_directory, owner_account_name, character_name, &account_records, error_message)) {
+            const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
+            if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
+                set_db_error(error_message, "Failed to retire legacy exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
+                return false;
+            }
+
+            *records = std::move(account_records);
+            set_db_error(error_message, "");
+            return true;
+        }
+
+        const std::string read_error = error_message ? *error_message : "";
+        bool account_file_exists = false;
+        std::string inspect_error;
+        if (!account::inspect_account_exploit_file(root_directory, owner_account_name, character_name, &account_file_exists, &inspect_error)) {
+            set_db_error(error_message, inspect_error);
+            return false;
+        }
+        if (account_file_exists) {
+            set_db_error(error_message, read_error);
+            return false;
+        }
+
+        set_db_error(error_message, "");
+    }
+
+    records->clear();
+
+    const std::string runtime_path = account::legacy_exploits_file_path(root_directory, character_name);
+    FILE* runtime_file = std::fopen(runtime_path.c_str(), "rb");
+    if (runtime_file == nullptr) {
+        if (errno != ENOENT) {
+            set_db_error(error_message, "Failed to open exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
+            return false;
+        }
+
+        set_db_error(error_message, "");
+        return true;
+    }
+    std::fclose(runtime_file);
+
+    std::string bytes;
+    if (!read_binary_file_contents(runtime_path, &bytes, error_message))
+        return false;
+
+    std::string decode_error;
+    if (exploits_json::exploit_records_from_binary(bytes, records, &decode_error)) {
+        set_db_error(error_message, "");
+        return true;
+    }
+
+    // Not a whole number of legacy records: nothing in it can be trusted, so drop the file
+    // rather than fail every later read and write for this character.
+    records->clear();
+    if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
+        set_db_error(error_message, "Failed to remove malformed exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
         return false;
     }
 
+    set_db_error(error_message, "");
     return true;
 }
 
@@ -4519,141 +4511,160 @@ bool load_object_save_bytes_for_character(const std::string& root_directory, con
     return true;
 }
 
+namespace {
+
+// The writer every finished exploit record goes through; nullptr means write_exploits(). See
+// set_exploit_record_writer_for_testing() in db.h.
+ExploitRecordWriterFn exploit_record_writer_override = nullptr;
+
+void persist_exploit_record(char_data* recipient, exploit_record* record)
+{
+    if (exploit_record_writer_override != nullptr) {
+        exploit_record_writer_override(recipient, record);
+        return;
+    }
+
+    write_exploits(recipient, record);
+}
+
+// Stamps `record` with the current local time in the asctime() form every exploit record
+// carries, minus asctime()'s trailing newline.
+void stamp_exploit_record_time(exploit_record* record)
+{
+    const long now = time(0);
+    char* time_text = (char*)asctime(localtime(&now));
+    *(time_text + strlen(time_text) - 1) = '\0';
+    snprintf(record->chtime, sizeof(record->chtime), "%s", time_text);
+}
+
+} // namespace
+
+void set_exploit_record_writer_for_testing(ExploitRecordWriterFn writer)
+{
+    exploit_record_writer_override = writer;
+}
+
+void add_exploit_record(int recordtype, char_data* victim, const kill_contributor_list& contributors)
+{
+    if (IS_NPC(victim) || (GET_LEVEL(victim) >= LEVEL_IMMORT)) {
+        return;
+    }
+
+    if (recordtype != EXPLOIT_PK && recordtype != EXPLOIT_DEATH) {
+        vmudlog(NRM, "SYSERR: %s (contributor form): record type %d is not a kill record; only EXPLOIT_PK and EXPLOIT_DEATH read the contributor list.", __func__, recordtype);
+        return;
+    }
+
+    exploit_record exploitrec {};
+    stamp_exploit_record_time(&exploitrec);
+
+    int death_entries_written = 0;
+    for (int contributor_index = 0; contributor_index < contributors.count; ++contributor_index) {
+        char_data* contributor = contributors.entries[contributor_index];
+        // Mobs keep no history and earn no trophies (a pet or orc-friend already reached the
+        // list as its master where kill_contributors() applies that rule), and immortals never
+        // take kill credit. kill_contributors() excludes both already; this guard keeps the
+        // rule local for any hand-built list.
+        if (IS_NPC(contributor) || GET_LEVEL(contributor) >= LEVEL_IMMORT) {
+            continue;
+        }
+
+        if (recordtype == EXPLOIT_PK) {
+            // A trophy in the contributor's history, naming the victim.
+            exploitrec.type = EXPLOIT_PK;
+            exploitrec.lVictimID = GET_IDNUM(victim);
+            snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", GET_NAME(victim));
+            exploitrec.iVictimLevel = GET_LEVEL(victim);
+            exploitrec.iKillerLevel = GET_LEVEL(contributor);
+            exploitrec.iIntParam = 0;
+            persist_exploit_record(contributor, &exploitrec);
+        } else {
+            // A "killed by" entry in the victim's history, naming the contributor. The first
+            // entry of a death carries the separator flag the exploits display groups by.
+            exploitrec.type = EXPLOIT_DEATH;
+            exploitrec.lVictimID = GET_IDNUM(contributor);
+            snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", GET_NAME(contributor));
+            exploitrec.iVictimLevel = GET_LEVEL(victim);
+            exploitrec.iKillerLevel = GET_LEVEL(contributor);
+            if (death_entries_written == 0) {
+                exploitrec.iIntParam = 1;
+            } else {
+                exploitrec.iIntParam = 0;
+            }
+            ++death_entries_written;
+            persist_exploit_record(victim, &exploitrec);
+        }
+    }
+}
+
 void add_exploit_record(int recordtype, char_data* victim, int iIntParam,
     char* chParam)
 {
-    struct char_data* killer;
-    struct exploit_record exploitrec;
-    int iFirstDeath = 0;
-    long ct;
-    char* tmstr;
+    struct exploit_record exploitrec {};
 
     if (IS_NPC(victim) || (GET_LEVEL(victim) >= LEVEL_IMMORT))
         return;
 
-    /* get time as a string */
-    ct = time(0);
-    tmstr = (char*)asctime(localtime(&ct));
-    *(tmstr + strlen(tmstr) - 1) = '\0';
-    sprintf(exploitrec.chtime, "%s", tmstr);
+    stamp_exploit_record_time(&exploitrec);
 
-    // It's a PK record
     switch (recordtype) {
-    case EXPLOIT_PK: {
-        std::set<char_data*> seen_chars;
-        for (killer = combat_list; killer; killer = killer->next_fighting) {
-            if (killer->specials.fighting == victim) {
-                char_data* cur_killer = killer;
-                if (IS_NPC(killer)) {
-                    if (killer->master && (MOB_FLAGGED(killer, MOB_PET) || MOB_FLAGGED(killer, MOB_ORC_FRIEND))) {
-                        cur_killer = killer->master;
-                    }
-                }
-
-                // If we have a killer and he's unique, add it to the exploits.
-                if (cur_killer && !IS_NPC(cur_killer) && seen_chars.insert(cur_killer).second) {
-                    // only trophies for chars
-                    // CREATE A TROPHY RECORD
-                    exploitrec.type = EXPLOIT_PK;
-                    sprintf(exploitrec.chtime, "%s", tmstr);
-                    exploitrec.shintVictimID = GET_IDNUM(victim);
-                    sprintf(exploitrec.chVictimName, "%s", GET_NAME(victim));
-                    exploitrec.iVictimLevel = GET_LEVEL(victim);
-                    exploitrec.iKillerLevel = GET_LEVEL(cur_killer);
-
-                    // player to write to, structure
-                    write_exploits(cur_killer, &exploitrec);
-                }
-            }
-        }
-    } break;
-
-    case EXPLOIT_DEATH: {
-        std::set<char_data*> seen_chars;
-        for (killer = combat_list; killer; killer = killer->next_fighting) {
-            if (killer->specials.fighting == victim) {
-                char_data* cur_killer = killer;
-                if (IS_NPC(killer)) {
-                    if (killer->master && (MOB_FLAGGED(killer, MOB_PET) || MOB_FLAGGED(killer, MOB_ORC_FRIEND))) {
-                        cur_killer = killer->master;
-                    }
-                }
-
-                // If we have a killer and he's unique, add it to the exploits.
-                if (cur_killer && !IS_NPC(cur_killer) && seen_chars.insert(cur_killer).second) {
-                    // only trophies for chars
-                    exploitrec.type = EXPLOIT_DEATH;
-                    exploitrec.shintVictimID = GET_IDNUM(cur_killer);
-                    // killed by..
-                    sprintf(exploitrec.chVictimName, "%s", GET_NAME(cur_killer));
-                    exploitrec.iVictimLevel = GET_LEVEL(victim);
-                    exploitrec.iKillerLevel = GET_LEVEL(cur_killer);
-                    // used to indicate separators between subsequent deaths.
-                    if (iFirstDeath == 0) {
-                        exploitrec.iIntParam = 1;
-                        iFirstDeath++;
-                    } else {
-                        exploitrec.iIntParam = 0;
-                    }
-
-                    // player to write to, structure
-                    write_exploits(victim, &exploitrec);
-                }
-            }
-        }
-    } break;
+    case EXPLOIT_PK:
+    case EXPLOIT_DEATH:
+        // Kill records are built from die()'s contributor list by the overload above.
+        vmudlog(NRM, "SYSERR: %s (payload form): kill record type %d needs the contributor-list overload.", __func__, recordtype);
+        break;
 
     case EXPLOIT_LEVEL:
         exploitrec.iIntParam = iIntParam;
         exploitrec.type = EXPLOIT_LEVEL;
-        write_exploits(victim, &exploitrec);
+        persist_exploit_record(victim, &exploitrec);
         break;
 
     case EXPLOIT_BIRTH:
         exploitrec.type = EXPLOIT_BIRTH;
-        write_exploits(victim, &exploitrec);
+        persist_exploit_record(victim, &exploitrec);
         break;
 
     case EXPLOIT_STAT:
         exploitrec.type = EXPLOIT_STAT;
-        sprintf(exploitrec.chVictimName, "%s", chParam);
+        snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", chParam);
         exploitrec.iIntParam = iIntParam;
-        write_exploits(victim, &exploitrec);
+        persist_exploit_record(victim, &exploitrec);
         break;
 
     case EXPLOIT_MOBDEATH:
         exploitrec.type = EXPLOIT_MOBDEATH;
-        sprintf(exploitrec.chVictimName, "%s", chParam);
+        snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", chParam);
         exploitrec.iVictimLevel = GET_LEVEL(victim);
         exploitrec.iIntParam = iIntParam;
-        write_exploits(victim, &exploitrec);
+        persist_exploit_record(victim, &exploitrec);
         break;
 
     case EXPLOIT_RETIRED:
         exploitrec.type = EXPLOIT_RETIRED;
-        write_exploits(victim, &exploitrec);
+        persist_exploit_record(victim, &exploitrec);
         break;
 
     case EXPLOIT_ACHIEVEMENT:
         exploitrec.type = EXPLOIT_ACHIEVEMENT;
-        sprintf(exploitrec.chVictimName, "%s", chParam);
-        write_exploits(victim, &exploitrec);
+        snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", chParam);
+        persist_exploit_record(victim, &exploitrec);
         break;
 
     case EXPLOIT_NOTE:
         exploitrec.type = EXPLOIT_NOTE;
-        sprintf(exploitrec.chVictimName, "%s", chParam);
-        write_exploits(victim, &exploitrec);
+        snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", chParam);
+        persist_exploit_record(victim, &exploitrec);
         break;
 
     case EXPLOIT_POISON:
         exploitrec.type = EXPLOIT_POISON;
-        write_exploits(victim, &exploitrec);
+        persist_exploit_record(victim, &exploitrec);
         break;
 
     case EXPLOIT_REGEN_DEATH:
         exploitrec.type = EXPLOIT_REGEN_DEATH;
-        write_exploits(victim, &exploitrec);
+        persist_exploit_record(victim, &exploitrec);
         break;
     }
     return;

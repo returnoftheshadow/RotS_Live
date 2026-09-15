@@ -146,6 +146,29 @@ TEST(PoisonOrigin, ResolveReturnsNullptrAfterTheSlotIsRecycledByADifferentCharac
     remove_char_exists(kPoisonerSlot);
 }
 
+// Pin: the slot is recycled to a character at the SAME address, so number and
+// pointer both still match the record; the registration serial stamped by the
+// new set_char_exists() is what makes resolve_poisoner() refuse it.
+TEST(PoisonOrigin, ResolveReturnsNullptrAfterTheSlotIsReRegisteredAtTheSameAddress)
+{
+    char_data poisoner {};
+    poisoner.abs_number = kPoisonerSlot;
+    set_char_exists(kPoisonerSlot, &poisoner);
+
+    char_data victim {};
+    record_poison_origin(&victim, &poisoner);
+    ASSERT_EQ(resolve_poisoner(victim), &poisoner);
+
+    remove_char_exists(kPoisonerSlot);
+    set_char_exists(kPoisonerSlot, &poisoner);
+    ASSERT_EQ(char_by_abs_number(kPoisonerSlot), &poisoner) << "slot and address both match the record";
+
+    EXPECT_EQ(resolve_poisoner(victim), nullptr)
+        << "a re-registration at the old address is a new character and must not inherit the poison credit";
+
+    remove_char_exists(kPoisonerSlot);
+}
+
 TEST(PoisonOrigin, RecordWithNullptrPoisonerClearsAnExistingRecord)
 {
     char_data poisoner {};

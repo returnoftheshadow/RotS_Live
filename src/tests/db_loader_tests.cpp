@@ -1,3 +1,4 @@
+#include "../account_cache.h"
 #include "../account_management.h"
 #include "../char_utils.h"
 #include "../color.h"
@@ -424,9 +425,16 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     return player_text;
 }
 
+// One record in the legacy exploits/ file encoding (the 80-byte on-disk layout,
+// not exploit_record's in-memory bytes).
 std::string serialize_record(const exploit_record& record)
 {
-    return std::string(reinterpret_cast<const char*>(&record), sizeof(exploit_record));
+    std::vector<exploit_record> records;
+    records.push_back(record);
+    std::string bytes;
+    std::string error_message;
+    EXPECT_TRUE(exploits_json::exploit_records_to_binary(records, &bytes, &error_message)) << error_message;
+    return bytes;
 }
 
 exploit_record make_record(int type, const char* timestamp, const char* victim_name, int victim_level, int killer_level, int int_param)
@@ -683,6 +691,89 @@ TEST(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenPresent)
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].type, expected_records[0].type);
     EXPECT_EQ(records[0].iIntParam, expected_records[0].iIntParam);
+}
+
+namespace {
+
+// Account record the faked cache resolvers hand back for the wide-id loader pin below: a
+// linked owner with no explicit character links, so every account-owned path resolves from
+// the normalized email alone and no directory scan is involved.
+bool fake_wide_id_account_reader(const std::string&, const std::string& account_name, account::AccountData* account, std::string* error_message)
+{
+    if (account_name != "alpha-admin") {
+        if (error_message)
+            *error_message = "unexpected account '" + account_name + "'";
+        return false;
+    }
+    account::AccountData faked_account;
+    faked_account.account_name = "alpha-admin";
+    faked_account.normalized_email = "player@example.com";
+    faked_account.characters.push_back("aragorn");
+    *account = faked_account;
+    return true;
+}
+
+bool fake_wide_id_owner_resolver(const std::string&, const std::string& character_name, std::string* owner_account_name, std::string*)
+{
+    if (character_name == "aragorn")
+        *owner_account_name = "alpha-admin";
+    else
+        owner_account_name->clear();
+    return true;
+}
+
+// Routes account reads and owner lookups through the fakes above for one test, and restores
+// the uncached defaults on exit so no other suite sees the enabled cache.
+struct FakedAccountResolvers {
+    FakedAccountResolvers()
+    {
+        account_cache::invalidate_all();
+        account_cache::set_backing_resolvers_for_testing(fake_wide_id_account_reader, fake_wide_id_owner_resolver);
+        account_cache::set_enabled(true);
+    }
+
+    ~FakedAccountResolvers()
+    {
+        account_cache::set_enabled(false);
+        account_cache::set_backing_resolvers_for_testing(nullptr, nullptr);
+        account_cache::invalidate_all();
+    }
+};
+
+} // namespace
+
+// An account-native history is JSON and carries full idnums. Appending a record re-reads the
+// whole history first, so that read must not detour through the 16-bit legacy binary encoding:
+// a wide id written today has to survive the next kill being recorded. The account itself is
+// served by faked cache resolvers because the on-disk account scan does not resolve under the
+// QEMU i386 test environment; the exploit history files are real.
+TEST(DbLoader, AccountNativeWideVictimIdSurvivesAppendingAnotherRecord)
+{
+    TemporaryDirectory temp_directory;
+    FakedAccountResolvers faked_resolvers;
+
+    std::string error_message;
+    constexpr long kWideVictimIdnum = 1010009060L;
+    exploit_record trophy = make_record(EXPLOIT_PK, "Tue Sep 15 02:26:46 2026", "Grishkazh", 30, 25, 0);
+    trophy.lVictimID = kWideVictimIdnum;
+    std::vector<exploit_record> initial_records;
+    initial_records.push_back(trophy);
+    ASSERT_TRUE(account::write_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", initial_records, &error_message)) << error_message;
+    const std::string exploits_path = account::account_character_exploits_path(temp_directory.path(), "alpha-admin", "aragorn");
+    EXPECT_EQ(access(exploits_path.c_str(), F_OK), 0) << "the seeded history must live at the account-native JSON path " << exploits_path;
+    EXPECT_NE(read_file_contents(exploits_path).find("\"victim_id\": 1010009060,"), std::string::npos) << "the seeded JSON must carry the full idnum";
+
+    const exploit_record level_record = make_record(EXPLOIT_LEVEL, "Tue Sep 15 02:30:00 2026", "", 31, 0, 31);
+    ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), "aragorn", level_record, &error_message)) << error_message;
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].type, EXPLOIT_LEVEL) << "new records are inserted at the front";
+    EXPECT_EQ(records[1].type, EXPLOIT_PK);
+    EXPECT_EQ(records[1].lVictimID, kWideVictimIdnum) << "the wide id must not be narrowed by the re-read";
+    EXPECT_STREQ(records[1].chVictimName, "Grishkazh");
+    EXPECT_NE(read_file_contents(exploits_path).find("\"victim_id\": 1010009060,"), std::string::npos) << "the rewritten JSON must still carry the full idnum";
 }
 
 TEST(DbLoader, ReturnsEmptyExploitHistoryForLinkedCharacterWithoutAccountNativeOrRuntimeFile)

@@ -91,6 +91,9 @@ long last_control_set = -1;
 // without ever dereferencing a stale pointer -- char_by_abs_number() is the
 // only sanctioned way to do that lookup.
 static char_data* characters_by_abs_number[MAX_CHARACTERS];
+// Source of char_data::registration_serial: advanced on every set_char_exists(num, ch), so no
+// two registrations ever share a serial, however often a slot or an address is recycled.
+static long next_registration_serial = 0;
 
 int dummy_affected_var = 17;
 universal_list* affected_list = 0;
@@ -683,6 +686,7 @@ void affect_to_char(struct char_data* ch, struct affected_type* af)
         tmplist = pool_to_list(&affected_list, &affected_list_pool);
         tmplist->ptr.ch = ch;
         tmplist->number = ch->abs_number;
+        tmplist->serial = ch->registration_serial;
         tmplist->type = TARGET_CHAR;
 
         sprintf(mybuf, "Char to aff_list: %s\n\r", GET_NAME(ch));
@@ -836,6 +840,7 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
     if (removed_type == SPELL_POISON && affected_by_spell(ch, SPELL_POISON) == nullptr) {
         ch->specials.poisoned_by_abs_number = -1;
         ch->specials.poisoned_by = nullptr;
+        ch->specials.poisoned_by_serial = 0;
     }
 
     affect_total(ch);
@@ -2551,6 +2556,9 @@ void set_char_exists(int num, struct char_data* ch)
 {
     set_char_exists(num);
     characters_by_abs_number[num] = ch;
+    if (ch != nullptr) {
+        ch->registration_serial = ++next_registration_serial;
+    }
 }
 void remove_char_exists(int num)
 {

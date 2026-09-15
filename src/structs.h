@@ -1146,7 +1146,10 @@ struct char_special_data {
     // raw_kill() can tell a player's poison from a mob's or a trap's instead
     // of assuming every poison death is a player kill. `poisoned_by_abs_number`
     // is the poisoner's abs_number, -1 when no poisoner is recorded;
-    // `poisoned_by` is the pointer captured at the same moment.
+    // `poisoned_by` is the pointer captured at the same moment, and
+    // `poisoned_by_serial` that character's registration_serial, so a slot
+    // recycled to a new character at the same address is not mistaken for
+    // the poisoner.
     // NEITHER IS SAFE TO USE ALONE: only resolve_poisoner() (fight.cpp) may
     // hand the pointer back, and only while char_exists() still reports that
     // abs_number live AND the pointer still claims it -- an extracted (or
@@ -1161,6 +1164,7 @@ struct char_special_data {
     // like" statement for this struct.
     int poisoned_by_abs_number;
     char_data* poisoned_by;
+    long poisoned_by_serial;
 
     int ENERGY; /* current energy */
     sh_int current_parry; /*parry currently affected by 'parry split' */
@@ -1785,6 +1789,10 @@ public:
 
 public:
     int abs_number; /* bit number in the control array */
+    // Which registration of `abs_number` this character is: stamped by set_char_exists(num, ch)
+    // from a process-wide counter, so an identity captured earlier still fails to resolve once
+    // the slot has been handed to a new character living at the same address.
+    long registration_serial;
     int player_index; /* Index in player table */
     int nr; /* monster nr (pos in file)      */
     int in_room; /* Location                      */
@@ -2141,6 +2149,7 @@ struct universal_list {
     int type;
     int number; /* abs_number for ch, whatever else for obj, */
     /* room number optional for rooms*/
+    long serial; /* registration_serial of ptr.ch for TARGET_CHAR; unused for other types */
     union {
         char_data* ch;
         room_data* room;

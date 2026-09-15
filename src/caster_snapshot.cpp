@@ -14,6 +14,7 @@ caster_snapshot caster_snapshot::capture(const char_data& caster)
     const char_data* const ch = &caster;
     snap.abs_number = caster.abs_number;
     snap.identity_ptr = const_cast<char_data*>(&caster);
+    snap.identity_serial = caster.registration_serial;
     snap.level_a = GET_LEVELA(ch);
     snap.mage_prof_level = utils::get_prof_level(PROF_MAGE, caster);
     snap.cleric_prof_level = utils::get_prof_level(PROF_CLERIC, caster);
@@ -53,7 +54,7 @@ caster_snapshot caster_snapshot::none()
 
 bool caster_snapshot::same_character_as(const char_data& ch) const
 {
-    return !is_none() && identity_ptr == &ch && ch.abs_number == abs_number;
+    return !is_none() && identity_ptr == &ch && ch.abs_number == abs_number && ch.registration_serial == identity_serial;
 }
 
 char_data* caster_snapshot::resolve() const
@@ -63,12 +64,14 @@ char_data* caster_snapshot::resolve() const
     // point at freed storage that has since been reallocated to an
     // unrelated character (TASK-021 fix round 1). char_by_abs_number()
     // looks up the CURRENT owner of the slot instead; identity_ptr is only
-    // ever compared, never read through.
+    // ever compared, never read through. The registration serial closes the
+    // remaining gap: a slot recycled to a new character allocated at the old
+    // address matches both the number and the pointer, but never the serial.
     if (is_none()) {
         return nullptr;
     }
     char_data* live = char_by_abs_number(abs_number);
-    if (live != nullptr && live == identity_ptr) {
+    if (live != nullptr && live == identity_ptr && live->registration_serial == identity_serial) {
         return live;
     }
     return nullptr;

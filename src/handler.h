@@ -225,6 +225,11 @@ bool death_takes_full_mob_xp_loss(const struct char_data* killer, death_punishme
 // True selects the gentle player-kill penalty over the harsh one.
 bool death_counts_as_player_kill(const struct char_data* killer, death_punishment punishment);
 
+// Whether a PC death writes EXPLOIT_DEATH entries naming its player contributors: true for a
+// player's killing blow and for an uncredited death (null killer), false when a mob's blow
+// keeps the legacy mob-death-only record.
+bool death_names_player_contributors(const struct char_data* killer);
+
 // The NPC an EXPLOIT_MOBDEATH record names, or null when no record is due.
 // legacy names a real-mob killer only; mob_death names the killer when it is
 // a real mob, else engaged_mob; player_death suppresses the record.
@@ -240,6 +245,9 @@ int char_exists(int num);
 // one-arg form alone leaves the slot char_exists()-true but
 // char_by_abs_number()-null.
 void set_char_exists(int num);
+// Registers `ch` as the current owner of slot `num` and stamps ch->registration_serial from a
+// process-wide counter; every stale-reference check (caster snapshots, poison origins,
+// affected_list entries) compares that serial as well as the pointer.
 void set_char_exists(int num, struct char_data* ch);
 void remove_char_exists(int num);
 struct char_data* char_by_abs_number(int num);

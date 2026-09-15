@@ -3846,6 +3846,7 @@ ACMD(do_rehash)
             tmplist = pool_to_list(&affected_list, &affected_list_pool);
             tmplist->ptr.ch = tmpch;
             tmplist->number = tmpch->abs_number;
+            tmplist->serial = tmpch->registration_serial;
             tmplist->type = TARGET_CHAR;
 
             count2++;
