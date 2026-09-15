@@ -414,6 +414,66 @@ class CreateTagTest(GitRepoTestCase):
         self.assertIn("Help changes since test-2026-09-13: none", self.tag_contents(name))
 
 
+class TagRemoteTest(GitRepoTestCase):
+    """Deploy tags go to the main repo; a local bare repo stands in for it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.remote = Path(temp.name) / "main.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+        self.checkout = deploy.Checkout(self.repo, tag_remote=str(self.remote))
+        self.sha = self.run_git("rev-parse", "HEAD").strip()
+
+    def remote_tags(self):
+        output = subprocess.run(["git", "ls-remote", "--tags", "--refs", str(self.remote)], check=True,
+                                capture_output=True, text=True).stdout
+        return sorted(line.split("refs/tags/")[1] for line in output.splitlines())
+
+    def publish_and_forget(self, *names: str) -> None:
+        """Tags another deployer pushed: on the main repo, not in this checkout."""
+        for name in names:
+            self.run_git("tag", "-a", name, self.sha, "-m", "pushed by someone else")
+            self.run_git("push", "-q", str(self.remote), f"refs/tags/{name}")
+            self.run_git("tag", "-d", name)
+
+    def test_the_main_repo_is_the_default_tag_remote(self) -> None:
+        self.assertEqual(deploy.TAG_REMOTE, "git@github.com:returnoftheshadow/RotS_Live.git")
+        self.assertEqual(deploy.Checkout(self.repo).tag_remote, deploy.TAG_REMOTE)
+
+    def test_push_tag_puts_the_tag_on_the_main_repo(self) -> None:
+        name = self.checkout.create_tag(deploy.ENVS["test"], self.sha, ["help_tbl"], datetime.date(2026, 9, 13))
+
+        self.checkout.push_tag(name)
+
+        self.assertEqual(self.remote_tags(), ["test-2026-09-13"])
+
+    def test_fetched_tags_from_other_deployers_move_the_next_name_along(self) -> None:
+        self.publish_and_forget("test-2026-09-13")
+
+        self.checkout.fetch_tags("test-")
+        name = self.checkout.create_tag(deploy.ENVS["test"], self.sha, ["help_tbl"], datetime.date(2026, 9, 13))
+
+        self.assertEqual(name, "test-2026-09-13-2")
+
+    def test_fetch_tags_only_fetches_the_env_prefix(self) -> None:
+        self.publish_and_forget("live-2026-09-11", "test-2026-09-13", "unrelated")
+
+        self.checkout.fetch_tags("test-")
+
+        self.assertEqual(self.run_git("tag", "--list").split(), ["test-2026-09-13"])
+
+    def test_push_and_fetch_failures_raise_a_deploy_error(self) -> None:
+        missing = deploy.Checkout(self.repo, tag_remote=str(self.remote.parent / "missing.git"))
+        self.run_git("tag", "-a", "test-2026-09-13", self.sha, "-m", "local")
+
+        with self.assertRaisesRegex(deploy.DeployError, "git push"):
+            missing.push_tag("test-2026-09-13")
+        with self.assertRaisesRegex(deploy.DeployError, "git fetch"):
+            missing.fetch_tags("test-")
+
+
 # ---------------------------------------------------------------------------------------------
 # Remote commands, run locally with sh against a fake port directory
 # ---------------------------------------------------------------------------------------------
@@ -1025,12 +1085,26 @@ class FailureReportTest(unittest.TestCase):
 
 class FakeCheckout:
     repo = Path("/home/me/RotS")
+    tag_remote = "git@github.com:returnoftheshadow/RotS_Live.git"
 
-    def __init__(self, problems=(), warnings=()) -> None:
+    def __init__(self, problems=(), warnings=(), fetch_error=None, push_error=None) -> None:
         self.problems = list(problems)
         self.warnings = list(warnings)
         self.prepared = []
         self.tags = []
+        self.events = []
+        self.fetch_error = fetch_error
+        self.push_error = push_error
+
+    def fetch_tags(self, prefix):
+        self.events.append(("fetch", prefix))
+        if self.fetch_error:
+            raise deploy.DeployError(self.fetch_error)
+
+    def push_tag(self, name):
+        self.events.append(("push", name))
+        if self.push_error:
+            raise deploy.DeployError(self.push_error)
 
     def prepare(self, env, dry_run):
         self.prepared.append(dry_run)
@@ -1047,7 +1121,9 @@ class FakeCheckout:
 
     def create_tag(self, env, sha, help_names, day):
         self.tags.append((env.name, sha, list(help_names), day))
-        return f"{env.tag_prefix}{day.isoformat()}"
+        name = f"{env.tag_prefix}{day.isoformat()}"
+        self.events.append(("tag", name))
+        return name
 
 
 class FakeRunner:
@@ -1165,6 +1241,40 @@ class DeployTest(unittest.TestCase):
 
         self.assertNotIn("restart", self.runner.kinds())
         self.assertIn("not restarted", self.text())
+
+    def test_tagged_deploy_fetches_tags_then_tags_then_pushes_the_tag(self) -> None:
+        self.assertEqual(self.run_deploy("test"), 0)
+
+        self.assertEqual(self.checkout.events,
+                         [("fetch", "test-"), ("tag", "test-2026-09-13"), ("push", "test-2026-09-13")])
+        self.assertIn("Pushed tag test-2026-09-13 to the main repo.", self.text())
+        self.assertIn("Tag: test-2026-09-13.", self.text())
+        self.assertNotIn("warning", self.text())
+
+    def test_failed_push_warns_with_the_push_command_and_still_restarts(self) -> None:
+        checkout = FakeCheckout(push_error="git push failed: Permission denied")
+
+        self.assertEqual(self.run_deploy("test", checkout=checkout, restart=True), 0)
+
+        self.assertIn("restart", self.runner.kinds())
+        self.assertIn("warning: tag test-2026-09-13 was not pushed: git push failed: Permission denied", self.text())
+        self.assertIn("git push git@github.com:returnoftheshadow/RotS_Live.git refs/tags/test-2026-09-13",
+                      self.text())
+        self.assertIn("Tag: test-2026-09-13 (local only; the push failed).", self.text())
+
+    def test_failed_fetch_warns_and_still_tags_and_pushes(self) -> None:
+        checkout = FakeCheckout(fetch_error="git fetch failed: Could not resolve host")
+
+        self.assertEqual(self.run_deploy("test", checkout=checkout), 0)
+
+        self.assertEqual([event[0] for event in checkout.events], ["fetch", "tag", "push"])
+        self.assertIn("warning: could not fetch test-* tags from the main repo", self.text())
+        self.assertIn("Could not resolve host", self.text())
+
+    def test_untagged_test_target_neither_fetches_nor_pushes(self) -> None:
+        self.assertEqual(self.run_deploy("zzz-forge-test"), 0)
+
+        self.assertEqual(self.checkout.events, [])
 
     def test_4k_edits_the_source_after_upload_and_before_build(self) -> None:
         self.assertEqual(self.run_deploy("4k"), 0)
@@ -1314,6 +1424,15 @@ class DeployTest(unittest.TestCase):
                 self.assertIn("-mindepth 1 -exec chown -h someone {} +", self.text())
                 self.assertIn("readlink -m", self.text())
                 env = deploy.ENVS[name]
+                self.assertEqual(self.checkout.events, [])
+                if env.tag_prefix:
+                    self.assertIn(f"  git fetch --no-tags git@github.com:returnoftheshadow/RotS_Live.git "
+                                  f"'refs/tags/{env.tag_prefix}*:refs/tags/{env.tag_prefix}*'", self.text())
+                    self.assertIn(f"  git push git@github.com:returnoftheshadow/RotS_Live.git "
+                                  f"refs/tags/{env.tag_prefix}YYYY-MM-DD[-N]", self.text())
+                else:
+                    self.assertNotIn("git push", self.text())
+                    self.assertNotIn("git fetch", self.text())
                 shell = deploy.SshRunner(SERVER, Path(deploy.SOCKET_PARENT) / "rots-deploy-XXXXXX")
 
                 def ssh_line(command: str) -> str:
@@ -1360,6 +1479,7 @@ class MainTest(unittest.TestCase):
         self.assertEqual(env, deploy.ENVS["zzz-forge-test-4k"])
         self.assertEqual(server, SERVER)
         self.assertEqual(checkout.repo, deploy.REPO_ROOT)
+        self.assertEqual(checkout.tag_remote, "git@github.com:returnoftheshadow/RotS_Live.git")
         self.assertTrue(str(runner.socket).startswith("/tmp/rots-deploy-"))
         self.assertTrue(run.call_args.kwargs["dry_run"])
         self.assertFalse(run.call_args.kwargs["restart"])

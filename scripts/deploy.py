@@ -25,6 +25,9 @@ from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEPLOY_BRANCH = "release-frodo"
+# Deploy tags are shared through the main repo. A URL rather than a remote name, because remote
+# names differ between checkouts.
+TAG_REMOTE = "git@github.com:returnoftheshadow/RotS_Live.git"
 HELP_DIR = "lib/text"
 DEPLOY_MARKER = "DEPLOY_IN_PROGRESS"  # relative to the port's src/; only used for envs with backup=True
 PORT_DIR_PATTERN = re.compile(r"^/rots/[a-z0-9-]+$")
@@ -275,11 +278,28 @@ def tag_message(env: Env, sha: str, help_line: str) -> str:
     return f"Deployed {sha} to {env.name} ({port_dir(env)}).\n\n{help_line}\n"
 
 
+def fetch_tags_args(remote: str, prefix: str) -> List[str]:
+    """git arguments that copy the remote's <prefix>* tags, and no others, into the checkout."""
+    return ["fetch", "--no-tags", remote, f"refs/tags/{prefix}*:refs/tags/{prefix}*"]
+
+
+def push_tag_args(remote: str, name: str) -> List[str]:
+    return ["push", remote, f"refs/tags/{name}"]
+
+
 class Checkout:
     """The local git checkout being deployed."""
 
-    def __init__(self, repo: Path):
+    def __init__(self, repo: Path, tag_remote: str = TAG_REMOTE):
         self.repo = repo
+        self.tag_remote = tag_remote
+
+    def fetch_tags(self, prefix: str) -> None:
+        """Bring in tags other deployers pushed, so the next tag name is not already taken."""
+        git(self.repo, *fetch_tags_args(self.tag_remote, prefix))
+
+    def push_tag(self, name: str) -> None:
+        git(self.repo, *push_tag_args(self.tag_remote, name))
 
     def prepare(self, env: Env, dry_run: bool) -> List[str]:
         warnings = check_checkout(self.repo, env)
@@ -622,7 +642,8 @@ def failure_report(env: Env, step: int, detail: str, color: bool, server: Option
     return "\n".join(lines)
 
 
-def dry_run_plan(env: Env, server: Server, repo: Path, help_names: Sequence[str], restart: bool = False) -> str:
+def dry_run_plan(env: Env, server: Server, repo: Path, help_names: Sequence[str], restart: bool = False,
+                 tag_remote: str = TAG_REMOTE) -> str:
     shell = SshRunner(server, Path(SOCKET_PARENT) / "rots-deploy-XXXXXX")
 
     def ssh(command: str, tty: bool = False) -> str:
@@ -653,8 +674,14 @@ def dry_run_plan(env: Env, server: Server, repo: Path, help_names: Sequence[str]
     if env.backup:
         step7.append(ssh(mark_deploy_finished_command(env)))
     lines += step7
-    lines += [f"== 8. {STEP_TITLES[8]}",
-              f"  git tag -a {env.tag_prefix}YYYY-MM-DD[-N] <sha>" if env.tag_prefix else "  none: test target"]
+    lines += [f"== 8. {STEP_TITLES[8]}"]
+    if env.tag_prefix:
+        name = f"{env.tag_prefix}YYYY-MM-DD[-N]"
+        lines += ["  " + shlex.join(["git", *fetch_tags_args(tag_remote, env.tag_prefix)]),
+                  f"  git tag -a {name} <sha>",
+                  "  git " + " ".join(push_tag_args(tag_remote, name))]
+    else:
+        lines += ["  none: test target"]
     lines += [f"== 9. {STEP_TITLES[9]}",
               ssh(restart_command(env), tty=True) if restart else "  none: --restart not given"]
     lines += ["== close", "  " + shlex.join(shell.close_args())]
@@ -671,6 +698,7 @@ def deploy(env: Env, server: Server, checkout, runner, *, dry_run: bool, restart
     """Run the deploy steps in order and return the process exit status."""
     step = 1
     tag = None
+    tag_pushed = False
 
     def begin(number: int) -> None:
         nonlocal step
@@ -688,7 +716,7 @@ def deploy(env: Env, server: Server, checkout, runner, *, dry_run: bool, restart
             raise DeployError("these help files would break in-game help:\n  " + "\n  ".join(problems))
         out(banner(env, server, sha, subject, help_names, color))
         if dry_run:
-            out(dry_run_plan(env, server, checkout.repo, help_names, restart))
+            out(dry_run_plan(env, server, checkout.repo, help_names, restart, checkout.tag_remote))
             return 0
 
         begin(2)
@@ -737,8 +765,21 @@ def deploy(env: Env, server: Server, checkout, runner, *, dry_run: bool, restart
 
         begin(8)
         if env.tag_prefix:
+            # The deploy is already built, so a failed fetch or push only warns: the restart still runs.
+            try:
+                checkout.fetch_tags(env.tag_prefix)
+            except DeployError as error:
+                out(paint(f"warning: could not fetch {env.tag_prefix}* tags from the main repo, so this tag's name "
+                          f"may already be taken there: {error}", YELLOW, color))
             tag = checkout.create_tag(env, sha, help_names, today or datetime.date.today())
-            out(f"Tagged {sha[:7]} as {tag} (local only).")
+            out(f"Tagged {sha[:7]} as {tag}.")
+            try:
+                checkout.push_tag(tag)
+                tag_pushed = True
+                out(f"Pushed tag {tag} to the main repo.")
+            except DeployError as error:
+                out(paint(f"warning: tag {tag} was not pushed: {error}\n  To push it by hand: "
+                          + shlex.join(["git", *push_tag_args(checkout.tag_remote, tag)]), YELLOW, color))
         else:
             out(f"{env.name} is a test target; no tag.")
 
@@ -760,7 +801,8 @@ def deploy(env: Env, server: Server, checkout, runner, *, dry_run: bool, restart
     finally:
         runner.close()
 
-    out(paint(f"Deployed {sha[:7]} to {env.name}.", GREEN, color) + (f" Tag: {tag}." if tag else "")
+    tag_note = "" if not tag else f" Tag: {tag}." if tag_pushed else f" Tag: {tag} (local only; the push failed)."
+    out(paint(f"Deployed {sha[:7]} to {env.name}.", GREEN, color) + tag_note
         + (f" Restarted {env.restart_service}." if restart else " Restart the port to run the new build."))
     return 0
 
