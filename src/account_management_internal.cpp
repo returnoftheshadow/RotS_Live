@@ -607,12 +607,39 @@ namespace {
     //                 load/save copying it through), so there is no maintained value to lose.
     //   profs slot 0  PROF_GENERAL's entry in prof_coof/prof_level/prof_exp: never read, never
     //                 serialized, often junk on disk (see neutralize_known_lossy_transforms).
+    //   unnamed flags act/pref bits with no kPlayerFlags/kPreferenceFlags entry: JSON cannot name
+    //                 them, nothing reads them (PRF_NOTHING2, undefined act bit 22).
+    //   affect slots  the position of each affect, not its content: JSON reloads them packed.
     //
     // Three more differ only when the SOURCE is zero, i.e. never set: apply_character_data_to_store
     // substitutes a default for tactics, shooting and casting, and for each color slot's
     // foreground/background mode. A
     // zero there is "unset", so accepting the default is right -- but a CHANGE from one non-zero
     // value to another is real loss and is still caught.
+    // True when `readback`'s affects are exactly `source`'s non-empty affects, in order, packed from
+    // slot 0 with every later slot empty -- i.e. the round trip moved affects but changed none.
+    bool affects_match_once_packed(const char_file_u& source, const char_file_u& readback)
+    {
+        int packed = 0;
+        for (int index = 0; index < MAX_AFFECT; ++index) {
+            const affected_type& from = source.affected[index];
+            if (from.type == 0)
+                continue;
+            const affected_type& to = readback.affected[packed++];
+            if (to.type != from.type || to.duration != from.duration || to.time_phase != from.time_phase
+                || to.modifier != from.modifier || to.location != from.location
+                || to.bitvector != from.bitvector || to.counter != from.counter)
+                return false;
+        }
+        for (int index = packed; index < MAX_AFFECT; ++index) {
+            const affected_type& to = readback.affected[index];
+            if (to.type != 0 || to.duration != 0 || to.time_phase != 0 || to.modifier != 0
+                || to.location != 0 || to.bitvector != 0 || to.counter != 0)
+                return false;
+        }
+        return true;
+    }
+
     // Fields the JSON path deliberately does not round-trip. Neutralizing them here keeps the guard
     // pointed at real, unintended loss instead of refusing conversions over transforms we chose.
     void neutralize_known_lossy_transforms(const char_file_u& source, char_file_u* comparable)
@@ -636,6 +663,27 @@ namespace {
         comparable->profs.prof_coof[PROF_GENERAL] = source.profs.prof_coof[PROF_GENERAL];
         comparable->profs.prof_level[PROF_GENERAL] = source.profs.prof_level[PROF_GENERAL];
         comparable->profs.prof_exp[PROF_GENERAL] = source.profs.prof_exp[PROF_GENERAL];
+
+        // act/pref bits character JSON has no name for are dropped by the writer and cannot come
+        // back. Today that is PRF_NOTHING2 (pref bit 6, read by nothing; 58 live characters carry
+        // it) and act bit 22, which has no PLR_ definition (1 live character). Named bits are still
+        // compared -- a new PLR_/PRF_ flag must get a kPlayerFlags/kPreferenceFlags entry, or its
+        // loss would be accepted here too.
+        const long unnamed_act = ~character_json::serializable_player_flag_mask();
+        const long unnamed_pref = ~character_json::serializable_preference_flag_mask();
+        comparable->specials2.act = (comparable->specials2.act & ~unnamed_act) | (source.specials2.act & unnamed_act);
+        comparable->specials2.pref = (comparable->specials2.pref & ~unnamed_pref) | (source.specials2.pref & unnamed_pref);
+
+        // Affect POSITIONS. Character JSON keeps only non-empty affects (type != 0) and
+        // apply_character_data_to_store reloads them packed from slot 0, but the legacy loader puts
+        // each one at the index written in the file (db.cpp KEY_AFF), so a file with an empty slot
+        // before a used one reads back shifted. Position means nothing to the game -- store_to_char
+        // loads every non-empty slot wherever it is. So when the source, packed the same way,
+        // matches the readback field for field, only positions moved; any changed, missing or extra
+        // affect still leaves the arrays different and is refused.
+        // memcpy, not element assignment: the guard compares these bytes with memcmp, padding included.
+        if (affects_match_once_packed(source, *comparable))
+            std::memcpy(comparable->affected, source.affected, sizeof(source.affected));
     }
 
     void neutralize_defaulted_on_unset(const char_file_u& source, char_file_u* comparable)

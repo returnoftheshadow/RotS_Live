@@ -2387,6 +2387,78 @@ TEST(AccountManagement, MigratesLegacyCharacterWithJunkInGeneralProfessionSlot)
         << "Expected junk in the unused PROF_GENERAL slot not to block conversion. Error: " << error_message;
 }
 
+namespace {
+
+// Same directory layout and fixture files as the other legacy-migration tests above.
+void write_legacy_character_with_support_files(const std::string& root, const char_file_u& stored_character)
+{
+    ASSERT_EQ(mkdir((root + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/exploits/A-E").c_str(), 0700), 0);
+    write_valid_legacy_player_file(root, stored_character);
+    write_text_file(account::legacy_object_file_path(root, stored_character.name), make_valid_object_bytes());
+    write_text_file(account::legacy_exploits_file_path(root, stored_character.name), make_valid_exploit_bytes());
+}
+
+} // namespace
+
+TEST(AccountManagement, MigratesLegacyCharacterCarryingFlagBitsCharacterJsonCannotName)
+{
+    // Character JSON stores act/pref as NAMED flags. PRF_NOTHING2 (pref bit 6) has no name and no
+    // reader; 58 live characters carry it (Alanis, Alkar, Turgon, ...), and one (Dandelo) carries
+    // act bit 22, which has no PLR_ definition at all. Neither can survive, and neither is lost.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007780, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.pref |= PRF_NOTHING2 | PRF_BRIEF;
+    stored_character.specials2.act |= (1L << 22) | PLR_NOSHOUT;
+    write_legacy_character_with_support_files(temp_directory.path(), stored_character);
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007781, &migration, &error_message))
+        << "Expected flag bits with no name in character JSON not to block conversion. Error: " << error_message;
+}
+
+TEST(AccountManagement, MigratesLegacyCharacterWithGapsBetweenAffectSlots)
+{
+    // Character JSON keeps only non-empty affects and reloads them packed from slot 0, so a legacy
+    // file with an empty slot before a used one comes back in different positions. The game loads
+    // every non-empty slot regardless of position (db.cpp store_to_char). 15 live characters.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007782, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    for (affected_type& affect : stored_character.affected)
+        affect = affected_type {};
+    stored_character.affected[0].type = 41;
+    stored_character.affected[0].duration = 61;
+    stored_character.affected[1].type = 69;
+    stored_character.affected[1].duration = 120;
+    write_legacy_character_with_support_files(temp_directory.path(), stored_character);
+
+    // save_player repacks affects from slot 0 on the way out, so move them to slots 2 and 3 in the
+    // text itself -- the shape of the live files (angurth: "affect 2 41 61 0 0 1", "affect 3 ...").
+    const std::string player_path = account::legacy_player_file_path(temp_directory.path(), "aragorn");
+    std::string player_text = read_file_contents(player_path);
+    const std::string slot0 = "affect      0 ";
+    const std::string slot1 = "affect      1 ";
+    ASSERT_NE(player_text.find(slot0), std::string::npos) << player_text;
+    ASSERT_NE(player_text.find(slot1), std::string::npos) << player_text;
+    player_text.replace(player_text.find(slot0), slot0.size(), "affect      2 ");
+    player_text.replace(player_text.find(slot1), slot1.size(), "affect      3 ");
+    write_text_file(player_path, player_text);
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007783, &migration, &error_message))
+        << "Expected gaps between affect slots not to block conversion. Error: " << error_message;
+}
+
 TEST(AccountManagement, PersistedMigrationSnapshotOmitsLegacyPlayerPasswordAndHostData)
 {
     TemporaryDirectory temp_directory;
