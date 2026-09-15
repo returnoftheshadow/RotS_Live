@@ -605,6 +605,8 @@ namespace {
     //   prof          char_file_u::prof is an NPC field PCs carry vestigially -- nothing in the
     //                 codebase writes it for a player character (only mob prototypes, the OLC, and
     //                 load/save copying it through), so there is no maintained value to lose.
+    //   profs slot 0  PROF_GENERAL's entry in prof_coof/prof_level/prof_exp: never read, never
+    //                 serialized, often junk on disk (see neutralize_known_lossy_transforms).
     //
     // Three more differ only when the SOURCE is zero, i.e. never set: apply_character_data_to_store
     // substitutes a default for tactics, shooting and casting, and for each color slot's
@@ -625,6 +627,15 @@ namespace {
         // JSON at all. It is a failed-login counter that is shown once at the next login and then
         // reset, so conversion drops at most one such notice.
         comparable->specials2.bad_pws = source.specials2.bad_pws;
+
+        // Profession slot 0 is PROF_GENERAL. Every accessor answers it without reading the arrays
+        // (char_utils.cpp get/set_prof_level, get_prof_coof; the GET_PROF_* macros), and character
+        // JSON carries only MAGE..WARRIOR, so the slot always reads back as 0. The legacy saver
+        // still writes it, and 53 live characters hold junk there (-27008, 32000, 1, ...);
+        // comparing it would refuse them all. Slots 1..MAX_PROFS are still compared.
+        comparable->profs.prof_coof[PROF_GENERAL] = source.profs.prof_coof[PROF_GENERAL];
+        comparable->profs.prof_level[PROF_GENERAL] = source.profs.prof_level[PROF_GENERAL];
+        comparable->profs.prof_exp[PROF_GENERAL] = source.profs.prof_exp[PROF_GENERAL];
     }
 
     void neutralize_defaulted_on_unset(const char_file_u& source, char_file_u* comparable)

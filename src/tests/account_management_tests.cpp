@@ -2358,6 +2358,35 @@ TEST(AccountManagement, MigratesLegacyCharacterWhosePersistedBadPasswordCountIsN
         << "Expected a character with a non-zero bad-password count to convert. Error: " << error_message;
 }
 
+TEST(AccountManagement, MigratesLegacyCharacterWithJunkInGeneralProfessionSlot)
+{
+    // profs arrays are [MAX_PROFS + 1]; slot 0 is PROF_GENERAL, which no accessor reads. The legacy
+    // saver still writes it, and 53 live characters carry junk there (Li: prof_coef 0 = 1; others
+    // -27008, 32000, ...). Character JSON carries only MAGE..WARRIOR, so slot 0 cannot survive.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007778, nullptr, &error_message)) << error_message;
+
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.profs.prof_coof[PROF_GENERAL] = -27008;
+    stored_character.profs.prof_level[PROF_GENERAL] = 1;
+    stored_character.profs.prof_exp[PROF_GENERAL] = 9728;
+    write_valid_legacy_player_file(temp_directory.path(), stored_character);
+    write_text_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), make_valid_object_bytes());
+    write_text_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), make_valid_exploit_bytes());
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007779, &migration, &error_message))
+        << "Expected junk in the unused PROF_GENERAL slot not to block conversion. Error: " << error_message;
+}
+
 TEST(AccountManagement, PersistedMigrationSnapshotOmitsLegacyPlayerPasswordAndHostData)
 {
     TemporaryDirectory temp_directory;
