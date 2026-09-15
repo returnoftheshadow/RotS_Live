@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Deploy RotS source and help files to one port on the game server.
 
-    scripts/deploy.py deploy <env> <user>@<host> <ssh-port> [--dry-run] [--restart]
-    scripts/deploy.py revert <env> <user>@<host> <ssh-port>
+    scripts/deploy.py deploy <env> <user>@<host> <ssh-port> [--dry-run] [--restart] [--password <password>]
+    scripts/deploy.py revert <env> <user>@<host> <ssh-port> [--password <password>]
 
 For now only test, zzz-forge-test and zzz-forge-test-4k can be deployed or reverted, and only test
 can be restarted.
@@ -34,6 +34,9 @@ PORT_DIR_PATTERN = re.compile(r"^/rots/[a-z0-9-]+$")
 # The ssh control socket has to fit in a Unix socket path (about 108 bytes), so it lives under
 # /tmp rather than a possibly long $TMPDIR.
 SOCKET_PARENT = "/tmp"
+# --password reaches ssh through this environment variable and an SSH_ASKPASS helper, so it is never
+# written to disk or put on another command line.
+PASSWORD_ENV = "ROTS_DEPLOY_PASSWORD"
 
 BOLD_RED = "1;31"
 BOLD_MAGENTA = "1;35"
@@ -140,6 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
         command_parser.add_argument("env", choices=list(ENVS))
         command_parser.add_argument("login", type=parse_login, metavar="user@host")
         command_parser.add_argument("port", type=parse_port, metavar="ssh-port")
+        command_parser.add_argument("--password",
+            help="answer the ssh login password prompt with this; sudo still asks for its own")
     deploy_parser.add_argument("--dry-run", action="store_true",
         help="run the local checks and print every step; change nothing")
     deploy_parser.add_argument("--restart", action="store_true",
@@ -530,8 +535,8 @@ def revert_command(env: Env) -> str:
 # ---------------------------------------------------------------------------------------------
 
 
-def run_command(args: Sequence[str], what: str, capture: bool = False) -> str:
-    result = subprocess.run(list(args), text=True, capture_output=capture)
+def run_command(args: Sequence[str], what: str, capture: bool = False, env: Optional[dict] = None) -> str:
+    result = subprocess.run(list(args), text=True, capture_output=capture, env=env)
     if result.returncode != 0:
         detail = (result.stdout + result.stderr).strip() if capture else ""
         raise DeployError(f"{what} exited with status {result.returncode}" + (f": {detail}" if detail else ""))
@@ -541,14 +546,25 @@ def run_command(args: Sequence[str], what: str, capture: bool = False) -> str:
 class SshRunner:
     """Runs the remote steps over one OpenSSH master connection, so the password is asked once."""
 
-    def __init__(self, server: Server, work_dir: Path):
+    def __init__(self, server: Server, work_dir: Path, password: Optional[str] = None):
         self.server = server
         self.work_dir = work_dir
         self.socket = work_dir / "ssh-master"
+        self.password = password
+        self.askpass = work_dir / "askpass"
         self.connected = False
 
     def connect_args(self) -> List[str]:
-        return ["ssh", "-M", "-S", str(self.socket), "-fN", "-p", str(self.server.port), self.server.login]
+        # With a given password, one try: ssh would otherwise resend a wrong one to the server three times.
+        prompts = ["-o", "NumberOfPasswordPrompts=1"] if self.password is not None else []
+        return ["ssh", "-M", "-S", str(self.socket), *prompts, "-fN", "-p", str(self.server.port), self.server.login]
+
+    def connect_env(self) -> Optional[dict]:
+        """The environment for the master connection: None (inherit) unless a password was given."""
+        if self.password is None:
+            return None
+        return {**os.environ, "SSH_ASKPASS": str(self.askpass), "SSH_ASKPASS_REQUIRE": "force",
+                PASSWORD_ENV: self.password}
 
     def remote_args(self, command: str, tty: bool = False) -> List[str]:
         return ["ssh", "-S", str(self.socket), *(["-t"] if tty else []), "-p", str(self.server.port),
@@ -562,7 +578,11 @@ class SshRunner:
         return ["ssh", "-S", str(self.socket), "-O", "exit", "-p", str(self.server.port), self.server.login]
 
     def connect(self) -> None:
-        run_command(self.connect_args(), "ssh connection")
+        if self.password is not None:
+            # The helper only reads the password from its environment, so the file holds no secret.
+            self.askpass.write_text(f"#!/bin/sh\nprintf '%s\\n' \"${PASSWORD_ENV}\"\n")
+            self.askpass.chmod(0o700)
+        run_command(self.connect_args(), "ssh connection", env=self.connect_env())
         self.connected = True
 
     def remote(self, command: str, capture: bool = False, tty: bool = False) -> str:
@@ -643,8 +663,9 @@ def failure_report(env: Env, step: int, detail: str, color: bool, server: Option
 
 
 def dry_run_plan(env: Env, server: Server, repo: Path, help_names: Sequence[str], restart: bool = False,
-                 tag_remote: str = TAG_REMOTE) -> str:
-    shell = SshRunner(server, Path(SOCKET_PARENT) / "rots-deploy-XXXXXX")
+                 tag_remote: str = TAG_REMOTE, password: bool = False) -> str:
+    # A placeholder, never the real password: the plan is printed.
+    shell = SshRunner(server, Path(SOCKET_PARENT) / "rots-deploy-XXXXXX", password="" if password else None)
 
     def ssh(command: str, tty: bool = False) -> str:
         return "  " + shlex.join(shell.remote_args(command, tty))
@@ -653,6 +674,8 @@ def dry_run_plan(env: Env, server: Server, repo: Path, help_names: Sequence[str]
               f"  would run 'git pull --ff-only' when the checkout is on {DEPLOY_BRANCH!r}; "
               "the commit shown above is the checkout before that pull."]
     lines += [f"== 2. {STEP_TITLES[2]}", "  " + shlex.join(shell.connect_args())]
+    if password:
+        lines.append(f"  with the --password value sent through SSH_ASKPASS ({PASSWORD_ENV}), not typed")
     step3 = [f"== 3. {STEP_TITLES[3]}", ssh(missing_dirs_command(env)), ssh(outside_links_command(env))]
     if env.backup:
         step3.append(ssh(unfinished_deploy_command(env, server)))
@@ -716,7 +739,8 @@ def deploy(env: Env, server: Server, checkout, runner, *, dry_run: bool, restart
             raise DeployError("these help files would break in-game help:\n  " + "\n  ".join(problems))
         out(banner(env, server, sha, subject, help_names, color))
         if dry_run:
-            out(dry_run_plan(env, server, checkout.repo, help_names, restart, checkout.tag_remote))
+            out(dry_run_plan(env, server, checkout.repo, help_names, restart, checkout.tag_remote,
+                             password=runner.password is not None))
             return 0
 
         begin(2)
@@ -845,7 +869,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     server = Server(user, host, args.port)
     color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
     with tempfile.TemporaryDirectory(prefix="rots-deploy-", dir=SOCKET_PARENT) as work_dir:
-        runner = SshRunner(server, Path(work_dir))
+        runner = SshRunner(server, Path(work_dir), args.password)
         if args.command == "revert":
             return revert(env, server, runner, color=color)
         return deploy(env, server, Checkout(REPO_ROOT), runner, dry_run=args.dry_run, restart=restart,

@@ -101,6 +101,16 @@ class ArgumentsTest(unittest.TestCase):
         self.assertFalse(self.parse("deploy", "test", "someone@example.org", "2222").restart)
         self.assertTrue(self.parse("deploy", "test", "someone@example.org", "2222", "--restart").restart)
 
+    def test_password_is_optional_for_deploy_and_revert(self) -> None:
+        for command in ("deploy", "revert"):
+            with self.subTest(command=command):
+                self.assertIsNone(self.parse(command, "test", "someone@example.org", "2222").password)
+                self.assertEqual(self.parse(command, "test", "someone@example.org", "2222",
+                                            "--password", "s3cret word").password, "s3cret word")
+
+    def test_password_flag_needs_a_value(self) -> None:
+        self.assert_usage_error("deploy", "test", "someone@example.org", "2222", "--password")
+
     def test_revert_has_no_restart_flag(self) -> None:
         self.assert_usage_error("revert", "test", "someone@example.org", "2222", "--restart")
 
@@ -989,6 +999,42 @@ class SshRunnerTest(unittest.TestCase):
             run.assert_called_once_with(runner.sftp_args(batch_path), "sftp upload")
             self.assertEqual(batch_path.read_text(), "put -r *\n")
 
+    def test_without_a_password_connect_inherits_the_environment_and_prompts_as_before(self) -> None:
+        with tempfile.TemporaryDirectory() as work_dir:
+            runner = deploy.SshRunner(SERVER, Path(work_dir))
+            with mock.patch.object(deploy, "run_command") as run:
+                runner.connect()
+
+            run.assert_called_once_with(runner.connect_args(), "ssh connection", env=None)
+            self.assertNotIn("NumberOfPasswordPrompts=1", runner.connect_args())
+            self.assertFalse(runner.askpass.exists())
+
+    def test_with_a_password_connect_tries_it_once(self) -> None:
+        runner = deploy.SshRunner(SERVER, Path("/tmp/rots-deploy-test"), password="s3cret")
+
+        self.assertEqual(runner.connect_args(), ["ssh", "-M", "-S", "/tmp/rots-deploy-test/ssh-master", "-o",
+                                                 "NumberOfPasswordPrompts=1", "-fN", "-p", "2222",
+                                                 "someone@example.org"])
+
+    def test_the_password_reaches_ssh_through_askpass_and_never_a_file_or_argument(self) -> None:
+        with tempfile.TemporaryDirectory() as work_dir:
+            work = Path(work_dir)
+            # A stand-in ssh that asks SSH_ASKPASS for the password, the way OpenSSH does.
+            fake_bin = work / "bin"
+            fake_bin.mkdir()
+            (fake_bin / "ssh").write_text('#!/bin/sh\n[ "$SSH_ASKPASS_REQUIRE" = force ] || exit 9\n'
+                                          f'"$SSH_ASKPASS" "password: " > {shlex.quote(str(work / "answer"))}\n')
+            (fake_bin / "ssh").chmod(0o700)
+            runner = deploy.SshRunner(SERVER, work, password="it's a \"s3cret\" $HOME")
+            with mock.patch.dict(os.environ, {"PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"}):
+                runner.connect()
+
+            self.assertEqual((work / "answer").read_text(), "it's a \"s3cret\" $HOME\n")
+            self.assertNotIn("s3cret", runner.askpass.read_text())
+            self.assertEqual(runner.askpass.stat().st_mode & 0o777, 0o700)
+            self.assertFalse(any("s3cret" in arg for arg in runner.connect_args()))
+            self.assertNotIn(deploy.PASSWORD_ENV, os.environ)
+
     def test_close_only_runs_after_connecting(self) -> None:
         with mock.patch.object(deploy.subprocess, "run") as run:
             self.runner.close()
@@ -1127,7 +1173,8 @@ class FakeCheckout:
 
 
 class FakeRunner:
-    def __init__(self, fail_when=lambda call: False, unwritable=("",)) -> None:
+    def __init__(self, fail_when=lambda call: False, unwritable=("",), password=None) -> None:
+        self.password = password
         self.calls = []
         self.fail_when = fail_when
         self.unwritable = list(unwritable)
@@ -1454,6 +1501,20 @@ class DeployTest(unittest.TestCase):
         self.assertIn("== 9. restart", self.text())
         self.assertIn("-t -p 2222 someone@example.org 'sh -c '\"'\"'sudo systemctl restart rotsbuilding", self.text())
 
+    def test_dry_run_with_a_password_shows_how_it_is_sent_but_never_the_password(self) -> None:
+        self.assertEqual(self.run_deploy("test", runner=FakeRunner(password="s3cret"), dry_run=True), 0)
+
+        self.assertEqual(self.runner.kinds(), ["close"])
+        self.assertIn("-o NumberOfPasswordPrompts=1 -fN", self.text())
+        self.assertIn("SSH_ASKPASS", self.text())
+        self.assertNotIn("s3cret", self.text())
+
+    def test_dry_run_without_a_password_does_not_mention_askpass(self) -> None:
+        self.run_deploy("test", dry_run=True)
+
+        self.assertNotIn("SSH_ASKPASS", self.text())
+        self.assertNotIn("NumberOfPasswordPrompts", self.text())
+
     def test_warnings_are_shown(self) -> None:
         self.run_deploy("zzz-forge-test", checkout=FakeCheckout(warnings=["on 'feat/x'"]))
 
@@ -1483,6 +1544,15 @@ class MainTest(unittest.TestCase):
         self.assertTrue(str(runner.socket).startswith("/tmp/rots-deploy-"))
         self.assertTrue(run.call_args.kwargs["dry_run"])
         self.assertFalse(run.call_args.kwargs["restart"])
+        self.assertIsNone(runner.password)
+
+    def test_wires_the_password_into_the_runner_for_deploy_and_revert(self) -> None:
+        for command in ("deploy", "revert"):
+            with self.subTest(command=command), mock.patch.object(deploy, command, return_value=0) as run:
+                self.assertEqual(deploy.main([command, "test", "someone@example.org", "2222",
+                                              "--password", "s3cret"]), 0)
+
+                self.assertEqual(run.call_args.args[-1].password, "s3cret")
 
     def test_wires_restart_into_deploy_for_test(self) -> None:
         with mock.patch.object(deploy, "deploy", return_value=0) as run:
