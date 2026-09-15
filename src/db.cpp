@@ -1096,9 +1096,10 @@ bool delete_player_character_by_index(int index)
     const bool account_native_entry = has_suffix(player_table[index].ch_file, ".character.json");
 
     // A name the account layer refuses cannot be linked to an account at all (linking validates the
-    // same way), so there is nothing to unlink and the legacy path stays correct for it. A handful
-    // of very old characters are in this bucket - two-letter names, names starting with '#'.
-    if (!account::is_valid_account_name(character_name)) {
+    // same way), so there is nothing to unlink and the legacy path stays correct for it. Two-letter
+    // legacy names ARE linkable (no length minimum for existing characters); names starting with
+    // '#' are not.
+    if (!account::is_valid_character_name(character_name)) {
         if (account_native_entry) {
             sprintf(buf, "delete_player_character_by_index: refusing to delete %s: stored in account storage under a name the account layer rejects",
                 character_name);

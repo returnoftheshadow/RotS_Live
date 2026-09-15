@@ -9,6 +9,7 @@ std::string normalize_account_name(const std::string& account_name);
 std::string normalize_email(const std::string& email);
 
 bool is_valid_account_name(const std::string& account_name, std::string* error_message = nullptr);
+bool is_valid_character_name(const std::string& character_name, std::string* error_message = nullptr);
 bool is_valid_email(const std::string& email, std::string* error_message = nullptr);
 bool is_valid_password(const std::string& password, std::string* error_message = nullptr);
 

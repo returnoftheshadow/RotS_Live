@@ -165,12 +165,12 @@ bool deserialize_account_from_json(const std::string& json, AccountData* account
     parsed_account.account_name = normalize_account_name(parsed_account.account_name);
     parsed_account.normalized_email = normalize_email(parsed_account.normalized_email);
     for (std::string& character_name : parsed_account.characters) {
-        if (!validate_identifier_for_path(character_name, "Character name", error_message))
+        if (!is_valid_character_name(character_name, error_message))
             return false;
         character_name = normalize_account_name(character_name);
     }
     for (AccountData::CharacterLinkReference& link : parsed_account.character_links) {
-        if (!validate_identifier_for_path(link.character_name, "Character name", error_message))
+        if (!is_valid_character_name(link.character_name, error_message))
             return false;
         link.character_name = normalize_account_name(link.character_name);
     }

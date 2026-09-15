@@ -419,6 +419,29 @@ TEST(AccountManagement, RejectsAccountNamesWithUnsupportedCharacters)
         << "Expected invalid account-name failures to explain the supported character set.";
 }
 
+// Live data holds legacy characters older than the 3-character creation minimum (Ao, El, Fy, Ia,
+// Li, Pi, Ru). New names still go through valid_name (ban.cpp); the account layer must only refuse
+// what cannot be a safe path component, never an existing character for being short.
+TEST(AccountManagement, AcceptsShortExistingCharacterNames)
+{
+    std::string error_message;
+
+    EXPECT_TRUE(account::is_valid_character_name("pi", &error_message)) << error_message;
+    EXPECT_TRUE(account::is_valid_character_name("A", &error_message)) << error_message;
+    EXPECT_FALSE(account::is_valid_account_name("pi", &error_message));
+}
+
+TEST(AccountManagement, RejectsCharacterNamesThatAreNotSafePathComponents)
+{
+    std::string error_message;
+
+    EXPECT_FALSE(account::is_valid_character_name("", &error_message));
+    EXPECT_FALSE(error_message.empty());
+    EXPECT_FALSE(account::is_valid_character_name("../pi", &error_message));
+    EXPECT_NE(error_message.find("letters"), std::string::npos) << error_message;
+    EXPECT_FALSE(account::is_valid_character_name(std::string(account::MAX_ACCOUNT_NAME_LENGTH + 1, 'a'), &error_message));
+}
+
 TEST(AccountManagement, RejectsPasswordsMissingRequiredComplexity)
 {
     std::string error_message;
@@ -1498,6 +1521,57 @@ TEST(AccountManagement, LinksAndMigratesCharacterAfterAuthenticatingAccount)
     EXPECT_EQ(error_message, "Account authentication failed.");
 }
 
+TEST(AccountManagement, LinksAndMigratesTwoLetterLegacyCharacter)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/P-T").c_str(), 0700), 0);
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("Pi"));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700012222, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(temp_directory.path(), "alpha-admin", "VerifierAdmin", 1700012222, nullptr, &error_message)) << error_message;
+
+    account::AccountData linked_account;
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin", "ValidPass1", "Pi", 1700012223, &linked_account, &migration, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(linked_account, "pi"));
+    EXPECT_EQ(migration.character_name, "pi");
+    EXPECT_TRUE(migration.player_file.present);
+
+    // The record that now lists "pi" has to read back, or the whole account becomes unreadable.
+    account::AccountData reread_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), "alpha-admin", &reread_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(reread_account, "pi"));
+
+    std::string owner_account_name;
+    ASSERT_TRUE(account::find_linked_character_owner_account(temp_directory.path(), "pi", &owner_account_name, &error_message)) << error_message;
+    EXPECT_EQ(owner_account_name, "alpha-admin");
+
+    // Renaming INTO a short name is a new name, so the creation minimum still applies.
+    EXPECT_FALSE(account::admin_rename_linked_character(temp_directory.path(), "alpha-admin", "pi", "ab", 1700012224, nullptr, &error_message));
+
+    ASSERT_TRUE(account::admin_delete_linked_character(temp_directory.path(), "alpha-admin", "pi", 1700012225, &reread_account, &error_message)) << error_message;
+    EXPECT_FALSE(account::account_has_character(reread_account, "pi"));
+}
+
+TEST(AccountManagement, AdminLinksAndMigratesTwoLetterLegacyCharacter)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("El"));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700012230, nullptr, &error_message)) << error_message;
+
+    account::AccountData linked_account;
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::admin_link_and_migrate_character(temp_directory.path(), "alpha-admin", "El", 1700012231, &linked_account, &migration, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(linked_account, "el"));
+    EXPECT_TRUE(migration.player_file.present);
+}
+
 TEST(AccountManagement, DoesNotLeaveCharacterLinkedWhenMigrationFails)
 {
     TemporaryDirectory temp_directory;
@@ -2282,6 +2356,107 @@ TEST(AccountManagement, MigratesLegacyCharacterWhosePersistedBadPasswordCountIsN
     account::CharacterMigrationData migration;
     EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, &migration, &error_message))
         << "Expected a character with a non-zero bad-password count to convert. Error: " << error_message;
+}
+
+TEST(AccountManagement, MigratesLegacyCharacterWithJunkInGeneralProfessionSlot)
+{
+    // profs arrays are [MAX_PROFS + 1]; slot 0 is PROF_GENERAL, which no accessor reads. The legacy
+    // saver still writes it, and 53 live characters carry junk there (Li: prof_coef 0 = 1; others
+    // -27008, 32000, ...). Character JSON carries only MAGE..WARRIOR, so slot 0 cannot survive.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007778, nullptr, &error_message)) << error_message;
+
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.profs.prof_coof[PROF_GENERAL] = -27008;
+    stored_character.profs.prof_level[PROF_GENERAL] = 1;
+    stored_character.profs.prof_exp[PROF_GENERAL] = 9728;
+    write_valid_legacy_player_file(temp_directory.path(), stored_character);
+    write_text_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), make_valid_object_bytes());
+    write_text_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), make_valid_exploit_bytes());
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007779, &migration, &error_message))
+        << "Expected junk in the unused PROF_GENERAL slot not to block conversion. Error: " << error_message;
+}
+
+namespace {
+
+// Same directory layout and fixture files as the other legacy-migration tests above.
+void write_legacy_character_with_support_files(const std::string& root, const char_file_u& stored_character)
+{
+    ASSERT_EQ(mkdir((root + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/exploits/A-E").c_str(), 0700), 0);
+    write_valid_legacy_player_file(root, stored_character);
+    write_text_file(account::legacy_object_file_path(root, stored_character.name), make_valid_object_bytes());
+    write_text_file(account::legacy_exploits_file_path(root, stored_character.name), make_valid_exploit_bytes());
+}
+
+} // namespace
+
+TEST(AccountManagement, MigratesLegacyCharacterCarryingFlagBitsCharacterJsonCannotName)
+{
+    // Character JSON stores act/pref as NAMED flags. PRF_NOTHING2 (pref bit 6) has no name and no
+    // reader; 58 live characters carry it (Alanis, Alkar, Turgon, ...), and one (Dandelo) carries
+    // act bit 22, which has no PLR_ definition at all. Neither can survive, and neither is lost.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007780, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.pref |= PRF_NOTHING2 | PRF_BRIEF;
+    stored_character.specials2.act |= (1L << 22) | PLR_NOSHOUT;
+    write_legacy_character_with_support_files(temp_directory.path(), stored_character);
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007781, &migration, &error_message))
+        << "Expected flag bits with no name in character JSON not to block conversion. Error: " << error_message;
+}
+
+TEST(AccountManagement, MigratesLegacyCharacterWithGapsBetweenAffectSlots)
+{
+    // Character JSON keeps only non-empty affects and reloads them packed from slot 0, so a legacy
+    // file with an empty slot before a used one comes back in different positions. The game loads
+    // every non-empty slot regardless of position (db.cpp store_to_char). 15 live characters.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007782, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    for (affected_type& affect : stored_character.affected)
+        affect = affected_type {};
+    stored_character.affected[0].type = 41;
+    stored_character.affected[0].duration = 61;
+    stored_character.affected[1].type = 69;
+    stored_character.affected[1].duration = 120;
+    write_legacy_character_with_support_files(temp_directory.path(), stored_character);
+
+    // save_player repacks affects from slot 0 on the way out, so move them to slots 2 and 3 in the
+    // text itself -- the shape of the live files (angurth: "affect 2 41 61 0 0 1", "affect 3 ...").
+    const std::string player_path = account::legacy_player_file_path(temp_directory.path(), "aragorn");
+    std::string player_text = read_file_contents(player_path);
+    const std::string slot0 = "affect      0 ";
+    const std::string slot1 = "affect      1 ";
+    ASSERT_NE(player_text.find(slot0), std::string::npos) << player_text;
+    ASSERT_NE(player_text.find(slot1), std::string::npos) << player_text;
+    player_text.replace(player_text.find(slot0), slot0.size(), "affect      2 ");
+    player_text.replace(player_text.find(slot1), slot1.size(), "affect      3 ");
+    write_text_file(player_path, player_text);
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007783, &migration, &error_message))
+        << "Expected gaps between affect slots not to block conversion. Error: " << error_message;
 }
 
 TEST(AccountManagement, PersistedMigrationSnapshotOmitsLegacyPlayerPasswordAndHostData)

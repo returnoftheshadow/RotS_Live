@@ -3171,6 +3171,26 @@ std::vector<std::string> encode_preference_flags(long flags)
     return encode_flags(flags, kPreferenceFlags, sizeof(kPreferenceFlags) / sizeof(kPreferenceFlags[0]));
 }
 
+namespace {
+    long flag_mask(const FlagDefinition* definitions, size_t definition_count)
+    {
+        long mask = 0;
+        for (size_t index = 0; index < definition_count; ++index)
+            mask |= definitions[index].bit;
+        return mask;
+    }
+}
+
+long serializable_player_flag_mask()
+{
+    return flag_mask(kPlayerFlags, sizeof(kPlayerFlags) / sizeof(kPlayerFlags[0]));
+}
+
+long serializable_preference_flag_mask()
+{
+    return flag_mask(kPreferenceFlags, sizeof(kPreferenceFlags) / sizeof(kPreferenceFlags[0]));
+}
+
 std::vector<std::string> encode_affected_flags(long flags)
 {
     return encode_flags(flags, kAffectedFlags, sizeof(kAffectedFlags) / sizeof(kAffectedFlags[0]));

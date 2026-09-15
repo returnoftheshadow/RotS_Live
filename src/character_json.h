@@ -195,6 +195,10 @@ std::string first_unwritable_named_value(const CharacterData& character);
 
 std::vector<std::string> encode_player_flags(long flags);
 std::vector<std::string> encode_preference_flags(long flags);
+// Every act/pref bit character JSON has a name for. A bit outside the mask cannot be written and
+// is silently dropped by encode_player_flags/encode_preference_flags.
+long serializable_player_flag_mask();
+long serializable_preference_flag_mask();
 std::vector<std::string> encode_affected_flags(long flags);
 std::vector<std::string> encode_hide_flags(long flags);
 
