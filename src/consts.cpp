@@ -567,7 +567,7 @@ struct skill_data skills[MAX_SKILLS] = {
 
     /* 111 */
     { "confuse", PROF_CLERIC, 1, spell_confuse, POSITION_FIGHTING, 10, 28, 16, 10, 65, 1,
-        PLRSPEC_ILLU, RESIST_NONE },
+        PLRSPEC_ILLU, RESIST_ILLU },
     { "expose elements", PROF_MAGE, 1, spell_expose_elements, POSITION_FIGHTING, 70, 5, 16, 1, 1, 0,
         PLRSPEC_NONE, RESIST_NONE },
     { "bite", PROF_WARRIOR, 9, NULL, POSITION_FIGHTING, 0, 0, 16, 30, 1, 0, PLRSPEC_NONE, RESIST_NONE },
