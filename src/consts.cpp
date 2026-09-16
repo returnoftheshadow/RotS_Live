@@ -229,7 +229,7 @@ char* room_bits_message[32] = { "Dark mist permeats the air.",
     /* 30 */ "",
     "" };
 
-char* room_spell_message[MAX_SKILLS] = {
+char* room_spell_message[] = {
     "",
     /* 1*/ "",
     "",
@@ -360,6 +360,11 @@ char* room_spell_message[MAX_SKILLS] = {
     ""
 
 };
+
+/* The real length of room_spell_message[]. The table is indexed by spell number but is far
+   shorter than MAX_SKILLS, so callers must bound-check against this and not against MAX_SKILLS.
+   Derived from the table itself so it cannot drift out of step with it. */
+extern const int room_spell_message_count = sizeof(room_spell_message) / sizeof(room_spell_message[0]);
 
 /*
  * The format used below is:

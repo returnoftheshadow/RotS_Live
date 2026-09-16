@@ -19,6 +19,7 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
 void affect_naked(char_data* ch);
 void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
     int type, int is_object, const char* str);
+const char* room_spell_message_for(int location);
 
 extern char* resistance_name[];
 extern char* vulnerability_name[];
@@ -702,4 +703,44 @@ TEST(SpellWearOffNotify, SurvivesAnAffectWhoseTypeHasNoTableEntry)
 
     EXPECT_EQ(context.mob.affected, nullptr)
         << "the affect is still removed, just without a wear-off line";
+}
+
+/* room_spell_message[] is indexed by spell number but is far shorter than MAX_SKILLS, which is
+   the only bound show_room_affection() checked. A room affect whose location landed at 128 or
+   above would read past the end of the table and segfault. */
+TEST(RoomSpellMessage, RefusesLocationsPastTheEndOfTheTable)
+{
+    extern const int room_spell_message_count;
+
+    EXPECT_EQ(room_spell_message_for(room_spell_message_count), nullptr)
+        << "the first index past the table";
+    EXPECT_EQ(room_spell_message_for(MAX_SKILLS - 1), nullptr)
+        << "MAX_SKILLS is the bound the caller used to trust, and it is far past the table";
+    EXPECT_EQ(room_spell_message_for(-1), nullptr);
+
+    EXPECT_NE(room_spell_message_for(0), nullptr) << "the first real entry";
+    EXPECT_NE(room_spell_message_for(room_spell_message_count - 1), nullptr)
+        << "the last real entry";
+}
+
+TEST(RoomSpellMessage, EmptySlotsAreStillPresentJustBlank)
+{
+    // room_spell_message[0] is an empty string, not a missing entry, so callers must keep
+    // filtering it on *message the way show_room_affection() always has.
+    const char* message = room_spell_message_for(0);
+    ASSERT_NE(message, nullptr);
+    EXPECT_EQ(*message, '\0');
+}
+
+TEST(RoomSpellMessage, KnownRoomAffectsHaveAMessage)
+{
+    // SPELL_HAZE (52) and SPELL_NONE (127) also reach show_room_affection() as a room affect's
+    // location, but their slots are blank in the table today, so they are excluded here.
+    const int room_spells[] = { SPELL_POISON, SPELL_MIST_OF_BAAZUNGA, SPELL_BLAZE };
+
+    for (int spell : room_spells) {
+        const char* message = room_spell_message_for(spell);
+        ASSERT_NE(message, nullptr) << "spell " << spell << " indexes past the table";
+        EXPECT_NE(*message, '\0') << "spell " << spell << " has no room message";
+    }
 }

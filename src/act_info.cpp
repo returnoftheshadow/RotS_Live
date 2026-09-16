@@ -969,6 +969,19 @@ void list_char_to_char(struct char_data* list, struct char_data* ch, int mode)
         }
 }
 
+/* Bound-checked lookup into room_spell_message[]. That table is indexed by spell number but is
+   far shorter than MAX_SKILLS, so an unchecked index reads past its end. Returns NULL when the
+   spell number has no entry at all, otherwise the entry (which may be the empty string). */
+const char* room_spell_message_for(int location)
+{
+    extern const int room_spell_message_count;
+
+    if (location < 0 || location >= room_spell_message_count)
+        return NULL;
+
+    return room_spell_message[location];
+}
+
 /*
  * Put messages describing the room affection `aff' in `str'; a
  * `mode' of 0 means that we're showing the affection to a
@@ -981,11 +994,13 @@ void show_room_affection(char* str, struct affected_type* aff, int mode)
 
     if (mode == 0) {
         switch (aff->type) {
-        case ROOMAFF_SPELL:
-            if ((aff->location >= 0) && (aff->location < MAX_SKILLS) && *room_spell_message[aff->location] && !(aff->bitvector & PERMAFFECT)) {
-                strcat(str, room_spell_message[aff->location]);
+        case ROOMAFF_SPELL: {
+            const char* message = room_spell_message_for(aff->location);
+            if (message && *message && !(aff->bitvector & PERMAFFECT)) {
+                strcat(str, message);
                 strcat(str, "\n\r");
             }
+        }
 
             if (!(aff->bitvector & PERMAFFECT)) {
                 for (tmp = 0; tmp < 32; tmp++) {
