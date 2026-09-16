@@ -14,8 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "account_index.h"
 #include "account_errors.h"
+#include "account_index.h"
 #include "account_management.h"
 #include "account_management_storage.h"
 #include "char_utils.h"
@@ -185,7 +185,7 @@ ACMD(do_echo)
         sprintf(buf, "%s\n\r", argument + i);
         //      send_to_room_except(buf, ch->in_room, ch);
         for (tmpch = world[ch->in_room].people; tmpch;
-            tmpch = tmpch->next_in_room)
+             tmpch = tmpch->next_in_room)
             if (tmpch != ch)
                 send_to_char(buf, tmpch);
 
@@ -313,6 +313,18 @@ ACMD(do_goto)
     act(buf, TRUE, ch, 0, 0, TO_ROOM);
     do_look(ch, "", wtl, 0, 0);
     msdp_room_update(ch);
+}
+
+// non-persistent, used to flag output of debugging messages
+ACMD(do_debug)
+{
+    if (ch->debug_flag == 0) {
+        ch->debug_flag = 1;
+        send_to_char("Debug flag on.\n\r", ch);
+    } else {
+        ch->debug_flag = 0;
+        send_to_char("Debug flag off.\n\r", ch);
+    }
 }
 
 ACMD(do_trans)

@@ -1815,6 +1815,7 @@ public:
                         variable elsewhere? */
     int interrupt_count = 0; /* Meant to store times interupted so that npc mages know to stop casting in battle */
     int interrupt_time = 0; /* Meant to be a countdown timer to remove 1 from interrupt_count */
+    int debug_flag = 0; /* Imms may set this for increased debug output */
 
     bool spec_busy;
 

@@ -1115,6 +1115,23 @@ void mudlog_aliased_mob(char* buf, char_data* ch, char* mob_alias)
     }
 }
 
+int has_debug_flag(char_data* ch)
+{
+    return ch ? ch->debug_flag : 0;
+}
+
+void debug_flag_msg(char* buf, char_data* ch)
+{
+    if (has_debug_flag(ch))
+        send_to_char(buf, ch);
+}
+
+void mudlog_debug_mob_or_player(char* buf, char_data* ch, char_data* vict)
+{
+    mudlog_debug_mob(buf, ch);
+    mudlog_debug_mob(buf, vict);
+}
+
 void vmudlog(char type, char* format, ...)
 {
 #define BUFSIZE 2048

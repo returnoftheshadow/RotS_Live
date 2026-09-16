@@ -17,8 +17,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "account_management.h"
 #include "account_errors.h"
+#include "account_management.h"
 #include "account_ppc.h"
 #include "color.h"
 #include "comm.h"
@@ -301,6 +301,7 @@ ACMD(do_overrun);
 ACMD(do_frenzy);
 ACMD(do_stomp);
 ACMD(do_defend);
+ACMD(do_debug);
 
 void do_recover(char_data* character, char* argument, waiting_type* wait_list, int command, int sub_command);
 
@@ -560,6 +561,7 @@ const char* command[] = {
     "renounce",
     "mob2csv",
     "savebench", // 249
+    "debug",
     "\n"
 };
 
@@ -985,7 +987,7 @@ char* target_from_word(struct char_data* ch, char* argument, int mask, struct ta
 
     if (argument[arg_i] == '\'') {
         for (tmp = 0, arg_i++; argument[arg_i] && (argument[arg_i] != '\'');
-            tmp++, arg_i++)
+             tmp++, arg_i++)
             word[tmp] = argument[arg_i];
         word[tmp] = 0;
 
@@ -993,7 +995,7 @@ char* target_from_word(struct char_data* ch, char* argument, int mask, struct ta
             arg_i++;
     } else {
         for (tmp = 0; argument[arg_i] && (argument[arg_i] > ' ');
-            tmp++, arg_i++)
+             tmp++, arg_i++)
             word[tmp] = argument[arg_i];
         word[tmp] = 0;
     }
@@ -2243,6 +2245,8 @@ void assign_command_pointers(void)
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(249, POSITION_DEAD, do_savebench, LEVEL_IMPL, FALSE, 0,
         TAR_IGNORE, TAR_IGNORE, 0);
+    COMMANDO(250, POSITION_STANDING, do_debug, LEVEL_GRGOD, TRUE, 0,
+        TAR_NONE_OK, TAR_IGNORE, 0);
 }
 
 /* *************************************************************************
