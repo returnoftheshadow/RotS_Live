@@ -78,10 +78,12 @@ loaded but everything behind them shifted, losing hunger — and it cannot recur
 Work:
 
 1. `char_to_store` / `store_to_char` zero and carry the new field.
-2. **Text path untouched.** No 7th field written or parsed. `effect_modifier` must be
-   zero-initialised so a migrating character arrives at 0.
-   *(The `live-ah` change that extended this format is deliberately not ported — the format is no
-   longer written. Recorded here so the omission is a decision, not a miss.)*
+2. **Text path: nothing to do.** A legacy file predates the field, so it cannot carry one, and
+   accounts are live on production with no route back to the legacy format. The parser already
+   does `memset(char_element, 0, sizeof(struct char_file_u))` before parsing (`db.cpp:2415`), so a
+   migrating character arrives with `effect_modifier` at 0 for free — no garbage, no code change.
+   *(The `live-ah` change that extended this format with a 7th field is deliberately not ported:
+   the format is no longer written. Recorded so the omission is a decision, not a miss.)*
 3. **JSON path**: `AffectData` gains `effect_modifier`; writer, reader, and absent-key-reads-as-0
    for every character already on disk. Whether that is additive at the current schema version or
    warrants a bump is settled during implementation.
@@ -257,5 +259,5 @@ there and absent here.
   mode.
 - **Slot ownership is last-writer-wins**, so a player can lower their own resistance by equipping a
   weaker item. Accepted, and it matches `spell_evasion`.
-- **Old saves carry no modifier.** Absent reads as 0, which under the section 4 rule falls back to
-  the legacy flat behaviour rather than granting nothing.
+- **Existing account characters carry no modifier.** An absent JSON key reads as 0, which under the
+  section 4 rule falls back to the legacy flat behaviour rather than granting nothing.
