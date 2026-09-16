@@ -3528,10 +3528,14 @@ ACMD(do_affections)
             sprintbit_resistances(ch, GET_VULNERABILITIES(ch), vulnerability_name, buf2, 50, FALSE);
             sprintf(buf, "%s%s", buf, buf2);
         }
-        sprintf(buf, "%sYou are affected by:\n\r", buf);
-        for (tmpaff = ch->affected; tmpaff; tmpaff = tmpaff->next) {
-            report_affection(tmpaff, str);
-            sprintf(buf, "%s%s", buf, str);
+        /* Only announce the affect list when there is one - a character can reach this
+           branch on a resistance or vulnerability alone, with nothing to list under it. */
+        if (ch->affected) {
+            sprintf(buf, "%sYou are affected by:\n\r", buf);
+            for (tmpaff = ch->affected; tmpaff; tmpaff = tmpaff->next) {
+                report_affection(tmpaff, str);
+                sprintf(buf, "%s%s", buf, str);
+            }
         }
     }
     report_skill_timer(*ch, buf);
