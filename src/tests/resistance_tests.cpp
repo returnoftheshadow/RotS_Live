@@ -6,6 +6,8 @@
 
 extern struct skill_data skills[];
 
+int cast_resist_magnitude(int caster_level);
+
 TEST(ResistanceIdentity, DamagingSpellsCarryTheirElement)
 {
     EXPECT_EQ(skills[SPELL_FIREBOLT].resist, RESIST_FIRE);
@@ -41,4 +43,40 @@ TEST(ResistTypeForAttack, MapsSpellsWeaponsAndUnknowns)
     EXPECT_EQ(resist_type_for_attack(TYPE_SUFFERING), RESIST_NONE);
     EXPECT_EQ(resist_type_for_attack(MAX_SKILLS + 10), RESIST_NONE);
     EXPECT_EQ(resist_type_for_attack(-1), RESIST_NONE);
+}
+
+TEST(ResistSpell, CastMagnitudeIsLevelPlusTenCappedAtForty)
+{
+    EXPECT_EQ(cast_resist_magnitude(1), 11);
+    EXPECT_EQ(cast_resist_magnitude(29), 39);
+    EXPECT_EQ(cast_resist_magnitude(30), 40);
+    EXPECT_EQ(cast_resist_magnitude(60), 40) << "a cast resist is capped at 40%";
+}
+
+TEST(ResistSpell, SkillRowsSitAtTheirSpellNumbers)
+{
+    // The row before the block must not have moved.
+    EXPECT_STREQ(skills[SPELL_MASS_INSIGHT].name, "mass insight");
+
+    EXPECT_STREQ(skills[SPELL_RESIST_FIRE].name, "resist fire");
+    EXPECT_STREQ(skills[SPELL_RESIST_COLD].name, "resist cold");
+    EXPECT_STREQ(skills[SPELL_RESIST_LIGHT].name, "resist lightning");
+    EXPECT_STREQ(skills[SPELL_RESIST_ILLUSION].name, "resist illusion");
+    EXPECT_STREQ(skills[SPELL_RESIST_PHYSICAL].name, "resist physical");
+    EXPECT_STREQ(skills[SPELL_RESIST_DARK].name, "resist dark");
+
+    // Every field after the function pointer lands where it should, i.e. the rows are
+    // the same width as the rest of the table.
+    for (int spell = SPELL_RESIST_FIRE; spell <= SPELL_RESIST_DARK; ++spell) {
+        EXPECT_NE(skills[spell].spell_pointer, nullptr) << "spell " << spell;
+        EXPECT_EQ(skills[spell].type, PROF_CLERIC) << "spell " << spell;
+        EXPECT_EQ(skills[spell].min_usesmana, 5) << "spell " << spell;
+        EXPECT_EQ(skills[spell].beats, 21) << "spell " << spell;
+        EXPECT_EQ(skills[spell].targets, 32) << "spell " << spell;
+        EXPECT_EQ(skills[spell].learn_diff, 10) << "spell " << spell;
+        EXPECT_EQ(skills[spell].learn_type, 1) << "spell " << spell;
+        EXPECT_EQ(skills[spell].is_fast, 0) << "spell " << spell;
+        EXPECT_EQ(skills[spell].skill_spec, PLRSPEC_PROT) << "spell " << spell;
+        EXPECT_EQ(skills[spell].resist, RESIST_NONE) << "spell " << spell;
+    }
 }

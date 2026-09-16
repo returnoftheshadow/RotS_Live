@@ -83,6 +83,11 @@ ACMD(do_return);
 char char_control_array[MAX_CHARACTERS / 8 + 1];
 long last_control_set = -1;
 
+/* The only channel an item has for telling a spell how strong it is. An object's affect
+   carries level*256+spellnum and the spell is invoked with obj = 0, so it cannot read
+   anything off the item itself. Set immediately before the call, cleared on every exit. */
+int eff_mod = 0;
+
 int dummy_affected_var = 17;
 universal_list* affected_list = 0;
 universal_list* affected_list_pool = 0;
@@ -445,16 +450,19 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
         tmp2 = mod / 256; // spell level
         if (!tmp2)
             tmp2 = GET_LEVEL(ch);
-        if (tmp >= 128)
-            break;
 
-        if (!skills[tmp].spell_pointer)
-            break;
+        eff_mod = tmp2;
 
-        if (add)
-            skills[tmp].spell_pointer(ch, "", SPELL_TYPE_SPELL, ch, 0, 0, 1);
-        else
-            skills[tmp].spell_pointer(ch, "", SPELL_TYPE_ANTI, ch, 0, 0, 1);
+        sprintf(buf, "--APPLY_SPELL: spell %d level %d\n\r", tmp, tmp2);
+        debug_flag_msg(buf, ch);
+
+        if (tmp >= MAX_SKILLS || !skills[tmp].spell_pointer) {
+            eff_mod = 0;
+            break;
+        }
+
+        skills[tmp].spell_pointer(ch, "", add ? SPELL_TYPE_SPELL : SPELL_TYPE_ANTI, ch, 0, 0, 1);
+        eff_mod = 0;
         break;
 
     case APPLY_BITVECTOR:
@@ -871,6 +879,26 @@ affected_type* affected_by_spell(const char_data* ch, byte skill, affected_type*
     }
 
     return NULL;
+}
+
+/* Returns aff's counterpart on ch only when it is the sole affect of that type, i.e. when
+   removing it cannot strip a slot something else still depends on. Unused: slot ownership
+   is settled by the strip-then-add rule in do_resist_spell. Kept for reference. */
+affected_type* removeable_spell_affection(const char_data* ch, affected_type* aff, affected_type* start_affect)
+{
+    int match_count = 0;
+    int count = 0;
+    affected_type* found = NULL;
+
+    for (affected_type* status_affect = start_affect; status_affect && (count < MAX_AFFECT);
+         status_affect = status_affect->next, count++) {
+        if (status_affect->type == aff->type) {
+            found = status_affect;
+            match_count++;
+        }
+    }
+
+    return (match_count == 1) ? found : NULL;
 }
 
 /* Return a pointer to an affection if the room is affected by the spell.

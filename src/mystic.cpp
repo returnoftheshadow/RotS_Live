@@ -51,6 +51,7 @@ extern char* room_bits[];
 extern char* sector_types[];
 extern int guardian_mob[][3];
 extern char* race_abbrevs[];
+extern int eff_mod;
 /*
  *External functions
  */
@@ -1714,6 +1715,62 @@ ASPELL(spell_shift)
     }
 }
 
+/* A cast resistance is worth the caster's level + 10, capped at 40%. An item's value is
+   whatever the builder encoded and is not derived from anyone's level. */
+int cast_resist_magnitude(int caster_level)
+{
+    int level = caster_level;
+    if (level > 30)
+        level = 30;
+    return level + 10;
+}
+
+/* One implementation for all six resist spells. Slot ownership follows spell_evasion:
+   an item or an unequip strips whatever holds the slot first, so an item always wins it
+   and removing the item always clears it. */
+void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
+    int type, int is_object, const char* str)
+{
+    affected_type newaf;
+    affected_type* current_effect = affected_by_spell(victim, resist_type);
+
+    if ((type == SPELL_TYPE_ANTI) || is_object) {
+        if (current_effect != NULL)
+            affect_remove(victim, current_effect);
+        if (type == SPELL_TYPE_ANTI)
+            return;
+        current_effect = NULL;
+    }
+
+    if (current_effect)
+        return;
+
+    const int level = get_mystic_caster_level(caster);
+
+    newaf.type = resist_type;
+    newaf.duration = (is_object) ? -1 : level * 2;
+    newaf.modifier = modifier;
+    newaf.location = APPLY_RESIST;
+    newaf.bitvector = 0;
+    newaf.counter = 0;
+    newaf.effect_modifier = (is_object) ? eff_mod : cast_resist_magnitude(GET_LEVEL(caster));
+
+    sprintf(buf, "::RESIST::apply type %d modifier %d eff_mod %d duration %d\n\r",
+        newaf.type, newaf.modifier, newaf.effect_modifier, newaf.duration);
+    debug_flag_msg(buf, victim);
+
+    affect_to_char(victim, &newaf);
+    sprintf(buf, "You feel resistant to %s!\n\r", str);
+    send_to_char(buf, victim);
+}
+
+ASPELL(spell_resist_fire) { do_resist_spell(SPELL_RESIST_FIRE, RESIST_FIRE, caster, victim, type, is_object, "fire"); }
+ASPELL(spell_resist_cold) { do_resist_spell(SPELL_RESIST_COLD, RESIST_COLD, caster, victim, type, is_object, "cold"); }
+ASPELL(spell_resist_light) { do_resist_spell(SPELL_RESIST_LIGHT, RESIST_LGHT, caster, victim, type, is_object, "lightning"); }
+ASPELL(spell_resist_illusion) { do_resist_spell(SPELL_RESIST_ILLUSION, RESIST_ILLU, caster, victim, type, is_object, "illusion"); }
+ASPELL(spell_resist_physical) { do_resist_spell(SPELL_RESIST_PHYSICAL, RESIST_PHYS, caster, victim, type, is_object, "physical harm"); }
+ASPELL(spell_resist_dark) { do_resist_spell(SPELL_RESIST_DARK, RESIST_DARK, caster, victim, type, is_object, "dark"); }
+
 ASPELL(spell_protection)
 {
     static char* protection_sphere[] = {
@@ -1721,6 +1778,7 @@ ASPELL(spell_protection)
         "cold",
         "lightning",
         "physical",
+        "illusion",
         "\n"
     };
 
@@ -1761,16 +1819,17 @@ ASPELL(spell_protection)
     int level = get_mystic_caster_level(caster);
     switch (res) {
     case -1:
-        send_to_char("You can master protection from fire, cold, lightning or physical only.\n\r", caster);
+        send_to_char("You can master protection from fire, cold, lightning, physical or illusion only.\n\r", caster);
         break;
 
     case 0: /* fire */
 
         newaf.type = SPELL_PROTECTION;
         newaf.duration = (is_object) ? -1 : level * 2;
-        newaf.modifier = PLRSPEC_FIRE;
+        newaf.modifier = RESIST_FIRE;
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
+        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
 
         affect_to_char(loc_victim, &newaf);
         send_to_char("You feel resistant to fire!\n\r", loc_victim);
@@ -1783,9 +1842,10 @@ ASPELL(spell_protection)
 
         newaf.type = SPELL_PROTECTION;
         newaf.duration = (is_object) ? -1 : level * 2;
-        newaf.modifier = PLRSPEC_COLD;
+        newaf.modifier = RESIST_COLD;
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
+        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
 
         affect_to_char(loc_victim, &newaf);
         send_to_char("You feel resistant to cold!\n\r", loc_victim);
@@ -1798,9 +1858,10 @@ ASPELL(spell_protection)
     case 2: /*lightning*/
         newaf.type = SPELL_PROTECTION;
         newaf.duration = (is_object) ? -1 : level * 2;
-        newaf.modifier = PLRSPEC_LGHT;
+        newaf.modifier = RESIST_LGHT;
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
+        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
 
         affect_to_char(loc_victim, &newaf);
         send_to_char("You feel resistant to lightning!\n\r", loc_victim);
@@ -1813,9 +1874,10 @@ ASPELL(spell_protection)
     case 3: /* physical */
         newaf.type = SPELL_PROTECTION;
         newaf.duration = (is_object) ? -1 : level * 2;
-        newaf.modifier = PLRSPEC_WILD;
+        newaf.modifier = RESIST_PHYS;
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
+        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
 
         affect_to_char(loc_victim, &newaf);
         send_to_char("You feel resistant to physical harm!\n\r", loc_victim);
@@ -1825,9 +1887,37 @@ ASPELL(spell_protection)
 
         break;
 
+    case 4: /* illusion */
+        newaf.type = SPELL_PROTECTION;
+        newaf.duration = (is_object) ? -1 : level * 2;
+        newaf.modifier = RESIST_ILLU;
+        newaf.location = APPLY_RESIST;
+        newaf.bitvector = 0;
+        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
+
+        affect_to_char(loc_victim, &newaf);
+        send_to_char("You feel resistant to illusion!\n\r", loc_victim);
+
+        if (caster != loc_victim)
+            act("You grant $N resistance to illusion.", FALSE, caster, 0, loc_victim, TO_CHAR);
+
+        break;
+
     default:
         return;
     };
+}
+
+void do_unprotect(char_data* character, char* argument, waiting_type* wait_list, int command, int sub_command)
+{
+    if (utils::is_affected_by_spell(*character, SPELL_PROTECTION)) {
+        send_to_char("You renounce your protection!\n\r", character);
+        act("$n renounces $s protection!", FALSE, character, nullptr, nullptr, TO_ROOM);
+        affect_from_char(character, SPELL_PROTECTION);
+        return;
+    }
+
+    send_to_char("You renounce yourself to the world, but nothing happens...\n\r", character);
 }
 
 void do_renounce(char_data* character, char* argument, waiting_type* wait_list, int command, int sub_command)

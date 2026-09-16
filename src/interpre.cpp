@@ -311,6 +311,8 @@ void do_details(char_data* character, char* argument, waiting_type* wait_list, i
 
 void do_renounce(char_data* character, char* argument, waiting_type* wait_list, int command, int sub_command);
 
+void do_unprotect(char_data* character, char* argument, waiting_type* wait_list, int command, int sub_command);
+
 const char* command[] = {
     "north", /* 1 */
     "east",
@@ -562,6 +564,7 @@ const char* command[] = {
     "mob2csv",
     "savebench", // 249
     "debug",
+    "unprotect", // 251
     "\n"
 };
 
@@ -2247,6 +2250,8 @@ void assign_command_pointers(void)
         TAR_IGNORE, TAR_IGNORE, 0);
     COMMANDO(250, POSITION_STANDING, do_debug, LEVEL_GRGOD, TRUE, 0,
         TAR_NONE_OK, TAR_IGNORE, 0);
+    COMMANDO(251, POSITION_STANDING, do_unprotect, 0, TRUE, 0,
+        FULL_TARGET, TAR_IGNORE, 0);
 }
 
 /* *************************************************************************

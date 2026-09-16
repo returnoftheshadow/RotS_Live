@@ -41,6 +41,7 @@ void affect_from_char(struct char_data* ch, byte skill);
 #include <stddef.h>
 
 affected_type* affected_by_spell(const char_data* character, byte skill, affected_type* firstaf = 0);
+affected_type* removeable_spell_affection(const char_data* character, affected_type* aff, affected_type* start_affect);
 affected_type* room_affected_by_spell(const room_data* room, int spell);
 
 void affect_join(struct char_data* ch, struct affected_type* af,

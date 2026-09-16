@@ -628,7 +628,18 @@ struct skill_data skills[MAX_SKILLS] = {
     { "mass insight", PROF_CLERIC, 6, spell_mass_insight, POSITION_FIGHTING, 25, 12, 1, 10, 1, 0,
         PLRSPEC_NONE, RESIST_NONE },
     /* 161 */
-    { "", PROF_GENERAL, 0, NULL, POSITION_STANDING, 0, 0, 16, 5, 1, 0, PLRSPEC_NONE, RESIST_NONE },
+    { "resist fire", PROF_CLERIC, 0, spell_resist_fire, POSITION_STANDING, 5, 21, 32, 10, 1, 0,
+        PLRSPEC_PROT, RESIST_NONE },
+    { "resist cold", PROF_CLERIC, 0, spell_resist_cold, POSITION_STANDING, 5, 21, 32, 10, 1, 0,
+        PLRSPEC_PROT, RESIST_NONE },
+    { "resist lightning", PROF_CLERIC, 0, spell_resist_light, POSITION_STANDING, 5, 21, 32, 10, 1, 0,
+        PLRSPEC_PROT, RESIST_NONE },
+    { "resist illusion", PROF_CLERIC, 0, spell_resist_illusion, POSITION_STANDING, 5, 21, 32, 10, 1,
+        0, PLRSPEC_PROT, RESIST_NONE },
+    { "resist physical", PROF_CLERIC, 0, spell_resist_physical, POSITION_STANDING, 5, 21, 32, 10, 1,
+        0, PLRSPEC_PROT, RESIST_NONE },
+    { "resist dark", PROF_CLERIC, 0, spell_resist_dark, POSITION_STANDING, 5, 21, 32, 10, 1, 0,
+        PLRSPEC_PROT, RESIST_NONE },
 };
 
 byte language_number = 3;

@@ -114,6 +114,12 @@
 #define SPELL_REMOVE_POISON 87
 #define SPELL_PROTECTION 89
 #define SPELL_CONFUSE 111
+#define SPELL_RESIST_FIRE 161
+#define SPELL_RESIST_COLD 162
+#define SPELL_RESIST_LIGHT 163
+#define SPELL_RESIST_ILLUSION 164
+#define SPELL_RESIST_PHYSICAL 165
+#define SPELL_RESIST_DARK 166
 
 /* Mage Spells */
 #define SPELL_SUMMON 62
@@ -482,6 +488,13 @@ ASPELL(spell_expose_elements);
 ASPELL(spell_mass_regeneration);
 ASPELL(spell_mass_vitality);
 ASPELL(spell_mass_insight);
+
+ASPELL(spell_resist_fire);
+ASPELL(spell_resist_cold);
+ASPELL(spell_resist_light);
+ASPELL(spell_resist_illusion);
+ASPELL(spell_resist_physical);
+ASPELL(spell_resist_dark);
 
 bool is_strong_enough_to_tame(struct char_data* tamer, struct char_data* animal, bool include_current_followers);
 
