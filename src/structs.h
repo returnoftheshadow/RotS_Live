@@ -1263,6 +1263,7 @@ struct affected_type {
     sh_int location; /* Tells which ability to change(APPLY_XXX)*/
     long bitvector; /* Tells which bits to set (AFF_XXX)       */
     sh_int counter;
+    int effect_modifier = 0; /* percentage magnitude for resistances; 0 = none */
 
     struct affected_type* next;
 };

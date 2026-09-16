@@ -86,6 +86,7 @@ struct AffectData {
     int location = 0;
     long bitvector = 0;
     int counter = 0;
+    int effect_modifier = 0;
     std::vector<std::string> flags;
 };
 
