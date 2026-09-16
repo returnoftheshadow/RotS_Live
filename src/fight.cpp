@@ -1595,16 +1595,21 @@ int apply_resistance(int dam, int magnitude)
 
 /* The magnitude the victim has against this element, or 0 if the resistance came from a
    mob or object flag rather than a spell affect. Matching on location+modifier finds both
-   SPELL_RESIST_* and SPELL_PROTECTION, which write the same shape. */
+   SPELL_RESIST_* and SPELL_PROTECTION, which write the same shape. The two can coexist on
+   one element - they are different affect types and each only strips its own - so the whole
+   list is scanned and the largest wins. They do not stack, and the answer does not depend on
+   which was applied last. */
 int resist_magnitude_for(char_data* victim, int resist_type)
 {
+    int magnitude = 0;
     int count = 0;
+
     for (affected_type* aff = victim->affected; aff && count < MAX_AFFECT; aff = aff->next, count++) {
         if (aff->location == APPLY_RESIST && aff->modifier == resist_type)
-            return aff->effect_modifier;
+            magnitude = std::max(magnitude, (int)aff->effect_modifier);
     }
 
-    return 0;
+    return magnitude;
 }
 
 /*

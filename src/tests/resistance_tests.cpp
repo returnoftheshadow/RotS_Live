@@ -282,3 +282,38 @@ TEST(ResistanceDamage, AVulnerabilityStillAddsAHalf)
     EXPECT_EQ(context.victim.tmpabilities.hit, 455)
         << "30 fire damage against a fire vulnerability should land as 45.";
 }
+
+TEST(ResistMagnitudeFor, TheLargestMagnitudeWinsRegardlessOfListOrder)
+{
+    // A cast protection and a resist spell are different affect types that both write
+    // APPLY_RESIST for the same element, so they can coexist. affect_to_char prepends, so
+    // returning the first match would hand the win to whichever was applied most recently.
+    char_data victim {};
+    affected_type strong {};
+    affected_type weak {};
+
+    strong.type = SPELL_PROTECTION;
+    strong.location = APPLY_RESIST;
+    strong.modifier = RESIST_FIRE;
+    strong.effect_modifier = 40;
+
+    weak.type = SPELL_RESIST_FIRE;
+    weak.location = APPLY_RESIST;
+    weak.modifier = RESIST_FIRE;
+    weak.effect_modifier = 10;
+
+    strong.next = &weak;
+    weak.next = nullptr;
+    victim.affected = &strong;
+    EXPECT_EQ(resist_magnitude_for(&victim, RESIST_FIRE), 40) << "strongest first";
+
+    weak.next = &strong;
+    strong.next = nullptr;
+    victim.affected = &weak;
+    EXPECT_EQ(resist_magnitude_for(&victim, RESIST_FIRE), 40) << "weakest first";
+
+    // The loser's element is still answered on its own terms.
+    weak.modifier = RESIST_COLD;
+    EXPECT_EQ(resist_magnitude_for(&victim, RESIST_COLD), 10);
+    EXPECT_EQ(resist_magnitude_for(&victim, RESIST_FIRE), 40);
+}
