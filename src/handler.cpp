@@ -533,8 +533,14 @@ void affect_naked(char_data* ch)
        from its .mob record, so they have to be read back from the prototype - leaving them
        alone was harmless while APPLY_RESIST removal never actually cleared a bit, but now that
        it does, a mob given (say) resist fire would lose its own RESIST_FIRE for good when the
-       affect wore off. A shapechanged or otherwise prototype-less mob (nr == -1) keeps
-       whatever it has, as there is nothing to read back. */
+       affect wore off.
+
+       The nr > -1 test never actually fires: mob_proto[i].nr = i (db.cpp) is the only assignment
+       to nr in the tree and clear_char memsets it to 0, so no NPC ever carries -1. It is kept to
+       match the existing defensive convention around nr (db.cpp free_char, fight.cpp), and
+       because an NPC that was never read from a record would read mob_proto[0] here rather than
+       keep its own bits. The mob_proto null test does real work: it guards calls before boot and
+       in the test binary. */
     if (!IS_NPC(ch)) {
         GET_RESISTANCES(ch) = 0;
         GET_VULNERABILITIES(ch) = 0;

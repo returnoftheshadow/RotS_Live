@@ -1846,6 +1846,7 @@ ASPELL(spell_protection)
         newaf.modifier = RESIST_FIRE;
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
+        newaf.counter = 0;
         newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
 
         affect_to_char(loc_victim, &newaf);
@@ -1862,6 +1863,7 @@ ASPELL(spell_protection)
         newaf.modifier = RESIST_COLD;
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
+        newaf.counter = 0;
         newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
 
         affect_to_char(loc_victim, &newaf);
@@ -1878,6 +1880,7 @@ ASPELL(spell_protection)
         newaf.modifier = RESIST_LGHT;
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
+        newaf.counter = 0;
         newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
 
         affect_to_char(loc_victim, &newaf);
@@ -1894,6 +1897,7 @@ ASPELL(spell_protection)
         newaf.modifier = RESIST_PHYS;
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
+        newaf.counter = 0;
         newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
 
         affect_to_char(loc_victim, &newaf);
@@ -1910,6 +1914,7 @@ ASPELL(spell_protection)
         newaf.modifier = RESIST_ILLU;
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
+        newaf.counter = 0;
         newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
 
         affect_to_char(loc_victim, &newaf);
