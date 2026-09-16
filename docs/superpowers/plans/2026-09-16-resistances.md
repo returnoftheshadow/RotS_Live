@@ -1244,7 +1244,7 @@ git commit -m "fix(resist): illusion resistance saves against mental, widen Cras
 ## Deferred (recorded in the spec, not implemented here)
 
 - Balance numbers on the six `skills[]` rows: minimum level, mana, beats.
-- Guildmaster `knowledge[]` entries for 161–166. Today only "ALL SKILLS" teaches 161.
+- Guildmaster `knowledge[]` entries for 161-166. Today **nothing teaches any of them**: the "ALL SKILLS" guildmaster's array has 161 entries (0-160), so all six sit in its zero tail.
 - `SPELL_FIREBALL2` and `SPELL_DRAGONSBREATH` having no `skills[]` rows.
 - Re-authoring 6518 and 6531 so their resistances carry a magnitude.
 - Elements beyond the six.

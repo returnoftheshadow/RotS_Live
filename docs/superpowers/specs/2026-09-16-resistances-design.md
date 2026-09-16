@@ -152,8 +152,8 @@ illusion sphere — plus a fix to its sphere table, where a missing comma glues 
 
 **Learnability is a real gap.** A spell is castable once it has a `skills[]` row, but learnable only
 where some guildmaster has `knowledge[spell] > 0`. Counting the tables: the "ALL SKILLS" guildmaster
-has 162 entries, so it teaches **161 (resist fire) only**; every other guildmaster's array stops at
-129–149, so none of the six is teachable in the world. This is why fire was the one that worked, and
+has 161 entries (indices 0-160), so **none of the six is teachable by anyone** — 161-166 all fall in its
+zero tail, and every other guildmaster's array stops earlier still (129-149). This is why fire was the one that worked, and
 why testing went through items and imm-set skills.
 
 ## Section 4 — The damage path
@@ -240,7 +240,7 @@ there and absent here.
   beats (21).
 - `learn_diff` / `learn_type` are transposed on fire, cold and lightning (`1, 10` where the other
   three read `10, 1`). Harmless today, since only `LEARN_SPEC` is tested.
-- Which guildmasters teach which resist spells. Today: "ALL SKILLS" teaches fire only.
+- Which guildmasters teach which resist spells. Today: nothing teaches any of the six — the "ALL SKILLS" array stops at index 160.
 - Elements beyond the six. Only fire, cold, lightning and dark have damaging spells; illusion
   resistance matters through `do_mental`'s save rather than through damage; arcane has no damaging
   spell at all.
