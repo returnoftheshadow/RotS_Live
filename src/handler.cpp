@@ -483,17 +483,19 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
         break;
 
     case APPLY_RESIST:
+        /* mod was already negated above on the REMOVE pass, so the bit to clear is -mod:
+           shifting by the negative value is undefined and in practice clears nothing. */
         if (mod >= 0)
             GET_RESISTANCES(ch) |= (1 << mod);
         else
-            GET_RESISTANCES(ch) &= ~(1 << mod);
+            GET_RESISTANCES(ch) &= ~(1 << -mod);
         break;
 
     case APPLY_VULN:
         if (mod >= 0)
             GET_VULNERABILITIES(ch) |= (1 << mod);
         else
-            GET_VULNERABILITIES(ch) &= ~(1 << mod);
+            GET_VULNERABILITIES(ch) &= ~(1 << -mod);
         break;
 
     default:

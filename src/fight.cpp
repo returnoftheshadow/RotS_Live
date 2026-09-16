@@ -10,6 +10,7 @@
 
 #include "platdef.h"
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1581,6 +1582,31 @@ int maul_damage_reduction(char_data* ch, int damage)
     return damage = std::max(damage, 1);
 }
 
+/* Reduce dam by magnitude percent. Kept as a free function so the arithmetic is testable
+   without a character. */
+int apply_resistance(int dam, int magnitude)
+{
+    if (magnitude <= 0)
+        return dam;
+
+    const double reduced = round((double)dam * ((double)magnitude / 100.0));
+    return dam - (int)reduced;
+}
+
+/* The magnitude the victim has against this element, or 0 if the resistance came from a
+   mob or object flag rather than a spell affect. Matching on location+modifier finds both
+   SPELL_RESIST_* and SPELL_PROTECTION, which write the same shape. */
+int resist_magnitude_for(char_data* victim, int resist_type)
+{
+    int count = 0;
+    for (affected_type* aff = victim->affected; aff && count < MAX_AFFECT; aff = aff->next, count++) {
+        if (aff->location == APPLY_RESIST && aff->modifier == resist_type)
+            return aff->effect_modifier;
+    }
+
+    return 0;
+}
+
 /*
  * damage now modified to return int - 1 if the victim was
  * killed, 0 if not.
@@ -1732,16 +1758,34 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
     if (IS_NPC(victim) && victim->specials.attacked_level < GET_LEVELB(attacker))
         victim->specials.attacked_level = GET_LEVELB(attacker);
 
-    /* 33% chance to resist with protection physical*/
+    const int resist_type = resist_type_for_attack(attacktype);
     tmp = check_resistances(victim, attacktype);
-    if (number(0, 2) == 0 && IS_PHYSICAL(attacktype))
-        tmp = 0;
+
+    /* Rolled unconditionally, exactly where the old code rolled it, so that the shared RNG
+       stream is not shifted by whether this victim happens to be resistant. */
+    const bool physical_resist_misses = (number(0, 2) == 0 && IS_PHYSICAL(attacktype));
+
+    sprintf(buf, "::DAMAGE:: attacktype %d resist_type %d check %d dam %d\n\r",
+        attacktype, resist_type, tmp, dam);
+    debug_flag_msg(buf, victim);
 
     if (tmp > 0) {
-        send_to_char("You resist a lot.\n\r", victim);
-        act("$n resists a lot.\n\r",
-            TRUE, victim, 0, 0, TO_ROOM);
-        dam = dam * 2 / 3;
+        const int magnitude = resist_magnitude_for(victim, resist_type);
+        if (magnitude > 0) {
+            dam = apply_resistance(dam, magnitude);
+            sprintf(buf, "::DAMAGE:: resisted %d%% -> dam %d\n\r", magnitude, dam);
+            debug_flag_msg(buf, victim);
+            send_to_char("You resist a lot.\n\r", victim);
+            act("$n resists a lot.\n\r", TRUE, victim, 0, 0, TO_ROOM);
+        } else if (!physical_resist_misses) {
+            /* Flag resistance from a mob record or an APPLY_RESIST item: no magnitude
+               exists, so the original flat rule applies unchanged, including the 1-in-3
+               chance that a physical resistance does not fire at all. */
+            dam = dam * 2 / 3;
+            debug_flag_msg("::DAMAGE:: flag resistance, flat 1/3\n\r", victim);
+            send_to_char("You resist a lot.\n\r", victim);
+            act("$n resists a lot.\n\r", TRUE, victim, 0, 0, TO_ROOM);
+        }
     }
 
     if (tmp < 0) {
