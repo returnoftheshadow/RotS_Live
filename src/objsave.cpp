@@ -575,7 +575,7 @@ void recalc_worn_weight(char_data* character)
 FILE* Crash_load(char_data* character)
 {
     FILE* fl;
-    struct obj_data* equip_array[11];
+    struct obj_data* equip_array[20];
     struct obj_data* obj;
     struct obj_file_elem object;
     struct rent_info rent;
@@ -592,7 +592,7 @@ FILE* Crash_load(char_data* character)
     equip_lost = 0;
 
     /* zero out our equipment array */
-    for (tmp = 0; tmp < 11; tmp++)
+    for (tmp = 0; tmp < (int)(sizeof(equip_array) / sizeof(equip_array[0])); tmp++)
         equip_array[tmp] = 0;
 
     /* ok. is their rent file intact? */
