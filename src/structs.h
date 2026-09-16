@@ -1286,6 +1286,16 @@ struct affected_type {
     struct affected_type* next;
 };
 
+/* True for an affect the tick loop will never expire. affect_update (limits.cpp) only ever
+   decrements a duration >= 1, and treats anything negative as "leave alone", so every negative
+   duration - not just the -1 the item paths write - is permanent in practice. Used by
+   char_to_store/store_to_char, which deliberately do not persist permanent affects: on a player
+   they are all item-granted and equip_char re-applies them from the item on every login. */
+inline bool affect_is_permanent(int duration)
+{
+    return duration < 0;
+}
+
 struct follow_type {
     int fol_number; /* abs_number of the follower, for safety */
     struct char_data* follower;

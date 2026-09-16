@@ -7,8 +7,9 @@
 #include "../exploits_json.h"
 #include "../handler.h"
 #include "../objects_json.h"
-#include "AccountRecordOnDiskBuilder.h"
+#include "../spells.h" /* SPELL_RESIST_* for the affect-persistence tests */
 #include "../utils.h"
+#include "AccountRecordOnDiskBuilder.h"
 
 #include <gtest/gtest.h>
 
@@ -2585,4 +2586,196 @@ TEST(DbLoader, ThePlayerIndexHoldsTheAccountNativePathOfAnOrdinaryEmailAddress)
         << error_message;
     EXPECT_STREQ(player_table[stored_character.player_index].ch_file, ordinary_path.c_str())
         << "the path must be held whole -- a truncated one loses the .character.json suffix save_char tests for";
+}
+
+/* ------------------------------------------------------------------------------------------
+   Item-granted permanent affects must not be persisted.
+
+   An item that grants a spell (APPLY_SPELL) does it through affect_modify, which is the only
+   caller in the tree that passes is_object = 1; the is_object paths in mystic.cpp all write
+   duration = -1. That affect lives on ch->affected like any other, so char_to_store used to
+   write it to the save and store_to_char used to restore it at login -- before Crash_load had
+   equipped anything. Nothing records which item produced an affect, so a restored one was never
+   reconciled against the character's actual equipment: it survived the item being given away
+   (the orphan), and it accumulated one element per login next to whatever item WAS held (the
+   stack). equip_char re-fires APPLY_SPELL for every equipped item on every login, so there is
+   nothing to persist in the first place.
+   ------------------------------------------------------------------------------------------ */
+
+namespace {
+
+/* A character char_to_store/store_to_char will accept: name, profs and skills allocated. */
+struct AffectPersistenceCharacter {
+    char_data character {};
+    char name[MAX_NAME_LENGTH + 1] = "aragorn";
+
+    AffectPersistenceCharacter()
+    {
+        clear_char(&character, MOB_VOID);
+        character.player.name = name;
+        character.player.race = RACE_HUMAN;
+    }
+
+    ~AffectPersistenceCharacter()
+    {
+        while (character.affected)
+            affect_remove(&character, character.affected);
+    }
+
+    void add_affect(int type, int duration, int location, int modifier, int effect_modifier)
+    {
+        affected_type af {};
+        af.type = type;
+        af.duration = duration;
+        af.location = location;
+        af.modifier = modifier;
+        af.bitvector = 0;
+        af.counter = 0;
+        af.effect_modifier = effect_modifier;
+        affect_to_char(&character, &af);
+    }
+};
+
+int stored_affect_count(const char_file_u& stored_character)
+{
+    int count = 0;
+    for (int i = 0; i < MAX_AFFECT; ++i)
+        if (stored_character.affected[i].type)
+            ++count;
+    return count;
+}
+
+} // namespace
+
+TEST(AffectPersistence, CharToStoreDoesNotWriteAnItemGrantedPermanentAffect)
+{
+    AffectPersistenceCharacter owner;
+    // What holding a resist-cold charm leaves on the character.
+    owner.add_affect(SPELL_RESIST_COLD, -1, APPLY_RESIST, RESIST_COLD, 30);
+
+    char_file_u stored_character {};
+    char_to_store(&owner.character, &stored_character);
+
+    EXPECT_EQ(stored_affect_count(stored_character), 0)
+        << "the charm re-grants this on equip; persisting it is what orphans it";
+}
+
+TEST(AffectPersistence, CharToStoreStillWritesATimedAffect)
+{
+    AffectPersistenceCharacter owner;
+    owner.add_affect(SPELL_RESIST_COLD, 40, APPLY_RESIST, RESIST_COLD, 30);
+
+    char_file_u stored_character {};
+    char_to_store(&owner.character, &stored_character);
+
+    ASSERT_EQ(stored_affect_count(stored_character), 1);
+    EXPECT_EQ(stored_character.affected[0].type, SPELL_RESIST_COLD);
+    EXPECT_EQ(stored_character.affected[0].duration, 40);
+    EXPECT_EQ(stored_character.affected[0].effect_modifier, 30);
+}
+
+TEST(AffectPersistence, CharToStoreKeepsATimedAffectThatFollowsAPermanentOne)
+{
+    // affect_to_char prepends, so adding the cast one second puts the permanent one behind it;
+    // add them the other way round so the permanent affect is at the head and the timed affect
+    // has to be packed down into the slot the skipped one would have taken. A "skip in place"
+    // implementation would leave a hole and drop the timed affect.
+    AffectPersistenceCharacter owner;
+    owner.add_affect(SPELL_RESIST_COLD, 40, APPLY_RESIST, RESIST_COLD, 30);
+    owner.add_affect(SPELL_RESIST_FIRE, -1, APPLY_RESIST, RESIST_FIRE, 30);
+
+    char_file_u stored_character {};
+    char_to_store(&owner.character, &stored_character);
+
+    ASSERT_EQ(stored_affect_count(stored_character), 1);
+    EXPECT_EQ(stored_character.affected[0].type, SPELL_RESIST_COLD)
+        << "the cast affect must be written, and written into the first slot";
+    EXPECT_EQ(stored_character.affected[0].duration, 40);
+}
+
+TEST(AffectPersistence, StoreToCharDropsAPermanentAffectAlreadyOnDisk)
+{
+    // The repair half of the fix: every save written before it still holds the orphan, so the
+    // read side has to drop it too or those characters keep the resistance for good.
+    ensure_test_world_room(3001);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    stored_character.affected[0].type = SPELL_RESIST_COLD;
+    stored_character.affected[0].duration = -1;
+    stored_character.affected[0].location = APPLY_RESIST;
+    stored_character.affected[0].modifier = RESIST_COLD;
+    stored_character.affected[0].effect_modifier = 30;
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&stored_character, &character);
+
+    EXPECT_EQ(affected_by_spell(&character, SPELL_RESIST_COLD), nullptr)
+        << "no item has been equipped yet -- Crash_load has not even run";
+    EXPECT_EQ(character.specials.resistance & (1 << RESIST_COLD), 0);
+
+    while (character.affected)
+        affect_remove(&character, character.affected);
+}
+
+TEST(AffectPersistence, StoreToCharStillRestoresATimedAffect)
+{
+    ensure_test_world_room(3001);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    stored_character.affected[0].type = SPELL_RESIST_COLD;
+    stored_character.affected[0].duration = 40;
+    stored_character.affected[0].location = APPLY_RESIST;
+    stored_character.affected[0].modifier = RESIST_COLD;
+    stored_character.affected[0].effect_modifier = 30;
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&stored_character, &character);
+
+    affected_type* restored = affected_by_spell(&character, SPELL_RESIST_COLD);
+    ASSERT_NE(restored, nullptr) << "a cast resistance still has to survive a relog";
+    EXPECT_EQ(restored->duration, 40);
+    EXPECT_EQ(restored->effect_modifier, 30);
+    EXPECT_NE(character.specials.resistance & (1 << RESIST_COLD), 0);
+
+    while (character.affected)
+        affect_remove(&character, character.affected);
+}
+
+TEST(AffectPersistence, ARoundTripCannotCarryAPermanentAffectBackOntoTheCharacter)
+{
+    // The whole bug in one test: hold the charm, save, log back in with nothing equipped.
+    ensure_test_world_room(3001);
+
+    AffectPersistenceCharacter owner;
+    owner.add_affect(SPELL_RESIST_LIGHT, -1, APPLY_RESIST, RESIST_LGHT, 30);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    char_to_store(&owner.character, &stored_character);
+    stored_character.specials2.load_room = 3001;
+
+    char_data reloaded {};
+    clear_char(&reloaded, MOB_VOID);
+    store_to_char(&stored_character, &reloaded);
+
+    EXPECT_EQ(affected_by_spell(&reloaded, SPELL_RESIST_LIGHT), nullptr);
+    EXPECT_EQ(reloaded.specials.resistance & (1 << RESIST_LGHT), 0)
+        << "buy one charm, log out, give it away, keep the resistance forever";
+
+    while (reloaded.affected)
+        affect_remove(&reloaded, reloaded.affected);
+}
+
+TEST(AffectPersistence, AnyNegativeDurationCountsAsPermanent)
+{
+    // affect_update only decrements a duration >= 1 and leaves anything negative alone, so the
+    // filter has to match that test and not just the literal -1 the item paths happen to write.
+    EXPECT_TRUE(affect_is_permanent(-1));
+    EXPECT_TRUE(affect_is_permanent(-7));
+    EXPECT_FALSE(affect_is_permanent(0));
+    EXPECT_FALSE(affect_is_permanent(1));
 }
