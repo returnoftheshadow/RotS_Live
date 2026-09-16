@@ -109,6 +109,7 @@ set(ROTS_SERVER_SOURCES
 )
 
 set(ROTS_TEST_SOURCES
+    tests/resistance_tests.cpp
     tests/battle_mage_handler_tests.cpp
     tests/account_management_tests.cpp
     tests/account_cache_tests.cpp

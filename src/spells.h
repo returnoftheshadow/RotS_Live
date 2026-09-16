@@ -367,6 +367,7 @@ struct skill_data {
     char learn_type; /* If the skill is spec only set to 65 otherwise 1  */
     byte is_fast; /* non-zero if fast-updating skill */
     char skill_spec; /* spell/skill group, specialization */
+    char resist; /* RESIST_* this skill's damage is resisted as */
 };
 
 struct skill_teach_data {

@@ -844,6 +844,24 @@ enum player_specs {
 };
 }
 
+/* Resistance / vulnerability ids. These index resistance_name[] and vulnerability_name[]
+   and are what IS_RESISTANT / IS_VULNERABLE shift by. They are NOT the PLRSPEC_* spec ids:
+   the two lists diverged, which is why skill_data carries this id explicitly. */
+#define RESIST_NONE 0
+#define RESIST_FIRE 1
+#define RESIST_COLD 2
+#define RESIST_REGN 3
+#define RESIST_PROT 4
+#define RESIST_PETS 5
+#define RESIST_STLH 6
+#define RESIST_PHYS 7
+#define RESIST_TELE 8
+#define RESIST_ILLU 9
+#define RESIST_LGHT 10
+#define RESIST_MIND 11
+#define RESIST_DARK 12
+#define RESIST_LFGT 13
+
 #define PLRSPEC_NONE 0
 #define PLRSPEC_FIRE 1
 #define PLRSPEC_COLD 2

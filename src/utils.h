@@ -79,6 +79,7 @@ void free_function(void* pnt);
 int get_total_fame(char_data* ch);
 
 int get_confuse_modifier(char_data* ch);
+int resist_type_for_attack(int attack_type);
 int compare_obj_to_proto(obj_data* obj);
 struct obj_data* obj_to_proto(obj_data* obj);
 void check_inventory_proto(char_data* ch);

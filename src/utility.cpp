@@ -1792,23 +1792,30 @@ void from_list_to_pool(universal_list** list, universal_list** head, universal_l
     free(body);
 }
 
-int check_resistances(char_data* victim, int attack_type)
+/* The RESIST_* an attack is resisted as. Weapon damage types and archery have no skills[]
+   row of their own and all count as physical. */
+int resist_type_for_attack(int attack_type)
 {
     extern skill_data skills[];
 
-    if ((attack_type < MAX_SKILLS) && IS_RESISTANT(victim, skills[attack_type].skill_spec))
+    if (((attack_type >= TYPE_HIT) && (attack_type <= TYPE_CRUSH)) || (attack_type == SKILL_ARCHERY))
+        return RESIST_PHYS;
+
+    if ((attack_type >= 0) && (attack_type < MAX_SKILLS))
+        return skills[attack_type].resist;
+
+    return RESIST_NONE;
+}
+
+int check_resistances(char_data* victim, int attack_type)
+{
+    const int resist_type = resist_type_for_attack(attack_type);
+
+    if (IS_RESISTANT(victim, resist_type))
         return 1;
 
-    if ((attack_type < MAX_SKILLS) && IS_VULNERABLE(victim, skills[attack_type].skill_spec))
+    if (IS_VULNERABLE(victim, resist_type))
         return -1;
-
-    if ((attack_type >= TYPE_HIT) && (attack_type <= TYPE_CRUSH) || attack_type == SKILL_ARCHERY) {
-        if (IS_RESISTANT(victim, PLRSPEC_WILD))
-            return 1;
-
-        if (IS_VULNERABLE(victim, PLRSPEC_WILD))
-            return -1;
-    }
 
     return 0;
 }
