@@ -13,6 +13,9 @@ int apply_resistance(int dam, int magnitude);
 int resist_magnitude_for(char_data* victim, int resist_type);
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location);
 
+extern char* resistance_name[];
+extern char* vulnerability_name[];
+
 namespace {
 
 /* The smallest world and pair of combatants damage() will accept, mirroring damage_tests.cpp. */
@@ -316,4 +319,88 @@ TEST(ResistMagnitudeFor, TheLargestMagnitudeWinsRegardlessOfListOrder)
     weak.modifier = RESIST_COLD;
     EXPECT_EQ(resist_magnitude_for(&victim, RESIST_COLD), 10);
     EXPECT_EQ(resist_magnitude_for(&victim, RESIST_FIRE), 40);
+}
+
+TEST(RemovePattern, StripsTheVulnerabilityPrefix)
+{
+    char out[64];
+    char pattern[] = "V-";
+    char input[] = "V-FIRE";
+    remove_pattern(input, out, pattern);
+    EXPECT_STREQ(out, "FIRE");
+
+    char untouched[] = "FIRE";
+    remove_pattern(untouched, out, pattern);
+    EXPECT_STREQ(out, "FIRE");
+}
+
+TEST(SprintbitResistances, UsesTheFlatDefaultWhenNoAffectBacksTheBit)
+{
+    // Mirrors a mob record or a flag-only APPLY_RESIST item: the bit is set but no affect exists.
+    char_data victim {};
+    char result[512];
+
+    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33);
+    EXPECT_STREQ(result, "   fire (33%)\r\n");
+}
+
+TEST(SprintbitResistances, ShowsAWeakAffectRatherThanTheDefault)
+{
+    // A real 11% resist-fire affect must not be hidden behind the (larger) 33% default.
+    char_data victim {};
+    affected_type weak {};
+    weak.location = APPLY_RESIST;
+    weak.modifier = RESIST_FIRE;
+    weak.effect_modifier = 11;
+    weak.next = nullptr;
+    victim.affected = &weak;
+
+    char result[512];
+    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33);
+    EXPECT_STREQ(result, "   fire (11%)\r\n");
+}
+
+TEST(SprintbitResistances, TheLargestOfTwoCoexistingAffectsWins)
+{
+    // A cast protection and a cast resist spell can coexist on the same element; the display
+    // must agree with the damage path (resist_magnitude_for) and show the larger one.
+    char_data victim {};
+    affected_type strong {};
+    affected_type weak {};
+
+    strong.location = APPLY_RESIST;
+    strong.modifier = RESIST_FIRE;
+    strong.effect_modifier = 40;
+    strong.next = &weak;
+
+    weak.location = APPLY_RESIST;
+    weak.modifier = RESIST_FIRE;
+    weak.effect_modifier = 10;
+    weak.next = nullptr;
+
+    victim.affected = &strong;
+
+    char result[512];
+    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33);
+    EXPECT_STREQ(result, "   fire (40%)\r\n");
+}
+
+TEST(SprintbitResistances, SkipsBlankSlotsAndStopsAtTheSentinel)
+{
+    // resistance_name[] has empty-string slots at indices 13-15 before the "\n" terminator;
+    // a set bit there must not print a blank line, and the walk must not read past "\n".
+    char_data victim {};
+    char result[512];
+
+    sprintbit_resistances(&victim, (1 << 13) | (1 << 14) | (1 << 15), resistance_name, result, 33);
+    EXPECT_STREQ(result, "");
+}
+
+TEST(SprintbitResistances, RendersVulnerabilitiesWithoutTheVPrefix)
+{
+    char_data victim {};
+    char result[512];
+
+    sprintbit_resistances(&victim, (1 << RESIST_FIRE), vulnerability_name, result, 50);
+    EXPECT_STREQ(result, "   fire (50%)\r\n");
 }

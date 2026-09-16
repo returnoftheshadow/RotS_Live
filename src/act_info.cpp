@@ -92,6 +92,8 @@ extern char* apply_types[];
 extern char* drinks[];
 extern char* pc_arda_fame_identifier[];
 extern char* pc_evil_fame_identifier[];
+extern char* resistance_name[];
+extern char* vulnerability_name[];
 
 void symbol_to_map(int, int, int);
 void reset_small_map();
@@ -3496,6 +3498,9 @@ ACMD(do_affections)
     char str[255];
     affected_type* tmpaff;
 
+    // buf carried leftover content into the first line of this command's output
+    buf[0] = '\0';
+
     if (IS_AFFECTED(ch, AFF_SNEAK))
         send_to_char("You are trying to sneak.\n\r", ch);
 
@@ -3508,11 +3513,20 @@ ACMD(do_affections)
     if (IS_AFFECTED(ch, AFF_MOONVISION) && OUTSIDE(ch) && weather_info.moonlight)
         send_to_char("The moon lights your surroundings.\n\r", ch);
 
-    if (!ch->affected) {
-        strcpy(buf, "You are not affected by anything.\n\r");
+    if (!ch->affected && !GET_RESISTANCES(ch) && !GET_VULNERABILITIES(ch)) {
+        sprintf(buf, "You are not affected by anything.\n\r");
     } else {
-        sprintf(buf, "You are affected by:\n\r");
-
+        if (GET_RESISTANCES(ch)) {
+            sprintf(buf, "%sYou are resistant to:\n\r", buf);
+            sprintbit_resistances(ch, GET_RESISTANCES(ch), resistance_name, buf2, 33);
+            sprintf(buf, "%s%s", buf, buf2);
+        }
+        if (GET_VULNERABILITIES(ch)) {
+            sprintf(buf, "%sYou are vulnerable to:\n\r", buf);
+            sprintbit_resistances(ch, GET_VULNERABILITIES(ch), vulnerability_name, buf2, 50);
+            sprintf(buf, "%s%s", buf, buf2);
+        }
+        sprintf(buf, "%sYou are affected by:\n\r", buf);
         for (tmpaff = ch->affected; tmpaff; tmpaff = tmpaff->next) {
             report_affection(tmpaff, str);
             sprintf(buf, "%s%s", buf, str);
@@ -3532,7 +3546,7 @@ ACMD(do_affections)
     } else if (ch->delay.cmd == CMD_TRAP)
         sprintf(buf, "%sYou lay in wait to trap an unsuspecting victim.\r\n", buf);
     if (SUN_PENALTY(ch))
-        strcat(buf, "You feel weak under the intensity of light.\n\r");
+        sprintf(buf, "%sYou feel weak under the intensity of light.\n\r", buf);
 
     send_to_char(buf, ch);
 }

@@ -1222,6 +1222,77 @@ void sprinttype(int type, char* names[], char* result)
         strcpy(result, "UNDEFINED");
 }
 
+void lowercase(char* str)
+{
+    for (int i = 0; str[i]; i++)
+        str[i] = tolower(str[i]);
+}
+
+void remove_pattern(char* str, char* result, char* patern)
+{
+    int i, j = 0, k = 0, n = 0, flag = 0;
+
+    for (i = 0; str[i] != '\0'; i++) {
+        k = i;
+        while (str[i] == patern[j]) {
+            i++, j++;
+            if (j == (int)strlen(patern)) {
+                flag = 1;
+                break;
+            }
+        }
+        j = 0;
+
+        if (flag == 0)
+            i = k;
+        else
+            flag = 0;
+
+        result[n++] = str[i];
+    }
+    result[n] = '\0';
+}
+
+/* Render a resistance or vulnerability bitvector, one per line, with the strength that
+   actually applies. When a spell or item affect wrote an APPLY_RESIST entry for this element,
+   the largest effect_modifier on the list wins (a cast resist and a cast protection can coexist
+   on the same element, and the damage path in resist_magnitude_for() resolves the same way); a
+   bit with no backing affect - set by a mob record or a flag-only APPLY_RESIST item - falls back
+   to the flat legacy default. */
+void sprintbit_resistances(char_data* ch, long vektor, char* names[], char* result, int default_percent)
+{
+    char tmp[255];
+    int nr = 0;
+
+    *result = '\0';
+    if (vektor < 1)
+        return;
+
+    for (; vektor; vektor >>= 1, nr++) {
+        if (!(vektor & 1))
+            continue;
+        if (*names[nr] == '\n')
+            break;
+        if (!*names[nr])
+            continue;
+
+        remove_pattern(names[nr], tmp, (char*)"V-");
+        lowercase(tmp);
+
+        // Mirrors resist_magnitude_for(): the largest matching affect wins, and a bit with no
+        // backing affect (magnitude stays 0) falls back to the flat legacy default.
+        int magnitude = 0;
+        int count = 0;
+        for (affected_type* aff = ch->affected; aff && count < MAX_AFFECT; aff = aff->next, count++) {
+            if (aff->location == APPLY_RESIST && aff->modifier == nr)
+                magnitude = std::max(magnitude, (int)aff->effect_modifier);
+        }
+        int percent = magnitude > 0 ? magnitude : default_percent;
+
+        sprintf(result, "%s   %s (%d%%)\r\n", result, tmp, percent);
+    }
+}
+
 /* Calculate the REAL time passed over the last t2-t1 centuries (secs) */
 struct time_info_data real_time_passed(time_t t2, time_t t1)
 {
