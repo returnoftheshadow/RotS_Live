@@ -782,12 +782,23 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
     affect_total(ch);
 }
 
-void affect_remove_notify(struct char_data* ch, struct affected_type* af)
+const char* spell_wear_off_message(int spell_number)
 {
     extern char* spell_wear_off_msg[];
+    extern const int spell_wear_off_msg_count;
 
-    if (*spell_wear_off_msg[af->type] && !PLR_FLAGGED(ch, PLR_WRITING))
-        vsend_to_char(ch, "%s\n", spell_wear_off_msg[af->type]);
+    if (spell_number < 0 || spell_number >= spell_wear_off_msg_count)
+        return NULL;
+
+    return spell_wear_off_msg[spell_number];
+}
+
+void affect_remove_notify(struct char_data* ch, struct affected_type* af)
+{
+    const char* wear_off = spell_wear_off_message(af->type);
+
+    if (wear_off && *wear_off && !PLR_FLAGGED(ch, PLR_WRITING))
+        vsend_to_char(ch, "%s\n", wear_off);
 
     affect_remove(ch, af);
 }
@@ -864,10 +875,10 @@ int in_affected_list(struct char_data* ch)
  */
 void affect_from_char_notify(struct char_data* ch, byte skill)
 {
-    extern char* spell_wear_off_msg[];
+    const char* wear_off = spell_wear_off_message(skill);
 
-    if (*spell_wear_off_msg[skill] && !PLR_FLAGGED(ch, PLR_WRITING))
-        vsend_to_char(ch, "%s\n", spell_wear_off_msg[skill]);
+    if (wear_off && *wear_off && !PLR_FLAGGED(ch, PLR_WRITING))
+        vsend_to_char(ch, "%s\n", wear_off);
 
     affect_from_char(ch, skill);
 }

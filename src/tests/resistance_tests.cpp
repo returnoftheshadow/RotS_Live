@@ -648,3 +648,58 @@ TEST(DoResistSpell, AnItemTakesTheSlotFromACastAndAnUnequipClearsIt)
 
     eff_mod = saved_eff_mod;
 }
+
+/* spell_wear_off_msg[] is indexed by spell number but is far shorter than MAX_SKILLS, which is
+   the only bound affect_update_person() checks. Before the guard below existed, a cast resist
+   affect running out read past the end of the table and segfaulted the whole game loop. */
+TEST(SpellWearOffMessage, RefusesSpellNumbersPastTheEndOfTheTable)
+{
+    extern const int spell_wear_off_msg_count;
+
+    EXPECT_EQ(spell_wear_off_message(spell_wear_off_msg_count), nullptr)
+        << "the first index past the table";
+    EXPECT_EQ(spell_wear_off_message(MAX_SKILLS - 1), nullptr)
+        << "MAX_SKILLS is the bound the callers used to trust, and it is far past the table";
+    EXPECT_EQ(spell_wear_off_message(-1), nullptr);
+
+    EXPECT_NE(spell_wear_off_message(0), nullptr) << "the first real entry";
+    EXPECT_NE(spell_wear_off_message(spell_wear_off_msg_count - 1), nullptr)
+        << "the last real entry";
+}
+
+TEST(SpellWearOffMessage, EveryResistSpellHasAWearOffLine)
+{
+    const int resist_spells[] = { SPELL_RESIST_FIRE, SPELL_RESIST_COLD, SPELL_RESIST_LIGHT,
+        SPELL_RESIST_ILLUSION, SPELL_RESIST_PHYSICAL, SPELL_RESIST_DARK };
+
+    for (int spell : resist_spells) {
+        const char* message = spell_wear_off_message(spell);
+        ASSERT_NE(message, nullptr) << "spell " << spell << " indexes past the table";
+        EXPECT_NE(*message, '\0') << "spell " << spell << " has no wear-off line";
+    }
+}
+
+TEST(SpellWearOffNotify, SurvivesAnAffectWhoseTypeHasNoTableEntry)
+{
+    /* The exact shape of the crash: affect_update_person() hands affect_remove_notify() an
+       expiring affect whose type cleared its MAX_SKILLS test but sits past the table's end. */
+    ProtoMobContext context(0, 0);
+
+    affected_type af {};
+    af.type = MAX_SKILLS - 1;
+    af.duration = 0;
+    af.modifier = 0;
+    af.location = APPLY_NONE;
+    af.bitvector = 0;
+    af.counter = 0;
+
+    affect_to_char(&context.mob, &af);
+    affected_type* applied = context.mob.affected;
+    ASSERT_NE(applied, nullptr);
+    ASSERT_EQ(applied->type, MAX_SKILLS - 1);
+
+    affect_remove_notify(&context.mob, applied);
+
+    EXPECT_EQ(context.mob.affected, nullptr)
+        << "the affect is still removed, just without a wear-off line";
+}

@@ -183,7 +183,18 @@ char* spell_wear_off_msg[] = {
     "",
     "",
     "", // * 160 *
+    "You no longer feel resistant to fire.", //* 161 *
+    "You no longer feel resistant to cold.",
+    "You no longer feel resistant to lightning.",
+    "You no longer feel resistant to illusion.",
+    "You no longer feel resistant to physical harm.",
+    "You no longer feel resistant to dark.",
 };
+
+/* The real length of spell_wear_off_msg[]. The table is indexed by spell number but is far
+   shorter than MAX_SKILLS, so callers must bound-check against this and not against
+   MAX_SKILLS. Derived from the table itself so it cannot drift out of step with it. */
+extern const int spell_wear_off_msg_count = sizeof(spell_wear_off_msg) / sizeof(spell_wear_off_msg[0]);
 
 char* room_bits_message[32] = { "Dark mist permeats the air.",
     "",

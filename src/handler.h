@@ -33,6 +33,11 @@ void affect_from_room(struct room_data* room, byte skill);
 void affect_total(struct char_data* ch, int mode = AFFECT_TOTAL_UPDATE);
 void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add, sh_int counter);
 void affect_to_char(struct char_data* ch, struct affected_type* af);
+/* Bound-checked lookup into spell_wear_off_msg[]. That table is indexed by spell number but is
+   far shorter than MAX_SKILLS, so an unchecked index reads past its end. Returns NULL when the
+   spell number has no entry at all, otherwise the entry (which may be the empty string). */
+const char* spell_wear_off_message(int spell_number);
+
 void affect_remove_notify(struct char_data*, struct affected_type*);
 void affect_remove(struct char_data* ch, struct affected_type* af);
 void affect_from_char_notify(struct char_data*, byte);
