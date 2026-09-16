@@ -3518,12 +3518,14 @@ ACMD(do_affections)
     } else {
         if (GET_RESISTANCES(ch)) {
             sprintf(buf, "%sYou are resistant to:\n\r", buf);
-            sprintbit_resistances(ch, GET_RESISTANCES(ch), resistance_name, buf2, 33);
+            sprintbit_resistances(ch, GET_RESISTANCES(ch), resistance_name, buf2, 33, TRUE);
             sprintf(buf, "%s%s", buf, buf2);
         }
         if (GET_VULNERABILITIES(ch)) {
             sprintf(buf, "%sYou are vulnerable to:\n\r", buf);
-            sprintbit_resistances(ch, GET_VULNERABILITIES(ch), vulnerability_name, buf2, 50);
+            /* FALSE: vulnerability has no per-affect magnitude, so the affect list must not
+               be consulted - APPLY_RESIST affects belong to the resistance table only. */
+            sprintbit_resistances(ch, GET_VULNERABILITIES(ch), vulnerability_name, buf2, 50, FALSE);
             sprintf(buf, "%s%s", buf, buf2);
         }
         sprintf(buf, "%sYou are affected by:\n\r", buf);
@@ -3546,7 +3548,7 @@ ACMD(do_affections)
     } else if (ch->delay.cmd == CMD_TRAP)
         sprintf(buf, "%sYou lay in wait to trap an unsuspecting victim.\r\n", buf);
     if (SUN_PENALTY(ch))
-        sprintf(buf, "%sYou feel weak under the intensity of light.\n\r", buf);
+        strcat(buf, "You feel weak under the intensity of light.\n\r");
 
     send_to_char(buf, ch);
 }

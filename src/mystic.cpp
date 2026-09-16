@@ -1725,6 +1725,20 @@ int cast_resist_magnitude(int caster_level)
     return level + 10;
 }
 
+/* An item's magnitude is whatever the builder encoded, and APPLY_SPELL's decode falls back to
+   the wearer's level when the level half of the payload is zero - so "A 27 161" would grant a
+   resistance worth the wearer's level, and a large enough level half would grant 100%, i.e.
+   immunity, against the 40% ceiling a cast is held to. Clamped here rather than in the shared
+   APPLY_SPELL decode, which every other item-applied spell also goes through. */
+int clamp_resist_magnitude(int magnitude)
+{
+    if (magnitude < 0)
+        return 0;
+    if (magnitude > 100)
+        return 100;
+    return magnitude;
+}
+
 /* One implementation for all six resist spells. Slot ownership follows spell_evasion:
    an item or an unequip strips whatever holds the slot first, so an item always wins it
    and removing the item always clears it. */
@@ -1753,11 +1767,14 @@ void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data
     newaf.location = APPLY_RESIST;
     newaf.bitvector = 0;
     newaf.counter = 0;
-    newaf.effect_modifier = (is_object) ? eff_mod : cast_resist_magnitude(GET_LEVEL(caster));
+    newaf.effect_modifier = clamp_resist_magnitude(
+        (is_object) ? eff_mod : cast_resist_magnitude(GET_LEVEL(caster)));
 
-    sprintf(buf, "::RESIST::apply type %d modifier %d eff_mod %d duration %d\n\r",
-        newaf.type, newaf.modifier, newaf.effect_modifier, newaf.duration);
-    debug_flag_msg(buf, victim);
+    if (has_debug_flag(victim)) {
+        sprintf(buf, "::RESIST::apply type %d modifier %d eff_mod %d duration %d\n\r",
+            newaf.type, newaf.modifier, newaf.effect_modifier, newaf.duration);
+        debug_flag_msg(buf, victim);
+    }
 
     affect_to_char(victim, &newaf);
     sprintf(buf, "You feel resistant to %s!\n\r", str);

@@ -1,5 +1,6 @@
 #include "gtest/gtest.h"
 
+#include "handler.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -7,11 +8,17 @@
 extern struct skill_data skills[];
 extern room_data world;
 extern int top_of_world;
+extern struct char_data* mob_proto;
+extern int eff_mod;
 
 int cast_resist_magnitude(int caster_level);
+int clamp_resist_magnitude(int magnitude);
 int apply_resistance(int dam, int magnitude);
 int resist_magnitude_for(char_data* victim, int resist_type);
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location);
+void affect_naked(char_data* ch);
+void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
+    int type, int is_object, const char* str);
 
 extern char* resistance_name[];
 extern char* vulnerability_name[];
@@ -340,8 +347,8 @@ TEST(SprintbitResistances, UsesTheFlatDefaultWhenNoAffectBacksTheBit)
     char_data victim {};
     char result[512];
 
-    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33);
-    EXPECT_STREQ(result, "   fire (33%)\r\n");
+    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33, TRUE);
+    EXPECT_STREQ(result, "   fire (33%)\n\r");
 }
 
 TEST(SprintbitResistances, ShowsAWeakAffectRatherThanTheDefault)
@@ -356,8 +363,8 @@ TEST(SprintbitResistances, ShowsAWeakAffectRatherThanTheDefault)
     victim.affected = &weak;
 
     char result[512];
-    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33);
-    EXPECT_STREQ(result, "   fire (11%)\r\n");
+    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33, TRUE);
+    EXPECT_STREQ(result, "   fire (11%)\n\r");
 }
 
 TEST(SprintbitResistances, TheLargestOfTwoCoexistingAffectsWins)
@@ -381,8 +388,8 @@ TEST(SprintbitResistances, TheLargestOfTwoCoexistingAffectsWins)
     victim.affected = &strong;
 
     char result[512];
-    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33);
-    EXPECT_STREQ(result, "   fire (40%)\r\n");
+    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33, TRUE);
+    EXPECT_STREQ(result, "   fire (40%)\n\r");
 }
 
 TEST(SprintbitResistances, SkipsBlankSlotsAndStopsAtTheSentinel)
@@ -392,7 +399,7 @@ TEST(SprintbitResistances, SkipsBlankSlotsAndStopsAtTheSentinel)
     char_data victim {};
     char result[512];
 
-    sprintbit_resistances(&victim, (1 << 13) | (1 << 14) | (1 << 15), resistance_name, result, 33);
+    sprintbit_resistances(&victim, (1 << 13) | (1 << 14) | (1 << 15), resistance_name, result, 33, TRUE);
     EXPECT_STREQ(result, "");
 }
 
@@ -401,6 +408,243 @@ TEST(SprintbitResistances, RendersVulnerabilitiesWithoutTheVPrefix)
     char_data victim {};
     char result[512];
 
-    sprintbit_resistances(&victim, (1 << RESIST_FIRE), vulnerability_name, result, 50);
-    EXPECT_STREQ(result, "   fire (50%)\r\n");
+    sprintbit_resistances(&victim, (1 << RESIST_FIRE), vulnerability_name, result, 50, FALSE);
+    EXPECT_STREQ(result, "   fire (50%)\n\r");
+}
+
+TEST(SprintbitResistances, AResistAffectNeverSetsTheVulnerablePercentage)
+{
+    // Reachable in the live world: one object is vulnerable to lightning and item 2075 resists
+    // lightning at 30%. Holding both used to print "vulnerable to: lightning (30%)", because the
+    // shared renderer scanned APPLY_RESIST affects for the vulnerability table too.
+    char_data victim {};
+    affected_type resist {};
+    resist.location = APPLY_RESIST;
+    resist.modifier = RESIST_LGHT;
+    resist.effect_modifier = 30;
+    resist.next = nullptr;
+    victim.affected = &resist;
+
+    char result[512];
+    sprintbit_resistances(&victim, (1 << RESIST_LGHT), vulnerability_name, result, 50, FALSE);
+    EXPECT_STREQ(result, "   lightning (50%)\n\r")
+        << "a resist affect must not be read as the strength of a vulnerability";
+
+    // The same affect is exactly what the resistance table should report.
+    sprintbit_resistances(&victim, (1 << RESIST_LGHT), resistance_name, result, 33, TRUE);
+    EXPECT_STREQ(result, "   lightning (30%)\n\r");
+}
+
+TEST(SprintbitResistances, AgreesWithTheDamagePathBecauseItCallsTheSameLookup)
+{
+    // Fix 2: the display no longer carries its own copy of the largest-wins rule.
+    char_data victim {};
+    affected_type strong {};
+    affected_type weak {};
+
+    strong.location = APPLY_RESIST;
+    strong.modifier = RESIST_COLD;
+    strong.effect_modifier = 37;
+    strong.next = &weak;
+
+    weak.location = APPLY_RESIST;
+    weak.modifier = RESIST_COLD;
+    weak.effect_modifier = 12;
+    weak.next = nullptr;
+
+    victim.affected = &strong;
+
+    char result[512];
+    sprintbit_resistances(&victim, (1 << RESIST_COLD), resistance_name, result, 33, TRUE);
+
+    char expected[64];
+    sprintf(expected, "   cold (%d%%)\n\r", resist_magnitude_for(&victim, RESIST_COLD));
+    EXPECT_STREQ(result, expected);
+}
+
+namespace {
+
+/* A mob with a prototype behind it, which is what affect_naked() has to read its intrinsic
+   masks back from. 204 of 3010 mob records carry one. */
+struct ProtoMobContext {
+    char_data* saved_proto = nullptr;
+    char_data proto {};
+    char_data mob {};
+    char proto_name[16] = "proto_mob";
+    char mob_name[16] = "proto_mob";
+
+    ProtoMobContext(int resistances, int vulnerabilities)
+    {
+        saved_proto = mob_proto;
+
+        proto.specials2.act = MOB_ISNPC;
+        proto.player.short_descr = proto_name;
+        proto.player.race = RACE_HUMAN;
+        proto.specials.resistance = resistances;
+        proto.specials.vulnerability = vulnerabilities;
+        mob_proto = &proto;
+
+        mob = proto;
+        mob.player.short_descr = mob_name;
+        mob.nr = 0;
+        mob.affected = nullptr;
+        mob.in_room = NOWHERE;
+    }
+
+    ~ProtoMobContext()
+    {
+        while (mob.affected)
+            affect_remove(&mob, mob.affected);
+        mob_proto = saved_proto;
+    }
+};
+
+/* affected_by_spell() falls back to the head of the list when handed a null start, so it cannot
+   be used to ask "is there a second one?". Count instead. */
+int count_affects_of_type(const char_data* ch, int type)
+{
+    int found = 0;
+    int count = 0;
+    for (affected_type* aff = ch->affected; aff && count < MAX_AFFECT; aff = aff->next, count++) {
+        if (aff->type == type)
+            ++found;
+    }
+    return found;
+}
+
+} // namespace
+
+TEST(AffectNaked, RestoresAMobsIntrinsicMasksFromItsPrototype)
+{
+    // affect_total() strips both masks before replaying gear and affects, so whatever the mob
+    // owns in its own .mob record has to come back here or it is gone for good.
+    ProtoMobContext context((1 << RESIST_FIRE) | (1 << RESIST_DARK), (1 << RESIST_COLD));
+
+    context.mob.specials.resistance = 0;
+    context.mob.specials.vulnerability = 0;
+
+    affect_naked(&context.mob);
+
+    EXPECT_EQ(context.mob.specials.resistance, (1 << RESIST_FIRE) | (1 << RESIST_DARK));
+    EXPECT_EQ(context.mob.specials.vulnerability, (1 << RESIST_COLD));
+}
+
+TEST(AffectNaked, AMobKeepsItsIntrinsicBitWhenAnAffectOnTheSameElementIsRemoved)
+{
+    // The regression this guards: APPLY_RESIST removal now really does clear the bit, so a mob
+    // that is intrinsically fire-resistant and is then given resist fire used to end up with no
+    // fire resistance at all once the affect wore off.
+    ProtoMobContext context((1 << RESIST_FIRE), 0);
+
+    affected_type newaf {};
+    newaf.type = SPELL_RESIST_FIRE;
+    newaf.duration = 10;
+    newaf.modifier = RESIST_FIRE;
+    newaf.location = APPLY_RESIST;
+    newaf.bitvector = 0;
+    newaf.counter = 0;
+    newaf.effect_modifier = 30;
+
+    affect_to_char(&context.mob, &newaf);
+    ASSERT_TRUE(context.mob.specials.resistance & (1 << RESIST_FIRE));
+
+    affected_type* applied = affected_by_spell(&context.mob, SPELL_RESIST_FIRE);
+    ASSERT_NE(applied, nullptr);
+    affect_remove(&context.mob, applied);
+
+    EXPECT_TRUE(context.mob.specials.resistance & (1 << RESIST_FIRE))
+        << "the mob record's own fire resistance must survive the affect wearing off";
+}
+
+TEST(AffectNaked, APlayerStillLosesEverythingBecauseNothingIsIntrinsic)
+{
+    char_data player {};
+    char_prof_data profs {};
+    char name[16] = "resist_pc";
+    player.player.name = name;
+    player.player.race = RACE_HUMAN;
+    player.profs = &profs; // GET_PROF_LEVEL dereferences this for a PC
+    player.specials.resistance = (1 << RESIST_FIRE);
+    player.specials.vulnerability = (1 << RESIST_COLD);
+
+    affect_naked(&player);
+
+    EXPECT_EQ(player.specials.resistance, 0);
+    EXPECT_EQ(player.specials.vulnerability, 0);
+}
+
+TEST(ClampResistMagnitude, HoldsAnItemGrantedStrengthInsideZeroToOneHundred)
+{
+    EXPECT_EQ(clamp_resist_magnitude(0), 0);
+    EXPECT_EQ(clamp_resist_magnitude(30), 30);
+    EXPECT_EQ(clamp_resist_magnitude(100), 100);
+    EXPECT_EQ(clamp_resist_magnitude(101), 100);
+    EXPECT_EQ(clamp_resist_magnitude(255), 100) << "the largest level half an item can encode";
+    EXPECT_EQ(clamp_resist_magnitude(-5), 0);
+}
+
+TEST(DoResistSpell, AnItemGrantedMagnitudeIsClampedToOneHundred)
+{
+    // eff_mod is the item's mod/256, so "A 27 25761" would otherwise hand out 100%+ - immunity -
+    // where a cast is held to 40%.
+    ProtoMobContext context(0, 0);
+    const int saved_eff_mod = eff_mod;
+
+    eff_mod = 200;
+    do_resist_spell(SPELL_RESIST_FIRE, RESIST_FIRE, &context.mob, &context.mob,
+        SPELL_TYPE_SPELL, 1, "fire");
+
+    affected_type* applied = affected_by_spell(&context.mob, SPELL_RESIST_FIRE);
+    ASSERT_NE(applied, nullptr);
+    EXPECT_EQ(applied->effect_modifier, 100);
+
+    eff_mod = saved_eff_mod;
+}
+
+TEST(DoResistSpell, AnItemTakesTheSlotFromACastAndAnUnequipClearsIt)
+{
+    // The slot-ownership rule: one affect per element at a time, an item always wins the slot,
+    // and taking the item off leaves nothing behind.
+    ProtoMobContext context(0, 0);
+    const int saved_eff_mod = eff_mod;
+
+    context.mob.player.level = 10;
+
+    // A cast takes the slot.
+    do_resist_spell(SPELL_RESIST_FIRE, RESIST_FIRE, &context.mob, &context.mob,
+        SPELL_TYPE_SPELL, 0, "fire");
+    affected_type* cast = affected_by_spell(&context.mob, SPELL_RESIST_FIRE);
+    ASSERT_NE(cast, nullptr);
+    EXPECT_EQ(cast->effect_modifier, cast_resist_magnitude(GET_LEVEL(&context.mob)));
+    EXPECT_GT(cast->duration, 0) << "a cast expires";
+
+    // Wearing the item replaces it: exactly one affect, the item's magnitude, permanent.
+    eff_mod = 25;
+    do_resist_spell(SPELL_RESIST_FIRE, RESIST_FIRE, &context.mob, &context.mob,
+        SPELL_TYPE_SPELL, 1, "fire");
+
+    affected_type* item = affected_by_spell(&context.mob, SPELL_RESIST_FIRE);
+    ASSERT_NE(item, nullptr);
+    EXPECT_EQ(item->effect_modifier, 25);
+    EXPECT_EQ(item->duration, -1) << "an item-held resistance does not tick down";
+    EXPECT_EQ(count_affects_of_type(&context.mob, SPELL_RESIST_FIRE), 1)
+        << "the cast must have been stripped, not left alongside the item";
+    EXPECT_TRUE(context.mob.specials.resistance & (1 << RESIST_FIRE));
+
+    // Casting again while the item holds the slot changes nothing.
+    do_resist_spell(SPELL_RESIST_FIRE, RESIST_FIRE, &context.mob, &context.mob,
+        SPELL_TYPE_SPELL, 0, "fire");
+    item = affected_by_spell(&context.mob, SPELL_RESIST_FIRE);
+    ASSERT_NE(item, nullptr);
+    EXPECT_EQ(item->effect_modifier, 25) << "the item keeps the slot it owns";
+    EXPECT_EQ(count_affects_of_type(&context.mob, SPELL_RESIST_FIRE), 1);
+
+    // Taking the item off clears the slot outright.
+    do_resist_spell(SPELL_RESIST_FIRE, RESIST_FIRE, &context.mob, &context.mob,
+        SPELL_TYPE_ANTI, 1, "fire");
+    EXPECT_EQ(affected_by_spell(&context.mob, SPELL_RESIST_FIRE), nullptr);
+    EXPECT_FALSE(context.mob.specials.resistance & (1 << RESIST_FIRE))
+        << "nothing is left holding fire resistance";
+
+    eff_mod = saved_eff_mod;
 }

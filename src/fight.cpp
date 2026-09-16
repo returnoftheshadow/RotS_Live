@@ -1770,16 +1770,22 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
        stream is not shifted by whether this victim happens to be resistant. */
     const bool physical_resist_misses = (number(0, 2) == 0 && IS_PHYSICAL(attacktype));
 
-    sprintf(buf, "::DAMAGE:: attacktype %d resist_type %d check %d dam %d\n\r",
-        attacktype, resist_type, tmp, dam);
-    debug_flag_msg(buf, victim);
+    /* damage() is the hottest function in the server and buf is the shared scratch buffer, so
+       the diagnostic is formatted only when someone has asked to see it. */
+    if (has_debug_flag(victim)) {
+        sprintf(buf, "::DAMAGE:: attacktype %d resist_type %d check %d dam %d\n\r",
+            attacktype, resist_type, tmp, dam);
+        debug_flag_msg(buf, victim);
+    }
 
     if (tmp > 0) {
         const int magnitude = resist_magnitude_for(victim, resist_type);
         if (magnitude > 0) {
             dam = apply_resistance(dam, magnitude);
-            sprintf(buf, "::DAMAGE:: resisted %d%% -> dam %d\n\r", magnitude, dam);
-            debug_flag_msg(buf, victim);
+            if (has_debug_flag(victim)) {
+                sprintf(buf, "::DAMAGE:: resisted %d%% -> dam %d\n\r", magnitude, dam);
+                debug_flag_msg(buf, victim);
+            }
             send_to_char("You resist a lot.\n\r", victim);
             act("$n resists a lot.\n\r", TRUE, victim, 0, 0, TO_ROOM);
         } else if (!physical_resist_misses) {

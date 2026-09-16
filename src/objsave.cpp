@@ -710,9 +710,23 @@ FILE* Crash_load(char_data* character)
                     obj_to_char(obj, character);
                 equip_array[0] = obj;
             } else {
-                if (obj != &dummy_sack)
-                    obj_to_obj(obj, equip_array[object.wear_pos - MAX_WEAR - 1], TRUE);
-                equip_array[object.wear_pos - MAX_WEAR] = obj;
+                /* wear_pos above MAX_WEAR encodes container nesting depth and comes straight
+                   off disk, so it has to be bounded before it indexes equip_array. An entry
+                   past the end is put in the character's inventory instead of being lost, and
+                   logged; writing it would smash the stack. */
+                const int depth = object.wear_pos - MAX_WEAR;
+                if (depth < 1 || depth >= (int)(sizeof(equip_array) / sizeof(equip_array[0]))) {
+                    sprintf(buf, "LOAD ERROR: %s has an object at container depth %d "
+                                 "(out of range); loaded to inventory.",
+                        GET_NAME(character), depth);
+                    log(buf);
+                    if (obj != &dummy_sack)
+                        obj_to_char(obj, character);
+                } else {
+                    if (obj != &dummy_sack)
+                        obj_to_obj(obj, equip_array[depth - 1], TRUE);
+                    equip_array[depth] = obj;
+                }
             }
         }
     }

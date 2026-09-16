@@ -166,7 +166,13 @@ element = resist type of the attack       /* skills[attacktype].resist, keeping 
                                              TYPE_HIT..TYPE_CRUSH / archery -> RESIST_PHYS fallback */
 
 if victim is vulnerable to element:
-        dam = dam * 3 / 2                 /* flat, no roll, unchanged */
+        dam = dam * 3 / 2                 /* flat, no roll — and this IS a change for physical
+                                             attacks. The old code computed the 1-in-3 cancel as
+                                             `tmp = 0`, which zeroed the single value carrying
+                                             both outcomes, so a physically *vulnerable* victim
+                                             escaped the +50% one time in three as well. Splitting
+                                             the roll so that it only cancels the resistant branch
+                                             makes vulnerability fire every time. */
 
 else if victim is resistant to element:
         mod = magnitude for that element   /* first affect with location == APPLY_RESIST
@@ -251,6 +257,10 @@ there and absent here.
 - Re-authoring 6518 and 6531 as `APPLY_SPELL` items so their resistances carry a magnitude
   (world data, not code).
 - `APPLY_RESIST_FIRE..DARK` (40–44) in `structs.h` are defined and unreferenced; carried, not used.
+- `RESIST_MIND` (11) and `RESIST_LFGT` (13) have no consumer at all. No `skills[]` row maps an
+  attack to either, so nothing can ever be resisted as mind or as lifefight, and
+  `resistance_name[13]` is `""`, so bit 13 cannot even be printed by `affections`. They are two
+  reserved bits, not two working elements.
 
 ## Risks
 

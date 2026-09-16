@@ -58,6 +58,7 @@ extern struct obj_data* object_list;
 extern struct char_data* character_list;
 extern struct index_data* mob_index;
 extern struct index_data* obj_index;
+extern struct char_data* mob_proto;
 extern struct descriptor_data* descriptor_list;
 extern struct char_data* fast_update_list;
 extern char* MENU;
@@ -453,8 +454,12 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
 
         eff_mod = tmp2;
 
-        sprintf(buf, "--APPLY_SPELL: spell %d level %d\n\r", tmp, tmp2);
-        debug_flag_msg(buf, ch);
+        /* affect_total() replays every gear and affect apply on the character, so this runs
+           a lot; buf is the shared scratch buffer and is only worth writing when asked for. */
+        if (has_debug_flag(ch)) {
+            sprintf(buf, "--APPLY_SPELL: spell %d level %d\n\r", tmp, tmp2);
+            debug_flag_msg(buf, ch);
+        }
 
         if (tmp >= MAX_SKILLS || !skills[tmp].spell_pointer) {
             eff_mod = 0;
@@ -522,9 +527,20 @@ void affect_naked(char_data* ch)
     GET_WILLPOWER(ch) = get_naked_willpower(ch);
     ch->specials.affected_by |= race_affect[GET_RACE(ch)];
 
+    /* affect_total() calls this between stripping every affect and re-applying them, so both
+       masks have to be reset to what the character owns intrinsically. A player owns nothing:
+       every bit they carry comes from gear or an affect, so zero is right. A mob's bits come
+       from its .mob record, so they have to be read back from the prototype - leaving them
+       alone was harmless while APPLY_RESIST removal never actually cleared a bit, but now that
+       it does, a mob given (say) resist fire would lose its own RESIST_FIRE for good when the
+       affect wore off. A shapechanged or otherwise prototype-less mob (nr == -1) keeps
+       whatever it has, as there is nothing to read back. */
     if (!IS_NPC(ch)) {
         GET_RESISTANCES(ch) = 0;
         GET_VULNERABILITIES(ch) = 0;
+    } else if (mob_proto && ch->nr > -1) {
+        GET_RESISTANCES(ch) = mob_proto[ch->nr].specials.resistance;
+        GET_VULNERABILITIES(ch) = mob_proto[ch->nr].specials.vulnerability;
     }
 }
 
