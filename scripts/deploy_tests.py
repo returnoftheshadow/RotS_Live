@@ -63,9 +63,9 @@ class EnvTableTest(unittest.TestCase):
             self.assertIsNone(deploy.ENVS[name].tag_prefix)
             self.assertFalse(deploy.ENVS[name].require_branch)
 
-    def test_only_test_and_the_forge_test_targets_are_deployable(self) -> None:
+    def test_only_live_test_and_the_forge_test_targets_are_deployable(self) -> None:
         self.assertEqual([name for name, env in deploy.ENVS.items() if env.deployable],
-                         ["test", "zzz-forge-test", "zzz-forge-test-4k"])
+                         ["live", "test", "zzz-forge-test", "zzz-forge-test-4k"])
 
     def test_only_test_restarts_and_it_restarts_rotsbuilding(self) -> None:
         self.assertEqual({name: env.restart_service for name, env in deploy.ENVS.items() if env.restart_service},
@@ -1562,18 +1562,27 @@ class MainTest(unittest.TestCase):
 
     def test_envs_that_are_not_approved_cannot_deploy_or_revert(self) -> None:
         for command in ("deploy", "revert"):
-            for name in ("live", "4k", "coders"):
+            for name in ("4k", "coders"):
                 with self.subTest(command=command, env=name):
                     self.assert_refused([command, name, "someone@example.org", "2222"],
                                         f"{name} cannot be deployed or reverted for now; "
-                                        "only test, zzz-forge-test, zzz-forge-test-4k can")
-        self.assert_refused(["deploy", "live", "someone@example.org", "2222", "--dry-run"], "live cannot be deployed")
+                                        "only live, test, zzz-forge-test, zzz-forge-test-4k can")
+        self.assert_refused(["deploy", "4k", "someone@example.org", "2222", "--dry-run"], "4k cannot be deployed")
 
     def test_restart_is_refused_for_the_forge_test_targets(self) -> None:
         for name in ("zzz-forge-test", "zzz-forge-test-4k"):
             with self.subTest(env=name):
                 self.assert_refused(["deploy", name, "someone@example.org", "2222", "--restart"],
                                     f"--restart is not available for {name}")
+
+    def test_live_can_be_deployed_and_reverted_but_not_restarted(self) -> None:
+        for command in ("deploy", "revert"):
+            with self.subTest(command=command), mock.patch.object(deploy, command, return_value=0) as run:
+                self.assertEqual(deploy.main([command, "live", "someone@example.org", "2222"]), 0)
+
+                self.assertEqual(run.call_args.args[0], deploy.ENVS["live"])
+        self.assert_refused(["deploy", "live", "someone@example.org", "2222", "--restart"],
+                            "--restart is not available for live")
 
     def test_wires_revert_arguments_into_revert(self) -> None:
         with mock.patch.object(deploy, "revert", return_value=0) as run, \

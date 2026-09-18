@@ -4,8 +4,8 @@
     scripts/deploy.py deploy <env> <user>@<host> <ssh-port> [--dry-run] [--restart] [--password <password>]
     scripts/deploy.py revert <env> <user>@<host> <ssh-port> [--password <password>]
 
-For now only test, zzz-forge-test and zzz-forge-test-4k can be deployed or reverted, and only test
-can be restarted.
+For now only live, test, zzz-forge-test and zzz-forge-test-4k can be deployed or reverted, and only
+test can be restarted.
 The login and ssh port are arguments with no defaults, so this file never records them.
 Design: docs/superpowers/specs/2026-09-13-deploy-script-design.md
 """
@@ -82,7 +82,7 @@ class Env:
 ENVS = {
     env.name: env
     for env in (
-        Env("live", "live-default3791", BOLD_RED, backup=True, tag_prefix="live-"),
+        Env("live", "live-default3791", BOLD_RED, backup=True, tag_prefix="live-", deployable=True),
         Env("4k", "live-pkarena4000", BOLD_MAGENTA, backup=True, tag_prefix="4k-",
             source_edits=(BIG_BROTHER_OFF,)),
         # The test port may be deployed from a feature branch, and is still tagged.
