@@ -148,12 +148,10 @@ remote command string is built with `shlex.quote`.
    if `src`, `bin`, `lib/text`, or any symlink under them resolves outside `/rots/<dir>` (the tool
    never touches a file outside the port's game dir; chown uses `-h`, so it never follows a link,
    and `revert` makes the same check). List paths `<user>` cannot write: everything in `src` and
-   `bin`, `lib/text` itself, and each help file that already exists there. If one of the three
-   folders itself is unwritable, stop and say to fix it by hand — the deploy never changes the
-   folders themselves, and nothing asks for a sudo password. Otherwise, if anything is unwritable,
-   run `sudo chown -h <user>` on what is inside `src` and `bin` and on the help files (never on the
-   folders), over `ssh -t` (so a sudo password prompt reaches the terminal), re-run the check, and
-   stop if anything is still unwritable. No `chmod` is ever run. Group
+   `bin`, `lib/text` itself, and each help file that already exists there. If anything is
+   unwritable, run `sudo chown -h <user>` on `src`, `bin` and everything in them, on `lib/text`
+   itself, and on the help files, over `ssh -t` (so a sudo password prompt reaches the terminal),
+   re-run the check, and stop if anything is still unwritable. No `chmod` is ever run. Group
    membership alone is not enough when files lack group write, which is why this happens before
    anything changes — so an upload can never fail halfway on a permission error.
 4. **Backup** (skipped when the env has `backup: no`).
