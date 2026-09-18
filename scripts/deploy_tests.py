@@ -67,9 +67,9 @@ class EnvTableTest(unittest.TestCase):
         self.assertEqual([name for name, env in deploy.ENVS.items() if env.deployable],
                          ["live", "test", "zzz-forge-test", "zzz-forge-test-4k"])
 
-    def test_only_test_restarts_and_it_restarts_rotsbuilding(self) -> None:
+    def test_only_live_and_test_restart_and_they_restart_their_own_services(self) -> None:
         self.assertEqual({name: env.restart_service for name, env in deploy.ENVS.items() if env.restart_service},
-                         {"test": "rotsbuilding"})
+                         {"live": "rotslive", "test": "rotsbuilding"})
 
     def test_port_dir_guard_rejects_anything_but_a_plain_name(self) -> None:
         for bad in ("../etc", "a/b", "", "Live", "a b", "x;rm"):
@@ -1571,14 +1571,19 @@ class MainTest(unittest.TestCase):
                 self.assert_refused(["deploy", name, "someone@example.org", "2222", "--restart"],
                                     f"--restart is not available for {name}")
 
-    def test_live_can_be_deployed_and_reverted_but_not_restarted(self) -> None:
+    def test_live_can_be_deployed_and_reverted(self) -> None:
         for command in ("deploy", "revert"):
             with self.subTest(command=command), mock.patch.object(deploy, command, return_value=0) as run:
                 self.assertEqual(deploy.main([command, "live", "someone@example.org", "2222"]), 0)
 
                 self.assertEqual(run.call_args.args[0], deploy.ENVS["live"])
-        self.assert_refused(["deploy", "live", "someone@example.org", "2222", "--restart"],
-                            "--restart is not available for live")
+
+    def test_wires_restart_into_deploy_for_live(self) -> None:
+        with mock.patch.object(deploy, "deploy", return_value=0) as run:
+            self.assertEqual(deploy.main(["deploy", "live", "someone@example.org", "2222", "--restart"]), 0)
+
+        self.assertTrue(run.call_args.kwargs["restart"])
+        self.assertEqual(deploy.restart_command(run.call_args.args[0]), "sudo systemctl restart rotslive")
 
     def test_wires_revert_arguments_into_revert(self) -> None:
         with mock.patch.object(deploy, "revert", return_value=0) as run, \

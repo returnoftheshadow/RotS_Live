@@ -19,10 +19,11 @@ and help-file upload.
 
 **Out, and why:**
 
-- *Restarting a port, except test.* `deploy test --restart` runs `sudo systemctl restart
-  rotsbuilding` at the end (step 9); every other env refuses `--restart`, and without the flag
-  nothing restarts. There is no separate `restart <env>` subcommand. (If live/coders get it later:
-  `systemctl restart rotslive|rotscoding` per `docs/Running the Game.md`; 4k has no service. Help
+- *Restarting a port, except live and test.* `deploy live --restart` runs `sudo systemctl restart
+  rotslive` and `deploy test --restart` runs `sudo systemctl restart rotsbuilding` at the end
+  (step 9); every other env refuses `--restart`, and without the flag nothing restarts. There is no
+  separate `restart <env>` subcommand. (If coders gets it later: `systemctl restart rotscoding` per
+  `docs/Running the Game.md`; 4k has no service. Help
   tables alone can also be picked up without a restart via in-game `reload xhelp`.)
 - *Deploying or reverting 4k or coders.* For now only `live`, `test`, `zzz-forge-test` and
   `zzz-forge-test-4k` are approved; `deploy` and `revert` on any other env stop with a usage error
@@ -44,7 +45,7 @@ help files are `<dir>/lib/text`.
 
 | env                 | dir                | banner color | backup | tag prefix | source edits          | approved | `--restart`    |
 |---------------------|--------------------|--------------|--------|------------|-----------------------|----------|----------------|
-| `live`              | `live-default3791` | bold red     | yes    | `live-`    | —                     | yes      | —              |
+| `live`              | `live-default3791` | bold red     | yes    | `live-`    | —                     | yes      | `rotslive`     |
 | `4k`                | `live-pkarena4000` | bold magenta | yes    | `4k-`      | `USE_BIG_BROTHER` 1→0 | **no**   | —              |
 | `test`              | `dev-building4802` | yellow       | yes    | `test-`    | —                     | yes      | `rotsbuilding` |
 | `coders`            | `dev-coding4810`   | green        | **no** | `coders-`  | —                     | **no**   | —              |
@@ -93,7 +94,7 @@ scripts/deploy.py revert <env> <user>@<host> <ssh-port>
 scripts/deploy.py deploy|revert <env> <user>@<host> <ssh-port> --password <password>
 ```
 
-`<env>` must be an approved env (see **Environments**); `--restart` is only accepted for `test`.
+`<env>` must be an approved env (see **Environments**); `--restart` is only accepted for `live` and `test`.
 
 `--password` (deploy and revert) answers the ssh login prompt so the run does not stop for it. The
 script passes the value to the master connection through `SSH_ASKPASS` with
@@ -205,8 +206,8 @@ remote command string is built with `shlex.quote`.
 
 **Remote (ssh)**
 
-9. **Restart** (only with `--restart`, which only `test` accepts). `sudo systemctl restart
-   rotsbuilding` over `ssh -t`, so a sudo password prompt reaches the terminal. It changes no file's
+9. **Restart** (only with `--restart`, which only `live` and `test` accept). `sudo systemctl
+   restart rotslive` (live) or `rotsbuilding` (test) over `ssh -t`, so a sudo password prompt reaches the terminal. It changes no file's
    owner or mode. It runs after the tag, so a failed tag leaves the port unrestarted (the report
    says so and prints the command) and a failed restart leaves the deploy tagged (the report prints
    the command and no revert hint).
@@ -254,7 +255,8 @@ parts that run commands:
 
 - Env table: every env's dir matches the path guard; only `4k` and `zzz-forge-test-4k` carry the
   source edit; coders has no backup; zzz envs have no tag prefix; only `live`, `test` and the zzz envs
-  are approved; only `test` has a restart service (`rotsbuilding`).
+  are approved; only `live` (`rotslive`) and `test` (`rotsbuilding`) have a restart
+  service.
 - Approval and restart: `deploy`/`revert` on 4k or coders (dry run included) and `--restart`
   on a zzz env stop with a usage error without calling the deploy or revert; `--restart` runs the
   sudo restart over a tty after the tag, never after a failed tag, and reports its own failure.
