@@ -647,19 +647,20 @@ OTHER_GROUPS = [group for group in os.getgroups() if group != os.getgid()]
 
 
 class ChownCommandTest(RemoteCommandTestCase):
-    def test_is_valid_sh_changes_only_what_is_inside_the_folders_and_never_follows_symlinks(self) -> None:
+    def test_is_valid_sh_changes_the_folders_and_their_contents_and_never_follows_symlinks(self) -> None:
         command = deploy.chown_command(TEST_ENV, "someone", ["help_tbl"])
 
         self.assertEqual(subprocess.run(["sh", "-n", "-c", command]).returncode, 0)
-        self.assertIn("sudo find -H /rots/zzz-forge-test/src /rots/zzz-forge-test/bin -mindepth 1 "
+        self.assertIn("sudo find -H /rots/zzz-forge-test/src /rots/zzz-forge-test/bin "
                       "-exec chown -h someone {} +", command)
+        self.assertIn("sudo chown -h someone /rots/zzz-forge-test/lib/text &&", command)
         self.assertIn('sudo chown -h someone "$f"', command)
         self.assertNotIn("chown -hR", command)
+        self.assertNotIn("mindepth", command)
         self.assertNotRegex(command, r"chown (?!-h)")
-        self.assertNotRegex(command, r"chown -h someone /rots/zzz-forge-test/(src|bin|lib/text)( |$)")
 
     @unittest.skipUnless(OTHER_GROUPS, "needs a second group to change files to without sudo")
-    def test_changes_contents_but_not_the_folders_or_anything_outside_when_run_as_chgrp(self) -> None:
+    def test_changes_the_folders_and_contents_but_nothing_outside_when_run_as_chgrp(self) -> None:
         # chown needs sudo; chgrp takes the same -h flag and symlink handling, so it stands in here.
         import grp
         outside = self.root.parent / "outside"
@@ -680,10 +681,8 @@ class ChownCommandTest(RemoteCommandTestCase):
         result = self.sh(command)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        for inside in ("src/game.cpp", "src/tests", "src/tests/t.cpp", "lib/text/spel_tbl"):
+        for inside in ("src", "bin", "lib/text", "src/game.cpp", "src/tests", "src/tests/t.cpp", "lib/text/spel_tbl"):
             self.assertEqual((self.root / inside).stat().st_gid, group.gr_gid, inside)
-        for folder in ("src", "bin", "lib/text"):
-            self.assertEqual((self.root / folder).stat().st_gid, os.getgid(), folder)
         for victim in victims:
             self.assertEqual(victim.stat().st_gid, os.getgid(), victim)
 
@@ -1389,16 +1388,13 @@ class DeployTest(unittest.TestCase):
         self.assertIn("sudo may ask for a password", self.text())
         self.assertIn("/rots/dev-building4802/src/game.cpp", self.text())
 
-    def test_an_unwritable_folder_stops_without_asking_for_sudo(self) -> None:
-        runner = FakeRunner(unwritable=["/rots/dev-building4802/lib/text\n"])
+    def test_an_unwritable_folder_is_chowned_like_anything_else(self) -> None:
+        runner = FakeRunner(unwritable=["/rots/dev-building4802/lib/text\n", ""])
 
-        self.assertEqual(self.run_deploy("test", runner=runner), 1)
+        self.assertEqual(self.run_deploy("test", runner=runner), 0)
 
-        self.assertNotIn("chown", self.runner.kinds())
-        self.assertNotIn("backup", self.runner.kinds())
-        self.assertIn("FAILED at step 3", self.text())
+        self.assertEqual(self.runner.kinds()[4:8], ["unwritable", "chown", "unwritable", "backup"])
         self.assertIn("/rots/dev-building4802/lib/text", self.text())
-        self.assertIn("fix", self.text())
 
     def test_still_unwritable_after_chown_stops_before_backup(self) -> None:
         runner = FakeRunner(unwritable=["/rots/dev-building4802/src/game.cpp\n"])
@@ -1468,7 +1464,7 @@ class DeployTest(unittest.TestCase):
                 self.assertIn('put "help_tbl"', self.text())
                 self.assertIn("git pull --ff-only", self.text())
                 self.assertNotIn("chmod", self.text())
-                self.assertIn("-mindepth 1 -exec chown -h someone {} +", self.text())
+                self.assertIn("-exec chown -h someone {} +", self.text())
                 self.assertIn("readlink -m", self.text())
                 env = deploy.ENVS[name]
                 self.assertEqual(self.checkout.events, [])
