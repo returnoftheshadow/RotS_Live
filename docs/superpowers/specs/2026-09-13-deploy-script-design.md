@@ -24,7 +24,7 @@ and help-file upload.
   nothing restarts. There is no separate `restart <env>` subcommand. (If live/coders get it later:
   `systemctl restart rotslive|rotscoding` per `docs/Running the Game.md`; 4k has no service. Help
   tables alone can also be picked up without a restart via in-game `reload xhelp`.)
-- *Deploying or reverting live, 4k, or coders.* For now only `test`, `zzz-forge-test` and
+- *Deploying or reverting 4k or coders.* For now only `live`, `test`, `zzz-forge-test` and
   `zzz-forge-test-4k` are approved; `deploy` and `revert` on any other env stop with a usage error
   before anything runs, dry runs included. Their table entries stay so they can be approved later.
 - *Other `lib/text` files.* `motd`, `news`, `wizlist`, `immlist`, `bugs`, `typos`, `ideas`, etc. are
@@ -44,7 +44,7 @@ help files are `<dir>/lib/text`.
 
 | env                 | dir                | banner color | backup | tag prefix | source edits          | approved | `--restart`    |
 |---------------------|--------------------|--------------|--------|------------|-----------------------|----------|----------------|
-| `live`              | `live-default3791` | bold red     | yes    | `live-`    | —                     | **no**   | —              |
+| `live`              | `live-default3791` | bold red     | yes    | `live-`    | —                     | yes      | —              |
 | `4k`                | `live-pkarena4000` | bold magenta | yes    | `4k-`      | `USE_BIG_BROTHER` 1→0 | **no**   | —              |
 | `test`              | `dev-building4802` | yellow       | yes    | `test-`    | —                     | yes      | `rotsbuilding` |
 | `coders`            | `dev-coding4810`   | green        | **no** | `coders-`  | —                     | **no**   | —              |
@@ -255,9 +255,9 @@ parts that run commands:
 **Automated** — `scripts/deploy_tests.py`, `unittest`, no network:
 
 - Env table: every env's dir matches the path guard; only `4k` and `zzz-forge-test-4k` carry the
-  source edit; coders has no backup; zzz envs have no tag prefix; only `test` and the zzz envs are
-  approved; only `test` has a restart service (`rotsbuilding`).
-- Approval and restart: `deploy`/`revert` on live, 4k, or coders (dry run included) and `--restart`
+  source edit; coders has no backup; zzz envs have no tag prefix; only `live`, `test` and the zzz envs
+  are approved; only `test` has a restart service (`rotsbuilding`).
+- Approval and restart: `deploy`/`revert` on 4k or coders (dry run included) and `--restart`
   on a zzz env stop with a usage error without calling the deploy or revert; `--restart` runs the
   sudo restart over a tty after the tag, never after a failed tag, and reports its own failure.
 - Arguments: `<env> <user>@<host> <ssh-port>` all required, in that order; a missing argument, a
