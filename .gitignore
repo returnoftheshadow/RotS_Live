@@ -47,14 +47,18 @@ CVS/
 old/
 backup/
 lib/misc/plrmail
+lib/accounts/
 lib/misc/maze.dat
 lib/misc/mdl
 lib/misc/mudlle.keys
 lib/misc/oldcrimelist
 lib/misc/pk*
 lib/misc/repair*
+lib/misc/xnames*
+tools/__pycache__/
 core/
 *~
+autorun
 autorun4000
 switchserver.sh
 crashes
@@ -77,3 +81,8 @@ target/
 
 # cmake
 .cache
+cmake_test_discovery*.json
+
+# macOS
+.DS_Store
+**/.DS_Store

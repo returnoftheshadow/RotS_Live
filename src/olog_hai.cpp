@@ -13,10 +13,10 @@
 #include "utils.h"
 
 extern struct room_data world;
-extern struct char_data *waiting_list;
+extern struct char_data* waiting_list;
 extern struct skill_data skills[];
-void appear(struct char_data *ch);
-int check_overkill(struct char_data *ch);
+void appear(struct char_data* ch);
+int check_overkill(struct char_data* ch);
 const int constexpr FRENZY_TIMER = 600;
 const int constexpr SMASH_TIMER = 120;
 const int constexpr STOMP_TIMER = 120;
@@ -26,7 +26,8 @@ ACMD(do_dismount);
 ACMD(do_move);
 
 namespace olog_hai {
-int get_prob_skill(char_data *attacker, char_data *victim, int skill) {
+int get_prob_skill(char_data* attacker, char_data* victim, int skill)
+{
     int prob = utils::get_skill(*attacker, skill);
     prob -= get_real_dodge(victim) / 2;
     prob -= get_real_parry(victim) / 2;
@@ -36,7 +37,8 @@ int get_prob_skill(char_data *attacker, char_data *victim, int skill) {
     return prob;
 }
 
-void apply_victim_delay(char_data *victim, int delay) {
+void apply_victim_delay(char_data* victim, int delay)
+{
     if (IS_NPC(victim) && MOB_FLAGGED(victim, MOB_NOBASH)) {
         return;
     }
@@ -46,7 +48,8 @@ void apply_victim_delay(char_data *victim, int delay) {
     WAIT_STATE_FULL(victim, delay, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
 }
 
-bool is_skill_valid(char_data *ch, const int &skill_id) {
+bool is_skill_valid(char_data* ch, const int& skill_id)
+{
     if (utils::get_race(*ch) != RACE_OLOGHAI) {
         send_to_char("Unrecognized command.\r\n", ch);
         return false;
@@ -57,11 +60,11 @@ bool is_skill_valid(char_data *ch, const int &skill_id) {
         return false;
     }
 
-    const room_data &room = world[ch->in_room];
+    const room_data& room = world[ch->in_room];
     if (utils::is_set(room.room_flags, (long)PEACEROOM)) {
         send_to_char("A peaceful feeling overwhelms you, and you cannot bring "
                      "yourself to attack.\r\n",
-                     ch);
+            ch);
         return false;
     }
 
@@ -89,7 +92,7 @@ bool is_skill_valid(char_data *ch, const int &skill_id) {
         return false;
     }
 
-    obj_data *weapon = ch->equipment[WIELD];
+    obj_data* weapon = ch->equipment[WIELD];
     if (!weapon) {
         send_to_char("Wield a weapon first!\r\n", ch);
         return false;
@@ -97,8 +100,9 @@ bool is_skill_valid(char_data *ch, const int &skill_id) {
     return true;
 }
 
-char_data *is_target_valid(char_data *attacker, waiting_type *target) {
-    char_data *victim = nullptr;
+char_data* is_target_valid(char_data* attacker, waiting_type* target)
+{
+    char_data* victim = nullptr;
 
     if (target->targ1.type == TARGET_TEXT) {
         victim = get_char_room_vis(attacker, target->targ1.ptr.text->text);
@@ -111,12 +115,14 @@ char_data *is_target_valid(char_data *attacker, waiting_type *target) {
     return victim;
 }
 
-bool is_target_in_room(char_data *attacker, char_data *victim) {
+bool is_target_in_room(char_data* attacker, char_data* victim)
+{
     return attacker->in_room == victim->in_room;
 }
 
-char_data *is_smash_target_valid(char_data *attacker, waiting_type *target) {
-    char_data *victim = is_target_valid(attacker, target);
+char_data* is_smash_target_valid(char_data* attacker, waiting_type* target)
+{
+    char_data* victim = is_target_valid(attacker, target);
 
     if (victim == nullptr) {
         if (attacker->specials.fighting) {
@@ -145,7 +151,8 @@ char_data *is_smash_target_valid(char_data *attacker, waiting_type *target) {
     return victim;
 }
 
-void do_sanctuary_check(char_data *ch) {
+void do_sanctuary_check(char_data* ch)
+{
     if (utils::is_affected_by(*ch, AFF_SANCTUARY)) {
         appear(ch);
         send_to_char("You cast off your santuary!\r\n", ch);
@@ -153,8 +160,9 @@ void do_sanctuary_check(char_data *ch) {
     }
 }
 
-char_data *get_random_target(char_data *ch, char_data *original_victim) {
-    char_data *t;
+char_data* get_random_target(char_data* ch, char_data* original_victim)
+{
+    char_data* t;
     int num = 0;
     for (t = world[ch->in_room].people; t != nullptr; t = t->next_in_room) {
         if (t != ch && t != original_victim)
@@ -177,7 +185,8 @@ char_data *get_random_target(char_data *ch, char_data *original_victim) {
     return t;
 }
 
-int get_base_skill_damage(char_data &olog_hai, int prob) {
+int get_base_skill_damage(char_data& olog_hai, int prob)
+{
     int base_damage = (2 + utils::get_prof_level(PROF_WARRIOR, olog_hai));
     base_damage *= (100 + prob);
     base_damage /= (1000 / utils::get_tactics(olog_hai));
@@ -192,7 +201,8 @@ int get_base_skill_damage(char_data &olog_hai, int prob) {
     return base_damage;
 }
 
-int calculate_overrun_damage(char_data &attacker, int prob) {
+int calculate_overrun_damage(char_data& attacker, int prob)
+{
     int damage = get_base_skill_damage(attacker, prob);
     if (utils::get_specialization(attacker) == game_types::PS_HeavyFighting) {
         damage *= 1.10;
@@ -205,7 +215,8 @@ int calculate_overrun_damage(char_data &attacker, int prob) {
     return damage;
 }
 
-int calculate_smash_damage(char_data &attacker, int prob) {
+int calculate_smash_damage(char_data& attacker, int prob)
+{
     int damage = get_base_skill_damage(attacker, prob);
     if (utils::get_specialization(attacker) == game_types::PS_WildFighting) {
         damage += 5;
@@ -213,7 +224,8 @@ int calculate_smash_damage(char_data &attacker, int prob) {
     return damage;
 }
 
-void generate_smash_dismount_messages(char_data *attacker, char_data *victim) {
+void generate_smash_dismount_messages(char_data* attacker, char_data* victim)
+{
     sprintf(buf, "You smash into $N so hard, it knocks $M to the ground!");
     act(buf, FALSE, attacker, NULL, victim, TO_CHAR);
     sprintf(buf, "$n smashes into you so hard, it knocks prone to the ground!");
@@ -222,11 +234,12 @@ void generate_smash_dismount_messages(char_data *attacker, char_data *victim) {
     act(buf, TRUE, attacker, 0, victim, TO_NOTVICT);
 }
 
-void apply_smash_damage(char_data *attacker, char_data *victim, int prob) {
+void apply_smash_damage(char_data* attacker, char_data* victim, int prob)
+{
     int dam = calculate_smash_damage(*attacker, prob);
     if (IS_RIDING(victim) && number() >= 0.80) {
         dam *= 1.25;
-        char_data *mount = victim->mount_data.mount;
+        char_data* mount = victim->mount_data.mount;
         damage(attacker, victim, dam, SKILL_SMASH, 0);
         generate_smash_dismount_messages(attacker, victim);
         do_dismount(victim, "", 0, 0, 0);
@@ -238,7 +251,8 @@ void apply_smash_damage(char_data *attacker, char_data *victim, int prob) {
     damage(attacker, victim, dam, SKILL_SMASH, 0);
 }
 
-int calculate_cleave_damage(char_data &attacker, int prob) {
+int calculate_cleave_damage(char_data& attacker, int prob)
+{
     int damage = get_base_skill_damage(attacker, prob);
 
     if (utils::get_specialization(attacker) == game_types::PS_HeavyFighting) {
@@ -248,16 +262,18 @@ int calculate_cleave_damage(char_data &attacker, int prob) {
     return damage;
 }
 
-int calculate_stomp_damage(char_data &attacker, int prob) {
+int calculate_stomp_damage(char_data& attacker, int prob)
+{
     return get_base_skill_damage(attacker, prob) / 2;
 }
 
-void apply_stomp_affect(char_data *attacker, char_data *victim) {
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+void apply_stomp_affect(char_data* attacker, char_data* victim)
+{
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     if (!bb_instance.is_target_valid(attacker, victim)) {
         send_to_char("You feel the Gods looking down upon you, and protecting your "
                      "target.\r\n",
-                     attacker);
+            attacker);
         return;
     }
 
@@ -272,12 +288,13 @@ void apply_stomp_affect(char_data *attacker, char_data *victim) {
     damage(attacker, victim, calculate_stomp_damage(*attacker, prob), SKILL_STOMP, 0);
 }
 
-void apply_overrun_damage(char_data *attacker, char_data *victim) {
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+void apply_overrun_damage(char_data* attacker, char_data* victim)
+{
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     if (!bb_instance.is_target_valid(attacker, victim)) {
         send_to_char("You feel the Gods looking down upon you, and protecting your "
                      "target.\r\n",
-                     attacker);
+            attacker);
         return;
     }
     int prob = get_prob_skill(attacker, victim, SKILL_OVERRUN);
@@ -292,13 +309,14 @@ void apply_overrun_damage(char_data *attacker, char_data *victim) {
     damage(attacker, victim, calculate_overrun_damage(*attacker, prob), SKILL_OVERRUN, 0);
 }
 
-void apply_cleave_damage(char_data *attacker, char_data *victim) {
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+void apply_cleave_damage(char_data* attacker, char_data* victim)
+{
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
 
     if (!bb_instance.is_target_valid(attacker, victim)) {
         send_to_char("You feel the Gods looking down upon you, and protecting your "
                      "target.\r\n",
-                     attacker);
+            attacker);
         return;
     }
 
@@ -312,7 +330,8 @@ void apply_cleave_damage(char_data *attacker, char_data *victim) {
     damage(attacker, victim, calculate_cleave_damage(*attacker, prob), SKILL_CLEAVE, 0);
 }
 
-void generate_frenzy_message(char_data *character) {
+void generate_frenzy_message(char_data* character)
+{
     sprintf(buf, "You enter a frenzied state, filling your body with "
                  "overwhelming power!\r\n");
     act(buf, FALSE, character, NULL, NULL, TO_CHAR);
@@ -320,7 +339,8 @@ void generate_frenzy_message(char_data *character) {
     act(buf, TRUE, character, 0, NULL, TO_ROOM);
 }
 
-void apply_frenzy_affect(char_data *character) {
+void apply_frenzy_affect(char_data* character)
+{
     // generate messages
     generate_frenzy_message(character);
     // create affect
@@ -335,9 +355,10 @@ void apply_frenzy_affect(char_data *character) {
     SET_TACTICS(character, TACTICS_BERSERK);
 }
 
-void room_target(char_data *ch, void (*skill_damage)(char_data *character, char_data *victim)) {
-    char_data *victim = nullptr;
-    char_data *nxt_victim = nullptr;
+void room_target(char_data* ch, void (*skill_damage)(char_data* character, char_data* victim))
+{
+    char_data* victim = nullptr;
+    char_data* nxt_victim = nullptr;
     auto mount = ch->mount_data.mount;
     for (victim = world[ch->in_room].people; victim; victim = nxt_victim) {
         nxt_victim = victim->next_in_room;
@@ -348,14 +369,15 @@ void room_target(char_data *ch, void (*skill_damage)(char_data *character, char_
 }
 } // namespace olog_hai
 
-ACMD(do_cleave) {
+ACMD(do_cleave)
+{
     one_argument(argument, arg);
 
     if (!olog_hai::is_skill_valid(ch, SKILL_CLEAVE)) {
         return;
     }
 
-    game_timer::skill_timer &timer = game_timer::skill_timer::instance();
+    game_timer::skill_timer& timer = game_timer::skill_timer::instance();
 
     if (!timer.is_skill_allowed(*ch, SKILL_CLEAVE)) {
         send_to_char("You can't use this skill yet.\r\n", ch);
@@ -371,31 +393,32 @@ ACMD(do_cleave) {
     WAIT_STATE_FULL(ch, wait_delay, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
 }
 
-ACMD(do_smash) {
+ACMD(do_smash)
+{
     one_argument(argument, arg);
 
     if (!olog_hai::is_skill_valid(ch, SKILL_SMASH)) {
         return;
     }
 
-    game_timer::skill_timer &timer = game_timer::skill_timer::instance();
+    game_timer::skill_timer& timer = game_timer::skill_timer::instance();
 
     if (!timer.is_skill_allowed(*ch, SKILL_SMASH)) {
         send_to_char("You can't use this skill yet.\r\n", ch);
         return;
     }
 
-    char_data *victim = olog_hai::is_smash_target_valid(ch, wtl);
+    char_data* victim = olog_hai::is_smash_target_valid(ch, wtl);
 
     if (victim == nullptr) {
         return;
     }
 
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     if (!bb_instance.is_target_valid(ch, victim)) {
         send_to_char("You feel the Gods looking down upon you, and protecting your "
                      "target.\r\n",
-                     ch);
+            ch);
         return;
     }
 
@@ -412,7 +435,8 @@ ACMD(do_smash) {
     olog_hai::apply_smash_damage(ch, victim, prob);
 }
 
-bool is_direction_valid(char_data *ch, int cmd) {
+bool is_direction_valid(char_data* ch, int cmd)
+{
     if (!world[ch->in_room].dir_option[cmd]) {
         send_to_char("You cannot go that way.\n\r", ch);
         return false;
@@ -443,8 +467,9 @@ bool is_direction_valid(char_data *ch, int cmd) {
     return true;
 }
 
-int get_direction(std::string direction) {
-    for (auto &c : direction)
+int get_direction(std::string direction)
+{
+    for (auto& c : direction)
         c = toupper(c);
 
     if (direction == "WEST" || direction == "W") {
@@ -464,7 +489,8 @@ int get_direction(std::string direction) {
     return -1;
 }
 
-ACMD(do_overrun) {
+ACMD(do_overrun)
+{
     one_argument(argument, arg);
     cmd = get_direction(arg);
     int olog_delay = PULSE_VIOLENCE;
@@ -479,7 +505,7 @@ ACMD(do_overrun) {
     if (!is_direction_valid(ch, cmd)) {
         return;
     }
-    game_timer::skill_timer &timer = game_timer::skill_timer::instance();
+    game_timer::skill_timer& timer = game_timer::skill_timer::instance();
     if (!timer.is_skill_allowed(*ch, SKILL_OVERRUN)) {
         send_to_char("You cannot use this skill yet.\r\n", ch);
         return;
@@ -487,7 +513,7 @@ ACMD(do_overrun) {
     int total_moves = utils::get_prof_level(PROF_WARRIOR, *ch) / 8 + number(-1, 1);
     int loop_moves = 0;
     int dis;
-    char_data *tmpch = nullptr;
+    char_data* tmpch = nullptr;
 
     // WARNING: Due to bug in overrun, we need to remove hunt aff
     // otherwise the olog-hai will hit the same target multiple times in a row.
@@ -521,7 +547,8 @@ ACMD(do_overrun) {
     timer.add_skill_timer(*ch, SKILL_OVERRUN, OVERRUN_TIMER);
 }
 
-ACMD(do_frenzy) {
+ACMD(do_frenzy)
+{
     one_argument(argument, arg);
 
     if (!olog_hai::is_skill_valid(ch, SKILL_FRENZY)) {
@@ -533,7 +560,7 @@ ACMD(do_frenzy) {
         return;
     }
 
-    game_timer::skill_timer &timer = game_timer::skill_timer::instance();
+    game_timer::skill_timer& timer = game_timer::skill_timer::instance();
     if (!timer.is_skill_allowed(*ch, SKILL_FRENZY)) {
         send_to_char("You cannot use this skill yet.\r\n", ch);
         return;
@@ -544,13 +571,14 @@ ACMD(do_frenzy) {
     timer.add_skill_timer(*ch, SKILL_FRENZY, FRENZY_TIMER);
 }
 
-ACMD(do_stomp) {
+ACMD(do_stomp)
+{
     one_argument(argument, arg);
     if (!olog_hai::is_skill_valid(ch, SKILL_STOMP)) {
         return;
     }
 
-    game_timer::skill_timer &timer = game_timer::skill_timer::instance();
+    game_timer::skill_timer& timer = game_timer::skill_timer::instance();
     if (!timer.is_skill_allowed(*ch, SKILL_STOMP)) {
         send_to_char("You cannot use this skill yet.\r\n", ch);
         return;
