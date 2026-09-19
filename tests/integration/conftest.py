@@ -96,10 +96,10 @@ def _session_fixture(fixture_name: str, character_name: str):
     return session
 
 
-imp = _session_fixture("imp", "Harnessimp")
-mage = _session_fixture("mage", "Harnessmage")
-fighter = _session_fixture("fighter", "Harnessfighter")
-victim = _session_fixture("victim", "Harnessvictim")
+imp = _session_fixture("imp", "Harnimp")
+mage = _session_fixture("mage", "Harnmage")
+fighter = _session_fixture("fighter", "Harnfighter")
+victim = _session_fixture("victim", "Harnvictim")
 
 
 class Harness:

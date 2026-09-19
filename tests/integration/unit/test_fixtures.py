@@ -35,22 +35,22 @@ def test_write_account_lists_every_roster_character_with_links(tmp_path: Path) -
     assert data["characters"] == [spec.name.lower() for spec in fixtures.STANDARD_ROSTER]
     first_link = data["character_links"][0]
     assert first_link == {
-        "character_name": "harnessimp",
-        "character_path": "harnessimp.character.json",
-        "object_path": "harnessimp.objects.json",
-        "exploits_path": "harnessimp.exploits.json",
+        "character_name": "harnimp",
+        "character_path": "harnimp.character.json",
+        "object_path": "harnimp.objects.json",
+        "exploits_path": "harnimp.exploits.json",
     }
 
 
 def test_write_character_substitutes_the_spec_and_keeps_every_section(tmp_path: Path) -> None:
     template = fixtures.load_character_template(TEMPLATE_PATH)
-    mage = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnessmage")
+    mage = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnmage")
 
     character_path = fixtures.write_character(tmp_path, mage, template)
 
     data = json.loads(character_path.read_text(encoding="utf-8"))
-    assert character_path.name == "harnessmage.character.json"
-    assert data["character_name"] == "Harnessmage"
+    assert character_path.name == "harnmage.character.json"
+    assert data["character_name"] == "Harnmage"
     assert data["identity"]["idnum"] == mage.idnum
     assert data["identity"]["race"] == mage.race
     assert data["progression"]["level"] == mage.level
@@ -62,7 +62,7 @@ def test_write_character_substitutes_the_spec_and_keeps_every_section(tmp_path: 
     assert "prompt" in data["flags"]["preferences"]
     for section in ("identity", "progression", "abilities", "points", "professions", "flags", "conditions", "timers", "perception", "state", "talks", "skills", "affects"):
         assert section in data, section
-    objects_path = character_path.parent / "harnessmage.objects.json"
+    objects_path = character_path.parent / "harnmage.objects.json"
     assert objects_path.exists()
     # write_default_account_object_file (src/account_management_assets.cpp) is the
     # production reference for a brand-new character's objects file: a default
@@ -92,4 +92,4 @@ def test_write_character_substitutes_the_spec_and_keeps_every_section(tmp_path: 
         "aliases": [],
         "followers": [],
     }
-    assert json.loads((character_path.parent / "harnessmage.exploits.json").read_text(encoding="utf-8")) == {"version": 1, "records": []}
+    assert json.loads((character_path.parent / "harnmage.exploits.json").read_text(encoding="utf-8")) == {"version": 1, "records": []}
