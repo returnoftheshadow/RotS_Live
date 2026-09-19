@@ -66,6 +66,17 @@ def wait_for_port(host: str, port: int, timeout_seconds: float, process: subproc
     raise RuntimeError(f"server did not listen on {host}:{port} within {timeout_seconds}s; log tail:\n{read_log_tail(log_path)}")
 
 
+def terminate_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+
+
 class ServerLauncher:
     def start(self, run_dir: Path, lib_dir: Path, port: int, seed: int) -> ServerHandle:
         raise NotImplementedError
@@ -89,18 +100,16 @@ class LocalProcessLauncher(ServerLauncher):
         environment = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "ROTS_RANDOM_SEED": str(seed)}
         with log_path.open("wb") as log_file:
             process = subprocess.Popen(self.command(lib_dir, port), cwd=run_dir, env=environment, stdout=log_file, stderr=subprocess.STDOUT)
-        handle = ServerHandle(LOOPBACK, port, log_path, process)
-        wait_for_port(LOOPBACK, port, self._startup_timeout, process, log_path)
-        return handle
+        try:
+            handle = ServerHandle(LOOPBACK, port, log_path, process)
+            wait_for_port(LOOPBACK, port, self._startup_timeout, process, log_path)
+            return handle
+        except Exception:
+            terminate_process(process)
+            raise
 
     def stop(self, handle: ServerHandle) -> None:
-        if handle.is_alive():
-            handle.process.terminate()
-            try:
-                handle.process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                handle.process.kill()
-                handle.process.wait(timeout=10)
+        terminate_process(handle.process)
 
 
 class DockerComposeLauncher(ServerLauncher):
@@ -147,24 +156,36 @@ class DockerComposeLauncher(ServerLauncher):
 
     def start(self, run_dir: Path, lib_dir: Path, port: int, seed: int) -> ServerHandle:
         self.acquire_lock(purpose="integration test server")
-        container_name = f"rots-it-{uuid.uuid4().hex[:12]}"
-        log_path = run_dir / "game.log"
-        environment = dict(os.environ)
-        environment["ROTS_UID"] = str(os.getuid())
-        environment["ROTS_GID"] = str(os.getgid())
-        with log_path.open("wb") as log_file:
-            process = subprocess.Popen(self.command(run_dir, lib_dir, port, container_name, seed), cwd=self._repo_root, env=environment, stdout=log_file, stderr=subprocess.STDOUT)
-        host_port = self._wait_for_published_port(container_name, port, process, log_path)
-        handle = ServerHandle(LOOPBACK, host_port, log_path, process, container_name)
-        wait_for_port(LOOPBACK, host_port, self._startup_timeout, process, log_path)
-        return handle
+        process: subprocess.Popen | None = None
+        try:
+            container_name = f"rots-it-{uuid.uuid4().hex[:12]}"
+            log_path = run_dir / "game.log"
+            environment = dict(os.environ)
+            environment["ROTS_UID"] = str(os.getuid())
+            environment["ROTS_GID"] = str(os.getgid())
+            with log_path.open("wb") as log_file:
+                process = subprocess.Popen(self.command(run_dir, lib_dir, port, container_name, seed), cwd=self._repo_root, env=environment, stdout=log_file, stderr=subprocess.STDOUT)
+            host_port = self._wait_for_published_port(container_name, port, process, log_path)
+            handle = ServerHandle(LOOPBACK, host_port, log_path, process, container_name)
+            wait_for_port(LOOPBACK, host_port, self._startup_timeout, process, log_path)
+            return handle
+        except Exception:
+            subprocess.run(["docker", "stop", "-t", "5", container_name], capture_output=True)
+            if process is not None:
+                terminate_process(process)
+            self.release_lock()
+            raise
 
     def _wait_for_published_port(self, container_name: str, container_port: int, process: subprocess.Popen, log_path: Path) -> int:
         deadline = time.monotonic() + self._startup_timeout
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise RuntimeError(f"docker compose run exited with {process.returncode}; log tail:\n{read_log_tail(log_path)}")
-            result = subprocess.run(["docker", "port", container_name, f"{container_port}/tcp"], capture_output=True, text=True)
+            try:
+                result = subprocess.run(["docker", "port", container_name, f"{container_port}/tcp"], capture_output=True, text=True, timeout=10)
+            except subprocess.TimeoutExpired:
+                time.sleep(1.0)
+                continue
             if result.returncode == 0 and ":" in result.stdout:
                 return int(result.stdout.strip().rsplit(":", 1)[1])
             time.sleep(1.0)
