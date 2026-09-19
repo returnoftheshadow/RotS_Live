@@ -3,8 +3,9 @@ SRC_DIR := src
 CMAKE := cmake
 CMAKE_CONFIGURE_ARGS ?= -DCMAKE_CXX_COMPILER=g++
 CMAKE_CACHE := $(BUILD_DIR)/CMakeCache.txt
+PYTHON ?= python3
 
-.PHONY: help configure setup build test run smoke-account format clean
+.PHONY: help configure setup build test run smoke-account format clean integration-unit integration
 
 help:
 	@printf "Available targets:\n"
@@ -16,6 +17,8 @@ help:
 	@printf "  make format         Run clang-format via the CMake target\n"
 	@printf "  make run            Build and start the server in the foreground\n"
 	@printf "  make clean          Clean the configured CMake build tree\n"
+	@printf "  make integration-unit  Run the harness unit tests (no server)\n"
+	@printf "  make integration       Run the integration harness against a booted server\n"
 
 $(CMAKE_CACHE):
 	$(CMAKE) -S $(SRC_DIR) -B $(BUILD_DIR) $(CMAKE_CONFIGURE_ARGS)
@@ -48,3 +51,9 @@ clean:
 	else \
 		$(CMAKE) --build $(BUILD_DIR) --target clean; \
 	fi
+
+integration-unit:
+	$(PYTHON) -m pytest tests/integration/unit -q
+
+integration:
+	$(PYTHON) -m pytest tests/integration -q
