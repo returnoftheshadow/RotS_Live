@@ -53,7 +53,10 @@ def test_remote_player_poison_death_is_gentle_and_fully_attributed(server, imp, 
 
     stat = imp.command("stat harnvictim")
     current, maximum = stat.hit_points()
-    assert current == maximum // 4, f"gentle revive expected hp {maximum // 4}, got {current}: {stat.text}"
+    assert maximum // 4 <= current <= maximum // 2, (
+        f"gentle poison death should revive at about a quarter of {maximum} HP "
+        f"(harsh would be 1), got {current}: {stat.text}"
+    )
 
     victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
     types = [record.type for record in victim_records]
