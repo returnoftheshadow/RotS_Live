@@ -18,6 +18,18 @@ from argparse import Namespace
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rots_telnet import (  # noqa: E402  (re-exported so account_smoke_tests keeps its names)
+    IAC,
+    BufferedPromptReader,
+    TelnetStreamSanitizer,
+    contains_any_marker,
+    find_first_marker_end,
+    recv_until,
+    require_markers,
+    send_line,
+)
+
 
 DEFAULT_CREATE_PASSWORD = "ValidPass1"
 DEFAULT_RESET_PASSWORD = "BetterPass2"
@@ -33,7 +45,6 @@ LEGACY_FIXTURE_SPECIALIZATION_NAME = "weapon mastery"
 LEGACY_OBJECT_GOLD = 4321
 LEGACY_EXPLOIT_VICTIM_NAME = "legacy-smoke-victim"
 LEGACY_EXPLOIT_INT_PARAM = 77
-IAC = 255
 LOOPBACK_HOST = "127.0.0.1"
 MIN_SMOKE_PORT = 20000
 MAX_GAME_PORT = 32767
@@ -69,138 +80,6 @@ class LegacyAssetFixtures:
     player: LegacyPlayerFixture
     object_path: Path
     exploits_path: Path
-
-
-class TelnetStreamSanitizer:
-    def __init__(self) -> None:
-        self._pending_iac = False
-        self._pending_option = False
-        self._in_subnegotiation = False
-        self._subnegotiation_pending_iac = False
-        self._pending_cr = False
-        self._sanitized = bytearray()
-
-    def feed(self, chunk: bytes) -> str:
-        for byte in chunk:
-            if self._pending_cr:
-                if byte != 0:
-                    self._sanitized.append(13)
-                self._pending_cr = False
-                if byte == 0:
-                    continue
-
-            if self._in_subnegotiation:
-                if self._subnegotiation_pending_iac:
-                    if byte == 240:
-                        self._in_subnegotiation = False
-                    self._subnegotiation_pending_iac = False
-                    continue
-
-                if byte == IAC:
-                    self._subnegotiation_pending_iac = True
-                continue
-
-            if self._pending_option:
-                self._pending_option = False
-                continue
-
-            if self._pending_iac:
-                self._pending_iac = False
-                if byte == IAC:
-                    self._sanitized.append(IAC)
-                    continue
-                if byte in (251, 252, 253, 254):
-                    self._pending_option = True
-                    continue
-                if byte == 250:
-                    self._in_subnegotiation = True
-                    self._subnegotiation_pending_iac = False
-                    continue
-                continue
-
-            if byte == IAC:
-                self._pending_iac = True
-                continue
-
-            if byte == 13:
-                self._pending_cr = True
-                continue
-
-            self._sanitized.append(byte)
-
-        return self.text
-
-    @property
-    def text(self) -> str:
-        return self._sanitized.decode("latin1", errors="ignore")
-
-
-def find_first_marker_end(text: str, markers: list[str]) -> int | None:
-    matched_end = None
-    matched_start = None
-    for marker in markers:
-        index = text.find(marker)
-        if index < 0:
-            continue
-        marker_end = index + len(marker)
-        if matched_start is None or index < matched_start or (index == matched_start and marker_end < matched_end):
-            matched_start = index
-            matched_end = marker_end
-    return matched_end
-
-
-class BufferedPromptReader:
-    def __init__(self, sock: socket.socket) -> None:
-        self._sock = sock
-        self._sanitizer = TelnetStreamSanitizer()
-        self._buffer = ""
-
-    def recv_until(self, markers: list[str], timeout_seconds: float) -> str:
-        deadline = time.time() + timeout_seconds
-        raw_data = bytearray()
-        self._sock.settimeout(0.5)
-
-        while time.time() < deadline:
-            marker_end = find_first_marker_end(self._buffer, markers)
-            if marker_end is not None:
-                text = self._buffer[:marker_end]
-                self._buffer = self._buffer[marker_end:]
-                return text
-
-            try:
-                chunk = self._sock.recv(4096)
-            except socket.timeout:
-                continue
-
-            if not chunk:
-                break
-
-            raw_data.extend(chunk)
-            previous_length = len(self._sanitizer.text)
-            sanitized_text = self._sanitizer.feed(chunk)
-            self._buffer += sanitized_text[previous_length:]
-            marker_end = find_first_marker_end(self._buffer, markers)
-            if marker_end is not None:
-                text = self._buffer[:marker_end]
-                self._buffer = self._buffer[marker_end:]
-                return text
-
-        marker_end = find_first_marker_end(self._buffer, markers)
-        if marker_end is not None:
-            text = self._buffer[:marker_end]
-            self._buffer = self._buffer[marker_end:]
-            return text
-
-        text = self._buffer
-        raw_tail = bytes(raw_data[-800:]).decode("latin1", errors="ignore")
-        raise RuntimeError(
-            "Timed out waiting for markers "
-            + ", ".join(markers)
-            + ". Last sanitized output was:\n"
-            + text[-800:]
-            + "\nRaw tail was:\n"
-            + raw_tail
-        )
 
 
 def account_bucket_for_name(name: str) -> str:
@@ -355,51 +234,6 @@ def resolve_smoke_ports(args: Namespace) -> None:
         used_ports.add(configured_port)
 
 
-def recv_until(sock: socket.socket, markers: list[str], timeout_seconds: float) -> str:
-    deadline = time.time() + timeout_seconds
-    raw_data = bytearray()
-    sanitizer = TelnetStreamSanitizer()
-    sock.settimeout(0.5)
-
-    while time.time() < deadline:
-        try:
-            chunk = sock.recv(4096)
-        except socket.timeout:
-            continue
-
-        if not chunk:
-            break
-
-        raw_data.extend(chunk)
-        text = sanitizer.feed(chunk)
-        if any(marker in text for marker in markers):
-            return text
-
-    text = sanitizer.text
-    raw_tail = bytes(raw_data[-800:]).decode("latin1", errors="ignore")
-    raise RuntimeError(
-        "Timed out waiting for markers "
-        + ", ".join(markers)
-        + ". Last sanitized output was:\n"
-        + text[-800:]
-        + "\nRaw tail was:\n"
-        + raw_tail
-    )
-
-
-def contains_any_marker(text: str, markers: list[str]) -> bool:
-    return any(marker in text for marker in markers)
-
-
-def require_markers(text: str, markers: list[str], context: str) -> str:
-    missing_markers = [marker for marker in markers if marker not in text]
-    if missing_markers:
-        raise RuntimeError(
-            f"{context} was missing expected markers: {', '.join(missing_markers)}. Full output was:\n{text[-800:]}"
-        )
-    return text
-
-
 def wait_for_account_menu(reader: BufferedPromptReader, timeout_seconds: float) -> str:
     text = reader.recv_until(["Choice:"], timeout_seconds)
     return require_markers(text, ["0) Log out", "5) Reset account password", "Choice:"], "Account menu")
@@ -412,10 +246,6 @@ def wait_for_character_menu(reader: BufferedPromptReader, timeout_seconds: float
         ["0) Back to Account Menu.", "5) Delete this character.", "Make your choice:"],
         "Character menu",
     )
-
-
-def send_line(sock: socket.socket, line: str) -> None:
-    sock.sendall(line.encode("utf-8") + b"\n")
 
 
 def wait_for_verification_code(capture_path: Path, timeout_seconds: float) -> str:
