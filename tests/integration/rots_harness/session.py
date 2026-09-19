@@ -17,7 +17,7 @@ from rots_telnet import TelnetStreamSanitizer  # noqa: E402
 LOGIN_EMAIL_PROMPT = "Account email:"
 LOGIN_PASSWORD_PROMPT = "Account password:"
 ACCOUNT_MENU_PROMPT = "Choice:"
-CHARACTER_NUMBER_PROMPT = "Character number:"
+CHARACTER_NUMBER_PROMPT = "Character number"
 CHARACTER_MENU_PROMPT = "Make your choice:"
 ENTER_GAME_MARKER = "Here we go..."
 PROMPT_TERMINATORS = (">", "]")
@@ -61,6 +61,7 @@ class GameSession:
         self._socket.settimeout(0.25)
         self._sanitizer = TelnetStreamSanitizer()
         self._consumed = 0
+        transcript_dir.mkdir(parents=True, exist_ok=True)
         self._transcript_path = transcript_dir / f"{character.name.lower()}.txt"
 
     @property
@@ -134,6 +135,7 @@ class GameSession:
     def cast(self, spell: str, target: str | None = None, success_markers: tuple[str, ...] = (), attempts: int = 6, timeout: float = 12.0) -> Transcript:
         words = f"cast '{spell}'" + (f" {target}" if target else "")
         last = Transcript("")
+        self.drain(0.1)
         for _attempt in range(attempts):
             self.send_line(words)
             deadline = time.monotonic() + timeout

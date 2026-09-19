@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from rots_harness import session
 from rots_harness.session import Transcript, ends_with_prompt
 
 
@@ -20,3 +21,8 @@ def test_prompt_detection_accepts_trailing_whitespace_and_both_terminators() -> 
     assert ends_with_prompt("You breathe out fire.\nHP:Healthy > ")
     assert ends_with_prompt("some output\n]")
     assert not ends_with_prompt("You start to cast a spell...")
+
+
+def test_character_number_prompt_matches_both_server_wordings() -> None:
+    assert session.CHARACTER_NUMBER_PROMPT in "\n\rCharacter number: "
+    assert session.CHARACTER_NUMBER_PROMPT in "\n\rCharacter number or name: "
