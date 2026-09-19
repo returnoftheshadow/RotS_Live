@@ -17,6 +17,10 @@ EAST_OF_RIVER_THRESHOLD = 8
 EAST_BONUS_PER_UNIT = 3
 EAST_BONUS_CAP_UNITS = 5
 
+# fread_string (src/db.cpp:3271-3320) strips a leading control character run
+# (chars below ' ', 0x20) from each fgets'd line before appending it.
+CONTROL_CHARACTERS = "".join(chr(code) for code in range(0x20))
+
 # Commands whose base six integers (if_flag arg1 arg2 arg3 arg4 arg5) are
 # followed by further integers, per the switch in src/zone.cpp:113-145.
 COMMANDS_WITH_TWO_EXTRA_ARGS = {"M", "N", "X", "H", "E", "K", "Q"}
@@ -70,10 +74,29 @@ class _Cursor:
         self.pos = 0
 
     def read_string(self) -> str:
-        end = self.text.index("~", self.pos)
-        value = self.text[self.pos:end]
-        self.pos = end + 1
-        return value.strip("\r\n")
+        # Mirrors fread_string's do/while: it reads whole lines with fgets
+        # and only terminates the string once a line's last non-whitespace
+        # character is '~' -- not at the first literal '~' anywhere ahead,
+        # which is wrong whenever a field spans several lines (a multi-line
+        # map/description) or a line holds two adjacent '~' characters (an
+        # empty field written as 'Name~~').
+        accumulated = ""
+        is_first_line = True
+        while True:
+            if self.pos >= len(self.text):
+                raise ValueError("unterminated string: reached end of file before '~'")
+            newline_index = self.text.find("\n", self.pos)
+            line_end = len(self.text) if newline_index == -1 else newline_index + 1
+            line = self.text[self.pos:line_end]
+            self.pos = line_end
+            if is_first_line:
+                is_first_line = False
+                if line.strip() == "":  # fread_string discards a blank leading line
+                    line = ""
+            accumulated += line.lstrip(CONTROL_CHARACTERS)
+            trimmed = accumulated.rstrip()
+            if trimmed.endswith("~"):
+                return trimmed[:-1]
 
     def read_token(self) -> str:
         length = len(self.text)
@@ -142,18 +165,7 @@ def parse_all(zon_dir: Path) -> dict[int, ZoneRecord]:
     zones: dict[int, ZoneRecord] = {}
     zone_files = [path for path in zon_dir.glob("*.zon") if path.stem.isdigit()]
     for path in sorted(zone_files, key=lambda p: int(p.stem)):
-        try:
-            record = parse_zone_file(path)
-        except ValueError as error:
-            # A handful of maze zones (e.g. 231.zon) write the name line as
-            # 'Name~~', giving an empty description and a one-line-only map
-            # field; the owner list then starts inside the ASCII maze art
-            # instead of an integer stream. The real fscanf loop tolerates
-            # that through uninitialized-memory behavior we cannot safely
-            # reproduce, so these zones are skipped rather than given
-            # fabricated header values.
-            print(f"parse_zones: skipping {path.name}: {error}", file=sys.stderr)
-            continue
+        record = parse_zone_file(path)
         zones[record.number] = record
     return zones
 

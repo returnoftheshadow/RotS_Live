@@ -68,6 +68,15 @@ class ParseZoneFile(unittest.TestCase):
         self.assertEqual(len(tailor_loads), 1)
         self.assertEqual((tailor_loads[0].room, tailor_loads[0].difficulty), (10088, 100))
 
+    def test_zone_231_maze_map_field_does_not_truncate_the_header(self):
+        # 231.zon writes 'Old maze level 1~~' as its name line (an empty
+        # description) followed by a multi-line ASCII maze as the map field,
+        # which only a fread_string-accurate, line-based reader parses past
+        # without landing on the maze art as if it were the owner list.
+        zone = parse_zone_file(WORLD / "zon" / "231.zon")
+        self.assertEqual((zone.x, zone.y), (11, 10))
+        self.assertTrue(zone.mob_loads)
+
 
 if __name__ == "__main__":
     unittest.main()
