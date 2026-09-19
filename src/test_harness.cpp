@@ -14,6 +14,9 @@ int harness_mode = 0;
 void weather_and_time(int mode);
 void point_update(void);
 void stat_update();
+void fast_update(void);
+void affect_update(void);
+void clean_expose_elements();
 
 bool seed_random_from_environment()
 {
@@ -57,11 +60,17 @@ ACMD(do_harness)
     }
 
     if (argument && std::strncmp(argument, "tick", 4) == 0) {
-        // Same order as the game loop's hourly block, so a forced tick is
-        // indistinguishable from a real one to everything downstream.
+        // One forced tick performs a full pulse's periodic work: the hourly
+        // block (weather/point/stat) and the fast block (fast_update /
+        // affect_update / clean_expose_elements). Room-affect blaze/poison
+        // ticks live in affect_update(), so a tick that omitted it would never
+        // advance them. Same calls, same order as game_loop() in comm.cpp.
         weather_and_time(1);
         point_update();
         stat_update();
+        fast_update();
+        affect_update();
+        clean_expose_elements();
         send_to_char("Harness: hourly tick complete.\r\n", ch);
         return;
     }
