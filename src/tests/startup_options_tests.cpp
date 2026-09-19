@@ -196,6 +196,35 @@ TEST(StartupOptions, AcceptsExplicitProxyFlagWithDashPPort)
     EXPECT_TRUE(options.has_proxy);
 }
 
+TEST(StartupOptions, HarnessModeIsOffByDefault)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    EXPECT_FALSE(options.harness_mode);
+}
+
+TEST(StartupOptions, AcceptsHarnessModeFlagWithDirectoryAndPositionalPort)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "-t", "-d", "/tmp/harness-lib", "4321" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    EXPECT_TRUE(options.harness_mode);
+    EXPECT_EQ(options.dir, "/tmp/harness-lib");
+    EXPECT_EQ(options.port, 4321);
+    EXPECT_FALSE(options.has_proxy);
+}
+
 TEST(StartupOptions, RejectsUnexpectedExtraArgumentAfterDashPPort)
 {
     StartupOptions options {};

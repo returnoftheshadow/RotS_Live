@@ -32,6 +32,7 @@
 #include "savebench.h"
 #include "spells.h"
 #include "structs.h"
+#include "test_harness.h"
 #include "utils.h"
 
 #include "big_brother.h"
@@ -558,6 +559,7 @@ const char* command[] = {
     "renounce",
     "mob2csv",
     "savebench", // 249
+    "harness", // 250
     "\n"
 };
 
@@ -2240,6 +2242,8 @@ void assign_command_pointers(void)
     COMMANDO(248, POSITION_DEAD, do_mob_csv_extract, LEVEL_IMPL, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(249, POSITION_DEAD, do_savebench, LEVEL_IMPL, FALSE, 0,
+        TAR_IGNORE, TAR_IGNORE, 0);
+    COMMANDO(250, POSITION_DEAD, do_harness, LEVEL_IMPL, FALSE, 0,
         TAR_IGNORE, TAR_IGNORE, 0);
 }
 

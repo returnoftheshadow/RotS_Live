@@ -85,6 +85,7 @@ set(ROTS_SERVER_SOURCES
     room_affect_tick.cpp
     save_benchmark.cpp
     savebench.cpp
+    test_harness.cpp
     script.cpp
     shapemdl.cpp
     shapemob.cpp
@@ -145,6 +146,7 @@ set(ROTS_TEST_SOURCES
     tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp
+    tests/test_harness_tests.cpp
     tests/summon_targeting_tests.cpp
     tests/gtest_main.cpp
     tests/olog_hai_tests.cpp
@@ -153,6 +155,7 @@ set(ROTS_TEST_SOURCES
     tests/test_random_utils.cpp
     tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp
+    tests/xp_formula_tests.cpp
 )
 
 add_executable(ageland ${ROTS_SERVER_SOURCES})
