@@ -1088,3 +1088,9 @@
 - `Bazarat`: also pushed the new unreadable-authoritative-object/exploit regression while Maxwell's follow-up was being addressed.
 - `Maxwell`: exploit-cutover review pending.
 - `Rawls`: exploit-cutover review pending.
+
+## Current Feature Planning Task - Integration Test Harness (2026-09-19)
+- Design approved in chat and written to `docs/superpowers/specs/2026-09-19-integration-test-harness-design.md`.
+- Slice 1 implementation plan written to `docs/superpowers/plans/2026-09-19-integration-test-harness.md` (16 tasks); awaiting the owner's choice of execution mode. No code changed yet.
+- Coordination: other Claude sessions share this worktree and the Docker image. Container jobs follow `/tmp/rots-docker-lock/README.txt`; this work locks as `uaf-port-harness-session.lock` (manual jobs) and `uaf-port-harness-it.lock` (the harness launcher).
+- Next step: execute slice 1 task by task; first build cycle covers Tasks 1 and 2 together (comm.h edit recompiles everything).

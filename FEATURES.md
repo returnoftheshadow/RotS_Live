@@ -412,3 +412,21 @@ Proposed implementation slices:
 9. Replace new-character legacy birth writes with direct account-native JSON persistence for `character.json` / `objects.json` / `exploits.json`.
 10. Implement administrator account-management tools plus their unit tests.
 11. Add docs, smoke tests, and close any remaining test gaps.
+
+## Integration Test Harness (added 2026-09-19)
+
+Automate the manual scenarios in `manual-test-plan.md` against a real server booted on a
+committed synthetic test world. Design: `docs/superpowers/specs/2026-09-19-integration-test-harness-design.md`.
+
+Scope, in three slices (each its own plan):
+- [ ] Slice 1 (`docs/superpowers/plans/2026-09-19-integration-test-harness.md`): `-t` harness mode
+  (`harness tick`, `ROTS_RANDOM_SEED`), synthetic zone 11 under `tests/integration/world/`,
+  account-native JSON fixtures, the `rots_harness` pytest package (lib builder, local and
+  docker compose launchers with the shared Docker lock, crash monitor, telnet sessions,
+  record readers), a boot test and three pilot scenarios (remote player poison, blaze after
+  the caster quits, remote-credit XP split).
+- [ ] Slice 2: the full branch scenario suite from the spec's catalogue.
+- [ ] Slice 3: CI job with an AddressSanitizer build.
+
+Rules: no production behaviour outside harness mode; never touch `lib/`, `bin/`, the `rots`
+container or port 1024; run directories live under `build/integration/`.
