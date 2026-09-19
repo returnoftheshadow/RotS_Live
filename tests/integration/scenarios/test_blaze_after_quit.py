@@ -12,6 +12,8 @@ DEATH_MARKER = "You are dead!  Sorry..."
 
 def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mage, victim, harness) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
+    imp.command("transfer harnmage")
+    imp.command("transfer harnvictim")
     imp.command("restore harnmage")
     imp.command("wizset harnvictim maxhit 300")
     imp.command("restore harnvictim")

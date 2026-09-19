@@ -22,6 +22,7 @@ CHARACTER_MENU_PROMPT = "Make your choice:"
 ENTER_GAME_MARKER = "Here we go..."
 PROMPT_TERMINATORS = (">", "]")
 HIT_POINT_PATTERN = re.compile(r"HP :\[(\d+)/(\d+)")
+ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class SessionTimeout(AssertionError):
@@ -49,7 +50,7 @@ class Transcript:
     def room_name(self) -> str | None:
         for line in self.text.splitlines():
             if line.strip():
-                return line.strip()
+                return re.split(r"\s{2,}", line.strip(), maxsplit=1)[0]
         return None
 
 
@@ -60,13 +61,14 @@ class GameSession:
         self._socket = socket.create_connection((handle.host, handle.port), timeout=5.0)
         self._socket.settimeout(0.25)
         self._sanitizer = TelnetStreamSanitizer()
+        self._clean = ""
         self._consumed = 0
         transcript_dir.mkdir(parents=True, exist_ok=True)
         self._transcript_path = transcript_dir / f"{character.name.lower()}.txt"
 
     @property
     def everything(self) -> str:
-        return self._sanitizer.text
+        return self._clean
 
     def _pump(self) -> bool:
         try:
@@ -76,15 +78,16 @@ class GameSession:
         if not chunk:
             raise ConnectionError(f"{self.character.name}: server closed the connection")
         self._sanitizer.feed(chunk)
-        self._transcript_path.write_text(self._sanitizer.text, encoding="utf-8")
+        self._clean = ANSI_PATTERN.sub("", self._sanitizer.text)
+        self._transcript_path.write_text(self._clean, encoding="utf-8")
         return True
 
     def _unconsumed(self) -> str:
-        return self._sanitizer.text[self._consumed:]
+        return self._clean[self._consumed:]
 
     def _consume(self) -> str:
         text = self._unconsumed()
-        self._consumed = len(self._sanitizer.text)
+        self._consumed = len(self._clean)
         return text
 
     def expect(self, markers: tuple[str, ...] | list[str], timeout: float = 8.0) -> str:

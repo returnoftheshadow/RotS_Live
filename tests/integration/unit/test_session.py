@@ -17,6 +17,15 @@ def test_transcript_room_name_is_the_first_non_empty_line() -> None:
     assert Transcript("\nWood-elf Start\n   A glade where wood elves begin.\n") .room_name() == "Wood-elf Start"
 
 
+def test_transcript_room_name_drops_the_exits_suffix() -> None:
+    transcript = Transcript("\nArena Centre    Exits are: N E S W\nThe centre...\n")
+    assert transcript.room_name() == "Arena Centre"
+
+
+def test_ansi_pattern_strips_colour_codes() -> None:
+    assert session.ANSI_PATTERN.sub("", "\x1b[33mArena Centre\x1b[0m") == "Arena Centre"
+
+
 def test_prompt_detection_accepts_trailing_whitespace_and_both_terminators() -> None:
     assert ends_with_prompt("You breathe out fire.\nHP:Healthy > ")
     assert ends_with_prompt("some output\n]")

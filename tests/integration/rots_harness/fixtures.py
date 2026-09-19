@@ -21,6 +21,7 @@ HARNESS_PASSWORD_HASH = "$6$harnesssalt$Zg5ujyEGeH6uCYrL2SwKp4kILHQ1c4vjwbBieWFG
 HARNESS_PASSWORD_SALT = "harnesssalt"
 EXPECTED_SCHEMA_VERSION = 1
 
+RACE_GOD = 0  # other_side() treats God as neither side, so a God sees and targets everyone by name
 RACE_HUMAN = 1
 RACE_WOOD_ELF = 3
 RACE_MAGUS = 15  # Uruk-Lhuth: evil side, so it may attack the elf victim
@@ -65,7 +66,7 @@ MAGE_SKILLS = {
 }
 
 STANDARD_ROSTER: tuple[CharacterSpec, ...] = (
-    CharacterSpec("Harnimp", RACE_HUMAN, 100, ROOM_IMMORTAL_START, {"mage": 30, "mystic": 30, "ranger": 30, "warrior": 30}, {}, 1000, 1000, 1000, 9000001),
+    CharacterSpec("Harnimp", RACE_GOD, 100, ROOM_IMMORTAL_START, {"mage": 30, "mystic": 30, "ranger": 30, "warrior": 30}, {}, 1000, 1000, 1000, 9000001),
     CharacterSpec("Harnmage", RACE_MAGUS, 30, ROOM_ARENA_CENTRE, {"mage": 30, "mystic": 30}, MAGE_SKILLS, 200, 600, 200, 9000002),
     CharacterSpec("Harnfighter", RACE_HUMAN, 20, ROOM_ARENA_CENTRE, {"warrior": 20}, {}, 200, 50, 200, 9000003),
     CharacterSpec("Harnvictim", RACE_WOOD_ELF, 10, ROOM_ARENA_CENTRE, {"ranger": 10}, {}, 60, 40, 120, 9000004),

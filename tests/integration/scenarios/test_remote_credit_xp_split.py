@@ -12,9 +12,11 @@ SHARE_MARKER = "You receive your share of experience"
 
 def test_engaged_fighter_gets_the_share_and_the_remote_caster_does_not(server, imp, mage, fighter, harness) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
+    imp.command("transfer harnmage")
+    imp.command("transfer harnfighter")
     imp.command("restore harnmage")
 
-    mage.command("west")  # 1131 -> 1130 with the imp
+    fighter.command("east")  # fighter waits in 1131 while the mage casts alone in 1130
     mage.cast("blaze", success_markers=BLAZE_CAST)  # empty room: the cast engages nobody
     mage.command("east")  # back to 1131, remote from the death room
 
