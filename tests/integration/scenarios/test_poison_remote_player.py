@@ -13,6 +13,7 @@ DEATH_MARKER = "You are dead!  Sorry..."
 
 def poison_until_it_lands(mage, victim, attempts: int = 8) -> None:
     for _attempt in range(attempts):
+        victim.command("look")  # clears any AFK flag so Big Brother does not shield the victim
         mage.send_line("cast 'poison' elf")
         try:
             text = victim.expect(POISON_LANDED + POISON_RESISTED, timeout=12.0)
@@ -28,8 +29,7 @@ def test_remote_player_poison_death_is_gentle_and_fully_attributed(server, imp, 
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnmage")
     imp.command("transfer harnvictim")
-    imp.command("restore harnmage")
-    imp.command("restore harnvictim")
+    imp.command("wizset harnvictim level 20")  # BB: mage(30) vs victim(10) tripped attacker>=defender*3; 30>=60 is false
     imp.command("wizset harnvictim hit 12")  # the cast lands 5, each tick lands 5
 
     poison_until_it_lands(mage, victim)

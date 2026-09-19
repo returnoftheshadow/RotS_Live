@@ -70,10 +70,12 @@ def server(request: pytest.FixtureRequest) -> HarnessServer:
 
 @pytest.fixture(autouse=True)
 def fail_on_server_crash(request: pytest.FixtureRequest):
-    yield
+    monitor = None
     if "server" in request.fixturenames:
-        harness_server: HarnessServer = request.getfixturevalue("server")
-        problems = harness_server.monitor.check()
+        monitor = request.getfixturevalue("server").monitor
+    yield
+    if monitor is not None:
+        problems = monitor.check()
         if problems:
             pytest.fail("server problems during this test:\n" + "\n".join(problems))
 
@@ -107,9 +109,10 @@ class Harness:
         self._imp = imp_session
 
     def tick(self) -> Transcript:
-        transcript = self._imp.command("harness tick", timeout=20.0)
-        assert transcript.contains("Harness: hourly tick complete."), transcript.text
-        return transcript
+        self._imp.drain(0.1)
+        self._imp.send_line("harness tick")
+        text = self._imp.expect(["Harness: hourly tick complete."], 20.0)
+        return Transcript(text)
 
 
 @pytest.fixture
