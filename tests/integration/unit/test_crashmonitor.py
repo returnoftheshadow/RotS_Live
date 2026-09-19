@@ -51,3 +51,15 @@ def test_check_only_reports_new_lines(tmp_path: Path) -> None:
     with handle.log_path.open("a", encoding="latin-1") as log_file:
         log_file.write("x :: SYSERR: second\n")
     assert len(monitor.check()) == 1
+
+
+def test_missing_log_file_reports_nothing_until_the_process_exits(tmp_path: Path) -> None:
+    process = FakeProcess()
+    handle = ServerHandle("127.0.0.1", 1, tmp_path / "missing.log", process)  # type: ignore[arg-type]
+    monitor = CrashMonitor(handle)
+    assert monitor.check() == []
+
+    process.returncode = 0
+    problems = monitor.check()
+    assert len(problems) == 1
+    assert "exited" in problems[0]

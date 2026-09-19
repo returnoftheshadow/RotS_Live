@@ -26,3 +26,16 @@ def test_read_exploits_returns_typed_records_in_file_order(tmp_path: Path) -> No
 
 def test_read_exploits_of_a_character_without_a_file_is_empty(tmp_path: Path) -> None:
     assert records.read_exploits(tmp_path, "Nobody") == []
+
+
+def test_read_character_returns_the_written_document(tmp_path: Path) -> None:
+    template_path = Path(__file__).resolve().parents[1] / "fixtures" / "character.template.json"
+    template = fixtures.load_character_template(template_path)
+    spec = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnessvictim")
+    fixtures.write_character(tmp_path, spec, template)
+
+    document = records.read_character(tmp_path, "Harnessvictim")
+
+    assert document["character_name"] == "Harnessvictim"
+    assert document["identity"]["idnum"] == spec.idnum
+    assert document["state"]["load_room"] == spec.load_room
