@@ -22,6 +22,7 @@ from parse_mobs import (
 )
 
 LEVEL_MAX = 30  # src/structs.h:45-52 ("legend")
+LEVEL_IMMORT = 91  # src/structs.h:45-52
 POSITION_STANDING = 8  # src/structs.h:930
 
 
@@ -53,18 +54,25 @@ def levelb(level: int) -> int:
     return min(level, LEVEL_MAX * 2 // 3 + level // 3)
 
 
-def gain_exp_clamp(gain: int) -> int:
+def gain_exp_clamp(gain: int, level: int) -> int:
     """FORMULAS.md `gain_exp_clamp`; src/limits.cpp:410-426 (`gain_exp`).
 
-    Positive gains clamp to at most 7000 per event; negative gains clamp to at least -10000 per
-    event. The live function also gates this on `GET_LEVEL(ch) < 90` (positive) or `< 91`
-    (negative) before applying the clamp at all; the interface this module implements
-    (`gain_exp_clamp(gain) -> int`) has no level parameter, so every caller in this research tool
-    is assumed to be an ordinary mortal well under those thresholds.
+    Mirrors `gain_exp` exactly, including its level gates: a positive gain only reaches
+    `gain_exp_regardless` while `GET_LEVEL(ch) < LEVEL_IMMORT - 1` (i.e. level < 90,
+    src/limits.cpp:416); a negative gain only reaches it while `GET_LEVEL(ch) < LEVEL_IMMORT`
+    (level < 91, src/limits.cpp:421). Outside those windows the call is a no-op, so this returns
+    0 rather than the clamped magnitude -- in particular, a level-90-or-above character gains
+    ZERO XP from any positive event (a kill or a hit); only losses still land at exactly level 90.
+    Inside the windows, positive gains clamp to at most 7000 per event and negative gains clamp
+    to at least -10000 per event.
     """
     if gain > 0:
+        if level >= LEVEL_IMMORT - 1:
+            return 0
         return min(7000, gain)
     if gain < 0:
+        if level >= LEVEL_IMMORT:
+            return 0
         return max(-10000, gain)
     return gain
 
@@ -175,6 +183,16 @@ def exp_with_modifiers(killer_level: int, killer_is_good_race: bool, killer_is_g
     discards while parsing the `N` record (its `_pref` field, read and thrown away) -- so no
     caller of this module has that data available to model the race-conditional half of the
     bonus.
+
+    Known simplification: step "MOB_SPEC with a live proc or program" gates on `MOB_FLAGGED(dead_
+    man, MOB_SPEC) && dead_man->nr >= 0 && (mob_index[dead_man->nr].func || dead_man->specials.
+    store_prog_number)` (src/fight.cpp:1378). This mirrors the `store_prog_number` half only
+    (`mob.prog`, the mob file's own prog-number field -- see parse_mobs.py's fscanf field order,
+    which matches src/db.cpp:1762-1765's `store_prog_number = tmp3` load) via `mob.prog != 0`.
+    `mob_index[nr].func` is a hardcoded C function pointer assigned by vnum at boot
+    (`ASSIGNMOB` in src/spec_ass.cpp), invisible to this offline model -- a mob whose only special
+    trigger is a `.func` assignment (prog == 0) is therefore under-modeled: the live server grants
+    the `+base_exp/10` bonus for it and this mirror does not.
     """
     if killer_is_orc and mob.is_orc_friend:
         return 0
@@ -213,7 +231,7 @@ def exp_with_modifiers(killer_level: int, killer_is_good_race: bool, killer_is_g
     if killer_is_good_align and mob_is_good:
         exp = cdiv(exp * 2, 3)
 
-    if mob.mob_flags & MOB_SPEC:
+    if (mob.mob_flags & MOB_SPEC) and mob.prog != 0:
         exp += cdiv(base_exp, 10)
 
     if difficulty:
@@ -241,7 +259,7 @@ def solo_kill_xp(killer_level: int, mob: MobRecord, zone_x: int, killer_is_good_
     modified = exp_with_modifiers(killer_level, killer_is_good_race, killer_is_good_align,
                                    killer_is_orc, mob, zone_x, difficulty, average_mob_life,
                                    average_mob_life, base_exp)
-    return gain_exp_clamp(modified)
+    return gain_exp_clamp(modified, killer_level)
 
 
 def solo_pc_kill_xp(killer_level: int, victim_level: int, victim_exp: int) -> int:
@@ -259,4 +277,4 @@ def solo_pc_kill_xp(killer_level: int, victim_level: int, victim_exp: int) -> in
     share = cdiv(victim_exp // 10, level_total)
     base = share * killer_levelb  # group_bonus == 0 for a solo kill
     base = cdiv(base, max(killer_level + 1, victim_level - 2))
-    return gain_exp_clamp(base)
+    return gain_exp_clamp(base, killer_level)

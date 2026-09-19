@@ -24,14 +24,15 @@ from xp_formulas import (
 
 
 def _mob(level: int, exp: int, alignment: int = 0, mob_flags: int = 0,
-         default_pos: int = 8, position: int = 8) -> MobRecord:
+         default_pos: int = 8, position: int = 8, prog: int = 0) -> MobRecord:
     # Field values not exercised by the formula module are filler; only level, exp, alignment,
-    # mob_flags, position and default_pos feed exp_with_modifiers (FORMULAS.md, "exp_with_modifiers").
+    # mob_flags, position, default_pos and prog feed exp_with_modifiers
+    # (FORMULAS.md, "exp_with_modifiers").
     return MobRecord(
         vnum=0, zone=0, aliases="", short_descr="", mob_flags=mob_flags, affected_by=0,
         alignment=alignment, level=level, ob=0, parry=0, dodge=0, hit=0, max_hit=0, damage=0,
         ene_regen=0, gold=0, exp=exp, position=position, default_pos=default_pos, sex=0, race=0,
-        prog=0, spirit=0,
+        prog=prog, spirit=0,
     )
 
 
@@ -71,15 +72,38 @@ class LevelCurve(unittest.TestCase):
 
 
 class GainClamp(unittest.TestCase):
+    """Reproduces src/tests/xp_formula_tests.cpp's GainExpClampsAPositiveGainToSevenThousand and
+    GainExpClampsANegativeGainToTenThousandWithoutDeleveling pins, both fixtured at a level-60 PC
+    (LevelSixtyPc), plus the level-89/90/91 gate boundary from src/limits.cpp:410-426."""
+
     def test_positive_events_cap_at_7000(self):
-        self.assertEqual(gain_exp_clamp(250_000), 7000)
+        # LevelSixtyPc pin: GET_LEVEL(60) < LEVEL_IMMORT-1 (90), so MIN(7000, 250000) = 7000.
+        self.assertEqual(gain_exp_clamp(250_000, level=60), 7000)
 
     def test_negative_events_cap_at_minus_10000(self):
-        self.assertEqual(gain_exp_clamp(-250_000), -10_000)
+        # LevelSixtyPc pin: GET_LEVEL(60) < LEVEL_IMMORT (91), so MAX(-10000, -250000) = -10000.
+        self.assertEqual(gain_exp_clamp(-250_000, level=60), -10_000)
 
     def test_gains_below_the_cap_pass_through_unchanged(self):
-        self.assertEqual(gain_exp_clamp(4), 4)
-        self.assertEqual(gain_exp_clamp(-4), -4)
+        self.assertEqual(gain_exp_clamp(4, level=60), 4)
+        self.assertEqual(gain_exp_clamp(-4, level=60), -4)
+
+    def test_positive_gain_is_zero_at_level_ninety(self):
+        # src/limits.cpp:416: gain > 0 && GET_LEVEL(ch) < LEVEL_IMMORT - 1 (90) -- false at 90, so
+        # gain_exp_regardless is never called and the gain is entirely lost.
+        self.assertEqual(gain_exp_clamp(250_000, level=90), 0)
+
+    def test_positive_gain_still_clamps_at_the_top_earning_level_eighty_nine(self):
+        # GET_LEVEL(89) < 90 is true, so the ordinary 7000 clamp still applies.
+        self.assertEqual(gain_exp_clamp(250_000, level=89), 7000)
+
+    def test_negative_gain_still_applies_at_level_ninety(self):
+        # src/limits.cpp:421: gain < 0 && GET_LEVEL(ch) < LEVEL_IMMORT (91) -- true at 90, so
+        # losses still land even though gains no longer do.
+        self.assertEqual(gain_exp_clamp(-250_000, level=90), -10_000)
+
+    def test_negative_gain_is_zero_at_level_ninety_one(self):
+        self.assertEqual(gain_exp_clamp(-250_000, level=91), 0)
 
 
 class HittingXp(unittest.TestCase):
@@ -242,15 +266,67 @@ class GoodKillingGoodTakesTwoThirds(unittest.TestCase):
         self.assertEqual(good_on_good_result, 2)
 
 
+class MobSpecBonusGate(unittest.TestCase):
+    """The MOB_SPEC bonus (src/fight.cpp:1378) gates on MOB_FLAGGED(MOB_SPEC) AND (mob_index[nr].
+    func OR store_prog_number). This module has no visibility into mob_index[].func (a hardcoded
+    C function pointer assigned by vnum at boot, src/spec_ass.cpp's ASSIGNMOB calls -- not data in
+    the mob file), so it models the store_prog_number half only, via MobRecord.prog != 0. Same
+    level-20-killer / level-15-mob fixture (base 380) as the east-bonus reconciliation above,
+    isolating the MOB_SPEC step: mob alignment 0 (no good-on-good), default_pos standing (no
+    below-standing penalty), zone x = 8 (no east bonus), no other mob_flags bits set."""
+
+    def test_mob_spec_with_no_prog_number_gets_no_bonus(self):
+        from parse_mobs import MOB_SPEC
+        mob = _mob(level=15, exp=3930, mob_flags=MOB_SPEC)
+        self.assertEqual(mob.prog, 0)
+
+        # Same derivation through step 5 as the level-20 east-bonus baseline: exp = 18 going into
+        # the MOB_SPEC step. prog == 0, so mob_index[nr].func is the only way in (invisible here)
+        # -- no +base_exp/10 is applied; exp stays 18 through difficulty/east bonus, then
+        # TEMPORARY: exp += 2*18/19 = 36/19 = 1 -> exp = 19.
+        self.assertEqual(
+            exp_with_modifiers(killer_level=20, killer_is_good_race=True, killer_is_good_align=True,
+                                killer_is_orc=False, mob=mob, zone_x=8, difficulty=0, age_ticks=40,
+                                average_mob_life=40, base_exp=380),
+            19,
+        )
+
+    def test_mob_spec_with_a_prog_number_gets_the_bonus(self):
+        from parse_mobs import MOB_SPEC
+        mob = _mob(level=15, exp=3930, mob_flags=MOB_SPEC, prog=9001)
+
+        # exp = 18 going into the MOB_SPEC step (identical to the no-bonus case above). prog != 0,
+        # so exp += base_exp/10 = 18/10 = 1 -> exp = 19; TEMPORARY: exp += 2*19/19 = 38/19 = 2
+        # -> exp = 21.
+        self.assertEqual(
+            exp_with_modifiers(killer_level=20, killer_is_good_race=True, killer_is_good_align=True,
+                                killer_is_orc=False, mob=mob, zone_x=8, difficulty=0, age_ticks=40,
+                                average_mob_life=40, base_exp=380),
+            21,
+        )
+
+
 class SoloKillXpComposesShareAndModifiers(unittest.TestCase):
     def test_solo_kill_at_level_thirty_against_the_pinned_level_fifteen_mob(self):
         # attacked_level = levelb(30) = 30; kill_share([30], mob, 30) = [390] (see above);
-        # exp_with_modifiers(30, ..., base_exp=390) = 4; gain_exp_clamp(4) = 4.
+        # exp_with_modifiers(30, ..., base_exp=390) = 4; gain_exp_clamp(4, level=30) = 4.
         mob = _mob(level=15, exp=3930)
         self.assertEqual(
             solo_kill_xp(30, mob, zone_x=8, killer_is_good_race=True, killer_is_good_align=True,
                          killer_is_orc=False),
             4,
+        )
+
+    def test_a_level_ninety_killer_earns_zero_from_any_kill(self):
+        # A level-90 killer's exp_with_modifiers output is nonzero (the level-gap divisor only
+        # zeroes a killer far ABOVE the victim, and here killer == mob level), but gain_exp_clamp
+        # forces every positive gain to 0 at level >= 90 (src/limits.cpp:416) -- the real research
+        # result finding 2 calls out.
+        mob = _mob(level=90, exp=12_150_000)
+        self.assertEqual(
+            solo_kill_xp(90, mob, zone_x=8, killer_is_good_race=True, killer_is_good_align=True,
+                         killer_is_orc=False),
+            0,
         )
 
 

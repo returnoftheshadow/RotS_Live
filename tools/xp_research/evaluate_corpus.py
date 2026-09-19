@@ -47,7 +47,12 @@ from xp_formulas import (
     xp_to_level,
 )
 
-TIERS = [30, 40, 50, 60, 75, 90]
+TIERS = [30, 40, 50, 60, 75, 89, 90]
+
+# gain_exp only applies a positive gain while GET_LEVEL(ch) < LEVEL_IMMORT - 1 (90),
+# src/limits.cpp:416 -- a level-90 (or higher) character therefore earns ZERO XP from any kill or
+# hit; only losses still land (the negative gate is < LEVEL_IMMORT, 91). Tier 89 is included
+# alongside 90 to show the top level that can still earn, against 90's live-truth zeros.
 
 # Controller decision 4: raw MOB_AGE_TICKS == average_mob_life == 40 (a mob that has lived an
 # average life) for every table in this report.
@@ -262,9 +267,12 @@ def render_table2(rows_by_bucket: dict[str, list[EvaluatedLoad]]) -> str:
         "## Table 2: Per-hit XP at the damage cap",
         "",
         "`hit_xp_melee(tier, victim_level, 10_000)`; damage is pinned far above every tier's cap "
-        "(`20 + 2 * tier`) so `min(20 + 2 * tier, dam)` always resolves to the cap. \"hits for a "
-        "median kill\" divides the tier's own bucket median kill XP (table 1, no-east column) by "
-        "the per-hit value, rounded up.",
+        "(`20 + 2 * tier`) so `min(20 + 2 * tier, dam)` always resolves to the cap. \"per-hit XP\" "
+        "is the formula value AFTER `gain_exp_clamp(value, tier)`, so it shows the actual gain a "
+        "real hit lands, including the level-90 gate (src/limits.cpp:416) that zeroes every "
+        "positive gain at tier >= 90. \"hits for a median kill\" divides the tier's own bucket "
+        "median kill XP (table 1, no-east column) by the per-hit value, rounded up; at tier >= 90 "
+        "the per-hit value is 0, so no finite number of hits ever completes a kill.",
         "",
         "| tier | victim level | per-hit XP | hits for a median level-matched kill |",
         "| ---: | ---: | ---: | ---: |",
@@ -276,8 +284,8 @@ def render_table2(rows_by_bucket: dict[str, list[EvaluatedLoad]]) -> str:
         median_kill = statistics.median(solo_kill_values(neutral_evil_rows, tier, NO_EAST_ZONE_X)) \
             if neutral_evil_rows else 0
         for victim_level in sorted({15, 20, tier}):
-            per_hit = hit_xp_melee(tier, victim_level, 10_000)
-            hits = math.ceil(median_kill / per_hit) if per_hit > 0 else float("inf")
+            per_hit = gain_exp_clamp(hit_xp_melee(tier, victim_level, 10_000), tier)
+            hits = math.ceil(median_kill / per_hit) if per_hit > 0 else "n/a (0 XP/hit)"
             lines.append(f"| {tier} | {victim_level} | {per_hit} | {hits} |")
     return "\n".join(lines)
 
@@ -301,7 +309,7 @@ def render_table3(rows_by_bucket: dict[str, list[EvaluatedLoad]], damage_note: s
         for tier in TIERS:
             damage_per_hit = 20 + 2 * tier
             hits_to_kill = math.ceil(median_max_hit / damage_per_hit)
-            per_hit_xp = hit_xp_melee(tier, median_level, damage_per_hit)
+            per_hit_xp = gain_exp_clamp(hit_xp_melee(tier, median_level, damage_per_hit), tier)
             total = hits_to_kill * per_hit_xp
             lines.append(
                 f"| {label} | {len(rows)} | {median_max_hit:g} | {median_level} | {tier} | "
@@ -352,7 +360,9 @@ def render_table5() -> str:
         "## Table 5: Clamp pressure",
         "",
         "Minimum gain events per level forced by the 7000-per-event positive clamp "
-        "(`gain_exp_clamp`).",
+        "(`gain_exp_clamp`). At tier 90 this count is purely theoretical: no positive gain ever "
+        "lands at level >= 90 (src/limits.cpp:416), so a level-90 character cannot reach level 91 "
+        "through kills or hits at all.",
         "",
         "| tier | next_level_cost | min gain events (ceil / 7000) |",
         "| ---: | ---: | ---: |",
@@ -463,7 +473,7 @@ def render_duo_trio_table(rows_by_bucket: dict[str, list[EvaluatedLoad]]) -> str
                 modified = exp_with_modifiers(tier, KILLER_IS_GOOD_RACE, KILLER_IS_GOOD_ALIGN,
                                                KILLER_IS_ORC, mob, NO_EAST_ZONE_X, 100,
                                                AGE_TICKS, AVERAGE_MOB_LIFE, base)
-                awards.append(gain_exp_clamp(modified))
+                awards.append(gain_exp_clamp(modified, tier))
             return awards
 
         duo_awards = group_awards(2)
@@ -478,7 +488,7 @@ def render_duo_trio_table(rows_by_bucket: dict[str, list[EvaluatedLoad]]) -> str
 def render_assumptions_header(exclusions: CorpusExclusions, evaluated_count: int,
                                total_mob_count: int, damage_note: str) -> str:
     return "\n".join([
-        "# XP model over the corpus: tiers 30, 40, 50, 60, 75, 90",
+        "# XP model over the corpus: tiers 30, 40, 50, 60, 75, 89, 90",
         "",
         "## Assumptions",
         "",
@@ -493,6 +503,11 @@ def render_assumptions_header(exclusions: CorpusExclusions, evaluated_count: int
         "unchanged) -- controller decision 2.",
         "- The killer's zone x is the zone containing the mob's own load room, mapped by the "
         "first zone (ascending zone number) whose `top >= room` -- controller decision 3.",
+        "- `gain_exp` only applies a POSITIVE gain while `GET_LEVEL(ch) < LEVEL_IMMORT - 1` (90) "
+        "and a NEGATIVE gain while `GET_LEVEL(ch) < LEVEL_IMMORT` (91) (src/limits.cpp:410-426): "
+        "a level-90-or-above character earns ZERO XP from any kill or hit (tables 1, 2, 3 and 7 "
+        "go to 0 at tier 90), while losses (tables 4 and 5) still apply normally. Tier 89 is "
+        "included to show the top level that can still earn, next to tier 90's live-truth zeros.",
         "",
         "## Excluded from all tables",
         "",
