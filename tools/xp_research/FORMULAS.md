@@ -15,9 +15,9 @@ Constants: `LEVEL_MAX = 30` (legend), `LEVEL_IMMORT = 91`, `LEVEL_IMPL = 100` (`
 | `levelb` | effective level for kill share and `attacked_level` | PC | `min(level, LEVEL_MAX * 2 / 3 + level / 3)` = `min(level, 20 + level / 3)`; NPCs use raw level | none | none | `src/utils.h:315` |
 | `gain_exp_clamp` | every gain routed through `gain_exp` | PC below 91 | positive: `min(7000, gain)` only while `level < 90`; negative: `max(-10000, gain)` while `level < 91` | none | 7000 per event up, 10000 per event down | `src/limits.cpp:410-426` |
 | `delevel` | any negative `gain_exp_regardless` | PC | `while xp_to_level(level) - 20000 > exp: level -= 1; mini_level = 100 * level; practices -= PRACS_PER_LEVEL + lea_base / LEA_PRAC_FACTOR` | 20000-point tolerance below the floor | exp floored at 0 | `src/limits.cpp:456-472` |
-| `mini_level` | any positive `gain_exp_regardless` | PC | advance while `m * m * 3 / 20 <= exp` (mini level `m`), each advance may add 1 max HP at 2 percent | none | none | `src/limits.cpp:92-101, 444-453` |
+| `mini_level` | any positive `gain_exp_regardless` | PC | advance while `m * m * 3 / 20 <= exp` (mini level `m`); each advance may add 1 max HP at 2 percent, then **raises the character level** when `xp_to_level(level + 1) <= exp` (`level += 1; advance_level`), and advances profession levels by coefficient | none | none | `src/limits.cpp:92-118, 444-453` |
 | `hit_xp_melee` | every damage event that passes `damage_credited`'s guards, any attack type routed through `damage()` (melee, weapon skills, spells) | attacker != victim; NPC attackers are dropped inside `gain_exp_regardless` | `(1 + L_victim) * min(20 + 2 * L_attacker, dam) / (1 + L_attacker)` | none | `gain_exp_clamp` per hit | `src/fight.cpp:2097-2099` (inside `damage_credited`, `:1836`; `damage()` at `:2208` forwards to it) |
-| `hit_xp_mental` | a successful mental attack (`do_mental`) | PC | same as `hit_xp_melee` with `dam` replaced by `damg * 5` | none | `gain_exp_clamp` per attack | `src/clerics.cpp:226` (in `do_mental`, `:89`) |
+| `hit_xp_mental` | a successful mental attack (`do_mental`; also fired for NPCs fighting shadows, `src/fight.cpp:3037-3039`, where the NPC guard drops it) | attacker; NPCs dropped inside `gain_exp_regardless` | same as `hit_xp_melee` with `dam` replaced by `damg * 5` | none | `gain_exp_clamp` per attack | `src/clerics.cpp:226` (in `do_mental`, `:89`) |
 | `kill_share` | `group_gain` after a death | every PC in the death room who is fighting the victim, is the victim's target, is the credited killer, is in such a fighter's group, or is the master of an orc-friend, pet or guardian that is fighting; immortals skip | see "kill share" below | `attacked_level` malus, group split | via `exp_with_modifiers` then `gain_exp_clamp` | `src/fight.cpp:1407-1553` |
 | `exp_with_modifiers` | applied to each killer's `base` from `kill_share` | PC | ordered list below | level gap, mob age, mob flags, alignment, difficulty, east bonus, low-level bonus | none of its own | `src/fight.cpp:1334-1390` |
 | `flee_loss` | a successful flee while fighting | PC only | `-(L_fleeing + L_opponent)` | none | `gain_exp_clamp` (never reached: max 180) | `src/act_offe.cpp:388-390` |
@@ -54,9 +54,9 @@ awarded(k)      = gain_exp(exp_with_modifiers(k, victim, base(k)))
 2. `base /= max(L_killer + 1, L_victim - 2)`.
 3. PC victim: return `base` here (nothing below applies to player kills).
 4. If `L_victim + 6 < L_killer`: `base = 6 * base / (L_killer - L_victim)`.
-5. Age (victim level above 5): `age = MOB_AGE_TICKS * 40 / (L_victim + 20)`; if `age < 40`:
-   `exp = exp * (40 * 60 + age * 40) / (40 * 100)` (60 to 100 percent), else
-   `exp = exp * (140 - 40 * 40 / age) / 100` (100 to 140 percent asymptotically). Mobs loaded at boot
+5. Age (victim level above 5), with `avg = average_mob_life`: `age = MOB_AGE_TICKS * 40 / (L_victim + 20)`;
+   if `age < avg`: `exp = exp * (avg * 60 + age * 40) / (avg * 100)` (60 to 100 percent), else
+   `exp = exp * (140 - 40 * avg / age) / 100` (100 to 140 percent asymptotically). Mobs loaded at boot
    get a random age in `[0, 80]` mud hours (`src/db.cpp:1610-1613`); repop mobs start at 0.
 6. Flag bonuses, each on the post-step-4 `base`: `MOB_AGGRESSIVE` or aggressive-to-killer `+base/5`,
    `MOB_FAST +base/10`, `MOB_SWITCHING +base/10`, `MOB_MEMORY +base/20`, default position below standing
@@ -64,7 +64,7 @@ awarded(k)      = gain_exp(exp_with_modifiers(k, victim, base(k)))
    `+base/10`.
 7. Difficulty: if `GET_DIFFICULTY(victim) != 0`: `exp = exp * difficulty / 100`. The value comes from the
    zone reset command that spawned the mob (`M` command `arg5`, `src/zone.cpp:729`; or `A 2 value`,
-   `src/zone.cpp:652`), not from the mob file. World files use 100 as the default; anything else is
+   `src/zone.cpp:653`), not from the mob file. World files use 100 as the default; anything else is
    deliberate tuning. The same vnum can carry different values at different spawn points.
 8. East bonus: `RACE_GOOD(killer)` and `zone_table[world[killer->in_room].zone].x > 8`:
    `exp += exp * min(x - 8, 5) * 3 / 100` (3 to 15 percent). Keyed on the killer's room zone. The zone
@@ -88,6 +88,9 @@ integer variable set by earlier operations, so the grant size needs a per-script
 scaling in `script.cpp` applies to all of them.
 
 ## Sites that are not XP vectors
+
+- `src/limits.h:33-34`, `src/act_offe.cpp:338`, `src/act_wiz.cpp:1495`: declarations of `gain_exp` / `gain_exp_regardless`.
+- `src/limits.cpp:406, 430`: comment text; `src/limits.cpp:434`: the `gain_exp_regardless` signature.
 
 - `src/comm.cpp:605`, `src/act_info.cpp:1756, 1868, 2664`, `src/act_wiz.cpp:803`: display only.
 - `src/db.cpp:1749`: mob prototype `exp` loaded from the mob file (the value `kill_share` divides by 10).
