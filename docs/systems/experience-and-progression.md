@@ -64,8 +64,8 @@ credited killer, is grouped with one of those, or masters a fighting pet or orc-
 4. Victim more than 6 levels below the killer: `base = 6 * base / (L_killer - L_victim)`.
 5. Age curve (victim above level 5): 60 to 140 percent depending on how long the mob has lived
    relative to `average_mob_life` (40 mud hours).
-6. Flag bonuses on `base`: aggressive +1/5, fast +1/10, switching +1/10, memory +1/20, sitting or
-   sleeping default position -1/20, live special procedure +1/10; good killer and good victim: ×2/3.
+6. Flag bonuses on `base`: aggressive +1/5, fast +1/10, switching +1/10, memory +1/20, default position below standing
+   (resting, sitting or sleeping) -1/20, live special procedure +1/10; good killer and good victim: ×2/3.
 7. Difficulty: `× difficulty / 100` when non-zero.
 8. East bonus: a good-race killer in a zone with map `x > 8` gets `+ min(x - 8, 5) * 3` percent (up to 15).
    223 of 337 zones are east of the river; 150 of them carry the full 15 percent.
@@ -87,9 +87,14 @@ negative value remove experience. Nothing else writes `points.exp` downward.
   under 200 points, which is noise.
 - **The east-of-the-river faction bonus** exists only for good races, tops out at 15 percent, and applies
   after the level-gap divisors, so at high tiers it usually truncates to a point or two.
-- **Difficulty is live tuning**: 459 of 11159 mob spawns carry a value other than 100 (71 at 1 percent,
-  95 at 10 percent, 106 at 120 percent, 87 at 150 percent, 23 at 200 percent, 15 at 300 percent).
+- **Difficulty is live tuning**: 459 of 11159 mob spawns carry a value other than 100, from 1 percent (71 spawns)
+  and 10 percent (95) up to 150 percent (87), 200 percent (23) and 300 percent (15).
 - **Scripts do grant XP**: 54 `GAIN_EXP` operations across seven zone script files.
+- **A bonus the source still marks `TEMPORARY`** adds `2 * exp / (level - 1)`: it triples a level-2
+  character's kill XP, adds 7 percent at 30, and is under 3 percent from 60 up. Stock CircleMUD has no
+  such term.
+- **Good killing good pays two thirds**, applied before difficulty and the east bonus; orcs killing
+  orc-friends get nothing at all. Both are RotS alignment rules with no stock counterpart.
 
 ## Worked example: the corpus at seven tiers
 
@@ -100,7 +105,8 @@ east-bonus columns and the outlier lists come from `python3 tools/xp_research/ev
 
 ### What the world offers
 
-Distinct spawned mobs by level band, all alignments:
+Distinct spawned mobs by level band, all alignments (a join of the Task 2 mob and spawn CSVs; the zone
+counts above come from the same parser's summary):
 
 | mob level | 0-9 | 10-19 | 20-29 | 30-39 | 40-49 | 50-59 | 60+ |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -112,27 +118,32 @@ world is at least 15 to 30 levels below them.
 
 ### Table 1: median kill XP by mob level band (no east bonus)
 
-| tier | 10-19 | 20-29 | 30-39 | 40-49 | 50-59 |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 30 | 204 | 1423 | 2796 | 3806 | 2739 |
-| 40 | 91 | 433 | 1264 | 3470 | 2694 |
-| 50 | 52 | 217 | 501 | 1656 | 2510 |
-| 60 | 33 | 128 | 276 | 685 | 1251 |
-| 75 | 18 | 72 | 144 | 287 | 397 |
-| 89 | 12 | 47 | 94 | 172 | 213 |
-| 90 | 0 | 0 | 0 | 0 | 0 |
+| tier | 10-19 | 20-29 | 30-39 | 40-49 | 50-59 | good-on-good, 30-39 band |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 30 | 204 | 1413.5 | 2796 | 3537 | 2739 | 1514 |
+| 40 | 89 | 428 | 1264 | 3224 | 2694 | 674 |
+| 50 | 51 | 215 | 501 | 1539 | 2510 | 266 |
+| 60 | 33 | 128 | 276 | 636 | 1251 | 145 |
+| 75 | 18 | 72 | 144 | 287 | 397 | 77 |
+| 89 | 12 | 47 | 94 | 172 | 213 | 50 |
+| 90 | 0 | 0 | 0 | 0 | 0 | 0 |
 
-The 90th percentile reaches the 7000 clamp only for level 30-59 mobs killed at tiers 30 to 50.
+Kill XP falls by roughly half for every 15 levels the killer gains over the mob, and a good character
+killing a good mob gets about half again. The 90th percentile reaches the 7000 clamp only for level
+30-59 mobs killed at tiers 30 to 50. Even-sized bands report the mean of the two middle values.
 
 ### Table 2: XP per hit at the damage cap, and hits in one median level-matched kill
 
 | tier | vs level 15 | vs level 20 | vs own level | hits equal to one level-matched kill |
 | ---: | ---: | ---: | ---: | ---: |
 | 30 | 41 | 54 | 80 | 35 |
-| 60 | 36 | 48 | 140 | 27 |
+| 60 | 36 | 48 | 140 | 26 |
 | 75 | 35 | 46 | 170 | 20 |
 | 89 | 35 | 46 | 198 | 5 |
 | 90 | 0 | 0 | 0 | — |
+
+Per hit, a low-level victim pays a third to a fifth of a level-matched one; the last column shows how
+few level-matched hits equal a whole kill once the level-gap divisors have shrunk the kill.
 
 ### Table 3: XP per mob, split into hitting and killing (median mob of each band)
 
@@ -153,11 +164,14 @@ From tier 60 upward, hitting is the main experience vector even against the hard
 
 | tier | flee vs level 15 | death to a player (tenth) | as % of next level | death to a mob (full) | as % of next level | full loss in level-50 mob kills |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 30 | 45 | 4209 | 4.6 | 46302 | 50.6 | 12 |
+| 30 | 45 | 4209 | 4.6 | 46302 | 50.6 | 6 |
 | 60 | 75 | 8704 | 4.8 | 95752 | 52.8 | 25 |
 | 75 | 90 | 10953 | 4.8 | 120491 | 53.2 | 49 |
 | 89 | 104 | 13053 | 4.9 | 143585 | 53.5 | 72 |
 | 90 | 105 | 13203 | 4.9 | 145235 | 53.5 | — |
+
+One death to a mob undoes half a level at every tier; the last column converts that into the hardest
+kills the world offers (hitting XP included), which is what a player weighs against the risk.
 
 ### Table 5: clamp pressure and mobs per level
 
@@ -167,6 +181,9 @@ From tier 60 upward, hitting is the main experience vector even against the hard
 | 60 | 181500 | 26 | 1729 | 47 |
 | 75 | 226500 | 33 | 2574 | 92 |
 | 89 | 268500 | 39 | 3274 | 134 |
+
+The clamp's theoretical minimum is never the binding constraint; median kills are a fraction of it, so
+the real count of kills per level is 4 to 80 times the clamp floor.
 
 ### Table 6: solo player-kill XP (victim at their level threshold)
 
@@ -206,29 +223,31 @@ within a year. Of a 23-character sample from the top of the curve, 6 sat below t
 
 ## Incentive synthesis
 
-1. **Does the reward favour low-level content at high tiers?** Per swing, no: a level-89 character earns
+1. **Does the reward favour low-level content at high tiers?** (Tables 3 and 4.) Per swing, no: a level-89 character earns
    about 3 times more per swing on a level-50 mob (125) than on a level-15 mob (41), and the same ratio
    holds at 60 and 75. Per unit of risk, yes, decisively. A death to a mob at tier 89 costs 143585 points,
    the value of 72 level-50 kills or 1751 level-15 kills. Farming level-15 mobs carries no death risk. The
    break-even is one death per 106 level-50 kills at tier 89, per 73 at tier 75, per 36 at tier 60, and per
    18 level-30 kills at tier 30. Any content dangerous enough to kill a high-level character more often
    than that pays worse than farming trash.
-2. **Which vector carries it?** Hitting XP, not kill XP. Kill XP for a level-15 mob at tier 89 is 12 points;
+2. **Which vector carries it?** (Tables 1 to 3.) Hitting XP, not kill XP. Kill XP for a level-15 mob at tier 89 is 12 points;
    hitting it twice pays 70. The level-gap divisors apply only to kills, so hitting is what a high-level
    character actually lives on, and it is why low-level mobs remain worth anything at all.
-3. **Does "hitting very hard" matter?** No. The per-hit formula caps damage at `20 + 2 * level`, which
+3. **Does "hitting very hard" matter?** (Table 2.) No. The per-hit formula caps damage at `20 + 2 * level`, which
    every high-level character exceeds routinely; what counts is the number of damage events. This also
    means fast weapons, multi-hit skills and damage spells are the efficient tools, not big single blows.
-4. **Flee and death.** Flee loss is irrelevant at every tier (under 0.1 percent of a level). Death loss is
+4. **Flee and death.** (Tables 4 and 6.) Flee loss is irrelevant at every tier (under 0.1 percent of a level). Death loss is
    the entire risk economy: half a level to a mob, one twentieth to a player. That asymmetry pushes
    high-level characters away from mob content and toward player kills, which are also the largest single
    reward available.
-5. **Faction bonus.** Real, small, and applied last: 15 percent of a number that the level-gap divisors have
-   already reduced to a handful of points. It matters at tiers 30 to 50 in the east, not above.
-6. **The 7000 clamp.** It caps a level-89 character at 39 events per level in theory, but median kills are
+5. **Faction and alignment modifiers.** (Table 1.) The east bonus is real, small, and applied last: 15
+   percent of a number the level-gap divisors have already reduced to a handful of points. It matters at
+   tiers 30 to 50 in the east, not above. Good-on-good is the larger effect at every tier, taking a good
+   character's kill XP on good mobs to about half of the neutral-or-evil median.
+6. **The 7000 clamp.** (Table 5.) It caps a level-89 character at 39 events per level in theory, but median kills are
    so small that the practical count is 134 level-50 kills or 3274 level-15 kills. The clamp only bites
    the top decile of kills at tiers 30 to 50 and every equal-tier player kill.
-7. **Level 90 is a dead end by code**, not by content: the gain gate stops at 89. Five mortals are parked
+7. **Level 90 is a dead end by code** (Tables 1, 2 and 6, and the population table), not by content: the gain gate stops at 89. Five mortals are parked
    there, and they can only go down.
 
 The data supports the hypothesis behind the redesign, with one correction: the incentive is created by

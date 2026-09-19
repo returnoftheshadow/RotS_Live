@@ -41,7 +41,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | [Experience & progression](systems/experience-and-progression.md) | ✅ gain/loss vectors, kill/hit formulas, tier tables, population | `limits.cpp`, `fight.cpp`, `act_offe.cpp`, `clerics.cpp` |
 
 ⬜ Races ·
-XP/leveling · Movement/zones · Objects/equipment · Mob AI/specprocs · Shops/economy ·
+Movement/zones · Objects/equipment · Mob AI/specprocs · Shops/economy ·
 PK/fame · Comms/socials · Shapeshift builder · Guardian spirits · Mudlle engine
 
 > Note: combat/magic formula docs are best validated against a running server (blocked on
