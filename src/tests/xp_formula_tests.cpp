@@ -150,8 +150,10 @@ namespace {
 // (src/char_utils.cpp:385-392) -- a null profs pointer here would segfault.
 struct LevelSixtyPc
 {
-    char_data character {};
-    char_prof_data profs {};
+    char_data character {}; // the level-60 PC under test
+    char_prof_data profs {}; // character.profs target -- required so the affect_total() tail
+                              // reached by a negative gain_exp() doesn't dereference a null profs
+                              // pointer (see the class comment above)
 
     explicit LevelSixtyPc(int starting_exp)
     {
@@ -285,33 +287,71 @@ TEST(XpFormula, KillModifiersForALevelMatchedLevelSixtyKill)
 
 TEST(XpFormula, EastOfTheRiverAddsUpToFifteenPercentForGoodRaces)
 {
-    // Reuses the level-30-killer / level-15-mob fixture and base (390) from
-    // KillModifiersForALevelNinetyAndALevelThirtyKillerOnALevelFifteenMob above, which pins
-    // exp_with_modifiers(...) == 4 through step 7, before the east bonus (step 8) is reached.
+    // NOTE: an earlier version of this test reused the level-30-killer / level-15-mob fixture
+    // (base 390, pre-bonus exp 4) from KillModifiersForALevelNinetyAndALevelThirtyKillerOnALevelFifteenMob.
+    // That fixture cannot distinguish x = 8 from x = 13: 4 * 15 / 100 truncates to 0 under C++
+    // integer division, so both zone values pinned the identical result even if the east-bonus
+    // code (src/fight.cpp:1386-1387) were deleted -- the test could not fail for the branch it
+    // named. A level-20 killer against the same level-15 mob produces a large enough pre-bonus
+    // exp (18) for the 15 percent bonus to survive truncation, so that fixture is used below
+    // instead as the distinguishing pair.
     char_data mob {};
     init_neutral_standing_mob(mob, 15);
-    char_data killer {};
-    init_good_killer(killer, 30);
 
     ZoneTableGuard zone_table_guard;
 
-    zone_table_guard.stub[0].x = 8; // <= 8: no east bonus
-    int baseline = exp_with_modifiers(&killer, &mob, 390);
-    EXPECT_EQ(baseline, 4) << "tier: level 30 killer, level 15 mob, zone x = 8 (river baseline)";
+    // --- killer level 20: the distinguishing pair ---
+    char_data killer_twenty {};
+    init_good_killer(killer_twenty, 20);
 
-    // step 8: RACE_GOOD(killer) is true and zone x(13) > 8, so
-    //   exp += exp * min(13-8, 5) * 3 / 100 = exp * min(5,5) * 3 / 100 = exp * 15 / 100.
-    // Going into step 8, exp is already 4 (identical derivation to the baseline above), so
-    //   exp += 4 * 15 / 100 = 60/100 = 0 (C++ integer division) -- the nominal 15 percent bonus
-    //   is truncated away entirely at this magnitude, so x = 13 pins the SAME value as x = 8.
-    //   This is the live behavior today, not a mistake in this test -- see this file's header
-    //   comment for the same kind of "the arithmetic doesn't land where a first read suggests"
-    //   nuance in the age formula.
-    zone_table_guard.stub[0].x = 13; // min(13-8, 5)*3 = 15 percent, in principle
-    int with_east_bonus = exp_with_modifiers(&killer, &mob, 390);
-    EXPECT_EQ(with_east_bonus, baseline)
-        << "tier: level 30 killer, level 15 mob, zone x = 13; the nominal +15 percent east "
-           "bonus is swallowed by integer truncation at this exp magnitude (4 * 15 / 100 == 0)";
+    // group_gain()'s solo-kill share (src/fight.cpp:1490-1541), worked by hand for mob_exp = 3930:
+    //   levelb(20) = min(20, 20 + 20/3) = min(20, 26) = 20; level_total = 2*20 = 40.
+    //   share = (3930/10) * 2 / 1 / 40 = 393 * 2 / 1 / 40 = 786 / 40 = 19; base = 19 * 20 = 380.
+
+    // exp_with_modifiers(killer_twenty, mob, 380) (src/fight.cpp:1334-1390):
+    //   step 2: base /= max(21, 13) = 21              -> base = 380/21 = 18
+    //   step 4: mob level + 6 = 21 < killer level 20? no -- base stays 18; exp = 18
+    //   step 5 (age): MOB_AGE_TICKS == average_mob_life == 40 (fixture); mob level 15, so the
+    //     DERIVED age = 40*40/(15+20) = 1600/35 = 45. Since mob level (15) > 5 and 45 >= 40, the
+    //     ELSE branch applies: exp = 18 * (140 - 40*40/45) / 100 = 18 * (140-35) / 100
+    //     = 18*105/100 = 1890/100 = 18
+    //   steps 6-7: no flags set, mob not good-aligned, difficulty 0 -- no change
+    zone_table_guard.stub[0].x = 8; // <= 8: no east bonus
+    // step 8: zone x == 8, not > 8 -- no change; exp stays 18
+    // step 9 (TEMPORARY): exp += 2*18/max(1, 19) = 36/19 = 1 -> exp = 19
+    int baseline = exp_with_modifiers(&killer_twenty, &mob, 380);
+    EXPECT_EQ(baseline, 19) << "tier: level 20 killer, level 15 mob, zone x = 8 (river baseline)";
+
+    // step 8: RACE_GOOD(killer_twenty) is true and zone x(13) > 8, so
+    //   exp += exp * min(13-8, 5) * 3 / 100 = exp * 15 / 100.
+    // Going into step 8, exp is 18 (identical derivation to the baseline above), so
+    //   exp += 18 * 15 / 100 = 270/100 = 2 (C++ integer division) -> exp = 20
+    // step 9 (TEMPORARY): exp += 2*20/max(1, 19) = 40/19 = 2 -> exp = 22
+    zone_table_guard.stub[0].x = 13; // min(13-8, 5)*3 = 15 percent
+    int with_east_bonus = exp_with_modifiers(&killer_twenty, &mob, 380);
+    EXPECT_EQ(with_east_bonus, 22)
+        << "tier: level 20 killer, level 15 mob, zone x = 13; the +15 percent east bonus is now "
+           "visible against the x = 8 baseline (19 -> 22)";
+
+    // --- killer level 90: kept as a second, contrasting pair documenting a DIFFERENT kind of
+    // truncation than the one the level-30 fixture above wrongly relied on. Here base is already
+    // crushed to 0 by the level-gap divide (step 4, see
+    // KillModifiersForALevelNinetyAndALevelThirtyKillerOnALevelFifteenMob above for the full
+    // derivation), before the east bonus is ever reached -- multiplying zero by any percentage
+    // stays zero, so x = 8 and x = 13 are identical here too, but because the input to step 8 is
+    // already zero, not because a nonzero percentage got rounded away.
+    char_data killer_ninety {};
+    init_good_killer(killer_ninety, 90);
+
+    zone_table_guard.stub[0].x = 8;
+    int ninety_baseline = exp_with_modifiers(&killer_ninety, &mob, 350);
+    EXPECT_EQ(ninety_baseline, 0) << "tier: level 90 killer, level 15 mob, zone x = 8";
+
+    zone_table_guard.stub[0].x = 13;
+    int ninety_with_bonus = exp_with_modifiers(&killer_ninety, &mob, 350);
+    EXPECT_EQ(ninety_with_bonus, 0)
+        << "tier: level 90 killer, level 15 mob, zone x = 13; base is already zero after the "
+           "level-gap divide (step 4), so the east bonus has nothing to multiply";
 }
 
 TEST(XpFormula, GoodKillingGoodTakesTwoThirds)
