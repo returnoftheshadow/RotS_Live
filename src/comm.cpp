@@ -1159,7 +1159,9 @@ void game_loop(SocketType s)
         perform_violence(pulse % (PULSE_VIOLENCE * 2));
         /* parry is restored in 2 combat (PULSE_VIOLENCE) rounds */
 
-        if (!((pulse % (SECS_PER_MUD_HOUR * 4)))) {
+        // Harness mode owns the hourly block: a scenario fires it with `harness tick`
+        // (test_harness.cpp) instead of racing the wall clock.
+        if (!harness_mode && !((pulse % (SECS_PER_MUD_HOUR * 4)))) {
             weather_and_time(1);
             point_update(); // putting affect_total call in point_update.
             stat_update();

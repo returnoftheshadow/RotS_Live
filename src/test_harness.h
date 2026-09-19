@@ -7,7 +7,8 @@
  * Off in every autorun deployment. While on, ROTS_RANDOM_SEED seeds the
  * generators and implementors may run `harness tick` to fire the game loop's
  * hourly block on demand, so an integration test never waits a real minute
- * for a poison or room-affect tick.
+ * for a poison or room-affect tick. In harness mode the game loop's own
+ * wall-clock hourly block is disabled; only `harness tick` runs it.
  */
 extern int harness_mode; // 1 while the server runs under the integration harness
 
