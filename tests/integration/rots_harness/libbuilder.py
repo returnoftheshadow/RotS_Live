@@ -23,7 +23,7 @@ class BuiltLib:
     roster: tuple[fixtures.CharacterSpec, ...]
 
 
-class TestLibBuilder:
+class RunLibBuilder:
     def __init__(self, repo_root: Path, world_dir: Path, template_path: Path) -> None:
         self._repo_root = repo_root
         self._world_dir = world_dir

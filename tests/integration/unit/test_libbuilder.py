@@ -4,14 +4,14 @@ import json
 from pathlib import Path
 
 from rots_harness import fixtures
-from rots_harness.libbuilder import TestLibBuilder
+from rots_harness.libbuilder import RunLibBuilder
 
 INTEGRATION_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = INTEGRATION_ROOT.parents[1]
 
 
 def build_into(tmp_path: Path):
-    builder = TestLibBuilder(REPO_ROOT, INTEGRATION_ROOT / "world", INTEGRATION_ROOT / "fixtures" / "character.template.json")
+    builder = RunLibBuilder(REPO_ROOT, INTEGRATION_ROOT / "world", INTEGRATION_ROOT / "fixtures" / "character.template.json")
     return builder.build(tmp_path / "run", fixtures.STANDARD_ROSTER)
 
 
