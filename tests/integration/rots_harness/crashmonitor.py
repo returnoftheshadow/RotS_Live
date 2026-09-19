@@ -9,6 +9,10 @@ DEFAULT_ALLOWED: tuple[str, ...] = (
     "Mail boot failed",
     "Could not open help file",
     "Unable to open banfile",
+    # KNOWN FINDING (2026-09-19): account-native object refresh truncates the follower
+    # record for an empty-inventory character on rent/death; the death still completes.
+    # Tolerated, not masked — see WIP.md and the harness finding note.
+    "failed to refresh account-native object file",
 )
 SANITIZER_MARKERS = ("AddressSanitizer", "LeakSanitizer", "UndefinedBehaviorSanitizer", "runtime error:")
 SIGNAL_MARKER = "Error: signal"

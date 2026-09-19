@@ -34,6 +34,17 @@ def test_allowed_syserr_lines_are_ignored_but_others_are_reported(tmp_path: Path
     assert len(problems) == 1 and "0 records counted" in problems[0]
 
 
+def test_known_object_refresh_syserr_is_tolerated(tmp_path: Path) -> None:
+    handle = make_handle(tmp_path)
+    handle.log_path.write_text(
+        "x :: SYSERR: failed to refresh account-native object file for X: Truncated objects data while reading follower record.\n"
+        "x :: SYSERR: something else\n",
+        encoding="latin-1",
+    )
+    problems = CrashMonitor(handle).check()
+    assert len(problems) == 1 and "something else" in problems[0]
+
+
 def test_sanitizer_report_and_process_exit_are_reported(tmp_path: Path) -> None:
     handle = make_handle(tmp_path, returncode=-11)
     handle.log_path.write_text("==12==ERROR: AddressSanitizer: heap-use-after-free on address\n", encoding="latin-1")

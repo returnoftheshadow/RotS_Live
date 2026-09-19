@@ -33,8 +33,11 @@ def test_remote_player_poison_death_is_gentle_and_fully_attributed(server, imp, 
     imp.command("wizset harnvictim hit 10")  # low enough that regen cannot outrun the poison ticks
 
     poison_until_it_lands(mage, victim)
-    mage.command("west")  # the poisoner is now rooms away and never in the victim's fight
-    assert mage.command("look").room_name() == "Arena West"
+    # An offensive cast engages the mage; move it (and the observing imp) out of the
+    # death room with a wizard transfer so the victim dies of the DoT alone, unengaged.
+    imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
+    imp.command("transfer harnmage")
+    assert mage.command("look").contains("Arena West"), mage.everything[-1500:]
 
     died = False
     for _tick in range(15):
