@@ -59,7 +59,7 @@ ACMD(do_harness)
         ++argument;
     }
 
-    if (argument && std::strncmp(argument, "tick", 4) == 0) {
+    if (argument && std::strncmp(argument, "tick", 4) == 0 && (argument[4] == '\0' || argument[4] == ' ')) {
         // One forced tick performs a full pulse's periodic work: the hourly
         // block (weather/point/stat) and the fast block (fast_update /
         // affect_update / clean_expose_elements). Room-affect blaze/poison

@@ -1167,7 +1167,9 @@ void game_loop(SocketType s)
             stat_update();
             was_updated = 1;
         }
-        if (!(pulse % (PULSE_FAST_UPDATE)) /*&& !was_updated*/) {
+        // Harness mode owns time: `harness tick` (test_harness.cpp) is the sole driver of
+        // fast_update()/affect_update() so room-affect and poison ticks are deterministic.
+        if (!harness_mode && !(pulse % (PULSE_FAST_UPDATE)) /*&& !was_updated*/) {
             // now increasing hp/mp/mana/spirit fast in fast_update..
             fast_update();
             affect_update();

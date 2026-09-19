@@ -37,12 +37,21 @@ def test_allowed_syserr_lines_are_ignored_but_others_are_reported(tmp_path: Path
 def test_known_object_refresh_syserr_is_tolerated(tmp_path: Path) -> None:
     handle = make_handle(tmp_path)
     handle.log_path.write_text(
-        "x :: SYSERR: failed to refresh account-native object file for X: Truncated objects data while reading follower record.\n"
-        "x :: SYSERR: something else\n",
+        "x :: SYSERR: failed to refresh account-native object file for Harnvictim: "
+        "Truncated objects data while reading follower record.\n",
+        encoding="latin-1",
+    )
+    assert CrashMonitor(handle).check() == []
+
+
+def test_different_object_refresh_syserr_is_still_reported(tmp_path: Path) -> None:
+    handle = make_handle(tmp_path)
+    handle.log_path.write_text(
+        "x :: SYSERR: failed to refresh account-native object file for Harnvictim: Permission denied\n",
         encoding="latin-1",
     )
     problems = CrashMonitor(handle).check()
-    assert len(problems) == 1 and "something else" in problems[0]
+    assert len(problems) == 1 and "Permission denied" in problems[0]
 
 
 def test_sanitizer_report_and_process_exit_are_reported(tmp_path: Path) -> None:

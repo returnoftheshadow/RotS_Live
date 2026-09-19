@@ -170,7 +170,10 @@ class DockerComposeLauncher(ServerLauncher):
             wait_for_port(LOOPBACK, host_port, self._startup_timeout, process, log_path)
             return handle
         except Exception:
-            subprocess.run(["docker", "stop", "-t", "5", container_name], capture_output=True)
+            try:
+                subprocess.run(["docker", "stop", "-t", "5", container_name], capture_output=True, timeout=15)
+            except subprocess.TimeoutExpired:
+                pass
             if process is not None:
                 terminate_process(process)
             self.release_lock()
@@ -194,7 +197,10 @@ class DockerComposeLauncher(ServerLauncher):
     def stop(self, handle: ServerHandle) -> None:
         try:
             if handle.container_name:
-                subprocess.run(["docker", "stop", "-t", "5", handle.container_name], capture_output=True)
+                try:
+                    subprocess.run(["docker", "stop", "-t", "5", handle.container_name], capture_output=True, timeout=15)
+                except subprocess.TimeoutExpired:
+                    pass
             if handle.is_alive():
                 try:
                     handle.process.wait(timeout=30)

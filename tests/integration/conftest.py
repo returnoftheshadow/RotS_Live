@@ -52,10 +52,14 @@ def choose_launcher() -> ServerLauncher:
 def server(request: pytest.FixtureRequest) -> HarnessServer:
     run_dir = REPO_ROOT / "build" / "integration" / uuid.uuid4().hex[:12]
     run_dir.mkdir(parents=True)
-    built = RunLibBuilder(REPO_ROOT, INTEGRATION_ROOT / "world", INTEGRATION_ROOT / "fixtures" / "character.template.json").build(run_dir, fixtures.STANDARD_ROSTER)
-    launcher = choose_launcher()
-    seed = int(os.environ.get("ROTS_IT_SEED", DEFAULT_SEED))
-    handle = launcher.start(run_dir, built.lib_dir, allocate_free_port(), seed)
+    try:
+        built = RunLibBuilder(REPO_ROOT, INTEGRATION_ROOT / "world", INTEGRATION_ROOT / "fixtures" / "character.template.json").build(run_dir, fixtures.STANDARD_ROSTER)
+        launcher = choose_launcher()
+        seed = int(os.environ.get("ROTS_IT_SEED", DEFAULT_SEED))
+        handle = launcher.start(run_dir, built.lib_dir, allocate_free_port(), seed)
+    except Exception:
+        shutil.rmtree(run_dir, ignore_errors=True)
+        raise
     harness_server = HarnessServer(handle, built.lib_dir, run_dir, built.roster, CrashMonitor(handle))
     try:
         yield harness_server
