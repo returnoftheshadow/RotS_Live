@@ -1,19 +1,17 @@
-"""Evaluates the whole mob corpus against xp_formulas.py at six player tiers and writes the
-Markdown tables from task-3-brief.md Step 6 (plus the added tables from the controller decisions)
-to stdout.
+"""Evaluates the whole mob corpus against xp_formulas.py at seven player tiers and writes the
+resulting Markdown report to stdout.
 
 Usage:
     python3 evaluate_corpus.py <mobs.csv> <zones.csv> <mob_loads.csv>
 
-Deviation from the brief's literal CLI (`<mobs.csv> <zones.csv>`): controller decision 1 requires
-evaluating each mob once per zone-reset `M` load row, because difficulty and the killer's zone
-come from the load row, not the mob file. That data lives in a third CSV
-(parse_zones.py --mob-loads output), so this script takes it as a third argument.
+This script takes a third CSV, the zone-reset `M` load rows (parse_zones.py --mob-loads output),
+because difficulty and the killer's zone come from the load row, not the mob file: each mob is
+evaluated once per load row it appears in.
 
-CSV choice: this script reads the CSVs Task 2 already generated under
-$SCRATCH/xp/{mobs,zones,mob_loads}.csv rather than re-invoking parse_mobs.parse_all /
-parse_zones.parse_all against lib/world, since those CSVs already exist and re-parsing would
-duplicate work for the same result.
+CSV choice: this script reads pre-generated CSVs (conventionally under $SCRATCH/xp/{mobs,zones,
+mob_loads}.csv, produced by parse_mobs.py and parse_zones.py --mob-loads) rather than re-invoking
+parse_mobs.parse_all / parse_zones.parse_all against lib/world directly, since those CSVs already
+exist and re-parsing would duplicate work for the same result.
 """
 from __future__ import annotations
 
@@ -54,22 +52,22 @@ TIERS = [30, 40, 50, 60, 75, 89, 90]
 # hit; only losses still land (the negative gate is < LEVEL_IMMORT, 91). Tier 89 is included
 # alongside 90 to show the top level that can still earn, against 90's live-truth zeros.
 
-# Controller decision 4: raw MOB_AGE_TICKS == average_mob_life == 40 (a mob that has lived an
-# average life) for every table in this report.
+# Every table in this report evaluates a mob at raw MOB_AGE_TICKS == average_mob_life == 40, a
+# mob that has lived an average life -- the neutral reference point for the age curve.
 AGE_TICKS = 40
 AVERAGE_MOB_LIFE = 40
 
-# Controller decision 5: reference killer for tables 1-3 and the duo/trio table is good-race
+# Reference killer for tables 1-3 and the duo/trio table: good-race
 # (RACE_GOOD -- src/utils.h:636) and good-aligned (alignment 1000, IS_GOOD -- src/utils.h:657).
 KILLER_IS_GOOD_RACE = True
 KILLER_IS_GOOD_ALIGN = True
 KILLER_IS_ORC = False
 
-# Controller decision 5: "neutral-or-evil mob" is mob alignment < 100 (below IS_GOOD's threshold).
+# "Neutral-or-evil mob" is mob alignment < 100 (below IS_GOOD's threshold).
 GOOD_ALIGNMENT_THRESHOLD = 100
 
 NO_EAST_ZONE_X = 8  # exp_with_modifiers only bonuses when zone_x > 8 (src/fight.cpp:1386)
-EAST_BONUS_ZONE_X = 13  # min(13-8, 5)*3 = 15 percent, the brief's "east bonus at +15 percent"
+EAST_BONUS_ZONE_X = 13  # min(13-8, 5)*3 = 15 percent: the capped east-of-the-river bonus
 
 BUCKETS: list[tuple[int, int | None, str]] = [
     (1, 9, "1-9"), (10, 19, "10-19"), (20, 29, "20-29"), (30, 39, "30-39"),
@@ -88,6 +86,11 @@ def bucket_for_level(level: int) -> str | None:
 
 
 def bucket_for_tier(tier: int) -> str:
+    """Maps a player tier to the mob-level bucket it is measured against, capped at "50-59" for
+    every tier of 60 and up: the "60+" bucket is five spawn rows, shopkeepers/innkeepers/
+    doorkeepers plus one boss, not level-appropriate content a tier-60+ player fights."""
+    if tier >= 60:
+        return "50-59"
     label = bucket_for_level(tier)
     assert label is not None, f"tier {tier} has no matching bucket"
     return label
@@ -99,7 +102,6 @@ class EvaluatedLoad:
     difficulty: int
     zone_x: int  # x of the zone containing the load room (the killer's own room)
     zone_number: int
-    room: int
 
 
 def read_mobs(path: str) -> dict[int, MobRecord]:
@@ -139,7 +141,7 @@ def read_zones(path: str) -> list[ZoneInfo]:
 
 def zone_for_room(zones: list[ZoneInfo], room: int) -> ZoneInfo | None:
     """Mirrors src/db.cpp:1185-1192: the first zone, in ascending zone-number order, whose
-    `top` is at least the room number (controller decision 3)."""
+    `top` is at least the room number."""
     for zone in zones:
         if zone.top >= room:
             return zone
@@ -175,6 +177,7 @@ class CorpusExclusions:
     pet_or_orc_friend_load_rows: int = 0
     unknown_vnum_load_rows: int = 0
     room_outside_any_zone_load_rows: int = 0
+    evaluated_level_zero_outside_bucket_count: int = 0
 
 
 def evaluate_loads(mobs: dict[int, MobRecord], zones: list[ZoneInfo],
@@ -189,6 +192,7 @@ def evaluate_loads(mobs: dict[int, MobRecord], zones: list[ZoneInfo],
                 exclusions.no_load_row_level_zero_count += 1
 
     evaluated: list[EvaluatedLoad] = []
+    evaluated_level_zero_vnums: set[int] = set()
     for load in loads:
         mob = mobs.get(load.vnum)
         if mob is None:
@@ -201,8 +205,16 @@ def evaluate_loads(mobs: dict[int, MobRecord], zones: list[ZoneInfo],
         if zone is None:
             exclusions.room_outside_any_zone_load_rows += 1
             continue
+        # A loaded level-0 mob (a placeholder template that some zone still spawns) has no
+        # BUCKETS entry -- bucket_for_level(0) returns None -- so it is evaluated (kept in the
+        # returned list) but excluded from every bucketed table; counted here (by distinct vnum,
+        # since one such template can be loaded at many rooms) so that exclusion is visible in
+        # the report rather than silently shrinking bucket totals.
+        if mob.level == 0:
+            evaluated_level_zero_vnums.add(mob.vnum)
         evaluated.append(EvaluatedLoad(mob=mob, difficulty=load.difficulty, zone_x=zone.x,
-                                        zone_number=load.zone, room=load.room))
+                                        zone_number=load.zone))
+    exclusions.evaluated_level_zero_outside_bucket_count = len(evaluated_level_zero_vnums)
     return evaluated, exclusions
 
 
@@ -422,7 +434,7 @@ def render_table7() -> str:
         "which returns right after the level-gap divisor for PC victims (no age/flag/alignment/"
         "difficulty/east-bonus/TEMPORARY steps), then the 7000 clamp.",
         "",
-        "| killer tier \\ victim tier | " + " | ".join(str(t) for t in TIERS) + " |",
+        "| killer tier \\ victim tier | " + " | ".join(str(tier) for tier in TIERS) + " |",
         "| ---: | " + " | ".join("---:" for _ in TIERS) + " |",
     ]
     for killer_tier in TIERS:
@@ -434,8 +446,8 @@ def render_table7() -> str:
 
 def synthetic_median_mob(rows_by_bucket: dict[str, list[EvaluatedLoad]], tier: int) -> MobRecord:
     """A level-matched, neutral-alignment, unflagged mob whose exp is the bucket median exp for
-    `tier`'s own level bucket, standing, default difficulty 100 (leaves exp unchanged, per
-    controller decision 2)."""
+    `tier`'s own level bucket, standing, default difficulty 100 (100 is `exp_with_modifiers`'s
+    unchanged value, per FORMULAS.md's `exp_with_modifiers` step 7)."""
     bucket_label = bucket_for_tier(tier)
     neutral_evil_rows = [row for row in rows_by_bucket[bucket_label]
                           if row.mob.alignment < GOOD_ALIGNMENT_THRESHOLD]
@@ -493,16 +505,19 @@ def render_assumptions_header(exclusions: CorpusExclusions, evaluated_count: int
         "## Assumptions",
         "",
         f"- Age: every mob evaluated at raw `MOB_AGE_TICKS = average_mob_life = 40` "
-        "(a mob that has lived an average life) -- controller decision 4. The DERIVED `age` "
-        "inside `exp_with_modifiers` still depends on the victim's own level.",
+        "(a mob that has lived an average life, the neutral reference point for the age curve). "
+        "The DERIVED `age` inside `exp_with_modifiers` still depends on the victim's own level.",
         f"- Damage figure: {damage_note}",
         f"- Reference killer for tables 1-3 and the duo/trio table: good race (RACE_GOOD) and "
-        f"good-aligned (alignment 1000, IS_GOOD) -- controller decision 5.",
+        f"good-aligned (alignment 1000, IS_GOOD) -- the reference killer race/alignment used "
+        f"throughout this report.",
         "- \"Neutral-or-evil mob\" = mob alignment < 100 (below IS_GOOD's threshold).",
         "- Difficulty is read from each zone-reset `M` load row (0 and 100 both leave exp "
-        "unchanged) -- controller decision 2.",
-        "- The killer's zone x is the zone containing the mob's own load room, mapped by the "
-        "first zone (ascending zone number) whose `top >= room` -- controller decision 3.",
+        "unchanged); difficulty is live tuning attached to the spawn command, not to the mob "
+        "record itself.",
+        "- The killer's zone x is the zone containing the mob's own load room (the killer stands "
+        "in the spawn room), mapped by the first zone (ascending zone number) whose "
+        "`top >= room`.",
         "- `gain_exp` only applies a POSITIVE gain while `GET_LEVEL(ch) < LEVEL_IMMORT - 1` (90) "
         "and a NEGATIVE gain while `GET_LEVEL(ch) < LEVEL_IMMORT` (91) (src/limits.cpp:410-426): "
         "a level-90-or-above character earns ZERO XP from any kill or hit (tables 1, 2, 3 and 7 "
@@ -519,6 +534,9 @@ def render_assumptions_header(exclusions: CorpusExclusions, evaluated_count: int
         f"{exclusions.pet_or_orc_friend_load_rows}.",
         f"- Load rows whose vnum has no matching mob record: {exclusions.unknown_vnum_load_rows}.",
         f"- Load rows whose room maps to no zone: {exclusions.room_outside_any_zone_load_rows}.",
+        f"- Distinct loaded level-0 mobs (evaluated but outside every bucket, since BUCKETS starts "
+        f"at 1-9, and therefore absent from every bucketed table): "
+        f"{exclusions.evaluated_level_zero_outside_bucket_count}.",
         f"- Total mob records parsed: {total_mob_count}.",
         "",
     ])

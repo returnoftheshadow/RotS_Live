@@ -62,11 +62,6 @@ SAMPLE_TIER_BANDS = ("30-39", "40-49", "50-59", "60-74", "75-89")
 # Fixed seed: the tier-band sample only needs to be reproducible, not secret.
 SAMPLE_RANDOM_SEED = 20260919
 
-# A character can sit below its level's XP floor by up to this much before the
-# server would actually delevel it, so small negative deltas are expected and
-# are reported as their own band rather than folded into "0-25%".
-DELEVEL_TOLERANCE_XP = 20000
-
 XP_POSITION_BAND_LABELS = ("below level floor", "0-25%", "25-50%", "50-75%", "75-100%")
 
 

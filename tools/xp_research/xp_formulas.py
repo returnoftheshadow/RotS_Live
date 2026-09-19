@@ -1,14 +1,14 @@
 """Python mirror of the live server's experience gain and loss formulas.
 
-Every function here cites the FORMULAS.md row (Task 1, tools/xp_research/FORMULAS.md) it mirrors
-plus the C++ source it was traced from. This module does no I/O; evaluate_corpus.py reads the
-CSVs and calls into these functions.
+Every function here cites the FORMULAS.md row (tools/xp_research/FORMULAS.md) it mirrors plus the
+C++ source it was traced from. This module does no I/O; evaluate_corpus.py reads the CSVs and
+calls into these functions.
 
 Assumption carried by every caller in this module that passes an `age_ticks` argument: the mob
 being killed has lived exactly `average_mob_life` (40) raw MOB_AGE_TICKS (src/utils.h:677) -- "a
-mob that has lived an average life" (controller decision 4). The DERIVED `age` used inside
-exp_with_modifiers still depends on the victim's level (see that function's docstring), so this
-raw-ticks assumption does not mean every mob gets the same age bonus.
+mob that has lived an average life", the neutral reference point for the age curve. The DERIVED
+`age` used inside exp_with_modifiers still depends on the victim's level (see that function's
+docstring), so this raw-ticks assumption does not mean every mob gets the same age bonus.
 """
 from __future__ import annotations
 
@@ -252,7 +252,7 @@ def solo_kill_xp(killer_level: int, mob: MobRecord, zone_x: int, killer_is_good_
 
     `attacked_level = levelb(killer_level)` (a solo killer is the only one who has damaged the
     mob, so `attacked_level` equals their own `levelb`); age uses `average_mob_life` raw
-    `MOB_AGE_TICKS`, per controller decision 4 (see this module's header docstring).
+    `MOB_AGE_TICKS` -- a mob that has lived an average life (see this module's header docstring).
     """
     attacked_level = levelb(killer_level)
     base_exp = kill_share([killer_level], mob, attacked_level)[0]

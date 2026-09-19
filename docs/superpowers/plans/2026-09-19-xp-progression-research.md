@@ -710,3 +710,67 @@ git commit -m "docs: experience and progression baseline for the XP redesign"
 - **Scope coverage**: question 1 → Tasks 1, 3, 4; question 2 → Task 1 Steps 6 and 7, Task 3 table 4; question 3 → Task 2, Task 3 tables 1 to 3 and 6; question 4 → Task 3 table 4; question 5 → Task 1 Step 5 item 8, Task 2 zones, Task 3 table 1 east columns, Task 4 east pin; question 6 → Task 5.
 - **Known unknowns handed to the executor rather than guessed**: the `MOB_*` bit values, where `GET_DIFFICULTY` is populated, the value of `average_mob_life`, and whether any live Mudlle script grants XP. Each has an explicit lookup step.
 - **Name consistency**: the `id` list in Task 1 matches the function names in Task 3 and the `XpFormula.*` test names in Task 4 describe the same behaviours.
+
+## Rulings during execution (2026-09-19)
+
+The plan above is what was approved going in; several things had to be decided or corrected once
+the code and data were actually read. This section records those decisions and why they were
+made, so the plan stays an honest record of what happened rather than only what was intended.
+
+- **Task 1 and the synthesis stayed with the main session.** Tracing which code paths are actually
+  live, and deciding what the resulting numbers mean, needs judgment rather than a bounded,
+  well-specified task, so both were done directly rather than handed to a delegated worker — each
+  was still reviewed afterward like every other task's output.
+- **All commits were made by the main session, by explicit file path, right after each task's work
+  was verified.** Git operations stay with the main session under this project's standing rules,
+  and a second Claude session sharing this worktree had its own untracked and staged files that
+  must never be swept into a commit by an unqualified `git add`.
+- **Task 2 (mob and zone extraction) and Task 5 (player population) ran side by side**, since they
+  touch disjoint files and share no state.
+- **Difficulty turned out to live on the zone reset `M` command (and the `A 2` command), not in
+  the mob file**, and the east-of-river bonus is keyed to the killer's own room zone, not the
+  mob's home zone. Task 2 was extended to also parse `M` commands into mob-load rows and a new
+  `mob_loads.csv`, and `parse_zones.py` gained a `MobLoad` record and a `--mob-loads` output mode.
+  `exp_with_modifiers` and the corpus evaluator both gained a `difficulty` parameter and now
+  evaluate a mob once per load row it actually spawns from, so neither modifier was silently
+  dropped; `evaluate_corpus.py` correspondingly takes three CSVs (mobs, zones, mob loads), not two.
+- **The corpus evaluator only counts a mob through its real zone-reset load rows.** A mob record
+  with no load row at all, including the level-0 placeholder templates, is excluded and the
+  excluded count is reported, because a prototype nothing ever spawns is not killable content.
+- **Task 4's C++ pin tests compute their expected values by hand from FORMULAS.md**, since the
+  C++ source is the ground truth, rather than copying numbers from Task 3's Python tests (which
+  did not exist yet when Task 4 started); Task 3's own tests were then reconciled to match the
+  C++ pins once both existed.
+- **The one-line CMakeLists.txt test registration was staged without touching a sibling Claude
+  session's own uncommitted edits to that same file**, by building the new file content with
+  `git show` / `hash-object` / `update-index` directly instead of `git add`. In the end a later
+  commit from that sibling session (cdf311d) already carried the same registration line as part
+  of its own CMakeLists.txt change, so nothing further needed to land.
+- **A seventh table was added**: solo player-kill XP by killer tier versus victim tier
+  (`solo_pc_kill_xp`), plus a duo-and-trio-versus-solo table, because the approved research scope
+  named player kills as a question to answer and grouping as a hypothesis to test, and neither had
+  a table before.
+- **Tier 89 was added to the evaluated tier list** (`TIERS` in `evaluate_corpus.py` now has seven
+  entries: 30, 40, 50, 60, 75, 89, 90), and `gain_exp_clamp` was changed to take the killer's own
+  level as a second argument and reproduce `gain_exp`'s level-90 positive-gain gate. This was a
+  correction, not a preference: a level-90 character cannot gain any positive XP at all
+  (`src/limits.cpp:416`), which the model had missed, so tier 89 was kept as the highest level that
+  can still earn anything, and tier 90 was kept only for the loss-side tables.
+- **A sibling Claude session's already-running i386 Docker build**, which happened to compile the
+  same new test file, was accepted as satisfying Task 4's own required build-and-run step instead
+  of starting a second exclusive Docker job against the same checkout, since it was the identical
+  source tree and toolchain.
+- **A small style fix (missing role comments on the `LevelSixtyPc` fixture's fields) was folded
+  into the same C++ test fix that was already reopening that file for an unrelated defect**, since
+  a recompile was needed anyway and the comment convention comes from this project's own rules.
+- **A final review of the whole plan's output found five problems worth a dedicated fix pass**: a
+  false claim that the 7000 clamp only affects mob kills and never an equal-tier player kill;
+  Table 2's "hits per kill" figures built on the mob corpus's "60+" level band; tiers 40 and 50
+  missing from most of the result tables even though they were in scope; committed source files
+  referencing files and internal process labels that are not part of the tracked history; and this
+  plan having no record of the decisions made along the way (the gap this section now closes). The
+  fix: for every tier of 60 and up, Table 2 and the duo/trio table switch from the "60+" mob-level
+  band to the "50-59" band, because the findings document's own text already calls the "60+" band
+  armour-wearing shopkeepers and a single boss, not real content a tier-60-plus player actually
+  fights — the cost is that every tier-60-and-up "hits per kill" figure shrinks and has to be
+  re-read from a freshly generated report.

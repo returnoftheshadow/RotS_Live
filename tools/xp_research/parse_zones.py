@@ -164,7 +164,7 @@ def parse_all(zon_dir: Path) -> dict[int, ZoneRecord]:
     # is not listed there and is not part of the live world.
     zones: dict[int, ZoneRecord] = {}
     zone_files = [path for path in zon_dir.glob("*.zon") if path.stem.isdigit()]
-    for path in sorted(zone_files, key=lambda p: int(p.stem)):
+    for path in sorted(zone_files, key=lambda zone_file: int(zone_file.stem)):
         record = parse_zone_file(path)
         zones[record.number] = record
     return zones

@@ -1,8 +1,8 @@
 """Unit tests for tools/xp_research/xp_formulas.py.
 
-Every test's expected value is worked by hand from tools/xp_research/FORMULAS.md (Task 1) or,
-for the exp_with_modifiers reconciliation tests, copied verbatim from the hand-derived comments
-in src/tests/xp_formula_tests.cpp (Task 4), which this module must reproduce exactly.
+Every test's expected value is worked by hand from tools/xp_research/FORMULAS.md, or, for the
+exp_with_modifiers reconciliation tests, copied verbatim from the hand-derived comments in
+src/tests/xp_formula_tests.cpp, which this module must reproduce exactly.
 """
 import unittest
 
@@ -119,7 +119,7 @@ class HittingXp(unittest.TestCase):
 class Losses(unittest.TestCase):
     def test_flee_loss_is_the_sum_of_levels(self):
         # src/act_offe.cpp:388-390: loose = L_fleeing + L_opponent, applied as gain_exp(ch, -loose).
-        # flee_loss reports the positive magnitude of that loss, per the task brief's own pin:
+        # flee_loss reports the positive magnitude of that loss:
         # flee_loss(75, 15) == 90 (75 + 15), not the signed exp delta.
         self.assertEqual(flee_loss(75, 15), 90)
 

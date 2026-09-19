@@ -117,3 +117,5 @@ and no code writes `points.exp` downward except `wiz_advance` demotion.
 4. East bonus and good-on-good penalty at each tier.
 5. Minimum gain events per level forced by the 7000 clamp: `ceil(next_level_cost / 7000)`.
 6. Whether the `(n + 1) / n` group factor and `group_bonus` make a duo or trio out-earn a solo per member.
+7. Whether level 90 can earn any positive XP at all (`gain_exp_clamp`'s `GET_LEVEL(ch) < LEVEL_IMMORT - 1`
+   gate, `src/limits.cpp:416`), across every kill and hit table.

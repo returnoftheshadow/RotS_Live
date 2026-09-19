@@ -1,5 +1,5 @@
-// Pins the live XP formulas at the research tiers from
-// .superpowers/sdd/2026-09-19-xp-progression-research/, so the Python mirror in
+// Pins the live XP formulas at the research tiers for the XP and progression baseline
+// (docs/systems/experience-and-progression.md), so the Python mirror in
 // tools/xp_research can be validated against the server and so a later progression redesign has
 // to update these numbers deliberately.
 //
@@ -19,9 +19,10 @@
 // (src/utils.h:677) is the RAW mud-hour age; exp_with_modifiers()'s own local `age` is a second,
 // DERIVED value -- MOB_AGE_TICKS * 40 / (GET_LEVEL(dead_man) + 20) -- that only equals
 // average_mob_life when GET_LEVEL(dead_man) + 20 == 40, i.e. a level-20 mob. Every mob fixture
-// below is pinned to MOB_AGE_TICKS == average_mob_life (40) exactly as the task brief specifies,
-// but the DERIVED `age` therefore differs by mob level (45 for a level-15 mob, 20 for a level-60
-// mob) -- both are worked out explicitly in the comments below rather than assumed to be 40.
+// below is pinned to MOB_AGE_TICKS == average_mob_life (40), a mob that has lived an average
+// life, but the DERIVED `age` therefore differs by mob level (45 for a level-15 mob, 20 for a
+// level-60 mob) -- both are worked out explicitly in the comments below rather than assumed to
+// be 40.
 #include "../limits.h"
 #include "../structs.h"
 #include "../utils.h"
@@ -107,9 +108,9 @@ void init_good_killer(char_data& killer, int level)
 }
 
 // A neutral (alignment 0, so IS_GOOD()/IS_EVIL() are both false), unflagged, standing NPC at the
-// given level, aged to exactly average_mob_life raw MOB_AGE_TICKS (src/utils.h:677) -- the
-// "neutral age" fixture the task brief calls for (see this file's header comment on how the
-// DERIVED `age` inside exp_with_modifiers differs from this raw tick count). Difficulty
+// given level, aged to exactly average_mob_life raw MOB_AGE_TICKS (src/utils.h:677) -- a mob
+// that has lived an average life (see this file's header comment on how the DERIVED `age` inside
+// exp_with_modifiers differs from this raw tick count). Difficulty
 // (GET_DIFFICULTY() == specials.prompt_number, src/utils.h:403) stays 0, so step 7's difficulty
 // scaling never applies.
 void init_neutral_standing_mob(char_data& mob, int level)
@@ -120,10 +121,7 @@ void init_neutral_standing_mob(char_data& mob, int level)
     mob.specials.default_pos = POSITION_STANDING;
     mob.specials.prompt_number = 0;
     mob.specials2.alignment = 0;
-    // time()/time_t is the legacy API MOB_AGE_TICKS() itself is written against
-    // (src/utils.h:677); this fixture drives that EXISTING production macro's exact behavior
-    // rather than introducing new production code, so it does not fall under this depot's
-    // new-code std::chrono preference (see CLAUDE.local.md).
+    // time()/time_t matches the existing MOB_AGE_TICKS() macro's own API (src/utils.h:677).
     mob.player.time.logon = time(nullptr) - static_cast<time_t>(average_mob_life) * SECS_PER_MUD_HOUR;
 }
 
@@ -175,32 +173,32 @@ struct LevelSixtyPc
 TEST(XpFormula, GainExpClampsAPositiveGainToSevenThousand)
 {
     // xp_to_level(60) = 60*60*1500 = 5,400,000.
-    LevelSixtyPc pc(5400000);
+    LevelSixtyPc level_sixty_pc(5400000);
 
     // gain_exp(ch, 250000): GET_LEVEL(60) < LEVEL_IMMORT-1 (90), so
     // gain = MIN(7000, 250000) = 7000 (src/limits.cpp:107-110); gain_exp_regardless() then adds
     // it directly: 5,400,000 + 7000 = 5,407,000.
-    gain_exp(&pc.character, 250000);
+    gain_exp(&level_sixty_pc.character, 250000);
 
-    EXPECT_EQ(GET_EXP(&pc.character), 5407000)
+    EXPECT_EQ(GET_EXP(&level_sixty_pc.character), 5407000)
         << "tier: level 60 PC; a +250000 event must clamp to the +7000 single-event cap";
 }
 
 TEST(XpFormula, GainExpClampsANegativeGainToTenThousandWithoutDeleveling)
 {
     // xp_to_level(60) = 5,400,000.
-    LevelSixtyPc pc(5400000);
+    LevelSixtyPc level_sixty_pc(5400000);
 
     // gain_exp(ch, -250000): GET_LEVEL(60) < LEVEL_IMMORT (91), so
     // gain = MAX(-10000, -250000) = -10000 (src/limits.cpp:113-116); gain_exp_regardless()
     // subtracts it: 5,400,000 - 10000 = 5,390,000. The delevel loop's own condition
     // (src/limits.cpp:461) is xp_to_level(60) - 20000 > exp, i.e. 5,380,000 > 5,390,000, which is
     // false, so the loop never runs and the level stays 60.
-    gain_exp(&pc.character, -250000);
+    gain_exp(&level_sixty_pc.character, -250000);
 
-    EXPECT_EQ(GET_EXP(&pc.character), 5390000)
+    EXPECT_EQ(GET_EXP(&level_sixty_pc.character), 5390000)
         << "tier: level 60 PC; a -250000 event must clamp to the -10000 single-event floor";
-    EXPECT_EQ(GET_LEVEL(&pc.character), 60)
+    EXPECT_EQ(GET_LEVEL(&level_sixty_pc.character), 60)
         << "tier: level 60 PC; the -10000 clamp must stay inside the delevel loop's "
            "20000-point tolerance and not delevel the character";
 }
@@ -214,7 +212,7 @@ TEST(XpFormula, KillModifiersForALevelNinetyAndALevelThirtyKillerOnALevelFifteen
     init_neutral_standing_mob(mob, 15);
 
     // group_gain()'s solo-kill share (src/fight.cpp:1490-1541, FORMULAS.md "Kill share"), worked
-    // by hand for mob_exp = 3930, per the task brief:
+    // by hand for mob_exp = 3930:
     //   levelb(killer) = min(level, 20 + level/3)              (GET_LEVELB, src/utils.h:315)
     //   level_total    = 2 * levelb                             (solo: attacked_level == levelb)
     //   share          = 3930/10 * 2 / 1 / level_total          (num_killers == 1)

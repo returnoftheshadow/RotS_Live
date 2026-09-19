@@ -65,11 +65,12 @@ credited killer, is grouped with one of those, or masters a fighting pet or orc-
 5. Age curve (victim above level 5): 60 to 140 percent depending on how long the mob has lived
    relative to `average_mob_life` (40 mud hours).
 6. Flag bonuses on `base`: aggressive +1/5, fast +1/10, switching +1/10, memory +1/20, default position below standing
-   (resting, sitting or sleeping) -1/20, live special procedure +1/10; good killer and good victim: ×2/3.
+   (resting, sitting or sleeping) -1/20; good killer and good victim: ×2/3; live special procedure +1/10.
 7. Difficulty: `× difficulty / 100` when non-zero.
 8. East bonus: a good-race killer in a zone with map `x > 8` gets `+ min(x - 8, 5) * 3` percent (up to 15).
    223 of 337 zones are east of the river; 150 of them carry the full 15 percent.
-9. Marked `TEMPORARY` in the source: `+ 2 * exp / max(1, L_killer - 1)` (7 percent at 30, 2 percent at 89).
+9. Marked `TEMPORARY` in the source: `+ 2 * exp / max(1, L_killer - 1)` (6.9 percent at 30, 3.4 percent at
+   60, 2.3 percent at 89).
 
 **Are there other loss mechanisms?** No. Only flee, death, and a script or immortal command passing a
 negative value remove experience. Nothing else writes `points.exp` downward.
@@ -129,22 +130,28 @@ world is at least 15 to 30 levels below them.
 | 89 | 12 | 47 | 94 | 172 | 213 | 50 |
 | 90 | 0 | 0 | 0 | 0 | 0 | 0 |
 
-Kill XP falls by roughly half for every 15 levels the killer gains over the mob, and a good character
-killing a good mob gets about half again. The 90th percentile reaches the 7000 clamp only for level
-30-59 mobs killed at tiers 30 to 50. Even-sized bands report the mean of the two middle values.
+Kill XP falls by roughly half for every 15 levels the killer gains over the mob. The good-on-good
+modifier (step 6) is an exact two thirds per kill; the good-on-good column's larger gap from the
+neutral-or-evil median reflects that plus which mobs in the band happen to carry good alignment,
+not the modifier alone. The 90th percentile reaches the 7000 clamp only for level 30-59 mobs
+killed at tiers 30 to 50. Even-sized bands report the mean of the two middle values.
 
 ### Table 2: XP per hit at the damage cap, and hits in one median level-matched kill
 
 | tier | vs level 15 | vs level 20 | vs own level | hits equal to one level-matched kill |
 | ---: | ---: | ---: | ---: | ---: |
 | 30 | 41 | 54 | 80 | 35 |
-| 60 | 36 | 48 | 140 | 26 |
-| 75 | 35 | 46 | 170 | 20 |
-| 89 | 35 | 46 | 198 | 5 |
+| 40 | 39 | 51 | 100 | 33 |
+| 50 | 37 | 49 | 120 | 21 |
+| 60 | 36 | 48 | 140 | 9 |
+| 75 | 35 | 46 | 170 | 3 |
+| 89 | 35 | 46 | 198 | 2 |
 | 90 | 0 | 0 | 0 | — |
 
-Per hit, a level-15 victim pays half what a level-matched one does at tier 30 and under a fifth at 89; the last column shows how
-few level-matched hits equal a whole kill once the level-gap divisors have shrunk the kill.
+Per hit, a level-15 victim pays half what a level-matched one does at tier 30 and under a fifth at 89; the last column
+divides by the median kill of the hardest band that is real content, 50-59 (nothing harder exists past it), and shows
+how few hits against that band equal a whole kill: 35 at tier 30 falls to 2 at tier 89 as the level-gap divisors shrink
+the kill faster than the hit.
 
 ### Table 3: XP per mob, split into hitting and killing (median mob of each band)
 
@@ -152,6 +159,10 @@ few level-matched hits equal a whole kill once the level-gap divisors have shrun
 | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 | 30 | 10-19 | 4 | 164 | 204 | 45% | 92 |
 | 30 | 30-39 | 13 | 1040 | 2796 | 27% | 295 |
+| 40 | 10-19 | 3 | 117 | 89 | 57% | 69 |
+| 40 | 40-49 | 21 | 2100 | 3224 | 39% | 254 |
+| 50 | 10-19 | 3 | 111 | 51 | 69% | 54 |
+| 50 | 50-59 | 25 | 3000 | 2510 | 54% | 220 |
 | 60 | 10-19 | 2 | 72 | 33 | 69% | 53 |
 | 60 | 50-59 | 22 | 2574 | 1251 | 67% | 174 |
 | 75 | 10-19 | 2 | 70 | 18 | 80% | 44 |
@@ -166,6 +177,8 @@ From tier 60 upward, hitting is the main experience vector even against the hard
 | tier | flee vs level 15 | death to a player (tenth) | as % of next level | death to a mob (full) | as % of next level | full loss in level-50 mob kills |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 30 | 45 | 4209 | 4.6 | 46302 | 50.6 | 6 |
+| 40 | 55 | 5707 | 4.7 | 62778 | 51.7 | 10 |
+| 50 | 65 | 7205 | 4.8 | 79262 | 52.3 | 14 |
 | 60 | 75 | 8704 | 4.8 | 95752 | 52.8 | 25 |
 | 75 | 90 | 10953 | 4.8 | 120491 | 53.2 | 49 |
 | 89 | 104 | 13053 | 4.9 | 143585 | 53.5 | 72 |
@@ -178,36 +191,53 @@ kills the world offers (hitting XP included), which is what a player weighs agai
 
 | tier | next level costs | minimum events (7000 clamp) | level-15 mobs per level | level-50 mobs per level |
 | ---: | ---: | ---: | ---: | ---: |
-| 30 | 91500 | 14 | 249 | — |
+| 30 | 91500 | 14 | 249 | 12 |
+| 40 | 121500 | 18 | 590 | 19 |
+| 50 | 151500 | 22 | 935 | 27 |
 | 60 | 181500 | 26 | 1729 | 47 |
 | 75 | 226500 | 33 | 2574 | 92 |
 | 89 | 268500 | 39 | 3274 | 134 |
 
-The clamp's theoretical minimum is never the binding constraint: the real count of kills per level is
-2 to 3.5 times the clamp floor on the hardest content and 18 to 84 times it on level-15 mobs.
+The clamp's theoretical minimum is never the binding constraint on level-15 mobs at any tier: the real
+count is 18 to 84 times the clamp floor. On level-50 mobs the picture flips at low tiers: a level-50 mob
+is above-level content for a tier 30 to 50 character and its per-mob hitting XP is disproportionately
+large, so fewer mobs than the clamp floor are needed (0.9 to 1.2 times); from tier 60 up, where a
+level-50 mob is realistic top-end content, it takes 1.8 to 3.5 times the clamp floor.
 
 ### Table 6: solo player-kill XP (victim at their level threshold)
 
 | killer \ victim | 30 | 40 | 50 | 60 | 75 | 90 |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 30 | 4354 | 6315 | 7000 | 7000 | 7000 | 7000 |
+| 40 | 3291 | 5853 | 7000 | 7000 | 7000 | 7000 |
+| 50 | 2647 | 4705 | 7000 | 7000 | 7000 | 7000 |
 | 60 | 2213 | 3934 | 6147 | 7000 | 7000 | 7000 |
+| 75 | 1776 | 3157 | 4934 | 7000 | 7000 | 7000 |
 | 89 | 1499 | 2666 | 4166 | 5999 | 7000 | 7000 |
 | 90 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 A player kill at or above one's own tier is the single largest experience event in the game at every
 tier from 50 up: the hitting-plus-kill XP of about two level-50 mobs at tier 60 and three and a half at
-tier 89, and the victim loses only the tenth.
+tier 89, and the victim loses only the tenth. The 7000 clamp itself binds equal-tier player kills from
+tier 50 up (30 vs 30 is 4354, 40 vs 40 is 5853, both below the clamp; 50 vs 50 and every tier above it
+land on exactly 7000).
 
 ### Table 7: groups (equal-level members, level-matched median mob)
 
 | tier | solo | duo per member | trio per member | trio total vs solo |
 | ---: | ---: | ---: | ---: | ---: |
 | 30 | 1980 | 1237 | 989 | 150% |
-| 60 | 4576 | 2859 | 2286 | 150% |
-| 89 | 2838 | 1772 | 1418 | 150% |
+| 40 | 2117 | 1322 | 1058 | 150% |
+| 50 | 2510 | 1568 | 1254 | 150% |
+| 60 | 2034 | 1270 | 1016 | 150% |
+| 75 | 1540 | 962 | 769 | 150% |
+| 89 | 1261 | 787 | 630 | 150% |
 
 Grouping raises the total paid out by half but halves each member's share; per member, solo always wins.
+Every tier reports against its own bucket-capped level-matched mob (the 50-59 band from tier 60 up, per
+Table 2), which is why solo XP falls from tier 50 to tier 60 instead of continuing to climb: the reference
+mob stops getting harder once content tops out in the 50s while the killer's own level-gap divisor keeps
+growing.
 
 ### The player population
 
@@ -246,8 +276,10 @@ within a year. Of a 23-character sample from the top of the curve, 6 sat below t
    tiers 30 to 50 in the east, not above. Good-on-good is the larger effect at every tier, taking a good
    character's kill XP on good mobs to about half of the neutral-or-evil median.
 6. **The 7000 clamp.** (Table 5.) It caps a level-89 character at 39 events per level in theory, but median kills are
-   so small that the practical count is 134 level-50 kills or 3274 level-15 kills. The clamp only bites
-   the top decile of kills at tiers 30 to 50 and every equal-tier player kill.
+   so small that the practical count is 134 level-50 kills or 3274 level-15 kills. Against mobs, the clamp
+   only bites the top decile of kills at tiers 30 to 50 (Table 1). Against players (Table 6), it binds every
+   equal-tier kill from tier 50 up: 30 vs 30 is 4354 and 40 vs 40 is 5853, both below the clamp, but 50 vs
+   50 and every tier above it land on exactly 7000.
 7. **Level 90 is a dead end by code** (Tables 1, 2 and 6, and the population table), not by content: the gain gate stops at 89. Five mortals are parked
    there, and they can only go down.
 

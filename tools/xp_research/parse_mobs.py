@@ -2,6 +2,9 @@
 
 Field order is copied from the fscanf sequence; do not reorder without
 re-reading db.cpp. Strings end at '~'; numbers are a whitespace stream.
+_Cursor.read_string() below stops at the first '~' rather than reading whole
+lines the way parse_zones.py's line-based reader does: no mob record has a
+'~' in the middle of a line, so the simpler, faster reader is correct here.
 """
 from __future__ import annotations
 import csv
@@ -101,10 +104,12 @@ class _Cursor:
 
     def read_ints(self, count: int) -> list[int]:
         # fscanf("%d") leaves the destination variable untouched and does not
-        # consume input on a failed conversion; a few world records (e.g. the
-        # unused "golem" template at vnum 10174 in 101.mob) run out of trailing
-        # fields before the next record marker, so a non-numeric token is left
-        # unconsumed here and defaulted to 0 rather than raising.
+        # consume input on a failed conversion. 2441 of 3723 world records (e.g. the
+        # unused "golem" template at vnum 10174 in 101.mob) omit only the final
+        # trailing integer (will_teach) before the next record marker, so a
+        # non-numeric token is left unconsumed here and that one field defaults
+        # to 0 rather than raising; test_parse_world.py asserts this is the only
+        # field that ever defaults, so a wider misalignment would be caught.
         values = []
         for _ in range(count):
             checkpoint = self.pos
@@ -162,7 +167,7 @@ def parse_all(mob_dir: Path) -> list[MobRecord]:
     # is not listed there and is not part of the live world.
     records: list[MobRecord] = []
     zone_files = [path for path in mob_dir.glob("*.mob") if path.stem.isdigit()]
-    for path in sorted(zone_files, key=lambda p: int(p.stem)):
+    for path in sorted(zone_files, key=lambda mob_file: int(mob_file.stem)):
         records.extend(parse_mob_file(path))
     return records
 
@@ -170,11 +175,12 @@ def parse_all(mob_dir: Path) -> list[MobRecord]:
 def main(argv: list[str]) -> int:
     records = parse_all(Path(argv[1]))
     writer = csv.writer(sys.stdout)
-    names = [f.name for f in fields(MobRecord)]
+    names = [field.name for field in fields(MobRecord)]
     flags = ["is_aggressive", "is_memory", "is_spec", "is_fast", "is_switching", "is_orc_friend", "is_pet"]
     writer.writerow(names + flags)
     for record in records:
-        writer.writerow([getattr(record, n) for n in names] + [int(getattr(record, f)) for f in flags])
+        writer.writerow([getattr(record, field_name) for field_name in names]
+                         + [int(getattr(record, flag_name)) for flag_name in flags])
     return 0
 
 

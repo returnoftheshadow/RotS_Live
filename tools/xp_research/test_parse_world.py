@@ -14,6 +14,7 @@
 import unittest
 from pathlib import Path
 
+import parse_mobs
 from parse_mobs import parse_mob_file
 from parse_zones import parse_zone_file
 
@@ -38,7 +39,8 @@ class ParseMobFile(unittest.TestCase):
     def test_every_world_file_parses_and_every_record_has_a_non_negative_level(self):
         # lib/world/mob/10079 ("golem") is an unused, all-zero-stat template
         # record; its level 0 is genuine data, not a parser bug, so the bound
-        # is >= 0 rather than the stricter > 0 in the brief's original draft.
+        # is >= 0, not the stricter > 0 that would reject a legitimate level-0
+        # template.
         total = 0
         for path in sorted((WORLD / "mob").glob("*.mob")):
             if not path.stem.isdigit():
@@ -47,6 +49,46 @@ class ParseMobFile(unittest.TestCase):
                 total += 1
                 self.assertGreaterEqual(record.level, 0, f"vnum {record.vnum} in {path.name}")
         self.assertGreater(total, 3000)
+
+    def test_only_the_trailing_will_teach_field_ever_defaults(self):
+        # fscanf("%d") silently defaults a missing trailing integer to 0
+        # (parse_mobs._Cursor.read_ints); 2441 of 3723 world mob records omit
+        # only the final will_teach field before the next record marker. This
+        # wraps read_ints, over the real parse of the whole corpus, to record
+        # every (call_size, index) pair where a default fired, then asserts
+        # the only position ever defaulted is index 6 of a 7-value call -- the
+        # will_teach slot -- so a default anywhere else, which would mean the
+        # field order has drifted out of alignment with db.cpp, fails this
+        # test instead of silently returning 0.
+        defaulted_positions: list[tuple[int, int]] = []
+        original_read_ints = parse_mobs._Cursor.read_ints
+
+        def traced_read_ints(self, count):
+            values = []
+            for index in range(count):
+                checkpoint = self.pos
+                token = self.read_token()
+                try:
+                    values.append(int(token))
+                except ValueError:
+                    self.pos = checkpoint
+                    values.append(0)
+                    defaulted_positions.append((count, index))
+            return values
+
+        parse_mobs._Cursor.read_ints = traced_read_ints
+        try:
+            records = parse_mobs.parse_all(WORLD / "mob")
+        finally:
+            parse_mobs._Cursor.read_ints = original_read_ints
+
+        self.assertGreater(len(records), 3000)
+        self.assertTrue(defaulted_positions, "expected at least one defaulted field in the corpus")
+        self.assertTrue(
+            all(position == (7, 6) for position in defaulted_positions),
+            "a field other than the trailing will_teach integer defaulted to 0 -- "
+            "this indicates field misalignment in the parser",
+        )
 
 
 class ParseZoneFile(unittest.TestCase):
