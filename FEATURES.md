@@ -419,7 +419,7 @@ Automate the manual scenarios in `manual-test-plan.md` against a real server boo
 committed synthetic test world. Design: `docs/superpowers/specs/2026-09-19-integration-test-harness-design.md`.
 
 Scope, in three slices (each its own plan):
-- [ ] Slice 1 (`docs/superpowers/plans/2026-09-19-integration-test-harness.md`): `-t` harness mode
+- [x] Slice 1 (`docs/superpowers/plans/2026-09-19-integration-test-harness.md`): `-t` harness mode
   (`harness tick`, `ROTS_RANDOM_SEED`), synthetic zone 11 under `tests/integration/world/`,
   account-native JSON fixtures, the `rots_harness` pytest package (lib builder, local and
   docker compose launchers with the shared Docker lock, crash monitor, telnet sessions,
