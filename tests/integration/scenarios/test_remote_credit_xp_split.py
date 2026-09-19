@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+import pytest
+
+from rots_harness import fixtures
+
+pytestmark = pytest.mark.scenario
+
+BLAZE_CAST = ("You breathe out fire.",)
+SHARE_MARKER = "You receive your share of experience"
+
+
+def test_engaged_fighter_gets_the_share_and_the_remote_caster_does_not(server, imp, mage, fighter, harness) -> None:
+    imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
+    imp.command("restore harnmage")
+
+    mage.command("west")  # 1131 -> 1130 with the imp
+    mage.cast("blaze", success_markers=BLAZE_CAST)  # empty room: the cast engages nobody
+    mage.command("east")  # back to 1131, remote from the death room
+
+    imp.command("load mob 1130")
+    imp.command("wizset orc hit 9")  # below the smallest halved blaze tick, so the tick kills it
+
+    fighter.command("west")
+    fighter.command("kill orc")
+    harness.tick()
+
+    fighter_text = fighter.drain(2.0)
+    mage_text = mage.drain(2.0)
+    assert SHARE_MARKER in fighter_text, fighter_text
+    assert SHARE_MARKER not in mage_text, mage_text
