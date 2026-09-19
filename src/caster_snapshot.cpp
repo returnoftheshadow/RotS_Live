@@ -11,22 +11,22 @@ caster_snapshot caster_snapshot::capture(const char_data& caster)
     // "(ch) && ..."), which gcc's -Wnonnull-compare flags as comparing a
     // reference's address to NULL even though it can never be null here. Route
     // every such macro through this pointer instead of taking &caster inline.
-    const char_data* const ch = &caster;
+    const char_data* const caster_pointer = &caster;
     snap.abs_number = caster.abs_number;
     snap.identity_ptr = const_cast<char_data*>(&caster);
     snap.identity_serial = caster.registration_serial;
-    snap.level_a = GET_LEVELA(ch);
+    snap.level_a = GET_LEVELA(caster_pointer);
     snap.mage_prof_level = utils::get_prof_level(PROF_MAGE, caster);
     snap.cleric_prof_level = utils::get_prof_level(PROF_CLERIC, caster);
     snap.intel = caster.tmpabilities.intel;
     snap.wil = caster.tmpabilities.wil;
     snap.perception = GET_PERCEPTION(snap.identity_ptr); // get_race_perception() takes a non-const char_data*
-    snap.willpower = GET_WILLPOWER(ch);
+    snap.willpower = GET_WILLPOWER(caster_pointer);
     snap.spell_power = caster.points.spell_power;
     snap.spell_pen = caster.points.spell_pen;
     snap.tactics = caster.specials.tactics;
     snap.specialization = utils::get_specialization(caster);
-    snap.race = GET_RACE(ch);
+    snap.race = GET_RACE(caster_pointer);
     snap.is_npc = utils::is_npc(caster);
     snap.is_charmed = utils::is_affected_by(caster, AFF_CHARM);
     snap.is_pc_for_spell_pen = !snap.is_npc
@@ -35,7 +35,7 @@ caster_snapshot caster_snapshot::capture(const char_data& caster)
     if (snap.is_npc && snap.is_charmed && caster.master) {
         snap.master_mage_prof_level = utils::get_prof_level(PROF_MAGE, *caster.master);
     }
-    const char* name = GET_NAME(ch);
+    const char* name = GET_NAME(caster_pointer);
     const char* display_name = "someone";
     if (name != nullptr) {
         display_name = name;
@@ -62,7 +62,7 @@ char_data* caster_snapshot::resolve() const
     // Never dereferences identity_ptr: abs_number slots are recycled by
     // register_npc_char() after free_char(), so a stale identity_ptr can
     // point at freed storage that has since been reallocated to an
-    // unrelated character (TASK-021 fix round 1). char_by_abs_number()
+    // unrelated character. char_by_abs_number()
     // looks up the CURRENT owner of the slot instead; identity_ptr is only
     // ever compared, never read through. The registration serial closes the
     // remaining gap: a slot recycled to a new character allocated at the old

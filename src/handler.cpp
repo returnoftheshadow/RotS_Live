@@ -86,10 +86,8 @@ char char_control_array[MAX_CHARACTERS / 8 + 1];
 long last_control_set = -1;
 
 // Parallel to char_control_array: the char_data* registered under each live
-// abs_number slot (TASK-021 port). caster_snapshot::resolve() and
-// affect_update()'s snapshot walk need to recover the CURRENT owner of a slot
-// without ever dereferencing a stale pointer -- char_by_abs_number() is the
-// only sanctioned way to do that lookup.
+// abs_number slot. char_by_abs_number() is the only sanctioned way to read it,
+// so a stale pointer is never dereferenced to find a slot's current owner.
 static char_data* characters_by_abs_number[MAX_CHARACTERS];
 // Source of char_data::registration_serial: advanced on every set_char_exists(num, ch), so no
 // two registrations ever share a serial, however often a slot or an address is recycled.
@@ -133,15 +131,11 @@ int char_power(int lev)
     return MIN((lev + 2), 16 + lev / 2) * MIN(lev + 2, 32);
 }
 
-/*
- * Decide if `character' and `other' are on the same side of the race
- * war.  Return 0 if they are, return 1 if they aren't.
- */
 namespace {
 // The body of other_side() reads exactly three things from `character`: its
 // NPC-ness, its charm status and its race. Both public forms below funnel
 // here, so the live path and the caster_snapshot path share one body and can
-// never drift (TASK-021). The live form does NOT go through
+// never drift. The live form does NOT go through
 // caster_snapshot::capture(): other_side() runs per-character inside display
 // and grouping loops, and capture() costs two profession lookups, a
 // perception evaluation and a 64-byte name copy that this function reads none
@@ -179,15 +173,16 @@ int other_side_impl(bool character_is_npc, bool character_is_charmed, int charac
 }
 } // namespace
 
+/*
+ * Decide if `character' and `other' are on the same side of the race
+ * war.  Return 0 if they are, return 1 if they aren't.
+ */
 int other_side(const char_data* character, const char_data* other)
 {
     return other_side_impl(IS_NPC(character) != 0, IS_AFFECTED(character, AFF_CHARM) != 0,
         GET_RACE(character), other);
 }
 
-// The snapshot form: is_npc/is_charmed/race are captured from exactly the
-// same three expressions the live form evaluates above, so the two agree by
-// construction.
 int other_side(const caster_snapshot& character, const char_data* other)
 {
     return other_side_impl(character.is_npc, character.is_charmed, character.race, other);
@@ -712,7 +707,7 @@ void affect_to_char(struct char_data* ch, struct affected_type* af)
 
 namespace {
 // The caster recorded for each live room affect, keyed by (room number,
-// spell) (TASK-021 port). Lives beside the affect rather than inside
+// spell). Lives beside the affect rather than inside
 // affected_type, which is embedded in the legacy binary player-file layout
 // (char_file_u) and must not grow.
 std::map<std::pair<int, int>, caster_snapshot> g_room_affect_casters;
@@ -725,11 +720,11 @@ void set_room_affect_caster(room_data* room, int spell, const caster_snapshot& c
 
 const caster_snapshot* room_affect_caster(const room_data* room, int spell)
 {
-    auto it = g_room_affect_casters.find({ room->number, spell });
-    if (it == g_room_affect_casters.end()) {
+    auto found = g_room_affect_casters.find({ room->number, spell });
+    if (found == g_room_affect_casters.end()) {
         return nullptr;
     }
-    return &it->second;
+    return &found->second;
 }
 
 /* Standard mud call to put an affected structure to a room.  The room is added to
@@ -795,7 +790,7 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
     if (!ch->affected)
         return;
 
-    // TASK-021 port: read before the unlink below returns *af to the pool --
+    // Read before the unlink below returns *af to the pool --
     // the recorded poisoner belongs to the poison affect, so it has to be
     // forgotten when the last one goes (see the tail of this function).
     const int removed_type = af->type;
@@ -831,7 +826,7 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
         }
     }
 
-    // TASK-021 port: the poison origin outlives no poison. Once the last
+    // The poison origin outlives no poison. Once the last
     // SPELL_POISON affect is gone the record is stale -- the next poison,
     // from whoever casts it, records its own origin. A character whose
     // AFF_POISON bit comes from somewhere other than an affect (worn gear)
@@ -863,7 +858,7 @@ void affect_remove_room(struct room_data* room, struct affected_type* af)
     struct affected_type *hjp, *tmpaf;
     universal_list *tmplist, *tmplist2;
     int tmp, perms_only;
-    const int spell = af->location; // read before af is unlinked/pooled below (TASK-021 port)
+    const int spell = af->location; // read before af is unlinked/pooled below
     const bool is_room_spell = af->type == ROOMAFF_SPELL;
 
     //   assert(ch->affected);

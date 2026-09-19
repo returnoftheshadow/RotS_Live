@@ -1,4 +1,4 @@
-// TASK-025 port: summon targets by player name regardless of the dark-room
+// Summon targets by player name regardless of the dark-room
 // sight arm. summon's skills[] mask (consts.cpp) is TAR_CHAR_ROOM |
 // TAR_CHAR_WORLD | TAR_DARK_OK -- the `tell` precedent (interpre.cpp's
 // COMMANDO(19) row) -- so target_from_word()'s TAR_CHAR_WORLD arm calls
@@ -7,7 +7,7 @@
 // code-confirmed root cause: under the OLD mask (no TAR_DARK_OK) the SAME
 // setup refuses, and the refusing arm is the dark TARGET room -- not
 // caster-blind, not hiding, not invisibility, all of which are absent from
-// this fixture and deliberately still refuse under this port's scope.
+// this fixture and deliberately still refuse.
 //
 // Mirrors RotS_Live_Modern's visibility_tests.cpp SummonTargeting suite,
 // adapted to this depot's world fixture idiom: this depot has no
@@ -72,7 +72,7 @@ constexpr int kVictimAbsNumber = 4302;
 
 // Caster in room kCasterRoom, player victim in room kDarkRoom with the DARK
 // room flag set and no light source -- the exact "target cannot see" shape
-// TASK-025 fixes. Construction publishes the victim at the head of
+// the TAR_DARK_OK mask fixes. Construction publishes the victim at the head of
 // character_list (get_char_vis() walks that list, not a room occupant
 // chain) and darkens the victim's room; destruction restores both. The
 // victim is deliberately NOT linked into either room's people list:
@@ -80,15 +80,15 @@ constexpr int kVictimAbsNumber = 4302;
 // directly, and CAN_SEE() only reads world[ch->in_room] on either side, so
 // setting in_room is the honest placement here.
 struct DarkRoomSummonContext {
-    char_data caster {};
-    char_data victim {};
-    char victim_name[8] = "frodo";
+    char_data caster {}; // the summoning caster, placed in kCasterRoom
+    char_data victim {}; // the player victim standing in the dark kDarkRoom
+    char victim_name[8] = "frodo"; // backs victim.player.name; owned for the context's lifetime
 
-    long saved_dark_room_flags = 0;
-    int saved_dark_room_light = 0;
-    int saved_dark_room_number = -1;
-    int saved_caster_room_number = -1;
-    char_data* saved_character_list_head = nullptr;
+    long saved_dark_room_flags = 0; // kDarkRoom.room_flags found before the test; restored on scope exit
+    int saved_dark_room_light = 0; // kDarkRoom.light found before the test; restored on scope exit
+    int saved_dark_room_number = -1; // kDarkRoom.number found before the test; restored on scope exit
+    int saved_caster_room_number = -1; // kCasterRoom.number found before the test; restored on scope exit
+    char_data* saved_character_list_head = nullptr; // character_list found before the test; restored on scope exit
 
     DarkRoomSummonContext()
     {
@@ -163,7 +163,7 @@ TEST(SummonTargeting, TargetFromWordUnderTheSummonMaskFindsAPlayerStandingInADar
 // consts.cpp carried) refuses the identical setup, and the only CAN_SEE arm
 // this fixture can trip is the dark-target-room one. This test passes before
 // AND after the fix -- it documents which arm fired, and pins that
-// hiding/invisible/blind refusals (absent here) are not what this port lifts.
+// hiding/invisible/blind refusals (absent here) are not what the TAR_DARK_OK mask lifts.
 TEST(SummonTargeting, TargetFromWordWithoutDarkOkStillRefusesADarkRoomTarget)
 {
     DarkRoomSummonContext ctx;

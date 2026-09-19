@@ -713,6 +713,7 @@ bool fake_wide_id_account_reader(const std::string&, const std::string& account_
     return true;
 }
 
+// Resolves only "aragorn" to "alpha-admin"; every other character name is unowned.
 bool fake_wide_id_owner_resolver(const std::string&, const std::string& character_name, std::string* owner_account_name, std::string*)
 {
     if (character_name == "aragorn")

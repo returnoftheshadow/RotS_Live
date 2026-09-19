@@ -885,13 +885,9 @@ const int constexpr RACE_HARADRIM = 18;
 #define RACE_UNDEAD 16
 #define RACE_TROLL 20
 
-// Race-keyed maximum profession level. utils.h's GET_MAX_RACE_PROF_LEVEL(prof,
-// ch) macro is a one-line forward onto this, so the table lives in exactly one
-// place; the function form exists because a caster_snapshot carries the race
-// but no char_data to hand the macro (TASK-021). It lives here, next to the
-// PROF_*/RACE_* constants it reads, because utils.h does not define the
-// PROF_*/RACE_* constants at a definition of its own -- they come from this
-// header.
+// The highest level `prof` can reach for a character of `race`. Takes a race
+// number rather than a character so a caster's cast-time snapshot can use it
+// too; GET_MAX_RACE_PROF_LEVEL(prof, ch) is the char_data-shaped form.
 inline int max_race_prof_level(int prof, int race)
 {
     if (race == RACE_ORC) {
@@ -1140,31 +1136,16 @@ struct char_special_data {
     int timer; /* Timer for update                        */
     int was_in_room; /* storage of location for linkdead people */
 
-    // TASK-021 port: where this character's poison came from. Recorded when a
-    // poison affect is applied (the poison spells, and a poisoned meal/drink,
-    // which records nullptr) and read back when a poison tick kills, so
-    // raw_kill() can tell a player's poison from a mob's or a trap's instead
-    // of assuming every poison death is a player kill. `poisoned_by_abs_number`
-    // is the poisoner's abs_number, -1 when no poisoner is recorded;
-    // `poisoned_by` is the pointer captured at the same moment, and
-    // `poisoned_by_serial` that character's registration_serial, so a slot
-    // recycled to a new character at the same address is not mistaken for
-    // the poisoner.
-    // NEITHER IS SAFE TO USE ALONE: only resolve_poisoner() (fight.cpp) may
-    // hand the pointer back, and only while char_exists() still reports that
-    // abs_number live AND the pointer still claims it -- an extracted (or
-    // slot-recycled) poisoner resolves to nullptr instead of dangling. Not
-    // persisted: char_special_data appears in char_data but never in
-    // char_file_u (see the comment on char_special_data above -- that struct
-    // embeds only char_special2_data and affected[MAX_AFFECT]), so this pair
-    // has no serialization to worry about. No in-class initializer here
-    // (char_special_data does not use them elsewhere in this depot); the
-    // struct is zero-filled and then explicitly blanked to -1/nullptr in
-    // clear_char() (db.cpp), which is the sole "what a blank character looks
-    // like" statement for this struct.
-    int poisoned_by_abs_number;
-    char_data* poisoned_by;
-    long poisoned_by_serial;
+    // Identity of the character whose poison this one carries, captured when a
+    // poison affect is applied. Written only by record_poison_origin(); cleared
+    // by it (null poisoner), by affect_remove() when the last SPELL_POISON
+    // affect goes, and by clear_char(). Not persisted. No field is meaningful
+    // alone: only resolve_poisoner() may turn the pointer back into a
+    // character, and it refuses once that character is gone or its slot has
+    // been recycled.
+    int poisoned_by_abs_number; // poisoner's abs_number, -1 when nothing is recorded
+    char_data* poisoned_by; // pointer at record time; an identity token, never dereferenced
+    long poisoned_by_serial; // poisoner's registration_serial at record time
 
     int ENERGY; /* current energy */
     sh_int current_parry; /*parry currently affected by 'parry split' */

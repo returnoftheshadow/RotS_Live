@@ -1,19 +1,17 @@
 #pragma once
-// A cast-time snapshot of everything the combat formulas read from a caster
-// (TASK-021). Room affects and poison credit keep this instead of a live
-// char_data*: a caster who dies, levels, re-specs or is extracted after the
-// cast never changes an active spell, and nothing can dangle. POD on purpose
-// (copied by value, may live in pooled storage).
 #include "structs.h" // For game_types::player_specs
 
 struct char_data;
 
+// A cast-time copy of everything the combat formulas read from a caster, so a
+// spell that resolves later uses the caster's state AT THE CAST and never
+// touches the character again: a caster who dies, levels, re-specs or is
+// extracted afterwards cannot change an active spell, and nothing can dangle.
+// POD: copied by value, may live in pooled storage.
 struct caster_snapshot {
-    // GET_NAME() returns player.short_descr for an NPC ("a battle-scarred
-    // orc chieftain") -- routinely well past MAX_NAME_LENGTH (12), the PC
-    // player-name limit -- so NPC casters, the common case, need real
-    // headroom. 64 is deliberate headroom for NPC short_descr names;
-    // snprintf in capture()/none() still bounds every write.
+    // Size of `name`. GET_NAME() returns player.short_descr for an NPC ("a
+    // battle-scarred orc chieftain"), routinely far past MAX_NAME_LENGTH (12),
+    // so NPC casters -- the common case -- need the headroom.
     static constexpr int kNameCapacity = 64;
 
     int abs_number; // identity for kill credit only; never used to read stats
@@ -37,9 +35,21 @@ struct caster_snapshot {
     int master_mage_prof_level; // charmed NPC's master PROF_MAGE level (get_spell_pen_value), else 0
     char name[kNameCapacity]; // display name for messages when the caster is gone
 
+    // A snapshot of `caster` as it stands now.
     static caster_snapshot capture(const char_data& caster);
+
+    // The snapshot that names nobody: is_none() holds and resolve() is null.
     static caster_snapshot none();
+
+    // True when this snapshot names no caster at all.
     bool is_none() const { return abs_number < 0; }
+
+    // True when `ch` is the very character this snapshot was captured from --
+    // not merely a character that has since taken over the same abs_number.
     bool same_character_as(const char_data& ch) const;
+
+    // The captured character if it is still in the game under the same
+    // registration, else null. Never dereferences the captured pointer, so an
+    // extracted or slot-recycled caster resolves to null rather than dangling.
     char_data* resolve() const;
 };

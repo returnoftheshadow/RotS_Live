@@ -251,8 +251,13 @@ struct exploit_record {
     char chVictimName[30]; /* in case char has been deleted */
     int iVictimLevel; /* at time of kill */
     int iKillerLevel; /* at time of kill */
-    int iIntParam; /* reserved */
+    int iIntParam; /* type-specific payload; 1 on the first EXPLOIT_DEATH entry of a death */
 };
+// Reads the whole history from the account-native JSON file when the character is linked to an
+// account (retiring any leftover legacy file beside it), otherwise from the legacy exploits/
+// binary file. A legacy file that is not a whole number of records is removed and read as
+// empty. Only the JSON path carries full idnums, so account-owned histories never pass through
+// the 16-bit legacy encoding on the way in.
 bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message = nullptr);
 bool write_exploit_record_for_character(const std::string& root_directory, const std::string& character_name, const exploit_record& record, std::string* error_message = nullptr);
 bool load_object_save_bytes_for_character(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message = nullptr);

@@ -1,5 +1,3 @@
-// src/room_affect_tick.cpp -- TASK-021 port.
-//
 // The four room-affect tick bodies, run from the caster_snapshot recorded for
 // (room, spell) instead of by re-casting the spell with the occupant as its own
 // caster. Each body below reproduces the arm of the original ASPELL that
@@ -17,16 +15,15 @@
 //
 // ENGAGEMENT IS NOT ONE OF THEM. The ENGAGING attacker every tick hands to
 // damage_credited()/apply_spell_damage_credited() is always the OCCUPANT
-// itself -- exactly the `attacker == victim` shape the pre-TASK-021
+// itself -- exactly the `attacker == victim` shape the old
 // self-re-cast produced -- so damage()'s whole `victim != attacker` block
 // (set_fighting both ways, remember(), the 1-in-11 charmed-pet `hit()` on the
 // pet's master) never runs from a room tick. Only the CREDITED killer moved:
-// it is the resolved caster, or nobody. In the source depot's history
-// (RotS_Live_Modern, TASK-021 review M-1), an earlier round of this port
-// briefly engaged a same-room caster; that review overturned it -- a room
-// affect would otherwise put a resting caster into a fight with their own
-// group-mates and pets, and the pet-master `hit()` arm could free a
-// character out from under affect_update_room()'s occupant walk.
+// it is the resolved caster, or nobody. Engaging a same-room caster was
+// considered and rejected: a room affect would otherwise put a resting caster
+// into a fight with their own group-mates and pets, and the pet-master `hit()`
+// arm could free a character out from under affect_update_room()'s occupant
+// walk.
 //
 // The saved arm's two messages are both kept, but re-aimed: the victim-facing
 // line always reaches the occupant (the old caster == victim shape suppressed
@@ -88,13 +85,13 @@ void blaze_tick(const caster_snapshot& who, char_data* caster, char_data* occupa
 void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occupant)
 {
     if (!saves_poison(occupant, who) && (number(0, 0) < 50)) {
-        affected_type af {};
-        af.type = SPELL_POISON;
-        af.duration = get_mystic_caster_level(who) + 1;
-        af.modifier = -2;
-        af.location = APPLY_STR;
-        af.bitvector = AFF_POISON;
-        affect_join(occupant, &af, FALSE, FALSE);
+        affected_type poison_affect {};
+        poison_affect.type = SPELL_POISON;
+        poison_affect.duration = get_mystic_caster_level(who) + 1;
+        poison_affect.modifier = -2;
+        poison_affect.location = APPLY_STR;
+        poison_affect.bitvector = AFF_POISON;
+        affect_join(occupant, &poison_affect, FALSE, FALSE);
 
         // The origin resolve_poisoner() reads when this poison eventually
         // kills, written through the one shared writer (fight.cpp) so the two
@@ -120,7 +117,7 @@ void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occup
         // the caster: a TO_VICT line to the poisoned character and a TO_CHAR
         // line to whoever cast it. Anchoring the first on `caster` is also
         // what lets it through act()'s `recipient != ch` gate -- with
-        // caster == victim, which is all the pre-TASK-021 room re-cast could
+        // caster == victim, which is all the old room re-cast could
         // produce, act() suppressed the victim's own line entirely and
         // delivered only the (self-addressed) second one. With no caster left
         // to anchor on there is nothing for act() to render, so the line is
@@ -152,13 +149,13 @@ void haze_tick(const caster_snapshot& who, char_data* occupant)
 
     const int my_duration = number(0, 1);
     if (!affected_by_spell(occupant, SPELL_HAZE) && !saves_mystic(occupant)) {
-        affected_type af {};
-        af.type = SPELL_HAZE;
-        af.duration = my_duration;
-        af.modifier = level;
-        af.location = APPLY_NONE;
-        af.bitvector = AFF_HAZE;
-        affect_to_char(occupant, &af);
+        affected_type haze_affect {};
+        haze_affect.type = SPELL_HAZE;
+        haze_affect.duration = my_duration;
+        haze_affect.modifier = level;
+        haze_affect.location = APPLY_NONE;
+        haze_affect.bitvector = AFF_HAZE;
+        affect_to_char(occupant, &haze_affect);
         act("You feel dizzy as your surroundings seem to blur and twist.\n\r",
             TRUE, occupant, 0, occupant, TO_CHAR);
         act("$n staggers, overcome by dizziness!", FALSE, occupant, 0, 0, TO_ROOM);
@@ -194,17 +191,17 @@ void mist_tick(const caster_snapshot& who, room_data* room)
             continue;
         }
 
-        affected_type af2 {};
-        af2.type = ROOMAFF_SPELL;
-        af2.duration = level / 6;
+        affected_type seeded_mist {};
+        seeded_mist.type = ROOMAFF_SPELL;
+        seeded_mist.duration = level / 6;
         if (IS_SET(next->room_flags, SHADOWY)) {
-            af2.modifier = 1;
+            seeded_mist.modifier = 1;
         } else {
-            af2.modifier = 0;
+            seeded_mist.modifier = 0;
         }
-        af2.location = SPELL_MIST_OF_BAAZUNGA;
-        af2.bitvector = 0;
-        affect_to_room(next, &af2, who);
+        seeded_mist.location = SPELL_MIST_OF_BAAZUNGA;
+        seeded_mist.bitvector = 0;
+        affect_to_room(next, &seeded_mist, who);
     }
 }
 
@@ -216,8 +213,8 @@ bool room_affect_tick(int spell, room_data* room, char_data* occupant, const aff
     const bool has_caster = recorded != nullptr && !recorded->is_none();
 
     // A builder-placed affect, or one that predates the caster store, carries
-    // no caster: tick from the occupant's own stats, exactly as the
-    // pre-TASK-021 self-re-cast did.
+    // no caster: tick from the occupant's own stats, exactly as the old
+    // self-re-cast did.
     const caster_snapshot who = has_caster ? *recorded : caster_snapshot::capture(*occupant);
     char_data* const caster = has_caster ? recorded->resolve() : nullptr;
 

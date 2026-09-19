@@ -3615,13 +3615,9 @@ void clear_char(struct char_data* ch, int mode)
     ch->specials.alias = 0;
     ch->in_room = NOWHERE;
     ch->specials.was_in_room = NOWHERE;
-    // TASK-021 port: a fresh character carries no poison and therefore no
-    // poisoner. This struct has no in-class initializer for the pair (see
-    // structs.h), so this explicit blank is the only place a freshly
-    // memset(0) char_data gets -1 rather than 0 for poisoned_by_abs_number --
-    // stated here because this function is the tree's "what a blank
-    // character looks like" statement, and test code calls it directly to
-    // reset a character.
+    // A fresh character carries no poison and therefore no poisoner: a
+    // memset(0) char_data would otherwise read abs_number 0, i.e. an actual
+    // slot.
     ch->specials.poisoned_by_abs_number = -1;
     ch->specials.poisoned_by = nullptr;
     ch->specials.poisoned_by_serial = 0;
@@ -4326,11 +4322,6 @@ FILE* open_secure_temp_output_file(const std::string& path, std::string* error_m
 
 } // namespace
 
-// Reads the whole history from the account-native JSON file when the character is linked to an
-// account (retiring any leftover legacy file beside it), otherwise from the legacy exploits/
-// binary file. A legacy file that is not a whole number of records is removed and read as
-// empty. Only the JSON path carries full idnums, so account-owned histories never pass through
-// the 16-bit legacy encoding on the way in.
 bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message)
 {
     if (records == nullptr) {

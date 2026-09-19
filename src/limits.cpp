@@ -728,10 +728,10 @@ void point_update(void)
                     i->specials.attacked_level -= 2;
             }
 
-            // TASK-021 port: this tick still ENGAGES the poisoned character
-            // with itself (nobody else is in the fight), but the kill is
-            // credited to whoever poisoned it -- resolve_poisoner() answers
-            // nullptr, i.e. nobody, once that character is gone.
+            // This tick still ENGAGES the poisoned character with itself
+            // (nobody else is in the fight), but the kill is credited to
+            // whoever poisoned it -- resolve_poisoner() answers nullptr, i.e.
+            // nobody, once that character is gone.
             if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON)) {
                 char_data* const poisoner = resolve_poisoner(*i);
                 damage_credited(i, i, poisoner, 5, SPELL_POISON, 0);
@@ -1354,13 +1354,9 @@ void affect_update_person(struct char_data* i, int mode)
                     }
 
                     /* If poison is fatal, damage returns non-zero */
-                    // TASK-021 port: the ORDINARY poison DoT -- the tick
-                    // behind every SPELL_POISON affect a spell, a bite or a
-                    // poisoned meal applied. It still ENGAGES the poisoned
-                    // character with itself (nobody else is in this fight),
-                    // but the kill is credited to whoever poisoned it;
-                    // resolve_poisoner() answers nullptr, i.e. nobody, once
-                    // that character is gone. Same shape as point_update()'s
+                    // The ordinary poison DoT -- the tick behind every
+                    // SPELL_POISON affect a spell, a bite or a poisoned meal
+                    // applied. Same crediting shape as point_update()'s
                     // gear-poison arm above.
                     {
                         char_data* const poisoner = resolve_poisoner(*i);
@@ -1477,11 +1473,6 @@ void affect_update_room(struct room_data* room)
 
                         /* 1 in 13 chance that a room spell won't do anything */
                         if (!(tmp = number(0, 12)) || (skills[tmpaf->location].is_fast && !number(0, 2))) {
-                            // TASK-021: tick the affect from the caster_snapshot recorded
-                            // for (room, spell) instead of re-casting the spell with the
-                            // occupant standing in for its own caster. The historical
-                            // re-cast stays as the fallback for any ROOMAFF_SPELL that
-                            // room_affect_tick() has no body for.
                             if (!room_affect_tick(tmpaf->location, room, tmpch, *tmpaf)) {
                                 (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
                                     tmpch, 0, 0, 0);
@@ -1543,11 +1534,10 @@ void affect_update_room(struct room_data* room)
                         sprintf(buf, "The mists drift %s.\n\r", dirs[direction]);
                         send_to_room(buf, room->number);
 
-                        // TASK-021: a mist that MOVES keeps the caster that breathed
-                        // it. Read the record into a local COPY first --
-                        // affect_remove_room() below erases this room's (room, spell)
-                        // caster entry, and room_affect_caster() hands back a pointer
-                        // into the very map entry it erases.
+                        // A mist that moves keeps the caster that breathed it;
+                        // copy the record before affect_remove_room() below
+                        // invalidates it, per room_affect_caster()'s documented
+                        // lifetime.
                         const caster_snapshot* const mist_caster
                             = room_affect_caster(room, SPELL_MIST_OF_BAAZUNGA);
                         const caster_snapshot moved_caster
@@ -1560,7 +1550,7 @@ void affect_update_room(struct room_data* room)
                         // `tmpaf` is dangling from here on. The `if (tmpaf)` test below
                         // was already written as if something nulled it after a move;
                         // nothing ever did, and it read (and could re-remove) freed
-                        // storage on every mist that drifted. TASK-021 supplies the
+                        // storage on every mist that drifted. This assignment supplies the
                         // missing null; the loop increment re-reads `next_tmpaf`,
                         // saved at the top.
                         tmpaf = nullptr;
@@ -1582,7 +1572,7 @@ extern universal_list* affected_list;
 
 extern universal_list* affected_list_pool;
 
-// TASK-020: the walk below used to hold `tmplist->next` across the body, and
+// The walk below used to hold `tmplist->next` across the body, and
 // the body can free that very node -- affect_update_room()'s blaze tick kills
 // an occupant, raw_kill() strips the dead character's affects, and
 // affect_remove()'s tail from_list_to_pool()s (free()s) the character's own

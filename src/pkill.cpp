@@ -114,13 +114,10 @@ int pkill_weight(struct char_data* victim, const kill_contributor_list& contribu
     int total_levels;
 
     /*
-     * TASK-026 port: the contributor list replaces this walk's own
-     * `for (c = combat_list; ...) if (c->specials.fighting == victim)` scan.
-     * List MEMBERSHIP did change -- pets now redirect to their masters, and
-     * immortals and the victim itself are excluded before the list is built
-     * -- but the LEVEL-counting rule below is deliberately unchanged: every
-     * remaining contributor's level counts, NPCs included, exactly as every
-     * fighter's did.
+     * Membership changed with the contributor list -- pets redirect to their
+     * masters, and immortals and the victim itself are excluded before it is
+     * built -- but the level-counting rule below is deliberately unchanged:
+     * every remaining contributor's level counts, NPCs included.
      */
     total_levels = 0;
     for (int contributor_index = 0; contributor_index < contributors.count; ++contributor_index) {

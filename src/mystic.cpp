@@ -57,7 +57,7 @@ extern char* race_abbrevs[];
 
 char saves_mystic(struct char_data*);
 // saves_poison() is declared in spells.h (both the live and caster_snapshot
-// forms, TASK-021), which this file already includes.
+// forms), which this file already includes.
 char saves_confuse(struct char_data*, char_data*);
 char saves_leadership(struct char_data*);
 char saves_insight(struct char_data*, struct char_data*);
@@ -79,8 +79,8 @@ int get_mystic_caster_level(const caster_snapshot& caster)
     return mystic_level + will_factor;
 }
 
-// The live form forwards; the per-call remainder roll above still happens on
-// every call, snapshot or not (TASK-021).
+// The remainder roll above still runs on every call, snapshot or not; the
+// caster_snapshot form is not a frozen, replayable result.
 int get_mystic_caster_level(const char_data* caster)
 {
     return get_mystic_caster_level(caster_snapshot::capture(*caster));
@@ -1095,11 +1095,10 @@ ASPELL(spell_haze)
             return;
         }
 
-        // TASK-021 port: the cast-time copy every later tick of this room
-        // affect reads its formula inputs from, and the character a kill by
-        // it credits. Taken once, here, so a caster who dies, levels,
-        // re-specs or walks away afterwards cannot change a haze that is
-        // already hanging.
+        // The cast-time copy every later tick of this room affect reads its
+        // formula inputs from, and the character a kill by it credits. Taken
+        // once, here, so a caster who dies, levels, re-specs or walks away
+        // afterwards cannot change a haze that is already hanging.
         const caster_snapshot who = caster_snapshot::capture(*caster);
         // One resolve of the caster's own room for the whole arm: nothing
         // between here and the affect below can move the caster.
@@ -1247,10 +1246,9 @@ ASPELL(spell_poison)
         if (!caster)
             return;
 
-        // TASK-021 port: see spell_haze() above -- the cast-time copy the
-        // room poison's ticks run from, and the character a death by it
-        // credits (through the poisoned_by* record each tick stamps on its
-        // victims).
+        // See spell_haze() above -- the cast-time copy the room poison's ticks
+        // run from, and the character a death by it credits (through the
+        // poisoned_by* record each tick stamps on its victims).
         const caster_snapshot who = caster_snapshot::capture(*caster);
         room_data* const here = &world[caster->in_room];
 
@@ -1295,10 +1293,10 @@ ASPELL(spell_poison)
             af.bitvector = AFF_POISON;
 
             affect_join(victim, &af, FALSE, FALSE);
-            // TASK-021 port: this poison's origin, for resolve_poisoner() to
-            // read back when it kills. Without it the DoT that follows
-            // credits nobody, and a player killed by a mystic's poison would
-            // take the died-to-a-mob arm.
+            // This poison's origin, for resolve_poisoner() to read back when it
+            // kills. Without it the DoT that follows credits nobody, and a
+            // player killed by a mystic's poison would take the died-to-a-mob
+            // arm.
             record_poison_origin(victim, caster);
 
             send_to_char("You feel very sick.\n\r", victim);

@@ -485,12 +485,10 @@ ASPELL(spell_mass_insight);
 
 bool is_strong_enough_to_tame(struct char_data* tamer, struct char_data* animal, bool include_current_followers);
 
-// The mage/mystic formula helpers, each in two forms (TASK-021). The live
-// const char_data*/const char_data& form is a one-line forwarder onto the
-// caster_snapshot form, which owns the body: a room affect that ticks after
-// its caster died, levelled or re-spec'd re-runs the identical formula from
-// the cast-time copy, and never touches a possibly-freed character. Declared
-// here so the combat tier and the tests reach the same overload set.
+// Mage/mystic formula inputs, each in a live and a cast-time-snapshot form.
+// The two forms of a helper return the same value for the same caster state;
+// the snapshot form stays usable after the caster has changed, left the room,
+// or left the game.
 int get_mage_caster_level(const char_data* caster);
 int get_mage_caster_level(const caster_snapshot& caster);
 
@@ -518,26 +516,20 @@ bool is_friendly_taget(const caster_snapshot& caster, const char_data* victim);
 bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus);
 bool new_saves_spell(const caster_snapshot& caster, const char_data* victim, int save_bonus);
 
-// The saving throw apply_spell_damage() scales its damage multiplier by, in
-// both the live and the cast-time-snapshot shape.
+// The victim's saving throw against `caster`, in a live and a
+// cast-time-snapshot form.
 double get_victim_saving_throw(const char_data* caster, const char_data* victim);
 double get_victim_saving_throw(const caster_snapshot& caster, const char_data* victim);
 
-// apply_spell_damage()'s cast-time-snapshot form (TASK-021 port). The live
-// form (mage.cpp) scales the damage by the victim's saving throw against the
-// LIVE caster and credits that caster with the kill. This credited form
-// takes a cast-time caster_snapshot for the scaling and a separate
-// credited_killer for the kill, so a room affect that ticks after its caster
-// changed, left the room, or left the game still scales from the cast and
-// still credits the right character (or nobody). Both run the identical
-// multiplier -- one shared helper in mage.cpp owns it.
+// apply_spell_damage() for a caster supplied as a cast-time snapshot. `who`
+// supplies the caster side of the victim's saving throw, `attacker` engages
+// the victim, and `credited_killer` -- which may be null, and may stand in
+// another room -- takes the kill. The damage curve is the live cast's.
 int apply_spell_damage_credited(const caster_snapshot& who, char_data* attacker, char_data* victim,
     char_data* credited_killer, int damage_dealt, int spell_number, int hit_location);
 
-// saves_poison()'s two forms (TASK-021). The live struct char_data* form is a
-// one-line forwarder onto the caster_snapshot form, which owns the body: a
-// poison that ticks after its caster is gone runs the identical formula from
-// the cast-time copy instead of touching a possibly-freed character.
+// The victim's poison save against `caster`, in a live and a
+// cast-time-snapshot form. Both give the same answer for the same caster state.
 char saves_poison(struct char_data* victim, struct char_data* caster);
 char saves_poison(struct char_data* victim, const caster_snapshot& caster);
 

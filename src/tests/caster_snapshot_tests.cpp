@@ -9,18 +9,17 @@
 #include <cstring>
 #include <gtest/gtest.h>
 
-// TASK-021 port, Task 5: caster_snapshot, the cast-time copy of the formula
-// inputs. Originally this file only exercised what Task 5 shipped in THIS
-// depot -- the snapshot type itself, max_race_prof_level()/the race_is_*
-// helpers, the battle_mage_handler static bonus forms, other_side(), and
-// saves_poison(). Task 6 added the mystic.cpp/spell_pa.cpp equivalence tests
-// below (get_mystic_caster_level()/get_saving_throw_dc()/new_saves_spell());
-// the mage.cpp helpers' own equivalence tests
+// caster_snapshot, the cast-time copy of the formula inputs. This file
+// exercises the snapshot type itself, max_race_prof_level()/the race_is_*
+// helpers, the battle_mage_handler static bonus forms, other_side(),
+// saves_poison(), and the mystic.cpp/spell_pa.cpp equivalence tests below
+// (get_mystic_caster_level()/get_saving_throw_dc()/new_saves_spell()). The
+// mage.cpp helpers' own equivalence tests
 // (get_mage_caster_level()/get_magic_power()/should_apply_spell_penetration()/
 // get_spell_pen_value()/get_victim_saving_throw()/get_save_bonus()/
 // is_friendly_taget()) live in mage_tests.cpp instead, alongside the rest of
-// mage.cpp's coverage. The room_affect_caster() registry is still out of
-// scope here (Tasks 7-12).
+// mage.cpp's coverage. The room_affect_caster() registry is covered by
+// room_affect_caster_tests.cpp instead.
 
 namespace {
 
@@ -168,13 +167,12 @@ TEST(CasterSnapshot, NoneIsNeverResolvable)
     EXPECT_STREQ(none.name, "nobody");
 }
 
-// The Task-1 deferred coverage gap the final whole-branch review reopened
-// (m-3) in the modern port: capture()'s charmed-orc-friend spell-penetration
-// derivation needs its own test rather than trusting a hand-set snapshot.
-// mage.cpp's should_apply_spell_penetration()/get_spell_pen_value() (Task 6
-// in this port; see mage_tests.cpp for their own equivalence coverage) are
-// the CONSUMERS of is_pc_for_spell_pen and master_mage_prof_level; this test
-// only proves capture() itself derives them correctly.
+// capture()'s charmed-orc-friend spell-penetration derivation needs its own
+// test rather than trusting a hand-set snapshot. mage.cpp's
+// should_apply_spell_penetration()/get_spell_pen_value() (see mage_tests.cpp
+// for their own equivalence coverage) are the CONSUMERS of
+// is_pc_for_spell_pen and master_mage_prof_level; this test only proves
+// capture() itself derives them correctly.
 namespace {
 
 // Builds the charmed-orc-friend NPC pet the arm exists for; each of the four
@@ -253,9 +251,9 @@ TEST(CasterSnapshot, CaptureDerivesTheCharmedOrcFriendSpellPenetrationPair)
            "master that level is its own player.level, not its prof table";
 }
 
-// TASK-021 fix round 1, finding 1: GET_NAME() returns player.short_descr for
-// an NPC, routinely well past MAX_NAME_LENGTH (12) -- capture() must
-// truncate rather than overflow the fixed kNameCapacity buffer.
+// GET_NAME() returns player.short_descr for an NPC, routinely well past
+// MAX_NAME_LENGTH (12) -- capture() must truncate rather than overflow the
+// fixed kNameCapacity buffer.
 TEST(CasterSnapshot, NpcNameCapacityTruncatesLongShortDescriptorsSafely)
 {
     char_data npc {};
@@ -303,7 +301,7 @@ TEST(CasterSnapshot, MaxRaceProfLevelMatchesTheOldRaceKeyedTable)
 // battle_mage_handler's static bonus forms (warrior_spec_handlers.h) own the
 // formula; the member forms are thin adapters onto them. Prove the two agree
 // for both a battle mage and a non-specialist, so a stored caster_snapshot's
-// eventual (Task 6+) use of the static forms replays the exact live bonus.
+// eventual use of the static forms replays the exact live bonus.
 TEST(CasterSnapshot, BattleMageStaticBonusFormsAgreeWithMemberForms)
 {
     char_data character {};
@@ -338,7 +336,7 @@ TEST(CasterSnapshot, BattleMageStaticBonusFormsAgreeWithMemberForms)
         << "a non-battle-mage's static form must pass the value straight through";
 }
 
-// TASK-021: other_side() has a caster_snapshot overload sharing the live
+// other_side() has a caster_snapshot overload sharing the live
 // form's other_side_impl() body (handler.cpp); the two forms must agree for
 // every race-war side combination the live form distinguishes.
 TEST(CasterSnapshot, OtherSideAgreesBetweenLiveAndSnapshotFormsAcrossTheRaceMatrix)
@@ -393,7 +391,7 @@ TEST(CasterSnapshot, OtherSideReflectsTheCapturedRaceNpcAndCharmFlags)
         << "an uncharmed NPC is on nobody's side";
 }
 
-// TASK-021: saves_poison()'s caster_snapshot form (spell_pa.cpp) reads
+// saves_poison()'s caster_snapshot form (spell_pa.cpp) reads
 // caster.willpower/caster.perception, captured from exactly the
 // GET_WILLPOWER()/GET_PERCEPTION() calls the live form reads directly -- the
 // two must agree under the same RNG draws.
@@ -468,10 +466,10 @@ TEST(CasterSnapshot, SavesPoisonOffenceReadsTheCapturedWillpowerAndPerception)
 }
 
 // ---------------------------------------------------------------------------
-// TASK-021 Task 6: get_mystic_caster_level() (mystic.cpp), get_saving_throw_dc()
-// and new_saves_spell() (spell_pa.cpp) each gain a caster_snapshot overload
+// get_mystic_caster_level() (mystic.cpp), get_saving_throw_dc() and
+// new_saves_spell() (spell_pa.cpp) each gain a caster_snapshot overload
 // that owns the body; the live const char_data* form is a one-line forwarder
-// onto it. Ported here rather than mage_tests.cpp -- these three formulas
+// onto it. Covered here rather than mage_tests.cpp -- these three formulas
 // live in mystic.cpp/spell_pa.cpp, not mage.cpp.
 // ---------------------------------------------------------------------------
 

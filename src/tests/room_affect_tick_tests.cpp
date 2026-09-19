@@ -1,4 +1,4 @@
-// TASK-021 port, Task 10. room_affect_tick() replaces affect_update_room()'s
+// room_affect_tick() replaces affect_update_room()'s
 // self-re-cast arm -- the historical tick that ran
 // `(skills[loc].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL, tmpch, ...)`, i.e.
 // re-cast the room's spell with the OCCUPANT standing in for the caster. Every
@@ -17,7 +17,7 @@
 //
 // WHAT THESE TESTS PROVE. A "the tick matches a live re-cast" equivalence test
 // would be vacuous: the live helper forms are one-line forwarders onto the
-// snapshot forms (Tasks 6/7), so both sides run the same body no matter which
+// snapshot forms, so both sides run the same body no matter which
 // fields the tick reads. The blaze pin below therefore varies the RECORDED
 // snapshot away from the caster's current (live, wrecked) stats and shows the
 // tick still follows the recording. The poison/haze/mist pins pick caster
@@ -89,7 +89,7 @@ constexpr int kMistMoveSourceRoom = 975;
 constexpr int kMistMoveDestRoom = 976;
 constexpr int kAwayRoom = 977; // a caster's "somewhere else" room for the presence pins
 
-// TASK-021 port, Task 11: rooms exercising the CASTING arms (spell_blaze,
+// Rooms exercising the CASTING arms (spell_blaze,
 // spell_haze, spell_poison's room arm, spell_mist_of_baazunga) directly,
 // rather than room_affect_tick() -- continuing this suite's own room band.
 constexpr int kBlazeCastRoom = 978;
@@ -396,9 +396,9 @@ char_data* make_heap_occupant(int room, char* short_descr, int hit_points)
 // roll a number(0, 0), which this depot's wrapped number() returns from
 // `from` without consuming the test queue at all.
 struct CasterFixture {
-    char_data ch {};
-    char_prof_data profs {};
-    char name[24] = "tick_caster";
+    char_data ch {}; // the recorded room-affect caster; captured into a caster_snapshot by each pin
+    char_prof_data profs {}; // backs ch.profs; holds the mage/cleric prof levels the formulas read
+    char name[24] = "tick_caster"; // backs ch.player.name (GET_NAME()); owned for the fixture's lifetime
 
     CasterFixture(int mage_prof, int cleric_prof, game_types::player_specs spec, int in_room)
     {
@@ -675,7 +675,7 @@ TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRe
     // player.level = 1, so the snapshot's cleric_prof_level is 1 (not the raw, unset
     // profs->prof_level[PROF_CLERIC] == 0 a non-NPC caster would read here). will_factor is 0
     // (wil = 0), so get_mystic_caster_level() = 1 + 0 = 1, and duration = 1 + 1 = 2 -- still the
-    // OCCUPANT's own (weak) stats standing in, matching the pre-TASK-021 self-re-cast shape.
+    // OCCUPANT's own (weak) stats standing in, matching the historical self-re-cast shape.
     EXPECT_EQ(poison->duration, 2);
 
     while (occupant.affected) {
@@ -922,8 +922,8 @@ TEST(RoomAffectTick, UnknownSpellHasNoTickBodyAndReturnsFalse)
 namespace {
 
 struct RecordedFallback {
-    char_data* tmpch = nullptr;
-    int calls = 0;
+    char_data* tmpch = nullptr; // the occupant the stubbed fallback spell_pointer was last called with
+    int calls = 0; // how many times the stubbed fallback spell_pointer fired
 };
 
 // What the (stubbed) fallback spell_pointer saw -- this suite's witness that
@@ -1083,11 +1083,11 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
 }
 
 // ---------------------------------------------------------------------------
-// TASK-021 port, Task 11: the CASTING arms themselves (spell_blaze,
+// The CASTING arms themselves (spell_blaze,
 // spell_haze, spell_poison's room arm, spell_mist_of_baazunga) record their
 // caster's snapshot when they create or strengthen a room affect. These
 // tests drive the live ASPELLs directly, unlike the room_affect_tick()
-// suite above -- Task 10 covers what a room affect READS back; this covers
+// suite above -- that suite covers what a room affect READS back; this covers
 // what casting it WRITES.
 //
 // All four arms' room-cast path draws nothing from the RNG queue with a

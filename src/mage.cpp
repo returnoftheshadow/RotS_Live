@@ -43,12 +43,9 @@ int get_mage_caster_level(const caster_snapshot& caster)
     return mage_level + intel_factor;
 }
 
-// Each live const char_data* form below is a one-line forwarder onto the
-// caster_snapshot form above/below it (TASK-021): the snapshot owns the body,
-// so a room affect that re-casts on a later tick runs the identical formula
-// from its cast-time copy without ever touching the caster again. The
-// per-call rounding rolls are inside the snapshot forms, so they still happen
-// on every call.
+// The per-call rounding rolls (intel/mage-level factors) live inside the
+// caster_snapshot forms below, so they still run on every call rather than
+// being frozen into the snapshot.
 int get_mage_caster_level(const char_data* caster)
 {
     return get_mage_caster_level(caster_snapshot::capture(*caster));
@@ -124,14 +121,13 @@ double get_victim_saving_throw(const caster_snapshot& caster, const char_data* v
 
 double get_victim_saving_throw(const char_data* caster, const char_data* victim)
 {
-    // The live form forwards, like every other helper in this file (TASK-021).
-    // Identical arithmetic: the two reads it used to make
-    // (should_apply_spell_penetration()/get_spell_pen_value()) each captured a
-    // snapshot of their own already.
+    // The two reads this used to make -- should_apply_spell_penetration() and
+    // get_spell_pen_value() -- each capture their own snapshot already, so
+    // forwarding here reproduces the identical arithmetic.
     return get_victim_saving_throw(caster_snapshot::capture(*caster), victim);
 }
 
-// TASK-021: the ONE place apply_spell_damage()'s saving-throw scaling lives.
+// The one place apply_spell_damage()'s saving-throw scaling lives.
 static int scale_spell_damage(double saving_throw, int damage_dealt)
 {
     double damage_multiplier = 1.0;
@@ -151,14 +147,6 @@ int apply_spell_damage(char_data* caster, char_data* victim, int damage_dealt, i
     return damage(caster, victim, damage_dealt, spell_number, hit_location);
 }
 
-// TASK-021 port: apply_spell_damage() for a hit whose caster is a cast-time
-// SNAPSHOT rather than a live character -- a room affect ticking on an
-// occupant. `who` supplies the spell-penetration side of the saving throw
-// (the caster's stats AS THEY WERE at the cast, not as they are now, and
-// readable even if that character is gone); `attacker` engages the victim;
-// and `credited_killer` -- which may be null, and may stand in another room
-// -- takes the kill. Reuses scale_spell_damage() above, so the damage curve
-// is the live cast's, not a copy of it.
 int apply_spell_damage_credited(const caster_snapshot& who, char_data* attacker, char_data* victim,
     char_data* credited_killer, int damage_dealt, int spell_number, int hit_location)
 {
@@ -811,10 +799,9 @@ ASPELL(spell_vitalize_self)
  * the casters room.
  * Live and wired directly in consts.cpp's skills[] table (spell_summon is
  * the real function pointer there, not NULL); it targets by player name
- * world-wide, so its mask carries TAR_DARK_OK -- the same precedent `tell`
- * uses (see interpre.cpp's COMMANDO entry for tell) -- so the dark-room
- * sight arm in CAN_SEE() does not refuse a name-targeted world spell
- * (TASK-025 port).
+ * world-wide, so its mask carries TAR_DARK_OK, matching the precedent set
+ * by `tell`, so the dark-room sight arm in CAN_SEE() does not refuse a
+ * name-targeted world spell.
  */
 
 ASPELL(spell_summon)
@@ -1390,8 +1377,8 @@ int get_save_bonus(const caster_snapshot& caster, const char_data& victim, game_
     return save_bonus;
 }
 
-// The live form forwards; caster.specialization is captured from the same
-// utils::get_specialization() call this used to make (TASK-021).
+// caster.specialization is captured from the same utils::get_specialization()
+// call this used to make.
 int get_save_bonus(const char_data& caster, const char_data& victim, game_types::player_specs primary_spec, game_types::player_specs opposing_spec)
 {
     return get_save_bonus(caster_snapshot::capture(caster), victim, primary_spec, opposing_spec);
@@ -1764,7 +1751,7 @@ ASPELL(spell_earthquake)
         /* deal out the damage */
         // The fall itself. `landing_saved` is drawn by the loop below at the same
         // point it always was, so the RNG sequence every occupant sees is
-        // unchanged; only WHEN the caster's own fall runs moves (TASK-019).
+        // unchanged; only WHEN the caster's own fall runs moves.
         const auto fall = [&](char_data* faller, bool landing_saved) -> void {
             act("$n loses balance and falls down!", TRUE, faller, 0, 0, TO_ROOM);
             send_to_char("The earthquake throws you down!\n\r", faller);
@@ -1783,11 +1770,12 @@ ASPELL(spell_earthquake)
             }
         };
 
-        // TASK-019: the caster's own fall is deferred until every other occupant
-        // has fallen. Fall damage goes through damage() -> die() -> raw_kill() ->
+        // The caster's own fall is deferred until every other occupant has
+        // fallen. Fall damage goes through damage() -> die() -> raw_kill() ->
         // extract_char(), which frees an NPC caster (or re-places a player), and
         // this loop keeps using `caster` for every later occupant -- so the
-        // caster's fall must be the spell's final act (the TASK-018 fireball shape).
+        // caster's fall must be the spell's final act, matching spell_fireball()'s
+        // self-hit handling below.
         bool caster_falls = false;
         bool caster_landing_saved = false;
         for (tmpch = cur_room->people; tmpch; tmpch = tmpch_next) {
@@ -1957,12 +1945,12 @@ ASPELL(spell_fireball)
         return apply_spell_damage(caster, victim, fireball_damage, SPELL_FIREBALL, 0);
     };
 
-    // TASK-018: when the orc fumble above made the caster its own victim, the
-    // self-hit is delivered LAST (below the splash loop). A lethal self-hit
-    // ends in extract_char(), which free_char()s an NPC caster and re-places a
-    // player in the mortal start room; making it the spell's final act means
-    // nothing can run on a dead caster, and the room still takes the splash
-    // the fireball was invoked for. The ordinary hit keeps its place.
+    // When the orc fumble above made the caster its own victim, the self-hit
+    // is delivered LAST (below the splash loop). A lethal self-hit ends in
+    // extract_char(), which free_char()s an NPC caster and re-places a player
+    // in the mortal start room; making it the spell's final act means nothing
+    // can run on a dead caster, and the room still takes the splash the
+    // fireball was invoked for. The ordinary hit keeps its place.
     const bool self_hit = victim == caster;
     if (!self_hit) {
         deliver_primary_hit();
@@ -2186,9 +2174,8 @@ ASPELL(spell_black_arrow)
         af.location = APPLY_STR;
         af.bitvector = AFF_POISON;
         affect_join(victim, &af, FALSE, FALSE);
-        // TASK-021 port: this poison's origin, for resolve_poisoner() to read
-        // back when it kills -- see mystic.cpp's spell_poison for the same
-        // reasoning.
+        // This poison's origin, for resolve_poisoner() to read back when it
+        // kills -- see mystic.cpp's spell_poison for the same reasoning.
         record_poison_origin(victim, caster);
 
         send_to_char("The vile magic poisons you!\n\r", victim);
@@ -2305,7 +2292,7 @@ ASPELL(spell_blaze)
         if (!caster)
             return;
 
-        // TASK-021 port: the cast-time copy the room affect ticks from, and
+        // The cast-time copy the room affect ticks from, and
         // the character a kill by those ticks credits. Taken once, here, so
         // a caster who dies, levels, re-specs or walks out afterwards cannot
         // change a firestorm that is already burning.
@@ -2457,7 +2444,7 @@ ASPELL(spell_mist_of_baazunga)
     if (!caster)
         return;
 
-    // TASK-021 port: as in spell_blaze() above -- the cast-time copy the
+    // As in spell_blaze() above -- the cast-time copy the
     // drifting mist ticks from, carried into every room this cast seeds.
     const caster_snapshot who = caster_snapshot::capture(*caster);
     room = &world[caster->in_room];

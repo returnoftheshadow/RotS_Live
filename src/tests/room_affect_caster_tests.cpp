@@ -1,11 +1,10 @@
-// TASK-021 port, Task 9: the room-affect caster store -- a side map from
+// The room-affect caster store -- a side map from
 // (room number, spell) to the caster_snapshot recorded when a ROOMAFF_SPELL
 // affect was cast into that room. Lives beside the room's own affected_type
 // list rather than inside it: affected_type is embedded in char_file_u (the
 // legacy binary player-file layout) and must not grow.
 //
-// Mirrors the modern depot's RoomAffectCaster test suite
-// (caster_snapshot_tests.cpp:513-540, RotS_Live_Modern), adapted to this
+// Mirrors RotS_Live_Modern's RoomAffectCaster test suite, adapted to this
 // depot's world fixture idiom (affect_update_tests.cpp's
 // ensure_test_world()/RoomOccupantGuard) since this depot has no
 // ScopedTestWorld/room_by_id_total() helpers.
@@ -162,7 +161,7 @@ TEST(RoomAffectCaster, TwoArgAffectToRoomBackfillsNone)
 // therefore its own stamped .number, distinct from every other room this
 // file or affect_update_tests.cpp uses) so this is a genuinely unclaimed key
 // rather than relying on the shared -1 default every un-stamped world[]
-// slot in this depot starts with.
+// slot starts with.
 TEST(RoomAffectCaster, UnknownRoomAndSpellReturnsNullptr)
 {
     RoomAffectGuard guard(kUnusedRoom);
@@ -171,14 +170,13 @@ TEST(RoomAffectCaster, UnknownRoomAndSpellReturnsNullptr)
     EXPECT_EQ(room_affect_caster(room, SPELL_HAZE), nullptr);
 }
 
-// Documents the Task 10 copy-before-remove hazard: room_affect_caster()
+// Documents a copy-before-remove hazard: room_affect_caster()
 // hands back a pointer INTO the store, and affect_remove_room() erases the
 // very entry that pointer aims at. This test pins the contract by taking the
 // pointer, removing the affect, and asserting that a FRESH lookup returns
 // nullptr -- it deliberately never dereferences the stale pointer itself
 // (doing so would be a use-after-free the way room_affect_tick.cpp's mist
-// caster must not risk it; see combat-credit-and-store.diff's
-// affect_update_room() mist-move site, which copies the record into a local
+// caster must not risk it; that site copies the record into a local
 // caster_snapshot BEFORE calling affect_remove_room() for exactly this
 // reason).
 TEST(RoomAffectCaster, PointerFromRoomAffectCasterIsInvalidatedByRemoval)

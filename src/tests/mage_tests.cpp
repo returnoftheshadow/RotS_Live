@@ -10,8 +10,8 @@
 
 // get_mage_caster_level/get_magic_power/should_apply_spell_penetration/
 // get_spell_pen_value/get_victim_saving_throw/get_save_bonus/
-// is_friendly_taget are declared (both the live and caster_snapshot forms,
-// TASK-021) by spells.h, included above.
+// is_friendly_taget are declared (both the live and caster_snapshot forms)
+// by spells.h, included above.
 bool different_zone(int was_in, int to_room);
 int random_exit(int room);
 bool is_teleportation_room_valid(room_data *room);
@@ -172,9 +172,9 @@ loclife_coord *find_loclife_room(loclife_coord *roomlist, int roomnum, int targe
 // its own stub table installed for the scope of the test. Restores whatever
 // zone_table pointed at (normally nullptr) on destruction.
 struct ZoneTableGuard {
-    struct zone_data *previous_table;
-    int previous_top;
-    struct zone_data stub[2]{};
+    struct zone_data *previous_table; // real zone_table found before the test; restored on scope exit
+    int previous_top; // real top_of_zone_table found before the test; restored on scope exit
+    struct zone_data stub[2]{}; // the one-entry-per-zone stub table installed for the scope
 
     ZoneTableGuard() : previous_table(zone_table), previous_top(top_of_zone_table) {
         zone_table = stub;
@@ -716,7 +716,7 @@ TEST_F(MageProcTest, LocateLifeSkipsBlockedDuplicateAndExcludedRooms) {
     EXPECT_EQ(west_room->u, 0);
 }
 
-// TASK-018 -- spell_fireball's orc self-fumble arm (mage.cpp, `victim = caster;`) hands the
+// spell_fireball's orc self-fumble arm (mage.cpp, `victim = caster;`) hands the
 // caster to apply_spell_damage() as its own victim. When that hit is lethal, fight.cpp's
 // damage() runs die() -> raw_kill() -> extract_char(), whose NPC arm unlinks AND free_char()s
 // the caster -- and the body used to continue straight into world[caster->in_room].people (the
@@ -725,11 +725,9 @@ TEST_F(MageProcTest, LocateLifeSkipsBlockedDuplicateAndExcludedRooms) {
 // This depot has no extract_char test seam, so the fixture drives the real death pipeline instead
 // of stubbing it: the caster is heap-allocated and registered the way the game builds an NPC
 // (register_npc_char, linked into character_list and a real room), so free_char() is legal to call
-// on it, following the extract_char precedent at src/tests/interpre_account_menu_tests.cpp:3779.
-// A one-entry
-// mob_index[] is installed because raw_kill()'s SPECIAL_DEATH probe (activate_char_special) and
-// make_physical_corpse() both dereference the caster's mob prototype slot unconditionally for any
-// IS_NPC() character.
+// on it. A one-entry mob_index[] is installed because raw_kill()'s SPECIAL_DEATH probe
+// (activate_char_special) and make_physical_corpse() both dereference the caster's mob
+// prototype slot unconditionally for any IS_NPC() character.
 //
 // char_from_room() sets a departing character's ch->in_room to NOWHERE (-1) before extract_char's
 // NPC arm frees it, and nothing allocates between that free() and the old body's next read of
@@ -940,18 +938,18 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
     free_char(caster);
 }
 
-// TASK-019 -- spell_earthquake's crack/fall loop (mage.cpp). The damage loop above it
+// spell_earthquake's crack/fall loop (mage.cpp). The damage loop above it
 // excludes the caster (`if (tmpch != caster)`), but the fall loop does not: on the coin
 // flip the caster itself is moved into the crevice and takes fall damage INSIDE the
 // occupant loop. A lethal fall runs apply_spell_damage() -> damage() -> die() ->
 // raw_kill() -> extract_char(), which frees an NPC caster -- and the loop then keeps
 // calling new_saves_spell(caster, tmpch, ...) for every later occupant, reading the
 // freed caster's profs/tmpabilities/points fields. Same defect class and same fix shape
-// as TASK-018: every other occupant falls first, the caster falls last, as the spell's
-// final act.
+// as the fireball self-fumble test above: every other occupant falls first, the caster
+// falls last, as the spell's final act.
 //
-// The caster's own lethal self-fall is the same self-damage shape TASK-018's fireball
-// test already exercises (apply_spell_damage(caster, caster, ...) -> damage() -> die()
+// The caster's own lethal self-fall is the same self-damage shape the fireball test
+// above already exercises (apply_spell_damage(caster, caster, ...) -> damage() -> die()
 // -> raw_kill() -> extract_char()), so this test reuses that fixture wholesale
 // (make_fireball_caster, ScopedFireballMobIndex, release_fireball_corpse,
 // queue_fireball_rolls, kFireballRoom as the quake room): this depot has no
@@ -978,10 +976,10 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
 //   6. Deferred caster fall (after the loop, fixed code only): fall(caster, ...) ->
 //      apply_spell_damage(caster, caster, ...) -> damage() -> die() -> raw_kill() ->
 //      extract_char() -> free_char() / make_physical_corpse() -- the same death
-//      pipeline TASK-018's fireball test exercises, unspecified internal draw count.
+//      pipeline the fireball test above exercises, unspecified internal draw count.
 // Every draw above uses the SAME pinned value, so the exact count needs no bookkeeping
 // beyond covering the two CRITICAL number(0, 1) rolls (steps 4 and 5): a generous
-// uniform buffer suffices, exactly as TASK-018's fireball test does.
+// uniform buffer suffices, exactly as the fireball test above does.
 namespace {
 
 // 0.25 is a dyadic fraction (exactly representable in IEEE double), so value * range is
@@ -1058,11 +1056,11 @@ TEST_F(MageProcTest, EarthquakeLetsEveryOtherOccupantFallBeforeTheCastersOwnFall
 }
 
 // ---------------------------------------------------------------------------
-// TASK-021 Task 6: every mage formula helper gains a caster_snapshot overload
-// that owns the body; the live const char_data* form is a one-line forwarder
-// onto it. These tests pin the per-call RNG rolls (which stay inside the
-// snapshot bodies) so the live and snapshot forms can be proven equivalent
-// rather than merely both compiling.
+// Every mage formula helper gains a caster_snapshot overload that owns the
+// body; the live const char_data* form is a one-line forwarder onto it.
+// These tests pin the per-call RNG rolls (which stay inside the snapshot
+// bodies) so the live and snapshot forms can be proven equivalent rather
+// than merely both compiling.
 // ---------------------------------------------------------------------------
 
 TEST_F(MageProcTest, MageCasterLevelSnapshotFormMatchesLiveFormUnderPinnedRng) {
@@ -1135,9 +1133,9 @@ TEST(MageHelpers, SpellPenValueSnapshotFormMatchesLiveFormForCharmedNpc) {
         << "Expected the snapshot form to reproduce the live form's charmed-NPC master bonus.";
 }
 
-// Brief-mandated coverage: get_spell_pen_value()'s charmed-NPC-without-master
-// arm, which the snapshot form reaches through master_mage_prof_level == 0
-// (capture()'s guard for "no master" -- see
+// Covers get_spell_pen_value()'s charmed-NPC-without-master arm, which the
+// snapshot form reaches through master_mage_prof_level == 0 (capture()'s
+// guard for "no master" -- see
 // CaptureDerivesTheCharmedOrcFriendSpellPenetrationPair in
 // caster_snapshot_tests.cpp for the field itself).
 TEST(MageHelpers, SpellPenValueSnapshotFormHandlesCharmedNpcWithoutMaster) {
@@ -1218,13 +1216,13 @@ TEST(MageHelpers, FriendlyTargetSnapshotFormAgreesWithLiveFormAndSelfTestUsesSam
 }
 
 // ---------------------------------------------------------------------------
-// TASK-025: spell_summon body coverage (the spell had no body test anywhere
-// in the tree before this port). The body itself has NO sight check by
-// design; the dark-room targeting fix lives in consts.cpp's mask and is
-// pinned by summon_targeting_tests.cpp's SummonTargeting suite. This
-// exercises the success arm end to end: a willing (PRF_SUMMONABLE clear --
-// the flag is inverted: set == NOT summonable), non-fighting, mortal player
-// victim who fails the save is moved into the caster's room through the real
+// spell_summon body coverage (the spell had no body test anywhere in the
+// tree). The body itself has NO sight check by design; the
+// dark-room targeting fix lives in consts.cpp's mask and is pinned by
+// summon_targeting_tests.cpp's SummonTargeting suite. This exercises the
+// success arm end to end: a willing (PRF_SUMMONABLE clear -- the flag is
+// inverted: set == NOT summonable), non-fighting, mortal player victim who
+// fails the save is moved into the caster's room through the real
 // char_from_room()/char_to_room() pair.
 //
 // The victim deliberately has NO descriptor: a linkdead player is a legal

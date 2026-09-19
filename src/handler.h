@@ -11,7 +11,7 @@
 #ifndef HANDLER_H
 #define HANDLER_H
 
-#include "caster_snapshot.h" /* For the other_side() snapshot overload */
+#include "caster_snapshot.h" /* For the caster_snapshot parameters below */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "structs.h" /* For the RENT_CRASH macro */
 
@@ -29,19 +29,17 @@ void affect_total_room(struct room_data* room, int mode = AFFECT_TOTAL_UPDATE);
 void affect_modify_room(struct room_data* room, byte loc, int mod, long bitv, char add);
 void affect_to_room(struct room_data* room, struct affected_type* af);
 void affect_remove_room(struct room_data* room, struct affected_type* af);
-// TASK-021 port: records `caster` as the source of `af` when it is a
-// ROOMAFF_SPELL; the two-argument form still backfills caster_snapshot::none()
-// for a ROOMAFF_SPELL that has no record yet.
+// Adds `af` to `room` exactly as the two-argument form does, and records
+// `caster` as its source. Only a ROOMAFF_SPELL affect carries a caster; any
+// other `af->type` is added with no record.
 void affect_to_room(struct room_data* room, struct affected_type* af, const caster_snapshot& caster);
-// TASK-021 port: the caster recorded for the live ROOMAFF_SPELL affect at
-// (room, spell), or null if none was ever recorded (or it has since been
-// removed by affect_remove_room()). The pointer aims into the internal store
-// and is invalidated by any subsequent affect_remove_room() call for the same
-// (room, spell) -- copy the pointed-to caster_snapshot before removing the
-// affect if it must outlive that call.
+// The caster recorded for the live ROOMAFF_SPELL affect at (room, spell), or
+// null when none was recorded. The returned pointer stays valid only until the
+// next affect_remove_room() for that (room, spell); copy the caster_snapshot
+// if it must outlive that call.
 const caster_snapshot* room_affect_caster(const room_data* room, int spell);
-// TASK-021 port: the write side of the store above. Overwrites any existing
-// record for (room, spell).
+// Records `caster` as the source of the ROOMAFF_SPELL affect at (room, spell),
+// replacing any caster already recorded for it.
 void set_room_affect_caster(room_data* room, int spell, const caster_snapshot& caster);
 void affect_from_room(struct room_data* room, byte skill);
 
@@ -95,9 +93,7 @@ void extract_obj(struct obj_data* obj);
 
 /* ******* characters ********* */
 int other_side(const char_data* character, const char_data* other);
-// The snapshot form: is_npc/is_charmed/race are captured from exactly the
-// same three expressions the live form evaluates, so the two agree by
-// construction (TASK-021).
+// Same answer as the live form, from a caster's cast-time snapshot.
 int other_side(const caster_snapshot& character, const char_data* other);
 int other_side_num(int ch_race, int i_race);
 
@@ -178,31 +174,27 @@ void hit(struct char_data* ch, struct char_data* victim, int type);
 void forget(struct char_data* ch, struct char_data* victim);
 void remember(struct char_data* ch, struct char_data* victim);
 int damage(struct char_data* ch, struct char_data* victim, int dam, int attacktype, int hit_location);
-// TASK-021 port: damage() with the kill credit named separately from the
-// character that engages the victim. `ch` engages exactly as damage() always
-// did; `credited_killer` (which may be null, may equal `ch`, and may stand in
-// another room) is what reaches die(). damage() is a forwarder onto this with
-// credit == attacker.
+// damage() with the kill credit named separately from the character that
+// engages the victim. `ch` engages exactly as damage() does; `credited_killer`
+// (which may be null, may equal `ch`, and may stand in another room) is what
+// reaches die(), and is never engaged.
 int damage_credited(struct char_data* ch, struct char_data* victim, struct char_data* credited_killer, int dam, int attacktype, int hit_location);
-// TASK-021 port: the live character recorded as the source of `victim`'s
-// poison, or null when no live character answers to that record any more
-// (the poisoner was extracted, or its abs_number slot was recycled). The only
-// sanctioned reader of char_special_data's poisoned_by* pair.
+// The live character recorded as the source of `victim`'s poison, or null when
+// the record no longer names a live character. Never dereferences the recorded
+// pointer, so an extracted or slot-recycled poisoner is reported as null rather
+// than dangling.
 struct char_data* resolve_poisoner(const struct char_data& victim);
-// TASK-021 port: records where `victim`'s poison came from, for
-// resolve_poisoner() above to read back when it kills. `poisoner` may be null
-// -- a poisoned meal or drink has no character behind it -- and then the
-// record is CLEARED, not left half-set. The only sanctioned writer that SETS
-// an origin; clear_char() (db.cpp) and affect_remove() (handler.cpp, when the
-// last SPELL_POISON affect goes) clear the pair, and set it nowhere.
+// Records `poisoner` as the source of `victim`'s poison, for resolve_poisoner()
+// to read back. A null `poisoner` -- a poisoned meal or drink has no character
+// behind it -- clears the record rather than leaving it half-set. `poisoner` is
+// not retained: only its identity is stored, and it is never dereferenced later.
 void record_poison_origin(struct char_data* victim, struct char_data* poisoner);
 
-// Punishment class for a PC death, chosen by classify_pc_death(). legacy
-// leaves die()/raw_kill() to decide from the credited killer as before.
+// Punishment class for a PC death, chosen by classify_pc_death().
 enum class death_punishment {
-    legacy,
-    mob_death,
-    player_death,
+    legacy, // die()/raw_kill() decide from the credited killer, as before
+    mob_death, // punished as a death to a mob, whatever landed the blow
+    player_death, // punished as a player kill, whatever landed the blow
 };
 
 // A mob acting for itself: an NPC that is neither MOB_PET nor MOB_ORC_FRIEND.
@@ -240,16 +232,19 @@ int check_sanctuary(char_data* ch, char_data* victim);
 char* money_message(int sum, int mode = 0);
 
 int char_exists(int num);
-// Sets only the char_control_array bit; production registration goes through
-// the two-arg overload below, which also records the pointer. Calling this
-// one-arg form alone leaves the slot char_exists()-true but
-// char_by_abs_number()-null.
+// Marks slot `num` occupied without naming an owner: char_exists() then reports
+// the slot live while char_by_abs_number() still answers null. Production
+// registration uses the two-argument form below.
 void set_char_exists(int num);
-// Registers `ch` as the current owner of slot `num` and stamps ch->registration_serial from a
-// process-wide counter; every stale-reference check (caster snapshots, poison origins,
-// affected_list entries) compares that serial as well as the pointer.
+// Registers `ch` as the current owner of slot `num` and gives it a fresh
+// ch->registration_serial, so an identity captured under an earlier
+// registration of the same slot no longer resolves.
 void set_char_exists(int num, struct char_data* ch);
 void remove_char_exists(int num);
+// The character currently registered under abs_number `num`, or null when the
+// slot is free or was never given an owner. The sanctioned way to turn a
+// recorded abs_number back into a character without dereferencing a possibly
+// stale pointer.
 struct char_data* char_by_abs_number(int num);
 int register_npc_char(struct char_data*);
 int register_pc_char(struct char_data*);

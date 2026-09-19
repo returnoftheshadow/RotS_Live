@@ -876,9 +876,7 @@ void death_cry(struct char_data* ch)
     }
 }
 
-// TASK-021 port: hand back the character recorded as the source of `victim`'s
-// poison, or nullptr when no live character answers to that record any more.
-// THE RECORDED POINTER IS NEVER DEREFERENCED to reach that answer -- the
+// THE RECORDED POINTER IS NEVER DEREFERENCED to produce the result -- the
 // character it names may have been extracted and freed. char_by_abs_number()
 // reports who CURRENTLY owns the recorded slot (nullptr when nobody does), and
 // only a pointer-identical answer counts: an extracted poisoner resolves to
@@ -900,18 +898,11 @@ char_data* resolve_poisoner(const char_data& victim)
     return nullptr;
 }
 
-// TASK-021 port: the write side of that record, and the only writer that SETS
-// an origin. Every production site that applies a poison affect (or an
-// AFF_POISON bit) says here where the poison came from -- the spell's caster,
-// the mob that bit, or NOBODY for a poisoned meal or drink, which is what a
-// null `poisoner` means. Two other sites CLEAR the pair without going through
-// here, and neither ever sets one: db.cpp's clear_char() (a blank character's
-// pair starts blank) and handler.cpp's affect_remove() (once the last
-// SPELL_POISON affect is gone). Writing both halves in one place is the
-// point: resolve_poisoner() above reads the pair, so an abs_number left
-// standing without its pointer (or the reverse) is a record that can answer
-// for whoever holds that slot today. `poisoner` is not dereferenced beyond
-// reading its abs_number here, and the pointer is stored only as an identity
+// Writing both halves together is the point: resolve_poisoner() above reads
+// the pair, so an abs_number left standing without its pointer (or the
+// reverse) could answer for whoever holds that slot today. `poisoner` is not
+// dereferenced beyond reading its abs_number here; the pointer is stored only
+// as an identity token to compare against later.
 // token to compare against later.
 void record_poison_origin(char_data* victim, char_data* poisoner)
 {
@@ -987,11 +978,9 @@ bool kill_contributor_list::add(char_data* candidate)
     return true;
 }
 
-// TASK-026 port: who took part in `victim`'s death. See kill_contributors.h
-// for what this set is for and why pkill.cpp's own combat_list walks could
-// not produce it. The three sources are unioned in a fixed order (fighters,
-// poisoner, primary) purely so the resulting records are reproducible;
-// nothing downstream reads a position.
+// See kill_contributors.h for what this set is for and why pkill.cpp's own
+// combat_list walks could not build it. The union order is fixed purely so the
+// resulting records are reproducible; nothing downstream reads a position.
 kill_contributor_list kill_contributors(char_data* victim, char_data* primary)
 {
     kill_contributor_list contributors;
@@ -1144,14 +1133,13 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_pun
 
         // The player was killed by another player (probably).
         // Restore them.
-        // TASK-021/026 port: the origin of a poison IS tracked now -- the
-        // poisoner is recorded on the victim when the poison lands and
-        // resolved back into this `killer` argument by the tick that kills
-        // (resolve_poisoner(), limits.cpp's point_update()/
-        // affect_update_person()). So the old `attack_type == SPELL_POISON ||`
-        // term, which assumed every poison death was a player's doing, is
-        // gone: a poison death is a player kill exactly when the character
-        // credited with it is a player.
+        // The origin of a poison is tracked now -- the poisoner is recorded on
+        // the victim when the poison lands and resolved back into this
+        // `killer` argument by the tick that kills (resolve_poisoner(),
+        // limits.cpp's point_update()/affect_update_person()). So the old
+        // `attack_type == SPELL_POISON ||` term, which assumed every poison
+        // death was a player's doing, is gone: a poison death is a player kill
+        // exactly when the character credited with it is a player.
         // The poison carveout (death_punishment) can override this in either direction.
         const bool died_to_player = death_counts_as_player_kill(killer, punishment);
         char_ability_data& cur_abils = dead_man->tmpabilities;
@@ -1251,9 +1239,8 @@ void die(char_data* dead_man, char_data* killer, int attack_type, char_data* eng
     }
 
     /* the following piece is moved here, might cause problems... */
-    // Only grant gains for kills on NPCs and connected players. `killer` may
-    // be nobody (a poison or room tick whose source is gone); group_gain()
-    // still pays everyone fighting the victim in the death room.
+    // Only grant gains for kills on NPCs and connected players. group_gain()
+    // handles a remote or absent `killer` on its own (see its definition).
     if (IS_NPC(dead_man) || dead_man->desc) {
         group_gain(killer, dead_man);
     }
@@ -1313,12 +1300,11 @@ void die(char_data* dead_man, char_data* killer, int attack_type, char_data* eng
         add_exploit_record(EXPLOIT_POISON, dead_man, 0, NULL);
     }
 
-    // TASK-026 port: who took part is decided here, once, and handed to the
-    // record builder -- pkill.cpp's own combat_list walks could not see a
-    // poisoner or a remote room-affect caster. Built whether or not anyone
-    // is credited: an incapacitating poison tick clears the victim's own
-    // target but not its opponents', so a later lethal tick whose poisoner
-    // is gone still finds them fighting, and they keep their records.
+    // Built whether or not anyone is credited: an incapacitating poison tick
+    // clears the victim's own target but not its opponents', so a later lethal
+    // tick whose poisoner is gone still finds them fighting, and they keep
+    // their records. See kill_contributors.h for why pkill.cpp's own
+    // combat_list walks could not build this set themselves.
     //
     // PK records are created regardless of death cause, but then early out
     // if it's all NPCs killing the character.  Heh...
@@ -1330,8 +1316,6 @@ void die(char_data* dead_man, char_data* killer, int attack_type, char_data* eng
 
     /* add death records to dead player */
     /* Fingolfin: Jul 19: since we record mobdeaths earlier */
-    // A mob's killing blow keeps the legacy shape (the mob-death record above
-    // stands alone); a player's, or nobody's, names the player contributors.
     if (death_names_player_contributors(killer)) {
         add_exploit_record(EXPLOIT_DEATH, dead_man, contributors);
     }
@@ -1845,17 +1829,10 @@ int maul_damage_reduction(char_data* ch, int damage)
  * damage now modified to return int - 1 if the victim was
  * killed, 0 if not.
  */
-// TASK-021 port: split the two roles this function's single `attacker`
-// argument used to serve. `attacker` is the character that ENGAGES the
-// victim -- set_fighting, on_attacked_character, the group/hide/exp
-// bookkeeping, the damage message -- exactly as before. `credited_killer` is
-// who die() is told did it: it may be nullptr (nobody is credited), it may
-// equal `attacker` (which is what damage() below always passes, so every
-// historical call site is unchanged), and it may be a character standing
-// somewhere else entirely -- a room affect ticking from the snapshot of a
-// caster who has long since walked away. A remote credited killer is never
-// engaged: it is not passed to set_fighting and nothing in the body below
-// reads it.
+// `attacker` keeps engaging the victim exactly as before -- set_fighting,
+// on_attacked_character, the group/hide/exp bookkeeping, the damage message.
+// A remote or null `credited_killer` is never engaged: it is not passed to
+// set_fighting, and nothing in the body below reads it.
 int damage_credited(char_data* attacker, char_data* victim, char_data* credited_killer, int dam, int attacktype, int hit_location)
 {
     struct affected_type* aff;
@@ -2187,11 +2164,11 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
         victim->specials.was_in_room = victim->in_room;
     }
 
-    // TASK-026 port: the opponent the victim is engaged with at the instant it
-    // dies, captured HERE because the stop_fighting() call on the very next
-    // line retargets or clears specials.fighting for a dead character. The
-    // credit fallback below and die()'s poison-death engagement classification
-    // both read this captured value, never the post-stop pointer.
+    // The opponent the victim is engaged with at the instant it dies, captured
+    // HERE because the stop_fighting() call on the very next line retargets or
+    // clears specials.fighting for a dead character. The credit fallback below
+    // and die()'s poison-death engagement classification both read this
+    // captured value, never the post-stop pointer.
     char_data* const engaged_opponent = victim->specials.fighting;
 
     if (!AWAKE(victim))
@@ -2199,16 +2176,15 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
             stop_fighting(victim);
 
     if (GET_POS(victim) == POSITION_DEAD) {
-        // TASK-021 port: the KILL is credited to `credited_killer`, not to
-        // the character that engaged the victim. For damage() they are the
-        // same pointer, so this block is byte-for-byte the old one; the
-        // redirect is applied to a local rather than to the parameter only
-        // because the parameter is no longer the one going to die().
+        // The redirect applies to a local rather than to the parameter, since
+        // the parameter no longer reaches die() directly; for damage() the two
+        // pointers are identical, so this block stays byte-for-byte the
+        // historical one.
         char_data* killer = credited_killer;
-        // TASK-026 port: when nobody is credited -- a poison or room tick
-        // whose caster can no longer be resolved -- the death is credited to
-        // whoever the victim was fighting. A victim fighting nobody still
-        // credits nobody: this never invents a killer.
+        // When nobody is credited -- a poison or room tick whose caster can no
+        // longer be resolved -- the death is credited to whoever the victim was
+        // fighting. A victim fighting nobody still credits nobody: this never
+        // invents a killer.
         if (killer == nullptr && engaged_opponent != nullptr) {
             killer = engaged_opponent;
         }
@@ -2226,10 +2202,9 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
     }
 }
 
-// TASK-021 port: the historical damage() shape -- whoever engages the victim
-// is also credited with the kill. A forwarder, not a second body: every
-// caller that has not been taught about separate credit keeps exactly the
-// behavior it had.
+// The historical damage() shape -- whoever engages the victim is also credited
+// with the kill. A forwarder, not a second body: every caller that has not
+// been taught about separate credit keeps exactly the behavior it had.
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location)
 {
     // damage_credited()'s own `if (!attacker) attacker = victim;` emergency

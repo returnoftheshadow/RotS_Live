@@ -1,11 +1,10 @@
 #pragma once
-// TASK-026 port: the set of characters that took part in one death, built by
-// kill_contributors() (fight.cpp) and carried into pkill_create(). It exists
-// because pkill.cpp's three record-building walks derived their own answer
-// straight from combat_list, and such a walk cannot see two contributors this
-// branch credits: the recorded poisoner (who may be rooms away) and the caster
-// a room affect names when its tick lands the killing blow. Fixed capacity,
-// no heap: built on the death path, consumed immediately, never outlives it.
+// The set of characters that took part in one death, built by
+// kill_contributors(). It can name contributors that were not fighting the
+// victim -- the recorded poisoner, who may be rooms away, and the caster a
+// room affect names when its tick lands the killing blow -- which a walk over
+// combat_list cannot see. Fixed capacity, no heap: built on the death path,
+// consumed immediately, never outlives it.
 
 struct char_data;
 
@@ -14,10 +13,8 @@ struct kill_contributor_list {
     // above any real fight -- add() refuses past it rather than overrunning.
     static constexpr int kCapacity = 32;
 
-    // The contributors, in the order kill_contributors() found them: everyone
-    // fighting the victim (combat_list order), then the recorded poisoner,
-    // then the primary killer. Only the first `count` entries are live, and
-    // no entry is ever null or repeated.
+    // The contributors. Only the first `count` entries are live; no entry is
+    // null or repeated, and their order carries no meaning.
     char_data* entries[kCapacity] {};
 
     // How many of `entries` are live.

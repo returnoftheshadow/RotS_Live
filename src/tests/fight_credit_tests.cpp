@@ -1,22 +1,20 @@
-// TASK-021/026 port, Task 8: damage_credited() -- separating who ENGAGES the
-// victim (`attacker`) from who is CREDITED with the kill (`credited_killer`).
-// damage() becomes a thin forwarder onto damage_credited() with
-// credited_killer == attacker, so every historical call site keeps its exact
-// behavior; the two limits.cpp poison-tick sites (Task 8) and the future
-// room-affect tick (Task 12) pass a credited_killer that can be null or
-// remote instead.
+// damage_credited() -- separating who ENGAGES the victim (`attacker`) from
+// who is CREDITED with the kill (`credited_killer`). damage() becomes a
+// thin forwarder onto damage_credited() with credited_killer == attacker,
+// so every historical call site keeps its exact behavior; the two
+// limits.cpp poison-tick sites and the room-affect tick pass a
+// credited_killer that can be null or remote instead.
 //
 // This depot has no extract_char test seam, so the death-path pins below drive the real death
 // pipeline -- heap-allocated, register_npc_char()'d NPCs linked into
 // character_list and a real room, so raw_kill()/extract_char()/free_char()
-// run for real -- following the precedent at
-// src/tests/interpre_account_menu_tests.cpp:3779 and the heap-NPC/
-// ScopedMobIndex/RoomExitGuard idiom mage_tests.cpp's fireball suite already
-// established for this exact "no extract_char seam" problem.
+// run for real -- following the heap-NPC/ScopedMobIndex/RoomExitGuard idiom
+// mage_tests.cpp's fireball suite already established for this exact
+// "no extract_char seam" problem.
 //
 // Observation strategy (documented per pin below, since this depot cannot
-// observe "who die() was told" directly without Task 12's kill-contributor
-// records):
+// observe "who die() was told" directly without a kill-contributor ledger
+// to read back):
 //   (a) the pet-master redirect is observed through make_physical_corpse()'s
 //       `attack_type == SPELL_POISON || !IS_NPC(killer)` gear-move branch: a
 //       non-NPC killer pulls wearables out of any container in the corpse,
@@ -27,7 +25,7 @@
 //       damage_credited()'s own body, checked by reading
 //       credited_killer->specials.fighting and victim->specials.fighting
 //       directly after a non-lethal call.
-//   (c)/(d) the same gear-move signal, applied to the TASK-026 fallback: an
+//   (c)/(d) the same gear-move signal, applied to the null-credit fallback: an
 //       NPC engaged opponent leaves gear nested (proving the fallback armed),
 //       while no opponent at all leaves the corpse crediting nobody, which
 //       make_physical_corpse() also treats as a non-NPC killer and moves the
@@ -39,13 +37,13 @@
 //       (`damage_credited(i, i, resolve_poisoner(*i), 5, SPELL_POISON, 0)`)
 //       and observes that the credited poisoner's specials.fighting is never
 //       touched -- proving the credited character is never engaged even
-//       though it took the kill, which is Task 8's central claim.
+//       though it took the kill.
 //
 // All death-path fixtures below deliberately pre-arm
 // `victim->specials.fighting == attacker` (or drive the self-tick shape
 // `attacker == victim` that limits.cpp itself uses) rather than leaving
-// combatants unengaged at call time: damage_credited()'s pre-existing (not
-// Task 8's) `special(attacker, 0, "", SPECIAL_DAMAGE, &tmpwtl)` call is only
+// combatants unengaged at call time: damage_credited()'s pre-existing
+// `special(attacker, 0, "", SPECIAL_DAMAGE, &tmpwtl)` call is only
 // skipped when the two already agree, and this suite has no reason to
 // exercise that unrelated call path.
 #include "../db.h"
@@ -70,7 +68,7 @@ extern index_data* mob_index;
 extern obj_data* object_list;
 extern char_data* combat_list;
 
-// TASK-026 port, Task 12: pkill_weight()/pkill_opponents()/pkill_valid_killer()
+// pkill_weight()/pkill_opponents()/pkill_valid_killer()
 // are pkill.cpp internals with no header declaration (only pkill_create() is
 // exposed via pkill.h) -- matching damage_tests.cpp's precedent of declaring
 // an internal production function `extern` in the test TU rather than adding
@@ -259,7 +257,7 @@ TEST(FightCredit, RemoteCreditedKillerIsNeverEngaged)
 
     // Pre-armed so damage_credited()'s pre-existing
     // `victim->specials.fighting != attacker` SPECIAL_DAMAGE probe (unrelated
-    // to Task 8) is skipped -- see the file comment above.
+    // to engagement/credit separation) is skipped -- see the file comment above.
     attacker.specials.fighting = &victim;
     victim.specials.fighting = &attacker;
     remote_killer.specials.fighting = nullptr;
@@ -280,7 +278,7 @@ TEST(FightCredit, RemoteCreditedKillerIsNeverEngaged)
 }
 
 // Pin (a): damage() forwards with credit == attacker (an ordinary lethal hit
-// credits the attacker, byte-identical to the pre-Task-8 shape), and that
+// credits the attacker, byte-identical to the historical shape), and that
 // credit still survives the pet-master redirect. See the file comment above
 // for the gear-move observation strategy this pin relies on; the master is
 // pinned at LEVEL_IMMORT so group_gain()'s per-character loop `continue`s
@@ -360,7 +358,7 @@ TEST(FightCredit, DamageForwardsCreditAndAppliesThePetMasterRedirectOnDeath)
 }
 
 // Pin (c): a null credited_killer with the victim engaged with an opponent
-// falls back to crediting that opponent (TASK-026), not the character that
+// falls back to crediting that opponent, not the character that
 // actually delivered the blow. Drives the production self-tick shape
 // (`attacker == victim`, matching both limits.cpp call sites) with the
 // engaged opponent left as an NPC, so make_physical_corpse()'s gear-move
@@ -458,7 +456,7 @@ TEST(FightCredit, NullCreditWithNoEngagedOpponentCreditsNobody)
 }
 
 // Pin (e): the poison DoT via resolve_poisoner() credits the recorded
-// poisoner, and -- Task 8's central claim -- never engages it. Drives
+// poisoner, and -- damage_credited()'s central claim -- never engages it. Drives
 // limits.cpp's exact call shape from both the point_update() gear-poison arm
 // and affect_update_person()'s ordinary poison arm:
 // `damage_credited(i, i, resolve_poisoner(*i), 5, SPELL_POISON, 0)`.
@@ -515,10 +513,10 @@ TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
 }
 
 // ---------------------------------------------------------------------------
-// TASK-026 port, Task 12: kill_contributor_list / kill_contributors() /
-// pkill_weight() / pkill_opponents(). See this file's header comment for the
-// death-path observation-strategy convention this suite follows; the notes
-// below explain the ONE place this group departs from it.
+// kill_contributor_list / kill_contributors() / pkill_weight() /
+// pkill_opponents(). See this file's header comment for the death-path
+// observation-strategy convention this suite follows; the notes below
+// explain the ONE place this group departs from it.
 //
 // die()'s own contributor-union code (fight.cpp's `else` arm reached only for
 // a non-NPC dead_man) is NOT exercised end-to-end here. Driving it for real
@@ -565,10 +563,10 @@ TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
 //     would only be re-checking C++ operator semantics on that answer, not
 //     new logic -- it is not attempted here for that reason, independent of
 //     the PC-fixture blockers above.
-//   - Task 8's FightCredit.NullCreditFallsBackToTheEngagedOpponent (this
-//     file, above) already pins "a fighting victim's sourceless death credits
-//     the engaged opponent" at the damage_credited() layer that feeds
-//     die()'s `killer` argument; not duplicated here.
+//   - FightCredit.NullCreditFallsBackToTheEngagedOpponent (this file, above)
+//     already pins "a fighting victim's sourceless death credits the engaged
+//     opponent" at the damage_credited() layer that feeds die()'s `killer`
+//     argument; not duplicated here.
 namespace {
 
 // Saves/restores the global combat_list around a kill_contributors() pin, so
@@ -900,8 +898,8 @@ TEST(PkillWeightAndOpponents, OpponentsCountsOnlyValidKillers)
 }
 
 // ============================================================================
-// group_gain() room gating -- the XP half of remote credit (TASK-021/026
-// follow-up). die() hands group_gain() the CREDITED killer, which a room
+// group_gain() room gating -- the XP half of remote credit. die() hands
+// group_gain() the CREDITED killer, which a room
 // affect or poison tick can leave in another room; the old global
 // `killer->in_room != dead_man->in_room` early return then paid nobody --
 // including the fighters engaged with the victim in the death room, who were

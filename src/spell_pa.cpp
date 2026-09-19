@@ -233,7 +233,6 @@ int get_saving_throw_dc(const caster_snapshot& caster)
                caster.specialization, caster.tactics, caster.mage_prof_level, caster.spell_pen);
 }
 
-// The live form forwards (TASK-021).
 int get_saving_throw_dc(const char_data* caster)
 {
     return get_saving_throw_dc(caster_snapshot::capture(*caster));
@@ -266,8 +265,6 @@ bool new_saves_spell(const caster_snapshot& caster, const char_data* victim, int
     return saved;
 }
 
-// The live form forwards, so a room affect that re-rolls a save on a later
-// tick uses the identical DC the original cast computed (TASK-021).
 bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus)
 {
     return new_saves_spell(caster_snapshot::capture(*caster), victim, save_bonus);
@@ -339,9 +336,8 @@ char saves_poison(struct char_data* victim, const caster_snapshot& caster)
     return (number(offence / 3, offence) < number(defense / 2, defense));
 }
 
-// The live form forwards, so a poison that ticks after its caster is gone runs
-// this identical formula from the cast-time copy (TASK-021). caster.willpower
-// and caster.perception are captured from GET_WILLPOWER()/GET_PERCEPTION().
+// caster.willpower and caster.perception are captured from
+// GET_WILLPOWER()/GET_PERCEPTION().
 char saves_poison(struct char_data* victim, struct char_data* caster)
 {
     return saves_poison(victim, caster_snapshot::capture(*caster));

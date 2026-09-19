@@ -1,4 +1,4 @@
-// TASK-021 port, Task 7: poison origin tracking. record_poison_origin()
+// Poison origin tracking. record_poison_origin()
 // (fight.cpp) is the only sanctioned writer of char_special_data's
 // poisoned_by_abs_number/poisoned_by pair; resolve_poisoner() is the only
 // sanctioned reader. The pair is never persisted (char_special_data does not
@@ -37,7 +37,7 @@ namespace {
 constexpr int kPoisonerSlot = MAX_CHARACTERS - 601;
 
 // RAII registration matching affect_update_tests.cpp's ScopedCharExists: the
-// two-argument set_char_exists() (TASK-021 port) records the pointer
+// two-argument set_char_exists() overload records the pointer
 // char_by_abs_number() -- and therefore resolve_poisoner() -- hands back.
 class ScopedCharExists {
 public:

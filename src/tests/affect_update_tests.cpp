@@ -1,5 +1,5 @@
-// TASK-020 -- affect_update()'s walk over the process-global affected_list
-// must survive a death that the walk itself triggers.
+// affect_update()'s walk over the process-global affected_list must survive
+// a death that the walk itself triggers.
 //
 // affect_update() (limits.cpp) used to walk affected_list with a pre-saved
 // `tmplist2 = tmplist->next`. affect_update_room() re-casts a room's blaze on
@@ -15,7 +15,7 @@
 // This depot has no extract_char test seam, so the dying occupant is built the way the game builds
 // an NPC -- heap-allocated, clear_char()'d, and register_npc_char()'d
 // into character_list and a real room -- so extract_char()/free_char() can
-// run for real, following the TASK-018 fireball-fumble precedent at
+// run for real, following the fireball-fumble precedent at
 // src/tests/mage_tests.cpp (make_fireball_caster / ScopedFireballMobIndex /
 // release_fireball_corpse). The fixture reproduces the freed-node order
 // literally: [blaze room, dying occupant, sentinel]. Against the unfixed
@@ -115,7 +115,7 @@ private:
 };
 
 // Registers a unique abs_number the way register_npc_char() would for a real
-// mob, through the TWO-argument set_char_exists() (TASK-021 port), which
+// mob, through the TWO-argument set_char_exists() overload, which
 // also records the pointer char_by_abs_number() hands back. affect_update()
 // updates a snapshotted entry only while that lookup still returns the very
 // pointer the entry named, so the one-argument overload -- which leaves the
@@ -328,7 +328,7 @@ TEST(AffectUpdateWalk, SurvivesAnOccupantDyingToTheBlazeTickItIsProcessing) {
 }
 
 // ---------------------------------------------------------------------------
-// The recycled abs_number slot (M-2)
+// The recycled abs_number slot
 // ---------------------------------------------------------------------------
 //
 // affect_update() snapshots (abs_number, char_data*) pairs BEFORE any body

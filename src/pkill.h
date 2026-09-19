@@ -21,13 +21,10 @@ typedef struct {
 
 void boot_pkills();
 
-// TASK-026 port: the participants are handed in rather than derived here. The
-// three record-building walks below used to read `combat_list` for
-// themselves, which can only ever see characters currently fighting the
-// victim; die() now builds one kill_contributor_list (kill_contributors.h)
-// that also carries the recorded poisoner and the killing tick's caster, and
-// all three walks iterate it. Forward-declared rather than included: this
-// header needs only the incomplete type for a reference parameter.
+// Records `victim`'s death as a player kill, crediting the supplied
+// contributors (kill_contributors.h): every contributor pkill_valid_killer()
+// accepts gets a PKILL record, and the kill's weight and opponent count are
+// computed from that list rather than from who is currently fighting `victim`.
 struct kill_contributor_list;
 void pkill_create(struct char_data*, const kill_contributor_list&);
 

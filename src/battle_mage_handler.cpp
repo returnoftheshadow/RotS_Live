@@ -32,9 +32,6 @@ int battle_mage_handler::get_bonus_spell_power(game_types::player_specs spec, in
     return spell_power + (tactics / 2) + (mage_level / 12);
 }
 
-// The two member forms below are thin adapters onto the static forms above:
-// is_battle_spec is exactly `specialization == PS_BattleMage`, so replaying it
-// as a spec keeps the live path byte-identical (TASK-021).
 int battle_mage_handler::get_bonus_spell_pen(int spell_pen) const
 {
     return get_bonus_spell_pen(is_battle_spec ? game_types::PS_BattleMage : game_types::PS_None,
