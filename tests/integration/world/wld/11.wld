@@ -1,0 +1,144 @@
+#1101
+Immortal Start~
+A quiet white room where implementors arrive.
+~
+11 0 0 0
+S
+#1102
+Immortal Idle~
+A side room for idle immortals.
+~
+11 0 0 0
+S
+#1110
+Frozen Room~
+A cold cell for frozen characters.
+~
+11 0 0 0
+S
+#1129
+Olog-hai Start~
+A dark cave mouth where trolls begin.
+~
+11 0 0 0
+S
+#1130
+Arena West~
+The western end of the harness arena. The arena continues east.
+~
+11 0 0 0
+D1
+~
+~
+0 0 1131 5
+S
+#1131
+Arena Centre~
+The centre of the harness arena. Exits lead west, east, north to a dark cell and south to a corridor.
+~
+11 0 0 0
+D0
+~
+~
+0 0 1133 5
+D1
+~
+~
+0 0 1132 5
+D2
+~
+~
+0 0 1134 5
+D3
+~
+~
+0 0 1130 5
+S
+#1132
+Arena East~
+The eastern end of the harness arena. The arena continues west.
+~
+11 0 0 0
+D3
+~
+~
+0 0 1131 5
+S
+#1133
+Dark Cell~
+You cannot see a thing in here.
+~
+11 1 0 0
+D2
+~
+~
+0 0 1131 5
+S
+#1134
+Corridor One~
+A plain corridor. The arena lies north; the corridor continues south.
+~
+11 0 0 0
+D0
+~
+~
+0 0 1131 5
+D2
+~
+~
+0 0 1135 5
+S
+#1135
+Corridor Two~
+The end of the corridor. The only way is north.
+~
+11 0 0 0
+D0
+~
+~
+0 0 1134 5
+S
+#1151
+Retirement Home~
+A peaceful room for retired characters.
+~
+11 0 0 0
+S
+#1152
+Lost and Found~
+Characters with a bad load room arrive here.
+~
+11 0 0 0
+S
+#1160
+Human Start~
+A plain hall where humans, dwarves, hobbits and high elves begin.
+~
+11 0 0 0
+S
+#1170
+Wood-elf Start~
+A glade where wood elves begin.
+~
+11 0 0 0
+S
+#1184
+Beorning Start~
+A wooden lodge where Beornings begin.
+~
+11 0 0 0
+S
+#1190
+Uruk Idle~
+An idle room for Uruk-hai.
+~
+11 0 0 0
+S
+#1191
+Orc Idle~
+An idle room for orcs.
+~
+11 0 0 0
+S
+#99999
+$~
