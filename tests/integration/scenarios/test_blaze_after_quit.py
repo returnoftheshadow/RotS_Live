@@ -26,8 +26,12 @@ def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mag
     assert victim.command("look").room_name() == "Arena Centre"
     before = imp.command("stat harnvictim").hit_points()[0]
 
-    harness.tick()
-    after = imp.command("stat harnvictim").hit_points()[0]
+    after = before
+    for _tick in range(15):  # a room-affect tick fires probabilistically per pulse, not every pulse
+        harness.tick()
+        after = imp.command("stat harnvictim").hit_points()[0]
+        if after < before:
+            break
     assert after < before, f"the blaze should still tick after its caster quit ({before} -> {after})"
 
     died = False

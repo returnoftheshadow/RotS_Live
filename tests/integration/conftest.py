@@ -48,7 +48,7 @@ def choose_launcher() -> ServerLauncher:
     raise RuntimeError(f"ROTS_IT_LAUNCHER must be 'local' or 'docker', not {mode!r}")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture  # each test gets a fresh server: no command reliably strips a room affect, so isolation is by reboot
 def server(request: pytest.FixtureRequest) -> HarnessServer:
     run_dir = REPO_ROOT / "build" / "integration" / uuid.uuid4().hex[:12]
     run_dir.mkdir(parents=True)
