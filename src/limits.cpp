@@ -20,6 +20,7 @@
 #include "room_affect_tick.h"
 #include "spells.h"
 #include "structs.h"
+#include "test_harness.h"
 #include "utils.h"
 #include <assert.h>
 #include <ctype.h>
@@ -521,6 +522,13 @@ void Crash_extract_objs(obj_data*);
 int check_idling(char_data* character)
 {
     extern int r_mortal_idle_room[];
+
+    // Harness mode compresses time by driving point_update() from `harness tick`,
+    // which would otherwise trip this idle timer (AFK at 3, force-rent at 28) within
+    // a single scenario. No idle processing while under the harness.
+    if (harness_mode) {
+        return 0;
+    }
 
     // Gods get their own checks, and are never auto-disconnected.
     if ((GET_LEVEL(character) >= LEVEL_GOD) && (character->desc) && (character->desc->descriptor)) {
