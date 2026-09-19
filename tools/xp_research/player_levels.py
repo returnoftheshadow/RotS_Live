@@ -92,21 +92,29 @@ def band_for_level(level):
 
 
 def read_csv_levels(csv_path):
-    """Read players.csv (columns name,level,race; no header) and return levels only."""
+    """Read players.csv (columns name,level,race; no header) and return levels only.
+
+    Returns (levels, skipped_row_count). A row is skipped -- and counted, not
+    silently dropped -- when it is blank or missing the level field.
+    """
     levels = []
+    skipped_row_count = 0
     with csv_path.open("r", encoding="utf-8", errors="replace") as csv_file:
         for row_line in csv_file:
             row_line = row_line.strip()
             if not row_line:
+                skipped_row_count += 1
                 continue
             fields = row_line.split(",")
             if len(fields) < 2:
+                skipped_row_count += 1
                 continue
             try:
                 levels.append(int(fields[1]))
             except ValueError:
+                skipped_row_count += 1
                 continue
-    return levels
+    return levels, skipped_row_count
 
 
 def histogram_by_band(levels):
@@ -152,23 +160,30 @@ def parse_player_filename(file_name):
 def collect_filename_records(players_root):
     """Glob the canonical bucket directories and parse each filename's metadata.
 
-    Returns a list of (level, log_time, file_path) tuples. Only the filename
-    is read here -- file bodies are never opened by this function.
+    Returns (filename_records, skipped_entry_count). filename_records is a list
+    of (level, log_time, file_path) tuples. skipped_entry_count counts every
+    directory entry under the six bucket directories that was not a save file
+    matching the documented six-field layout (for example the non-save-file
+    entries observed in ZZZ) -- these are counted, not silently dropped. Only
+    the filename is read here -- file bodies are never opened by this function.
     """
     filename_records = []
+    skipped_entry_count = 0
     for bucket_name in BUCKET_DIRECTORY_NAMES:
         bucket_path = players_root / bucket_name
         if not bucket_path.is_dir():
             continue
         for directory_entry in bucket_path.iterdir():
             if not directory_entry.is_file():
+                skipped_entry_count += 1
                 continue
             parsed_metadata = parse_player_filename(directory_entry.name)
             if parsed_metadata is None:
+                skipped_entry_count += 1
                 continue
             level, log_time = parsed_metadata
             filename_records.append((level, log_time, directory_entry))
-    return filename_records
+    return filename_records, skipped_entry_count
 
 
 def levels_within_activity_window(filename_records, newest_log_time, window_days):
@@ -322,11 +337,12 @@ def main(argv):
     print()
 
     # Step 1: level histogram from players.csv.
-    csv_levels = read_csv_levels(csv_path)
+    csv_levels, csv_skipped_row_count = read_csv_levels(csv_path)
     csv_band_counts = histogram_by_band(csv_levels)
     csv_tier_counts = tier_counts(csv_levels)
     mortal_60_to_89_count = csv_band_counts["60-74"] + csv_band_counts["75-89"]
     immortal_count = csv_band_counts["90"] + csv_band_counts["91+"]
+    csv_row_count_seen = len(csv_levels) + csv_skipped_row_count
 
     print(f"## Step 1: Level histogram from `{csv_path.name}` ({len(csv_levels)} rows)")
     print()
@@ -338,11 +354,22 @@ def main(argv):
     print(f"- Level 90 or above (tier-90 count above): {csv_tier_counts[90]}")
     print(f"- Mortal 60-89 band: {mortal_60_to_89_count}")
     print(f"- All level 90+ (staff-heavy tail, band '90' + '91+'): {immortal_count}")
+    print(
+        f"- {csv_skipped_row_count} CSV rows skipped (blank or short) out of "
+        f"{csv_row_count_seen} rows read"
+    )
     print()
 
     # Step 2: activity-weighted histogram from filenames.
-    filename_records = collect_filename_records(players_root)
+    filename_records, filename_skipped_entry_count = collect_filename_records(players_root)
+    filename_entries_seen = len(filename_records) + filename_skipped_entry_count
     print(f"## Step 2: Activity-weighted histogram from filenames ({len(filename_records)} save files)")
+    print()
+    print(
+        f"- {filename_skipped_entry_count} directory entries skipped (filename does not "
+        f"match the six-field save layout) out of {filename_entries_seen} entries seen "
+        f"across the six bucket directories"
+    )
     print()
     if not filename_records:
         print("No player save files found under the canonical bucket directories.")
