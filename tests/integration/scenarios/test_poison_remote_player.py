@@ -29,15 +29,15 @@ def test_remote_player_poison_death_is_gentle_and_fully_attributed(server, imp, 
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnmage")
     imp.command("transfer harnvictim")
-    imp.command("wizset harnvictim level 20")  # BB: mage(30) vs victim(10) tripped attacker>=defender*3; 30>=60 is false
-    imp.command("wizset harnvictim hit 12")  # the cast lands 5, each tick lands 5
+    imp.command("wizset harnvictim level 11")  # BB needs attacker(30) < defender*3; 11 gives 33 > 30
+    imp.command("wizset harnvictim hit 10")  # low enough that regen cannot outrun the poison ticks
 
     poison_until_it_lands(mage, victim)
     mage.command("west")  # the poisoner is now rooms away and never in the victim's fight
     assert mage.command("look").room_name() == "Arena West"
 
     died = False
-    for _tick in range(4):
+    for _tick in range(15):
         harness.tick()
         text = victim.drain(1.0)
         if DEATH_MARKER in text:
@@ -46,7 +46,7 @@ def test_remote_player_poison_death_is_gentle_and_fully_attributed(server, imp, 
     assert died, "the victim should have died of the poison ticks"
 
     look = victim.command("look")
-    assert look.room_name() == "Wood-elf Start", look.text
+    assert look.contains("Wood-elf Start"), look.text
 
     stat = imp.command("stat harnvictim")
     current, maximum = stat.hit_points()

@@ -200,6 +200,7 @@ def write_character(lib_root: Path, spec: CharacterSpec, template: dict) -> Path
         data["professions"][profession] = {"level": level, "points": level, "coeff": level, "experience": 0}
     data["skills"] = dict(spec.skills)
     data["state"]["load_room"] = spec.load_room
+    data["state"]["wimp_level"] = 0  # a fleeing victim leaves the room and survives what the scenario expects to kill it
     data["timers"] = {"birth": now, "last_logon": now, "played_seconds": 0, "retired_on": 0}
     preferences = data["flags"].setdefault("preferences", [])
     if "prompt" not in preferences:

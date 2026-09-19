@@ -58,6 +58,7 @@ def test_write_character_substitutes_the_spec_and_keeps_every_section(tmp_path: 
     assert data["professions"]["mage"]["level"] == 30
     assert data["skills"]["blaze"] == 100
     assert data["state"]["load_room"] == mage.load_room
+    assert data["state"]["wimp_level"] == 0
     assert data["abilities"]["temporary"]["hit"] == mage.hit
     assert "prompt" in data["flags"]["preferences"]
     for section in ("identity", "progression", "abilities", "points", "professions", "flags", "conditions", "timers", "perception", "state", "talks", "skills", "affects"):

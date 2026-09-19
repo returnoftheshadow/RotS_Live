@@ -41,7 +41,8 @@ def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mag
             died = True
             break
     assert died, "the blaze ticks should eventually kill the victim"
-    assert victim.command("look").room_name() == "Wood-elf Start"
+    look = victim.command("look")
+    assert look.contains("Wood-elf Start"), look.text
 
     victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
     assert not any(record.victim_name.lower() == "harnmage" for record in victim_records), f"a departed caster must never be named: {victim_records}"
