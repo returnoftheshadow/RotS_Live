@@ -1,0 +1,300 @@
+{
+  "schema_version": 1,
+  "character_name": "Template",
+  "title": "the Harness Fixture",
+  "description": "",
+  "identity": {
+    "idnum": 0,
+    "race": 3,
+    "sex": 1,
+    "bodytype": 1,
+    "language": 122,
+    "hometown": 4,
+    "weight": 12960,
+    "height": 228
+  },
+  "progression": {
+    "level": 30,
+    "alignment": 0,
+    "mini_level": 3000,
+    "max_mini_level": 3000,
+    "spells_to_learn": 176,
+    "rerolls": 25
+  },
+  "abilities": {
+    "temporary": {
+      "str": 14,
+      "lea": 16,
+      "intel": 18,
+      "wil": 18,
+      "dex": 10,
+      "con": 11,
+      "hit": 252,
+      "mana": 97,
+      "move": 135
+    },
+    "rolled": {
+      "str": 14,
+      "lea": 16,
+      "intel": 18,
+      "wil": 18,
+      "dex": 10,
+      "con": 11,
+      "hit": 76,
+      "mana": 40,
+      "move": 80
+    }
+  },
+  "points": {
+    "bodypart_hit": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "gold": 0,
+    "experience": 0,
+    "spirit": 100,
+    "mana_regen": 0,
+    "health_regen": 0,
+    "move_regen": 0,
+    "ob": 0,
+    "damage": 0,
+    "energy_regen": 110,
+    "parry": 0,
+    "dodge": 0,
+    "encumbrance": 0,
+    "willpower": 48,
+    "spell_pen": 0,
+    "spell_power": 0
+  },
+  "professions": {
+    "mage": {
+      "level": 15,
+      "points": 25,
+      "coeff": 25,
+      "experience": 0
+    },
+    "mystic": {
+      "level": 30,
+      "points": 100,
+      "coeff": 100,
+      "experience": 0
+    },
+    "ranger": {
+      "level": 9,
+      "points": 9,
+      "coeff": 9,
+      "experience": 0
+    },
+    "warrior": {
+      "level": 12,
+      "points": 16,
+      "coeff": 16,
+      "experience": 0
+    }
+  },
+  "flags": {
+    "player": [],
+    "preferences": [
+      "narrate",
+      "prompt",
+      "echo",
+      "color",
+      "sing",
+      "wiz",
+      "chat",
+      "spam",
+      "spinner"
+    ],
+    "affected": [],
+    "hide": []
+  },
+  "conditions": {
+    "drunk": 0,
+    "full": 0,
+    "thirst": 0
+  },
+  "color_mask": 0,
+  "colors": {
+    "narrate": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 3
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "chat": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 5
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "yell": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 1
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "tell": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 2
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "say": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 6
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "roomname": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 3
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "hit": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 6
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "damage": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 1
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "character": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 2
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "object": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 6
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "enemy": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 14
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "description": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 2
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "group": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 2
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "magic": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 12
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "weather": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 13
+      },
+      "background": {
+        "mode": "default"
+      }
+    },
+    "reserved_15": {
+      "foreground": {
+        "mode": "ansi16",
+        "value": 0
+      },
+      "background": {
+        "mode": "default"
+      }
+    }
+  },
+  "timers": {
+    "birth": 0,
+    "last_logon": 0,
+    "played_seconds": 0,
+    "retired_on": 0
+  },
+  "perception": {
+    "raw": 110,
+    "current": 110
+  },
+  "state": {
+    "load_room": 1101,
+    "wimp_level": 10,
+    "freeze_level": 0,
+    "morale": 0,
+    "owner": 0,
+    "leg_encumbrance": 0,
+    "rp_flag": 0,
+    "will_teach": 0,
+    "tactics": 3,
+    "shooting": 2,
+    "casting": 2,
+    "two_handed": false,
+    "specialization": 9
+  },
+  "talks": {},
+  "skills": {},
+  "affects": []
+}
