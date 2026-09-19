@@ -87,11 +87,12 @@ negative value remove experience. Nothing else writes `points.exp` downward.
   under 200 points, which is noise.
 - **The east-of-the-river faction bonus** exists only for good races, tops out at 15 percent, and applies
   after the level-gap divisors, so at high tiers it usually truncates to a point or two.
-- **Difficulty is live tuning**: 459 of 11159 mob spawns carry a value other than 100, from 1 percent (71 spawns)
-  and 10 percent (95) up to 150 percent (87), 200 percent (23) and 300 percent (15).
+- **Difficulty is live tuning**: 459 of 11159 mob spawns carry a value other than 100. The common values are 1 percent
+  (71 spawns), 10 percent (95), 120 percent (106), 150 percent (87), 200 percent (23) and 300 percent (15);
+  the remaining 62 are spread over eleven other values between 0 and 1200 percent.
 - **Scripts do grant XP**: 54 `GAIN_EXP` operations across seven zone script files.
 - **A bonus the source still marks `TEMPORARY`** adds `2 * exp / (level - 1)`: it triples a level-2
-  character's kill XP, adds 7 percent at 30, and is under 3 percent from 60 up. Stock CircleMUD has no
+  character's kill XP, adds 6.9 percent at 30, 3.4 percent at 60 and 2.3 percent at 89. Stock CircleMUD has no
   such term.
 - **Good killing good pays two thirds**, applied before difficulty and the east bonus; orcs killing
   orc-friends get nothing at all. Both are RotS alignment rules with no stock counterpart.
@@ -142,7 +143,7 @@ killing a good mob gets about half again. The 90th percentile reaches the 7000 c
 | 89 | 35 | 46 | 198 | 5 |
 | 90 | 0 | 0 | 0 | — |
 
-Per hit, a low-level victim pays a third to a fifth of a level-matched one; the last column shows how
+Per hit, a level-15 victim pays half what a level-matched one does at tier 30 and under a fifth at 89; the last column shows how
 few level-matched hits equal a whole kill once the level-gap divisors have shrunk the kill.
 
 ### Table 3: XP per mob, split into hitting and killing (median mob of each band)
@@ -182,8 +183,8 @@ kills the world offers (hitting XP included), which is what a player weighs agai
 | 75 | 226500 | 33 | 2574 | 92 |
 | 89 | 268500 | 39 | 3274 | 134 |
 
-The clamp's theoretical minimum is never the binding constraint; median kills are a fraction of it, so
-the real count of kills per level is 4 to 80 times the clamp floor.
+The clamp's theoretical minimum is never the binding constraint: the real count of kills per level is
+2 to 3.5 times the clamp floor on the hardest content and 18 to 84 times it on level-15 mobs.
 
 ### Table 6: solo player-kill XP (victim at their level threshold)
 
