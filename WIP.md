@@ -1094,3 +1094,8 @@
 - Slice 1 implementation plan written to `docs/superpowers/plans/2026-09-19-integration-test-harness.md` (16 tasks); awaiting the owner's choice of execution mode. No code changed yet.
 - Coordination: other Claude sessions share this worktree and the Docker image. Container jobs follow `/tmp/rots-docker-lock/README.txt`; this work locks as `uaf-port-harness-session.lock` (manual jobs) and `uaf-port-harness-it.lock` (the harness launcher).
 - Next step: execute slice 1 task by task; first build cycle covers Tasks 1 and 2 together (comm.h edit recompiles everything).
+
+## Research - XP and progression baseline (2026-09-19)
+- Plan: `docs/superpowers/plans/2026-09-19-xp-progression-research.md` (executed subagent-driven; all six tasks reviewed).
+- Findings: `docs/systems/experience-and-progression.md`; tooling in `tools/xp_research/`; C++ pins `src/tests/xp_formula_tests.cpp`.
+- Next step: the progression redesign proposal (out of scope for the research) builds on the incentive synthesis there.

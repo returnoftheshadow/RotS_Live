@@ -38,6 +38,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | [Ranger skills](systems/ranger-skills.md) | ✅ skill catalog + DEX-vs-ranger-level for dodge/skills | `ranger.cpp`, `utility.cpp`, `consts.cpp` |
 | [Magic system — mage spells](systems/magic-system.md) | ✅ damage, saves, resistance, penetration, scaling, mana regen | `mage.cpp`, `spell_pa.cpp`, `consts.cpp` |
 | [Cleric / Mystic system](systems/cleric-mystic-system.md) | ✅ powers, saves, mental combat, spirit, scaling | `mystic.cpp`, `clerics.cpp`, `spell_pa.cpp` |
+| [Experience & progression](systems/experience-and-progression.md) | ✅ gain/loss vectors, kill/hit formulas, tier tables, population | `limits.cpp`, `fight.cpp`, `act_offe.cpp`, `clerics.cpp` |
 
 ⬜ Races ·
 XP/leveling · Movement/zones · Objects/equipment · Mob AI/specprocs · Shops/economy ·

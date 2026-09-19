@@ -1,5 +1,8 @@
 # XP gain and loss: every path in the live server
 
+Working trace for the 2026-09-19 research. The maintained, human-readable version is
+`docs/systems/experience-and-progression.md`; this file keeps the per-row citations and the hypotheses.
+
 Traced 2026-09-19 on branch `fix/spell-room-affect-uaf-port` (HEAD ec0f7d5). Line numbers refer to that
 commit. The `id` column is the name Task 3 gives the Python mirror and Task 4 gives the C++ pin.
 
