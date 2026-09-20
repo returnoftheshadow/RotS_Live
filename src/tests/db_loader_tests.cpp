@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -1921,4 +1922,54 @@ TEST(DbLoader, FailsClosedWhenTemporaryExploitPathAlreadyExists)
     std::string error_message;
     EXPECT_FALSE(write_exploit_record_for_character(temp_directory.path(), "aragorn", new_record, &error_message));
     EXPECT_NE(error_message.find("temporary exploit file"), std::string::npos);
+}
+
+namespace {
+
+// Returns a rewound temporary stream holding contents, so fread_string reads it from the top.
+FILE* open_temporary_stream(std::string_view contents)
+{
+    FILE* stream = std::tmpfile();
+    EXPECT_NE(stream, nullptr);
+    if (stream == nullptr) {
+        return nullptr;
+    }
+    std::fwrite(contents.data(), sizeof(char), contents.size(), stream);
+    std::rewind(stream);
+    return stream;
+}
+
+// Reads one tilde-terminated string through fread_string and returns an owning copy of it.
+std::string read_tilde_terminated_string(std::string_view contents)
+{
+    FILE* stream = open_temporary_stream(contents);
+    if (stream == nullptr) {
+        return "";
+    }
+    char error_context[] = "db_loader_tests";
+    char* text = fread_string(stream, error_context);
+    std::fclose(stream);
+    std::string copy;
+    if (text != nullptr) {
+        copy = text;
+        free(text);
+    }
+    return copy;
+}
+
+} // namespace
+
+TEST(DbLoader, FreadStringSkipsALeadingBlankLineWithoutReadingInFrontOfItsBuffer)
+{
+    EXPECT_EQ(read_tilde_terminated_string("\nA dusty hall.\n~\n"), "A dusty hall.\n\r");
+}
+
+TEST(DbLoader, FreadStringKeepsAWhitespaceOnlyLineWithoutReadingInFrontOfItsBuffer)
+{
+    EXPECT_EQ(read_tilde_terminated_string("   \n~\n"), "   \n\r");
+}
+
+TEST(DbLoader, FreadStringStopsAtTheTildeTerminator)
+{
+    EXPECT_EQ(read_tilde_terminated_string("Hall.\n~\nignored\n"), "Hall.\n\r");
 }

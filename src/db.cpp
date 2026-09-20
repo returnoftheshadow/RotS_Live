@@ -3272,8 +3272,9 @@ char* fread_string(FILE* fl, char* error)
 {
     char buf[MAX_STRING_LENGTH], tmp[MAX_STRING_LENGTH];
     char* rslt;
-    register char *point, *tmppoint;
+    char* tmppoint;
     int flag, markfirst;
+    int terminator_index;
 
     bzero(buf, MAX_STRING_LENGTH);
     markfirst = 0;
@@ -3302,12 +3303,17 @@ char* fread_string(FILE* fl, char* error)
         } else
             strcat(buf, tmppoint);
 
-        for (point = buf + strlen(buf) - 2; point >= buf && isspace(*point);
-            point--)
-            continue;
-        if ((flag = (*point == '~')))
-            *point = 0;
-        else if (strlen(buf)) {
+        // Walk back from just before the newline fgets kept to the last non-blank byte. An
+        // empty or whitespace-only buffer has no terminator candidate, and the index must never
+        // step in front of buf, so it stops at -1 rather than reading outside the array.
+        terminator_index = (int)strlen(buf) - 2;
+        while (terminator_index >= 0 && isspace((unsigned char)buf[terminator_index])) {
+            terminator_index--;
+        }
+        flag = terminator_index >= 0 && buf[terminator_index] == '~';
+        if (flag) {
+            buf[terminator_index] = 0;
+        } else if (strlen(buf)) {
             *(buf + strlen(buf) + 1) = '\0';
             *(buf + strlen(buf)) = '\r';
         }
