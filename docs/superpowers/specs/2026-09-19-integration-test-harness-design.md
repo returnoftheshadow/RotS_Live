@@ -212,11 +212,12 @@ New `src/test_harness.h/.cpp` (standard C++ only, per the project-local rule):
 - The Docker launcher passes the repository bind mount as compose does, but the run
   directory lives under the repository's `build/integration/<id>/` so it is visible
   inside the container; it is git-ignored by the existing `*build*/` pattern.
-- CI adds an `integration` job on `ubuntu-24.04`: build `ageland` with
-  `-fsanitize=address`, run the suite with the local launcher, upload run directories on
-  failure. Whether the 32-bit ASan runtime is available on the runner is verified in slice
-  3; if it is not, the job runs the plain build and the ASan variant is documented as
-  local-only.
+- CI adds an `integration-asan` job on `ubuntu-24.04` (slice 3, own spec:
+  `2026-09-19-ci-integration-asan-design.md`): build both targets with
+  `-fsanitize=address`, prove the 32-bit runtime linked, run the suite with the local
+  launcher, upload run directories on every outcome. The runtime is packaged for the
+  runner (`lib32asan8`), so no plain-build fallback exists. The same change repaired the
+  existing job's 32-bit crypt link, which had kept it red since 2026-08-14.
 
 ### Scenario catalogue (slice 2, mapped to `manual-test-plan.md`)
 

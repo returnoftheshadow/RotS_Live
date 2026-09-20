@@ -57,10 +57,9 @@ jobs:
   integration-asan:
     name: Integration Suite under AddressSanitizer
     runs-on: ubuntu-24.04
-    # Provisional budget: the plain job's last green run took about 4 minutes end to end;
-    # this job's time is 42 tests each booting a sanitized server, unmeasured before the
-    # first run. Revise from that run.
-    timeout-minutes: 45
+    # Measured at 3 min 54 s end to end on the first green run (build 40 s, sanitized
+    # gtest 27 s, integration suite 142 s); 30 leaves room for a slow runner.
+    timeout-minutes: 30
     env:
       # detect_leaks=0: both binaries exit normally (the server's SIGTERM handler ends in
       # exit(0)), so LeakSanitizer would otherwise scan the heap at every teardown; leaks
