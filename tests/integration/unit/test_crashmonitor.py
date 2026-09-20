@@ -34,14 +34,19 @@ def test_allowed_syserr_lines_are_ignored_but_others_are_reported(tmp_path: Path
     assert len(problems) == 1 and "0 records counted" in problems[0]
 
 
-def test_known_object_refresh_syserr_is_tolerated(tmp_path: Path) -> None:
+def test_object_refresh_syserr_is_reported(tmp_path: Path) -> None:
+    # The account-native object refresh's follower-record truncation (the previously
+    # tolerated finding) is fixed: purge now idle-saves the purged player instead of the
+    # purging immortal, so this SYSERR class is no longer expected and is reported like
+    # any other.
     handle = make_handle(tmp_path)
     handle.log_path.write_text(
         "x :: SYSERR: failed to refresh account-native object file for Harnvictim: "
         "Truncated objects data while reading follower record.\n",
         encoding="latin-1",
     )
-    assert CrashMonitor(handle).check() == []
+    problems = CrashMonitor(handle).check()
+    assert len(problems) == 1 and "Truncated objects data" in problems[0]
 
 
 def test_different_object_refresh_syserr_is_still_reported(tmp_path: Path) -> None:
