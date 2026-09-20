@@ -1118,11 +1118,13 @@ void game_loop(SocketType s)
                             }
                         }
 
-                        // Check for a blank space in the first position or the last
+                        // Check for a blank space in the first position or the last; an
+                        // empty prompt has no last byte to test.
                         if (prompt[0] == ' ')
                             pptr++;
-                        if (prompt[strlen(prompt) - 1] == ' ')
-                            prompt[strlen(prompt) - 1] = '\0';
+                        size_t prompt_length = strlen(prompt);
+                        if (prompt_length > 0 && prompt[prompt_length - 1] == ' ')
+                            prompt[prompt_length - 1] = '\0';
 
                         disp = TRUE;
                         if (point->character->specials.position == POSITION_SHAPING)
