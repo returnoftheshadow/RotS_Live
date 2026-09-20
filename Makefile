@@ -2,6 +2,9 @@ BUILD_DIR := build
 SRC_DIR := src
 CMAKE := cmake
 CMAKE_CONFIGURE_ARGS ?= -DCMAKE_CXX_COMPILER=g++
+# Empty or "address". Always forwarded so a stale cache cannot keep a stale value silently;
+# the configure rule only runs on a fresh BUILD_DIR, so changing SANITIZE needs a new one.
+SANITIZE ?=
 CMAKE_CACHE := $(BUILD_DIR)/CMakeCache.txt
 PYTHON ?= python3
 
@@ -10,6 +13,7 @@ PYTHON ?= python3
 help:
 	@printf "Available targets:\n"
 	@printf "  make configure      Configure the CMake build in %s\n" "$(BUILD_DIR)"
+	@printf "  make configure SANITIZE=address BUILD_DIR=build-asan  Configure an AddressSanitizer tree (fresh BUILD_DIR)\n"
 	@printf "  make setup          Create runtime directories and bootstrap files\n"
 	@printf "  make build          Build the ageland server binary\n"
 	@printf "  make test           Run the C++ unit tests\n"
@@ -21,7 +25,7 @@ help:
 	@printf "  make integration       Run the integration harness against a booted server\n"
 
 $(CMAKE_CACHE):
-	$(CMAKE) -S $(SRC_DIR) -B $(BUILD_DIR) $(CMAKE_CONFIGURE_ARGS)
+	$(CMAKE) -S $(SRC_DIR) -B $(BUILD_DIR) $(CMAKE_CONFIGURE_ARGS) -DROTS_SANITIZE=$(SANITIZE)
 
 configure: $(CMAKE_CACHE)
 

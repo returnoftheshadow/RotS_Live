@@ -21,6 +21,20 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ROTS_SUPPRESS_TEST_WARNINGS "Suppress compiler warnings when building the test target" ON)
 
+# A CACHE STRING rather than an option(): it names a sanitizer, so a boolean will not do.
+# Empty keeps the plain build. Anything but "address" is rejected here so a typo cannot
+# silently configure an unsanitized tree that then passes the CI proof step.
+set(ROTS_SANITIZE "" CACHE STRING "Sanitizer to enable for ageland and ageland_tests (empty or address)")
+if(ROTS_SANITIZE STREQUAL "")
+    set(ROTS_SANITIZER_COMPILE_OPTIONS "")
+    set(ROTS_SANITIZER_LINK_OPTIONS "")
+elseif(ROTS_SANITIZE STREQUAL "address")
+    set(ROTS_SANITIZER_COMPILE_OPTIONS -fsanitize=address -fno-omit-frame-pointer)
+    set(ROTS_SANITIZER_LINK_OPTIONS -fsanitize=address)
+else()
+    message(FATAL_ERROR "ROTS_SANITIZE must be empty or 'address', not '${ROTS_SANITIZE}'")
+endif()
+
 set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(BIN_DIR "${REPO_ROOT}/bin")
 set(LOG_DIR "${REPO_ROOT}/log")
@@ -168,6 +182,10 @@ target_compile_options(ageland PRIVATE
     -rdynamic
 )
 target_link_options(ageland PRIVATE -m32 -g -rdynamic)
+if(ROTS_SANITIZE)
+    target_compile_options(ageland PRIVATE ${ROTS_SANITIZER_COMPILE_OPTIONS})
+    target_link_options(ageland PRIVATE ${ROTS_SANITIZER_LINK_OPTIONS})
+endif()
 set_target_properties(ageland PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${BIN_DIR}"
 )
@@ -196,6 +214,10 @@ target_link_options(ageland_tests PRIVATE
     -Wl,--wrap=_Z6numberv
     -Wl,--wrap=_Z6numberii
 )
+if(ROTS_SANITIZE)
+    target_compile_options(ageland_tests PRIVATE ${ROTS_SANITIZER_COMPILE_OPTIONS})
+    target_link_options(ageland_tests PRIVATE ${ROTS_SANITIZER_LINK_OPTIONS})
+endif()
 set_target_properties(ageland_tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${BIN_DIR}"
     OUTPUT_NAME tests
