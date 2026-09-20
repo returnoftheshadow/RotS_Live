@@ -1751,6 +1751,26 @@ void create_idle_save_directories(const std::string& root)
         ASSERT_EQ(mkdir((root + relative).c_str(), 0700), 0) << relative;
 }
 
+// One-slot mob index so mob_index[follower.nr].virt resolves; restores the previous pointer even
+// if a test ASSERT_* returns early, unlike a hand-rolled save/restore around fallible statements.
+class ScopedFollowerMobIndex {
+public:
+    ScopedFollowerMobIndex()
+        : m_previous(mob_index)
+    {
+        m_entry = index_data {};
+        m_entry.virt = 1131;
+        mob_index = &m_entry;
+    }
+    ~ScopedFollowerMobIndex() { mob_index = m_previous; }
+    ScopedFollowerMobIndex(const ScopedFollowerMobIndex&) = delete;
+    ScopedFollowerMobIndex& operator=(const ScopedFollowerMobIndex&) = delete;
+
+private:
+    index_data* m_previous; // whatever this suite found installed (normally null)
+    index_data m_entry {}; // the single prototype slot follower.nr = 0 names
+};
+
 } // namespace
 
 TEST(DbLoader, IdleSaveWritesTheFollowerSectionSoTheStrictReaderAcceptsAnEmptyInventory)
@@ -1785,11 +1805,10 @@ TEST(DbLoader, IdleSaveWritesTheFollowerSectionSoTheStrictReaderAcceptsAnEmptyIn
     character.player.name = nullptr;
 }
 
-// Account creation/linking touches disk paths that crash under this project's QEMU i386 test
-// container (documented, pre-existing environment limitation independent of this fix; see
-// docker-local-mud-testing notes: "every [gtest] that creates/links accounts on disk fails"
-// under QEMU). This test is expected to fail locally in that container and is verified by a
-// native (non-QEMU) build or CI.
+// Account creation fails under the i386 QEMU container (documented, pre-existing environment
+// limitation independent of this fix; see docker-local-mud-testing notes: "every [gtest] that
+// creates/links accounts on disk fails" under QEMU), so this case is verified in CI, where it
+// runs natively under AddressSanitizer.
 TEST(DbLoader, IdleSaveRefreshesTheAccountNativeObjectFile)
 {
     ScopedObjectPrototypeTable object_prototypes;
@@ -1825,11 +1844,8 @@ TEST(DbLoader, IdleSaveRefreshesTheAccountNativeObjectFile)
 
 TEST(DbLoader, FollowerSaveRecordsAnNpcFollowerInTheSameRoom)
 {
-    // One-slot mob index so mob_index[follower.nr].virt resolves (the pattern mage_tests uses).
-    index_data* previous_mob_index = mob_index;
-    index_data prototype_slot {};
-    prototype_slot.virt = 1131;
-    mob_index = &prototype_slot;
+    // RAII so an early-returning ASSERT_* below still restores mob_index for later tests.
+    ScopedFollowerMobIndex mob_index_guard;
 
     char_data leader {};
     clear_char(&leader, MOB_VOID);
@@ -1861,14 +1877,13 @@ TEST(DbLoader, FollowerSaveRecordsAnNpcFollowerInTheSameRoom)
     std::string error_message;
     ASSERT_TRUE(objects_json::object_save_data_to_binary(empty_head, &head_bytes, &error_message)) << error_message;
     // object_save_data_to_binary ends with the follower sentinel; drop it so ours follows the head.
+    ASSERT_GE(head_bytes.size(), sizeof(follower_file_elem));
     head_bytes.resize(head_bytes.size() - sizeof(follower_file_elem));
 
     objects_json::ObjectSaveData parsed;
     ASSERT_TRUE(objects_json::object_save_data_from_binary(head_bytes + bytes, &parsed, &error_message)) << error_message;
     ASSERT_EQ(parsed.followers.size(), 1u);
     EXPECT_EQ(parsed.followers[0].fol_vnum, 1131);
-
-    mob_index = previous_mob_index;
 }
 
 TEST(DbLoader, FollowerLoadLeavesTheCallersStreamOpenOnAShortRead)
