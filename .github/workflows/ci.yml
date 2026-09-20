@@ -24,7 +24,10 @@ jobs:
           persist-credentials: false
 
       - name: Install system dependencies
+        # ageland links -lcrypt as a 32-bit binary, so the i386 crypt development package is
+        # required alongside the 64-bit one (README, "build prerequisites").
         run: |
+          sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -35,6 +38,7 @@ jobs:
             g++-multilib \
             libc6-dev-i386 \
             libcrypt-dev \
+            libcrypt-dev:i386 \
             libgtest-dev \
             make \
             pkg-config \
@@ -49,3 +53,95 @@ jobs:
 
       - name: Run account smoke flow
         run: make smoke-account
+
+  integration-asan:
+    name: Integration Suite under AddressSanitizer
+    runs-on: ubuntu-24.04
+    # Provisional budget: the plain job's last green run took about 4 minutes end to end;
+    # this job's time is 42 tests each booting a sanitized server, unmeasured before the
+    # first run. Revise from that run.
+    timeout-minutes: 45
+    env:
+      # detect_leaks=0: both binaries exit normally (the server's SIGTERM handler ends in
+      # exit(0)), so LeakSanitizer would otherwise scan the heap at every teardown; leaks
+      # are not the target. handle_segv=2: the server installs its own SIGSEGV handler in
+      # main(), which would replace ASan's report with the legacy backtrace.
+      ASAN_OPTIONS: detect_leaks=0:handle_segv=2
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install system dependencies
+        # lib32asan8 is the 32-bit runtime for ageland; libasan8 the 64-bit one for
+        # ageland_tests. Both are named explicitly rather than trusted as transitive
+        # dependencies of gcc-multilib. python3-pytest is the harness runner (pytest 7.4;
+        # the harness needs 7.0+ for the pythonpath ini key).
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            gcc-multilib \
+            g++-multilib \
+            lib32asan8 \
+            libasan8 \
+            libc6-dev-i386 \
+            libcrypt-dev \
+            libcrypt-dev:i386 \
+            libgtest-dev \
+            make \
+            python3 \
+            python3-pytest
+
+      - name: Lower ASLR entropy for AddressSanitizer
+        # Ubuntu 24.04's raised vm.mmap_rnd_bits is a known ASan startup failure ("shadow
+        # memory range interleaves with an existing memory mapping"). Runner-local.
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Configure sanitized build tree
+        run: make BUILD_DIR=build-asan SANITIZE=address configure
+
+      - name: Build server and unit tests under AddressSanitizer
+        # Both targets build here, blocking, so a compile or link break under the sanitizer
+        # is never hidden inside the non-blocking ctest step below.
+        run: |
+          make BUILD_DIR=build-asan setup
+          cmake --build build-asan --target ageland ageland_tests -j"$(nproc)"
+
+      - name: Prove the 32-bit sanitizer runtime is linked and initialises
+        # The ldd line guards the silent-plain-build case (a missing runtime already fails
+        # at link time). The help=1 line proves the runtime starts and writes to stderr;
+        # the server itself exits on the nonexistent lib dir, which is irrelevant here.
+        run: |
+          ldd bin/ageland | grep -E 'libasan\.so[^ ]* => /'
+          (timeout 30 env ASAN_OPTIONS=help=1 ./bin/ageland -t -d /nonexistent 1 2>&1 || true) | grep -q 'Available flags for AddressSanitizer'
+
+      - name: Run C++ unit tests under AddressSanitizer (non-blocking)
+        # ageland_tests is 64-bit and links the uninstrumented system gtest, so container
+        # overflow checks would report spurious findings against shared std containers.
+        continue-on-error: true
+        env:
+          ASAN_OPTIONS: detect_leaks=0:handle_segv=2:detect_container_overflow=0
+        run: ctest --test-dir build-asan --output-on-failure
+
+      - name: Run integration suite
+        env:
+          ROTS_IT_LAUNCHER: local
+          ROTS_IT_KEEP: "1"
+        run: make integration
+
+      - name: Upload run directories
+        # always(): a job that hits timeout-minutes is cancelled, and failure() steps do
+        # not run on cancellation. The directories hold game.log, transcripts, and a copy
+        # of the tracked lib/text, lib/misc and synthetic world; no real player data.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-run-directories
+          path: build/integration/
+          if-no-files-found: ignore
+          retention-days: 7
