@@ -360,15 +360,17 @@ void ProtocolDestroy(protocol_t* apProtocol)
 {
     int i; /* Loop counter */
 
+    // ProtocolCreate builds the protocol object, the variable table and each entry with
+    // new/new[]; only the strings come from AllocString's malloc, so they alone take free.
     for (i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i) {
         free(apProtocol->pVariables[i]->pValueString);
-        free(apProtocol->pVariables[i]);
+        delete apProtocol->pVariables[i];
     }
 
-    free(apProtocol->pVariables);
+    delete[] apProtocol->pVariables;
     free(apProtocol->pLastTTYPE);
     free(apProtocol->pMXPVersion);
-    free(apProtocol);
+    delete apProtocol;
 }
 
 void ProtocolInput(descriptor_t* apDescriptor, char* apData, int aSize, char* apOut)
