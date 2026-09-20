@@ -25,7 +25,7 @@ jobs:
 
       - name: Install system dependencies
         # ageland links -lcrypt as a 32-bit binary, so the i386 crypt development package is
-        # required alongside the 64-bit one (README, "build prerequisites").
+        # required alongside the 64-bit one (README, "Prerequisites").
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update

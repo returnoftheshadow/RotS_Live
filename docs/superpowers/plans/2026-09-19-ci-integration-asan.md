@@ -887,3 +887,25 @@ git push origin fix/spell-room-affect-uaf-port
 ```
 
 (If `.github/workflows/ci.yml` was not changed in Step 4, drop it from the pathspec.)
+
+---
+
+## Outcome
+
+Draft PR: https://github.com/returnoftheshadow/RotS_Live/pull/309. Six CI runs on the branch
+(35488726794, 35489344082, 35489685645, 35490020968, 35490399002, and the docs run after
+them). The first three sanitized runs each stopped on a pre-existing memory error, fixed on
+this branch under the gate policy: a stack underflow in `fread_string` on blank world-file
+lines (`src/db.cpp`, three gtests added), a `new`/`free` mismatch in `ProtocolDestroy`
+(`src/protocol.cpp`, covered by the existing protocol gtests), and an empty-prompt read in
+`game_loop` (`src/comm.cpp`, covered by the sanitized scenarios). The fourth run exposed a
+fixed two-second drain in the remote-credit scenario, replaced by a marker-driven wait. The
+fifth run was green: 48 passed, 1 xfailed, suite 142 s, job 3 min 54 s end to end; the
+timeout was set to 30 minutes from that measurement. Two plan corrections during execution:
+the `keep_run_directory` docstring was rewritten to describe the real boot-failure path, and
+the whitespace-only `fread_string` test needed a skipped blank first line to reach the walk.
+
+Owner follow-ups recorded during review, not done here: `fread_string`'s size check admits
+equality (`src/db.cpp`, `>` should be `>=`, one gtest); the sanitized gtest step's
+`alloc_dealloc_mismatch` class (test fixtures allocate `char_data` with `new` and free it
+through `free_char`); four pre-existing `OlogHaiHelpers` failures now visible on the plain job.

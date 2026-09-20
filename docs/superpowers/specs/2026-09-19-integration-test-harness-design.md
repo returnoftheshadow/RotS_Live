@@ -217,7 +217,8 @@ New `src/test_harness.h/.cpp` (standard C++ only, per the project-local rule):
   `-fsanitize=address`, prove the 32-bit runtime linked, run the suite with the local
   launcher, upload run directories on every outcome. The runtime is packaged for the
   runner (`lib32asan8`), so no plain-build fallback exists. The same change repaired the
-  existing job's 32-bit crypt link, which had kept it red since 2026-08-14.
+  existing job's 32-bit crypt link, which had failed since 2026-08-14; that job now reaches
+  its unit tests and fails there on four pre-existing OlogHaiHelpers cases.
 
 ### Scenario catalogue (slice 2, mapped to `manual-test-plan.md`)
 

@@ -2,8 +2,9 @@ BUILD_DIR := build
 SRC_DIR := src
 CMAKE := cmake
 CMAKE_CONFIGURE_ARGS ?= -DCMAKE_CXX_COMPILER=g++
-# Empty or "address". Always forwarded so a stale cache cannot keep a stale value silently;
-# the configure rule only runs on a fresh BUILD_DIR, so changing SANITIZE needs a new one.
+# Empty or "address". Forwarded even when empty so the configure line keeps one shape and
+# re-asserts the default when run by hand; the rule only runs on a fresh BUILD_DIR, so
+# changing SANITIZE needs a new directory.
 SANITIZE ?=
 CMAKE_CACHE := $(BUILD_DIR)/CMakeCache.txt
 PYTHON ?= python3

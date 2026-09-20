@@ -102,11 +102,11 @@ class LocalProcessLauncher(ServerLauncher):
         return [str(self._binary), "-t", "-d", str(lib_dir), str(port)]
 
     def environment(self, seed: int) -> dict[str, str]:
-        environment = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "ROTS_RANDOM_SEED": str(seed)}
+        server_environment = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "ROTS_RANDOM_SEED": str(seed)}
         for name in SANITIZER_ENVIRONMENT_VARIABLES:
             if name in os.environ:
-                environment[name] = os.environ[name]
-        return environment
+                server_environment[name] = os.environ[name]
+        return server_environment
 
     def start(self, run_dir: Path, lib_dir: Path, port: int, seed: int) -> ServerHandle:
         if not self._binary.exists():

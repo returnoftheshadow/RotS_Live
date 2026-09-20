@@ -6,9 +6,9 @@ from __future__ import annotations
 def keep_run_directory(keep_requested: bool, tests_failed_so_far: int, this_server_failed: bool) -> bool:
     """True when the directory must be kept for diagnosis.
 
-    tests_failed_so_far is pytest's session counter. It is incremented only after every
-    finalizer of the failing test has run, so a crash the autouse check finds during this
-    test's own teardown is invisible in it; this_server_failed carries that case.
+    tests_failed_so_far is pytest's session counter. A failure raised during teardown, such
+    as the autouse crash check, is reported only after every finalizer has run, so it is not
+    yet counted here; this_server_failed carries that case.
 
     A server that fails to start never reaches this decision: the fixture keeps that
     directory itself by not deleting it on the way out.

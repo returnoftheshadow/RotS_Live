@@ -44,6 +44,7 @@ To reproduce the CI build on Linux (the tree must be fresh; the configure rule o
 when `<BUILD_DIR>/CMakeCache.txt` is absent, so changing `SANITIZE` needs a new directory):
 
 ```sh
+sudo sysctl -w vm.mmap_rnd_bits=28   # Ubuntu 24.04 kernels: ASan aborts at start without it
 make BUILD_DIR=build-asan SANITIZE=address configure
 make BUILD_DIR=build-asan setup
 cmake --build build-asan --target ageland ageland_tests -j"$(nproc)"
