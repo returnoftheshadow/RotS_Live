@@ -15,7 +15,9 @@ reused.
 - A **separate job** rather than a step on the existing `build-test-smoke` job or a matrix.
 - The sanitized build compiles **both** `ageland` and `ageland_tests`. Both builds are
   blocking. The **ctest run** is non-blocking (`continue-on-error`) so pre-existing sanitizer
-  findings in the unit tests are visible without turning the new job red. The integration
+  findings in the unit tests are visible without turning the new job red. (Superseded on
+  2026-09-20: the slice 2 amendment in the harness design spec makes the step blocking once
+  the sanitized unit run is clean.) The integration
   suite is **blocking from day one**: a pre-existing ASan finding in a scenario path is a real
   defect and is fixed on this branch before merge.
 - The sanitizer recipe lives in **CMake and the Makefile**, not only in the workflow YAML, so
