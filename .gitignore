@@ -57,7 +57,8 @@ lib/misc/oldcrimelist
 lib/misc/pk*
 lib/misc/repair*
 lib/misc/xnames*
-tools/__pycache__/
+__pycache__/
+*.py[cod]
 core/
 *~
 autorun
