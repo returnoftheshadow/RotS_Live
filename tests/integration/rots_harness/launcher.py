@@ -20,6 +20,14 @@ LOOPBACK = "127.0.0.1"
 LOCK_FILE_NAME = "uaf-port-harness-it.lock"
 DEFAULT_LOCK_DIR = Path("/tmp/rots-docker-lock")
 
+# Host variables the local launcher forwards to the server. Everything else is dropped on
+# purpose: the server must see a clean environment, and only sanitizer tuning (leak checks,
+# signal handling, symbolizer location) is a legitimate host-to-server channel.
+SANITIZER_ENVIRONMENT_VARIABLES = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS", "ASAN_SYMBOLIZER_PATH")
+# Enough for a whole AddressSanitizer report (header, two stacks, shadow map) when the
+# server dies before it listens and the tail is the only evidence that survives.
+LOG_TAIL_BYTES = 16000
+
 
 class DockerLockHeld(RuntimeError):
     pass
@@ -46,7 +54,7 @@ def allocate_free_port() -> int:
         return probe.getsockname()[1]
 
 
-def read_log_tail(log_path: Path, max_bytes: int = 4000) -> str:
+def read_log_tail(log_path: Path, max_bytes: int = LOG_TAIL_BYTES) -> str:
     if not log_path.exists():
         return ""
     data = log_path.read_bytes()
@@ -93,11 +101,18 @@ class LocalProcessLauncher(ServerLauncher):
     def command(self, lib_dir: Path, port: int) -> list[str]:
         return [str(self._binary), "-t", "-d", str(lib_dir), str(port)]
 
+    def environment(self, seed: int) -> dict[str, str]:
+        environment = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "ROTS_RANDOM_SEED": str(seed)}
+        for name in SANITIZER_ENVIRONMENT_VARIABLES:
+            if name in os.environ:
+                environment[name] = os.environ[name]
+        return environment
+
     def start(self, run_dir: Path, lib_dir: Path, port: int, seed: int) -> ServerHandle:
         if not self._binary.exists():
             raise RuntimeError(f"server binary missing at {self._binary}; build it first")
         log_path = run_dir / "game.log"
-        environment = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "ROTS_RANDOM_SEED": str(seed)}
+        environment = self.environment(seed)
         with log_path.open("wb") as log_file:
             process = subprocess.Popen(self.command(lib_dir, port), cwd=run_dir, env=environment, stdout=log_file, stderr=subprocess.STDOUT)
         try:

@@ -139,3 +139,44 @@ def test_docker_launcher_releases_the_lock_and_stops_the_container_when_start_fa
     assert len(stop_calls) == 1
     assert stop_calls[0][4].startswith("rots-it-")
     assert fake_process.terminate_called or fake_process.kill_called
+
+
+def test_local_launcher_environment_is_clean_apart_from_seed_and_sanitizer_tuning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ASAN_OPTIONS", "detect_leaks=0:handle_segv=2")
+    monkeypatch.setenv("ASAN_SYMBOLIZER_PATH", "/usr/bin/llvm-symbolizer")
+    monkeypatch.delenv("LSAN_OPTIONS", raising=False)
+    monkeypatch.delenv("UBSAN_OPTIONS", raising=False)
+    monkeypatch.setenv("ROTS_IT_SEED", "5")  # a host-only harness variable must not leak through
+
+    local = launcher.LocalProcessLauncher(binary=tmp_path / "ageland")
+    environment = local.environment(seed=42)
+
+    assert environment["ROTS_RANDOM_SEED"] == "42"
+    assert environment["ASAN_OPTIONS"] == "detect_leaks=0:handle_segv=2"
+    assert environment["ASAN_SYMBOLIZER_PATH"] == "/usr/bin/llvm-symbolizer"
+    assert "LSAN_OPTIONS" not in environment
+    assert "UBSAN_OPTIONS" not in environment
+    assert "ROTS_IT_SEED" not in environment
+    assert set(environment) <= {"PATH", "HOME", "ROTS_RANDOM_SEED", *launcher.SANITIZER_ENVIRONMENT_VARIABLES}
+
+
+def test_local_launcher_environment_has_no_sanitizer_keys_when_the_host_sets_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in launcher.SANITIZER_ENVIRONMENT_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+    environment = launcher.LocalProcessLauncher(binary=tmp_path / "ageland").environment(seed=1)
+
+    assert set(environment) == {"PATH", "HOME", "ROTS_RANDOM_SEED"}
+
+
+def test_read_log_tail_returns_only_the_last_bytes_and_defaults_to_the_documented_size(tmp_path: Path) -> None:
+    log_path = tmp_path / "game.log"
+    log_path.write_bytes(b"x" * (launcher.LOG_TAIL_BYTES + 100) + b"TAIL")
+
+    assert launcher.read_log_tail(log_path, max_bytes=8) == "xxxxTAIL"
+    assert len(launcher.read_log_tail(log_path)) == launcher.LOG_TAIL_BYTES
+    assert launcher.LOG_TAIL_BYTES == 16000
