@@ -4,7 +4,8 @@
 **Status:** approved design (chat, 2026-09-19); slice 1 plan in
 `docs/superpowers/plans/2026-09-19-integration-test-harness.md`; slice 3 spec in
 `2026-09-19-ci-integration-asan-design.md`; the slice 2 amendment below was approved in chat
-on 2026-09-20 and its plan is `docs/superpowers/plans/2026-09-20-fix-wave-and-slice-2.md`.
+on 2026-09-20; its plans are `docs/superpowers/plans/2026-09-20-fix-wave.md` (Phase A) and
+`docs/superpowers/plans/2026-09-20-slice-2-scenarios.md` (Phase B, written at the Phase A checkpoint).
 
 ## Problem
 
