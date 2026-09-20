@@ -167,6 +167,7 @@ set(ROTS_TEST_SOURCES
     tests/obj_flag_data_tests.cpp
     tests/object_utils_tests.cpp
     tests/test_random_utils.cpp
+    tests/test_character_support.cpp
     tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp
     tests/xp_formula_tests.cpp

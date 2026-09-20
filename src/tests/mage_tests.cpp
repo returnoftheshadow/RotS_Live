@@ -3,6 +3,7 @@
 #include "../spells.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "test_character_support.h"
 #include "test_random_utils.h"
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -808,8 +809,7 @@ void release_fireball_corpse(int room_number, obj_data *previous_object_list)
 // nr = 0 naming the ScopedFireballMobIndex slot above.
 char_data *make_fireball_caster(int hit_points, char *short_descr)
 {
-    char_data *caster = new char_data {};
-    clear_char(caster, MOB_ISNPC);
+    char_data *caster = test_support::allocate_test_character(MOB_ISNPC);
     caster->specials2.act = MOB_ISNPC;
     caster->nr = 0; // prototype slot 0 of the scoped one-entry mob_index above
     caster->player.race = RACE_ORC;

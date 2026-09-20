@@ -7,6 +7,7 @@
 #include "../handler.h"
 #include "../objects_json.h"
 #include "../utils.h"
+#include "test_character_support.h"
 
 #include <gtest/gtest.h>
 
@@ -291,7 +292,7 @@ public:
     {
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
-            delete object_list;
+            free_obj(object_list); // loader-created with CREATE; free_obj is the server's release call
             object_list = next;
         }
 
@@ -380,8 +381,7 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    char_data* character = new char_data {};
-    clear_char(character, MOB_VOID);
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
 
     char_file_u mutable_store = stored_character;
     store_to_char(&mutable_store, character);

@@ -53,6 +53,7 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_character_support.h"
 #include "test_random_utils.h"
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -175,8 +176,7 @@ void release_corpse(int room_number, obj_data* previous_object_list)
 // damage is lethal.
 char_data* make_npc_victim(int room, char* short_descr, int hit_points)
 {
-    char_data* victim = new char_data {};
-    clear_char(victim, MOB_ISNPC);
+    char_data* victim = test_support::allocate_test_character(MOB_ISNPC);
     victim->specials2.act = MOB_ISNPC;
     victim->nr = 0; // prototype slot 0 of the scoped one-entry mob_index above
     victim->player.race = RACE_HUMAN;

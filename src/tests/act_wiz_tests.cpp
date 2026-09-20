@@ -5,6 +5,7 @@
 #include "../interpre.h"
 #include "../objects_json.h"
 #include "../structs.h"
+#include "test_character_support.h"
 
 #include <gtest/gtest.h>
 
@@ -140,8 +141,7 @@ descriptor_data make_descriptor()
 char_data* attach_active_character(
     descriptor_data* descriptor, const char* name, int level, long idnum, int race = RACE_HUMAN)
 {
-    char_data* character = new char_data {};
-    clear_char(character, MOB_VOID);
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
     character->player.name = strdup(name);
     character->player.level = level;
     character->player.race = race;
@@ -197,6 +197,8 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
+    // Deliberately new/delete: this teardown must not walk the affect list or free the strings
+    // store_to_char attached.
     char_data* character = new char_data {};
     clear_char(character, MOB_VOID);
 

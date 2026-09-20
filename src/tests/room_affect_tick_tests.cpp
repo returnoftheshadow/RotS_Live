@@ -37,6 +37,7 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_character_support.h"
 #include "test_random_utils.h"
 
 #include <algorithm>
@@ -371,8 +372,7 @@ void make_weak_occupant(char_data& ch, char_prof_data& profs, int hit_points)
 // the game constructs an NPC, with nr = 0 naming the ScopedMobIndex slot.
 char_data* make_heap_occupant(int room, char* short_descr, int hit_points)
 {
-    char_data* occupant = new char_data {};
-    clear_char(occupant, MOB_ISNPC);
+    char_data* occupant = test_support::allocate_test_character(MOB_ISNPC);
     occupant->specials2.act = MOB_ISNPC;
     occupant->nr = 0;
     occupant->player.race = RACE_HUMAN;

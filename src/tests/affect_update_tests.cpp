@@ -28,6 +28,7 @@
 #include "../interpre.h"
 #include "../spells.h"
 #include "../utils.h"
+#include "test_character_support.h"
 #include "test_random_utils.h"
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -184,8 +185,7 @@ void make_npc(char_data& ch, char_prof_data& profs, int hit) {
 // way the game constructs an NPC, with nr = 0 naming the
 // ScopedAffectUpdateMobIndex slot above.
 char_data* make_blaze_occupant(int hit_points, char* short_descr, int room) {
-    char_data* occupant = new char_data {};
-    clear_char(occupant, MOB_ISNPC);
+    char_data* occupant = test_support::allocate_test_character(MOB_ISNPC);
     occupant->specials2.act = MOB_ISNPC;
     occupant->nr = 0; // prototype slot 0 of the scoped one-entry mob_index above
     occupant->player.race = RACE_HUMAN;
@@ -431,6 +431,7 @@ TEST(AffectUpdateWalk, DoesNotDereferenceAFreedCharacterThroughARecycledSlot) {
     // affected_list node still in place -- the node is fabricated directly
     // (rather than through affect_to_char()) so that freeing the character
     // leaks no pooled affected_type behind it.
+    // Deliberately new/delete: free_char would unregister kRecycledSlot, the slot this test then reuses.
     char_data* const freed = new char_data {};
     freed->abs_number = kRecycledSlot;
     universal_list* const stale_node = pool_to_list(&affected_list, &affected_list_pool);
