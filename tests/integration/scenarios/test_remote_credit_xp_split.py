@@ -27,7 +27,9 @@ def test_engaged_fighter_gets_the_share_and_the_remote_caster_does_not(server, i
     fighter.command("kill orc")
     harness.tick()
 
-    fighter_text = fighter.drain(2.0)
+    # The orc's death may come from the blaze tick or from the fighter's next blows, so wait
+    # for the share message itself rather than a fixed interval after the tick.
+    fighter_text = fighter.expect([SHARE_MARKER], 30.0)
     mage_text = mage.drain(2.0)
     assert SHARE_MARKER in fighter_text, fighter_text
     assert SHARE_MARKER not in mage_text, mage_text
