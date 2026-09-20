@@ -1973,3 +1973,28 @@ TEST(DbLoader, FreadStringStopsAtTheTildeTerminator)
 {
     EXPECT_EQ(read_tilde_terminated_string("Hall.\n~\nignored\n"), "Hall.\n\r");
 }
+
+// Sizing: buf holds MAX_STRING_LENGTH bytes. A content line of N characters plus its newline
+// occupies N + 1, and the non-terminator branch appends '\r' and a terminator, so it needs
+// N + 3 bytes; the following "~\n" line then needs 2 more plus strcat's terminator.
+TEST(DbLoader, FreadStringAcceptsAStringThatExactlyFitsItsBuffer)
+{
+    const std::string content(MAX_STRING_LENGTH - 6, 'a');
+    EXPECT_EQ(read_tilde_terminated_string(content + "\n~\n"), content + "\n\r");
+}
+
+TEST(DbLoader, FreadStringRejectsAStringOneByteTooLongForItsBuffer)
+{
+    // One more content byte than the case above; the old check admitted it and strcat plus the
+    // '\r' append then wrote past buf. The rejection path is exit(0) after a "string too large" log.
+    const std::string content(MAX_STRING_LENGTH - 5, 'a');
+    EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "");
+}
+
+TEST(DbLoader, FreadStringRejectsALineThatWouldOverflowOnTheCarriageReturnAppend)
+{
+    // A single line of MAX_STRING_LENGTH - 2 characters plus newline: strcat fits, but the '\r'
+    // and terminator land at MAX_STRING_LENGTH - 1 and MAX_STRING_LENGTH, one past the array.
+    const std::string content(MAX_STRING_LENGTH - 2, 'a');
+    EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "");
+}

@@ -3297,7 +3297,10 @@ char* fread_string(FILE* fl, char* error)
         for (tmppoint = tmp; (*tmppoint < ' ') && (*tmppoint != 0); tmppoint++)
             continue;
 
-        if (strlen(tmppoint) + strlen(buf) > MAX_STRING_LENGTH) {
+        // strcat needs its terminator at strlen(buf) + strlen(tmppoint), and the non-terminator
+        // branch below then writes '\r' there and a new terminator one past it, so two spare bytes
+        // must remain inside buf's MAX_STRING_LENGTH.
+        if (strlen(tmppoint) + strlen(buf) + 2 > MAX_STRING_LENGTH) {
             log("SYSERR: fread_string: string too large (db.c)");
             exit(0);
         } else
