@@ -264,147 +264,236 @@ stale read itself fails the run, which is the stronger check.
 
 ## Slice 2 amendment (owner, 2026-09-20): fix wave, deterministic affects, full scenario suite
 
-Approved in chat on 2026-09-20. This section supersedes the two places above and in the
-slice 3 spec that describe the sanitized ctest step as non-blocking and the poison scenario
-as an xfail. Everything lands on `fix/spell-room-affect-uaf-port` and draft PR #309; the
-plan runs in two phases with a CI-green checkpoint between them.
+Approved in chat on 2026-09-20 and revised the same day after a dual adversarial review
+(Opus architecture reviewer and a Fable reviewer, both read-only). This section supersedes
+the sentences above and in the slice 3 spec that describe the sanitized ctest step as
+non-blocking and the poison scenario as an xfail. Everything lands on
+`fix/spell-room-affect-uaf-port` and draft PR #309; the plan runs in two phases with a
+CI-green checkpoint between them. Per-task review diffs stay in the plan's SDD workspace so
+the final whole-branch review can be read task by task.
+
+Source of the sanitized-gtest figures below: CI run 35491250002 on head 3aa2ddd, the
+`Run C++ unit tests under AddressSanitizer` step, grouped by sanitizer kind and first
+project frame. 123 failing cases.
+
+Corrections to earlier sections that the review surfaced: the server is function-scoped in
+`conftest.py` (each scenario boots its own server), not one per session; the roster is
+implemented as `Harnimp`, `Harnmage`, `Harnfighter`, `Harnvictim`; the CI job timeout is 30
+minutes. Files touched by this amendment that use CRLF: `src/objsave.cpp`, `src/limits.cpp`,
+`src/handler.cpp`. All edits to them are byte-preserving.
 
 ### Phase A: fix wave
 
-Ordering rule: server defects first, then unit-test fixtures, then the CI gate flip. A
-task that finds a real server bug inside a class that was assumed to be test-only fixes it
-as a server defect with a regression gtest and records the reclassification in the ledger.
+Order: A5's triage confirmation first (it is already done offline, the task re-runs the
+grouping on the first Linux build), then the allocation sweep A4 (it changes the report
+set), then the server defects A1-A3 and the named A5 fixes in any order, then the gate flip
+A6. A task that finds a real server bug inside a class assumed test-only fixes it as a
+server defect with a regression gtest and records the reclassification in the ledger.
 
-**A1. `fread_string` size check (`src/db.cpp`).** The check `strlen(tmppoint) +
-strlen(buf) > MAX_STRING_LENGTH` admits equality, after which the non-terminator branch
-writes `'\r'` at index `MAX_STRING_LENGTH` and `'\0'` at `MAX_STRING_LENGTH + 1`, two bytes
-past `buf`. The fix rejects equality. Because `strcat` needs its own terminator and the
-branch appends two bytes, the invariant the check must hold is
-`strlen(buf) + strlen(tmppoint) + 2 <= MAX_STRING_LENGTH`; the task states the exact
-expression it chooses in the ledger and the regression gtest feeds a line that lands on
-every boundary value (fits, equal, one over). Behaviour for every shorter input is
-unchanged.
+**A1. `fread_string` size check (`src/db.cpp`).** With `L = strlen(buf)` and
+`T = strlen(tmppoint)`, `strcat` writes its terminator at index `L + T`, and the
+non-terminator branch then writes `'\r'` at `L + T` and `'\0'` at `L + T + 1`. `buf` has
+`MAX_STRING_LENGTH` bytes, so the invariant is `L + T + 2 <= MAX_STRING_LENGTH`. The current
+check `L + T > MAX_STRING_LENGTH` admits two bytes too many; merely rejecting equality still
+admits one. The fix is the literal condition
+`if (strlen(tmppoint) + strlen(buf) + 2 > MAX_STRING_LENGTH)`.
 
-**A2. Object-file refresh round-trip (`src/objsave.cpp`).** Root cause, established by
-reading the three writers: `Crash_crashsave` and `Crash_rentsave` write rent code, objects,
-aliases and then `Crash_follower_save` (which always ends with the `-17` follower
-sentinel); `Crash_idlesave` writes rent code, objects and aliases and stops. The refresh
-then reads the idle file with the strict `object_save_data_from_binary`, which requires the
-follower section, and reports "Truncated objects data while reading follower record". The
-legacy reader (`legacy_object_save_data_from_binary`) tolerates the missing section, which
-is why the on-disk file loads at login and the defect was invisible before the harness.
+The rejection path is `exit(0)`, and `gtest_discover_tests` runs each case in its own
+process, so a plain gtest cannot observe it. The regression test uses `EXPECT_EXIT` with
+`ExitedWithCode(0)` and the "string too large" message for the reject cases
+(`L + T == MAX_STRING_LENGTH - 1` and `== MAX_STRING_LENGTH`) and a normal read for the
+accept case (`L + T == MAX_STRING_LENGTH - 2`). Death tests run under ASan in CI; the task
+verifies they pass there. Trade-off: a world, shop or text string whose accumulated length
+lands in the two-byte band boots today and will refuse to boot after the fix. The task
+scans the main checkout's git-ignored `lib/world` (when present) for `~`-terminated
+strings within two bytes of 8192 before the change lands and records the result.
 
-Fix: `Crash_idlesave` calls `Crash_follower_save(ch, fp)` before closing, matching the other
-two writers, so every file the server writes has the follower section. The three writers
-share the section order already; no reader change. A gtest builds the idle-save byte
-stream for an empty-inventory character through the real writer functions into a temp
-file and asserts the strict reader accepts it; a second case covers a character with one
-follower so the section's content, not only its presence, round-trips. After the fix the
-"Truncated objects data while reading follower record" fragment is removed from the crash
-monitor's allow-list in `tests/integration/rots_harness/crashmonitor.py`, so any refresh
-SYSERR fails a scenario again, and the WIP.md finding is closed.
+**A2. Idle rent writes an incomplete object file (`src/objsave.cpp`, `src/act_wiz.cpp`).**
+Root cause: `Crash_crashsave` and `Crash_rentsave` write rent code, objects, aliases, then
+`Crash_follower_save` (which always ends with the `-17` follower sentinel); `Crash_idlesave`
+stops after the aliases. The refresh reads the file with the strict
+`object_save_data_from_binary`, which requires the follower section, and reports "Truncated
+objects data while reading follower record". The harness evidence log
+(`finding-run5-game.log`, 2026-09-19 16:53) shows the SYSERR immediately before "Harnvictim
+force-rented and extracted (idle)", the idle path's own log line; the harness idle gate
+(`fe0c9b9`, 18:11 the same day) was added afterwards, so the allow-list fragment in the crash
+monitor has been dead since then. Consequence today: at account character selection the
+JSON copy is authoritative and the legacy binary is deleted, so an idle force-rent whose
+refresh fails restores the inventory from the last successful save at next login. That is
+silent data loss bounded by the autosave cadence, not an invisible defect.
 
-Open question for the task, not for this spec: `Crash_follower_save` skips followers not in
-the character's room and does not extract them; whether idle rent should also extract
-saved followers as `Crash_rentsave` does is a behaviour question. The task keeps the change
-to the file format (add the section) and records the extraction question as a finding.
+Fix, four parts:
 
-**A3. The four `OlogHaiHelpers` gtests.** Pre-existing failures in
-`src/tests/olog_hai_tests.cpp` that keep the plain `build-test-smoke` job red. Root-cause
-each; a test asserting stale behaviour is corrected, a real defect is fixed in the server.
-The task reports which of the two it found for each case.
+1. `Crash_idlesave` mirrors `Crash_rentsave`: `Crash_follower_save(ch, fp)` then
+   `extract_followers(ch)` before closing. An idle rent is a rent; today its NPC followers
+   are orphaned in the world when the character is extracted, and saving without
+   extracting would duplicate them at next login. Behaviour delta, stated: after the fix
+   the account-native `objects.json` is rewritten on idle rent with `RENT_TIMEDOUT` and the
+   post-`Crash_extract_norents` inventory, and followers are saved and extracted. This is
+   consistent with the earlier decision (WIP.md, legacy-file retirement) to keep the
+   writer strict rather than loosen the reader.
+2. `FILE` ownership moves to the caller. `Crash_follower_save` closes the caller's `fp` on a
+   nested `Crash_save` failure and `Crash_follower_load` closes it on a short read, while
+   every caller closes it again: a latent double `fclose` that every follower-less legacy
+   file on disk already hits at login. Remove the three inner `fclose` calls and state
+   "the caller owns `fp`" at both declarations.
+3. `do_purge` in `src/act_wiz.cpp` calls `Crash_idlesave(ch)` for a purged player: it saves
+   the purging immortal, not the victim. Fix the argument to `vict`. This also gives the
+   harness a reachable trigger for the idle-save path (see the scenario below).
+4. Remove the "Truncated objects data while reading follower record" fragment from the
+   crash monitor's allow-list once the scenario below is green.
 
-**A4. Test character allocation.** The server allocates `char_data` with `CREATE`
-(calloc) everywhere and `free_char` releases with `free`. About 42 test sites across eight
-files (`interpre_account_menu_tests.cpp` holds 33) allocate with `new char_data {}` and
-release through `free_char`, which AddressSanitizer reports as alloc-dealloc-mismatch.
-Design: one new header `src/tests/test_character_support.h` with
+Tests: a gtest that runs the real `Crash_idlesave` on an empty-inventory character into a
+temp directory and asserts the strict reader accepts the bytes and the resulting JSON holds
+`RENT_TIMEDOUT` with no objects; a second case with one saved follower so the section's
+content round-trips; a gtest for `Crash_follower_load` on a short read that asserts the
+caller's `FILE` is still open. Integration: a scenario in which the imp purges a logged-in
+roster character and asserts no SYSERR, the character's `objects.json` refreshed, and a
+clean relogin.
 
-- `char_data* allocate_test_character()`: `CREATE`-style calloc plus `clear_char(…, MOB_VOID)`,
-  the exact pair every current site performs after `new`.
-- `void release_test_character(char_data*)`: `free_char` for characters the test hands to
-  server code that expects to free them, so the helper documents the ownership rule in one
-  place.
+Findings recorded, not fixed here: the alias writer emits a keyword and then skips the
+length and command when the command is empty (`Crash_alias_save`), which the reader
+misparses; not reachable by the harness.
 
-Every `new char_data {}` in `src/tests/` is converted; `delete` of a `char_data` disappears
-from the tests. `ScopedObjectPrototypeTable` in `db_loader_tests.cpp` deletes `obj_data`
-nodes the loader created with `CREATE`; it releases them with `free` (or the server's own
-release call when one exists), and its `obj_proto`/`obj_index` arrays stay `new[]`/`delete[]`
-because the fixture itself allocates them.
+**A3. The four `OlogHaiHelpers` gtests (`src/tests/olog_hai_tests.cpp`,
+`src/olog_hai.cpp`).** Established from the CI output: `TwoHandedStyleAppliesCurrent
+BaseDamageMultiplier` expects 19 and gets 13 because `get_base_skill_damage` multiplies by
+the integer expression `3 / 2`, which is 1: a real server defect, fixed as `* 3 / 2`.
+`HeavyFightingAndRidingAdjustOverrunDamage` expects 14 and gets 17 (both the heavy-fighting
+and riding multipliers apply); the task decides whether the test's expectation or the
+riding check is stale and says which. `ResolvesTextTargetsUsingRoomVisibilityLookup` and
+`UsesCurrentFightTargetWhenSmashTargetIsOmitted` get a null victim from
+`get_char_room_vis` and the smash fallback; the task finds whether the fixture lacks room
+or visibility state or the lookup changed. Each case ends with a passing test and a
+one-line classification (test stale vs server defect) in the ledger.
 
-**A5. Remaining sanitized gtest classes.** Triage by grouping the ASan reports from one
-local sanitized run of `ageland_tests` (`make BUILD_DIR=build-asan SANITIZE=address` recipe
-in the harness README) by top frame:
+**A4. Test character allocation.** The server allocates `char_data` through `CREATE`
+(a `calloc` wrapper) and `free_char` releases with `free`; the one server-side `new
+char_data` is the offline `save_benchmark.cpp`, which pairs it with `delete`. 42 test sites
+across eight files (33 in `interpre_account_menu_tests.cpp`) allocate with `new char_data {}`
+and release through `free_char`: 60 alloc-dealloc-mismatch reports. Design: a new pair
+`src/tests/test_character_support.h` and `.cpp`, registered in `ROTS_TEST_SOURCES` beside
+`test_random_utils.cpp` (the test binary links every test source into one executable, so
+header-only non-inline definitions would be duplicate symbols), providing
 
-- 49 global-buffer-overflow reports under `printf_common`: a format call reading past a
-  global; expected to be a small number of root causes (a fixed-width global name or table
-  formatted with `%s` without a terminator, or a table indexed one past its end).
-- 4 SEGV in `act()` (`src/comm.cpp`), 1 SEGV in `obj_from_room` (`src/handler.cpp`), 2
-  heap-use-after-free in `json_utils::JsonReader::skip_whitespace` (`src/json_utils.cpp`),
-  about 12 plain assertion failures.
+- `char_data* allocate_test_character(int clear_mode)`: `calloc` plus
+  `clear_char(character, clear_mode)`. The mode is load-bearing: `MOB_VOID` allocates the
+  skills and knowledge arrays and `MOB_ISNPC` does not, and `free_char` logs a SYSERR for an
+  NPC that has them. Three sites use `MOB_ISNPC` (`mage_tests.cpp`,
+  `affect_update_tests.cpp`, `room_affect_tick_tests.cpp`).
+- `void release_test_character(char_data*)`: `free_char`, for sites that today release
+  through `free_char`. Documents the ownership rule in one place.
 
-Each root cause becomes one task with its own regression test. The two JSON-reader
-use-after-frees are treated as server defects until proven otherwise, because the reader
-runs on player files. The counts above are from the slice 3 ledger and may have moved
-after A4; the triage task records the actual grouping before fixing.
+Sites converted: every `new char_data {}` whose release is `free_char`. Two sites keep
+`new`/`delete` on purpose and gain a comment saying why: `affect_update_tests.cpp` (the
+freed-sentinel allocation without `clear_char`, whose `free_char` would unregister the very
+slot the test then reuses) and `act_wiz_tests.cpp` (a `store_to_char` round-trip released
+with `delete`, which does not walk the affect list). `ScopedObjectPrototypeTable` in
+`db_loader_tests.cpp` deletes `obj_data` nodes the loader created with `CREATE`; it releases
+them with `free_obj` (which frees the strings only for `item_number == -1`, so the task
+checks what the loader attached) or `free`, while its own `obj_proto`/`obj_index` arrays stay
+`new[]`/`delete[]`.
+
+**A5. Remaining sanitized gtest classes: the named fix set.** From the run cited above:
+
+| Count | Class | Root cause | Fix |
+|---|---|---|---|
+| 49 | global-buffer-overflow in `printf_common` | `write_player_text` (`src/db.cpp`) encrypts the 10-byte global `pwdcrypt` in place, terminator included, then prints it with `%s`; the reader loads the field with a fixed length | Server defect. Print exactly `MAX_PWD_LENGTH` bytes in a form the reader still decodes; the task reads the `KEY_STR("password", …)` loader and any decrypt step first, keeps the on-disk format loadable, and adds a gtest that writes and reloads a player text record under ASan |
+| 3 | alloc-dealloc-mismatch, `operator delete` on `calloc` | `ScopedObjectPrototypeTable` | Covered by A4 |
+| 2 | heap-use-after-free `JsonReader::skip_whitespace` | `JsonReader` and `JsonReaderV2` store `const std::string& m_input`; two tests bind a string literal temporary. All server call sites pass named lvalues | API hardening: `explicit JsonReader(std::string&&) = delete;` on both classes turns the trap into a compile error; the two tests hold a named `std::string` |
+| 4 | SEGV in `act()` via the "$n has reconnected." and momentum messages | `act` walks `world[ch->in_room].people` for `TO_ROOM`; the fixtures in `interpre_account_menu_tests.cpp` (3) and `weapon_master_handler_tests.cpp` (1) place characters in rooms the test `world` does not populate | Test fixture: give each a real room entry, following the `ensure_test_world_room` pattern in `db_loader_tests.cpp` |
+| 1 | SEGV in `obj_from_room` | The object is not in `world[in_room].contents`, the previous-element walk ends null and dereferences it; the fireball test in `mage_tests.cpp` triggers it | Server null guard with a SYSERR log plus the fixture placing the object in the room's list; gtest for the guard |
+| 4 | OlogHai assertions | See A3 | A3 |
+| 60 | alloc-dealloc-mismatch via `free_char` | See A4 | A4 |
+
+Every failing case is in this table; there is no unclassified tail. If a fix turns out to
+need more than its task's bounded scope, the task stops and reports; a `GTEST_SKIP` with a
+recorded reason is allowed only with the owner's explicit sign-off in the ledger, and the
+gate flip in A6 waits for it either way.
 
 **A6. CI gate.** When the sanitized ctest run reports zero failures on the PR, the
-`integration-asan` job's ctest step loses `continue-on-error: true`. `ASAN_OPTIONS` keeps
-`alloc_dealloc_mismatch` at its default (on); the fixtures were fixed rather than the
-check silenced. The slice 3 spec's "ctest run is non-blocking" sentence is superseded by
-this paragraph. Checkpoint: both CI jobs green on PR #309 before Phase B starts.
+`integration-asan` job's ctest step loses `continue-on-error: true` and moves after the
+`Run integration suite` step, so a unit-test regression never hides the integration signal
+the job exists for; artifacts already upload on `always()`. `ASAN_OPTIONS` keeps
+`alloc_dealloc_mismatch` at its default (on). The plain job's `make test` step is already
+blocking. Checkpoint: both CI jobs green on PR #309 before Phase B starts.
 
 ### Phase B: harness change and scenario suite
 
-**B1. `harness affects` subcommand.** Why `harness tick` cannot make a slow affect
-deterministic: `get_current_time_phase()` derives the phase from the real-time `pulse`
-counter, so `affect_update_person` and `affect_update_room` tick a slow affect
-(`is_fast == 0`, poison among them) only on the one matching phase per game hour, while
-`harness tick` runs at whatever pulse the command arrives on and also runs `point_update`,
-whose regen competes with the damage.
+**B1. `harness affects` subcommand, person affects only.** Why `harness tick` cannot make
+a slow person affect deterministic: `get_current_time_phase()` derives the phase from the
+real-time `pulse` counter (20 phases of 12 pulses; a game hour is 60 s real), so
+`affect_update_person` ticks a slow affect (`is_fast == 0`, poison among them) only on the
+one matching phase per game hour, and `harness tick` also runs `point_update` regen.
 
-Design: a harness-only global `harness_force_affect_phase` (in `test_harness.h/.cpp`,
-default off) that the two phase comparisons in `src/limits.cpp` OR into their condition:
-`(time_phase == af->time_phase) || harness_force_affect_phase`. `do_harness affects` sets
-the flag, calls `affect_update()` then `clean_expose_elements()`, clears the flag, and
-answers "Harness: affect tick complete." One call is exactly one duration decrement and one
-damage or effect application per affect, person and room, with no `point_update`,
-`stat_update`, `fast_update` or weather. `harness tick` is unchanged. The gate is two
-one-line edits in `limits.cpp` (CRLF; byte-preserving edit) plus the flag; no other server
-code changes. The command's usage text lists both subcommands.
+Design: a harness-only global `harness_force_affect_phase` in `test_harness.h/.cpp`,
+default off, OR-ed into the single person-affect phase compare in `affect_update_person`
+(`src/limits.cpp`, the `!mode && time_phase == af->time_phase` clause). `do_harness affects`
+sets the flag, calls `affect_update()` then `clean_expose_elements()`, clears the flag, and
+answers "Harness: affect tick complete." `harness tick` is unchanged; the usage text lists
+both subcommands. A gtest in `test_harness_tests.cpp` pins that the flag makes a slow
+person affect tick once and that it is off by default.
 
-The `harness` pytest fixture gains `affects()` beside `tick()`. The existing poison
-scenario replaces its "tick until dead or budget spent" loop with `affects()` calls and
-drops the xfail. The `-t` gate stays: the flag can only be set by the command, which only
-exists in harness mode.
+Room affects are explicitly out of this subcommand's guarantee. Their application roll
+(`number(0, 12)` per occupant, plus a one-in-three roll for fast spells) is not phase-gated,
+and blaze is a fast spell, so the flag changes nothing for blaze; forcing the room duration
+compare would burn duration on slow room affects (mist, poison's room arm) faster than they
+fire. The two room-affect compares in `affect_update_room` are left alone; blaze and mist
+scenarios keep marker-driven waits under the seeded RNG.
 
-**B2. Scenario suite.** The catalogue above, minus the three scenarios already present
-(blaze after quit, remote poison, remote-credit split). Each scenario is one pytest file
-named for the behaviour it pins, uses only marker-driven waits, and asserts on transcripts
-and JSON records as the pilots do:
+Guarantee, stated precisely: each `affects()` call forces one tick per person affect. The
+wall-clock fast block still runs `affect_update` every three seconds in harness mode (an
+explicit earlier decision: `aabcc1f` reverted gating it because two scenarios depend on the
+spontaneous ticks), so a slow affect can also tick on its own about once a minute.
+Scenarios therefore assert monotonic outcomes (hit points strictly lower, affect gone,
+death recorded), never exact tick counts or damage totals. Poison scenario contract: set the
+victim's hit points low with `wizset`, then issue `affects()` calls back to back until the
+death marker or a small budget; death needs `hit <= -CON/2` at 5 damage per tick, so the
+budget is `ceil((hit + CON/2) / 5) + 2`. The existing xfail is removed and its reason text
+(which wrongly says the phase advances only on `harness tick`) goes with it.
+
+**B2. Scenario suite.** Each scenario is one pytest file named for the behaviour it pins,
+uses only marker-driven waits, cites the `manual-test-plan.md` item it automates in its
+docstring, and asserts on transcripts and JSON records as the pilots do. Existing files:
+`test_blaze_after_quit.py`, `test_poison_remote_player.py` (poisoner online, transferred out
+of the room), `test_remote_credit_xp_split.py`.
+
+Pinned assertions (from `src/fight.cpp`): gentle poison death is `hit == max_hit / 4`,
+mana 0, stats unchanged, `EXPLOIT_POISON` only; harsh death is `hit == 1`, each stat scaled
+by two thirds, an `EXPLOIT_MOBDEATH` record naming the poisoning mob or else the engaged
+mob; a player poisoner keeps an `EXPLOIT_PK` record. A slain player with a live descriptor
+keeps the same `char_data` (extract_char re-places the body), so `resolve_poisoner` still
+resolves a poisoner who died; only a quit (which frees the body) makes attribution "nobody".
+
+Roster: a fifth character `Harncaller`, a human level-30 mage knowing `summon` and `blaze`.
+Needed because `spell_summon` fails whenever caster and victim are on different sides and
+`Harnmage` is a magus while the rest of the roster is not; a human summoner shares a side
+with the wood-elf victim. The same character is the "another character logs in" body for
+the blaze relogin row. `STANDARD_ROSTER` in `fixtures.py` gains the entry; the unit tests
+that count roster files move by one.
 
 | Scenario | Pins | New need |
 |---|---|---|
-| Blaze tick after the caster dies (slain by imp) | tick fires, victim's exploits name nobody, no crash | none |
-| Blaze tick after the caster's link drops and another character logs in | same, plus the relogin reusing the slot | a fourth roster character or a second login of the fighter |
-| Poison, poisoner dies before the lethal tick | victim death attributed to nobody | `affects()` |
-| Poison, control with the poisoner online | victim death attributed to the mage, `EXPLOIT_POISON` | `affects()` |
-| Snake poison, flee two rooms, die alone | gentle: hit points at a quarter, no stat loss, `EXPLOIT_POISON` only | snake reset, lit exit chain (present) |
-| Die still fighting the snake | harsh penalty, mob-death record | real combat rounds |
-| Player poison, die fighting the brute | harsh penalty, poisoner keeps the PK record | brute mob 1133 (in the world spec) |
+| Blaze tick after the caster is slain by the imp | tick fires and kills the victim; the victim's exploits name the mage, because a slain player keeps its body and registration serial and the room-affect owner check (`affect_update`, pointer plus serial) still resolves it; no crash | none |
+| Blaze tick after the caster's link drops and `Harncaller` logs in | same, plus the login reusing the slot | `Harncaller` |
+| Poison, poisoner quits before the lethal tick | `EXPLOIT_POISON` present, no death record naming anyone, no PK record for the mage, no crash | `affects()` |
+| Poison, poisoner slain by the imp before the lethal tick | records still name the mage (same assertions as the existing online scenario) | `affects()` |
+| Snake poison, flee two rooms, die alone | gentle assertions above | none (snake 1131, corridor 1134/1135 present) |
+| Die still fighting the snake | harsh assertions, `EXPLOIT_MOBDEATH` names the snake | real combat rounds |
+| Player poison, die fighting the brute | harsh assertions, `EXPLOIT_MOBDEATH` names the brute, mage keeps `EXPLOIT_PK` | none (brute 1133 present) |
 | Killing blow from a non-engaged spell | credit to the caster, no melee credit | none |
 | Splash bystander manufactures no credit | bystander 1132 has no record | none |
-| Summon by name in the dark room | summon succeeds, message set | `DARK` arena room (present) |
-| Summon a link-dead character | summon refuses or succeeds per branch rule, no crash | socket drop helper (present) |
-| Earthquake message order | the caster's fall line is last | three or more targets in room |
-| Mass affect expiry while a character quits in the same tick | no crash under ASan | `affects()` and a quit racing it |
+| Summon by name in the dark room | victim relocates to the caster's room (imp `stat`), both see the arrival lines | `Harncaller`; cast retry budget for the seeded save roll |
+| Summon a link-dead character | no crash under ASan, victim relocates, relogin lands in the caster's room; the null `desc` paths in `act` and `do_look` are the ones under test (manual-test-plan item 25) | `Harncaller`, `drop_link` (present) |
+| Earthquake message order | the caster's fall line is last among the fall lines | one arena room gains a plain `DOWN` exit to a new sink room (a plain down exit makes the crevice open deterministically); the imp stays out of the room; casts retry within a budget until at least one other fall line appears |
+| Mass affect expiry with a death in the same `affect_update` | a victim whose own affects are at duration 1 dies to the blaze room tick inside the same `affect_update()` in which they expire, after a quit issued just before `affects()`; no crash under ASan | `affects()` |
 
-The world file changes are limited to what the last column names; the plan's first Phase B
-task diffs the current `tests/integration/world/` against the world table above and adds
-only the missing records. The library extraction tool stays deferred. Where a scenario
-depends on a harsh-penalty or attribution rule the branch defines in `manual-test-plan.md`,
-the scenario cites the plan item in its docstring so a later rule change points at the test
-to update.
+The server is single-threaded, so "quits in the same tick" is realised as the ordering
+above, not a race. The world change is the sink room and its exit; everything else in the
+table is present (mobs 1130-1134, the `DARK` room 1133, the corridor chain). The library
+extraction tool stays deferred. CI budget: the current suite runs in 142 s sanitized; the
+added scenarios each boot their own server, so the task measures the new total on the first
+green run and records it against the 30-minute job timeout.
 
 **B3. Exit criteria.** Both CI jobs green with the ctest step blocking; the integration
 suite has no xfail; every catalogue row above has a scenario or a recorded reason it cannot
