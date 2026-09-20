@@ -1985,8 +1985,10 @@ TEST(DbLoader, FreadStringAcceptsAStringThatExactlyFitsItsBuffer)
 
 TEST(DbLoader, FreadStringRejectsAStringOneByteTooLongForItsBuffer)
 {
-    // One more content byte than the case above; the old check admitted it and strcat plus the
-    // '\r' append then wrote past buf. The rejection path is exit(0) after a "string too large" log.
+    // One content byte more than the case above. The old check accepted this input without
+    // overflowing (the tilde branch runs); the new check rejects it on the '~' line because it
+    // reserves two bytes for the carriage-return branch before it knows which branch follows.
+    // The rejection path is exit(0) after a "string too large" log.
     const std::string content(MAX_STRING_LENGTH - 5, 'a');
     EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "");
 }
