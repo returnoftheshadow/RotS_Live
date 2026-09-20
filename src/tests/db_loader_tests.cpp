@@ -1964,9 +1964,9 @@ TEST(DbLoader, FreadStringSkipsALeadingBlankLineWithoutReadingInFrontOfItsBuffer
     EXPECT_EQ(read_tilde_terminated_string("\nA dusty hall.\n~\n"), "A dusty hall.\n\r");
 }
 
-TEST(DbLoader, FreadStringKeepsAWhitespaceOnlyLineWithoutReadingInFrontOfItsBuffer)
+TEST(DbLoader, FreadStringWalksAWhitespaceOnlyLineAfterASkippedBlankLineWithoutReadingInFrontOfItsBuffer)
 {
-    EXPECT_EQ(read_tilde_terminated_string("   \n~\n"), "   \n\r");
+    EXPECT_EQ(read_tilde_terminated_string("\n   \n~\n"), "   \n\r");
 }
 
 TEST(DbLoader, FreadStringStopsAtTheTildeTerminator)
