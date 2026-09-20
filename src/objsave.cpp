@@ -870,6 +870,7 @@ int Crash_obj2store(obj_data* obj, char_data* ch,
 
 int Crash_save(struct obj_data* obj, struct char_data* ch, int pos, FILE* fp);
 
+// The caller owns fp and closes it; this writer only appends the follower section and its sentinel.
 void Crash_follower_save(struct char_data* ch, FILE* fp)
 {
     extern struct index_data* mob_index;
@@ -914,7 +915,6 @@ void Crash_follower_save(struct char_data* ch, FILE* fp)
             if (k->follower->equipment[x])
                 if (!Crash_is_unrentable(k->follower->equipment[x]))
                     if (!Crash_save(k->follower->equipment[x], k->follower, x, fp)) {
-                        fclose(fp);
                         return;
                     }
         if (fwrite(&dummy_object, sizeof(struct obj_file_elem), 1, fp) < 1) {
@@ -946,6 +946,7 @@ void Crash_follower_save(struct char_data* ch, FILE* fp)
     }
 }
 
+// The caller owns fp and closes it (load_character does so unconditionally); a short read returns.
 void Crash_follower_load(struct char_data* ch, FILE* fp)
 {
     struct follower_file_elem fol_elem;
@@ -957,7 +958,6 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
 
     do {
         if (!read_crashsave_record(fp, &fol_elem, sizeof(struct follower_file_elem), 1, "reading follower data in Crash_follower_load")) {
-            fclose(fp);
             return;
         }
         if (fol_elem.fol_vnum == -17)
@@ -969,7 +969,6 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
 
         while (true) {
             if (!read_crashsave_record(fp, &object, sizeof(struct obj_file_elem), 1, "reading follower object data in Crash_follower_load")) {
-                fclose(fp);
                 return;
             }
 
@@ -1368,6 +1367,11 @@ void Crash_idlesave(struct char_data* ch)
             }
     }
     Crash_alias_save(ch, fp);
+    // An idle rent is a rent: write the follower section the other two writers emit (the
+    // strict account-native reader requires it) and extract the followers as Crash_rentsave
+    // does, so they are neither orphaned in the world nor duplicated at the next login.
+    Crash_follower_save(ch, fp);
+    extract_followers(ch);
     fclose(fp);
     refresh_account_backed_object_file(ch);
 

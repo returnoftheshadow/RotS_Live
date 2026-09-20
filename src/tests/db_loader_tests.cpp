@@ -28,6 +28,7 @@
 extern struct player_index_element* player_table;
 extern struct room_data world;
 extern struct index_data* obj_index;
+extern struct index_data* mob_index;
 extern struct obj_data* obj_proto;
 extern struct obj_data* object_list;
 extern int top_of_p_table;
@@ -38,6 +39,8 @@ void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(struct char_file_u* st, struct char_data* ch);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
+void Crash_follower_save(struct char_data* ch, FILE* fp);
+void Crash_follower_load(struct char_data* ch, FILE* fp);
 
 namespace {
 
@@ -1737,6 +1740,154 @@ TEST(DbLoader, CrashLoadDoesNotConsumeStaleStagedObjectBytesForDifferentCharacte
 
     EXPECT_EQ(Crash_load(&later_character), nullptr);
     clear_account_backed_object_bytes_for_character(&staged_character);
+}
+
+namespace {
+
+// The six directories Crash_idlesave and the account-native refresh touch, relative to cwd.
+void create_idle_save_directories(const std::string& root)
+{
+    for (const char* relative : { "/accounts", "/accounts/A-E", "/account_characters", "/account_characters/A-E", "/plrobjs", "/plrobjs/A-E" })
+        ASSERT_EQ(mkdir((root + relative).c_str(), 0700), 0) << relative;
+}
+
+} // namespace
+
+TEST(DbLoader, IdleSaveWritesTheFollowerSectionSoTheStrictReaderAcceptsAnEmptyInventory)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    TemporaryDirectory temp_directory;
+    create_idle_save_directories(temp_directory.path());
+
+    // Crash_get_filename resolves "plrobjs/..." against cwd; no account is linked here (see
+    // IdleSaveRefreshesTheAccountNativeObjectFile), so the refresh silently no-ops.
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.player.name = strdup("aragorn");
+    character.in_room = 0;
+
+    Crash_idlesave(&character);
+
+    char object_path[MAX_INPUT_LENGTH];
+    ASSERT_TRUE(Crash_get_filename(character.player.name, object_path));
+    const std::string binary_bytes = read_file_contents(object_path);
+    objects_json::ObjectSaveData parsed;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(binary_bytes, &parsed, &error_message)) << error_message;
+    EXPECT_EQ(parsed.rent.rentcode, RENT_TIMEDOUT);
+    EXPECT_TRUE(parsed.objects.empty());
+    EXPECT_TRUE(parsed.followers.empty());
+
+    free(character.player.name);
+    character.player.name = nullptr;
+}
+
+// Account creation/linking touches disk paths that crash under this project's QEMU i386 test
+// container (documented, pre-existing environment limitation independent of this fix; see
+// docker-local-mud-testing notes: "every [gtest] that creates/links accounts on disk fails"
+// under QEMU). This test is expected to fail locally in that container and is verified by a
+// native (non-QEMU) build or CI.
+TEST(DbLoader, IdleSaveRefreshesTheAccountNativeObjectFile)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    TemporaryDirectory temp_directory;
+    create_idle_save_directories(temp_directory.path());
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    // Crash_get_filename and the refresh resolve "plrobjs/..." and "." against cwd.
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.player.name = strdup("aragorn");
+    character.in_room = 0;
+
+    Crash_idlesave(&character);
+
+    // The refresh rewrote the account-native JSON copy from the idle-save bytes.
+    std::string refreshed_bytes;
+    ASSERT_TRUE(account::read_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", &refreshed_bytes, &error_message)) << error_message;
+    objects_json::ObjectSaveData refreshed;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(refreshed_bytes, &refreshed, &error_message)) << error_message;
+    EXPECT_EQ(refreshed.rent.rentcode, RENT_TIMEDOUT);
+    EXPECT_TRUE(refreshed.objects.empty());
+
+    free(character.player.name);
+    character.player.name = nullptr;
+}
+
+TEST(DbLoader, FollowerSaveRecordsAnNpcFollowerInTheSameRoom)
+{
+    // One-slot mob index so mob_index[follower.nr].virt resolves (the pattern mage_tests uses).
+    index_data* previous_mob_index = mob_index;
+    index_data prototype_slot {};
+    prototype_slot.virt = 1131;
+    mob_index = &prototype_slot;
+
+    char_data leader {};
+    clear_char(&leader, MOB_VOID);
+    leader.in_room = 0;
+    char_data follower {};
+    clear_char(&follower, MOB_ISNPC);
+    follower.specials2.act = MOB_ISNPC;
+    follower.nr = 0;
+    follower.in_room = 0;
+    follow_type link {};
+    link.follower = &follower;
+    leader.followers = &link;
+
+    FILE* stream = tmpfile();
+    ASSERT_NE(stream, nullptr);
+    Crash_follower_save(&leader, stream);
+    std::rewind(stream);
+    std::string bytes;
+    char buffer[256];
+    size_t read_count = 0;
+    while ((read_count = std::fread(buffer, 1, sizeof(buffer), stream)) > 0)
+        bytes.append(buffer, read_count);
+    EXPECT_EQ(std::fclose(stream), 0) << "Crash_follower_save must leave the caller's stream open";
+
+    // Prefix the bytes with an empty rent/object/board/alias head so the strict reader parses them.
+    objects_json::ObjectSaveData empty_head;
+    empty_head.rent.rentcode = RENT_TIMEDOUT;
+    std::string head_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(empty_head, &head_bytes, &error_message)) << error_message;
+    // object_save_data_to_binary ends with the follower sentinel; drop it so ours follows the head.
+    head_bytes.resize(head_bytes.size() - sizeof(follower_file_elem));
+
+    objects_json::ObjectSaveData parsed;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(head_bytes + bytes, &parsed, &error_message)) << error_message;
+    ASSERT_EQ(parsed.followers.size(), 1u);
+    EXPECT_EQ(parsed.followers[0].fol_vnum, 1131);
+
+    mob_index = previous_mob_index;
+}
+
+TEST(DbLoader, FollowerLoadLeavesTheCallersStreamOpenOnAShortRead)
+{
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.in_room = 0;
+
+    FILE* stream = tmpfile();
+    ASSERT_NE(stream, nullptr);
+    const char partial_record[3] = { 1, 2, 3 };
+    ASSERT_EQ(std::fwrite(partial_record, 1, sizeof(partial_record), stream), sizeof(partial_record));
+    std::rewind(stream);
+
+    Crash_follower_load(&character, stream);
+
+    // load_character closes the stream after this call; a callee that closed it first made that a
+    // double fclose. Under AddressSanitizer the second close reports use-after-free.
+    EXPECT_EQ(std::fclose(stream), 0);
 }
 
 TEST(DbLoader, MigratedLegacyObjectPayloadMatchesAccountNativeObjectsJson)
