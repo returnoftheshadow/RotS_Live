@@ -643,7 +643,16 @@ struct skill_data skills[MAX_SKILLS] = {
         PLRSPEC_NONE, RESIST_NONE },
     { "mass insight", PROF_CLERIC, 6, spell_mass_insight, POSITION_FIGHTING, 25, 12, 1, 10, 1, 0,
         PLRSPEC_NONE, RESIST_NONE },
-    /* 161 */
+    /* 161 -- NOT BALANCED OR CONFIGURED FOR PLAYER USE.
+     * These six rows exist so that items can grant per-element resistance
+     * through APPLY_SPELL, which `protection` cannot encode (it needs a third
+     * value, the element, and APPLY_SPELL has room for only two). Nothing
+     * teaches them today. Their level, learn_diff, learn_type and PLRSPEC_PROT
+     * tag are placeholders copied from `protection` and have NOT been reviewed
+     * for player practice. Before a guildmaster is ever given these, set a real
+     * `level` -- 0 is only safe on `protection` because that row is LEARN_SPEC
+     * gated, while these are not -- and decide whether they belong to the PROT
+     * specialisation or are openly learnable. */
     { "resist fire", PROF_CLERIC, 0, spell_resist_fire, POSITION_STANDING, 5, 21, 32, 10, 1, 0,
         PLRSPEC_PROT, RESIST_NONE },
     { "resist cold", PROF_CLERIC, 0, spell_resist_cold, POSITION_STANDING, 5, 21, 32, 10, 1, 0,
