@@ -13,6 +13,7 @@ from rots_harness import fixtures
 from rots_harness.crashmonitor import CrashMonitor
 from rots_harness.launcher import DEFAULT_LOCK_DIR, DockerComposeLauncher, LocalProcessLauncher, ServerHandle, ServerLauncher, allocate_free_port
 from rots_harness.libbuilder import RunLibBuilder
+from rots_harness.retention import keep_run_directory
 from rots_harness.session import GameSession, Transcript
 
 INTEGRATION_ROOT = Path(__file__).resolve().parent
@@ -27,6 +28,7 @@ class HarnessServer:
     run_dir: Path
     roster: tuple[fixtures.CharacterSpec, ...]
     monitor: CrashMonitor
+    crash_detected: bool = False  # set by fail_on_server_crash before it fails the test
 
     def character_number(self, name: str) -> int:
         return next(index for index, spec in enumerate(self.roster, start=1) if spec.name == name)
@@ -58,14 +60,20 @@ def server(request: pytest.FixtureRequest) -> HarnessServer:
         seed = int(os.environ.get("ROTS_IT_SEED", DEFAULT_SEED))
         handle = launcher.start(run_dir, built.lib_dir, allocate_free_port(), seed)
     except Exception:
-        shutil.rmtree(run_dir, ignore_errors=True)
+        # A server that died before listening (a sanitizer report at boot, for example) has
+        # left its evidence in run_dir/game.log; keep it rather than reduce it to a log tail.
+        print(f"\nserver failed to start; run directory kept at {run_dir}")
         raise
     harness_server = HarnessServer(handle, built.lib_dir, run_dir, built.roster, CrashMonitor(handle))
     try:
         yield harness_server
     finally:
         launcher.stop(handle)
-        keep = os.environ.get("ROTS_IT_KEEP") == "1" or request.session.testsfailed > 0
+        keep = keep_run_directory(
+            keep_requested=os.environ.get("ROTS_IT_KEEP") == "1",
+            tests_failed_so_far=request.session.testsfailed,
+            this_server_failed=harness_server.crash_detected,
+        )
         if keep:
             print(f"\nrun directory kept at {run_dir}")
         else:
@@ -74,13 +82,18 @@ def server(request: pytest.FixtureRequest) -> HarnessServer:
 
 @pytest.fixture(autouse=True)
 def fail_on_server_crash(request: pytest.FixtureRequest):
-    monitor = None
+    # Requesting `server` here, inside the body, registers the server finalizer before this
+    # one; finalizers run last-in-first-out, so the crash check below runs while the server
+    # is still alive and before launcher.stop sends SIGTERM. The ordering depends on this
+    # getfixturevalue call, not on autouse placement.
+    harness_server = None
     if "server" in request.fixturenames:
-        monitor = request.getfixturevalue("server").monitor
+        harness_server = request.getfixturevalue("server")
     yield
-    if monitor is not None:
-        problems = monitor.check()
+    if harness_server is not None:
+        problems = harness_server.monitor.check()
         if problems:
+            harness_server.crash_detected = True
             pytest.fail("server problems during this test:\n" + "\n".join(problems))
 
 
