@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 
+import poison_support
 from poison_support import affect_ticks_until_death, death_tick_budget, poison_until_it_lands
 from rots_harness import fixtures, records
 
@@ -33,12 +34,16 @@ def _poison_then_separate(imp, mage, victim, victim_hit: int | None = None) -> N
 def _quit_once_anger_allows(mage, harness, attempts: int = 10) -> None:
     """Casting an offensive spell affects the caster with SPELL_ANGER (char_utils_combat.cpp's
     on_attacked_character, duration 5 against a player victim), and do_quit refuses to let a
-    mortal quit while it lingers. Harness mode disables the server's real-time affect sweep
-    (comm.cpp only calls affect_update() there when NOT harness_mode), so only the forced
-    `harness affects` tick ages anger down -- the same tick that advances the victim's poison
-    DoT. This is done with the victim's hit left at its roster default (well above the few
-    points of damage these ticks deal) so the anger-clearing ticks cannot land the kill first;
-    the victim's hit is lowered for its own death countdown only after this returns.
+    mortal quit while it lingers. comm.cpp's fast block (fast_update()/affect_update(), every
+    PULSE_FAST_UPDATE ~3s) runs regardless of harness_mode -- only the hourly weather/point/stat
+    block is gated -- but SPELL_ANGER is a slow (non-"is_fast") affect: affect_update_person only
+    ages it when the current real-time phase matches the phase recorded when it was applied, which
+    is roughly once per game hour (~60s), or unconditionally on a forced `harness affects` tick
+    (harness_force_affect_phase). Waiting on the real phase match would be impractically slow, so
+    this ages it down with the same forced tick that advances the victim's poison DoT. This is done
+    with the victim's hit left at its roster default (well above the few points of damage these
+    ticks deal) so the anger-clearing ticks cannot land the kill first; the victim's hit is lowered
+    for its own death countdown only after this returns.
     """
     for _attempt in range(attempts):
         mage.send_line("quit")
@@ -62,6 +67,7 @@ def test_poisoner_who_quits_before_the_lethal_tick_is_credited_with_nothing(serv
     types = [record.type for record in victim_records]
     assert records.EXPLOIT_POISON in types, victim_records
     assert records.EXPLOIT_MOBDEATH not in types, victim_records
+    assert records.EXPLOIT_DEATH not in types, f"a departed poisoner must leave no death record naming anyone: {victim_records}"
     assert not any(record.victim_name.lower() == "harnmage" for record in victim_records), f"a departed poisoner must never be named: {victim_records}"
 
     mage_records = records.read_exploits(server.lib_dir, "Harnmage")
@@ -74,6 +80,14 @@ def test_poisoner_slain_before_the_lethal_tick_is_still_named(server, imp, mage,
     assert mage.command("look").room_name() is not None, "the slain mage keeps its body and stays logged in"
 
     assert affect_ticks_until_death(harness, victim, death_tick_budget(10)), "the victim should die of the forced poison ticks"
+
+    stat = imp.command("stat harnvictim")
+    current, maximum = stat.hit_points()
+    pinned = maximum // 4
+    assert pinned <= current <= pinned + poison_support.REGEN_ALLOWANCE, (
+        f"gentle poison death revives at a quarter of {maximum} HP ({pinned}), plus up to "
+        f"{poison_support.REGEN_ALLOWANCE} for real-time regen since the death tick, got {current}: {stat.text}"
+    )
 
     victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
     deaths = [record for record in victim_records if record.type == records.EXPLOIT_DEATH]
