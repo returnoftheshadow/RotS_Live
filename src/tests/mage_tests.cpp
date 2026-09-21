@@ -921,14 +921,20 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
 
     queue_fireball_rolls(kForceNoFumbleRoll);
 
-    // Captured (rather than left to print) so a regression that lands a corpse outside
-    // world[kFireballRoom].contents -- reported by obj_from_room()'s null-walker guard --
-    // fails this test instead of just scrolling past in the test log.
     testing::internal::CaptureStderr();
     spell_fireball(caster, nullptr, 0, &context.victim, nullptr, 0, 0);
-    release_fireball_corpse(kFireballRoom, previous_object_list);
     const std::string captured = testing::internal::GetCapturedStderr();
+    // CaptureStderr dup2s a temp file over fd 2, which is also where AddressSanitizer
+    // reports; the window must close (GetCapturedStderr, above) before any call that
+    // could fault under ASan, so release_fireball_corpse() runs outside it, matching the
+    // fumble test above.
+    release_fireball_corpse(kFireballRoom, previous_object_list);
 
+    // Detects a corpse that IS the head of world[kFireballRoom].contents but whose own
+    // in_room disagrees with that room -- the list-membership mismatch obj_from_room()'s
+    // null-walker guard logs. A corpse that lands in a different room entirely leaves
+    // world[kFireballRoom].contents null, so release_fireball_corpse() above never calls
+    // obj_from_room() at all; that failure mode is not what this assertion catches.
     EXPECT_EQ(captured.find("obj_from_room: object is not in its room's contents list."), std::string::npos)
         << "release_fireball_corpse() must find its corpse (if any) in world[kFireballRoom], "
            "not off in a different room; stderr was: "

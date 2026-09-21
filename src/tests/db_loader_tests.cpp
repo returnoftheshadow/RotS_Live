@@ -2209,8 +2209,12 @@ TEST(DbLoader, ObjFromRoomIgnoresAnObjectThatIsNotInItsRoomsContents)
     world[0].contents = &resident;
     resident.next_content = nullptr;
 
+    testing::internal::CaptureStderr();
     obj_from_room(&stray); // not in the list: must log and return, not dereference a null walker
+    const std::string captured = testing::internal::GetCapturedStderr();
 
+    EXPECT_NE(captured.find("obj_from_room: object is not in its room's contents list"), std::string::npos)
+        << "the guard must log the mismatch, not silently return; stderr was: " << captured;
     EXPECT_EQ(world[0].contents, &resident);
     EXPECT_EQ(stray.in_room, NOWHERE);
     world[0].contents = nullptr;
