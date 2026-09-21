@@ -4,6 +4,9 @@ Boots a real `ageland` server against a throwaway lib directory seeded with fixt
 characters, drives it over telnet, and asserts on the transcripts. `tests/integration/unit`
 tests the harness modules themselves (`rots_harness/`) without starting a server.
 
+Writing a new scenario: see the `rots-integration-scenario` skill at
+`.agents/skills/rots-integration-scenario/SKILL.md`.
+
 ## One-time setup
 
 ```sh
