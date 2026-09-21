@@ -37,6 +37,11 @@ extern int top_of_world;
 char* target_from_word(struct char_data* ch, char* argument, int mask, struct target_data* t1);
 int target_check_one(struct char_data* ch, int mask, struct target_data* t1);
 
+// handler.cpp's "N.keyword" ordinal splitter -- get_char_room_vis()'s "1.bystander"
+// path reaches it and is what this suite exercises above; not declared in any
+// header (checked handler.h), same local-extern convention as the two above.
+int get_number(char** name);
+
 namespace {
 
 void ensure_test_world(int minimum_room_number)
@@ -193,4 +198,46 @@ TEST(SummonTargeting, TargetCheckOneUnderTheSummonMaskAcceptsADarkRoomWorldTarge
     EXPECT_EQ(accepted, TAR_CHAR_WORLD)
         << "Expected the delayed-cast re-validation gate to accept a dark-room world target "
            "under summon's TAR_DARK_OK mask.";
+}
+
+// get_number()'s "N.keyword" split is what get_char_room_vis() calls when the
+// imp addresses a mob as "1.bystander" (the fireball-splash scenario's CI
+// repro). Under ASan the old code's second strcpy() overlapped ppos (inside
+// *name) with *name itself -- strcpy-param-overlap. These three cases pin
+// the split's actual contract locally: the move-down happens unconditionally
+// before the ordinal is validated, so *name already reads the bare keyword
+// even in the non-numeric-ordinal case.
+TEST(GetNumber, SplitsALeadingOrdinalFromTheKeywordInPlace)
+{
+    char buffer[16] = "2.sword";
+    char* name = buffer;
+
+    int number = get_number(&name);
+
+    EXPECT_EQ(number, 2);
+    EXPECT_STREQ(name, "sword");
+}
+
+TEST(GetNumber, LeavesAKeywordWithNoOrdinalUnchangedAndDefaultsToOne)
+{
+    char buffer[16] = "sword";
+    char* name = buffer;
+
+    int number = get_number(&name);
+
+    EXPECT_EQ(number, 1)
+        << "No '.' means the split never runs; get_number()'s no-dot arm returns 1, not 0.";
+    EXPECT_STREQ(name, "sword");
+}
+
+TEST(GetNumber, ReportsZeroForANonNumericOrdinalAfterAlreadyMovingTheKeywordDown)
+{
+    char buffer[16] = "x.sword";
+    char* name = buffer;
+
+    int number = get_number(&name);
+
+    EXPECT_EQ(number, 0)
+        << "'x' fails the digit check, but that check runs after the keyword is already moved down.";
+    EXPECT_STREQ(name, "sword");
 }
