@@ -22,7 +22,7 @@ pytestmark = pytest.mark.scenario
 
 SUMMON_SUCCESS = ("appears in the room.",)  # spell_summon's act(...TO_ROOM/TO_CHAR...) to the caster's room (mage.cpp:866-867)
 SUMMONED_MARKER = "summons you!"  # spell_summon's act(...TO_CHAR...) to the victim (mage.cpp:874)
-RECONNECT_MARKER = "Reconnecting."  # interpre.cpp CON_SLCT case '1' (~4221): existing linkless body, no WELC_MESSG
+RECONNECT_MARKER = "Reconnecting."  # complete_existing_character_login's linkless-body branch (interpre.cpp ~2780); see _reconnect()'s docstring
 
 
 def _room_line(vnum: int) -> str:
