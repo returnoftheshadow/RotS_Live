@@ -24,6 +24,11 @@ make integration      PYTHON=build/integration-venv/bin/python   # boots a serve
 macOS: set `ROTS_IT_LAUNCHER=docker`. If the plain build crashes under QEMU, point at
 the stack-protector build instead: `ROTS_IT_BINARY=build/sp/bin/ageland`.
 
+## Per-test timeout
+
+pytest itself enforces no per-test time limit; a hung test is bounded only by the sum of its own
+helpers' individual timeouts (`GameSession.expect`/`command`, `tick_until_marker`'s `budget`, etc.).
+
 ## Environment variables
 
 - `ROTS_IT_LAUNCHER` — `local` or `docker` (default: `local` on Linux, `docker` elsewhere).

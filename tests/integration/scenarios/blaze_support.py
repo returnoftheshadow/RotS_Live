@@ -66,6 +66,7 @@ import time
 
 import pytest
 
+import combat_support
 from rots_harness.session import GameSession
 
 BLAZE_CAST = ("You breathe out fire.",)
@@ -89,22 +90,12 @@ def floor_hit(imp: GameSession, mob_name: str, hit: int = LETHAL_HIT) -> str:
 
 
 def room_stat_replies(imp: GameSession, attempts: int = 4) -> list[str]:
-    """Collects up to `attempts` `stat room` replies, stopping once a genuine `do_stat_room`
-    reply (its `Room name:` header) is seen.
-
-    `imp` stands in the very room the affect is burning, so it is itself a tick target: an
-    unsolicited "burning" broadcast can race `stat room`'s own reply and satisfy `command()`'s
-    end-of-prompt check before the real reply arrives, so ANY one of the collected replies --
-    not only the last -- can carry that broadcast as leading noise. A caller also watching for a
-    marker (`tick_until_marker`) must scan every returned reply, not just trust the final one.
+    """`combat_support.stat_replies()` for `stat room`, genuine on `do_stat_room`'s `Room name:`
+    header. A caller watching for a marker (`tick_until_marker`) must scan every returned reply,
+    not just trust the final one -- the room `imp` is standing in can broadcast unsolicited text
+    ahead of ANY of them, not only the last.
     """
-    replies: list[str] = []
-    for _attempt in range(attempts):
-        text = imp.command("stat room").text
-        replies.append(text)
-        if "room name:" in text.lower():
-            break
-    return replies
+    return combat_support.stat_replies(imp, "room", lambda text: "room name:" in text.lower(), attempts)
 
 
 def room_still_burning(imp: GameSession, spell_name: str = "blaze") -> bool:
@@ -131,9 +122,7 @@ def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: 
     this checks `harness.tick()`'s own returned text. `observer` is a different session for a
     message fight.cpp sends only to that one character ("You are dead!  Sorry...",
     `damage_credited`'s `POSITION_DEAD` arm) -- that text never reaches `imp`'s socket at all,
-    so only draining `observer` can find it; when `observer is imp`, that drain is skipped
-    entirely, since it would only spend real time (and the affect's duration along with it,
-    module docstring) waiting for text `harness.tick()`'s own return already covers.
+    so only draining `observer` can find it.
 
     `refloor`, when given as `(mob_name, hit)`, re-applies `floor_hit(imp, mob_name, hit)` at
     the start of every iteration -- the module docstring explains why a one-shot floor set
@@ -152,14 +141,11 @@ def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: 
     produce the marker at all, not that this particular call was unlucky.
 
     When `observer is imp`, EVERY `imp.command()` this loop issues -- the `refloor`/`protect`
-    commands, and every one of `room_stat_replies()`'s own `stat room` attempts, not only
-    `harness.tick()`'s -- is checked for `marker` before moving on. `GameSession.command()`
-    drains up to 0.1s of already-pending text before sending its own line (`session.py`), so a
-    spontaneous real-time broadcast that lands on `imp`'s socket between iterations can surface
-    as leading noise ahead of ANY of those replies -- observed on a kept run where the marker
-    never turned up in 12 ticks even though the room affect never expired, most likely because
-    one of those calls' own drain ate it. Checking every reply closes that gap for everything but
-    the narrow 0.1s drain window itself.
+    commands and every `room_stat_replies()` attempt, not only `harness.tick()`'s -- is checked
+    for `marker` too: `GameSession.command()` drains up to 0.1s of already-pending text before
+    sending its own line (`session.py`), so a spontaneous real-time broadcast between iterations
+    can surface as leading noise ahead of any one of those replies, closing that gap for
+    everything but the narrow 0.1s drain window itself.
     """
     def _seen(text: str) -> bool:
         return observer is imp and marker in text
@@ -197,13 +183,11 @@ def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: 
 
 
 def wait_for_log_line(imp: GameSession, server, needle: str, timeout: float = 10.0) -> None:
-    """Polls `server.handle.log_path` (game.log) for a line containing `needle`. `mudlog()`'s
-    file-logging arm (utility.cpp) `fprintf()`s every such call to stderr, which the launcher
-    redirects into this same file (the one `CrashMonitor` reads for sanitizer/SYSERR markers) --
-    not blaze-specific, but useful to any scenario that needs to wait for a server-side event
-    `mudlog()` itself records (e.g. `close_socket()`'s "Losing player: <name> [<host>]." arm,
-    comm.cpp, confirming a quit character's body has actually been freed) instead of assuming a
-    fixed amount of real time is enough.
+    """Polls `server.handle.log_path` (game.log, the launcher's redirect of `mudlog()`'s
+    `fprintf`-to-stderr file-logging arm, utility.cpp) for a line containing `needle`, instead of
+    assuming a fixed amount of real time is enough for a server-side event `mudlog()` itself
+    records -- e.g. `close_socket()`'s "Losing player: <name> [<host>]." or "Closing link to:
+    <name> [<host>]." arms (comm.cpp), confirming a character's socket has actually closed.
     """
     deadline = time.monotonic() + timeout
     text = ""

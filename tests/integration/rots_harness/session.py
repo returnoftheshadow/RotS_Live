@@ -144,7 +144,7 @@ class GameSession:
                 return last
             if time.monotonic() >= deadline:
                 raise SessionTimeout(f"{self.character.name}: room never became {room_name!r} within {timeout}s; last look:\n{last.text[-1500:]}")
-            time.sleep(0.2)
+            self.drain(0.2)
             last = self.command("look")
 
     def login(self) -> None:

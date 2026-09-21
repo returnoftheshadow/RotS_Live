@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from blaze_support import wait_for_log_line
 from rots_harness import fixtures
 from rots_harness.session import (
     ACCOUNT_MENU_PROMPT,
@@ -74,8 +75,9 @@ def test_summon_by_name_from_the_dark_room(server, imp, caller, victim) -> None:
     imp.command("transfer harnvictim")
     victim.expect_room("Corridor Two")
 
-    arrival = caller.cast("summon", "harnvictim", success_markers=SUMMON_SUCCESS, attempts=10)
-    assert SUMMON_SUCCESS[0] in arrival.text, arrival.text  # the caster's own arrival line (TO_CHAR)
+    # `cast(success_markers=...)` already raises unless SUMMON_SUCCESS[0] (the caster's own
+    # arrival line, TO_CHAR) showed up, so no separate assert is needed on the return value here.
+    caller.cast("summon", "harnvictim", success_markers=SUMMON_SUCCESS, attempts=10)
     victim.expect([SUMMONED_MARKER], 10.0)  # the victim's own line (TO_CHAR)
 
     stat = imp.command("stat harnvictim")
@@ -90,7 +92,9 @@ def test_summon_of_a_link_dead_character_relocates_it_without_a_crash(server, im
     imp.command("transfer harnvictim")
     victim.expect_room("Corridor Two")
     victim.drop_link()
-    imp.drain(1.0)  # let the server process the closed socket (close_socket, comm.cpp) before the cast
+    # Waits for close_socket()'s own mudlog line (comm.cpp:2116) instead of a fixed pause, so the
+    # server has actually processed the closed socket before the cast targets the linkless body.
+    wait_for_log_line(imp, server, "Closing link to: Harnvictim")
 
     caller.cast("summon", "harnvictim", success_markers=SUMMON_SUCCESS, attempts=10)
     # act()'s TO_CHAR branch only sends when `to->desc` is set (comm.cpp:2517), and do_look

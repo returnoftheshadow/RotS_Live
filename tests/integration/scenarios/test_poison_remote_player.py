@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 import poison_support
-from poison_support import DEATH_MARKER, affect_ticks_until_death, death_tick_budget, poison_until_it_lands
+from poison_support import affect_ticks_until_death, death_tick_budget, poison_until_it_lands
 from rots_harness import fixtures, records
 
 pytestmark = pytest.mark.scenario

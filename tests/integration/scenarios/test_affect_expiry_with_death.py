@@ -24,6 +24,21 @@ until comm.cpp's own I/O loop notices the closed socket and `close_socket()` cal
 (db.cpp) -- only then does the room tick's credited-killer resolve correctly return nobody. This
 file waits for `close_socket()`'s own "Losing player: Harnmage" mudlog line (game.log) rather
 than assuming a fixed pause is long enough.
+
+Blaze's duration equals the caster's mage-profession level (`af.duration = level` from
+`get_mage_caster_level()`, mage.cpp ~2288-2335) -- 30 for Harnmage's fixture -- against ~2 forced
+`harness.affects()` calls per `_kill_at_duration_one` retry plus whatever the refresh's own
+wall-clock time ceded to the spontaneous real-time sweep (blaze_support.py's module docstring),
+leaving only ~5-7 of the 10 attempts reachable before burnout and a rare (~2-5%) all-miss flake.
+
+NOTE (final-fix-brief.md item 1): the brief's prescribed fix -- `wizset harnmage level 60` before
+the cast -- does not change this bound and was left out. `wizset <name> level` (act_wiz.cpp
+`case 34`) only assigns `vict->player.level`; `get_mage_caster_level()`'s `mage_prof_level`
+(caster_snapshot.cpp) instead reads `GET_PROF_LEVEL(PROF_MAGE, ch)`, which for a PC is
+`ch->profs->prof_level[PROF_MAGE]` (utils.h `GET_PROF_LEVEL`), a field `wizset` never touches
+(its own `prof` field, `case 39`, is an unimplemented no-op) -- confirmed empirically: after the
+command a kept `stat harnmage` read `Lev: [60]` but unchanged `Class levels: Mag:30`. The flake
+therefore remains open; see final-fix-report.md.
 """
 
 from __future__ import annotations
@@ -33,6 +48,7 @@ import time
 
 import pytest
 
+import combat_support
 from blaze_support import BLAZE_CAST, floor_hit, room_still_burning, wait_for_log_line
 from poison_support import DEATH_MARKER
 from rots_harness import fixtures, records
@@ -45,6 +61,8 @@ pytestmark = pytest.mark.scenario
 ANGER_LINE = re.compile(r"SPL:\s*\(\s*(\d+)hr\)\s*anger", re.IGNORECASE)
 FRESH_ANGER_HOURS = 3  # duration 2 (on_attacked_character, non-player target), displayed +1
 STALE_ANGER_HOURS = 1  # duration 0: decremented by a failed decisive tick, not yet removed
+# Displayed hours after exactly one countdown tick (duration 2 -> 1, "+1" display offset above).
+ANGER_HOURS_BEFORE_DECISIVE_TICK = 2
 
 
 def _anger_hours(stat_text: str) -> int | None:
@@ -52,27 +70,12 @@ def _anger_hours(stat_text: str) -> int | None:
     return int(match.group(1)) if match is not None else None
 
 
-def _stat_victim_replies(imp: GameSession, attempts: int = 4) -> list[str]:
-    """Collects up to `attempts` `stat harnvictim` replies, stopping once a genuine
-    do_stat_character reply (its "IDNum:" field) is seen -- mirrors blaze_support.py's
-    `room_stat_replies()` and for the same reason: an unsolicited broadcast, or a still-pending
-    earlier reply, racing `command()`'s end-of-prompt check can leave stale or concatenated text
-    ahead of the real reply, so only the LAST collected reply is trusted as genuine.
-    """
-    replies: list[str] = []
-    for _attempt in range(attempts):
-        text = imp.command("stat harnvictim").text
-        replies.append(text)
-        if "idnum:" in text.lower():
-            break
-    return replies
-
-
 def _victims_anger_hours(imp: GameSession) -> int | None:
     """Harnvictim's current anger duration (displayed hours; None if absent), read from the
-    guaranteed-genuine last reply of `_stat_victim_replies()`.
+    guaranteed-genuine last reply of `combat_support.stat_replies()` (genuine on `do_stat_character`'s
+    "IDNum:" field).
     """
-    replies = _stat_victim_replies(imp)
+    replies = combat_support.stat_replies(imp, "harnvictim", lambda text: "idnum:" in text.lower())
     if "idnum:" not in replies[-1].lower():
         pytest.fail(f"stat harnvictim never returned a parseable reply in {len(replies)} attempts")
     return _anger_hours(replies[-1])
@@ -144,7 +147,7 @@ def _kill_at_duration_one(harness, imp: GameSession, victim: GameSession, attemp
             pytest.fail(f"blaze burned out after {_attempt} retry attempt(s), before this test could land the decisive tick")
 
         harness.affects()  # countdown: duration 2 -> 1
-        if _victims_anger_hours(imp) == 2:
+        if _victims_anger_hours(imp) == ANGER_HOURS_BEFORE_DECISIVE_TICK:
             floor_hit(imp, "harnvictim")
             # The decisive call: affect_update() (limits.cpp:1658-1696) walks the room's blaze
             # entry -- inserted after Harnvictim's own, so it is processed FIRST (module

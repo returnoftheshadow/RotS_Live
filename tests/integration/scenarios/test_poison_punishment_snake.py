@@ -25,6 +25,7 @@ import time
 import pytest
 
 import poison_support
+from combat_support import wait_for_disengagement
 from poison_support import POISON_LANDED, POISON_RESISTED, affect_ticks_until_death, death_tick_budget
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
@@ -56,35 +57,6 @@ def _wait_for_snake_poison_to_land(victim: GameSession, budget: float = POISON_W
         if POISON_LANDED[0] in text:
             return accumulated
     pytest.fail(f"the snake never landed a poisoned bite within {budget}s: {accumulated[-2000:]}")
-
-
-def _wait_for_disengagement(imp, names: tuple[str, ...], timeout: float = 10.0) -> None:
-    """Waits for every name's `stat` to read `Fighting: Nobody`, not just for a transfer to
-    have happened.
-
-    char_from_room/char_to_room/do_trans (called by the wizard `transfer`) never touch
-    specials.fighting -- disengagement only happens on a later violence pulse, in
-    perform_violence's per-fighter room-mismatch branch ("Not in same room" ->
-    stop_fighting(fighter), fight.cpp ~3084), which runs once per game pulse (~0.25s) for
-    every entry in the global combat_list. find_engaged_real_mob (fight.cpp ~1024) walks that
-    same combat_list at the death instant, so the gentle classification needs both the
-    victim's and the snake's fighting pointers cleared before the lethal forced tick, not
-    merely the transfer having moved the victim's room.
-    """
-    deadline = time.monotonic() + timeout
-    pending = list(names)
-    last_text = ""
-    while pending:
-        for name in list(pending):
-            stat = imp.command(f"stat {name}")
-            last_text = stat.text
-            if "Fighting: Nobody" in stat.text:
-                pending.remove(name)
-        if not pending:
-            return
-        if time.monotonic() >= deadline:
-            pytest.fail(f"{', '.join(pending)} never disengaged from combat within {timeout}s: {last_text}")
-        imp.drain(0.5)
 
 
 def _engage_snake_until_poisoned(imp, victim) -> dict[str, int]:
@@ -131,11 +103,11 @@ def test_mob_poison_death_alone_is_gentle(server, imp, victim, harness) -> None:
     before = _engage_snake_until_poisoned(imp, victim)
     # Two rooms away and out of the fight: the transfer itself only moves the victim's room;
     # the next violence pulse's room-mismatch check is what actually stops both sides (see
-    # _wait_for_disengagement).
+    # combat_support.wait_for_disengagement).
     imp.command(f"goto {fixtures.ROOM_ARENA_EAST}")
     imp.command("transfer harnvictim")
     victim.expect_room("Arena East")
-    _wait_for_disengagement(imp, ("snake", "harnvictim"))
+    wait_for_disengagement(imp, ("snake", "harnvictim"))
     imp.command("wizset harnvictim hit 10")
 
     assert affect_ticks_until_death(harness, victim, death_tick_budget(10)), "the victim should die of the poison alone"

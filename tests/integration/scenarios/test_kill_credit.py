@@ -26,14 +26,13 @@ blaze's on-cast room-wide burst (mage.cpp:2291-2358) also skips ordinary NPCs ou
 side," so `is_friendly_taget()` is always true for the orc there. Only the room affect's later
 TICKS (room_affect_tick.cpp:66-79, `blaze_tick()`, driven by `harness tick`'s `affect_update()`
 sweep) reach an NPC, and they credit the recorded caster independent of who is engaged. The
-fighter's own melee is floored with `wizset ... OB/damage -20` (the brute idiom from
-test_poison_punishment_player_poison_mob_fight.py's `_neutralize_brute_melee`) so the orc's low
-`hit` can only reach zero from a blaze tick and not a stray fighter swing -- proven necessary by
-that same early run, where the fighter's own hit finished the orc before any tick could.
+fighter's own melee is floored with `combat_support.neutralize_melee` so the orc's low `hit`
+can only reach zero from a blaze tick and not a stray fighter swing -- proven necessary by that
+same early run, where the fighter's own hit finished the orc before any tick could.
 
-Checked against a kept run's `harnmage.exploits.json` (`ROTS_IT_KEEP=1`, run f479e44cddf3 under
-`build/integration/`): it read back `{"version": 1, "records": []}` even in a run where the
-fighter *did* receive its share line. die() explains why: for an NPC `dead_man` it returns via
+Confirmed empirically, not just from reading die(): `harnmage.exploits.json` reads back the
+unmodified account-creation stub `{"version": 1, "records": []}` even in a run where the fighter
+*did* receive its share line. die() explains why: for an NPC `dead_man` it returns via
 raw_kill() at fight.cpp:1272-1275, before any of the function's four add_exploit_record() calls
 (1290/1300/1314/1320) -- every one of them gated to `!IS_NPC(dead_man)`. Exploit records exist
 only for a player's death, never a mob's, regardless of who is credited; the brief for this task
@@ -54,11 +53,10 @@ damage_credited() split the engaging attacker from the credited killer (6669551/
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from blaze_support import LETHAL_HIT, BLAZE_CAST, floor_hit, tick_until_marker
+from combat_support import neutralize_melee, stat_replies, wait_for_engagement
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
 
@@ -68,67 +66,32 @@ SHARE_MARKER = "You receive your share of experience"
 ORC_DEATH_MARKER = "A target orc is dead"
 
 
-def _neutralize_fighter_melee(imp: GameSession) -> None:
-    """Floors Harnfighter's OB/damage (act_wiz.cpp wizset, both `BOTH`-scoped fields) so its own
-    hits land for ~0 damage, the same `dam = max(0, dam)` clamp
-    test_poison_punishment_player_poison_mob_fight.py's `_neutralize_brute_melee` relies on --
-    here applied to the melee fighter instead of the mob, so only a blaze tick can finish the
-    orc.
+def _is_genuine_mob_reply(text: str) -> bool:
+    """A genuine `stat <mob_name>` reply: either a `Fighting:` line (do_stat_character,
+    act_wiz.cpp) if it is still alive, or "Nothing around by that name." (do_wizstat's
+    bare-name fallthrough, act_wiz.cpp:1133-1140) if it has died.
     """
-    imp.command("wizset harnfighter OB -20")
-    imp.command("wizset harnfighter damage -20")
+    lowered = text.lower()
+    return "nothing around by that name" in lowered or "fighting:" in lowered
 
 
-def _wait_for_engagement(imp: GameSession, mob_name: str, victim_name: str, timeout: float = 10.0) -> None:
-    """Polls `stat <mob_name>` for `Fighting: <victim_name>` before trusting combat_list state --
-    test_poison_punishment_player_poison_mob_fight.py's identical helper explains why `kill`
-    alone does not guarantee set_fighting() has run yet.
-    """
-    deadline = time.monotonic() + timeout
-    last_text = ""
-    while True:
-        stat = imp.command(f"stat {mob_name}")
-        last_text = stat.text
-        if f"fighting: {victim_name.lower()}" in stat.text.lower():
-            return
-        if time.monotonic() >= deadline:
-            pytest.fail(f"{mob_name} never engaged {victim_name} within {timeout}s: {last_text}")
-        imp.drain(0.5)
-
-
-def _read_bystander_reply(imp: GameSession, mob_name: str, attempts: int = 4) -> str:
-    """Retries `stat <mob_name>` until a genuine reply is seen -- either a `Fighting:` line
-    (do_stat_character, act_wiz.cpp) if it is still alive, or "Nothing around by that name."
-    (do_wizstat's bare-name fallthrough, act_wiz.cpp:1133-1140) if it has died -- guarding
-    against the same broadcast race `blaze_support.room_stat_replies` explains for `stat room`:
-    `imp` stands in the same burning room, so an unsolicited broadcast can satisfy `command()`'s
-    end-of-prompt check before the real reply arrives.
-    """
-    for _attempt in range(attempts):
-        text = imp.command(f"stat {mob_name}").text
-        lowered = text.lower()
-        if "nothing around by that name" in lowered or "fighting:" in lowered:
-            return text
-    pytest.fail(f"stat {mob_name} never returned a parseable reply in {attempts} attempts")
-
-
-def _set_up_arena_west_fight(server, imp: GameSession, caller: GameSession, fighter: GameSession) -> None:
+def _set_up_arena_west_fight(imp: GameSession, caller: GameSession, fighter: GameSession) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
     imp.command("transfer harncaller")
     imp.command("transfer harnfighter")
     caller.expect_room("Arena West")
     fighter.expect_room("Arena West")
     imp.command("restore harncaller")
-    _neutralize_fighter_melee(imp)
+    neutralize_melee(imp, "harnfighter")
 
 
 def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server, imp, caller, fighter, harness) -> None:
-    _set_up_arena_west_fight(server, imp, caller, fighter)
+    _set_up_arena_west_fight(imp, caller, fighter)
     imp.command("load mob 1130")
     floor_hit(imp, "target")  # below the smallest halved blaze tick
 
     fighter.command("kill target")  # the orc tanks the fighter, who cannot actually hurt it
-    _wait_for_engagement(imp, "target", "Harnfighter")
+    wait_for_engagement(imp, "target", "Harnfighter")
 
     caller.cast("blaze", success_markers=BLAZE_CAST)  # the caster never engages the orc
     tick_until_marker(harness, imp, imp, ORC_DEATH_MARKER, protect=(caller, fighter), refloor=("target", LETHAL_HIT))
@@ -148,13 +111,13 @@ def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server,
 
 
 def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, harness) -> None:
-    _set_up_arena_west_fight(server, imp, caller, fighter)
+    _set_up_arena_west_fight(imp, caller, fighter)
     imp.command("load mob 1130")
     imp.command("load mob 1132")  # the bystander, never fighting anybody
     floor_hit(imp, "target")
 
     fighter.command("kill target")
-    _wait_for_engagement(imp, "target", "Harnfighter")
+    wait_for_engagement(imp, "target", "Harnfighter")
 
     caller.cast("blaze", success_markers=BLAZE_CAST)
     tick_until_marker(harness, imp, imp, ORC_DEATH_MARKER, protect=(caller, fighter), refloor=("target", LETHAL_HIT))
@@ -171,7 +134,10 @@ def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, h
     # prefix) falls through do_wizstat's final `else` (act_wiz.cpp:1133-1140), whose
     # "Nothing around by that name." is the one text that confirms it is the "died" half, not a
     # stale keyword lookup; the exploits check just below covers both halves unconditionally.
-    bystander_stat = _read_bystander_reply(imp, "bystander")
+    bystander_replies = stat_replies(imp, "bystander", _is_genuine_mob_reply)
+    if not _is_genuine_mob_reply(bystander_replies[-1]):
+        pytest.fail(f"stat bystander never returned a parseable reply in {len(bystander_replies)} attempts")
+    bystander_stat = bystander_replies[-1]
     bystander_text = bystander_stat.lower()
     bystander_gone = "nothing around by that name" in bystander_text
     if not bystander_gone:

@@ -3,19 +3,15 @@ every other occupant's fall message precedes the caster's own, which is now the 
 deferred, final act.
 
 `spell_earthquake` (src/mage.cpp) runs a fall loop over every room occupant (~1779-1794): the
-`fall` lambda (~1755-1770) sends `$n loses balance and falls down!` TO_ROOM in the origin
-room, then relocates the faller into the crevice and sends `$n falls in.` TO_ROOM there (the
-faller itself never sees either line -- it gets "The earthquake throws you down!" instead,
-send_to_char'd inside the same lambda). Pre-fix, the caster's own fall ran inline wherever the
-room's occupant chain happened to place it; a lethal self-fall could free the caster (NPC) or
-otherwise invalidate it mid-loop while later occupants were still being processed (the UAF
-`src/tests/mage_tests.cpp`'s `EarthquakeLetsEveryOtherOccupantFallBeforeTheCastersOwnFall`
-pins). The fix defers the caster's own `fall()` call (~1795-1796, "may free or relocate
-`caster`; nothing reads it after this") until every other occupant has already fallen, so an
-observer who stays in the origin room sees the caster's own "loses balance and falls down!"
-broadcast last among the fall lines it can see, and an observer who fell earlier and is
-already down in the crevice sees the caster's "falls in." line last instead -- either way, the
-caster's fall is the final fall-related line in that observer's transcript.
+`fall` lambda (~1755-1770) sends each faller's FALL_SUFFIX/FELL_IN_SUFFIX lines below (see their
+own comments for the exact TO_ROOM/send_to_char split). Pre-fix, the caster's own fall ran
+inline wherever the room's occupant chain happened to place it; a lethal self-fall could free
+the caster (NPC) or otherwise invalidate it mid-loop while later occupants were still being
+processed (the UAF `src/tests/mage_tests.cpp`'s
+`EarthquakeLetsEveryOtherOccupantFallBeforeTheCastersOwnFall` pins). The fix defers the caster's
+own `fall()` call (~1795-1796, "may free or relocate `caster`; nothing reads it after this")
+until every other occupant has already fallen, so the caster's own fall line is always the LAST
+fall-related line an observer sees, whichever of the two suffixes it carries.
 
 Room: `Harnmage` (the roster's only earthquake-capable caster, `fixtures.MAGE_SKILLS`) casts
 standing in `fixtures.ROOM_ARENA_WEST` (1130), which carries a plain, already-open DOWN exit to
@@ -51,7 +47,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import fixtures
-from rots_harness.session import GameSession
+from rots_harness.session import GameSession, SessionTimeout
 
 pytestmark = pytest.mark.scenario
 
@@ -60,6 +56,12 @@ FELL_IN_SUFFIX = " falls in."  # fall()'s act(...TO_ROOM) once the faller lands 
 CASTER = "*an Uruk*"  # pc_star_types[RACE_MAGUS]: how every non-Magus observer's act() sees Harnmage (see module docstring)
 OCCUPANTS = ("harnmage", "harnfighter", "harnvictim", "harncaller")
 CAST_ATTEMPTS = 12
+# Every occupant != caster is scaled by apply_spell_damage() in spell_earthquake's damage loop
+# regardless of the SEPARATE fall roll (mage.cpp:1707 on a save, :1709 otherwise); that damage is
+# reliably non-zero and non-lethal against this roster, so generate_damage_message() (fight.cpp)
+# sends the caster this hit_msg line (lib/misc/messages, spell 81) for every resolved cast --
+# confirmed present on both attempts of a kept run (ROTS_IT_KEEP=1) whether or not anyone fell.
+CAST_RESOLVED_MARKER = "is injured by the wave of trembling earth!"
 CAST_RESOLUTION_TIMEOUT = 6.0  # CASTING_TIME(ch, SPELL_EARTHQUAKE) is ~10 heartbeats at 4/sec (~2.5s); generous margin
 OBSERVER_DRAIN_TIMEOUT = 1.5
 
@@ -74,25 +76,38 @@ def _reset_room(imp: GameSession) -> None:
     `transfer` alone (act_wiz.cpp `do_trans`) leaves a character sitting wherever a previous
     attempt's fall last left its position -- it never calls `update_pos`. `restore`
     (`do_restore`) both heals to full and calls `update_pos`, which sets POSITION_STANDING for
-    any character with positive hit and no active fight, so `transfer` must run first.
+    any character with positive hit and no active fight, so `transfer` must run first. No
+    `wizset ... maxhit` here: `do_restore` heals to `abilities.hit`, which a bare `maxhit` write
+    barely moves without a `recalc_abilities()` pass (blaze_support.py's module docstring).
     """
     imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
     for name in OCCUPANTS:
         imp.command(f"transfer {name}")
-        imp.command(f"wizset {name} maxhit 2000")
         imp.command(f"restore {name}")
     imp.command(f"goto {fixtures.ROOM_IMMORTAL_START}")  # the imp is not an occupant
 
 
-def test_the_casters_fall_is_reported_last(server, imp, mage, fighter, victim, caller, harness) -> None:
+def _reset_and_regroup(
+    imp: GameSession, mage: GameSession, fighter: GameSession, victim: GameSession, caller: GameSession
+) -> None:
     _reset_room(imp)
     for session in (mage, fighter, victim, caller):
         session.expect_room("Arena West")
 
+
+def test_the_casters_fall_is_reported_last(server, imp, mage, fighter, victim, caller, harness) -> None:
+    _reset_and_regroup(imp, mage, fighter, victim, caller)
+
     observer_text: dict[str, str] = {}
     for _attempt in range(CAST_ATTEMPTS):
         mage.send_line("cast 'earthquake'")
-        mage.drain(CAST_RESOLUTION_TIMEOUT)  # covers "You start to concentrate." plus the delayed spell resolution
+        try:
+            mage.expect((CAST_RESOLVED_MARKER,), timeout=CAST_RESOLUTION_TIMEOUT)
+        except SessionTimeout:
+            # A lost concentration roll or similar non-resolution is just a miss for this
+            # attempt's retry, same as one that resolved without producing both falls.
+            _reset_and_regroup(imp, mage, fighter, victim, caller)
+            continue
         observer_text = {
             "Harnfighter": fighter.drain(OBSERVER_DRAIN_TIMEOUT),
             "Harnvictim": victim.drain(OBSERVER_DRAIN_TIMEOUT),
@@ -103,9 +118,7 @@ def test_the_casters_fall_is_reported_last(server, imp, mage, fighter, victim, c
         others_fell = any(not line.startswith(CASTER) for line in fall_lines)
         if caster_fell and others_fell:
             break
-        _reset_room(imp)
-        for session in (mage, fighter, victim, caller):
-            session.expect_room("Arena West")
+        _reset_and_regroup(imp, mage, fighter, victim, caller)
     else:
         pytest.fail(
             f"no cast in {CAST_ATTEMPTS} attempts produced both the caster's fall and another "

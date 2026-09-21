@@ -134,11 +134,11 @@ class Harness:
 
     def affects(self) -> Transcript:
         """One forced affect_update() pass (spec B1): forces the one slow *person*-affect phase
-        compare and skips fast_update()'s regen. Room affects are NOT untouched -- affect_update()
-        also walks TARGET_ROOM entries into affect_update_room (limits.cpp), so a room affect
-        (blaze, mist, poison's room arm) still rolls occupants and spends its own duration on
-        this call; only its application roll and any regen are left unforced/skipped. See
-        scenarios/blaze_support.py's module docstring for the full account.
+        compare and skips fast_update()'s regen. This still runs the room sweep every call --
+        affect_update() also walks TARGET_ROOM entries into affect_update_room (limits.cpp), so a
+        room affect (blaze, mist, poison's room arm) still rolls occupants and spends its own
+        duration on this call; only its application roll and any regen are left unforced/skipped.
+        See scenarios/blaze_support.py's module docstring for the full account.
         """
         self._imp.drain(0.1)
         self._imp.send_line("harness affects")
