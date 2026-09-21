@@ -90,6 +90,10 @@ struct RoomExitGuard {
     }
 };
 
+// caster, victim and master are stack objects. No test may let damage() kill one of them:
+// a lethal hit routes through extract_char() and free_char(), which would free a stack
+// address. Tests that need a killable body allocate it with make_fireball_caster() or
+// test_support::allocate_test_character() instead.
 struct MageTestContext {
     char_data caster{};
     char_data victim{};
@@ -843,13 +847,9 @@ TEST_F(MageProcTest, FireballSplashesTheRoomBeforeASelfFumbleKillsTheCaster) {
     // MageTestContext only sets these up for caster/victim; the bystander needs them too so it
     // is a normal, alive, undamaged occupant rather than the zero-initialized default (which
     // reads as POSITION_DEAD -- damage() would refuse to touch a "corpse"). It also needs the
-    // NPC flag: without it, damage_credited()'s ordinary engagement bookkeeping (set_fighting())
-    // during the splash hit links the bystander into a "fight" with the caster, and when the
-    // caster's deferred self-hit kills it, group_gain()'s room walk sees a non-NPC "fighting"
-    // the dead caster and treats it as a player killer -- routing it into exp_with_modifiers(),
-    // which dereferences a zone_table this unit-test binary never boots. Flagging the bystander
-    // NPC (an ordinary orc-room occupant, matching the named victim) keeps it out of that path,
-    // which was never this test's concern.
+    // NPC flag: a non-NPC bystander that dies in the splash would be extracted and freed as a
+    // player body through extract_char() and free_char(), and master is a stack object (see
+    // the struct comment above).
     context.master.specials2.act = MOB_ISNPC;
     context.master.abilities.hit = 500;
     context.master.tmpabilities.hit = 500;
