@@ -75,6 +75,117 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text);
 int trigger_char_damage(char_data* vict, char_data* ch);
 int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch);
 
+/*
+ * Script lines that name a mobile, object or room by vnum.  Scripts keep the
+ * vnum as written and look it up only when the line runs, so a vnum that does
+ * not exist can be reported with the script number and line number -- the
+ * address the builder needs to fix it.  Reporting only: a bad line still runs
+ * exactly as it did before.
+ */
+enum script_ref_kind { SREF_MOB,
+    SREF_OBJ,
+    SREF_ROOM };
+static const char* sref_name[] = { "mobile", "object", "room" };
+
+static const char* script_cmd_name(int command)
+{
+    switch (command) {
+    case SCRIPT_ASSIGN_INV:
+        return "assign inv";
+    case SCRIPT_ASSIGN_ROOM:
+        return "assign room";
+    case SCRIPT_CHANGE_EXIT_TO:
+        return "change exit to";
+    case SCRIPT_EQUIP_CHAR:
+        return "equip char";
+    case SCRIPT_LOAD_MOB:
+        return "load mob";
+    case SCRIPT_LOAD_OBJ:
+        return "load obj";
+    case SCRIPT_TELEPORT_CHAR:
+        return "teleport";
+    case SCRIPT_TELEPORT_CHAR_X:
+        return "teleport x";
+    }
+    return "?";
+}
+
+static void report_script_vnum(int script_index, script_data* cmd, int kind, int vnum,
+    char_data* to)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): %s vnum %d not found",
+        script_no, cmd->number, script_cmd_name(cmd->command_type), sref_name[kind], vnum);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    /* The builder who implemented it sees it straight away -- unless mudlog
+     * already reached them, which would duplicate it. */
+    if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
+        send_to_char(errbuf, to);
+        send_to_char("\n\r", to);
+    }
+}
+
+/* Report every vnum in one script that names nothing.  Run at boot, once
+ * rooms, mobiles and objects exist, and when a builder implements a script.
+ * A 0 parameter names nothing, so there is nothing to report. */
+void check_script_vnums(int script_index, char_data* to)
+{
+    script_data* cmd;
+    int first, last, kind, p, v, found;
+
+    for (cmd = script_table[script_index].script; cmd; cmd = cmd->next) {
+        switch (cmd->command_type) {
+        case SCRIPT_LOAD_MOB:
+            first = last = 0;
+            kind = SREF_MOB;
+            break;
+        case SCRIPT_LOAD_OBJ:
+        case SCRIPT_ASSIGN_INV:
+        case SCRIPT_ASSIGN_ROOM:
+            first = last = 0;
+            kind = SREF_OBJ;
+            break;
+        case SCRIPT_TELEPORT_CHAR:
+        case SCRIPT_TELEPORT_CHAR_X:
+            first = last = 0;
+            kind = SREF_ROOM;
+            break;
+        case SCRIPT_CHANGE_EXIT_TO:
+            first = last = 2;
+            kind = SREF_ROOM;
+            break;
+        case SCRIPT_EQUIP_CHAR:
+            first = 1;
+            last = 5;
+            kind = SREF_OBJ;
+            break;
+        default:
+            continue;
+        }
+        for (p = first; p <= last; p++) {
+            if (!(v = cmd->param[p]))
+                continue;
+            found = (kind == SREF_MOB) ? real_mobile(v)
+                : (kind == SREF_OBJ)   ? real_object(v)
+                                       : real_room(v);
+            if (found < 0)
+                report_script_vnum(script_index, cmd, kind, v, to);
+        }
+    }
+}
+
+void check_script_table(void)
+{
+    int i;
+
+    for (i = 0; i <= top_of_script_table; i++)
+        check_script_vnums(i, 0);
+}
+
 // Returns the index position of a script in the script_table when supplied with a vnum
 // -1 == script not found (0 is a valid position in the script_table)
 
@@ -847,6 +958,8 @@ int run_script(struct info_script* info, struct script_data* position)
                 if (tmpch) {
                     tmpobj = get_obj_in_list_num_containers(real_object(curr->param[0]), tmpch->carrying);
                     tobjcnt = count_obj_in_list(real_object(curr->param[0]), tmpch->carrying);
+                    if (real_object(curr->param[0]) < 0)
+                        report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
                 }
                 ptrint = get_int_param(curr->param[3], info);
 
@@ -870,6 +983,8 @@ int run_script(struct info_script* info, struct script_data* position)
                 if (tmprm) {
                     tmpobj = get_obj_in_list_vnum(curr->param[0], tmprm->contents);
                     tobjcnt = count_obj_in_list(real_object(curr->param[0]), tmprm->contents);
+                    if (real_object(curr->param[0]) < 0)
+                        report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
                 }
                 ptrint = get_int_param(curr->param[3], info);
 
@@ -903,6 +1018,8 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[2]) {
                 tmprm = get_room_param(curr->param[0], info);
                 tmpint = real_room(curr->param[2]);
+                if (tmpint == NOWHERE)
+                    report_script_vnum(info->index, curr, SREF_ROOM, curr->param[2], 0);
                 if (tmprm && (tmpint != NOWHERE) && (-1 < curr->param[1] < 6))
                     tmprm->dir_option[curr->param[1]]->to_room = tmpint;
             }
@@ -1070,7 +1187,8 @@ int run_script(struct info_script* info, struct script_data* position)
                         if ((tmpint2 = real_object(curr->param[tmpint])) > 0) {
                             tmpobj = read_object(tmpint2, REAL);
                             obj_to_char(tmpobj, tmpch);
-                        }
+                        } else if (tmpint2 < 0 && curr->param[tmpint])
+                            report_script_vnum(info->index, curr, SREF_OBJ, curr->param[tmpint], 0);
                     }
                     do_wear(tmpch, "all", 0, 0, 0);
                 }
@@ -1349,7 +1467,10 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_LOAD_MOB:
             if (curr->param[0] && curr->param[1]) {
-                tmpch = read_mobile(real_mobile(curr->param[0]), REAL);
+                tmpint = real_mobile(curr->param[0]);
+                if (tmpint < 0)
+                    report_script_vnum(info->index, curr, SREF_MOB, curr->param[0], 0);
+                tmpch = read_mobile(tmpint, REAL);
                 if (tmpch)
                     assign_char_param(curr->param[1], info, tmpch);
             }
@@ -1358,7 +1479,10 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_LOAD_OBJ:
             if (curr->param[0] && curr->param[1]) {
-                tmpobj = read_object(real_object(curr->param[0]), REAL);
+                tmpint = real_object(curr->param[0]);
+                if (tmpint < 0)
+                    report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
+                tmpobj = read_object(tmpint, REAL);
                 if (tmpobj)
                     assign_obj_param(curr->param[1], info, tmpobj);
             }
@@ -1540,6 +1664,8 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[1]) {
                 tmpch = get_char_param(curr->param[1], info);
                 tmpint = real_room(curr->param[0]);
+                if (tmpint < 0)
+                    report_script_vnum(info->index, curr, SREF_ROOM, curr->param[0], 0);
                 if ((tmpch) && (tmpint > -1)) {
                     if (IS_RIDING(tmpch))
                         stop_riding(tmpch);
@@ -1563,6 +1689,8 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[1]) {
                 tmpch = get_char_param(curr->param[1], info);
                 tmpint = real_room(curr->param[0]);
+                if (tmpint < 0)
+                    report_script_vnum(info->index, curr, SREF_ROOM, curr->param[0], 0);
                 if ((tmpch) && (tmpint > -1)) {
                     if (IS_RIDING(tmpch))
                         stop_riding(tmpch);

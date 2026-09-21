@@ -173,7 +173,6 @@ void load_zones(FILE* fl)
 void renum_zone_table(void)
 {
     int zone;
-    void renum_zone_one(int);
 
     for (zone = 0; zone <= top_of_zone_table; zone++)
         renum_zone_one(zone);
@@ -185,13 +184,52 @@ void renum_zone_table(void)
  * data.  The real numbers are the real indexes of the objects,
  * mobiles, etc. in their tables.
  */
-void renum_zone_one(int zone)
+
+/*
+ * Builder-facing resolution of a zone-command vnum.  renum_zone_one overwrites
+ * each arg in place with its real number, so the ORIGINAL vnum only exists here
+ * -- by reset time it is gone.  That is why the diagnostic has to be produced at
+ * this point rather than where the bad index is later used.
+ */
+enum zone_ref_kind { ZREF_MOB,
+    ZREF_OBJ,
+    ZREF_ROOM };
+static const char* zref_name[] = { "mobile", "object", "room" };
+
+static int zone_bad_vnum;
+static int zone_bad_kind;
+
+static int zresolve(int vnum, int kind)
+{
+    int real = (kind == ZREF_MOB) ? real_mobile(vnum)
+        : (kind == ZREF_OBJ)      ? real_object(vnum)
+                                  : real_room(vnum);
+    /* No vnum given: an unused optional arg of K, P or L holds 0, or NOWHERE
+     * (-1), which reads back as 65535 because load_zones reads these int args
+     * with "%hd".  Nothing was referenced, so there is nothing to report.
+     * A real vnum of 65535 cannot be told apart from this. */
+    if (vnum <= 0 || vnum == 65535)
+        return real;
+    if (real < 0 && zone_bad_vnum < 0) {
+        zone_bad_vnum = vnum;
+        zone_bad_kind = kind;
+    }
+    return real;
+}
+static int zresolve_mob(int v) { return zresolve(v, ZREF_MOB); }
+static int zresolve_obj(int v) { return zresolve(v, ZREF_OBJ); }
+static int zresolve_room(int v) { return zresolve(v, ZREF_ROOM); }
+
+void renum_zone_one(int zone, struct char_data* to)
 {
     int comm, a, b;
+    zone_table[zone].cmds_disabled = 0;
 
     for (comm = 0; comm < zone_table[zone].cmdno; comm++) {
         vmudlog(CMP, "Doing renum_zone_one on command #%d.", comm);
         a = b = 0;
+        zone_bad_vnum = -1;
+        zone_bad_kind = -1;
 
         switch (zone_table[zone].cmd[comm].command) {
         case 'A':
@@ -200,58 +238,58 @@ void renum_zone_one(int zone)
             case 4:
             case 5:
             case 6:
-                a = zone_table[zone].cmd[comm].arg3 = real_mobile(zone_table[zone].cmd[comm].arg3);
+                a = zone_table[zone].cmd[comm].arg3 = zresolve_mob(zone_table[zone].cmd[comm].arg3);
                 break;
             }
             break;
         case 'L':
-            zone_table[zone].cmd[comm].arg2 = real_room(zone_table[zone].cmd[comm].arg2);
+            zone_table[zone].cmd[comm].arg2 = zresolve_room(zone_table[zone].cmd[comm].arg2);
             switch (zone_table[zone].cmd[comm].arg1) {
             case 0:
             case 5:
             case 6:
-                a = zone_table[zone].cmd[comm].arg3 = real_mobile(zone_table[zone].cmd[comm].arg3);
+                a = zone_table[zone].cmd[comm].arg3 = zresolve_mob(zone_table[zone].cmd[comm].arg3);
                 break;
             case 1:
             case 2:
             case 3:
-                a = zone_table[zone].cmd[comm].arg3 = real_object(zone_table[zone].cmd[comm].arg3);
+                a = zone_table[zone].cmd[comm].arg3 = zresolve_obj(zone_table[zone].cmd[comm].arg3);
                 break;
             }
             break;
         case 'M':
-            a = zone_table[zone].cmd[comm].arg1 = real_mobile(zone_table[zone].cmd[comm].arg1);
-            b = zone_table[zone].cmd[comm].arg2 = real_room(zone_table[zone].cmd[comm].arg2);
+            a = zone_table[zone].cmd[comm].arg1 = zresolve_mob(zone_table[zone].cmd[comm].arg1);
+            b = zone_table[zone].cmd[comm].arg2 = zresolve_room(zone_table[zone].cmd[comm].arg2);
             break;
         case 'O':
-            a = zone_table[zone].cmd[comm].arg1 = real_object(zone_table[zone].cmd[comm].arg1);
+            a = zone_table[zone].cmd[comm].arg1 = zresolve_obj(zone_table[zone].cmd[comm].arg1);
             if (zone_table[zone].cmd[comm].arg2 != NOWHERE)
-                b = zone_table[zone].cmd[comm].arg2 = real_room(zone_table[zone].cmd[comm].arg2);
+                b = zone_table[zone].cmd[comm].arg2 = zresolve_room(zone_table[zone].cmd[comm].arg2);
             break;
         case 'G':
-            a = zone_table[zone].cmd[comm].arg1 = real_object(zone_table[zone].cmd[comm].arg1);
+            a = zone_table[zone].cmd[comm].arg1 = zresolve_obj(zone_table[zone].cmd[comm].arg1);
             break;
         case 'E':
-            a = zone_table[zone].cmd[comm].arg1 = real_object(zone_table[zone].cmd[comm].arg1);
+            a = zone_table[zone].cmd[comm].arg1 = zresolve_obj(zone_table[zone].cmd[comm].arg1);
             break;
         case 'P': /* room and obj_to can be null, then load to last_obj */
-            zone_table[zone].cmd[comm].arg1 = real_room(zone_table[zone].cmd[comm].arg1);
-            a = zone_table[zone].cmd[comm].arg2 = real_object(zone_table[zone].cmd[comm].arg2);
-            zone_table[zone].cmd[comm].arg3 = real_object(zone_table[zone].cmd[comm].arg3);
+            zone_table[zone].cmd[comm].arg1 = zresolve_room(zone_table[zone].cmd[comm].arg1);
+            a = zone_table[zone].cmd[comm].arg2 = zresolve_obj(zone_table[zone].cmd[comm].arg2);
+            zone_table[zone].cmd[comm].arg3 = zresolve_obj(zone_table[zone].cmd[comm].arg3);
             break;
         case 'K':
             if (zone_table[zone].cmd[comm].arg1)
-                zone_table[zone].cmd[comm].arg1 = real_object(zone_table[zone].cmd[comm].arg1);
-            zone_table[zone].cmd[comm].arg2 = real_object(zone_table[zone].cmd[comm].arg2);
-            zone_table[zone].cmd[comm].arg3 = real_object(zone_table[zone].cmd[comm].arg3);
-            zone_table[zone].cmd[comm].arg4 = real_object(zone_table[zone].cmd[comm].arg4);
-            zone_table[zone].cmd[comm].arg5 = real_object(zone_table[zone].cmd[comm].arg5);
-            zone_table[zone].cmd[comm].arg6 = real_object(zone_table[zone].cmd[comm].arg6);
-            zone_table[zone].cmd[comm].arg7 = real_object(zone_table[zone].cmd[comm].arg7);
+                zone_table[zone].cmd[comm].arg1 = zresolve_obj(zone_table[zone].cmd[comm].arg1);
+            zone_table[zone].cmd[comm].arg2 = zresolve_obj(zone_table[zone].cmd[comm].arg2);
+            zone_table[zone].cmd[comm].arg3 = zresolve_obj(zone_table[zone].cmd[comm].arg3);
+            zone_table[zone].cmd[comm].arg4 = zresolve_obj(zone_table[zone].cmd[comm].arg4);
+            zone_table[zone].cmd[comm].arg5 = zresolve_obj(zone_table[zone].cmd[comm].arg5);
+            zone_table[zone].cmd[comm].arg6 = zresolve_obj(zone_table[zone].cmd[comm].arg6);
+            zone_table[zone].cmd[comm].arg7 = zresolve_obj(zone_table[zone].cmd[comm].arg7);
             a = b = 1;
             break;
         case 'D':
-            a = zone_table[zone].cmd[comm].arg1 = real_room(zone_table[zone].cmd[comm].arg1);
+            a = zone_table[zone].cmd[comm].arg1 = zresolve_room(zone_table[zone].cmd[comm].arg1);
             break;
         }
 
@@ -260,14 +298,76 @@ void renum_zone_one(int zone)
          * functions, we've got an invalid virtual number.  Thus we
          * disable the command with the special '*' zone command.
          */
-        if (a < 0 || b < 0) {
-            vmudlog(CMP, "Invalid virtual number in zone reset command: "
-                         "zone #%d, command %d.  Command disabled.\n",
-                zone_table[zone].number, comm + 1);
+        /* A command is disabled on exactly the same condition as before this
+         * diagnostic existed (a or b negative).  The extra vnum checks below
+         * only ADD reporting -- they must never silently stop content from
+         * loading that used to load. */
+        bool disable = (a < 0 || b < 0);
 
-            zone_table[zone].cmd[comm].command = '*';
+        if (disable || zone_bad_vnum >= 0) {
+            char c = zone_table[zone].cmd[comm].command;
+            char errbuf[256];
+
+            if (zone_bad_vnum >= 0)
+                sprintf(errbuf, "ZONE ERROR: zone #%d, command %d (%c): %s vnum %d not found%s",
+                    zone_table[zone].number, comm + 1, c,
+                    zref_name[zone_bad_kind], zone_bad_vnum,
+                    disable ? " - command disabled" : "");
+            else
+                sprintf(errbuf, "ZONE ERROR: zone #%d, command %d (%c): unresolved vnum - command disabled",
+                    zone_table[zone].number, comm + 1, c);
+
+            mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+            /* The builder whose edit caused this sees it immediately, in game --
+             * unless mudlog already reached them, which would duplicate it. */
+            if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
+                send_to_char(errbuf, to);
+                send_to_char("\n\r", to);
+            }
+
+            if (disable) {
+                zone_table[zone].cmds_disabled++;
+                zone_table[zone].cmd[comm].command = '*';
+            }
         }
+
+        /* Renum's line is a one-off record of bad data.  A command left
+         * enabled goes on failing at every reset, so mark it and let
+         * reset_zone say so each time it actually happens. */
+        zone_table[zone].cmd[comm].bad_arg = (zone_bad_vnum >= 0) ? 1 + zone_bad_kind : 0;
     }
+}
+
+/*
+ * The zone command reset_zone is executing, or -1 between commands.  A load
+ * that fails does so several calls deep -- in world[] with a room index that
+ * never resolved, or in a K slot that quietly skips its object -- and none of
+ * those places can say which zone command sent them there.
+ */
+static int running_zone = -1;
+static int running_cmd_no = -1;
+
+/*
+ * Name the zone command that caused a failure: its zone and its command
+ * number, which is the address of the line to go and look at.  Fires on every
+ * occurrence, not once per boot -- how often a zone actually trips the error
+ * is part of what the log is for.  Returns false when no zone command is
+ * running, so a caller reachable from elsewhere can fall back to its own
+ * message.
+ */
+bool report_zone_cmd_failure(const char* what)
+{
+    if (running_zone < 0)
+        return false;
+
+    struct reset_com& cmd = zone_table[running_zone].cmd[running_cmd_no];
+    char errbuf[256];
+
+    sprintf(errbuf, "ZONE ERROR: zone #%d, command %d (%c): %s",
+        zone_table[running_zone].number, running_cmd_no + 1, cmd.command, what);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+
+    return true;
 }
 
 /*
@@ -508,6 +608,9 @@ void reset_zone(int zone)
         /* Make sure the if_flag requirements are met */
         should_execute = check_if_flag(ZCMD.if_flag, last_cmd, last_mob, last_obj, zone);
         if (should_execute) {
+            running_zone = zone;
+            running_cmd_no = cmd_no;
+
             switch (ZCMD.command) {
             case '*': /* ignore command */
                 break;
@@ -619,7 +722,7 @@ void reset_zone(int zone)
                     break;
                 case 6: /* Sets last_mob from the zone */
                     if (ZCMD.arg2 >= 0 || ZCMD.arg3 >= 0) {
-                        tmp2 = world[ZCMD.arg1].zone;
+                        tmp2 = world[ZCMD.arg2].zone;
                         for (tmp = 0, tmpmob = character_list;
                              tmpmob; tmpmob = tmpmob->next) {
                             if (IS_NPC(tmpmob) && tmpmob->nr == ZCMD.arg3 && tmpmob->in_room >= 0 && world[tmpmob->in_room].zone == tmp2)
@@ -772,6 +875,13 @@ void reset_zone(int zone)
                     obj = read_object(ZCMD.arg2, REAL);
                     obj_to_obj(obj, obj_to);
                     last_cmd = 1;
+                    /* The object did load, but the room or container named
+                     * never resolved, so it went into the last object loaded
+                     * instead.  Only now is anything actually misplaced. */
+                    if (ZCMD.bad_arg == 1 + ZREF_ROOM)
+                        report_zone_cmd_failure("room not found - put in last object loaded");
+                    else if (ZCMD.bad_arg)
+                        report_zone_cmd_failure("container not found - put in last object loaded");
                 } else
                     last_cmd = 0;
                 break;
@@ -799,6 +909,11 @@ void reset_zone(int zone)
                     last_cmd = 0;
                     break;
                 }
+                /* Past the gate: the mob loaded and is being equipped now, so a
+                 * slot whose vnum never resolved is equipment actually going
+                 * missing, not a condition that simply came back false. */
+                if (ZCMD.bad_arg)
+                    report_zone_cmd_failure("object not loaded");
                 if (ZCMD.arg1 >= 0) {
                     obj = read_object(ZCMD.arg1, REAL);
                     obj_to_char(obj, mob);
@@ -868,6 +983,8 @@ void reset_zone(int zone)
                 set_exit_state(&world[tmp], rev_dir[ZCMD.arg2], ZCMD.arg3);
                 break;
             }
+
+            running_zone = running_cmd_no = -1;
         } else {
             last_cmd = 0;
             if (ZCMD.command == 'M')

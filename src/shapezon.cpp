@@ -501,9 +501,16 @@ void implement_zone(struct char_data* ch)
     }
 
     zone_table[adr].cmd[count].command = 'S';
-    renum_zone_one(adr);
+    renum_zone_one(adr, ch); /* report any bad vnums straight to the builder */
 
-    send_to_char("The zone was implemented.\n\r", ch);
+    if (zone_table[adr].cmds_disabled > 0) {
+        sprintf(buf, "The zone was implemented, but %d command(s) were DISABLED "
+                     "because of the error(s) above.  Fix the vnum(s) and implement again.\n\r",
+            zone_table[adr].cmds_disabled);
+        send_to_char(buf, ch);
+    } else {
+        send_to_char("The zone was implemented.\n\r", ch);
+    }
 }
 
 #undef SUBST

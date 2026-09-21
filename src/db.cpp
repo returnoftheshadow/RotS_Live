@@ -149,6 +149,7 @@ void load_mobiles(FILE* mob_f);
 void load_objects(FILE* obj_f);
 void load_mudlle(FILE* fp);
 void load_scripts(FILE* fl);
+void check_script_table(void);
 void draw_map();
 void initialiaze_small_map();
 void reset_small_map();
@@ -408,6 +409,9 @@ void boot_db(void)
 
     log("Renumbering zone table.");
     renum_zone_table();
+
+    log("Checking scripts for vnums that do not exist.");
+    check_script_table();
 
     log("Generating player index.");
     build_player_index();
@@ -4443,8 +4447,14 @@ room_data& room_data::operator[](int i)
     }
 
     if (i < 0) {
-        mudlog("world[] called for negative room number.", NRM, LEVEL_GOD, TRUE);
-        //    send_to_all("****world[] called for negative room number.****");
+        /*
+         * Nearly always a zone command whose room vnum never resolved: the
+         * index is -1 and the lookup silently runs against room 0 instead.
+         * report_zone_cmd_failure names the zone and the command number, which
+         * is the line to go and look at; the bare message below names nothing.
+         */
+        if (!report_zone_cmd_failure("room not found - searched room 0 instead"))
+            mudlog("world[] called for negative room number.", NRM, LEVEL_GOD, TRUE);
         return *(BASE_WORLD);
     }
 
