@@ -24,12 +24,11 @@ def test_remote_player_poison_death_is_gentle_and_fully_attributed(server, imp, 
     # (char_from_room stops the fight), so the victim dies of the DoT alone.
     imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
     imp.command("transfer harnmage")
-    assert mage.command("look").contains("Arena West"), mage.everything[-1500:]
+    mage.expect_room("Arena West")
 
     assert affect_ticks_until_death(harness, victim, death_tick_budget(10)), "the victim should have died of the forced poison ticks"
 
-    look = victim.command("look")
-    assert look.contains("Wood-elf Start"), look.text
+    victim.expect_room("Wood-elf Start")
 
     stat = imp.command("stat harnvictim")
     current, maximum = stat.hit_points()

@@ -129,6 +129,24 @@ class GameSession:
                 raise SessionTimeout(f"{self.character.name}: no prompt after {text!r} within {timeout}s; pending text:\n{pending[-1500:]}")
             self._pump()
 
+    def expect_room(self, room_name: str, timeout: float = 10.0) -> Transcript:
+        """Poll `look` until the room settles on room_name, instead of trusting one `look`.
+
+        A transfer/goto/walk can be applied by the server on a later pulse than the command
+        that triggers it, so a single `look` issued right after can still show the departure
+        room; this repeats `look` at a short interval until it matches or the timeout expires.
+        """
+        deadline = time.monotonic() + timeout
+        last = self.command("look")
+        while True:
+            first_line = next((line.strip() for line in last.text.splitlines() if line.strip()), "")
+            if last.room_name() == room_name or first_line.startswith(room_name):
+                return last
+            if time.monotonic() >= deadline:
+                raise SessionTimeout(f"{self.character.name}: room never became {room_name!r} within {timeout}s; last look:\n{last.text[-1500:]}")
+            time.sleep(0.2)
+            last = self.command("look")
+
     def login(self) -> None:
         self.expect([LOGIN_EMAIL_PROMPT], 15.0)
         self.send_line(fixtures.HARNESS_EMAIL)

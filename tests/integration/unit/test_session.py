@@ -22,6 +22,19 @@ def test_transcript_room_name_drops_the_exits_suffix() -> None:
     assert transcript.room_name() == "Arena Centre"
 
 
+# GameSession.expect_room has no fake/stub to exercise it against (GameSession opens a real
+# socket to a ServerHandle; no test double for it exists in this file or elsewhere under
+# tests/integration/unit/), so this covers the room-name matching it relies on instead: a
+# PRF_ROOMFLAGS/PRF_ADVANCED_VIEW room line breaks room_name()'s exact match (a single space,
+# not the two-or-more it splits on, separates the name from the trailing "(#vnum) [...]"), which
+# is exactly the case expect_room's first-non-empty-line fallback (str.startswith) is for.
+def test_transcript_room_name_does_not_match_a_flagged_room_line() -> None:
+    transcript = Transcript("\nImmortal Start (#11) [ Inside ]    Exits are: N E S W\nA room for immortals.\n")
+    assert transcript.room_name() != "Immortal Start"
+    first_line = next(line.strip() for line in transcript.text.splitlines() if line.strip())
+    assert first_line.startswith("Immortal Start")
+
+
 def test_ansi_pattern_strips_colour_codes() -> None:
     assert session.ANSI_PATTERN.sub("", "\x1b[33mArena Centre\x1b[0m") == "Arena Centre"
 
