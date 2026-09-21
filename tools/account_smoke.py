@@ -954,6 +954,10 @@ def run_smoke_attempt(args: argparse.Namespace, repo_root: Path) -> int:
             reader.recv_until(["Account password updated.", "0) Log out", "Choice:"], 8.0)
             send_line(sock, "0")
 
+        # Logging out (choice "0") closes the connection server-side (src/interpre.cpp,
+        # since c404dfc), so the account menu that follows must be read on a fresh socket.
+        with socket.create_connection((LOOPBACK_HOST, args.proxy_port), timeout=5) as sock:
+            reader = BufferedPromptReader(sock)
             reader.recv_until(["Account email:"], 8.0)
             send_line(sock, account_email)
 
