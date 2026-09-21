@@ -176,10 +176,12 @@ Steps, in order:
    - `(timeout 30 env ASAN_OPTIONS=help=1 ./bin/ageland -t -d /nonexistent 1 2>&1 || true) | grep -q 'Available flags for AddressSanitizer'`
      proves the runtime initialises and its output reaches stderr, on every run. This replaces
      the manual negative check the earlier draft asked a human to perform.
-5. `ctest --test-dir build-asan --output-on-failure` with `continue-on-error: true` and the
-   container-overflow flag appended. `gtest_discover_tests` runs in `PRE_TEST` mode, so the
-   test binary is not executed at build time; discovery happens inside this step.
-6. `make integration` with `ROTS_IT_LAUNCHER=local` and `ROTS_IT_KEEP=1`, blocking.
+5. `make integration` with `ROTS_IT_LAUNCHER=local` and `ROTS_IT_KEEP=1`, blocking.
+6. `ctest --test-dir build-asan --output-on-failure` with the container-overflow flag appended,
+   blocking since 2026-09-21 (the fix wave took the sanitized unit run to zero failures); it runs
+   after the integration suite so a unit regression never hides the integration signal.
+   `gtest_discover_tests` runs in `PRE_TEST` mode, so the test binary is not executed at build
+   time; discovery happens inside this step.
 7. `actions/upload-artifact@v4` with `build/integration/**`, `if: always()` (a job that hits
    `timeout-minutes` is cancelled, and `failure()` steps do not run on cancellation),
    `if-no-files-found: ignore`, `retention-days: 7`. The directories hold each run's

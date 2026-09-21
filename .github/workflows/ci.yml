@@ -129,19 +129,21 @@ jobs:
           ldd bin/ageland | grep -E 'libasan\.so[^ ]* => /'
           (timeout 30 env ASAN_OPTIONS=help=1 ./bin/ageland -t -d /nonexistent 1 2>&1 || true) | grep -q 'Available flags for AddressSanitizer'
 
-      - name: Run C++ unit tests under AddressSanitizer (non-blocking)
-        # ageland_tests is 64-bit and links the uninstrumented system gtest, so container
-        # overflow checks would report spurious findings against shared std containers.
-        continue-on-error: true
-        env:
-          ASAN_OPTIONS: detect_leaks=0:handle_segv=2:detect_container_overflow=0
-        run: ctest --test-dir build-asan --output-on-failure
-
       - name: Run integration suite
         env:
           ROTS_IT_LAUNCHER: local
           ROTS_IT_KEEP: "1"
         run: make integration
+
+      - name: Run C++ unit tests under AddressSanitizer
+        # Blocking since the fix wave (harness design spec, slice 2 amendment, A6). Runs after
+        # the integration suite so a unit-test regression never hides the integration signal
+        # this job exists for. ageland_tests is 64-bit and links the uninstrumented system
+        # gtest, so container-overflow checks would report spurious findings against shared
+        # std containers.
+        env:
+          ASAN_OPTIONS: detect_leaks=0:handle_segv=2:detect_container_overflow=0
+        run: ctest --test-dir build-asan --output-on-failure
 
       - name: Upload run directories
         # always(): a job that hits timeout-minutes is cancelled, and failure() steps do
