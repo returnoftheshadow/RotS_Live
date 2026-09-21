@@ -39,6 +39,7 @@ void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(struct char_file_u* st, struct char_data* ch);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
+int Crash_alias_save(struct char_data* ch, FILE* fp);
 void Crash_follower_save(struct char_data* ch, FILE* fp);
 void Crash_follower_load(struct char_data* ch, FILE* fp);
 
@@ -1311,6 +1312,59 @@ TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)
     ASSERT_NE(GET_ALIAS(&character), nullptr);
     EXPECT_STREQ(GET_ALIAS(&character)->keyword, "assist");
     EXPECT_STREQ(GET_ALIAS(&character)->command, "kill orc");
+}
+
+// Crash_alias_save() wrote an alias's 20-byte keyword and then skipped the length for an empty
+// command; Crash_alias_load() (objsave.cpp) reads the next keyword's bytes as that length and
+// fails the load, losing every alias after the empty one.
+TEST(ObjSave, AliasSaveSkipsAnEmptyCommandSoTheLoaderReadsTheRest)
+{
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
+    alias_list first {};
+    std::strncpy(first.keyword, "a", sizeof(first.keyword));
+    first.command = strdup("look");
+    alias_list empty {};
+    std::strncpy(empty.keyword, "b", sizeof(empty.keyword));
+    empty.command = strdup("");
+    alias_list last {};
+    std::strncpy(last.keyword, "c", sizeof(last.keyword));
+    last.command = strdup("who");
+    first.next = &empty;
+    empty.next = &last;
+    last.next = nullptr;
+    character->specials.alias = &first;
+
+    FILE* file = tmpfile();
+    ASSERT_NE(file, nullptr);
+    ASSERT_TRUE(Crash_alias_save(character, file));
+    std::rewind(file);
+    // Crash_alias_save writes the sentinel object first; skip it the way Crash_load does before
+    // calling Crash_alias_load (read one obj_file_elem), then load.
+    obj_file_elem sentinel {};
+    ASSERT_EQ(std::fread(&sentinel, sizeof(sentinel), 1, file), 1u);
+    character->specials.alias = nullptr;
+    ASSERT_TRUE(Crash_alias_load(character, file));
+
+    std::vector<std::string> keywords;
+    for (alias_list* entry = character->specials.alias; entry != nullptr; entry = entry->next)
+        keywords.push_back(entry->keyword);
+    EXPECT_EQ(keywords, (std::vector<std::string> { "a", "c" }));
+
+    // Release: free the loaded list the way act_comm.cpp's alias removal does, then the three
+    // stack-built nodes' strdup'd commands. The stack nodes themselves are not heap-allocated and
+    // must not go through RELEASE.
+    alias_list* loaded = character->specials.alias;
+    while (loaded != nullptr) {
+        alias_list* next_loaded = loaded->next;
+        RELEASE(loaded->command);
+        RELEASE(loaded);
+        loaded = next_loaded;
+    }
+    free(first.command);
+    free(empty.command);
+    free(last.command);
+    ASSERT_EQ(std::fclose(file), 0);
+    test_support::release_test_character(character);
 }
 
 TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableItems)

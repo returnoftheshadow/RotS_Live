@@ -1162,14 +1162,15 @@ int Crash_alias_save(struct char_data* ch, FILE* fp)
     if (ch->specials.alias) {
 
         for (list = ch->specials.alias; list; list = list->next) {
+            tmp = strlen(list->command);
+
+            if (tmp <= 0)
+                continue; // the loader reads keyword, length, command as one record; write none of it
+
             if (fwrite(&(list->keyword), 20, 1, fp) < 1) {
                 perror("Writing crash data Crash_alias_save 1");
                 return FALSE;
             }
-            tmp = strlen(list->command);
-
-            if (tmp <= 0)
-                continue;
 
             if (fwrite(&(tmp), sizeof(int), 1, fp) < 1) {
                 perror("Writing crash data Crash_alias_save 2");
