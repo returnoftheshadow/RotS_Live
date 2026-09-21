@@ -4030,11 +4030,32 @@ void forget_crimes(char_data* ch, int criminal)
 
 room_data::room_data()
 {
+    // create_bulk() used to calloc() the whole world array (see the
+    // commented-out line in create_bulk()); `new room_data[]` calls this
+    // constructor for every element instead, so it must reproduce that same
+    // all-zero starting state -- the loader overwrites every field below for
+    // a real room.
     number = -1;
     zone = 0;
     level = 0;
+    sector_type = 0;
     name = 0;
     description = 0;
+    ex_description = nullptr;
+
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction)
+    {
+        dir_option[direction] = nullptr;
+    }
+
+    room_flags = 0;
+    alignment = 0;
+    light = 0;
+    bfs_dir = 0;
+    bfs_next = nullptr;
+    funct = nullptr;
+    contents = nullptr;
+    people = nullptr;
     affected = NULL;
 }
 
