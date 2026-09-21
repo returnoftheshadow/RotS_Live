@@ -131,6 +131,13 @@ class Harness:
         text = self._imp.expect(["Harness: hourly tick complete."], 20.0)
         return Transcript(text)
 
+    def affects(self) -> Transcript:
+        """One forced person-affect tick (spec B1): no regen, room affects untouched."""
+        self._imp.drain(0.1)
+        self._imp.send_line("harness affects")
+        text = self._imp.expect(["Harness: affect tick complete."], 20.0)
+        return Transcript(text)
+
 
 @pytest.fixture
 def harness(imp: GameSession) -> Harness:
