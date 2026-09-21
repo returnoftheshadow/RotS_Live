@@ -1269,10 +1269,12 @@ void do_fame_war_bonuses(struct char_data* ch)
     {
         remove_fame_war_bonuses(ch, pkaff);
         affect_remove(ch, pkaff);
-        // affect_remove() frees pkaff's node (put_to_affected_type_pool(), handler.cpp);
-        // the guards below already handle a null pointer, re-creating the affect at the
-        // bottom of this function, so null it here rather than leave it dangling.
-        pkaff = nullptr;
+        // affect_remove() frees pkaff's node (put_to_affected_type_pool(), handler.cpp).
+        // Stop here, as the no-affect branch above does: falling through would re-create
+        // the affect for the invalid rank (tier 0 when unranked, tier 4 for rank 11 and
+        // worse, since get_ranking_tier() caps at 4) and repeat that every hourly pass.
+        ch->player.ranking = ranking;
+        return;
     }
 
     if ((ranking == ch->player.ranking && pkaff) // ranking hasn't changed

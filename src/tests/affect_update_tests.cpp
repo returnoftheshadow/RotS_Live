@@ -594,40 +594,45 @@ TEST(AffectUpdatePerson, ExpiringAngerResetsAttackedLevelWithoutTouchingTheFreed
 // do_fame_war_bonuses() (limits.cpp) used to write pkaff->duration, read and
 // write pkaff->modifier, and test `if (!pkaff)` -- all after
 // affect_remove(ch, pkaff) had already freed that node via
-// put_to_affected_type_pool() (handler.cpp). A Task 3b reviewer flagged the
-// same shape as the mist-affect fix above. This drives the exact branch that
-// frees the node: a player whose recalculated pkill rank has dropped below
-// MIN_RANK while still carrying a SPELL_FAME_WAR affect from a higher tier.
-TEST(DoFameWarBonuses, DroppedRankReplacesTheFreedAffectWithoutTouchingIt) {
+// put_to_affected_type_pool() (handler.cpp). With the pointer nulled instead,
+// the same "dropped bonuses" branch fell through to the re-creation branch and
+// handed the player a fresh affect for the invalid rank on every hourly pass.
+// The branch now records the rank and returns. Both invalid ranks are driven:
+// unranked (ranking 0, tier 0) and below the table (ranking 11, tier 4).
+void expect_dropped_rank_removes_fame_war(int totalrank, int expected_ranking) {
     char_data* character = test_support::allocate_test_character(MOB_VOID);
     character->player.name = strdup("test_fame_war_target");
     character->player.level = 30;
     character->player_index = 0;
+    character->player.ranking = 3; // the valid rank the affect below was earned at
 
     // pkill_get_rank_by_character() reads player_table[player_index]; give it
-    // a one-entry table whose totalrank makes the recomputed ranking (0)
-    // invalid (below MIN_RANK). The guard restores the previous table on
-    // scope exit even if an assertion below fails.
-    ScopedFameWarPlayerTable player_table_guard(PKILL_UNRANKED);
+    // a one-entry table whose totalrank makes the recomputed ranking invalid.
+    // The guard restores the previous table on scope exit even if an
+    // assertion below fails.
+    ScopedFameWarPlayerTable player_table_guard(totalrank);
 
     affected_type old_fame_war {};
     old_fame_war.type = SPELL_FAME_WAR;
     old_fame_war.duration = 50;
-    old_fame_war.modifier = 2; // a tier the now-invalid rank no longer supports
+    old_fame_war.modifier = 3; // the tier for the rank the player has since lost
     old_fame_war.location = APPLY_NONE;
     old_fame_war.bitvector = 0;
     affect_to_char(character, &old_fame_war);
 
     do_fame_war_bonuses(character);
 
-    // EXPECT (not ASSERT) so release_test_character below always runs, even
-    // when this fails; the nullptr guard keeps the dereferencing checks safe.
-    EXPECT_NE(character->affected, nullptr);
-    if (character->affected != nullptr) {
-        EXPECT_EQ(character->affected->type, SPELL_FAME_WAR);
-        EXPECT_EQ(character->affected->modifier, 0); // get_ranking_tier(0) == 0
-        EXPECT_EQ(character->affected->next, nullptr) << "exactly one fresh affect, not the freed one";
-    }
+    // EXPECT (not ASSERT) so release_test_character below always runs.
+    EXPECT_EQ(character->affected, nullptr) << "the dropped affect must not be re-created";
+    EXPECT_EQ(character->player.ranking, expected_ranking);
 
     test_support::release_test_character(character);
+}
+
+TEST(DoFameWarBonuses, UnrankedPlayerLosesTheAffectAndGetsNoReplacement) {
+    expect_dropped_rank_removes_fame_war(PKILL_UNRANKED, 0);
+}
+
+TEST(DoFameWarBonuses, RankBelowTheTableLosesTheAffectInsteadOfTierFour) {
+    expect_dropped_rank_removes_fame_war(10, 11); // totalrank 10 -> ranking 11 > MAX_RANK
 }
