@@ -5,6 +5,7 @@
 #include "../interpre.h"
 #include "../objects_json.h"
 #include "../structs.h"
+#include "../utils.h"
 #include "test_character_support.h"
 
 #include <gtest/gtest.h>
@@ -92,15 +93,20 @@ public:
         : m_previous_player_table(player_table)
         , m_previous_top_of_p_table(top_of_p_table)
     {
-        player_table = new player_index_element[1] {};
+        // create_entry() can grow this table via inc_p_table(), which frees the old block
+        // with free_function() (a plain free()); allocate with the matching CREATE (calloc)
+        // idiom instead of new[] so ASan doesn't flag an alloc/dealloc mismatch.
+        CREATE(player_table, player_index_element, 1);
         top_of_p_table = 0;
         player_table[0].name = strdup(name);
     }
 
     ~ScopedPlayerTableEntry()
     {
+        // player_table may no longer be the block allocated above -- create_entry() can
+        // replace it during the test -- so free whatever it currently points to.
         free(player_table[0].name);
-        delete[] player_table;
+        free(player_table);
         player_table = m_previous_player_table;
         top_of_p_table = m_previous_top_of_p_table;
     }
