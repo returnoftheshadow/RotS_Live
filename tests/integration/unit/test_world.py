@@ -43,6 +43,25 @@ def test_zone_loads_the_target_and_the_snake() -> None:
     assert text.rstrip().endswith("S")
 
 
+def test_snake_mob_binds_its_bite_special() -> None:
+    """SPECIAL(snake) (spec_pro.cpp) only fires when the mob's act-flags line sets MOB_SPEC
+    (bit 0, structs.h:934); mobact.cpp:116-134 requires it before dispatching through
+    spec_ass.cpp's virt_program_number()/get_special_function() tables. Without MOB_SPEC, the
+    mobile file's <store_prog_number> field is instead treated as a Mudlle script program
+    number and handed to real_program() (db.cpp ~1765-1768), which looks it up in this zone's
+    (empty) .mdl file and silently returns 0 -- the snake would never bite or poison. See
+    docs/data-formats/world-files.md's mobile-file field order for the line layout below.
+    """
+    text = (WORLD_ROOT / "mob" / "11.mob").read_text(encoding="latin-1")
+    record = text.split("#1131", 1)[1].split("#1132", 1)[0]
+    lines = [line for line in record.splitlines() if line.strip()]
+    act_flags = int(lines[5])  # <mob_action_flags>, right after the four tilde-terminated strings
+    assert act_flags & 1, f"snake mob_action_flags {act_flags} must set MOB_SPEC (bit 0) or its special never binds"
+    weight_height_prog_line = lines[12]  # <weight> <height> <store_prog_number> <butcher_item> <corpse_num> <rp_flag>
+    program_number = int(weight_height_prog_line.split()[2])
+    assert program_number == 1, f"snake store_prog_number {program_number} must be 1 (spec_ass.cpp's virt_program_number/get_special_function select SPECIAL(snake) for 1)"
+
+
 def test_crevice_floor_is_a_plain_down_exit_from_arena_west() -> None:
     text = (WORLD_ROOT / "wld" / "11.wld").read_text(encoding="latin-1")
     assert re.search(r"^#1136\s*$", text, flags=re.MULTILINE), "room 1136 (Crevice Floor) must exist"
