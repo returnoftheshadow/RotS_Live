@@ -191,7 +191,7 @@ int get_base_skill_damage(char_data& olog_hai, int prob)
     base_damage *= (100 + prob);
     base_damage /= (1000 / utils::get_tactics(olog_hai));
     if (utils::is_twohanded(olog_hai)) {
-        base_damage *= 3 / 2;
+        base_damage = base_damage * 3 / 2; // integer 3/2 is 1; multiply before dividing
     }
 
     if (utils::is_affected_by_spell(olog_hai, SKILL_FRENZY)) {

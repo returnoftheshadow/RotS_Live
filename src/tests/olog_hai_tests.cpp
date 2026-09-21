@@ -61,6 +61,7 @@ struct OlogHaiTestContext {
     waiting_type target{};
     long original_room_flags = 0;
     char_data* original_room_people = nullptr;
+    byte original_room_light = 0;
 
     OlogHaiTestContext()
     {
@@ -70,6 +71,7 @@ struct OlogHaiTestContext {
         attacker.in_room = 7;
         attacker.player.race = RACE_OLOGHAI;
         attacker.specials.tactics = TACTICS_AGGRESSIVE;
+        attacker.specials.position = POSITION_STANDING; // CAN_SEE() rejects sub if GET_POS(sub) <= POSITION_SLEEPING
         attacker.tmpabilities.str = 18;
         attacker.tmpabilities.dex = 12;
         attacker.points.OB = 10;
@@ -89,8 +91,15 @@ struct OlogHaiTestContext {
 
         original_room_flags = world[attacker.in_room].room_flags;
         original_room_people = world[attacker.in_room].people;
+        original_room_light = world[attacker.in_room].light;
         world[attacker.in_room].room_flags = 0;
         world[attacker.in_room].people = &attacker;
+        // CAN_SEE() rejects an unlit room even with room_flags cleared; the room
+        // is heap-allocated via room_data::create_bulk() and never populated by
+        // the boot path in tests, so light/sector_type are whatever the
+        // allocator left behind. Force it lit so target lookups are
+        // deterministic instead of depending on that leftover memory.
+        world[attacker.in_room].light = 1;
 
         weapon.obj_flags.type_flag = ITEM_WEAPON;
         attacker.equipment[WIELD] = &weapon;
@@ -112,6 +121,7 @@ struct OlogHaiTestContext {
         }
         world[attacker.in_room].room_flags = original_room_flags;
         world[attacker.in_room].people = original_room_people;
+        world[attacker.in_room].light = original_room_light;
     }
 };
 
@@ -360,8 +370,8 @@ TEST(OlogHaiHelpers, HeavyFightingAndRidingAdjustOverrunDamage) {
     context.extra_target.abs_number = 12;
     set_char_exists(12);
 
-    EXPECT_EQ(olog_hai::calculate_overrun_damage(context.attacker, 50), 14)
-        << "Expected overrun damage to use the current heavy-fighting and riding bonuses.";
+    EXPECT_EQ(olog_hai::calculate_overrun_damage(context.attacker, 50), 17)
+        << "Expected heavy fighting then riding, integer-truncated at each step.";
 }
 
 TEST(OlogHaiHelpers, WildFightingAddsFlatBonusToSmashDamage) {
