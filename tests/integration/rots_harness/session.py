@@ -22,6 +22,7 @@ CHARACTER_MENU_PROMPT = "Make your choice:"
 ENTER_GAME_MARKER = "Here we go..."
 PROMPT_TERMINATORS = (">", "]")
 HIT_POINT_PATTERN = re.compile(r"HP :\[(\d+)/(\d+)")
+ABILITY_PATTERN = re.compile(r"Str:\[(\d+)/\d+/\d+\] Int:\[(\d+)/\d+/\d+\] Wil:\[(\d+)/\d+/\d+\] Dex:\[(\d+)/\d+/\d+\] Con: \[(\d+)/\d+/\d+\] Lea:\[(\d+)/\d+/\d+\]")
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -46,6 +47,13 @@ class Transcript:
         if match is None:
             return None
         return int(match.group(1)), int(match.group(2))
+
+    def abilities(self) -> dict[str, int] | None:
+        """Current values from do_stat's ability line (act_wiz.cpp): name -> current."""
+        match = ABILITY_PATTERN.search(self.text)
+        if match is None:
+            return None
+        return dict(zip(("str", "int", "wil", "dex", "con", "lea"), (int(value) for value in match.groups())))
 
     def room_name(self) -> str | None:
         for line in self.text.splitlines():

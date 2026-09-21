@@ -24,13 +24,17 @@ A dark cave mouth where trolls begin.
 S
 #1130
 Arena West~
-The western end of the harness arena. The arena continues east.
+The western end of the harness arena. The arena continues east; a crevice floor lies below.
 ~
 11 0 0 0
 D1
 ~
 ~
 0 0 1131 5
+D5
+~
+~
+0 0 1136 5
 S
 #1131
 Arena Centre~
@@ -97,6 +101,16 @@ D0
 ~
 ~
 0 0 1134 5
+S
+#1136
+Crevice Floor~
+The floor of a crevice beneath the arena. The only way is up.
+~
+11 0 0 0
+D4
+~
+~
+0 0 1130 5
 S
 #1151
 Retirement Home~

@@ -35,3 +35,12 @@ def test_prompt_detection_accepts_trailing_whitespace_and_both_terminators() -> 
 def test_character_number_prompt_matches_both_server_wordings() -> None:
     assert session.CHARACTER_NUMBER_PROMPT in "\n\rCharacter number: "
     assert session.CHARACTER_NUMBER_PROMPT in "\n\rCharacter number or name: "
+
+
+def test_transcript_parses_the_stat_ability_line() -> None:
+    text = "Str:[14/14/14] Int:[10/10/10] Wil:[12/12/12] Dex:[13/13/13] Con: [11/11/11] Lea:[9/9/9]\n"
+    assert Transcript(text).abilities() == {"str": 14, "int": 10, "wil": 12, "dex": 13, "con": 11, "lea": 9}
+
+
+def test_transcript_abilities_is_none_without_the_line() -> None:
+    assert Transcript("HP :[10/60]").abilities() is None

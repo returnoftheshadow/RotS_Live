@@ -41,3 +41,12 @@ def test_zone_loads_the_target_and_the_snake() -> None:
     assert re.search(r"^M 0 1130 1132 ", text, flags=re.MULTILINE), "target orc must load into 1132"
     assert re.search(r"^M 0 1131 1134 ", text, flags=re.MULTILINE), "snake must load into 1134"
     assert text.rstrip().endswith("S")
+
+
+def test_crevice_floor_is_a_plain_down_exit_from_arena_west() -> None:
+    text = (WORLD_ROOT / "wld" / "11.wld").read_text(encoding="latin-1")
+    assert re.search(r"^#1136\s*$", text, flags=re.MULTILINE), "room 1136 (Crevice Floor) must exist"
+    room_1130 = text.split("#1130", 1)[1].split("#1131", 1)[0]
+    match = re.search(r"^D5\n.*?~\n.*?~\n(\d+) \d+ 1136 \d+", room_1130, flags=re.MULTILINE | re.DOTALL)
+    assert match is not None, "room 1130 must have a D5 (down) exit to 1136"
+    assert match.group(1) == "0", "the way down must start open for spell_earthquake"
