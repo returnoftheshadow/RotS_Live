@@ -129,6 +129,20 @@ static void report_script_vnum(int script_index, script_data* cmd, int kind, int
     }
 }
 
+/* A change exit to line whose room has no exit in that direction, or whose
+ * direction is not 0-5.  Writing to it would crash, so the line is skipped. */
+static void report_script_bad_exit(int script_index, script_data* cmd, int room_vnum, int dir)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): room %d has no exit %d",
+        script_no, cmd->number, script_cmd_name(cmd->command_type), room_vnum, dir);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+}
+
 /* Report every vnum in one script that names nothing.  Run at boot, once
  * rooms, mobiles and objects exist, and when a builder implements a script.
  * A 0 parameter names nothing, so there is nothing to report. */
@@ -1067,8 +1081,15 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpint = real_room(curr->param[2]);
                 if (tmpint == NOWHERE)
                     report_script_vnum(info->index, curr, SREF_ROOM, curr->param[2], 0);
-                if (tmprm && (tmpint != NOWHERE) && (-1 < curr->param[1] < 6))
-                    tmprm->dir_option[curr->param[1]]->to_room = tmpint;
+                if (tmprm && (tmpint != NOWHERE)) {
+                    /* The old check (-1 < dir < 6) was always true, and a
+                     * missing exit is a null pointer: either one crashed. */
+                    if (curr->param[1] < 0 || curr->param[1] >= NUM_OF_DIRS
+                        || !tmprm->dir_option[curr->param[1]])
+                        report_script_bad_exit(info->index, curr, tmprm->number, curr->param[1]);
+                    else
+                        tmprm->dir_option[curr->param[1]]->to_room = tmpint;
+                }
             }
             curr = curr->next;
             break;
