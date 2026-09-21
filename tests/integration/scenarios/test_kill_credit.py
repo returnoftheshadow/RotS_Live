@@ -30,9 +30,10 @@ fighter's own melee is floored with `combat_support.neutralize_melee` so the orc
 can only reach zero from a blaze tick and not a stray fighter swing -- proven necessary by that
 same early run, where the fighter's own hit finished the orc before any tick could.
 
-Confirmed empirically, not just from reading die(): `harnmage.exploits.json` reads back the
-unmodified account-creation stub `{"version": 1, "records": []}` even in a run where the fighter
-*did* receive its share line. die() explains why: for an NPC `dead_man` it returns via
+Confirmed empirically, not just from reading die(): the caster's and the fighter's exploits files
+(`harncaller.exploits.json`, `harnfighter.exploits.json`) read back the unmodified
+account-creation stub `{"version": 1, "records": []}` even in a run where the fighter *did*
+receive its share line. die() explains why: for an NPC `dead_man` it returns via
 raw_kill() at fight.cpp:1272-1275, before any of the function's four add_exploit_record() calls
 (1290/1300/1314/1320) -- every one of them gated to `!IS_NPC(dead_man)`. Exploit records exist
 only for a player's death, never a mob's, regardless of who is credited; the brief for this task

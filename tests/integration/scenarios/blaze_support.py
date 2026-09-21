@@ -33,11 +33,10 @@ its real max on every single call -- including every one of this module's own `h
 calls. A target's `hit` floored once before a multi-tick loop starts does not stay floored:
 observed on a kept run, an un-refloored `Harnvictim` climbed from 9 into the high 20s over a
 handful of forced ticks with no blaze hit ever landing in between, purely from this module's own
-regen. `wizset <name> maxhit N` does not fix this -- it writes `constabilities.hit`, a
-rolled/permanent baseline that only feeds a PC's `abilities.hit` (the real max) as one small
-term in a much larger level/class-driven formula (`recalc_abilities`, profs.cpp:743) and has no
-effect at all on an NPC's, whose `recalc_abilities` call is skipped outright. The only reliable
-fix is to re-apply `wizset <name> hit N` (sets CURRENT hit directly, `act_wiz.cpp`'s `case 7`)
+regen. `wizset <name> maxhit N` does not fix this -- it raises a PC's MAX hit (`constabilities.hit`
+feeds `abilities.hit` through `recalc_abilities`, profs.cpp:756), never the current value, and
+has no effect at all on an NPC's, whose `recalc_abilities` call is skipped outright. The only
+reliable fix is to re-apply `wizset <name> hit N` (sets CURRENT hit directly, `act_wiz.cpp`'s `case 7`)
 at the start of every loop iteration, so the target enters each roll at exactly the floor
 regardless of how much the previous iteration's regen clawed back.
 

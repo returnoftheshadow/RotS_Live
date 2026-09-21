@@ -76,13 +76,19 @@ def _reset_room(imp: GameSession) -> None:
     `transfer` alone (act_wiz.cpp `do_trans`) leaves a character sitting wherever a previous
     attempt's fall last left its position -- it never calls `update_pos`. `restore`
     (`do_restore`) both heals to full and calls `update_pos`, which sets POSITION_STANDING for
-    any character with positive hit and no active fight, so `transfer` must run first. No
-    `wizset ... maxhit` here: `do_restore` heals to `abilities.hit`, which a bare `maxhit` write
-    barely moves without a `recalc_abilities()` pass (blaze_support.py's module docstring).
+    any character with positive hit and no active fight, so `transfer` must run first.
+    `wizset <name> maxhit 2000` runs before `restore` because `do_restore` heals only to
+    `abilities.hit`; the `maxhit` write (`act_wiz.cpp` `case 4`) calls `affect_total()`, whose
+    `recalc_abilities()` (profs.cpp:756) adds `constabilities.hit * CON / 20` -- about 1100 hit
+    points at this roster's CON 11. That keeps every occupant above earthquake's worst case
+    (damage loop plus fall damage, each up to twice `dam_value`, mage.cpp:1707-1769), so nobody
+    dies mid-attempt and the caster always sees `CAST_RESOLVED_MARKER` rather than a death
+    message (fight.cpp:1773-1776).
     """
     imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
     for name in OCCUPANTS:
         imp.command(f"transfer {name}")
+        imp.command(f"wizset {name} maxhit 2000")
         imp.command(f"restore {name}")
     imp.command(f"goto {fixtures.ROOM_IMMORTAL_START}")  # the imp is not an occupant
 

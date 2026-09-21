@@ -25,20 +25,20 @@ until comm.cpp's own I/O loop notices the closed socket and `close_socket()` cal
 file waits for `close_socket()`'s own "Losing player: Harnmage" mudlog line (game.log) rather
 than assuming a fixed pause is long enough.
 
-Blaze's duration equals the caster's mage-profession level (`af.duration = level` from
-`get_mage_caster_level()`, mage.cpp ~2288-2335) -- 30 for Harnmage's fixture -- against ~2 forced
+Blaze's duration is `get_mage_caster_level()` (`af.duration = level`, mage.cpp ~2288-2335): the
+caster's mage-profession level plus an intel/5 factor (mage.cpp:33-44), ~36 for Harnmage's
+fixture -- against ~2 forced
 `harness.affects()` calls per `_kill_at_duration_one` retry plus whatever the refresh's own
 wall-clock time ceded to the spontaneous real-time sweep (blaze_support.py's module docstring),
 leaving only ~5-7 of the 10 attempts reachable before burnout and a rare (~2-5%) all-miss flake.
 
-NOTE (final-fix-brief.md item 1): the brief's prescribed fix -- `wizset harnmage level 60` before
-the cast -- does not change this bound and was left out. `wizset <name> level` (act_wiz.cpp
+NOTE: `wizset harnmage level 60` before the cast does not change this bound. `wizset <name> level` (act_wiz.cpp
 `case 34`) only assigns `vict->player.level`; `get_mage_caster_level()`'s `mage_prof_level`
 (caster_snapshot.cpp) instead reads `GET_PROF_LEVEL(PROF_MAGE, ch)`, which for a PC is
 `ch->profs->prof_level[PROF_MAGE]` (utils.h `GET_PROF_LEVEL`), a field `wizset` never touches
 (its own `prof` field, `case 39`, is an unimplemented no-op) -- confirmed empirically: after the
 command a kept `stat harnmage` read `Lev: [60]` but unchanged `Class levels: Mag:30`. The flake
-therefore remains open; see final-fix-report.md.
+therefore remains open; raising the fixture's mage level is the available fix.
 """
 
 from __future__ import annotations

@@ -17,7 +17,7 @@ from rots_harness.session import GameSession
 
 def wait_for_engagement(imp: GameSession, mob_name: str, victim_name: str, timeout: float = 10.0) -> None:
     """Waits for `stat <mob_name>` to read `Fighting: <victim_name>` instead of trusting one
-    reply. `game_loop()`'s "process_commands" step (comm.cpp ~903-965) drains each descriptor's
+    reply. `game_loop()`'s "process_commands" step (comm.cpp ~930-972) drains each descriptor's
     queued input once per pulse, then executes one command per descriptor in `descriptor_list`
     order -- a fixed per-pulse iteration order, not send-time order. `imp`'s `stat` is a separate
     descriptor from the one that issued `kill`, so it can be processed before `kill` in that same
