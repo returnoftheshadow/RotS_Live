@@ -133,7 +133,13 @@ class Harness:
         return Transcript(text)
 
     def affects(self) -> Transcript:
-        """One forced person-affect tick (spec B1): no regen, room affects untouched."""
+        """One forced affect_update() pass (spec B1): forces the one slow *person*-affect phase
+        compare and skips fast_update()'s regen. Room affects are NOT untouched -- affect_update()
+        also walks TARGET_ROOM entries into affect_update_room (limits.cpp), so a room affect
+        (blaze, mist, poison's room arm) still rolls occupants and spends its own duration on
+        this call; only its application roll and any regen are left unforced/skipped. See
+        scenarios/blaze_support.py's module docstring for the full account.
+        """
         self._imp.drain(0.1)
         self._imp.send_line("harness affects")
         text = self._imp.expect(["Harness: affect tick complete."], 20.0)

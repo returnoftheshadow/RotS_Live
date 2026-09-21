@@ -4,20 +4,25 @@ serial has nothing left to resolve back to; contrast test_blaze_after_caster_gon
 caster arm, where the body survives and the tick still credits the mage).
 
 Timing model: see blaze_support.py's module docstring -- blaze ticks from the real-time fast
-block (comm.cpp, ~3s, unconditional regardless of harness_mode) and this harness's own
-`harness tick`, never from `harness affects()`. Both spend the same room affect's duration on
-every call they make and both regenerate every character's hit points, so this scenario
-re-floors the victim's hit every loop iteration (`blaze_support.floor_hit`/`tick_until_hp_drops`/
-`tick_until_marker`'s `refloor`) so a single successful tick stays lethal for the whole loop, and
-keeps its tick budgets well under the affect's nominal duration, with an explicit failure naming
-the cause if the affect runs out first under a loaded run.
+block (comm.cpp, ~3s, unconditional regardless of harness_mode), this harness's own
+`harness tick`, and `harness affects()` alike (all three reach `affect_update_room` through the
+same `affect_update()`; `affects()` is not a no-op for a room affect, it just does not force
+blaze's own roll or run regen). This scenario floors the victim's hit every loop iteration
+(`tick_until_marker`'s `refloor`) so a single successful tick stays lethal for the whole loop --
+regen would otherwise claw the floor back before the next tick -- and keeps its tick budget well
+under the affect's nominal duration, with an explicit failure naming the cause if the affect
+runs out first under a loaded run. There is no separate "did it tick at all" check here: with the
+victim's hit floored this low, a landed tick and a death are the same observable event (see
+`blaze_support`'s `LETHAL_HIT` note on the rare non-lethal case), so the death marker below is
+the only signal that is not vacuous -- a bare hit-point comparison against the floor value would
+be satisfied by the `wizset` itself, before any tick ever ran.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from blaze_support import LETHAL_HIT, BLAZE_CAST, tick_until_hp_drops, tick_until_marker
+from blaze_support import LETHAL_HIT, BLAZE_CAST, tick_until_marker
 from poison_support import DEATH_MARKER
 from rots_harness import fixtures, records
 
@@ -37,10 +42,6 @@ def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mag
 
     victim.command("east")
     victim.expect_room("Arena Centre")
-    before = imp.command("stat harnvictim").hit_points()[0]
-
-    after = tick_until_hp_drops(harness, imp, "harnvictim", before)
-    assert after < before, f"the blaze should still tick after its caster quit ({before} -> {after})"
 
     tick_until_marker(harness, imp, victim, DEATH_MARKER, refloor=("harnvictim", LETHAL_HIT))
     victim.expect_room("Wood-elf Start")

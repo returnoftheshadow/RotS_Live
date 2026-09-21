@@ -9,7 +9,6 @@ from rots_harness.session import GameSession
 POISON_LANDED = ("You feel very sick.",)  # spell_poison, mystic.cpp
 POISON_RESISTED = ("You feel your body fend off the poison.",)
 DEATH_MARKER = "You are dead!  Sorry..."  # fight.cpp damage()
-BLAZE_CAST = ("You breathe out fire.",)
 ROSTER_CON = 11  # tests/integration/fixtures/character.template.json abilities.con
 # comm.cpp's real-time fast block (PULSE_FAST_UPDATE, every 3s) keeps regenerating hit points
 # independently of the forced affect ticks (spec B1 is monotonic, not tick-exact), so a post-death

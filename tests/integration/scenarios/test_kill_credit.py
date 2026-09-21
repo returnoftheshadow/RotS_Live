@@ -2,10 +2,12 @@
 XP credit for the kill, and a bystander mob caught by splash manufactures no player-facing
 record.
 
-Timing model: see blaze_support.py's module docstring for how blaze ticks (real-time fast block
-plus `harness tick`, never `harness affects()`), why both regenerate every character's hit
-points on every call, and why a fixed tick budget needs to stay well under the room affect's
-duration, with an explicit affect-gone failure instead of a bare timeout. This file's tick loop
+Timing model: see blaze_support.py's module docstring for how blaze ticks -- the real-time fast
+block, `harness tick`, and `harness affects()` all reach `affect_update_room` through the same
+`affect_update()`, so none of the three is a no-op for a room affect, though only the first two
+also run `fast_update()`'s regen -- and why a fixed tick budget needs to stay well under the
+room affect's duration, with an explicit affect-gone failure instead of a bare timeout. This
+file's tick loop
 therefore re-floors the orc's hit every iteration (`tick_until_marker`'s `refloor` argument) so
 it stays a one-tick kill for the whole loop, not just at the moment it was first set, and
 `restore`s `caller` and `fighter` every iteration too (`protect`) so a longer-than-expected loop
@@ -94,6 +96,22 @@ def _wait_for_engagement(imp: GameSession, mob_name: str, victim_name: str, time
         imp.drain(0.5)
 
 
+def _read_bystander_reply(imp: GameSession, mob_name: str, attempts: int = 4) -> str:
+    """Retries `stat <mob_name>` until a genuine reply is seen -- either a `Fighting:` line
+    (do_stat_character, act_wiz.cpp) if it is still alive, or "Nothing around by that name."
+    (do_wizstat's bare-name fallthrough, act_wiz.cpp:1133-1140) if it has died -- guarding
+    against the same broadcast race `blaze_support.room_stat_replies` explains for `stat room`:
+    `imp` stands in the same burning room, so an unsolicited broadcast can satisfy `command()`'s
+    end-of-prompt check before the real reply arrives.
+    """
+    for _attempt in range(attempts):
+        text = imp.command(f"stat {mob_name}").text
+        lowered = text.lower()
+        if "nothing around by that name" in lowered or "fighting:" in lowered:
+            return text
+    pytest.fail(f"stat {mob_name} never returned a parseable reply in {attempts} attempts")
+
+
 def _set_up_arena_west_fight(server, imp: GameSession, caller: GameSession, fighter: GameSession) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
     imp.command("transfer harncaller")
@@ -150,10 +168,10 @@ def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, h
     # the time the loop above stops it may have taken no damage, some, or died outright; both
     # outcomes are asserted explicitly here rather than one of them being silently skipped, per
     # the task's own ruling ("it survived... or it died..."). A bare `stat <name>` (no "mob"
-    # prefix) falls through do_wizstat's final `else` (act_wiz.cpp:1124-1132), whose
+    # prefix) falls through do_wizstat's final `else` (act_wiz.cpp:1133-1140), whose
     # "Nothing around by that name." is the one text that confirms it is the "died" half, not a
     # stale keyword lookup; the exploits check just below covers both halves unconditionally.
-    bystander_stat = imp.command("stat bystander").text
+    bystander_stat = _read_bystander_reply(imp, "bystander")
     bystander_text = bystander_stat.lower()
     bystander_gone = "nothing around by that name" in bystander_text
     if not bystander_gone:

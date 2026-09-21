@@ -3,22 +3,25 @@ registration serial survive, so the tick still credits the mage) and after the c
 drops while another character logs in (no misattribution to the new body).
 
 Timing model: see blaze_support.py's module docstring -- blaze ticks from the real-time fast
-block (comm.cpp, ~3s, unconditional regardless of harness_mode) and `harness tick`'s
-`fast_update()`/`affect_update()` pair, never from `harness affects()` (which only forces the
-one slow *person*-affect phase compare, and blaze's own application roll is gated on neither
-that phase nor it). Both spend the same room affect's duration on every call they make and both
-regenerate every character's hit points, so these scenarios re-floor the victim's hit every loop
-iteration (`blaze_support.tick_until_hp_drops`/`tick_until_marker`'s `refloor`) so a single tick
-stays lethal for the whole loop, and keep their tick budgets well under the affect's nominal
-duration, with an explicit failure naming the cause if the affect runs out first under a loaded
-run -- exactly as `test_blaze_after_quit.py` does.
+block (comm.cpp, ~3s, unconditional regardless of harness_mode), `harness tick`, and
+`harness affects()` alike (all three reach `affect_update_room` through the same
+`affect_update()`; `affects()` is not a no-op for a room affect, it just does not force blaze's
+own roll or run regen). These scenarios floor the victim's hit every loop iteration
+(`tick_until_marker`'s `refloor`) so a single tick stays lethal for the whole loop -- regen would
+otherwise claw the floor back before the next tick -- and keep their tick budget well under the
+affect's nominal duration, with an explicit failure naming the cause if the affect runs out
+first under a loaded run -- exactly as `test_blaze_after_quit.py` does. There is no separate
+"did it tick at all" check: with the victim's hit floored this low, a landed tick and a death are
+the same observable event, so a bare hit-point comparison against the floor would be satisfied
+by the `wizset` itself, before any tick ever ran; the death marker is the only non-vacuous
+signal.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from blaze_support import LETHAL_HIT, BLAZE_CAST, read_hp, tick_until_hp_drops, tick_until_marker
+from blaze_support import LETHAL_HIT, BLAZE_CAST, tick_until_marker
 from poison_support import DEATH_MARKER
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
@@ -26,7 +29,7 @@ from rots_harness.session import GameSession
 pytestmark = pytest.mark.scenario
 
 
-def _blaze_the_centre(imp, mage, victim) -> int:
+def _blaze_the_centre(imp, mage, victim) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnmage")
     imp.command("transfer harnvictim")
@@ -34,23 +37,20 @@ def _blaze_the_centre(imp, mage, victim) -> int:
     imp.command("restore harnvictim")
     victim.command("west")  # out of the cast so nobody engages anybody
     mage.cast("blaze", success_markers=BLAZE_CAST)
-    return read_hp(imp, "harnvictim")
 
 
-def _tick_until_dead(harness, imp, victim, before: int) -> None:
+def _tick_until_dead(harness, imp, victim) -> None:
     victim.command("east")
     victim.expect_room("Arena Centre")
-    after = tick_until_hp_drops(harness, imp, "harnvictim", before)
-    assert after < before, f"the blaze should still tick ({before} -> {after})"
     tick_until_marker(harness, imp, victim, DEATH_MARKER, refloor=("harnvictim", LETHAL_HIT))
 
 
 def test_blaze_ticks_survive_the_casters_death_and_still_credit_the_mage(server, imp, mage, victim, harness) -> None:
-    before = _blaze_the_centre(imp, mage, victim)
+    _blaze_the_centre(imp, mage, victim)
     imp.command("slay harnmage")
     assert mage.command("look").room_name() is not None, "a slain player keeps its body and its registration serial"
 
-    _tick_until_dead(harness, imp, victim, before)
+    _tick_until_dead(harness, imp, victim)
 
     victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
     deaths = [record for record in victim_records if record.type == records.EXPLOIT_DEATH]
@@ -75,14 +75,14 @@ def test_blaze_ticks_after_a_link_drop_never_name_the_next_login(server, imp, ma
     the room tick also happened to catch `Harncaller`, on its death record too -- see
     task-6-report.md for the run transcripts.
     """
-    before = _blaze_the_centre(imp, mage, victim)
+    _blaze_the_centre(imp, mage, victim)
     mage.drop_link()
     # `caller` is not requested as a fixture: fixtures log in before the test body runs, and the
     # relogin must happen after the drop so it reuses the freed descriptor state (brief, Task 6).
     caller = GameSession(server.handle, server.spec("Harncaller"), server.character_number("Harncaller"), server.run_dir)
     caller.login()
     try:
-        _tick_until_dead(harness, imp, victim, before)
+        _tick_until_dead(harness, imp, victim)
         victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
         assert not any(record.victim_name.lower() == "harncaller" for record in victim_records), f"the new login must never be credited: {victim_records}"
         caller_records = records.read_exploits(server.lib_dir, "Harncaller")

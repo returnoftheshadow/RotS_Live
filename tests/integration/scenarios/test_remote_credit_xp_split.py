@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
+from blaze_support import BLAZE_CAST
 from rots_harness import fixtures
 
 pytestmark = pytest.mark.scenario
 
-BLAZE_CAST = ("You breathe out fire.",)
 SHARE_MARKER = "You receive your share of experience"
 
 
