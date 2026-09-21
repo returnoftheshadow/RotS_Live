@@ -67,8 +67,8 @@ jobs:
   integration-asan:
     name: Integration Suite under AddressSanitizer
     runs-on: ubuntu-24.04
-    # Measured at 3 min 54 s end to end on the first green run (build 40 s, sanitized
-    # gtest 27 s, integration suite 142 s); 30 leaves room for a slow runner.
+    # Measured at 12 min 40 s end to end with the slice 2 suite (68 scenarios, 615 s;
+    # sanitized gtest 27 s; build 40 s) on 2026-09-21; 30 leaves room for a slow runner.
     timeout-minutes: 30
     env:
       # detect_leaks=0: both binaries exit normally (the server's SIGTERM handler ends in
