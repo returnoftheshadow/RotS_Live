@@ -9,6 +9,7 @@
 #include <string>
 
 int harness_mode = 0;
+int harness_force_affect_phase = 0;
 
 // The three calls comm.cpp's game loop makes every SECS_PER_MUD_HOUR * 4 pulses.
 void weather_and_time(int mode);
@@ -75,5 +76,14 @@ ACMD(do_harness)
         return;
     }
 
-    send_to_char("Usage: harness tick\r\n", ch);
+    if (argument && std::strncmp(argument, "affects", 7) == 0 && (argument[7] == '\0' || argument[7] == ' ')) {
+        harness_force_affect_phase = 1;
+        affect_update();
+        clean_expose_elements();
+        harness_force_affect_phase = 0;
+        send_to_char("Harness: affect tick complete.\r\n", ch);
+        return;
+    }
+
+    send_to_char("Usage: harness tick | harness affects\r\n", ch);
 }

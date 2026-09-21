@@ -1366,7 +1366,7 @@ void affect_update_person(struct char_data* i, int mode)
 
     for (af = i->affected; af; af = next_af_dude) {
         next_af_dude = af->next;
-        if (skills[af->type].is_fast || (!mode && (time_phase == af->time_phase))) {
+        if (skills[af->type].is_fast || (!mode && (time_phase == af->time_phase || harness_force_affect_phase))) {
             if ((af->duration >= 1) || (af->duration < 0)) {
                 if (af->duration >= 1)
                     af->duration--;

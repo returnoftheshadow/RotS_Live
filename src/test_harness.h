@@ -12,6 +12,11 @@
  */
 extern int harness_mode; // 1 while the server runs under the integration harness
 
+// 1 only while `harness affects` runs affect_update(): every slow person affect then treats
+// the current time phase as matching, so one call is one tick per affect with no regen.
+// Room affects keep their own rolls (spec B1).
+extern int harness_force_affect_phase;
+
 // Seeds std::rand() and random() from ROTS_RANDOM_SEED. Applies only in harness
 // mode; returns true when a seed was applied.
 bool seed_random_from_environment();
