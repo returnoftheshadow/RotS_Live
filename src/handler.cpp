@@ -1559,7 +1559,8 @@ int get_number(char** name)
     if ((ppos = strchr(*name, '.'))) {
         *ppos++ = '\0';
         strcpy(number, *name);
-        // ppos points inside *name, so the copy source and destination overlap; memmove handles that safely.
+        // ppos points inside *name, so the copy source and destination overlap;
+        // memmove handles that safely.
         memmove(*name, ppos, strlen(ppos) + 1);
 
         for (i = 0; *(number + i); i++)
@@ -2503,7 +2504,9 @@ int find_all_dots(char* arg)
     if (!strcmp(arg, "all"))
         return FIND_ALL;
     else if (!strncmp(arg, "all.", 4)) {
-        strcpy(arg, arg + 4);
+        // arg + 4 points inside arg, so the copy source and destination overlap;
+        // memmove handles that safely.
+        memmove(arg, arg + 4, strlen(arg + 4) + 1);
         return FIND_ALLDOT;
     } else
         return FIND_INDIV;

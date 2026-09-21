@@ -238,6 +238,46 @@ TEST(GetNumber, ReportsZeroForANonNumericOrdinalAfterAlreadyMovingTheKeywordDown
     int number = get_number(&name);
 
     EXPECT_EQ(number, 0)
-        << "'x' fails the digit check, but that check runs after the keyword is already moved down.";
+        << "'x' fails the digit check, but that check runs "
+           "after the keyword is already moved down.";
     EXPECT_STREQ(name, "sword");
+}
+
+// find_all_dots()'s "all.x" split is what a player target reaches for any
+// "all.<keyword>" argument. Under ASan the old code's strcpy(arg, arg + 4)
+// overlapped its source (arg + 4, inside arg) with its destination (arg) --
+// strcpy-param-overlap, the same shape get_number() had above. find_all_dots()
+// is declared in handler.h (already included above), so no local forward
+// declaration is needed here.
+TEST(FindAllDots, SplitsTheAllDotPrefixFromTheKeywordInPlace)
+{
+    char buffer[16] = "all.sword";
+    char* arg = buffer;
+
+    int result = find_all_dots(arg);
+
+    EXPECT_EQ(result, FIND_ALLDOT);
+    EXPECT_STREQ(arg, "sword");
+}
+
+TEST(FindAllDots, LeavesABareAllArgumentUnchanged)
+{
+    char buffer[16] = "all";
+    char* arg = buffer;
+
+    int result = find_all_dots(arg);
+
+    EXPECT_EQ(result, FIND_ALL);
+    EXPECT_STREQ(arg, "all");
+}
+
+TEST(FindAllDots, LeavesAnIndividualKeywordUnchanged)
+{
+    char buffer[16] = "sword";
+    char* arg = buffer;
+
+    int result = find_all_dots(arg);
+
+    EXPECT_EQ(result, FIND_INDIV);
+    EXPECT_STREQ(arg, "sword");
 }
