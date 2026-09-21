@@ -178,6 +178,48 @@ void check_script_vnums(int script_index, char_data* to)
     }
 }
 
+/*
+ * The script line run_script is executing, so a failure several calls deep
+ * (world[] given a negative room) can name the script and line.  A guard in
+ * run_script saves and restores it, so nested scripts and every exit path
+ * leave the outer script's line in place.
+ */
+static int running_script_index = -1;
+static script_data* running_script_cmd = 0;
+
+struct running_script_guard {
+    int index;
+    script_data* cmd;
+    running_script_guard()
+        : index(running_script_index)
+        , cmd(running_script_cmd)
+    {
+    }
+    ~running_script_guard()
+    {
+        running_script_index = index;
+        running_script_cmd = cmd;
+    }
+};
+
+/* world[] was given a negative room while a script line is running. */
+bool report_script_negative_room(void)
+{
+    char errbuf[256];
+    int script_no;
+
+    if (!running_script_cmd)
+        return false;
+
+    script_no = (running_script_index >= 0 && running_script_index <= top_of_script_table)
+        ? script_table[running_script_index].number
+        : -1;
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d: negative room lookup",
+        script_no, running_script_cmd->number);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    return true;
+}
+
 void check_script_table(void)
 {
     int i;
@@ -921,10 +963,15 @@ int run_script(struct info_script* info, struct script_data* position)
     int tmpint, tmpint2;
     struct follow_type *k, *next_fol;
 
+    running_script_guard script_context;
+
     curr = position;
     if (!position)
         exit = TRUE;
     while (!exit) {
+        running_script_index = info->index;
+        running_script_cmd = curr;
+
         switch (curr->command_type) {
 
         case SCRIPT_ABORT:

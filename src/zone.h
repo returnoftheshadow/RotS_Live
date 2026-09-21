@@ -55,6 +55,7 @@ void reset_zone(int);
  * message.
  */
 bool report_zone_cmd_failure(const char* what);
+bool report_zone_negative_room(void);
 
 extern struct zone_data* zone_table;
 extern int top_of_zone_table;

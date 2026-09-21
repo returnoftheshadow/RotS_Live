@@ -2,7 +2,9 @@
 
 #include "platdef.h"
 #include <ctype.h>
+#include <cxxabi.h>
 #include <dirent.h>
+#include <execinfo.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -150,6 +152,7 @@ void load_objects(FILE* obj_f);
 void load_mudlle(FILE* fp);
 void load_scripts(FILE* fl);
 void check_script_table(void);
+bool report_script_negative_room(void);
 void draw_map();
 void initialiaze_small_map();
 void reset_small_map();
@@ -4436,6 +4439,49 @@ void room_data::delete_room()
         delete BASE_EXTENSION;
 }
 
+/*
+ * world[] was given a negative room outside any zone command or script line,
+ * so no builder line is to blame.  Name the function that made the call so a
+ * coder can find it.  Runs only on this error path; everything it allocates
+ * is freed before it returns, and if the lookup finds nothing the message is
+ * logged without a name.
+ */
+static void report_negative_room_caller(void)
+{
+    void* frames[3];
+    char** names;
+    char* caller = 0;
+    char* demangled = 0;
+    char msg[512];
+    int n;
+
+    /* frames[0] is this function, frames[1] world[], frames[2] its caller. */
+    n = backtrace(frames, 3);
+    names = (n == 3) ? backtrace_symbols(frames + 2, 1) : 0;
+    if (names && names[0]) {
+        /* "binary(mangled+0x1f) [0x...]" -> "mangled" */
+        char* open = strchr(names[0], '(');
+        char* plus = open ? strchr(open, '+') : 0;
+        if (open && plus && plus > open + 1) {
+            *plus = '\0';
+            caller = open + 1;
+            int status = 0;
+            demangled = abi::__cxa_demangle(caller, 0, 0, &status);
+            if (status == 0 && demangled)
+                caller = demangled;
+        }
+    }
+
+    if (caller)
+        snprintf(msg, sizeof(msg), "world[] called for negative room number from %s", caller);
+    else
+        snprintf(msg, sizeof(msg), "world[] called for negative room number.");
+    mudlog(msg, NRM, LEVEL_GOD, TRUE);
+
+    free(demangled);
+    free(names);
+}
+
 room_data& room_data::operator[](int i)
 {
     int offset;
@@ -4448,13 +4494,13 @@ room_data& room_data::operator[](int i)
 
     if (i < 0) {
         /*
-         * Nearly always a zone command whose room vnum never resolved: the
-         * index is -1 and the lookup silently runs against room 0 instead.
-         * report_zone_cmd_failure names the zone and the command number, which
-         * is the line to go and look at; the bare message below names nothing.
+         * The lookup silently runs against room 0 instead.  Name the most
+         * specific thing that was running: a script line (innermost -- a
+         * script can run inside a zone command), then a zone command, then
+         * the calling function.
          */
-        if (!report_zone_cmd_failure("room not found - searched room 0 instead"))
-            mudlog("world[] called for negative room number.", NRM, LEVEL_GOD, TRUE);
+        if (!report_script_negative_room() && !report_zone_negative_room())
+            report_negative_room_caller();
         return *(BASE_WORLD);
     }
 

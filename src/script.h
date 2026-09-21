@@ -168,5 +168,6 @@ void continue_char_script(char_data* ch);
 /* Report script lines whose vnums name nothing -- informational only. */
 void check_script_vnums(int script_index, struct char_data* to);
 void check_script_table(void);
+bool report_script_negative_room(void);
 
 #endif /* SCRIPT_H */

@@ -196,29 +196,70 @@ enum zone_ref_kind { ZREF_MOB,
     ZREF_ROOM };
 static const char* zref_name[] = { "mobile", "object", "room" };
 
-static int zone_bad_vnum;
-static int zone_bad_kind;
+/* Every vnum in the current command that names nothing, in arg order.  A
+ * command resolves at most 7 args (K's object slots), so this never fills;
+ * the bound check only guards against that changing. */
+#define ZONE_MAX_BAD 8
+static int zone_bad_vnum[ZONE_MAX_BAD];
+static int zone_bad_kind[ZONE_MAX_BAD];
+static int zone_bad_count;
+/* The required arg whose failure disables the command, whatever its value,
+ * and its place in the list above (-1 when it is 0 or 65535, so not listed). */
+static int zone_req_vnum;
+static int zone_req_kind;
+static int zone_req_index;
+static bool zone_req_failed;
 
-static int zresolve(int vnum, int kind)
+static int zresolve(int vnum, int kind, bool required)
 {
     int real = (kind == ZREF_MOB) ? real_mobile(vnum)
         : (kind == ZREF_OBJ)      ? real_object(vnum)
                                   : real_room(vnum);
+    int listed = -1;
+
     /* No vnum given: an unused optional arg of K, P or L holds 0, or NOWHERE
      * (-1), which reads back as 65535 because load_zones reads these int args
      * with "%hd".  Nothing was referenced, so there is nothing to report.
      * A real vnum of 65535 cannot be told apart from this. */
-    if (vnum <= 0 || vnum == 65535)
-        return real;
-    if (real < 0 && zone_bad_vnum < 0) {
-        zone_bad_vnum = vnum;
-        zone_bad_kind = kind;
+    if (real < 0 && vnum > 0 && vnum != 65535 && zone_bad_count < ZONE_MAX_BAD) {
+        listed = zone_bad_count++;
+        zone_bad_vnum[listed] = vnum;
+        zone_bad_kind[listed] = kind;
+    }
+    /* A required arg that fails disables the command, so it is always named,
+     * even when it is 0 or 65535. */
+    if (real < 0 && required && !zone_req_failed) {
+        zone_req_failed = true;
+        zone_req_vnum = vnum;
+        zone_req_kind = kind;
+        zone_req_index = listed;
     }
     return real;
 }
-static int zresolve_mob(int v) { return zresolve(v, ZREF_MOB); }
-static int zresolve_obj(int v) { return zresolve(v, ZREF_OBJ); }
-static int zresolve_room(int v) { return zresolve(v, ZREF_ROOM); }
+static int zresolve_mob(int v) { return zresolve(v, ZREF_MOB, false); }
+static int zresolve_obj(int v) { return zresolve(v, ZREF_OBJ, false); }
+static int zresolve_room(int v) { return zresolve(v, ZREF_ROOM, false); }
+/* The args that disable the command when they fail (renum's a and b). */
+static int zrequire_mob(int v) { return zresolve(v, ZREF_MOB, true); }
+static int zrequire_obj(int v) { return zresolve(v, ZREF_OBJ, true); }
+static int zrequire_room(int v) { return zresolve(v, ZREF_ROOM, true); }
+
+/* One renum line: to the log and area gods, and to the builder who ran
+ * implement unless mudlog already reached them. */
+static void zone_renum_report(int zone, int comm, const char* what, int vnum,
+    bool disabled, struct char_data* to)
+{
+    char errbuf[256];
+
+    sprintf(errbuf, "ZONE ERROR: zone #%d, command %d (%c): %s vnum %d not found%s",
+        zone_table[zone].number, comm + 1, zone_table[zone].cmd[comm].command, what, vnum,
+        disabled ? " - command disabled" : "");
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
+        send_to_char(errbuf, to);
+        send_to_char("\n\r", to);
+    }
+}
 
 void renum_zone_one(int zone, struct char_data* to)
 {
@@ -228,8 +269,8 @@ void renum_zone_one(int zone, struct char_data* to)
     for (comm = 0; comm < zone_table[zone].cmdno; comm++) {
         vmudlog(CMP, "Doing renum_zone_one on command #%d.", comm);
         a = b = 0;
-        zone_bad_vnum = -1;
-        zone_bad_kind = -1;
+        zone_bad_count = 0;
+        zone_req_failed = false;
 
         switch (zone_table[zone].cmd[comm].command) {
         case 'A':
@@ -238,7 +279,7 @@ void renum_zone_one(int zone, struct char_data* to)
             case 4:
             case 5:
             case 6:
-                a = zone_table[zone].cmd[comm].arg3 = zresolve_mob(zone_table[zone].cmd[comm].arg3);
+                a = zone_table[zone].cmd[comm].arg3 = zrequire_mob(zone_table[zone].cmd[comm].arg3);
                 break;
             }
             break;
@@ -248,33 +289,33 @@ void renum_zone_one(int zone, struct char_data* to)
             case 0:
             case 5:
             case 6:
-                a = zone_table[zone].cmd[comm].arg3 = zresolve_mob(zone_table[zone].cmd[comm].arg3);
+                a = zone_table[zone].cmd[comm].arg3 = zrequire_mob(zone_table[zone].cmd[comm].arg3);
                 break;
             case 1:
             case 2:
             case 3:
-                a = zone_table[zone].cmd[comm].arg3 = zresolve_obj(zone_table[zone].cmd[comm].arg3);
+                a = zone_table[zone].cmd[comm].arg3 = zrequire_obj(zone_table[zone].cmd[comm].arg3);
                 break;
             }
             break;
         case 'M':
-            a = zone_table[zone].cmd[comm].arg1 = zresolve_mob(zone_table[zone].cmd[comm].arg1);
-            b = zone_table[zone].cmd[comm].arg2 = zresolve_room(zone_table[zone].cmd[comm].arg2);
+            a = zone_table[zone].cmd[comm].arg1 = zrequire_mob(zone_table[zone].cmd[comm].arg1);
+            b = zone_table[zone].cmd[comm].arg2 = zrequire_room(zone_table[zone].cmd[comm].arg2);
             break;
         case 'O':
-            a = zone_table[zone].cmd[comm].arg1 = zresolve_obj(zone_table[zone].cmd[comm].arg1);
+            a = zone_table[zone].cmd[comm].arg1 = zrequire_obj(zone_table[zone].cmd[comm].arg1);
             if (zone_table[zone].cmd[comm].arg2 != NOWHERE)
-                b = zone_table[zone].cmd[comm].arg2 = zresolve_room(zone_table[zone].cmd[comm].arg2);
+                b = zone_table[zone].cmd[comm].arg2 = zrequire_room(zone_table[zone].cmd[comm].arg2);
             break;
         case 'G':
-            a = zone_table[zone].cmd[comm].arg1 = zresolve_obj(zone_table[zone].cmd[comm].arg1);
+            a = zone_table[zone].cmd[comm].arg1 = zrequire_obj(zone_table[zone].cmd[comm].arg1);
             break;
         case 'E':
-            a = zone_table[zone].cmd[comm].arg1 = zresolve_obj(zone_table[zone].cmd[comm].arg1);
+            a = zone_table[zone].cmd[comm].arg1 = zrequire_obj(zone_table[zone].cmd[comm].arg1);
             break;
         case 'P': /* room and obj_to can be null, then load to last_obj */
             zone_table[zone].cmd[comm].arg1 = zresolve_room(zone_table[zone].cmd[comm].arg1);
-            a = zone_table[zone].cmd[comm].arg2 = zresolve_obj(zone_table[zone].cmd[comm].arg2);
+            a = zone_table[zone].cmd[comm].arg2 = zrequire_obj(zone_table[zone].cmd[comm].arg2);
             zone_table[zone].cmd[comm].arg3 = zresolve_obj(zone_table[zone].cmd[comm].arg3);
             break;
         case 'K':
@@ -289,7 +330,7 @@ void renum_zone_one(int zone, struct char_data* to)
             a = b = 1;
             break;
         case 'D':
-            a = zone_table[zone].cmd[comm].arg1 = zresolve_room(zone_table[zone].cmd[comm].arg1);
+            a = zone_table[zone].cmd[comm].arg1 = zrequire_room(zone_table[zone].cmd[comm].arg1);
             break;
         }
 
@@ -304,37 +345,27 @@ void renum_zone_one(int zone, struct char_data* to)
          * loading that used to load. */
         bool disable = (a < 0 || b < 0);
 
-        if (disable || zone_bad_vnum >= 0) {
-            char c = zone_table[zone].cmd[comm].command;
-            char errbuf[256];
+        /* One line per vnum that names nothing, so the builder sees every
+         * problem in the command at once.  The vnum that disabled it carries
+         * the suffix; when that vnum is 0 or 65535 it is not in the list, so
+         * it gets its own line first. */
+        int i;
 
-            if (zone_bad_vnum >= 0)
-                sprintf(errbuf, "ZONE ERROR: zone #%d, command %d (%c): %s vnum %d not found%s",
-                    zone_table[zone].number, comm + 1, c,
-                    zref_name[zone_bad_kind], zone_bad_vnum,
-                    disable ? " - command disabled" : "");
-            else
-                sprintf(errbuf, "ZONE ERROR: zone #%d, command %d (%c): unresolved vnum - command disabled",
-                    zone_table[zone].number, comm + 1, c);
+        if (disable && zone_req_failed && zone_req_index < 0)
+            zone_renum_report(zone, comm, zref_name[zone_req_kind], zone_req_vnum, true, to);
+        for (i = 0; i < zone_bad_count; i++)
+            zone_renum_report(zone, comm, zref_name[zone_bad_kind[i]], zone_bad_vnum[i],
+                disable && i == zone_req_index, to);
 
-            mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
-            /* The builder whose edit caused this sees it immediately, in game --
-             * unless mudlog already reached them, which would duplicate it. */
-            if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
-                send_to_char(errbuf, to);
-                send_to_char("\n\r", to);
-            }
-
-            if (disable) {
-                zone_table[zone].cmds_disabled++;
-                zone_table[zone].cmd[comm].command = '*';
-            }
+        if (disable) {
+            zone_table[zone].cmds_disabled++;
+            zone_table[zone].cmd[comm].command = '*';
         }
 
-        /* Renum's line is a one-off record of bad data.  A command left
+        /* Renum's lines are a one-off record of bad data.  A command left
          * enabled goes on failing at every reset, so mark it and let
          * reset_zone say so each time it actually happens. */
-        zone_table[zone].cmd[comm].bad_arg = (zone_bad_vnum >= 0) ? 1 + zone_bad_kind : 0;
+        zone_table[zone].cmd[comm].bad_arg = zone_bad_count ? 1 + zone_bad_kind[0] : 0;
     }
 }
 
@@ -346,6 +377,9 @@ void renum_zone_one(int zone, struct char_data* to)
  */
 static int running_zone = -1;
 static int running_cmd_no = -1;
+/* Set only around the L command's own room lookups, the one place a zone
+ * command's line can itself send a missing room to world[]. */
+static bool zone_own_room_lookup = false;
 
 /*
  * Name the zone command that caused a failure: its zone and its command
@@ -368,6 +402,16 @@ bool report_zone_cmd_failure(const char* what)
     mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
 
     return true;
+}
+
+/* world[] was given a negative room while a zone command is running.  Say
+ * whether the command's own line named the missing room, or the lookup came
+ * from code the command set off (loading or equipping a mob, and so on). */
+bool report_zone_negative_room(void)
+{
+    return report_zone_cmd_failure(zone_own_room_lookup
+            ? "room not found - searched room 0 instead"
+            : "negative room lookup while running this command");
 }
 
 /*
@@ -618,7 +662,10 @@ void reset_zone(int zone)
                 switch (ZCMD.arg1) {
                 case 0: /* Sets last_mob */
                     if (ZCMD.arg2 >= 0 || ZCMD.arg3 >= 0) {
-                        for (tmp = 0, tmpmob = world[ZCMD.arg2].people;
+                        zone_own_room_lookup = true;
+                        tmpmob = world[ZCMD.arg2].people;
+                        zone_own_room_lookup = false;
+                        for (tmp = 0;
                              tmpmob; tmpmob = tmpmob->next_in_room) {
                             if (IS_NPC(tmpmob) && tmpmob->nr == ZCMD.arg3)
                                 tmp++;
@@ -636,7 +683,10 @@ void reset_zone(int zone)
                     break;
                 case 1: /* Sets last_obj from the room */
                     if (ZCMD.arg2 >= 0 || ZCMD.arg3 >= 0) {
-                        for (tmp = 0, tmpobj = world[ZCMD.arg2].contents;
+                        zone_own_room_lookup = true;
+                        tmpobj = world[ZCMD.arg2].contents;
+                        zone_own_room_lookup = false;
+                        for (tmp = 0;
                              tmpobj; tmpobj = tmpobj->next_content) {
                             if (tmpobj->item_number == ZCMD.arg3)
                                 tmp++;
@@ -722,7 +772,9 @@ void reset_zone(int zone)
                     break;
                 case 6: /* Sets last_mob from the zone */
                     if (ZCMD.arg2 >= 0 || ZCMD.arg3 >= 0) {
+                        zone_own_room_lookup = true;
                         tmp2 = world[ZCMD.arg2].zone;
+                        zone_own_room_lookup = false;
                         for (tmp = 0, tmpmob = character_list;
                              tmpmob; tmpmob = tmpmob->next) {
                             if (IS_NPC(tmpmob) && tmpmob->nr == ZCMD.arg3 && tmpmob->in_room >= 0 && world[tmpmob->in_room].zone == tmp2)
@@ -866,6 +918,14 @@ void reset_zone(int zone)
                 else
                     obj_to = get_obj_in_list_num(ZCMD.arg3, world[ZCMD.arg1].contents);
                 if (!obj_to) {
+                    /* The room or container named never resolved and there is
+                     * no last object to fall back on, so nothing loads.  This
+                     * happens before the count and % checks, which need a
+                     * container -- the bad vnum fails every run regardless. */
+                    if (ZCMD.bad_arg == 1 + ZREF_ROOM)
+                        report_zone_cmd_failure("room not found - nothing loaded");
+                    else if (ZCMD.bad_arg)
+                        report_zone_cmd_failure("container not found - nothing loaded");
                     last_cmd = 0;
                     break;
                 }
