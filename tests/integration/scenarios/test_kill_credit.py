@@ -2,6 +2,16 @@
 XP credit for the kill, and a bystander mob caught by splash manufactures no player-facing
 record.
 
+Timing model: see blaze_support.py's module docstring for how blaze ticks (real-time fast block
+plus `harness tick`, never `harness affects()`), why both regenerate every character's hit
+points on every call, and why a fixed tick budget needs to stay well under the room affect's
+duration, with an explicit affect-gone failure instead of a bare timeout. This file's tick loop
+therefore re-floors the orc's hit every iteration (`tick_until_marker`'s `refloor` argument) so
+it stays a one-tick kill for the whole loop, not just at the moment it was first set, and
+`restore`s `caller` and `fighter` every iteration too (`protect`) so a longer-than-expected loop
+cannot kill the very participants the XP-share assertions below depend on -- the room affect
+burns every occupant it rolls on, not just the orc.
+
 Uses `Harncaller`, not `Harnmage`, as the caster: `Harnmage` is RACE_MAGUS, other_side of
 `Harnfighter`'s RACE_HUMAN (`other_side_impl`, handler.cpp:143-172), so a blaze cast by Harnmage
 in the fighter's room would also burn and engage the fighter as a second hostile target -- an
@@ -46,7 +56,7 @@ import time
 
 import pytest
 
-from poison_support import BLAZE_CAST
+from blaze_support import LETHAL_HIT, BLAZE_CAST, floor_hit, tick_until_marker
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
 
@@ -84,28 +94,6 @@ def _wait_for_engagement(imp: GameSession, mob_name: str, victim_name: str, time
         imp.drain(0.5)
 
 
-def _tick_until_marker(harness, imp: GameSession, marker: str, budget: int = 25) -> None:
-    """Forces `harness tick` (test_harness.cpp; drives `affect_update()`'s room-affect sweep) up
-    to `budget` times, checking `harness.tick()`'s OWN returned transcript for `marker` first --
-    the room-tick damage (and its "$n is dead!" broadcast) happens synchronously inside the
-    command's own engine call, before the server sends "Harness: hourly tick complete.", so
-    `Harness.tick()`'s `expect()` already consumes it; a separate `imp.drain()` afterward sees
-    nothing and is only a fallback for the rare case where the fast real-time block (also
-    active in harness mode, see test_blaze_after_caster_gone.py's module docstring) delivers it
-    off-tick. blaze is a fast room affect: its per-occupant roll is roughly a 38% chance per
-    tick (limits.cpp's `number(0, 12)` plus the fast-spell `number(0, 2)` chance,
-    affect_update_room), so one or two ticks cannot be trusted to land it -- but the room affect
-    burns every occupant, PCs included, so the loop must stop the instant the marker lands
-    rather than run the full budget regardless.
-    """
-    for _tick in range(budget):
-        if marker in harness.tick().text:
-            return
-        if marker in imp.drain(1.0):
-            return
-    pytest.fail(f"{marker!r} never appeared within {budget} harness ticks")
-
-
 def _set_up_arena_west_fight(server, imp: GameSession, caller: GameSession, fighter: GameSession) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
     imp.command("transfer harncaller")
@@ -119,16 +107,18 @@ def _set_up_arena_west_fight(server, imp: GameSession, caller: GameSession, figh
 def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server, imp, caller, fighter, harness) -> None:
     _set_up_arena_west_fight(server, imp, caller, fighter)
     imp.command("load mob 1130")
-    imp.command("wizset target hit 9")  # below the smallest halved blaze tick
+    floor_hit(imp, "target")  # below the smallest halved blaze tick
 
     fighter.command("kill target")  # the orc tanks the fighter, who cannot actually hurt it
     _wait_for_engagement(imp, "target", "Harnfighter")
 
     caller.cast("blaze", success_markers=BLAZE_CAST)  # the caster never engages the orc
-    _tick_until_marker(harness, imp, ORC_DEATH_MARKER)
+    tick_until_marker(harness, imp, imp, ORC_DEATH_MARKER, protect=(caller, fighter), refloor=("target", LETHAL_HIT))
 
     # Both the still-engaged fighter and the unengaged, present caster are paid: see the module
-    # docstring's group_gain() citation for why credit is not exclusive to one of them.
+    # docstring's group_gain() citation for why credit is not exclusive to one of them. `protect`
+    # above kept both of them alive through the tick loop, so neither share line can be missing
+    # merely because the room's own fire got to them first.
     fighter.expect([SHARE_MARKER], 10.0)
     caller.expect([SHARE_MARKER], 10.0)
 
@@ -143,24 +133,32 @@ def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, h
     _set_up_arena_west_fight(server, imp, caller, fighter)
     imp.command("load mob 1130")
     imp.command("load mob 1132")  # the bystander, never fighting anybody
-    imp.command("wizset target hit 9")
+    floor_hit(imp, "target")
 
     fighter.command("kill target")
     _wait_for_engagement(imp, "target", "Harnfighter")
 
     caller.cast("blaze", success_markers=BLAZE_CAST)
-    _tick_until_marker(harness, imp, ORC_DEATH_MARKER)
+    tick_until_marker(harness, imp, imp, ORC_DEATH_MARKER, protect=(caller, fighter), refloor=("target", LETHAL_HIT))
 
     fighter.expect([SHARE_MARKER], 10.0)
     caller.expect([SHARE_MARKER], 10.0)
 
     # room_affect_tick.cpp's blaze_tick() always hands damage_credited() the occupant as its own
     # attacker (room_affect_tick.cpp:16-21's file banner), so a splash hit never engages the
-    # bystander with anybody; if it is still alive, its own Fighting: line proves that.
-    bystander_stat = imp.command("stat bystander")
-    if "fighting:" in bystander_stat.text.lower():
-        assert "fighting: nobody" in bystander_stat.text.lower(), (
-            f"splash damage must never drag the bystander into a fight: {bystander_stat.text}"
+    # bystander with anybody. The bystander's own tick roll is independent of the orc's, so by
+    # the time the loop above stops it may have taken no damage, some, or died outright; both
+    # outcomes are asserted explicitly here rather than one of them being silently skipped, per
+    # the task's own ruling ("it survived... or it died..."). A bare `stat <name>` (no "mob"
+    # prefix) falls through do_wizstat's final `else` (act_wiz.cpp:1124-1132), whose
+    # "Nothing around by that name." is the one text that confirms it is the "died" half, not a
+    # stale keyword lookup; the exploits check just below covers both halves unconditionally.
+    bystander_stat = imp.command("stat bystander").text
+    bystander_text = bystander_stat.lower()
+    bystander_gone = "nothing around by that name" in bystander_text
+    if not bystander_gone:
+        assert "fighting: nobody" in bystander_text, (
+            f"splash damage must never drag the bystander into a fight: {bystander_stat}"
         )
 
     for name in ("Harncaller", "Harnfighter"):

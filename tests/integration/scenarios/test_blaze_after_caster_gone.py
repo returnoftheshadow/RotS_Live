@@ -2,38 +2,28 @@
 registration serial survive, so the tick still credits the mage) and after the caster's link
 drops while another character logs in (no misattribution to the new body).
 
-Timing model: blaze is a fast room affect (spec B1), ticked by both the real-time fast block
-(comm.cpp, every PULSE_FAST_UPDATE ~3s, unconditional in harness mode) and `harness tick`'s
-hourly sweep; its application roll is not phase-gated, so `harness affects()` (which only
-forces slow *person* affects) does nothing for it. These scenarios therefore use `harness
-tick()` plus marker/HP-poll waits under the seeded RNG, exactly as `test_blaze_after_quit.py`
-does, rather than the poison scenarios' `affects()` budget loop.
+Timing model: see blaze_support.py's module docstring -- blaze ticks from the real-time fast
+block (comm.cpp, ~3s, unconditional regardless of harness_mode) and `harness tick`'s
+`fast_update()`/`affect_update()` pair, never from `harness affects()` (which only forces the
+one slow *person*-affect phase compare, and blaze's own application roll is gated on neither
+that phase nor it). Both spend the same room affect's duration on every call they make and both
+regenerate every character's hit points, so these scenarios re-floor the victim's hit every loop
+iteration (`blaze_support.tick_until_hp_drops`/`tick_until_marker`'s `refloor`) so a single tick
+stays lethal for the whole loop, and keep their tick budgets well under the affect's nominal
+duration, with an explicit failure naming the cause if the affect runs out first under a loaded
+run -- exactly as `test_blaze_after_quit.py` does.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from poison_support import BLAZE_CAST, DEATH_MARKER
+from blaze_support import LETHAL_HIT, BLAZE_CAST, read_hp, tick_until_hp_drops, tick_until_marker
+from poison_support import DEATH_MARKER
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
 
 pytestmark = pytest.mark.scenario
-
-
-def _read_victim_hp(imp, attempts: int = 4) -> int:
-    """`imp` stays in the blazing room to observe it, so it is itself a tick target: an
-    unsolicited "burning" broadcast plus the MUD's usual prompt redisplay after it can race
-    a `stat` command's own reply and satisfy `command()`'s end-of-prompt check before that
-    reply arrives (the real reply then surfaces as leading noise ahead of the next command,
-    and gets silently drained away by it). Retry rather than trust a single read; the real
-    `stat` block is never more than one command behind.
-    """
-    for _attempt in range(attempts):
-        points = imp.command("stat harnvictim").hit_points()
-        if points is not None:
-            return points[0]
-    pytest.fail(f"stat harnvictim never returned a parseable HP block in {attempts} attempts")
 
 
 def _blaze_the_centre(imp, mage, victim) -> int:
@@ -41,30 +31,18 @@ def _blaze_the_centre(imp, mage, victim) -> int:
     imp.command("transfer harnmage")
     imp.command("transfer harnvictim")
     imp.command("restore harnmage")
-    imp.command("wizset harnvictim maxhit 300")
     imp.command("restore harnvictim")
     victim.command("west")  # out of the cast so nobody engages anybody
     mage.cast("blaze", success_markers=BLAZE_CAST)
-    return _read_victim_hp(imp)
+    return read_hp(imp, "harnvictim")
 
 
 def _tick_until_dead(harness, imp, victim, before: int) -> None:
     victim.command("east")
     victim.expect_room("Arena Centre")
-    after = before
-    for _tick in range(15):  # a room-affect tick fires probabilistically per pulse, not every pulse
-        harness.tick()
-        after = _read_victim_hp(imp)
-        if after < before:
-            break
+    after = tick_until_hp_drops(harness, imp, "harnvictim", before)
     assert after < before, f"the blaze should still tick ({before} -> {after})"
-    died = False
-    for _tick in range(30):
-        harness.tick()
-        if DEATH_MARKER in victim.drain(1.0):
-            died = True
-            break
-    assert died, "the blaze ticks should eventually kill the victim"
+    tick_until_marker(harness, imp, victim, DEATH_MARKER, refloor=("harnvictim", LETHAL_HIT))
 
 
 def test_blaze_ticks_survive_the_casters_death_and_still_credit_the_mage(server, imp, mage, victim, harness) -> None:
