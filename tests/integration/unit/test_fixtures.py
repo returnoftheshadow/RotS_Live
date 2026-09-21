@@ -94,3 +94,9 @@ def test_write_character_substitutes_the_spec_and_keeps_every_section(tmp_path: 
         "followers": [],
     }
     assert json.loads((character_path.parent / "harnmage.exploits.json").read_text(encoding="utf-8")) == {"version": 1, "records": []}
+
+
+def test_harncaller_carries_fireball_for_the_splash_scenario() -> None:
+    caller = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harncaller")
+    assert caller.skills["fireball"] == 100
+    assert caller.professions["mage"] >= 21  # fireball's profession level, consts.cpp skills[]

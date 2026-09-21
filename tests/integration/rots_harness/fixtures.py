@@ -73,8 +73,9 @@ STANDARD_ROSTER: tuple[CharacterSpec, ...] = (
     CharacterSpec("Harnfighter", RACE_HUMAN, 20, ROOM_ARENA_CENTRE, {"warrior": 20}, {}, 200, 50, 200, 9000003),
     CharacterSpec("Harnvictim", RACE_WOOD_ELF, 10, ROOM_ARENA_CENTRE, {"ranger": 10}, {}, 60, 40, 120, 9000004),
     # Human, not magus: other_side() puts a magus on the opposite side from the wood-elf victim,
-    # and spell_summon fails across sides. The summon and relogin scenarios use this caster.
-    CharacterSpec("Harncaller", RACE_HUMAN, 30, ROOM_ARENA_CENTRE, {"mage": 30}, {"summon": 100, "blaze": 100}, 200, 600, 200, 9000005),
+    # and spell_summon fails across sides. The summon and relogin scenarios use this caster,
+    # and the splash scenario needs a human caster with fireball.
+    CharacterSpec("Harncaller", RACE_HUMAN, 30, ROOM_ARENA_CENTRE, {"mage": 30}, {"summon": 100, "blaze": 100, "fireball": 100}, 200, 600, 200, 9000005),
 )
 
 
