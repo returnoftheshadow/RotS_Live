@@ -106,6 +106,8 @@ static const char* script_cmd_name(int command)
         return "teleport";
     case SCRIPT_TELEPORT_CHAR_X:
         return "teleport x";
+    case SCRIPT_TELEPORT_CHAR_XL:
+        return "teleport xl";
     }
     return "?";
 }
@@ -140,6 +142,21 @@ static void report_script_bad_exit(int script_index, script_data* cmd, int room_
 
     sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): room %d has no exit %d",
         script_no, cmd->number, script_cmd_name(cmd->command_type), room_vnum, dir);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+}
+
+/* A line whose room parameter names no room (an unset room variable, or the
+ * room of a character that is not set).  Using it would crash, so the line
+ * is skipped. */
+static void report_script_no_room(int script_index, script_data* cmd)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): room not found",
+        script_no, cmd->number, script_cmd_name(cmd->command_type));
     mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
 }
 
@@ -1777,11 +1794,17 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpch = get_char_param(curr->param[1], info);
                 tmprm = get_room_param(curr->param[0], info);
                 if ((tmpch) && (tmpint > -1)) {
-                    if (IS_RIDING(tmpch)) {
-                        stop_riding(tmpch);
+                    /* Crash guard only: a missing room was a null pointer.
+                     * The tmpint test above is left exactly as it was. */
+                    if (!tmprm)
+                        report_script_no_room(info->index, curr);
+                    else {
+                        if (IS_RIDING(tmpch)) {
+                            stop_riding(tmpch);
+                        }
+                        char_from_room(tmpch);
+                        char_to_room(tmpch, real_room(tmprm->number));
                     }
-                    char_from_room(tmpch);
-                    char_to_room(tmpch, real_room(tmprm->number));
                 }
             }
             curr = curr->next;
