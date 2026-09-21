@@ -11,6 +11,11 @@ POISON_RESISTED = ("You feel your body fend off the poison.",)
 DEATH_MARKER = "You are dead!  Sorry..."  # fight.cpp damage()
 BLAZE_CAST = ("You breathe out fire.",)
 ROSTER_CON = 11  # tests/integration/fixtures/character.template.json abilities.con
+# comm.cpp's real-time fast block (PULSE_FAST_UPDATE, every 3s) keeps regenerating hit points
+# independently of the forced affect ticks (spec B1 is monotonic, not tick-exact), so a post-death
+# hit-point assertion taken some wall-clock time after the death tick allows a small margin above
+# the pinned revival value instead of an exact match.
+REGEN_ALLOWANCE = 3
 
 
 def death_tick_budget(hit: int, con: int = ROSTER_CON) -> int:

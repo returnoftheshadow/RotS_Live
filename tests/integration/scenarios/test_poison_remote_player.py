@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+import poison_support
 from poison_support import DEATH_MARKER, affect_ticks_until_death, death_tick_budget, poison_until_it_lands
 from rots_harness import fixtures, records
 
@@ -32,7 +33,11 @@ def test_remote_player_poison_death_is_gentle_and_fully_attributed(server, imp, 
 
     stat = imp.command("stat harnvictim")
     current, maximum = stat.hit_points()
-    assert current == maximum // 4, f"gentle poison death revives at a quarter of {maximum} HP, got {current}: {stat.text}"
+    pinned = maximum // 4
+    assert pinned <= current <= pinned + poison_support.REGEN_ALLOWANCE, (
+        f"gentle poison death revives at a quarter of {maximum} HP ({pinned}), plus up to "
+        f"{poison_support.REGEN_ALLOWANCE} for real-time regen since the death tick, got {current}: {stat.text}"
+    )
 
     victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
     types = [record.type for record in victim_records]
