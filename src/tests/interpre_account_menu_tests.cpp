@@ -987,6 +987,13 @@ TEST(InterpreAccountMenu, UnlockSelectAllowsOneDifferentLinkedCharacterSelection
     linkless_legolas->next = nullptr;
     character_list = linkless_legolas;
 
+    // act(..., TO_ROOM) inside the reconnect path below walks
+    // world[0].people; chain the reconnecting body in so that walk finds
+    // defined memory instead of the shared world[0]'s never-initialized
+    // people pointer.
+    world[0].people = linkless_legolas;
+    linkless_legolas->next_in_room = nullptr;
+
     char enter_choice[] = "1";
     nanny(&descriptor, enter_choice);
 
@@ -1003,6 +1010,11 @@ TEST(InterpreAccountMenu, UnlockSelectAllowsOneDifferentLinkedCharacterSelection
     EXPECT_EQ(second_descriptor.character, nullptr);
     const std::string second_output = second_descriptor.output;
     EXPECT_NE(second_output.find("You are already connected as Aragorn."), std::string::npos) << second_output;
+
+    // Room 0 is shared across this suite; clear the pointer this test
+    // planted before linkless_legolas is freed below, so a later test does
+    // not walk into freed memory.
+    world[0].people = nullptr;
 
     character_list = nullptr;
     free_char(descriptor.character);
@@ -1776,6 +1788,13 @@ TEST(InterpreAccountMenu, SelectingSameLinklessActiveCharacterReconnectsExisting
     character_list = active_character;
     descriptor_list = active_descriptor;
 
+    // act(..., TO_ROOM) inside the reconnect path below walks
+    // world[0].people; chain the reconnecting body in so that walk finds
+    // defined memory instead of the shared world[0]'s never-initialized
+    // people pointer.
+    world[0].people = active_character;
+    active_character->next_in_room = nullptr;
+
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
@@ -1787,6 +1806,11 @@ TEST(InterpreAccountMenu, SelectingSameLinklessActiveCharacterReconnectsExisting
     EXPECT_EQ(active_character->desc, &descriptor);
     EXPECT_EQ(descriptor_list, nullptr);
     EXPECT_NE(std::string(descriptor.output).find("Reconnecting."), std::string::npos);
+
+    // Room 0 is shared across this suite; clear the pointer this test
+    // planted before active_character is freed below, so a later test does
+    // not walk into freed memory.
+    world[0].people = nullptr;
 
     character_list = nullptr;
     free_char(descriptor.character);
@@ -1824,6 +1848,12 @@ TEST(InterpreAccountMenu, SelectingSameActivePlayingCharacterUsurpsExistingDescr
     character_list = active_character;
     descriptor_list = &active_descriptor;
 
+    // act(..., TO_ROOM) inside the usurp path below walks world[0].people;
+    // chain the usurped body in so that walk finds defined memory instead of
+    // the shared world[0]'s never-initialized people pointer.
+    world[0].people = active_character;
+    active_character->next_in_room = nullptr;
+
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
@@ -1836,6 +1866,11 @@ TEST(InterpreAccountMenu, SelectingSameActivePlayingCharacterUsurpsExistingDescr
     EXPECT_EQ(active_descriptor.connected, CON_CLOSE);
     EXPECT_EQ(active_descriptor.character, nullptr);
     EXPECT_NE(std::string(descriptor.output).find("You take over your own body, already in use!"), std::string::npos);
+
+    // Room 0 is shared across this suite; clear the pointer this test
+    // planted before active_character is freed below, so a later test does
+    // not walk into freed memory.
+    world[0].people = nullptr;
 
     character_list = nullptr;
     free_char(descriptor.character);
