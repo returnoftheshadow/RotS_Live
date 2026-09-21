@@ -2984,7 +2984,9 @@ bool write_player_text(struct char_data* ch, int load_room, const char* scratch_
     fprintf(pf, "last_logon  %ld\n", chd.last_logon);
     memcpy(pwdcrypt, chd.pwd, MAX_PWD_LENGTH);
     encrypt_line((unsigned char*)pwdcrypt, MAX_PWD_LENGTH);
-    fprintf(pf, "password    %s\n", pwdcrypt);
+    // pwdcrypt is encrypted in place, terminator included, so it is not a C string; the loader
+    // reads exactly MAX_PWD_LENGTH bytes from this line, so write exactly that many.
+    fprintf(pf, "password    %.*s\n", MAX_PWD_LENGTH, pwdcrypt);
     fprintf(pf, "host        %s\n", chd.host);
     fprintf(pf, "idnum       %ld\n", chd.specials2.idnum);
     fprintf(pf, "load_room   %d\n", chd.specials2.load_room);

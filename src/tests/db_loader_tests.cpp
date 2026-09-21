@@ -543,6 +543,38 @@ TEST(DbLoader, RejectsMalformedPlayerTextWithoutLongStringTerminator)
     EXPECT_LT(load_char_from_text(player_name, malformed_player_text, &character_data), 0);
 }
 
+TEST(DbLoader, WritePlayerTextEmitsExactlyThePasswordFieldWidth)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.player.name = strdup("aragorn");
+    character.player.title = strdup("the Ranger");
+    character.player.description = strdup("A ranger.");
+    descriptor_data descriptor {};
+    // Ten non-zero bytes: the encrypted form has no terminator inside the array.
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "ABCDEFGHIJ");
+    character.desc = &descriptor;
+
+    ASSERT_TRUE(write_player_text(&character, 3001, "players/aragorn.txt"));
+    const std::string text = read_file_contents("players/aragorn.txt");
+    const size_t line_start = text.find("password    ");
+    ASSERT_NE(line_start, std::string::npos);
+    const size_t value_start = line_start + std::strlen("password    ");
+    const size_t line_end = text.find('\n', value_start);
+    ASSERT_NE(line_end, std::string::npos);
+    EXPECT_EQ(line_end - value_start, static_cast<size_t>(MAX_PWD_LENGTH))
+        << "the password value must be exactly MAX_PWD_LENGTH bytes, never bytes read past pwdcrypt";
+
+    character.desc = nullptr;
+    free(character.player.name);
+    free(character.player.title);
+    free(character.player.description);
+}
+
 TEST(DbLoader, LegacyPlayerTextRoundTripPreservesCombatState)
 {
     TemporaryDirectory temp_directory;
