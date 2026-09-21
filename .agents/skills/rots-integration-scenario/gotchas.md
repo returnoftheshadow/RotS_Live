@@ -20,6 +20,16 @@ behaviour lives so you can confirm it still holds.
 - **A `look` sent before a `transfer` lands reads the old room.** Use `expect_room`.
 - **A death sets mana to zero on both punishment branches** (`fight.cpp` die paths), so
   mana cannot tell a gentle death from a harsh one; hit points and stats can.
+- **While a fight runs in the imp's own room, `command()` can return before the command it
+  just sent has executed.** Every violence pulse ends a combat broadcast with a prompt
+  (`session.py`'s `ends_with_prompt`), and `command()`'s wait is satisfied by *any* prompt, not
+  specifically the reply to what it sent; a stray combat-broadcast prompt can land in that
+  window and let `command()` return while the actual command is still queued behind it on the
+  server. Seen on CI (run 35655894942, kept run `build/integration/4ba60d7e87b2`): with the
+  caster meleeing a splash-engaged bystander, `imp.command("load mob 1130")` returned on a
+  stray prompt before the load had executed, so a `kill target` issued right after it reached
+  the server first and got "They aren't here." Send the command with `send_line` and `expect`
+  on its own reply marker instead once a fight may be running in that room.
 
 ## Wizard commands
 
