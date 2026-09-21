@@ -26,6 +26,7 @@
 #include "../db.h"
 #include "../handler.h"
 #include "../interpre.h"
+#include "../pkill.h"
 #include "../spells.h"
 #include "../test_harness.h"
 #include "../utils.h"
@@ -47,6 +48,10 @@ extern struct skill_data skills[];
 ACMD(do_rehash); // act_wiz.cpp: rebuilds affected_list from character_list and the world's rooms
 extern struct char_data* combat_list;
 extern struct char_data* combat_next_dude;
+extern struct player_index_element* player_table;
+extern int top_of_p_table;
+
+void do_fame_war_bonuses(struct char_data* ch); // limits.cpp: not declared in limits.h
 
 void affect_update();
 void affect_update_person(struct char_data* i, int mode);
@@ -555,6 +560,50 @@ TEST(AffectUpdatePerson, ExpiringAngerResetsAttackedLevelWithoutTouchingTheFreed
 
     EXPECT_EQ(character->specials.attacked_level, 0);
     EXPECT_EQ(character->affected, nullptr);
+
+    test_support::release_test_character(character);
+}
+
+// do_fame_war_bonuses() (limits.cpp) used to write pkaff->duration, read and
+// write pkaff->modifier, and test `if (!pkaff)` -- all after
+// affect_remove(ch, pkaff) had already freed that node via
+// put_to_affected_type_pool() (handler.cpp). A Task 3b reviewer flagged the
+// same shape as the mist-affect fix above. This drives the exact branch that
+// frees the node: a player whose recalculated pkill rank has dropped below
+// MIN_RANK while still carrying a SPELL_FAME_WAR affect from a higher tier.
+TEST(DoFameWarBonuses, DroppedRankReplacesTheFreedAffectWithoutTouchingIt) {
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
+    character->player.name = strdup("test_fame_war_target");
+    character->player.level = 30;
+    character->player_index = 0;
+
+    // pkill_get_rank_by_character() reads player_table[player_index]; give it
+    // a one-entry table whose totalrank makes the recomputed ranking (0)
+    // invalid (below MIN_RANK), and restore the previous table afterward.
+    player_index_element* const previous_player_table = player_table;
+    const int previous_top_of_p_table = top_of_p_table;
+    player_table = new player_index_element[1] {};
+    top_of_p_table = 0;
+    player_table[0].totalrank = PKILL_UNRANKED;
+
+    affected_type old_fame_war {};
+    old_fame_war.type = SPELL_FAME_WAR;
+    old_fame_war.duration = 50;
+    old_fame_war.modifier = 2; // a tier the now-invalid rank no longer supports
+    old_fame_war.location = APPLY_NONE;
+    old_fame_war.bitvector = 0;
+    affect_to_char(character, &old_fame_war);
+
+    do_fame_war_bonuses(character);
+
+    ASSERT_NE(character->affected, nullptr);
+    EXPECT_EQ(character->affected->type, SPELL_FAME_WAR);
+    EXPECT_EQ(character->affected->modifier, 0); // get_ranking_tier(0) == 0
+    EXPECT_EQ(character->affected->next, nullptr) << "exactly one fresh affect, not the freed one";
+
+    delete[] player_table;
+    player_table = previous_player_table;
+    top_of_p_table = previous_top_of_p_table;
 
     test_support::release_test_character(character);
 }
