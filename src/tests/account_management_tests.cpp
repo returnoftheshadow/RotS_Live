@@ -99,30 +99,6 @@ private:
     std::string m_original_path;
 };
 
-class ScopedPlayerTableEntry {
-public:
-    explicit ScopedPlayerTableEntry(const char* name)
-        : m_previous_player_table(player_table)
-        , m_previous_top_of_p_table(top_of_p_table)
-    {
-        player_table = new player_index_element[1] {};
-        top_of_p_table = 0;
-        player_table[0].name = strdup(name);
-    }
-
-    ~ScopedPlayerTableEntry()
-    {
-        free(player_table[0].name);
-        delete[] player_table;
-        player_table = m_previous_player_table;
-        top_of_p_table = m_previous_top_of_p_table;
-    }
-
-private:
-    player_index_element* m_previous_player_table;
-    int m_previous_top_of_p_table;
-};
-
 class ScopedEnvironmentVariable {
 public:
     ScopedEnvironmentVariable(const char* name, const std::string& value)
