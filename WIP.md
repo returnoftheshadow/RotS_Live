@@ -1,6 +1,18 @@
 # Work In Progress
 
-## Current Bug Task - Exploit records for remote kill contributors (2026-09-15)
+## Current state (2026-09-21)
+- Branch `fix/spell-room-affect-uaf-port`, draft PR #309. The spell and room-affect port is complete; the
+  integration harness (slices 1-3) and the slice 2 scenario suite are complete and green in CI (68
+  scenarios under AddressSanitizer, 813/813 unit tests, sanitized ctest blocking). Detail: the
+  "Integration Test Harness" sections at the end of this file, newest last.
+- Next: `docs/superpowers/plans/2026-09-21-harness-follow-up.md` (summon distance and fireball splash
+  scenarios; the four owner findings from the fix wave). Parked: the affect-expiry retry-budget flake
+  (fix path in the slice 2 ledger).
+- Deploy caveat still standing (from the 2026-09-15 task below): the account-native exploits history is
+  a one-way schema change; do not roll a server back to a pre-widening binary once a wide victim id has
+  been recorded.
+
+## Bug Task - Exploit records for remote kill contributors (2026-09-15, complete)
 - Manual test on the local Docker server (branch `fix/spell-room-affect-uaf-port`): a blaze tick killing Grishkazh while Tinuvelle stood in another room produced fame/pkill entries but no `EXPLOIT_PK` trophy on Tinuvelle and no `EXPLOIT_DEATH` entry on Grishkazh.
 - Root cause: `add_exploit_record()` (`src/db.cpp`) still rediscovered killers by walking `combat_list`, so die()'s `kill_contributor_list` (which is how pkill saw the remote caster) never reached the exploit history.
 - Second finding from the same records: `exploit_record::shintVictimID` was `sh_int`; account-native JSON histories stored idnum `1010009060` as `-31772`.

@@ -425,8 +425,15 @@ Scope, in three slices (each its own plan):
   docker compose launchers with the shared Docker lock, crash monitor, telnet sessions,
   record readers), a boot test and three pilot scenarios (remote player poison, blaze after
   the caster quits, remote-credit XP split).
-- [ ] Slice 2: the full branch scenario suite from the spec's catalogue.
-- [ ] Slice 3: CI job with an AddressSanitizer build.
+- [x] Slice 2 (`docs/superpowers/plans/2026-09-20-fix-wave.md`, `docs/superpowers/plans/2026-09-20-slice-2-scenarios.md`,
+  complete 2026-09-21): the fix wave that took the sanitized unit run to zero failures, `harness affects`,
+  Harncaller and the crevice room, and the full scenario catalogue (68 scenarios).
+- [x] Slice 3 (`docs/superpowers/plans/2026-09-19-ci-integration-asan.md`, complete 2026-09-21): the
+  `integration-asan` CI job; both jobs green and the sanitized ctest step blocking.
+- [ ] Follow-up (`docs/superpowers/plans/2026-09-21-harness-follow-up.md`): scenarios for summon's
+  squared-distance save bonus and fireball splash engagement; the four owner findings recorded during
+  the fix wave (host field written with `%s`, alias writer skipping the length of an empty command,
+  MageTestContext stack characters, dead ScopedPlayerTableEntry copy).
 
 Rules: no production behaviour outside harness mode; never touch `lib/`, `bin/`, the `rots`
 container or port 1024; run directories live under `build/integration/`.
