@@ -62,6 +62,26 @@ def test_snake_mob_binds_its_bite_special() -> None:
     assert program_number == 1, f"snake store_prog_number {program_number} must be 1 (spec_ass.cpp's virt_program_number/get_special_function select SPECIAL(snake) for 1)"
 
 
+def test_zone_twelve_sits_at_squared_distance_twenty_from_zone_eleven() -> None:
+    """spell_summon adds dx*dx + dy*dy to the save bonus (mage.cpp ~861); new_saves_spell treats a
+    bonus of 20 or more as an automatic save (spell_pa.cpp ~262), so this placement makes a
+    cross-zone summon fail deterministically."""
+    eleven = (WORLD_ROOT / "zon" / "11.zon").read_text(encoding="latin-1")
+    twelve = (WORLD_ROOT / "zon" / "12.zon").read_text(encoding="latin-1")
+    header = re.compile(r"^\? (-?\d+) (-?\d+) \d+\s*$", flags=re.MULTILINE)
+    x1, y1 = (int(value) for value in header.search(eleven).groups())
+    x2, y2 = (int(value) for value in header.search(twelve).groups())
+    assert (x2 - x1) ** 2 + (y2 - y1) ** 2 == 20
+
+
+def test_zone_twelve_holds_only_the_distant_cell() -> None:
+    text = (WORLD_ROOT / "wld" / "12.wld").read_text(encoding="latin-1")
+    vnums = [int(match) for match in re.findall(r"^#(\d+)\s*$", text, flags=re.MULTILINE)]
+    assert vnums == [1201, 99999]
+    assert "Distant Cell" in text
+    assert not re.search(r"^D[0-5]$", text, flags=re.MULTILINE), "the cell has no exits"
+
+
 def test_crevice_floor_is_a_plain_down_exit_from_arena_west() -> None:
     text = (WORLD_ROOT / "wld" / "11.wld").read_text(encoding="latin-1")
     assert re.search(r"^#1136\s*$", text, flags=re.MULTILINE), "room 1136 (Crevice Floor) must exist"
