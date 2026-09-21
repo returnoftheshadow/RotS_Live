@@ -4043,8 +4043,7 @@ room_data::room_data()
     description = 0;
     ex_description = nullptr;
 
-    for (int direction = 0; direction < NUM_OF_DIRS; ++direction)
-    {
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
         dir_option[direction] = nullptr;
     }
 

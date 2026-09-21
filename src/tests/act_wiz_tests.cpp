@@ -103,8 +103,7 @@ public:
 
     ~ScopedPlayerTableEntry()
     {
-        // player_table may no longer be the block allocated above -- create_entry() can
-        // replace it during the test -- so free whatever it currently points to.
+        // See the constructor: create_entry() may have replaced player_table by now.
         free(player_table[0].name);
         free(player_table);
         player_table = m_previous_player_table;

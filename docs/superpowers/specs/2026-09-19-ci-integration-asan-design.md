@@ -14,10 +14,8 @@ reused.
 
 - A **separate job** rather than a step on the existing `build-test-smoke` job or a matrix.
 - The sanitized build compiles **both** `ageland` and `ageland_tests`. Both builds are
-  blocking. The **ctest run** is non-blocking (`continue-on-error`) so pre-existing sanitizer
-  findings in the unit tests are visible without turning the new job red. (Superseded on
-  2026-09-20: the slice 2 amendment in the harness design spec makes the step blocking once
-  the sanitized unit run is clean.) The integration
+  blocking. The **ctest run** is blocking since 2026-09-21, after the fix wave took the
+  sanitized unit suite to zero failures, and runs after the integration suite. The integration
   suite is **blocking from day one**: a pre-existing ASan finding in a scenario path is a real
   defect and is fixed on this branch before merge.
 - The sanitizer recipe lives in **CMake and the Makefile**, not only in the workflow YAML, so
@@ -167,7 +165,7 @@ Steps, in order:
 3. `make BUILD_DIR=build-asan SANITIZE=address configure`, then
    `make BUILD_DIR=build-asan setup` and a build of **both** targets
    (`cmake --build build-asan --target ageland ageland_tests`), blocking, so a compile or link
-   break under ASan is never hidden inside the non-blocking step.
+   break under ASan is never hidden inside the ctest step.
 4. Proof steps, blocking:
    - `ldd bin/ageland | grep -E 'libasan\.so[^ ]* => /'` proves the configured tree really
      enabled the sanitizer and the 32-bit runtime resolved. (A missing runtime fails at link

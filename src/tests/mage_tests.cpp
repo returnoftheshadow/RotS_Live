@@ -930,11 +930,9 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
     // fumble test above.
     release_fireball_corpse(kFireballRoom, previous_object_list);
 
-    // Detects a corpse that IS the head of world[kFireballRoom].contents but whose own
-    // in_room disagrees with that room -- the list-membership mismatch obj_from_room()'s
-    // null-walker guard logs. A corpse that lands in a different room entirely leaves
-    // world[kFireballRoom].contents null, so release_fireball_corpse() above never calls
-    // obj_from_room() at all; that failure mode is not what this assertion catches.
+    // The capture window above covers only spell_fireball() itself (release_fireball_corpse()
+    // runs after GetCapturedStderr, per the comment above it); this assertion pins that the
+    // cast's own obj_from_room() calls log no SYSERR.
     EXPECT_EQ(captured.find("obj_from_room: object is not in its room's contents list."), std::string::npos)
         << "release_fireball_corpse() must find its corpse (if any) in world[kFireballRoom], "
            "not off in a different room; stderr was: "

@@ -23,9 +23,9 @@ struct WeaponMasterTestContext {
 };
 
 // act(..., TO_ROOM) walks world[ch->in_room].people; room 0 is shared across
-// this test binary's suites and is otherwise never populated here, so its
-// people pointer is whatever memory the allocator last left behind (modeled
-// on interpre_account_menu_tests.cpp's ensure_test_world_room, minus the
+// this test binary's suites and is otherwise never populated here, so this fixture sets
+// an explicit occupant chain for the test to walk (modeled on
+// interpre_account_menu_tests.cpp's ensure_test_world_room, minus the
 // name/description strings this suite never reads).
 void ensure_test_world_room(int room_number)
 {

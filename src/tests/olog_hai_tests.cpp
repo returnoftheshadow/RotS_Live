@@ -94,11 +94,9 @@ struct OlogHaiTestContext {
         original_room_light = world[attacker.in_room].light;
         world[attacker.in_room].room_flags = 0;
         world[attacker.in_room].people = &attacker;
-        // CAN_SEE() rejects an unlit room even with room_flags cleared; the room
-        // is heap-allocated via room_data::create_bulk() and never populated by
-        // the boot path in tests, so light/sector_type are whatever the
-        // allocator left behind. Force it lit so target lookups are
-        // deterministic instead of depending on that leftover memory.
+        // CAN_SEE() rejects an unlit room even with room_flags cleared, and the room is
+        // never populated by the boot path in tests; explicitly set it lit so target
+        // lookups get the state this test needs instead of the room's zero-initialized default.
         world[attacker.in_room].light = 1;
 
         weapon.obj_flags.type_flag = ITEM_WEAPON;

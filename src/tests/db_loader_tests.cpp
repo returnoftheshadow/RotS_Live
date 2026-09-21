@@ -2188,7 +2188,7 @@ TEST(DbLoader, FreadStringRejectsAStringOneByteTooLongForItsBuffer)
     // reserves two bytes for the carriage-return branch before it knows which branch follows.
     // The rejection path is exit(0) after a "string too large" log.
     const std::string content(MAX_STRING_LENGTH - 5, 'a');
-    EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "");
+    EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "string too large");
 }
 
 TEST(DbLoader, FreadStringRejectsALineThatWouldOverflowOnTheCarriageReturnAppend)
@@ -2196,7 +2196,7 @@ TEST(DbLoader, FreadStringRejectsALineThatWouldOverflowOnTheCarriageReturnAppend
     // A single line of MAX_STRING_LENGTH - 2 characters plus newline: strcat fits, but the '\r'
     // and terminator land at MAX_STRING_LENGTH - 1 and MAX_STRING_LENGTH, one past the array.
     const std::string content(MAX_STRING_LENGTH - 2, 'a');
-    EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "");
+    EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "string too large");
 }
 
 TEST(DbLoader, ObjFromRoomIgnoresAnObjectThatIsNotInItsRoomsContents)
