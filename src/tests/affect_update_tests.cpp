@@ -27,10 +27,12 @@
 #include "../handler.h"
 #include "../interpre.h"
 #include "../spells.h"
+#include "../test_harness.h"
 #include "../utils.h"
 #include "test_character_support.h"
 #include "test_random_utils.h"
 #include <algorithm>
+#include <cstring>
 #include <gtest/gtest.h>
 #include <string>
 
@@ -47,6 +49,7 @@ extern struct char_data* combat_list;
 extern struct char_data* combat_next_dude;
 
 void affect_update();
+void affect_update_person(struct char_data* i, int mode);
 void affect_update_room(struct room_data* room);
 ASPELL(spell_blaze);
 
@@ -515,4 +518,43 @@ TEST(AffectUpdateWalk, RehashRebuildsCharacterEntriesWithTheirRegistrationSerial
     EXPECT_TRUE(still_listed);
     EXPECT_EQ(captured.find("Getting Unknown char off the affected_list."), std::string::npos)
         << "a rebuilt entry must not be treated as a stranger; stderr was: " << captured;
+}
+
+// affect_update_person()'s expiry branch used to read af->type after
+// affect_remove_notify()/affect_remove() had already freed that node
+// (put_to_affected_type_pool() -- handler.cpp -- calls free()), a
+// heap-use-after-free ASan caught on the SPELL_ANGER check that follows
+// the removal. It fires whenever any affect expires on a person tick; CI
+// run 35556262343 caught it via
+// test_poisoner_who_quits_before_the_lethal_tick_is_credited_with_nothing,
+// which happens to expire a SPELL_ANGER affect along the way. This test
+// expires a SPELL_ANGER affect directly and checks the post-removal state
+// the freed read used to corrupt: attacked_level reset and an empty
+// affected list.
+TEST(AffectUpdatePerson, ExpiringAngerResetsAttackedLevelWithoutTouchingTheFreedNode) {
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
+    character->player.name = strdup("test_anger_target");
+    character->player.level = 30;
+    character->specials.attacked_level = 5;
+
+    affected_type anger_affect {};
+    anger_affect.type = SPELL_ANGER;
+    anger_affect.duration = 0; // already expired: the loop's else/removal branch runs on the first tick
+    anger_affect.modifier = 0;
+    anger_affect.location = APPLY_NONE;
+    anger_affect.bitvector = 0;
+    affect_to_char(character, &anger_affect);
+
+    // harness_force_affect_phase makes a slow affect tick unconditionally
+    // (test_harness.h), so this expires on the very first call regardless
+    // of SPELL_ANGER's own is_fast/time_phase configuration.
+    const int previous_force_phase = harness_force_affect_phase;
+    harness_force_affect_phase = 1;
+    affect_update_person(character, 0);
+    harness_force_affect_phase = previous_force_phase;
+
+    EXPECT_EQ(character->specials.attacked_level, 0);
+    EXPECT_EQ(character->affected, nullptr);
+
+    test_support::release_test_character(character);
 }

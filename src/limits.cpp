@@ -1455,14 +1455,16 @@ void affect_update_person(struct char_data* i, int mode)
                 if (GET_POS(i) == POSITION_STUNNED)
                     update_pos(i);
             } else {
-                if (af->type > 0 && af->type < MAX_SKILLS)
+                // The removal below frees the node, so read the type first.
+                const int expired_type = af->type;
+                if (expired_type > 0 && expired_type < MAX_SKILLS)
                     /* It must be a spell */
-                    if (!af->next || af->next->type != af->type || af->next->duration > 0)
+                    if (!af->next || af->next->type != expired_type || af->next->duration > 0)
                         affect_remove_notify(i, af);
                     else
                         affect_remove(i, af);
 
-                if (af->type == SPELL_ANGER)
+                if (expired_type == SPELL_ANGER)
                     i->specials.attacked_level = 0;
             }
         }
