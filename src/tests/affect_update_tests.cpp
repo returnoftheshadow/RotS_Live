@@ -144,6 +144,33 @@ private:
     char_data& m_ch; // the character whose registration this scope owns
 };
 
+// do_fame_war_bonuses()'s pkill_get_rank_by_character() reads
+// player_table[player_index]; publish a one-entry table for the scope and
+// restore whatever was installed before, mirroring ScopedAffectUpdateMobIndex
+// above. The destructor runs even if a test assertion fails partway through,
+// so a failure here cannot leak the table or leave the process-global
+// player_table dangling for later tests in this binary.
+class ScopedFameWarPlayerTable {
+public:
+    explicit ScopedFameWarPlayerTable(int totalrank)
+        : m_previous_table(player_table), m_previous_top(top_of_p_table) {
+        player_table = new player_index_element[1] {};
+        player_table[0].totalrank = totalrank;
+        top_of_p_table = 0;
+    }
+    ~ScopedFameWarPlayerTable() {
+        delete[] player_table;
+        player_table = m_previous_table;
+        top_of_p_table = m_previous_top;
+    }
+    ScopedFameWarPlayerTable(const ScopedFameWarPlayerTable&) = delete;
+    ScopedFameWarPlayerTable& operator=(const ScopedFameWarPlayerTable&) = delete;
+
+private:
+    player_index_element* m_previous_table; // whatever this suite found installed
+    int m_previous_top; // whatever top_of_p_table held before this scope
+};
+
 bool affected_list_holds(const void* ptr) {
     for (universal_list* node = affected_list; node; node = node->next) {
         if (node->ptr.ch == ptr || node->ptr.room == ptr) {
@@ -579,12 +606,9 @@ TEST(DoFameWarBonuses, DroppedRankReplacesTheFreedAffectWithoutTouchingIt) {
 
     // pkill_get_rank_by_character() reads player_table[player_index]; give it
     // a one-entry table whose totalrank makes the recomputed ranking (0)
-    // invalid (below MIN_RANK), and restore the previous table afterward.
-    player_index_element* const previous_player_table = player_table;
-    const int previous_top_of_p_table = top_of_p_table;
-    player_table = new player_index_element[1] {};
-    top_of_p_table = 0;
-    player_table[0].totalrank = PKILL_UNRANKED;
+    // invalid (below MIN_RANK). The guard restores the previous table on
+    // scope exit even if an assertion below fails.
+    ScopedFameWarPlayerTable player_table_guard(PKILL_UNRANKED);
 
     affected_type old_fame_war {};
     old_fame_war.type = SPELL_FAME_WAR;
@@ -596,14 +620,14 @@ TEST(DoFameWarBonuses, DroppedRankReplacesTheFreedAffectWithoutTouchingIt) {
 
     do_fame_war_bonuses(character);
 
-    ASSERT_NE(character->affected, nullptr);
-    EXPECT_EQ(character->affected->type, SPELL_FAME_WAR);
-    EXPECT_EQ(character->affected->modifier, 0); // get_ranking_tier(0) == 0
-    EXPECT_EQ(character->affected->next, nullptr) << "exactly one fresh affect, not the freed one";
-
-    delete[] player_table;
-    player_table = previous_player_table;
-    top_of_p_table = previous_top_of_p_table;
+    // EXPECT (not ASSERT) so release_test_character below always runs, even
+    // when this fails; the nullptr guard keeps the dereferencing checks safe.
+    EXPECT_NE(character->affected, nullptr);
+    if (character->affected != nullptr) {
+        EXPECT_EQ(character->affected->type, SPELL_FAME_WAR);
+        EXPECT_EQ(character->affected->modifier, 0); // get_ranking_tier(0) == 0
+        EXPECT_EQ(character->affected->next, nullptr) << "exactly one fresh affect, not the freed one";
+    }
 
     test_support::release_test_character(character);
 }
