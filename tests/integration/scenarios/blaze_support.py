@@ -62,6 +62,8 @@ identical to "the roll just never landed."
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from rots_harness.session import GameSession
@@ -192,3 +194,24 @@ def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: 
                 f"see blaze_support.py's module docstring"
             )
     pytest.fail(f"{marker!r} never appeared within {budget} harness ticks (room still burning)")
+
+
+def wait_for_log_line(imp: GameSession, server, needle: str, timeout: float = 10.0) -> None:
+    """Polls `server.handle.log_path` (game.log) for a line containing `needle`. `mudlog()`'s
+    file-logging arm (utility.cpp) `fprintf()`s every such call to stderr, which the launcher
+    redirects into this same file (the one `CrashMonitor` reads for sanitizer/SYSERR markers) --
+    not blaze-specific, but useful to any scenario that needs to wait for a server-side event
+    `mudlog()` itself records (e.g. `close_socket()`'s "Losing player: <name> [<host>]." arm,
+    comm.cpp, confirming a quit character's body has actually been freed) instead of assuming a
+    fixed amount of real time is enough.
+    """
+    deadline = time.monotonic() + timeout
+    text = ""
+    while True:
+        if server.handle.log_path.exists():
+            text = server.handle.log_path.read_text(encoding="latin-1", errors="replace")
+            if needle in text:
+                return
+        if time.monotonic() >= deadline:
+            pytest.fail(f"{needle!r} never appeared in {server.handle.log_path} within {timeout}s; log tail:\n{text[-2000:]}")
+        imp.drain(0.3)
