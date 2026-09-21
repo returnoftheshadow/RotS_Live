@@ -247,11 +247,11 @@ public:
 
 private:
     int m_room_number; // which world[] slot this guard owns for the scope
-    char* m_previous_name;
-    int m_previous_number;
-    obj_data* m_previous_contents;
-    long m_previous_room_flags;
-    int m_previous_sector_type;
+    char* m_previous_name; // world[m_room_number].name as this guard found it
+    int m_previous_number; // world[m_room_number].number as this guard found it
+    obj_data* m_previous_contents; // world[m_room_number].contents as this guard found it
+    long m_previous_room_flags; // world[m_room_number].room_flags as this guard found it
+    int m_previous_sector_type; // world[m_room_number].sector_type as this guard found it
 };
 
 std::string read_file_contents(const std::string& path)
