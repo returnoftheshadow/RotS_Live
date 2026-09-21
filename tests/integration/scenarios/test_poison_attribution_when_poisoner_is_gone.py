@@ -1,0 +1,84 @@
+"""manual-test-plan.md item 2: poison the victim, then remove the poisoner before the lethal
+tick. A quit frees the body, so the tick credits nobody; an imp-slain player keeps its body and
+registration serial, so resolve_poisoner still names the mage."""
+
+from __future__ import annotations
+
+import pytest
+
+from poison_support import affect_ticks_until_death, death_tick_budget, poison_until_it_lands
+from rots_harness import fixtures, records
+
+pytestmark = pytest.mark.scenario
+
+QUIT_BLOCKED = "You may not quit yet."  # act_othe.cpp do_quit, while SPELL_ANGER lingers
+QUIT_SUCCEEDED = ("Goodbye", "As you quit")
+
+
+def _poison_then_separate(imp, mage, victim, victim_hit: int | None = None) -> None:
+    imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
+    imp.command("transfer harnmage")
+    imp.command("transfer harnvictim")
+    imp.command("wizset harnvictim level 11")  # BB needs attacker(30) < defender*3; 11 gives 33 > 30
+    if victim_hit is not None:
+        imp.command(f"wizset harnvictim hit {victim_hit}")
+    poison_until_it_lands(mage, victim, "elf")
+    # An offensive cast engages the mage; a wizard transfer disengages both sides
+    # (char_from_room stops the fight), so the victim's death is the DoT alone.
+    imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
+    imp.command("transfer harnmage")
+    mage.expect_room("Arena West")
+
+
+def _quit_once_anger_allows(mage, harness, attempts: int = 10) -> None:
+    """Casting an offensive spell affects the caster with SPELL_ANGER (char_utils_combat.cpp's
+    on_attacked_character, duration 5 against a player victim), and do_quit refuses to let a
+    mortal quit while it lingers. Harness mode disables the server's real-time affect sweep
+    (comm.cpp only calls affect_update() there when NOT harness_mode), so only the forced
+    `harness affects` tick ages anger down -- the same tick that advances the victim's poison
+    DoT. This is done with the victim's hit left at its roster default (well above the few
+    points of damage these ticks deal) so the anger-clearing ticks cannot land the kill first;
+    the victim's hit is lowered for its own death countdown only after this returns.
+    """
+    for _attempt in range(attempts):
+        mage.send_line("quit")
+        text = mage.expect(QUIT_SUCCEEDED + (QUIT_BLOCKED,), 8.0)
+        if QUIT_BLOCKED not in text:
+            mage.close()
+            return
+        harness.affects()
+    pytest.fail(f"harnmage's SPELL_ANGER never cleared enough to quit in {attempts} forced ticks")
+
+
+def test_poisoner_who_quits_before_the_lethal_tick_is_credited_with_nothing(server, imp, mage, victim, harness) -> None:
+    _poison_then_separate(imp, mage, victim)
+    _quit_once_anger_allows(mage, harness)
+
+    imp.command("wizset harnvictim hit 10")
+    assert affect_ticks_until_death(harness, victim, death_tick_budget(10)), "the victim should die of the forced poison ticks"
+    victim.expect_room("Wood-elf Start")
+
+    victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
+    types = [record.type for record in victim_records]
+    assert records.EXPLOIT_POISON in types, victim_records
+    assert records.EXPLOIT_MOBDEATH not in types, victim_records
+    assert not any(record.victim_name.lower() == "harnmage" for record in victim_records), f"a departed poisoner must never be named: {victim_records}"
+
+    mage_records = records.read_exploits(server.lib_dir, "Harnmage")
+    assert not any(record.type == records.EXPLOIT_PK for record in mage_records), mage_records
+
+
+def test_poisoner_slain_before_the_lethal_tick_is_still_named(server, imp, mage, victim, harness) -> None:
+    _poison_then_separate(imp, mage, victim, victim_hit=10)
+    imp.command("slay harnmage")
+    assert mage.command("look").room_name() is not None, "the slain mage keeps its body and stays logged in"
+
+    assert affect_ticks_until_death(harness, victim, death_tick_budget(10)), "the victim should die of the forced poison ticks"
+
+    victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
+    deaths = [record for record in victim_records if record.type == records.EXPLOIT_DEATH]
+    assert any(record.victim_name.lower() == "harnmage" for record in deaths), victim_records
+    assert records.EXPLOIT_POISON in [record.type for record in victim_records], victim_records
+
+    mage_records = records.read_exploits(server.lib_dir, "Harnmage")
+    assert any(record.type == records.EXPLOIT_PK and record.victim_name.lower() == "harnvictim" for record in mage_records), mage_records
