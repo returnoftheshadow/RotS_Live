@@ -2962,6 +2962,7 @@ bool write_player_text(struct char_data* ch, int load_room, const char* scratch_
     char_to_store(ch, &chd);
     strcpy(chd.pwd, ch->desc->pwd);
     strncpy(chd.host, ch->desc->host, HOST_LEN);
+    chd.host[HOST_LEN] = '\0'; // strncpy leaves no terminator for a host of HOST_LEN or more bytes
     if (!PLR_FLAGGED(ch, PLR_LOADROOM))
         chd.specials2.load_room = load_room;
 
@@ -2987,7 +2988,7 @@ bool write_player_text(struct char_data* ch, int load_room, const char* scratch_
     // pwdcrypt is encrypted in place, terminator included, so it is not a C string; the loader
     // reads exactly MAX_PWD_LENGTH bytes from this line, so write exactly that many.
     fprintf(pf, "password    %.*s\n", MAX_PWD_LENGTH, pwdcrypt);
-    fprintf(pf, "host        %s\n", chd.host);
+    fprintf(pf, "host        %.*s\n", HOST_LEN, chd.host);
     fprintf(pf, "idnum       %ld\n", chd.specials2.idnum);
     fprintf(pf, "load_room   %d\n", chd.specials2.load_room);
     fprintf(pf, "sp_to_learn %d\n", chd.specials2.spells_to_learn);

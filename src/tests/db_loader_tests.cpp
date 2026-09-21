@@ -575,6 +575,38 @@ TEST(DbLoader, WritePlayerTextEmitsExactlyThePasswordFieldWidth)
     free(character.player.description);
 }
 
+// write_player_text() fills chd.host with strncpy(..., HOST_LEN) and printed it with %s: a
+// hostname of HOST_LEN or more characters left no terminator inside the field.
+TEST(DbLoader, WritePlayerTextTruncatesAnOverlongHostToTheFieldWidth)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.player.name = strdup("aragorn");
+    character.player.title = strdup("the Ranger");
+    character.player.description = strdup("A ranger.");
+    descriptor_data descriptor {};
+    character.desc = &descriptor;
+
+    const std::string long_host(HOST_LEN + 12, 'h');
+    strncpy(character.desc->host, long_host.c_str(), sizeof(character.desc->host) - 1);
+    character.desc->host[sizeof(character.desc->host) - 1] = '\0';
+
+    ASSERT_TRUE(write_player_text(&character, 3001, "players/aragorn.txt"));
+    const std::string text = read_file_contents("players/aragorn.txt");
+    const std::string host_line = "host        " + std::string(HOST_LEN, 'h') + "\n";
+    EXPECT_NE(text.find(host_line), std::string::npos) << text;
+    EXPECT_EQ(text.find(std::string(HOST_LEN + 1, 'h')), std::string::npos) << "host field must be at most HOST_LEN bytes";
+
+    character.desc = nullptr;
+    free(character.player.name);
+    free(character.player.title);
+    free(character.player.description);
+}
+
 TEST(DbLoader, LegacyPlayerTextRoundTripPreservesCombatState)
 {
     TemporaryDirectory temp_directory;
