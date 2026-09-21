@@ -1514,10 +1514,12 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_LOAD_MOB:
             if (curr->param[0] && curr->param[1]) {
-                tmpint = real_mobile(curr->param[0]);
-                if (tmpint < 0)
+                /* Its own variable: tmpint is read by later commands (see
+                 * TELEPORT_CHAR_XL), so the report must not change it. */
+                int rnum = real_mobile(curr->param[0]);
+                if (rnum < 0)
                     report_script_vnum(info->index, curr, SREF_MOB, curr->param[0], 0);
-                tmpch = read_mobile(tmpint, REAL);
+                tmpch = read_mobile(rnum, REAL);
                 if (tmpch)
                     assign_char_param(curr->param[1], info, tmpch);
             }
@@ -1526,10 +1528,11 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_LOAD_OBJ:
             if (curr->param[0] && curr->param[1]) {
-                tmpint = real_object(curr->param[0]);
-                if (tmpint < 0)
+                /* Its own variable, for the same reason as SCRIPT_LOAD_MOB. */
+                int rnum = real_object(curr->param[0]);
+                if (rnum < 0)
                     report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
-                tmpobj = read_object(tmpint, REAL);
+                tmpobj = read_object(rnum, REAL);
                 if (tmpobj)
                     assign_obj_param(curr->param[1], info, tmpobj);
             }
