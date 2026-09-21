@@ -921,10 +921,18 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
 
     queue_fireball_rolls(kForceNoFumbleRoll);
 
+    // Captured (rather than left to print) so a regression that lands a corpse outside
+    // world[kFireballRoom].contents -- reported by obj_from_room()'s null-walker guard --
+    // fails this test instead of just scrolling past in the test log.
+    testing::internal::CaptureStderr();
     spell_fireball(caster, nullptr, 0, &context.victim, nullptr, 0, 0);
-
     release_fireball_corpse(kFireballRoom, previous_object_list);
+    const std::string captured = testing::internal::GetCapturedStderr();
 
+    EXPECT_EQ(captured.find("obj_from_room: object is not in its room's contents list."), std::string::npos)
+        << "release_fireball_corpse() must find its corpse (if any) in world[kFireballRoom], "
+           "not off in a different room; stderr was: "
+        << captured;
     EXPECT_LT(context.victim.tmpabilities.hit, victim_hit_before)
         << "the primary hit must still land on the named victim";
     EXPECT_EQ(caster->in_room, kFireballRoom)

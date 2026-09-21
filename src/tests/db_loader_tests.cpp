@@ -2198,3 +2198,20 @@ TEST(DbLoader, FreadStringRejectsALineThatWouldOverflowOnTheCarriageReturnAppend
     const std::string content(MAX_STRING_LENGTH - 2, 'a');
     EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "");
 }
+
+TEST(DbLoader, ObjFromRoomIgnoresAnObjectThatIsNotInItsRoomsContents)
+{
+    ensure_test_world_room(3001);
+    obj_data resident {};
+    obj_data stray {};
+    resident.in_room = 0;
+    stray.in_room = 0;
+    world[0].contents = &resident;
+    resident.next_content = nullptr;
+
+    obj_from_room(&stray); // not in the list: must log and return, not dereference a null walker
+
+    EXPECT_EQ(world[0].contents, &resident);
+    EXPECT_EQ(stray.in_room, NOWHERE);
+    world[0].contents = nullptr;
+}

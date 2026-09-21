@@ -1797,7 +1797,13 @@ void obj_from_room(struct obj_data* object)
         for (i = world[object->in_room].contents; i && (i->next_content != object); i = i->next_content)
             ;
 
-        i->next_content = object->next_content;
+        if (i == nullptr) {
+            // Not in this room's list: unlinking would dereference the null walker. Log it and
+            // still detach the object so the caller's bookkeeping proceeds.
+            log("SYSERR: obj_from_room: object is not in its room's contents list.");
+        } else {
+            i->next_content = object->next_content;
+        }
     }
 
     if (GET_ITEM_TYPE(object) == ITEM_LIGHT) {
