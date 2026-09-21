@@ -6,6 +6,7 @@
 #include "../objects_json.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "../zone.h"
 #include "test_character_support.h"
 
 #include <gtest/gtest.h>
@@ -20,8 +21,11 @@
 
 ACMD(do_account);
 ACMD(do_whoacct);
+ACMD(do_wizstat);
 extern struct player_index_element* player_table;
 extern struct descriptor_data* descriptor_list;
+extern struct room_data world;
+extern struct index_data* obj_index;
 extern int top_of_p_table;
 void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
@@ -155,6 +159,100 @@ char_data* attach_active_character(
     descriptor->character = character;
     return character;
 }
+
+// do_stat_room() (act_wiz.cpp) calls Check_zone_authority(), which walks the real zone_table
+// for a zone whose number matches the room's; this binary never boots one (see mage_tests.cpp's
+// ZoneTableGuard). Installs a single public zone (owner id 0), which Check_zone_authority grants
+// authority for at any level, and restores whatever zone_table pointed at (normally nullptr) on
+// scope exit.
+class ScopedStatRoomZone {
+public:
+    explicit ScopedStatRoomZone(int zone_number)
+        : m_previous_table(zone_table)
+        , m_previous_top(top_of_zone_table)
+    {
+        m_owner.owner = 0;
+        m_owner.next = nullptr;
+        m_zone = zone_data {};
+        m_zone.number = zone_number;
+        m_zone.owners = &m_owner;
+        zone_table = &m_zone;
+        top_of_zone_table = 0;
+    }
+
+    ~ScopedStatRoomZone()
+    {
+        zone_table = m_previous_table;
+        top_of_zone_table = m_previous_top;
+    }
+
+    ScopedStatRoomZone(const ScopedStatRoomZone&) = delete;
+    ScopedStatRoomZone& operator=(const ScopedStatRoomZone&) = delete;
+
+private:
+    zone_data* m_previous_table; // real zone_table found before the test; restored on scope exit
+    int m_previous_top; // real top_of_zone_table found before the test; restored on scope exit
+    owner_list m_owner {}; // the stub zone's sole (public) owner entry
+    zone_data m_zone {}; // the one-entry stub table installed for the scope
+};
+
+// Installs a single obj_index entry so do_stat_room's vnum lookup (obj_index[j->item_number].virt)
+// has a prototype to find for the fixture's ordinary object. Mirrors mage_tests.cpp's
+// ScopedFireballMobIndex for mob_index.
+class ScopedStatRoomObjIndex {
+public:
+    explicit ScopedStatRoomObjIndex(int virt)
+        : m_previous(obj_index)
+    {
+        m_entry = index_data {};
+        m_entry.virt = virt;
+        obj_index = &m_entry;
+    }
+
+    ~ScopedStatRoomObjIndex() { obj_index = m_previous; }
+
+    ScopedStatRoomObjIndex(const ScopedStatRoomObjIndex&) = delete;
+    ScopedStatRoomObjIndex& operator=(const ScopedStatRoomObjIndex&) = delete;
+
+private:
+    index_data* m_previous; // whatever this suite found installed (normally null)
+    index_data m_entry {}; // the single prototype slot the ordinary object's item_number = 0 names
+};
+
+// Saves and restores the room fields do_stat_room() reads, so this test's fixture leaves the
+// shared world[] slot exactly as it found it for later tests in this binary.
+class ScopedStatRoomRoomState {
+public:
+    explicit ScopedStatRoomRoomState(int room_number)
+        : m_room_number(room_number)
+        , m_previous_name(world[room_number].name)
+        , m_previous_number(world[room_number].number)
+        , m_previous_contents(world[room_number].contents)
+        , m_previous_room_flags(world[room_number].room_flags)
+        , m_previous_sector_type(world[room_number].sector_type)
+    {
+    }
+
+    ~ScopedStatRoomRoomState()
+    {
+        world[m_room_number].name = m_previous_name;
+        world[m_room_number].number = m_previous_number;
+        world[m_room_number].contents = m_previous_contents;
+        world[m_room_number].room_flags = m_previous_room_flags;
+        world[m_room_number].sector_type = m_previous_sector_type;
+    }
+
+    ScopedStatRoomRoomState(const ScopedStatRoomRoomState&) = delete;
+    ScopedStatRoomRoomState& operator=(const ScopedStatRoomRoomState&) = delete;
+
+private:
+    int m_room_number; // which world[] slot this guard owns for the scope
+    char* m_previous_name;
+    int m_previous_number;
+    obj_data* m_previous_contents;
+    long m_previous_room_flags;
+    int m_previous_sector_type;
+};
 
 std::string read_file_contents(const std::string& path)
 {
@@ -942,6 +1040,58 @@ TEST(ActWiz, WhoAcctFormatsLongFieldsIntoStableColumns)
     EXPECT_NE(output.find(expected_row), std::string::npos) << output;
 
     free(admin.player.name);
+}
+
+// CI run 35575702723 (test_kill_credit.py::test_splash_bystander_manufactures_no_credit, under
+// AddressSanitizer) caught do_stat_room() (act_wiz.cpp) indexing obj_index[j->item_number] for a
+// room-contents object whose item_number is -1: a corpse has no prototype (make_corpse(),
+// fight.cpp), so obj_index has no entry for it. Reproduces that shape against the real "stat
+// room" handler and confirms the fix both skips the vnum suffix for the prototype-less object and
+// does not carry a stale vnum over from the entry printed just before it.
+TEST(ActWiz, StatRoomSkipsPrototypeVnumForPrototypelessObject)
+{
+    constexpr int kRoomNumber = 991; // unclaimed world[] slot in this binary; highest reserved
+                                      // below the 1024-room world.create_bulk() size is 990
+                                      // (room_affect_tick_tests.cpp).
+    ScopedStatRoomZone zone_scope(kRoomNumber / 100);
+    ScopedStatRoomObjIndex obj_index_scope(1234);
+    ScopedStatRoomRoomState room_state(kRoomNumber);
+
+    world[kRoomNumber].name = const_cast<char*>("A Corpse-Stat Regression Room");
+    world[kRoomNumber].number = kRoomNumber;
+    world[kRoomNumber].room_flags = 0;
+    world[kRoomNumber].sector_type = 0;
+    world[kRoomNumber].contents = nullptr;
+
+    obj_data corpse {};
+    corpse.item_number = -1; // no prototype -- exactly what make_corpse() (fight.cpp) leaves behind
+    corpse.short_description = const_cast<char*>("the corpse of a slain goblin");
+
+    obj_data sword {};
+    sword.item_number = 0; // names the ScopedStatRoomObjIndex slot above
+    sword.short_description = const_cast<char*>("a rusty sword");
+
+    // obj_to_room() (handler.cpp) prepends, so add the corpse first: the sword then heads the
+    // list and do_stat_room() visits it first, leaving a vnum suffix in the scratch buffer that
+    // the corpse's entry (visited second) must not inherit.
+    obj_to_room(&corpse, kRoomNumber);
+    obj_to_room(&sword, kRoomNumber);
+
+    descriptor_data descriptor = make_descriptor();
+    char_data* viewer = attach_active_character(&descriptor, "Immortal", 100, 9001);
+    viewer->in_room = kRoomNumber;
+
+    char room_argument[] = "room";
+    do_wizstat(viewer, room_argument, nullptr, 0, 0);
+
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("a rusty sword [1234]"), std::string::npos) << output;
+    EXPECT_NE(output.find("the corpse of a slain goblin"), std::string::npos) << output;
+    EXPECT_EQ(output.find("the corpse of a slain goblin ["), std::string::npos) << output;
+
+    obj_from_room(&sword);
+    obj_from_room(&corpse);
+    free_char(viewer);
 }
 
 } // namespace
