@@ -22,11 +22,10 @@ struct WeaponMasterTestContext {
     }
 };
 
-// act(..., TO_ROOM) walks world[ch->in_room].people; room 0 is shared across
-// this test binary's suites and is otherwise never populated here, so this fixture sets
-// an explicit occupant chain for the test to walk (modeled on
-// interpre_account_menu_tests.cpp's ensure_test_world_room, minus the
-// name/description strings this suite never reads).
+// act(..., TO_ROOM) walks world[ch->in_room].people; this fixture creates
+// room 0, which is shared across this test binary's suites and is the one room
+// act() will walk in these tests (modeled on interpre_account_menu_tests.cpp's
+// ensure_test_world_room, minus the name/description strings this suite never reads).
 void ensure_test_world_room(int room_number)
 {
     if (room_data::BASE_WORLD == nullptr)
@@ -329,6 +328,7 @@ TEST_F(WeaponMasterProcTest, SwordProcRegainsEnergyWhenSlashProcSucceeds) {
     // world[0].people; give both participants a real room index and chain
     // them in so that walk has defined memory to read.
     ensure_test_world_room(3050);
+    // Build the occupant chain that act() will walk.
     context.character.in_room = 0;
     victim.in_room = 0;
     world[0].people = &context.character;

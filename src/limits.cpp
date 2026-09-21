@@ -680,7 +680,7 @@ void point_update(void)
                     bool next_dude_still_valid = (still_there != nullptr) && (still_there == next_dude)
                         && (still_there->registration_serial == next_dude_serial);
                     if (!next_dude_still_valid) {
-                        log("point_update: the next character was extracted by an idle rent; ending this tick's walk.");
+                        log("SYSERR: point_update: the next character was extracted by an idle rent; ending this tick's walk.");
                         break;
                     }
                 }

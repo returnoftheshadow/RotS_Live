@@ -934,8 +934,7 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
     // runs after GetCapturedStderr, per the comment above it); this assertion pins that the
     // cast's own obj_from_room() calls log no SYSERR.
     EXPECT_EQ(captured.find("obj_from_room: object is not in its room's contents list."), std::string::npos)
-        << "release_fireball_corpse() must find its corpse (if any) in world[kFireballRoom], "
-           "not off in a different room; stderr was: "
+        << "the cast's own obj_from_room() calls must log no SYSERR; stderr was: "
         << captured;
     EXPECT_LT(context.victim.tmpabilities.hit, victim_hit_before)
         << "the primary hit must still land on the named victim";

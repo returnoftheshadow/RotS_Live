@@ -116,7 +116,7 @@ jobs:
 
       - name: Build server and unit tests under AddressSanitizer
         # Both targets build here, blocking, so a compile or link break under the sanitizer
-        # is never hidden inside the non-blocking ctest step below.
+        # is never hidden inside the ctest step.
         run: |
           make BUILD_DIR=build-asan setup
           cmake --build build-asan --target ageland ageland_tests -j"$(nproc)"
