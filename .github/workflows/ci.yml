@@ -51,6 +51,16 @@ jobs:
       - name: Run C++ unit tests
         run: make test
 
+      - name: Install the harness world for the smoke flow
+        # lib/world is git-ignored and this checkout has no world, so the smoke server
+        # exits at boot ("Error opening index file 'world/scr/index'"). The committed
+        # synthetic zone under tests/integration/world boots the real server and resolves
+        # every start room, so it stands in when no world is present.
+        run: |
+          if [ ! -d lib/world ]; then
+            cp -r tests/integration/world lib/world
+          fi
+
       - name: Run account smoke flow
         run: make smoke-account
 
