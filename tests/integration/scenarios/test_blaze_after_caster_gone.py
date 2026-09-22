@@ -42,7 +42,10 @@ def _blaze_the_centre(imp, mage, victim) -> None:
 def _tick_until_dead(harness, imp, victim) -> None:
     victim.command("east")
     victim.expect_room("Arena Centre")
-    tick_until_marker(harness, imp, victim, DEATH_MARKER, refloor=("harnvictim", LETHAL_HIT))
+    # `imp` stands in the blazing room for every forced tick this loop issues and is otherwise
+    # never healed; at Harnmage's raised level (fixtures.py) a tick can kill it outright, and its
+    # auto-respawn to Immortal Start would then make room_still_burning() read the wrong room.
+    tick_until_marker(harness, imp, victim, DEATH_MARKER, protect=(imp,), refloor=("harnvictim", LETHAL_HIT))
 
 
 def test_blaze_ticks_survive_the_casters_death_and_still_credit_the_mage(server, imp, mage, victim, harness) -> None:

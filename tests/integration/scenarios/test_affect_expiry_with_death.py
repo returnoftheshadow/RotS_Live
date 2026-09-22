@@ -179,7 +179,12 @@ def _kill_at_duration_one(harness, imp: GameSession, victim: GameSession, attemp
     like an ordinary miss.
     """
     for _attempt in range(attempts):
-        if not room_still_burning(imp):
+        # `imp` stands in the blazing room for the countdown tick below on EVERY attempt, not
+        # only the ones that reach the decisive branch, and is otherwise never healed -- restore
+        # it here so every attempt pays for its own exposure (module docstring).
+        imp.command("restore harnimp")
+
+        if not room_still_burning(imp, "Arena Centre"):
             pytest.fail(f"blaze burned out after {_attempt} retry attempt(s), before this test could land the decisive tick")
 
         harness.affects()  # countdown: duration 2 -> 1
@@ -194,12 +199,6 @@ def _kill_at_duration_one(harness, imp: GameSession, victim: GameSession, attemp
             if _victim_died_from_the_decisive_tick(victim):
                 return True
             imp.command("restore harnvictim")
-            # `imp` itself stands in the blazing room for every forced tick above (both the
-            # countdown and the decisive call hit every occupant, room_affect_tick.cpp's
-            # blaze_tick, not only Harnvictim) and is never otherwise healed, so a miss also
-            # restores it -- see the module docstring's note on blaze's damage ceiling scaling
-            # with Harnmage's raised level.
-            imp.command("restore harnimp")
 
         imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
         imp.command("transfer harnvictim")
@@ -215,11 +214,9 @@ def _kill_at_duration_one(harness, imp: GameSession, victim: GameSession, attemp
 def test_death_and_expiry_in_one_affect_update_after_a_quit(server, imp, mage, victim, harness) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnvictim")
-    # maxhit 2000 (before restore, per gotchas.md "Wizard commands") raises Harnvictim's real hit
-    # ceiling to ~1100 (recalc_abilities, CON 11) -- comfortably above blaze's damage ceiling at
-    # Harnmage's raised level (see module docstring), so Harnvictim survives the room's own
-    # spontaneous fast-block tick while standing at full health between attempts; only the
-    # loop's own deliberate `floor_hit` (CURRENT hit, independent of max) stays lethal.
+    # maxhit 2000, before restore per gotchas.md "Wizard commands" (see module docstring for
+    # why this is needed at Harnmage's raised level) -- the imp burns too, restored every
+    # attempt in _kill_at_duration_one below.
     imp.command("wizset harnvictim maxhit 2000")
     imp.command("restore harnvictim")
 

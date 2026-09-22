@@ -62,12 +62,17 @@ identical to "the roll just never landed."
 
 from __future__ import annotations
 
+import re
 import time
 
 import pytest
 
 import combat_support
 from rots_harness.session import GameSession
+
+# do_stat_room's own header (act_wiz.cpp:431): "Room name: %s%s%s\n\r" (color codes around the
+# name are already stripped from the transcript by the session's ANSI sanitizer).
+ROOM_NAME_LINE = re.compile(r"room name:\s*(.+)", re.IGNORECASE)
 
 BLAZE_CAST = ("You breathe out fire.",)
 
@@ -100,17 +105,31 @@ def room_stat_replies(imp: GameSession, attempts: int = 4) -> list[str]:
     return combat_support.stat_replies(imp, "room", lambda text: "room name:" in text.lower(), attempts)
 
 
-def room_still_burning(imp: GameSession, spell_name: str = "blaze") -> bool:
+def room_still_burning(imp: GameSession, expected_room: str, spell_name: str = "blaze") -> bool:
     """True when the last of `room_stat_replies()`'s replies (act_wiz.cpp's `do_stat_room` ->
     `show_room_affection`, mode 1) lists an active `spell_name` room affect (`Spell
     <name>(<location>) level <modifier> <duration>hrs, sets <bits>.`); a burnt-out (or
     never-applied) blaze leaves no such line. `imp` must be standing in the room that carries
     the affect -- every scenario using this module `goto`s there first.
+
+    `expected_room` guards the case where that stopped being true without the caller's
+    knowledge: a room-affect tick can kill `imp` itself, which auto-respawns to Immortal Start
+    (RACE_GOD), and a `stat room` reply from there would misreport a healthy affect as "burned
+    out" rather than naming the real cause. Compare the reply's own "Room name:" line against
+    `expected_room` and fail loudly on a mismatch instead.
     """
     replies = room_stat_replies(imp)
-    if "room name:" not in replies[-1].lower():
+    last = replies[-1]
+    if "room name:" not in last.lower():
         pytest.fail(f"stat room never returned a parseable room-affection block in {len(replies)} attempts")
-    return f"spell {spell_name}".lower() in replies[-1].lower()
+    match = ROOM_NAME_LINE.search(last)
+    room_name = match.group(1).strip() if match else ""
+    if room_name.lower() != expected_room.lower():
+        pytest.fail(
+            f"imp is standing in {room_name!r}, not {expected_room!r} -- it likely died (a "
+            f"room-affect tick can kill imp itself) and respawned elsewhere; stat room reply:\n{last}"
+        )
+    return f"spell {spell_name}".lower() in last.lower()
 
 
 def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: str, budget: int = 12, spell_name: str = "blaze", protect: tuple[GameSession, ...] = (), refloor: tuple[str, int] | None = None) -> str:
