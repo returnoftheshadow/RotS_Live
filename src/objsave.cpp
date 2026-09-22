@@ -715,13 +715,25 @@ FILE* Crash_load(char_data* character)
                    past the end is put in the character's inventory instead of being lost, and
                    logged; writing it would smash the stack. */
                 const int depth = object.wear_pos - MAX_WEAR;
-                if (depth < 1 || depth >= (int)(sizeof(equip_array) / sizeof(equip_array[0]))) {
-                    sprintf(buf, "LOAD ERROR: %s has an object at container depth %d "
-                                 "(out of range); loaded to inventory.",
-                        GET_NAME(character), depth);
+                const bool depth_in_range = depth >= 1
+                    && depth < (int)(sizeof(equip_array) / sizeof(equip_array[0]));
+
+                /* An in-range depth still only names a slot; nothing guarantees the row that
+                   would have filled it was present. obj_to_obj() starts `if (!item ||
+                   !container) return;`, so a missing parent used to leave the object on
+                   object_list with no room, no carrier and no container - not destroyed, not
+                   given to the player, not logged, and holding memory until reboot. Both
+                   failures cost the player nesting rather than the item. */
+                if (!depth_in_range || !equip_array[depth - 1]) {
+                    sprintf(buf, "LOAD ERROR: %s has an object at container depth %d (%s); "
+                                 "loaded to inventory.",
+                        GET_NAME(character), depth,
+                        depth_in_range ? "its container is missing" : "out of range");
                     log(buf);
                     if (obj != &dummy_sack)
                         obj_to_char(obj, character);
+                    if (depth_in_range)
+                        equip_array[depth] = obj;
                 } else {
                     if (obj != &dummy_sack)
                         obj_to_obj(obj, equip_array[depth - 1], TRUE);

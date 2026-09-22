@@ -1416,6 +1416,73 @@ TEST(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
     EXPECT_STREQ(GET_ALIAS(&character)->command, "kill orc");
 }
 
+/* A rent row whose container parent never loaded must not vanish.
+
+   wear_pos above MAX_WEAR encodes container nesting depth, and Crash_load places each object
+   inside equip_array[depth - 1]. The depth itself is bounded, but the parent slot it names can
+   still be empty - a file carrying a depth-2 row with no depth-1 row above it names a slot that
+   was never filled. obj_to_obj() begins `if (!item || !container) return;`, so the object is
+   left on object_list with no room, no carrier and no container: not destroyed, not given to
+   the player, not logged, and holding memory for the rest of the boot.
+
+   The out-of-range depth case already falls back to the character's inventory; a missing parent
+   has to do the same, so that a damaged rent file costs a player nesting, never the item. */
+TEST(DbLoader, CrashLoadKeepsAnObjectWhoseContainerParentIsMissing)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 10;
+    stored_character.language = LANG_HUMAN;
+    stored_character.specials2.load_room = 3001;
+    stored_character.weight = 210;
+    stored_character.height = 72;
+    store_to_char(&stored_character, &character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+
+    /* A worn item first, so equip_array[0] is populated - without it the branch above catches
+       everything via its `|| !equip_array[0]` escape and the container path is never reached. */
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = 1001;
+    object_data.objects[0].wear_pos = WEAR_HEAD;
+    object_data.objects[0].weight = 7;
+    object_data.objects[0].values = { 0, 0, 2, 0, 0 };
+
+    /* Then depth 2, with nothing at depth 1 to hold it. */
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[1].item_number = 1002;
+    object_data.objects[1].wear_pos = MAX_WEAR + 2;
+    object_data.objects[1].weight = 4;
+    object_data.objects[1].values = { 0, 0, 1, 0, 0 };
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message))
+        << error_message;
+
+    stage_account_backed_object_bytes_for_character(&character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(&character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(character.carrying, nullptr)
+        << "the object was dropped on the floor of memory instead of being handed to the player";
+    EXPECT_EQ(obj_index[character.carrying->item_number].virt, 1002);
+    EXPECT_EQ(character.carrying->obj_flags.weight, 4);
+}
+
 TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableItems)
 {
     ScopedObjectPrototypeTable object_prototypes;
