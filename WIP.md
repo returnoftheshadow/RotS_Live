@@ -15,6 +15,11 @@
   scenario skill's gotchas gained three entries. Parked: the affect-expiry retry-budget flake (fix path in
   the slice 2 ledger). Not changed, recorded: object files already written with an empty-command alias
   stay unloadable; KEY_STR copies the field width past a short value inside its line buffer.
+- Wrap-up (2026-09-22, CI green at 16f89fe, run 35749898529): the test and harness items this
+  branch introduced are fixed -- the affect-expiry retry budget (Harnmage's mage profession level is 120
+  in the fixture; blaze damage scales with it, so every blaze scenario protects the imp and
+  room_still_burning checks the room name), the alias-list leak in the new crash-load gtest, and
+  neutralize_melee's prompt race. Nothing open is a new production defect.
 - Deploy caveat still standing (from the 2026-09-15 task below): the account-native exploits history is
   a one-way schema change; do not roll a server back to a pre-widening binary once a wide victim id has
   been recorded.
