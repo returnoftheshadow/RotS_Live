@@ -1269,7 +1269,7 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch) {
                     for (tmpint = 1; tmpint < 6; tmpint++) {
-                        if ((tmpint2 = real_object(curr->param[tmpint])) > 0) {
+                        if ((tmpint2 = real_object(curr->param[tmpint])) >= 0) {
                             tmpobj = read_object(tmpint2, REAL);
                             obj_to_char(tmpobj, tmpch);
                         } else if (tmpint2 < 0 && curr->param[tmpint])
