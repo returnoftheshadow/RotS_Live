@@ -26,19 +26,39 @@ file waits for `close_socket()`'s own "Losing player: Harnmage" mudlog line (gam
 than assuming a fixed pause is long enough.
 
 Blaze's duration is `get_mage_caster_level()` (`af.duration = level`, mage.cpp ~2288-2335): the
-caster's mage-profession level plus an intel/5 factor (mage.cpp:33-44), ~36 for Harnmage's
-fixture -- against ~2 forced
-`harness.affects()` calls per `_kill_at_duration_one` retry plus whatever the refresh's own
-wall-clock time ceded to the spontaneous real-time sweep (blaze_support.py's module docstring),
-leaving only ~5-7 of the 10 attempts reachable before burnout and a rare (~2-5%) all-miss flake.
+caster's mage-profession level plus an intel/5 factor (mage.cpp:33-44). `wizset <name> level`
+cannot raise this -- it only assigns `player.level` (act_wiz.cpp `case 34`), never the
+`ch->profs->prof_level[PROF_MAGE]` that `get_mage_caster_level()` actually reads (utils.h
+`GET_PROF_LEVEL`) -- so the fix lives in the roster spec instead: `rots_harness/fixtures.py`
+gives Harnmage a `mage` profession level of 120, for a blaze duration of ~126.
 
-NOTE: `wizset harnmage level 60` before the cast does not change this bound. `wizset <name> level` (act_wiz.cpp
-`case 34`) only assigns `vict->player.level`; `get_mage_caster_level()`'s `mage_prof_level`
-(caster_snapshot.cpp) instead reads `GET_PROF_LEVEL(PROF_MAGE, ch)`, which for a PC is
-`ch->profs->prof_level[PROF_MAGE]` (utils.h `GET_PROF_LEVEL`), a field `wizset` never touches
-(its own `prof` field, `case 39`, is an unimplemented no-op) -- confirmed empirically: after the
-command a kept `stat harnmage` read `Lev: [60]` but unchanged `Class levels: Mag:30`. The flake
-therefore remains open; raising the fixture's mage level is the available fix.
+Arithmetic: each `_kill_at_duration_one` retry spends this SAME duration by exactly 2 forced
+`harness.affects()` calls (the countdown tick, then the decisive tick), so 10 attempts cost at
+least 20 units outright; the refresh between attempts also cedes real wall-clock time to the
+spontaneous ~3s fast-block sweep, which spends the same room duration again
+(blaze_support.py's module docstring). At the old level-30 fixture (duration ~36) this averaged
+~6 units/attempt, reaching only ~5-7 of the 10 attempts before burnout (a rare ~2-5% all-miss
+flake). Level 120 budgets ~12.6 units/attempt -- more than double that average, and still ahead
+of a loaded-run rate of ~8 units/attempt (126 available vs. 80 needed for 10 attempts) -- so all
+10 attempts are reachable.
+
+Side effect of the higher level: blaze_tick()'s damage (`number(8, level) + 10`,
+room_affect_tick.cpp) scales with the SAME `level`, so at 120+ its ceiling (up to ~133 raw) can
+exceed a room occupant's un-raised max hit -- a stray spontaneous fast-block tick could then
+kill it outright while it stands at full health between attempts, outside the loop's own
+controlled decisive-tick window. `wizset harnvictim maxhit 2000` (~1100 real hit, CON 11) before
+the first `restore` closes that for Harnvictim: it stays comfortably above blaze's ceiling at
+rest, while the loop's own `floor_hit` (CURRENT hit, independent of max) is still what makes the
+decisive tick lethal. `imp` itself stands in the SAME room for every forced tick (blaze damages
+every occupant, not only its `TAR_CHAR`) and is otherwise never healed, so `_kill_at_duration_one`
+also restores it on every miss (confirmed against a kept run: without this, `imp` itself died and
+auto-respawned to Immortal Start, which then read that room's absence of blaze as a false
+"burned out").
+
+`_victim_died_from_the_decisive_tick` polls up to 5s for `DEATH_MARKER` instead of trusting a
+single fixed `drain(1.0)`: a kept run showed the death line landing after that window, so the
+blind wait read a genuine kill as a miss and left Harnvictim mid-death for the next attempt's
+setup to trip over (its anger affect gone, not merely decremented -- death clears every affect).
 """
 
 from __future__ import annotations
@@ -132,6 +152,22 @@ def _earn_or_refresh_victims_anger(imp: GameSession, victim: GameSession, *, req
     imp.command("restore harnvictim")
 
 
+def _victim_died_from_the_decisive_tick(victim: GameSession, timeout: float = 5.0) -> bool:
+    """Polls for `DEATH_MARKER` in short slices instead of trusting one fixed `drain(1.0)`: a
+    kept run showed Harnvictim's own death line landing well after a 1s window (confirmed
+    against its session transcript), so a blind short wait can read a genuine kill as a miss and
+    leave a stale, mid-death character behind for the next attempt's setup to trip over.
+    """
+    deadline = time.monotonic() + timeout
+    text = ""
+    while True:
+        text += victim.drain(0.5)
+        if DEATH_MARKER in text:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+
+
 def _kill_at_duration_one(harness, imp: GameSession, victim: GameSession, attempts: int = 10) -> bool:
     """Harnvictim already carries its own SPELL_ANGER, inserted before blaze's room entry
     (module docstring), and already stands in the blazing room. Each attempt forces one tick to
@@ -155,9 +191,15 @@ def _kill_at_duration_one(harness, imp: GameSession, victim: GameSession, attemp
             # Harnvictim's own duration-1 anger, which the identity check (1679-1691) must skip
             # rather than dereference.
             harness.affects()
-            if DEATH_MARKER in victim.drain(1.0):
+            if _victim_died_from_the_decisive_tick(victim):
                 return True
             imp.command("restore harnvictim")
+            # `imp` itself stands in the blazing room for every forced tick above (both the
+            # countdown and the decisive call hit every occupant, room_affect_tick.cpp's
+            # blaze_tick, not only Harnvictim) and is never otherwise healed, so a miss also
+            # restores it -- see the module docstring's note on blaze's damage ceiling scaling
+            # with Harnmage's raised level.
+            imp.command("restore harnimp")
 
         imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
         imp.command("transfer harnvictim")
@@ -173,6 +215,12 @@ def _kill_at_duration_one(harness, imp: GameSession, victim: GameSession, attemp
 def test_death_and_expiry_in_one_affect_update_after_a_quit(server, imp, mage, victim, harness) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnvictim")
+    # maxhit 2000 (before restore, per gotchas.md "Wizard commands") raises Harnvictim's real hit
+    # ceiling to ~1100 (recalc_abilities, CON 11) -- comfortably above blaze's damage ceiling at
+    # Harnmage's raised level (see module docstring), so Harnvictim survives the room's own
+    # spontaneous fast-block tick while standing at full health between attempts; only the
+    # loop's own deliberate `floor_hit` (CURRENT hit, independent of max) stays lethal.
+    imp.command("wizset harnvictim maxhit 2000")
     imp.command("restore harnvictim")
 
     # Harnvictim earns its own SPELL_ANGER here, in a room that does not carry blaze yet -- this

@@ -69,7 +69,13 @@ MAGE_SKILLS = {
 
 STANDARD_ROSTER: tuple[CharacterSpec, ...] = (
     CharacterSpec("Harnimp", RACE_GOD, 100, ROOM_IMMORTAL_START, {"mage": 30, "mystic": 30, "ranger": 30, "warrior": 30}, {}, 1000, 1000, 1000, 9000001),
-    CharacterSpec("Harnmage", RACE_MAGUS, 30, ROOM_ARENA_CENTRE, {"mage": 30, "mystic": 30}, MAGE_SKILLS, 200, 600, 200, 9000002),
+    # `mage` profession level 120 (player level stays 30) so blaze's duration
+    # (get_mage_caster_level(), mage.cpp) budgets all 10 retry attempts in
+    # test_affect_expiry_with_death.py's _kill_at_duration_one -- see that module's docstring for
+    # the arithmetic. The same level also scales spell_earthquake's damage (mage.cpp:1693,
+    # `number(1,30) + level`), but test_earthquake_order.py raises every occupant's hp to ~1100
+    # first, so that stays comfortably non-lethal.
+    CharacterSpec("Harnmage", RACE_MAGUS, 30, ROOM_ARENA_CENTRE, {"mage": 120, "mystic": 30}, MAGE_SKILLS, 200, 600, 200, 9000002),
     CharacterSpec("Harnfighter", RACE_HUMAN, 20, ROOM_ARENA_CENTRE, {"warrior": 20}, {}, 200, 50, 200, 9000003),
     CharacterSpec("Harnvictim", RACE_WOOD_ELF, 10, ROOM_ARENA_CENTRE, {"ranger": 10}, {}, 60, 40, 120, 9000004),
     # Human, not magus: other_side() puts a magus on the opposite side from the wood-elf victim,

@@ -18,7 +18,7 @@ import pytest
 
 from rots_harness import fixtures
 from rots_harness.session import GameSession
-from test_summon import SUMMON_SUCCESS
+from test_summon import SUMMON_SUCCESS, _room_line
 
 pytestmark = pytest.mark.scenario
 
@@ -44,7 +44,6 @@ def test_summon_across_squared_distance_twenty_always_fails(server, imp, caller,
     for cast in range(1, CAST_BUDGET + 1):
         caller.send_line("cast 'summon' harnvictim")
         reply = caller.expect([SUMMON_FAILED, CONCENTRATION_LOST, *SUMMON_SUCCESS], timeout=12.0)
-        assert not any(marker in reply for marker in SUMMON_SUCCESS), reply
         if CONCENTRATION_LOST in reply:
             continue  # a fizzle is a spent cast, not a forced failure
         assert SUMMON_FAILED in reply, f"cast {cast}: a squared distance of 20 must force the save:\n{reply}"
@@ -54,7 +53,7 @@ def test_summon_across_squared_distance_twenty_always_fails(server, imp, caller,
     else:
         pytest.fail(f"only {forced_failures} of {FAILED_ATTEMPTS} forced saves in {CAST_BUDGET} casts")
     stat = imp.command("stat harnvictim")
-    assert f"In room [{fixtures.ROOM_DISTANT_CELL:5d}]" in stat.text, stat.text
+    assert _room_line(fixtures.ROOM_DISTANT_CELL) in stat.text, stat.text
 
 
 def test_summon_inside_the_zone_still_lands(server, imp, caller, victim) -> None:

@@ -58,6 +58,14 @@ def wait_for_disengagement(imp: GameSession, names: tuple[str, ...], timeout: fl
         imp.drain(0.5)
 
 
+# do_wizset's generic NUMBER-field reply (act_wiz.cpp:3113-3115); confirmed rendering
+# "Harnfighter's OB set to -20." / "Harnfighter's damage set to -20." against a kept run
+# (ROTS_IT_KEEP=1, test_kill_credit.py). Only the field-name substring is matched, mirroring
+# test_fireball_splash.py's WIZSET_HIT_REPLY, since the name varies by caller.
+WIZSET_OB_REPLY = "'s OB set to"
+WIZSET_DAMAGE_REPLY = "'s damage set to"
+
+
 def neutralize_melee(imp: GameSession, name: str) -> None:
     """Bottoms out `name`'s offense and damage bonuses (act_wiz.cpp wizset fields "OB" and
     "damage", both floored at -20) so its melee rounds land for ~0 damage -- fight.cpp's hit()
@@ -65,9 +73,19 @@ def neutralize_melee(imp: GameSession, name: str) -> None:
     even on the ~1/35 "sure hit" roll that bypasses dodge/parry (that roll only forces OB
     non-negative, never the damage stat). Closes the race between `name`'s own attacks and
     whatever forced tick or DoT a scenario needs to be the one that lands the kill.
+
+    Sent with `send_line` + `expect` on each command's own reply, not `command()`: a fight
+    already running in `imp`'s room can end a combat-spam broadcast with a prompt, and
+    `command()`'s wait is satisfied by any prompt, not specifically the wizset reply, so it can
+    return before the wizset has actually executed server-side (gotchas.md "Timing"; mirrors
+    test_fireball_splash.py's `_imp_do`).
     """
-    imp.command(f"wizset {name} OB -20")
-    imp.command(f"wizset {name} damage -20")
+    imp.drain(0.1)
+    imp.send_line(f"wizset {name} OB -20")
+    imp.expect((WIZSET_OB_REPLY,), timeout=8.0)
+    imp.drain(0.1)
+    imp.send_line(f"wizset {name} damage -20")
+    imp.expect((WIZSET_DAMAGE_REPLY,), timeout=8.0)
 
 
 def stat_replies(imp: GameSession, target: str, is_genuine: Callable[[str], bool], attempts: int = 4) -> list[str]:

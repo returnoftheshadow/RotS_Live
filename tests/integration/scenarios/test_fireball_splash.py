@@ -210,5 +210,5 @@ def test_splash_engages_the_bystander_with_the_caster_and_manufactures_no_credit
     # Ends the caster's fight (see the module docstring's last paragraph). Purged by the bare
     # keyword, not the numbered form: once the first copy is gone the survivor is "1.bystander"
     # again, so a second `purge 2.bystander` would find nothing and leave the caster in combat.
-    for _bystander in BYSTANDERS:
+    for _ in range(len(BYSTANDERS)):
         _imp_do(imp, "purge bystander", PURGE_REPLIES)

@@ -23,9 +23,10 @@ real-time sweep -- spends one unit of the SAME affect's duration. The three call
 synchronized: a `harness tick` round trip that takes longer under a loaded or contended run
 leaves more real wall-clock time for the spontaneous 3-second sweep to run in between, spending
 duration this test's own tick budget never sees or accounts for. A fixed tick budget sized
-against the affect's nominal duration (roughly a caster's mage level, ~30 for this roster's
-casters -- `get_mage_caster_level()`, mage.cpp) can therefore be outlived by the affect running
-out first on a slow enough run, well before the budget itself is spent.
+against the affect's nominal duration (roughly a caster's mage level -- `get_mage_caster_level()`,
+mage.cpp; ~30-33 for Harncaller, 120+ for Harnmage's raised fixture level, `rots_harness/fixtures.py`)
+can therefore be outlived by the affect running out first on a slow enough run, well before the
+budget itself is spent.
 
 Whichever call sites run `fast_update()` (`tick` and the spontaneous sweep; not `affects()`)
 also regenerate every character's (PC and NPC alike, no `IS_NPC` gate) current hit points toward
@@ -71,9 +72,11 @@ from rots_harness.session import GameSession
 BLAZE_CAST = ("You breathe out fire.",)
 
 # blaze_tick()'s dam = number(8, level) + 10, halved on a save (room_affect_tick.cpp:66-79); the
-# roster's mage-capable casters (Harnmage, Harncaller) are level ~30-33
-# (get_mage_caster_level(), mage.cpp:33-43). See the module docstring for why this is "almost
-# always lethal in one hit," not an absolute guarantee.
+# roster's mage-capable casters (get_mage_caster_level(), mage.cpp:33-43) are level ~30-33 for
+# Harncaller, 120+ for Harnmage's raised fixture level (rots_harness/fixtures.py) -- either way
+# `number(8, level)`'s minimum stays 8, so the halved-on-save floor stays 9 regardless of caster.
+# See the module docstring for why this is "almost always lethal in one hit," not an absolute
+# guarantee.
 LETHAL_HIT = 9
 
 
