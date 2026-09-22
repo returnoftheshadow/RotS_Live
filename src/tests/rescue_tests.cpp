@@ -3,6 +3,7 @@
 #include "../utils.h"
 
 #include "../interpre.h"
+#include "../spells.h"
 
 #include <gtest/gtest.h>
 
@@ -317,4 +318,93 @@ TEST(RescueFollowerCommand, StillReportsALostVictimWhenTheResolvedTargetIsGone)
     const std::string output = descriptor.small_outbuf;
     EXPECT_NE(output.find("Alas! You lost your victim."), std::string::npos)
         << "Expected a resolved-but-departed target to keep its original message: " << output;
+}
+
+extern char_data* combat_list;
+
+namespace {
+
+/*
+ * A pet standing beside its master, set up to pass the rescue roll every time
+ * so the tests see where the rescue lands rather than whether it succeeded.
+ */
+struct PetBesideMaster {
+    RescueRoom room;
+    descriptor_data descriptor = make_descriptor();
+    char_data pet {};
+    follow_type pet_link {};
+    byte pet_knowledge[MAX_SKILLS] {};
+    char_data* saved_combat_list = combat_list;
+
+    PetBesideMaster()
+    {
+        room.leader.player.name = const_cast<char*>("tamer");
+        room.leader.specials.position = POSITION_FIGHTING;
+
+        room.add_charmed_follower(&pet, &pet_link, 500, 1000);
+        pet.player.name = const_cast<char*>("wolf");
+        pet.specials.position = POSITION_STANDING;
+        pet.desc = &descriptor;
+        pet_knowledge[SKILL_RESCUE] = 101;
+        pet.knowledge = pet_knowledge;
+    }
+
+    ~PetBesideMaster() { combat_list = saved_combat_list; }
+};
+
+} // namespace
+
+TEST(RescueLeaderCommand, PetRescuesItsMasterWhenToldToRescueLeader)
+{
+    PetBesideMaster setup;
+    char_data attacker {};
+    setup.room.add_attacker(&attacker, &setup.room.leader);
+
+    const std::string output = rescue_with_text_argument(&setup.pet, "leader");
+
+    EXPECT_EQ(attacker.specials.fighting, &setup.pet)
+        << "Expected the attacker to be pulled off the master onto the pet: " << output;
+    EXPECT_EQ(setup.pet.specials.fighting, &attacker) << output;
+}
+
+TEST(RescueLeaderCommand, MasterIsAcceptedAsTheSameKeyword)
+{
+    PetBesideMaster setup;
+    char_data attacker {};
+    setup.room.add_attacker(&attacker, &setup.room.leader);
+
+    const std::string output = rescue_with_text_argument(&setup.pet, "master");
+
+    EXPECT_EQ(attacker.specials.fighting, &setup.pet)
+        << "Expected 'master' to rescue the master just as 'leader' does: " << output;
+}
+
+TEST(RescueLeaderCommand, SaysSoWhenTheMasterIsNotInTheRoom)
+{
+    PetBesideMaster setup;
+    setup.room.leader.in_room = setup.pet.in_room + 1;
+
+    const std::string output = rescue_with_text_argument(&setup.pet, "leader");
+
+    EXPECT_NE(output.find("Your leader isn't here."), std::string::npos) << output;
+}
+
+TEST(RescueLeaderCommand, SaysSoWhenThereIsNoMaster)
+{
+    PetBesideMaster setup;
+    setup.pet.master = nullptr;
+
+    const std::string output = rescue_with_text_argument(&setup.pet, "leader");
+
+    EXPECT_NE(output.find("Your leader isn't here."), std::string::npos) << output;
+}
+
+TEST(RescueLeaderCommand, ExplainsWhenNobodyIsFightingTheMaster)
+{
+    PetBesideMaster setup;
+
+    const std::string output = rescue_with_text_argument(&setup.pet, "leader");
+
+    EXPECT_NE(output.find("But no mortal is fighting"), std::string::npos)
+        << "Expected the keyword to resolve to the master and then fail the usual way: " << output;
 }

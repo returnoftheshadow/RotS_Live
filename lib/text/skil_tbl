@@ -727,7 +727,7 @@ and magical doors.
 #
 RESCUE
 
-[Syntax      ] rescue <target> / rescue followers
+[Syntax      ] rescue <target> / rescue followers / rescue leader
 [Group       ] Warrior
 [Level       ] 3
 [Offensive   ] Yes
@@ -742,8 +742,14 @@ that nobody is fighting are passed over, and a guardian counts as a
 follower like any other.  A character in the room named 'follower' takes
 precedence, as it does for 'order'.
 
-> rescue quifael         - rescues Quifael.
-> rescue followers       - rescues whichever follower is worst off.
+Rescuing 'leader' (or 'master') saves the character you are following,
+if they are in the room.  This lets you command a pet to protect you
+with 'order followers rescue leader'.  A character in the room named
+'leader' or 'master' takes precedence.
+
+> rescue quifael                - rescues Quifael.
+> rescue followers              - rescues whichever follower is worst off.
+> order followers rescue leader - your pets try to rescue you.
 
 #
 "FIND WEAKNESS"

@@ -788,18 +788,23 @@ ACMD(do_rescue)
     } else {
         /*
          * Anything the interpreter could not resolve to a character in the room
-         * arrives here as text, which is where 'rescue followers' is understood.
-         * A real character in the room always wins the name, as it does for 'order'.
+         * arrives here as text, which is where 'rescue followers' and 'rescue
+         * leader' (or 'master') are understood.  A real character in the room
+         * always wins the name, as it does for 'order'.
          */
         one_argument(argument, arg);
 
         if (!(victim = get_char_room_vis(ch, arg))) {
-            if (!is_abbrev(arg, "followers")) {
+            if (is_abbrev(arg, "leader") || is_abbrev(arg, "master")) {
+                victim = ch->master;
+                if (!victim || victim->in_room != ch->in_room) {
+                    send_to_char("Your leader isn't here.\n\r", ch);
+                    return;
+                }
+            } else if (!is_abbrev(arg, "followers")) {
                 send_to_char("Who do you want to rescue?\n\r", ch);
                 return;
-            }
-
-            if (!(victim = find_most_hurt_rescuable_follower(ch))) {
+            } else if (!(victim = find_most_hurt_rescuable_follower(ch))) {
                 if (has_charmed_follower_in_room(ch))
                     send_to_char("None of your followers need rescuing.\n\r", ch);
                 else
