@@ -1360,6 +1360,9 @@ TEST(ObjSave, AliasSaveSkipsAnEmptyCommandSoTheLoaderReadsTheRest)
         RELEASE(loaded);
         loaded = next_loaded;
     }
+    // free_char does not walk aliases today, so this dangling pointer is otherwise silent; keep
+    // it nulled so a future free_char change cannot double-free through it.
+    character->specials.alias = nullptr;
     free(first.command);
     free(empty.command);
     free(last.command);
