@@ -2,12 +2,19 @@
 
 ## Current state (2026-09-21)
 - Branch `fix/spell-room-affect-uaf-port`, draft PR #309. The spell and room-affect port is complete; the
-  integration harness (slices 1-3) and the slice 2 scenario suite are complete and green in CI (68
-  scenarios under AddressSanitizer, 813/813 unit tests, sanitized ctest blocking). Detail: the
+  integration harness (slices 1-3), the slice 2 scenario suite and the follow-up are complete and green in
+  CI (74 scenarios under AddressSanitizer, 821/821 unit tests, sanitized ctest blocking). Detail: the
   "Integration Test Harness" sections at the end of this file, newest last.
-- Next: `docs/superpowers/plans/2026-09-21-harness-follow-up.md` (summon distance and fireball splash
-  scenarios; the four owner findings from the fix wave). Parked: the affect-expiry retry-budget flake
-  (fix path in the slice 2 ledger).
+- Follow-up complete (`docs/superpowers/plans/2026-09-21-harness-follow-up.md`, 2026-09-21): 74 scenarios
+  and 821/821 unit tests green in CI at 1031941 (run 35675288166). Added test_summon_distance.py (zone 12 at map
+  (4,2), squared distance 20, deterministic failure plus an in-zone control) and test_fireball_splash.py
+  (Harnvictim as the melee partner because Big Brother refuses a level-30 caster's splash on a level-10
+  player); fixed the four fix-wave findings (host field terminator and width, alias writer skipping an
+  empty-command entry whole, MageTestContext contract comment, dead ScopedPlayerTableEntry) and two
+  overlapping-strcpy defects the sanitized job found in handler.cpp (get_number, find_all_dots). The
+  scenario skill's gotchas gained three entries. Parked: the affect-expiry retry-budget flake (fix path in
+  the slice 2 ledger). Not changed, recorded: object files already written with an empty-command alias
+  stay unloadable; KEY_STR copies the field width past a short value inside its line buffer.
 - Deploy caveat still standing (from the 2026-09-15 task below): the account-native exploits history is
   a one-way schema change; do not roll a server back to a pre-widening binary once a wide victim id has
   been recorded.

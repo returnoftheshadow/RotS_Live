@@ -430,10 +430,11 @@ Scope, in three slices (each its own plan):
   Harncaller and the crevice room, and the full scenario catalogue (68 scenarios).
 - [x] Slice 3 (`docs/superpowers/plans/2026-09-19-ci-integration-asan.md`, complete 2026-09-21): the
   `integration-asan` CI job; both jobs green and the sanitized ctest step blocking.
-- [ ] Follow-up (`docs/superpowers/plans/2026-09-21-harness-follow-up.md`): scenarios for summon's
+- [x] Follow-up (`docs/superpowers/plans/2026-09-21-harness-follow-up.md`, complete 2026-09-21): scenarios for summon's
   squared-distance save bonus and fireball splash engagement; the four owner findings recorded during
   the fix wave (host field written with `%s`, alias writer skipping the length of an empty command,
-  MageTestContext stack characters, dead ScopedPlayerTableEntry copy).
+  MageTestContext stack characters, dead ScopedPlayerTableEntry copy). The sanitized job also exposed and
+  the branch fixed two overlapping-strcpy defects in `handler.cpp` (`get_number`, `find_all_dots`).
 
 Rules: no production behaviour outside harness mode; never touch `lib/`, `bin/`, the `rots`
 container or port 1024; run directories live under `build/integration/`.
