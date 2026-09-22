@@ -3729,10 +3729,13 @@ void free_obj(struct obj_data* obj)
 static bool file_to_string_read_lines(const char* name, std::string& out)
 {
     std::ifstream file_stream(name, std::ios::binary);
-    if (!file_stream.is_open())
-    {
-        sprintf(buf2, "file_to_string: could not open %s", name);
-        log(buf2);
+    if (!file_stream.is_open()) {
+        // Local buffer, not the shared global buf2: file_to_string() below
+        // also formats a message while its caller's own buffer might be
+        // buf2, and this helper must never clobber it.
+        char message[300];
+        snprintf(message, sizeof(message), "file_to_string: could not open %s", name);
+        log(message);
         return false;
     }
 
@@ -3743,18 +3746,14 @@ static bool file_to_string_read_lines(const char* name, std::string& out)
     out.reserve(raw_content.size() + raw_content.size() / 8);
 
     std::size_t line_start = 0;
-    while (line_start < raw_content.size())
-    {
+    while (line_start < raw_content.size()) {
         const std::size_t newline_position = raw_content.find('\n', line_start);
         const bool has_trailing_newline = newline_position != std::string::npos;
 
         std::size_t line_end;
-        if (has_trailing_newline)
-        {
+        if (has_trailing_newline) {
             line_end = newline_position + 1;
-        }
-        else
-        {
+        } else {
             line_end = raw_content.size();
         }
 
@@ -3774,8 +3773,7 @@ int file_to_string_alloc(char* name, char** buf)
 
     // Growable accumulation, never truncated: this is the whole point of
     // the fix, so a file bigger than MAX_STRING_LENGTH (msdp_tbl) loads.
-    if (!file_to_string_read_lines(name, content))
-    {
+    if (!file_to_string_read_lines(name, content)) {
         return -1;
     }
 
@@ -3792,18 +3790,20 @@ int file_to_string(char* name, char* buf)
     *buf = '\0';
 
     std::string content;
-    if (!file_to_string_read_lines(name, content))
-    {
+    if (!file_to_string_read_lines(name, content)) {
         return -1;
     }
 
-    if (content.size() >= (std::size_t)MAX_STRING_LENGTH)
-    {
+    if (content.size() >= (std::size_t)MAX_STRING_LENGTH) {
         // Truncate to what the caller's buffer can hold instead of
-        // overflowing it or discarding the whole file.
-        sprintf(buf2, "SYSERR: file_to_string: %s is %zu bytes, truncated to the %d-byte limit",
+        // overflowing it or discarding the whole file. A local buffer, not
+        // buf2: buf itself could be buf2, and formatting into buf2 here
+        // would clobber it out from under the copy below.
+        char message[300];
+        snprintf(message, sizeof(message),
+            "SYSERR: file_to_string: %s is %zu bytes, truncated to the %d-byte limit",
             name, content.size(), MAX_STRING_LENGTH);
-        log(buf2);
+        log(message);
 
         content.resize(MAX_STRING_LENGTH - 1);
     }

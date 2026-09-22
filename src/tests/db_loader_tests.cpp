@@ -3156,3 +3156,22 @@ TEST(DbLoader, FileToStringAllocRoundTripsASmallFileByteForByteWithTheOldBehavio
 
     RELEASE(loaded);
 }
+
+TEST(DbLoader, FileToStringAllocYieldsAnEmptyStringForAnEmptyFile)
+{
+    // No lines means no '\r' appended and no early return: an empty file is
+    // a legitimate, successful load of "", the same as the old loader
+    // produced (fgets hit EOF on the very first call).
+    TemporaryDirectory temp_directory;
+    const std::string file_path = temp_directory.path() + "/empty.txt";
+    write_file(file_path, "");
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(const_cast<char*>(file_path.c_str()), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_STREQ(loaded, "");
+
+    RELEASE(loaded);
+}
