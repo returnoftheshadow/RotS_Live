@@ -39,7 +39,9 @@
 #include "roster_cache.h"
 #include "skill_timer.h"
 #include <cstdio>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -3707,54 +3709,109 @@ void free_obj(struct obj_data* obj)
     RELEASE(obj);
 }
 
-/* read contets of a text file, alloc space, point buf to it */
+/* Read every line of 'name' into 'out', reproducing the shape the legacy
+   fgets loop produced: each source line keeps its own trailing '\n' (when
+   the line has one) immediately followed by an appended '\r'. 'out' is a
+   std::string, so it grows to fit the file instead of being bounded by
+   MAX_STRING_LENGTH; this is what lets file_to_string_alloc load a file
+   like lib/text/msdp_tbl that no longer fits the old fixed buffer.
+   Returns false if the file cannot be opened, after logging that through
+   the project's log() facility (not a SYSERR: several callers pass an
+   optional/log file -- e.g. LASTDEATH_FILE, which does not exist until the
+   first death -- so a missing file here is routine, the same way the
+   legacy perror()-based version never raised an alarm for it; only a file
+   whose content does not fit a fixed caller buffer is a real SYSERR,
+   below).
+   Note: the legacy loop silently dropped a final line that had no trailing
+   '\n' (an fgets/feof timing quirk). Every text file this loader reads
+   today ends with '\n', so that quirk never fires; this implementation
+   keeps such a line instead of discarding it. */
+static bool file_to_string_read_lines(const char* name, std::string& out)
+{
+    std::ifstream file_stream(name, std::ios::binary);
+    if (!file_stream.is_open())
+    {
+        sprintf(buf2, "file_to_string: could not open %s", name);
+        log(buf2);
+        return false;
+    }
+
+    const std::string raw_content((std::istreambuf_iterator<char>(file_stream)),
+        std::istreambuf_iterator<char>());
+
+    out.clear();
+    out.reserve(raw_content.size() + raw_content.size() / 8);
+
+    std::size_t line_start = 0;
+    while (line_start < raw_content.size())
+    {
+        const std::size_t newline_position = raw_content.find('\n', line_start);
+        const bool has_trailing_newline = newline_position != std::string::npos;
+
+        std::size_t line_end;
+        if (has_trailing_newline)
+        {
+            line_end = newline_position + 1;
+        }
+        else
+        {
+            line_end = raw_content.size();
+        }
+
+        out.append(raw_content, line_start, line_end - line_start);
+        out += '\r';
+
+        line_start = line_end;
+    }
+
+    return true;
+}
+
+/* read contents of a text file, alloc space, point buf to it */
 int file_to_string_alloc(char* name, char** buf)
 {
-    char temp[MAX_STRING_LENGTH];
+    std::string content;
 
-    if (file_to_string(name, temp) < 0)
+    // Growable accumulation, never truncated: this is the whole point of
+    // the fix, so a file bigger than MAX_STRING_LENGTH (msdp_tbl) loads.
+    if (!file_to_string_read_lines(name, content))
+    {
         return -1;
+    }
 
     RELEASE(*buf);
 
-    *buf = str_dup(temp);
+    *buf = str_dup(content.c_str());
     return 0;
 }
 
-/* read contents of a text file, and place in buf */
+/* read contents of a text file, and place in buf (bounded to
+   MAX_STRING_LENGTH, since the caller owns a fixed-size buffer) */
 int file_to_string(char* name, char* buf)
 {
-    FILE* fl;
-    char tmp[100];
-
     *buf = '\0';
 
-    if (!(fl = fopen(name, "r"))) {
-        sprintf(tmp, "Error reading %s", name);
-        perror(tmp);
-        *buf = '\0';
-        return (-1);
+    std::string content;
+    if (!file_to_string_read_lines(name, content))
+    {
+        return -1;
     }
 
-    do {
-        fgets(tmp, 99, fl);
+    if (content.size() >= (std::size_t)MAX_STRING_LENGTH)
+    {
+        // Truncate to what the caller's buffer can hold instead of
+        // overflowing it or discarding the whole file.
+        sprintf(buf2, "SYSERR: file_to_string: %s is %zu bytes, truncated to the %d-byte limit",
+            name, content.size(), MAX_STRING_LENGTH);
+        log(buf2);
 
-        if (!feof(fl)) {
-            if (strlen(buf) + strlen(tmp) + 2 > MAX_STRING_LENGTH) {
-                log("SYSERR: fl->strng: string too big (db.c, file_to_string)");
-                *buf = '\0';
-                return (-1);
-            }
+        content.resize(MAX_STRING_LENGTH - 1);
+    }
 
-            strcat(buf, tmp);
-            *(buf + strlen(buf) + 1) = '\0';
-            *(buf + strlen(buf)) = '\r';
-        }
-    } while (!feof(fl));
+    content.copy(buf, content.size());
+    buf[content.size()] = '\0';
 
-    fclose(fl);
-
-    return (0);
+    return 0;
 }
 
 int get_char_directory(char* orig_name, char* filename)
@@ -4264,11 +4321,6 @@ void forget_crimes(char_data* ch, int criminal)
 // absent on purpose: their own element constructors already zero them.
 room_data::room_data()
 {
-    // create_bulk() used to calloc() the whole world array (see the
-    // commented-out line in create_bulk()); `new room_data[]` calls this
-    // constructor for every element instead, so it must reproduce that same
-    // all-zero starting state -- the loader overwrites every field below for
-    // a real room.
     number = -1;
     zone = 0;
     level = 0;

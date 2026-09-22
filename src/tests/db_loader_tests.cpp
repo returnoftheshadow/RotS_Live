@@ -48,6 +48,7 @@ int Crash_alias_load(struct char_data* ch, FILE* fp);
 int Crash_alias_save(struct char_data* ch, FILE* fp);
 void Crash_follower_save(struct char_data* ch, FILE* fp);
 void Crash_follower_load(struct char_data* ch, FILE* fp);
+int file_to_string_alloc(char* name, char** buf);
 
 namespace {
 
@@ -3081,4 +3082,77 @@ TEST(DbLoader, ThePlayerIndexHoldsTheAccountNativePathOfAnOrdinaryEmailAddress)
         << error_message;
     EXPECT_STREQ(player_table[stored_character.player_index].ch_file, ordinary_path.c_str())
         << "the path must be held whole -- a truncated one loses the .character.json suffix save_char tests for";
+}
+
+TEST(DbLoader, FileToStringAllocLoadsFilesLargerThanTheOldStringLimit)
+{
+    // lib/text/msdp_tbl outgrew MAX_STRING_LENGTH (8192 bytes); the old
+    // file_to_string_alloc read through a MAX_STRING_LENGTH-sized stack
+    // buffer and aborted with "SYSERR: fl->strng: string too big", leaving
+    // msdp_tbl unloaded and failing every scenario's teardown crash check.
+    // This pins the fix: a file well past that limit must load in full,
+    // through the growable buffer, with every line intact and no SYSERR.
+    TemporaryDirectory temp_directory;
+    const std::string file_path = temp_directory.path() + "/oversized.txt";
+
+    std::string raw_content;
+    std::string expected;
+    const int line_count = 400;
+    for (int line_index = 0; line_index < line_count; ++line_index) {
+        char line_text[64];
+        std::snprintf(line_text, sizeof(line_text), "line %03d of padding text to bulk it up\n", line_index);
+        raw_content += line_text;
+        expected += line_text;
+        expected += '\r';
+    }
+    ASSERT_GT(raw_content.size(), 9000u) << "fixture must exceed the old MAX_STRING_LENGTH limit to exercise the fix";
+    write_file(file_path, raw_content);
+
+    char* loaded = nullptr;
+    const std::string stderr_path = temp_directory.path() + "/file-to-string-alloc-oversized.stderr";
+    int result = -99;
+    std::string stderr_output;
+    {
+        ScopedStderrRedirect stderr_redirect(stderr_path);
+        result = file_to_string_alloc(const_cast<char*>(file_path.c_str()), &loaded);
+        stderr_output = stderr_redirect.read_contents();
+    }
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), expected);
+    EXPECT_EQ(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocRoundTripsASmallFileByteForByteWithTheOldBehaviour)
+{
+    // Below MAX_STRING_LENGTH, the growable-buffer rewrite must still
+    // reproduce exactly what the old fgets-based loader produced: each
+    // source line, trailing '\n' included, immediately followed by an
+    // appended '\r'. That is the shape msdp_tbl, news, motd and friends are
+    // rendered with, so it must not shift under the rewrite.
+    TemporaryDirectory temp_directory;
+    const std::string file_path = temp_directory.path() + "/small.txt";
+
+    const std::string raw_content =
+        "Line one of the message.\n"
+        "Line two, shorter.\n"
+        "Final line here.\n";
+    write_file(file_path, raw_content);
+
+    const std::string expected =
+        "Line one of the message.\n\r"
+        "Line two, shorter.\n\r"
+        "Final line here.\n\r";
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(const_cast<char*>(file_path.c_str()), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), expected);
+
+    RELEASE(loaded);
 }
