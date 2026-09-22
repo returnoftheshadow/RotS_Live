@@ -576,7 +576,7 @@ TEST(DbLoader, WritePlayerTextEmitsExactlyThePasswordFieldWidth)
     free(character.player.description);
 }
 
-// write_player_text() fills chd.host with strncpy(..., HOST_LEN) and printed it with %s: a
+// write_player_text() filled chd.host with strncpy(..., HOST_LEN) and printed it with %s: a
 // hostname of HOST_LEN or more characters left no terminator inside the field.
 TEST(DbLoader, WritePlayerTextTruncatesAnOverlongHostToTheFieldWidth)
 {
@@ -1305,13 +1305,27 @@ TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)
     stage_account_backed_object_bytes_for_character(&character, object_bytes.data(), object_bytes.size());
     FILE* fp = Crash_load(&character);
     ASSERT_NE(fp, nullptr);
-    ASSERT_TRUE(Crash_alias_load(&character, fp));
-    ASSERT_EQ(std::fclose(fp), 0);
+    // EXPECT, not ASSERT: Crash_alias_load can leave a partially loaded alias list linked into
+    // GET_ALIAS(&character) even when it returns false, so an early return here would skip the
+    // release below and leak it.
+    EXPECT_TRUE(Crash_alias_load(&character, fp));
+    EXPECT_EQ(std::fclose(fp), 0);
 
     EXPECT_EQ(character.specials.board_point[0], 77);
     ASSERT_NE(GET_ALIAS(&character), nullptr);
     EXPECT_STREQ(GET_ALIAS(&character)->keyword, "assist");
     EXPECT_STREQ(GET_ALIAS(&character)->command, "kill orc");
+
+    // Release: free the loaded list the way act_comm.cpp's alias removal does, then null the
+    // pointer, mirroring ObjSave.AliasSaveSkipsAnEmptyCommandSoTheLoaderReadsTheRest.
+    alias_list* loaded = GET_ALIAS(&character);
+    while (loaded != nullptr) {
+        alias_list* next_loaded = loaded->next;
+        RELEASE(loaded->command);
+        RELEASE(loaded);
+        loaded = next_loaded;
+    }
+    GET_ALIAS(&character) = nullptr;
 }
 
 // Crash_alias_save() wrote an alias's 20-byte keyword and then skipped the length for an empty
@@ -1346,9 +1360,13 @@ TEST(ObjSave, AliasSaveSkipsAnEmptyCommandSoTheLoaderReadsTheRest)
     ASSERT_TRUE(Crash_alias_load(character, file));
 
     std::vector<std::string> keywords;
-    for (alias_list* entry = character->specials.alias; entry != nullptr; entry = entry->next)
+    std::vector<std::string> commands;
+    for (alias_list* entry = character->specials.alias; entry != nullptr; entry = entry->next) {
         keywords.push_back(entry->keyword);
+        commands.push_back(entry->command);
+    }
     EXPECT_EQ(keywords, (std::vector<std::string> { "a", "c" }));
+    EXPECT_EQ(commands, (std::vector<std::string> { "look", "who" }));
 
     // Release: free the loaded list the way act_comm.cpp's alias removal does, then the three
     // stack-built nodes' strdup'd commands. The stack nodes themselves are not heap-allocated and
