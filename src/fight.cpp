@@ -63,7 +63,7 @@ extern char* pc_star_types[];
 
 /* External procedures */
 char* fread_string(FILE* fl, char* error);
-int check_resistances(char_data* ch, int attacktype);
+int check_resistances(char_data* ch, int attacktype, int* matched_resist_type = nullptr);
 void stop_hiding(struct char_data*, char);
 void break_meditation(char_data* ch);
 ACMD(do_flee);
@@ -1763,12 +1763,21 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
     if (IS_NPC(victim) && victim->specials.attacked_level < GET_LEVELB(attacker))
         victim->specials.attacked_level = GET_LEVELB(attacker);
 
-    const int resist_type = resist_type_for_attack(attacktype);
-    tmp = check_resistances(victim, attacktype);
+    /* The element the magnitude is read for is whichever bit actually decided the outcome, not
+       the one the attack nominally belongs to: a weapon hit resolved on the preserved legacy bit
+       has no magnitude behind it and must take the flat rule. */
+    int resist_type = resist_type_for_attack(attacktype);
+    tmp = check_resistances(victim, attacktype, &resist_type);
 
     /* Rolled unconditionally, exactly where the old code rolled it, so that the shared RNG
-       stream is not shifted by whether this victim happens to be resistant. */
-    const bool physical_resist_misses = (number(0, 2) == 0 && IS_PHYSICAL(attacktype));
+       stream is not shifted by whether this victim happens to be resistant.
+
+       The roll gates BOTH sides of check_resistances. The old code expressed that by zeroing
+       tmp, which skipped the resistance branch and the vulnerability branch together; naming
+       the roll instead makes it easy to guard only one of them, so both uses are spelled out
+       below. A magnitude-backed resistance is the one thing it does not gate - a percentage
+       written by a spell or an item applies on every swing. */
+    const bool physical_check_misses = (number(0, 2) == 0 && IS_PHYSICAL(attacktype));
 
     /* damage() is the hottest function in the server and buf is the shared scratch buffer, so
        the diagnostic is formatted only when someone has asked to see it. */
@@ -1788,7 +1797,7 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
             }
             send_to_char("You resist a lot.\n\r", victim);
             act("$n resists a lot.\n\r", TRUE, victim, 0, 0, TO_ROOM);
-        } else if (!physical_resist_misses) {
+        } else if (!physical_check_misses) {
             /* Flag resistance from a mob record or an APPLY_RESIST item: no magnitude
                exists, so the original flat rule applies unchanged, including the 1-in-3
                chance that a physical resistance does not fire at all. */
@@ -1799,7 +1808,11 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
         }
     }
 
-    if (tmp < 0) {
+    /* Guarded by the same roll as the flat resistance above: before this rewrite the roll
+       zeroed tmp, so a physical vulnerability was skipped on about one swing in three. Leaving
+       this branch unguarded made it fire on every swing - roughly 25% more damage against
+       anyone carrying V-PHYSICAL, which no part of the resistance work asked for. */
+    if (tmp < 0 && !physical_check_misses) {
         send_to_char("You feel it a lot.\n\r", victim);
         dam = dam * 3 / 2;
     }

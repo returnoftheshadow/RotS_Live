@@ -1715,8 +1715,13 @@ ASPELL(spell_shift)
     }
 }
 
-/* A cast resistance is worth the caster's level + 10, capped at 40%. An item's value is
-   whatever the builder encoded and is not derived from anyone's level. */
+/* A cast resistance is worth the caster's MYSTIC PROFESSION level + 10, capped at 40%, so a
+   character who barely invested in cleric gets a weaker resistance and not merely a shorter
+   one. Callers pass utils::get_prof_level(PROF_CLERIC, ...) - the raw profession level, not
+   get_mystic_caster_level(), which adds a will factor and rolls a die: duration may vary from
+   cast to cast without confusing anyone, a strength that does would make `affections` disagree
+   with itself. An item's value is whatever the builder encoded and is not derived from any
+   level at all. */
 int cast_resist_magnitude(int caster_level)
 {
     int level = caster_level;
@@ -1756,8 +1761,22 @@ void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data
         current_effect = NULL;
     }
 
-    if (current_effect)
+    if (current_effect) {
+        /* Say so. By the time a handler runs, spell_pa.cpp has already taken the full spirit
+           cost and printed "Ok.", so returning without a word reads to the caster as success
+           for a spell that did nothing. spell_protection announces the same case; match it,
+           including the form for a cast aimed at someone else. The resist spells are
+           TAR_SELF_ONLY today, but that is a skills[] row rather than anything enforced here. */
+        if (victim == caster) {
+            sprintf(buf, "You are resistant to %s already.\n\r", str);
+            send_to_char(buf, caster);
+        } else {
+            sprintf(buf, "$N is resistant to %s already.", str);
+            act(buf, FALSE, caster, 0, victim, TO_CHAR);
+        }
+
         return;
+    }
 
     const int level = get_mystic_caster_level(caster);
 
@@ -1768,7 +1787,7 @@ void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data
     newaf.bitvector = 0;
     newaf.counter = 0;
     newaf.effect_modifier = clamp_resist_magnitude(
-        (is_object) ? eff_mod : cast_resist_magnitude(GET_LEVEL(caster)));
+        (is_object) ? eff_mod : cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, *caster)));
 
     if (has_debug_flag(victim)) {
         sprintf(buf, "::RESIST::apply type %d modifier %d eff_mod %d duration %d\n\r",
@@ -1847,7 +1866,7 @@ ASPELL(spell_protection)
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
         newaf.counter = 0;
-        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
+        newaf.effect_modifier = cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, *caster));
 
         affect_to_char(loc_victim, &newaf);
         send_to_char("You feel resistant to fire!\n\r", loc_victim);
@@ -1864,7 +1883,7 @@ ASPELL(spell_protection)
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
         newaf.counter = 0;
-        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
+        newaf.effect_modifier = cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, *caster));
 
         affect_to_char(loc_victim, &newaf);
         send_to_char("You feel resistant to cold!\n\r", loc_victim);
@@ -1881,7 +1900,7 @@ ASPELL(spell_protection)
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
         newaf.counter = 0;
-        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
+        newaf.effect_modifier = cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, *caster));
 
         affect_to_char(loc_victim, &newaf);
         send_to_char("You feel resistant to lightning!\n\r", loc_victim);
@@ -1898,7 +1917,7 @@ ASPELL(spell_protection)
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
         newaf.counter = 0;
-        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
+        newaf.effect_modifier = cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, *caster));
 
         affect_to_char(loc_victim, &newaf);
         send_to_char("You feel resistant to physical harm!\n\r", loc_victim);
@@ -1915,7 +1934,7 @@ ASPELL(spell_protection)
         newaf.location = APPLY_RESIST;
         newaf.bitvector = 0;
         newaf.counter = 0;
-        newaf.effect_modifier = cast_resist_magnitude(GET_LEVEL(caster));
+        newaf.effect_modifier = cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, *caster));
 
         affect_to_char(loc_victim, &newaf);
         send_to_char("You feel resistant to illusion!\n\r", loc_victim);

@@ -1228,28 +1228,27 @@ void lowercase(char* str)
         str[i] = tolower(str[i]);
 }
 
+/* Copy str into result with every occurrence of patern removed.
+
+   The previous form consumed the pattern and then unconditionally copied the character sitting
+   after it, which at the end of the string was the terminator itself - copied into result, after
+   which the loop's own i++ stepped past it and kept reading past the end of str. Advancing over
+   the match and letting the loop re-test its condition removes that case: the terminator is only
+   ever reached by the guard, never consumed as data. */
 void remove_pattern(char* str, char* result, char* patern)
 {
-    int i, j = 0, k = 0, n = 0, flag = 0;
+    const int pattern_length = (int)strlen(patern);
+    int n = 0;
 
-    for (i = 0; str[i] != '\0'; i++) {
-        k = i;
-        while (str[i] == patern[j]) {
-            i++, j++;
-            if (j == (int)strlen(patern)) {
-                flag = 1;
-                break;
-            }
+    for (int i = 0; str[i] != '\0';) {
+        if (pattern_length > 0 && strncmp(str + i, patern, pattern_length) == 0) {
+            i += pattern_length;
+            continue;
         }
-        j = 0;
 
-        if (flag == 0)
-            i = k;
-        else
-            flag = 0;
-
-        result[n++] = str[i];
+        result[n++] = str[i++];
     }
+
     result[n] = '\0';
 }
 
@@ -1900,17 +1899,60 @@ int resist_type_for_attack(int attack_type)
     return RESIST_NONE;
 }
 
-int check_resistances(char_data* victim, int attack_type)
+/* True for the attacks whose resistance the live code resolves through a skills[] row that was
+   never meant to describe them: weapon damage types (TYPE_HIT..TYPE_CRUSH) and archery all sit
+   below MAX_SKILLS, so the live generic lookup reaches them first. */
+static bool uses_legacy_weapon_spec(int attack_type)
 {
+    return ((attack_type >= TYPE_HIT) && (attack_type <= TYPE_CRUSH))
+        || (attack_type == SKILL_ARCHERY);
+}
+
+/* 1 resistant, -1 vulnerable, 0 neither. matched_resist_type, when given, receives the RESIST_*
+   whose bit actually decided it, so the caller reads the magnitude for that element rather than
+   for the one the attack nominally belongs to.
+
+   Weapon types and archery keep the live order: the legacy spec bit first, the real element
+   second. Those rows are blank placeholders naming bit 0, plus "defend" (bit 14) colliding with
+   bludgeon, and they only came into play when MAX_SKILLS went 128 -> 256 in 2018. Correcting it
+   would change 46 live mobs, so it is deliberately held back: doing it here would mix a mob
+   toughness change into the release that introduces resistance magnitudes and make the two
+   impossible to tell apart when testing. See docs/systems/magic-system.md.
+
+   No legacy bit carries a magnitude - nothing writes an APPLY_RESIST affect for RESIST_NONE or
+   for the defend spec - so a hit resolved on one falls back to the flat rule, exactly as live. */
+int check_resistances(char_data* victim, int attack_type, int* matched_resist_type)
+{
+    extern skill_data skills[];
+
     const int resist_type = resist_type_for_attack(attack_type);
+    int matched = resist_type;
+    int result = 0;
 
-    if (IS_RESISTANT(victim, resist_type))
-        return 1;
+    if (uses_legacy_weapon_spec(attack_type)) {
+        const int legacy_spec = skills[attack_type].skill_spec;
+        if (legacy_spec != resist_type) {
+            if (IS_RESISTANT(victim, legacy_spec)) {
+                matched = legacy_spec;
+                result = 1;
+            } else if (IS_VULNERABLE(victim, legacy_spec)) {
+                matched = legacy_spec;
+                result = -1;
+            }
+        }
+    }
 
-    if (IS_VULNERABLE(victim, resist_type))
-        return -1;
+    if (result == 0) {
+        if (IS_RESISTANT(victim, resist_type))
+            result = 1;
+        else if (IS_VULNERABLE(victim, resist_type))
+            result = -1;
+    }
 
-    return 0;
+    if (matched_resist_type)
+        *matched_resist_type = matched;
+
+    return result;
 }
 
 /*

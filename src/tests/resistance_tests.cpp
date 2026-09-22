@@ -1,5 +1,9 @@
 #include "gtest/gtest.h"
 
+#include <map>
+
+#include "char_utils.h"
+#include "db.h"
 #include "handler.h"
 #include "spells.h"
 #include "structs.h"
@@ -294,6 +298,194 @@ TEST(ResistanceDamage, AVulnerabilityStillAddsAHalf)
         << "30 fire damage against a fire vulnerability should land as 45.";
 }
 
+/* The one-in-three physical roll has to gate BOTH sides of check_resistances.
+
+   Before magnitudes existed the roll simply zeroed tmp:
+
+       if (number(0,2) == 0 && IS_PHYSICAL(attacktype)) tmp = 0;
+
+   which skipped the resistance branch and the vulnerability branch alike, so a victim
+   vulnerable to physical damage felt it on roughly two swings in three. Moving the roll into
+   physical_resist_misses and consulting it only under `tmp > 0` left the vulnerability branch
+   unguarded and made it fire on every single swing - about 25% more damage against anyone
+   carrying V-PHYSICAL, with nothing in the design calling for it.
+
+   The roll is real RNG, so this is asserted statistically. Seeing at least one unboosted swing
+   in 300 is what distinguishes correct from broken: with the bug every swing is boosted, and
+   the chance of 300 consecutive boosts when the roll works is (2/3)^300, which will not happen
+   before the heat death of the universe. The band around it is loose on purpose - it is there
+   to catch the odds being changed wholesale, not to police sampling noise. */
+TEST(ResistanceDamage, ThePhysicalRollSparesAVulnerableVictimAboutOneSwingInThree)
+{
+    constexpr int swings = 300;
+    constexpr int base_damage = 30;
+    constexpr int boosted_damage = base_damage * 3 / 2;
+    constexpr int starting_hit = 500;
+
+    ResistDamageContext context;
+    context.victim.specials.vulnerability = (1 << RESIST_PHYS);
+
+    int boosted = 0;
+    int spared = 0;
+
+    for (int swing = 0; swing < swings; ++swing) {
+        context.victim.tmpabilities.hit = starting_hit;
+
+        damage(&context.attacker, &context.victim, base_damage, TYPE_HIT, 0);
+
+        const int taken = starting_hit - context.victim.tmpabilities.hit;
+        if (taken == boosted_damage)
+            ++boosted;
+        else if (taken == base_damage)
+            ++spared;
+        else
+            FAIL() << "a swing landed for " << taken << ", expected " << base_damage
+                   << " or " << boosted_damage;
+    }
+
+    EXPECT_GT(spared, 0)
+        << "every swing was boosted - the physical roll is not gating the vulnerability branch";
+    EXPECT_GT(boosted, 0) << "no swing was boosted - the vulnerability never fired at all";
+
+    EXPECT_GT(boosted, swings / 2) << "boosted " << boosted << " of " << swings
+                                   << ", expected roughly two thirds";
+    EXPECT_LT(boosted, swings * 9 / 10) << "boosted " << boosted << " of " << swings
+                                        << ", expected roughly two thirds";
+}
+
+/* Weapon hits keep checking the legacy "ungrouped" bit before physical.
+
+   Weapon damage types (130-143) and archery (61) sit below MAX_SKILLS, so the live check reaches
+   them through its generic skills[attack_type].skill_spec lookup before it ever gets to its own
+   weapon block. Those rows are blank placeholders naming bit 0 (and "defend" - bit 14 - at 131,
+   which collides with bludgeon), so on live every weapon swing tests bit 0 first. It is an
+   accident of MAX_SKILLS being raised 128 -> 256 in 2018, not a design, and correcting it would
+   move 46 live mobs.
+
+   That correction is deliberately NOT part of the resistance work: changing mob toughness in the
+   same release would contaminate the before/after comparison of the resistance change itself. The
+   legacy order is preserved on purpose, and these tests exist to keep it preserved and to fail
+   loudly if it is "fixed" without that being the intent.
+
+   Each case samples many swings rather than one. The one-in-three roll means a single swing at
+   full damage is ambiguous - it could be the roll sparing the victim, or the resistance not
+   applying at all - and an assertion that accepts both proves nothing. Over 200 swings the
+   difference is absolute: a working legacy check reduces roughly two thirds of them, a broken one
+   reduces none.
+
+   Scope matters: the pre-check covers ONLY weapon types and archery, the exact set the branch had
+   rerouted. Spells and special attacks resolve through skills[].resist as before. */
+namespace {
+
+/* How many of `swings` landed for each amount, against a victim the caller has set up. */
+std::map<int, int> sample_weapon_swings(char_data* attacker, char_data* victim, int base, int swings,
+    int attack_type = TYPE_HIT)
+{
+    std::map<int, int> taken;
+    for (int i = 0; i < swings; ++i) {
+        victim->tmpabilities.hit = 500;
+        damage(attacker, victim, base, attack_type, 0);
+        ++taken[500 - victim->tmpabilities.hit];
+    }
+    return taken;
+}
+
+constexpr int kSwings = 200;
+
+} // namespace
+
+TEST(LegacyWeaponResistOrder, AWeaponHitStillChecksTheUngroupedBitBeforePhysical)
+{
+    ResistDamageContext context;
+    context.victim.specials.resistance = (1 << RESIST_NONE);
+
+    const auto taken = sample_weapon_swings(&context.attacker, &context.victim, 30, kSwings);
+
+    EXPECT_GT(taken.count(20) ? taken.at(20) : 0, 0)
+        << "no swing was reduced - the legacy bit-0 check is gone, so bit-0 mobs no longer "
+           "resist weapon damage as they do on live";
+    EXPECT_EQ(taken.count(45), 0u) << "resistance must never read as vulnerability";
+}
+
+TEST(LegacyWeaponResistOrder, TheUngroupedBitStillWorksAsAWeaponVulnerability)
+{
+    ResistDamageContext context;
+    context.victim.specials.vulnerability = (1 << RESIST_NONE);
+
+    const auto taken = sample_weapon_swings(&context.attacker, &context.victim, 30, kSwings);
+
+    EXPECT_GT(taken.count(45) ? taken.at(45) : 0, 0)
+        << "no swing did extra damage - the legacy bit-0 vulnerability is gone";
+    EXPECT_GT(taken.count(30) ? taken.at(30) : 0, 0)
+        << "the one-in-three roll must still spare some swings";
+}
+
+TEST(LegacyWeaponResistOrder, TheUngroupedBitWinsOverPhysicalJustAsItDoesLive)
+{
+    // Checks stop at the first match and the legacy bit is tested first, so a mob that is bit-0
+    // resistant AND physically vulnerable resists rather than taking extra.
+    ResistDamageContext context;
+    context.victim.specials.resistance = (1 << RESIST_NONE);
+    context.victim.specials.vulnerability = (1 << RESIST_PHYS);
+
+    const auto taken = sample_weapon_swings(&context.attacker, &context.victim, 30, kSwings);
+
+    EXPECT_EQ(taken.count(45), 0u)
+        << "physical vulnerability was reached even though the legacy bit already matched";
+    EXPECT_GT(taken.count(20) ? taken.at(20) : 0, 0) << "and the legacy resistance should apply";
+}
+
+TEST(LegacyWeaponResistOrder, PhysicalResistanceStillAppliesWhenTheLegacyBitIsClear)
+{
+    ResistDamageContext context;
+    context.victim.specials.resistance = (1 << RESIST_PHYS);
+
+    const auto taken = sample_weapon_swings(&context.attacker, &context.victim, 30, kSwings);
+
+    EXPECT_GT(taken.count(20) ? taken.at(20) : 0, 0)
+        << "physical resistance must survive the legacy pre-check";
+}
+
+TEST(LegacyWeaponResistOrder, ArcheryFollowsTheSameLegacyOrderAsWeapons)
+{
+    // Archery is skill 61 - always inside the skill table, so it has checked bit 0 since the
+    // original code, not since 2018. It is preserved for the same reason.
+    ResistDamageContext context;
+    context.victim.specials.resistance = (1 << RESIST_NONE);
+
+    const auto taken
+        = sample_weapon_swings(&context.attacker, &context.victim, 30, kSwings, SKILL_ARCHERY);
+
+    EXPECT_GT(taken.count(20) ? taken.at(20) : 0, 0) << "bit 0 must still resist archery";
+    EXPECT_EQ(taken.count(30), 0u)
+        << "archery is not IS_PHYSICAL, so the one-in-three roll must never spare it";
+}
+
+TEST(LegacyWeaponResistOrder, APhysicalMagnitudeStillReducesByItsPercentage)
+{
+    // The resistance feature itself: a spell- or item-granted physical magnitude applies as a
+    // percentage and is not subject to the one-in-three roll. Preserving the legacy order must
+    // not cost this.
+    ResistDamageContext context;
+    context.resist_element(RESIST_PHYS, 30);
+
+    damage(&context.attacker, &context.victim, 50, TYPE_HIT, 0);
+
+    EXPECT_EQ(context.victim.tmpabilities.hit, 465)
+        << "50 physical damage against a 30% physical resistance should land as 35";
+}
+
+TEST(LegacyWeaponResistOrder, TheLegacyBitDoesNotLeakIntoSpells)
+{
+    // The pre-check is scoped to weapons and archery. A fire spell is still judged on fire.
+    ResistDamageContext context;
+    context.victim.specials.resistance = (1 << RESIST_NONE);
+
+    damage(&context.attacker, &context.victim, 30, SPELL_FIREBOLT, 0);
+
+    EXPECT_EQ(context.victim.tmpabilities.hit, 470) << "bit 0 must not resist a firebolt";
+}
+
 TEST(ResistMagnitudeFor, TheLargestMagnitudeWinsRegardlessOfListOrder)
 {
     // A cast protection and a resist spell are different affect types that both write
@@ -340,6 +532,31 @@ TEST(RemovePattern, StripsTheVulnerabilityPrefix)
     char untouched[] = "FIRE";
     remove_pattern(untouched, out, pattern);
     EXPECT_STREQ(out, "FIRE");
+}
+
+/* A match at the very end of the string used to walk off the end of it.
+
+   After consuming the pattern, i indexes the terminator; the old loop copied str[i] - the NUL
+   itself - into result and then let its own i++ step past it, so it carried on reading whatever
+   followed the string in memory and appending it to result. The result still *looked* right to
+   strcmp, because the NUL it had just copied terminated it, which is why this survived: the
+   damage is the out-of-bounds read and the writes past the terminator into the caller's buffer.
+
+   The input therefore carries known bytes after its terminator and the output buffer is filled
+   with a sentinel, so the assertion can see writes that strcmp cannot. */
+TEST(RemovePattern, StopsAtTheTerminatorWhenThePatternMatchesAtTheEnd)
+{
+    char pattern[] = "V-";
+    const char input[] = { 'F', 'I', 'R', 'E', 'V', '-', '\0', 'Z', 'Z', 'Z', '\0', '\0' };
+
+    char out[64];
+    memset(out, '#', sizeof(out));
+
+    remove_pattern(const_cast<char*>(input), out, pattern);
+
+    EXPECT_STREQ(out, "FIRE");
+    EXPECT_EQ(out[5], '#')
+        << "remove_pattern read past the terminator and appended what followed the string";
 }
 
 TEST(SprintbitResistances, UsesTheFlatDefaultWhenNoAffectBacksTheBit)
@@ -584,6 +801,82 @@ TEST(ClampResistMagnitude, HoldsAnItemGrantedStrengthInsideZeroToOneHundred)
     EXPECT_EQ(clamp_resist_magnitude(-5), 0);
 }
 
+/* Strength comes from the caster's mystic profession level, not their overall level.
+
+   The two are different numbers whenever the cleric coefficient is not dominant: profession
+   level is derived from the coefficient, so a mostly-warrior character can sit at overall level
+   30 with a cleric profession level of 10. Keying the magnitude off GET_LEVEL handed that
+   dabbler the same 40% ceiling as a dedicated mystic and differed only in duration.
+
+   Deliberately the RAW profession level rather than get_mystic_caster_level(): that helper adds
+   a will factor and contains a random roll, so feeding it here would make a resistance's
+   strength reroll on every cast and leave `affections` disagreeing with itself. Duration keeps
+   using the helper - varying how long it lasts is harmless in a way that varying how much it
+   blocks is not. */
+/* A player caster. get_prof_level() answers an NPC with its overall level, so the distinction
+   this test exists for is only visible on a PC - which also means the change leaves mob casters
+   exactly where they were. clear_char allocates the profs block the profession levels live in. */
+struct PlayerCasterContext {
+    char_data caster {};
+    char name[16] = "castbench";
+
+    PlayerCasterContext(int overall_level, int cleric_profession_level)
+    {
+        clear_char(&caster, 0);
+        caster.player.short_descr = name;
+        caster.player.race = RACE_HUMAN;
+        caster.player.level = overall_level;
+        caster.in_room = NOWHERE;
+        utils::set_prof_level(PROF_CLERIC, caster, cleric_profession_level);
+    }
+
+    ~PlayerCasterContext()
+    {
+        while (caster.affected)
+            affect_remove(&caster, caster.affected);
+    }
+};
+
+TEST(DoResistSpell, MagnitudeFollowsTheMysticProfessionLevelNotTheOverallLevel)
+{
+    PlayerCasterContext context(30, 10);
+
+    do_resist_spell(SPELL_RESIST_FIRE, RESIST_FIRE, &context.caster, &context.caster,
+        SPELL_TYPE_SPELL, 0, "fire");
+
+    affected_type* cast = affected_by_spell(&context.caster, SPELL_RESIST_FIRE);
+    ASSERT_NE(cast, nullptr);
+    EXPECT_EQ(cast->effect_modifier, 20)
+        << "a cleric profession level of 10 is worth 10 + 10, not the overall level's 40% cap";
+}
+
+TEST(DoResistSpell, MagnitudeStillReachesTheCapForADedicatedMystic)
+{
+    PlayerCasterContext context(30, 30);
+
+    do_resist_spell(SPELL_RESIST_FIRE, RESIST_FIRE, &context.caster, &context.caster,
+        SPELL_TYPE_SPELL, 0, "fire");
+
+    affected_type* cast = affected_by_spell(&context.caster, SPELL_RESIST_FIRE);
+    ASSERT_NE(cast, nullptr);
+    EXPECT_EQ(cast->effect_modifier, 40) << "min(30, 30) + 10";
+}
+
+TEST(DoResistSpell, AMobCasterIsUnaffectedBecauseItsProfessionLevelIsItsLevel)
+{
+    // get_prof_level() short-circuits for NPCs, so switching the magnitude to the profession
+    // level cannot have moved any mob-cast resistance.
+    ProtoMobContext context(0, 0);
+    context.mob.player.level = 30;
+
+    do_resist_spell(SPELL_RESIST_FIRE, RESIST_FIRE, &context.mob, &context.mob,
+        SPELL_TYPE_SPELL, 0, "fire");
+
+    affected_type* cast = affected_by_spell(&context.mob, SPELL_RESIST_FIRE);
+    ASSERT_NE(cast, nullptr);
+    EXPECT_EQ(cast->effect_modifier, 40);
+}
+
 TEST(DoResistSpell, AnItemGrantedMagnitudeIsClampedToOneHundred)
 {
     // eff_mod is the item's mod/256, so "A 27 25761" would otherwise hand out 100%+ - immunity -
@@ -616,7 +909,8 @@ TEST(DoResistSpell, AnItemTakesTheSlotFromACastAndAnUnequipClearsIt)
         SPELL_TYPE_SPELL, 0, "fire");
     affected_type* cast = affected_by_spell(&context.mob, SPELL_RESIST_FIRE);
     ASSERT_NE(cast, nullptr);
-    EXPECT_EQ(cast->effect_modifier, cast_resist_magnitude(GET_LEVEL(&context.mob)));
+    EXPECT_EQ(cast->effect_modifier,
+        cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, context.mob)));
     EXPECT_GT(cast->duration, 0) << "a cast expires";
 
     // Wearing the item replaces it: exactly one affect, the item's magnitude, permanent.
