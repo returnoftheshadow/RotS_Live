@@ -1323,8 +1323,7 @@ TEST(ActWiz, WizsetNameReportsARefusedRenameRatherThanClaimingSuccess)
         << "and told why, rather than being sent to the syslog -- got: " << output;
     EXPECT_STREQ(implementor->player.name, "aragorn") << "the character must keep its name";
 
-    free(implementor->player.name);
-    delete implementor;
+    test_support::release_test_character(implementor); // free_char releases player.name too
 }
 
 TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
@@ -1349,6 +1348,5 @@ TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
     EXPECT_EQ(std::string(descriptor.output), "You changed their name successfully.\n\r");
     EXPECT_STREQ(implementor->player.name, "Bartholomew");
 
-    free(implementor->player.name);
-    delete implementor;
+    test_support::release_test_character(implementor); // free_char releases player.name too
 }

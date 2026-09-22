@@ -2972,8 +2972,7 @@ TEST(InterpreAccountMenu, InGameLinkKeepsTheDescriptorsAccountName)
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTLINKPWD;
-    descriptor.character = new char_data {};
-    clear_char(descriptor.character, MOB_VOID);
+    descriptor.character = test_support::allocate_test_character(MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
     descriptor.character->player.name = strdup("aragorn");
@@ -4810,8 +4809,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharacterDoesNotInheritLe
     }
 
     descriptor_data descriptor = make_descriptor();
-    descriptor.character = new char_data {};
-    clear_char(descriptor.character, MOB_VOID);
+    descriptor.character = test_support::allocate_test_character(MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
     descriptor.connected = CON_QSEX;
@@ -4837,8 +4835,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharacterDoesNotInheritLe
     ASSERT_TRUE(account::read_account_character_file(".", "acct", "aragorn", &stored_character, &error_message)) << error_message;
     std::string object_bytes;
     ASSERT_TRUE(load_object_save_bytes_for_character(".", "aragorn", &object_bytes, &error_message)) << error_message;
-    char_data* loaded_character = new char_data {};
-    clear_char(loaded_character, MOB_VOID);
+    char_data* loaded_character = test_support::allocate_test_character(MOB_VOID);
     store_to_char(&stored_character, loaded_character);
     descriptor_data loaded_descriptor = make_descriptor();
     std::snprintf(loaded_descriptor.account_name, sizeof(loaded_descriptor.account_name), "%s", "acct");

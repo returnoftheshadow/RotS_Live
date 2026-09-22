@@ -11,6 +11,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "test_character_support.h"
 
 #include <gtest/gtest.h>
 
@@ -161,8 +162,7 @@ protected:
         m_mob_index[3].virt = kRiddenHorseVnum;
         mob_index = m_mob_index;
 
-        player = new char_data {};
-        clear_char(player, MOB_VOID);
+        player = test_support::allocate_test_character(MOB_VOID);
         player->player.name = strdup("Idleranger"); // free_char releases it when the disconnect extracts the player
         player->player.race = RACE_HUMAN;
         player->player.level = 40;
@@ -211,6 +211,7 @@ protected:
             if (player->in_room != NOWHERE)
                 char_from_room(player);
             remove_char_exists(player->abs_number);
+            test_support::release_test_character(player); // survives when the test never idled to disconnect
         }
 
         top_of_world = m_saved_top_of_world;
