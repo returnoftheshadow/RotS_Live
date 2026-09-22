@@ -150,7 +150,15 @@ void load_zones(FILE* fl)
          * them . . but that won't be very general.  We should save
          * the comment here.
          */
-        fgets(buf, 80, fl);
+        /*
+         * Read the rest of the line, however long the comment is.  Reading
+         * only one buffer's worth left a long comment's tail unread, and the
+         * next pass took that tail as a command: a phantom row, or, when the
+         * tail was just the line end, the next real command swallowed whole.
+         */
+        buf[0] = '\0';
+        while (fgets(buf, 80, fl) && !strchr(buf, '\n'))
+            ;
         vmudlog(NRM, "Got command: %c %d %d %d %d %d %d %d.",
             zone_table[zone].cmd[cmd_no].command,
             zone_table[zone].cmd[cmd_no].arg1,
