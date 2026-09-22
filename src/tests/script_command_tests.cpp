@@ -18,6 +18,7 @@
 #include <vector>
 
 int run_script(struct info_script* info, struct script_data* position);
+void clear_object(struct obj_data* obj);
 void clear_char(struct char_data* ch, int mode);
 
 extern struct room_data world;
@@ -90,6 +91,8 @@ public:
         cmd.param[2] = p2;
         m_nodes.push_back(cmd);
     }
+
+    void set_param(size_t index, int param, int value) { m_nodes[index].param[param] = value; }
 
     int run(info_script& info)
     {
@@ -223,6 +226,105 @@ TEST(ScriptSetExitState, SkipsADirectionOutsideTheSix)
     open_door(-1);
     EXPECT_TRUE(IS_SET(door.m_there.exit_info, EX_CLOSED));
     EXPECT_TRUE(IS_SET(door.m_back.exit_info, EX_CLOSED));
+}
+
+/* ---- DO_REMOVE <ch> <slot> and ASSIGN_EQ <ch> <obj> <slot> <int>: equipment
+ * slots run 0 to MAX_WEAR - 1.  DO_REMOVE used to treat slot 0 (the light) as
+ * "not set", and neither checked the slot before indexing equipment[]. ---- */
+
+/* A character standing in room A wearing one object in <slot>. */
+class WornObject : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        clear_char(&m_ch, MOB_VOID);
+        char_to_room(&m_ch, kRoomA);
+        clear_object(&m_obj);
+        m_obj.in_room = NOWHERE;
+        m_obj.obj_flags.type_flag = ITEM_OTHER;
+        m_obj.short_description = m_short;
+    }
+    void TearDown() override
+    {
+        for (int slot = 0; slot < MAX_WEAR; ++slot)
+            if (m_ch.equipment[slot])
+                unequip_char(&m_ch, slot);
+        if (m_obj.carried_by)
+            obj_from_char(&m_obj);
+        char_from_room(&m_ch);
+    }
+    void wear(int slot) { equip_char(&m_ch, &m_obj, slot); }
+
+    TwoRooms m_rooms;
+    char_data m_ch {};
+    obj_data m_obj {};
+    char m_short[16] = "a test object";
+};
+
+void remove_slot(char_data* ch, int slot)
+{
+    info_script info = make_info();
+    info.ch[0] = ch;
+    Script s;
+    s.add(SCRIPT_DO_REMOVE, SCRIPT_PARAM_CH1, slot);
+    s.run(info);
+}
+
+TEST_F(WornObject, DoRemoveTakesOffABodySlot)
+{
+    wear(WEAR_BODY);
+    remove_slot(&m_ch, WEAR_BODY);
+    EXPECT_EQ(nullptr, m_ch.equipment[WEAR_BODY]);
+    EXPECT_EQ(&m_ch, m_obj.carried_by);
+}
+
+TEST_F(WornObject, DoRemoveTakesOffTheLight)
+{
+    wear(WEAR_LIGHT);
+    remove_slot(&m_ch, WEAR_LIGHT);
+    EXPECT_EQ(nullptr, m_ch.equipment[WEAR_LIGHT]);
+    EXPECT_EQ(&m_ch, m_obj.carried_by);
+}
+
+TEST_F(WornObject, DoRemoveSkipsASlotOutsideTheRange)
+{
+    wear(WEAR_BODY);
+    remove_slot(&m_ch, MAX_WEAR);
+    remove_slot(&m_ch, -1);
+    EXPECT_EQ(&m_obj, m_ch.equipment[WEAR_BODY]);
+}
+
+/* Runs ASSIGN_EQ ch1 -> ob1 for <slot>, with int1 recording whether it found
+ * something.  int1 starts at 7 so "left alone" is visible. */
+info_script assign_slot(char_data* ch, int slot)
+{
+    info_script info = make_info();
+    info.ch[0] = ch;
+    info.ints[0] = 7;
+    Script s;
+    s.add(SCRIPT_ASSIGN_EQ, SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB1, slot);
+    s.set_param(0, 3, SCRIPT_PARAM_INT1);
+    s.run(info);
+    return info;
+}
+
+TEST_F(WornObject, AssignEqFindsTheObjectInASlot)
+{
+    wear(WEAR_BODY);
+    info_script info = assign_slot(&m_ch, WEAR_BODY);
+    EXPECT_EQ(&m_obj, info.ob[0]);
+    EXPECT_EQ(1, info.ints[0]);
+}
+
+TEST_F(WornObject, AssignEqSkipsASlotOutsideTheRange)
+{
+    wear(WEAR_BODY);
+    info_script info = assign_slot(&m_ch, MAX_WEAR);
+    EXPECT_EQ(nullptr, info.ob[0]);
+    EXPECT_EQ(7, info.ints[0]);
+    info = assign_slot(&m_ch, -1);
+    EXPECT_EQ(nullptr, info.ob[0]);
+    EXPECT_EQ(7, info.ints[0]);
 }
 
 /* ---- TELEPORT_CHAR_XL: move CH1 to <room variable> ---- */

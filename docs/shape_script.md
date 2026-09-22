@@ -166,7 +166,7 @@ noted earlier.
 | `ASSIGN_EQ` | Fetch an object from a specific equipment slot (see Equipment table below). |
 | `SET_INT_VALUE`, `SET_INT_SUM`, `SET_INT_SUB`, `SET_INT_MULT`, `SET_INT_DIV`, `SET_INT_RANDOM` | Perform integer math and assign the result to `intx` or fields like `ch1.hit`. Use with caution when targeting live character stats. |
 | `SET_INT_WAR_STATUS` | Store fame-war state in an integer (1 if whities lead, -1 darkies lead, 0 tie). |
-| `SET_EXIT_STATE` | Open/close/lock a door (state 0=open, 1=closed, 2=closed+locked). Automatically mirrors to the reverse exit and sends default messages. |
+| `SET_EXIT_STATE` | Open/close/lock a door (state 0=open, 1=closed, 2=closed+locked). Automatically mirrors to the reverse exit and sends default messages. Any direction 0-5 works, including north (0). |
 | `CHANGE_EXIT_TO` | Change an exit’s destination room. The exit must already exist; a room with no exit in that direction is reported and the line is skipped. |
 | `ASSIGN_ROOM` | Retrieve an object in a room by vnum. |
 
@@ -205,6 +205,10 @@ SCRIPT ERROR: script #2212, line 14 (load mob): mobile vnum 31099 not found
   on `/implement` (shown to the builder directly as well), and every time the
   line runs. The line still runs as it always did -- the message only tells
   you it is wrong.
+- **`slot S is not 0-21`** (`assign eq`, `do remove`) and **`direction D is not
+  0-5`** (`set exit state`, `change exit to`): the number typed into the line is
+  out of range. Reported at boot, on `/implement`, and every time the line runs;
+  the line is skipped.
 - **`(change exit to): room R has no exit D`**: the room has no exit in that
   direction (or the direction is not 0-5). The line is skipped.
 - **`(teleport xl): room not found`**: the room parameter is not set. The line

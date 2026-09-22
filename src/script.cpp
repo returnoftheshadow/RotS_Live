@@ -90,18 +90,24 @@ static const char* sref_name[] = { "mobile", "object", "room" };
 static const char* script_cmd_name(int command)
 {
     switch (command) {
+    case SCRIPT_ASSIGN_EQ:
+        return "assign eq";
     case SCRIPT_ASSIGN_INV:
         return "assign inv";
     case SCRIPT_ASSIGN_ROOM:
         return "assign room";
     case SCRIPT_CHANGE_EXIT_TO:
         return "change exit to";
+    case SCRIPT_DO_REMOVE:
+        return "do remove";
     case SCRIPT_EQUIP_CHAR:
         return "equip char";
     case SCRIPT_LOAD_MOB:
         return "load mob";
     case SCRIPT_LOAD_OBJ:
         return "load obj";
+    case SCRIPT_SET_EXIT_STATE:
+        return "set exit state";
     case SCRIPT_TELEPORT_CHAR:
         return "teleport";
     case SCRIPT_TELEPORT_CHAR_X:
@@ -160,6 +166,60 @@ static void report_script_no_room(int script_index, script_data* cmd)
     mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
 }
 
+/* A slot or direction typed into the line that is outside the range the
+ * command indexes with (0 to limit - 1).  The line is skipped when it runs. */
+static void report_script_range(int script_index, script_data* cmd, const char* what, int value,
+    int limit, char_data* to)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): %s %d is not 0-%d",
+        script_no, cmd->number, script_cmd_name(cmd->command_type), what, value, limit - 1);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
+        send_to_char(errbuf, to);
+        send_to_char("\n\r", to);
+    }
+}
+
+/* The equipment slot or exit direction a line names, checked at boot and on
+ * implement like the vnums below. */
+static void check_script_ranges(int script_index, script_data* cmd, char_data* to)
+{
+    int p, limit;
+    const char* what;
+
+    switch (cmd->command_type) {
+    case SCRIPT_ASSIGN_EQ:
+        p = 2;
+        what = "slot";
+        limit = MAX_WEAR;
+        break;
+    case SCRIPT_DO_REMOVE:
+        p = 1;
+        what = "slot";
+        limit = MAX_WEAR;
+        break;
+    case SCRIPT_SET_EXIT_STATE:
+        p = 0;
+        what = "direction";
+        limit = NUM_OF_DIRS;
+        break;
+    case SCRIPT_CHANGE_EXIT_TO:
+        p = 1;
+        what = "direction";
+        limit = NUM_OF_DIRS;
+        break;
+    default:
+        return;
+    }
+    if (cmd->param[p] < 0 || cmd->param[p] >= limit)
+        report_script_range(script_index, cmd, what, cmd->param[p], limit, to);
+}
+
 /* Report every vnum in one script that names nothing.  Run at boot, once
  * rooms, mobiles and objects exist, and when a builder implements a script.
  * A 0 parameter names nothing, so there is nothing to report. */
@@ -169,6 +229,7 @@ void check_script_vnums(int script_index, char_data* to)
     int first, last, kind, p, v, found;
 
     for (cmd = script_table[script_index].script; cmd; cmd = cmd->next) {
+        check_script_ranges(script_index, cmd, to);
         switch (cmd->command_type) {
         case SCRIPT_LOAD_MOB:
             first = last = 0;
@@ -1011,6 +1072,12 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_ASSIGN_EQ:
             if (curr->param[0] && curr->param[1]) {
+                /* The slot indexes equipment[]; outside it, skip the line. */
+                if (curr->param[2] < 0 || curr->param[2] >= MAX_WEAR) {
+                    report_script_range(info->index, curr, "slot", curr->param[2], MAX_WEAR, 0);
+                    curr = curr->next;
+                    break;
+                }
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch)
                     tmpobj = tmpch->equipment[curr->param[2]];
@@ -1185,11 +1252,17 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_DO_REMOVE:
-            if (curr->param[0] && curr->param[1]) {
-                tmpch = get_char_param(curr->param[0], info);
-                if (tmpch && (-1 < curr->param[1] < MAX_WEAR))
-                    if (tmpch->equipment[curr->param[1]])
+            /* param[1] is the slot, and 0 is the light: testing it for
+             * non-zero made the light impossible to remove, and the old range
+             * check (-1 < slot < MAX_WEAR) was always true. */
+            if (curr->param[0]) {
+                if (curr->param[1] < 0 || curr->param[1] >= MAX_WEAR)
+                    report_script_range(info->index, curr, "slot", curr->param[1], MAX_WEAR, 0);
+                else {
+                    tmpch = get_char_param(curr->param[0], info);
+                    if (tmpch && tmpch->equipment[curr->param[1]])
                         perform_remove(tmpch, curr->param[1]);
+                }
             }
             curr = curr->next;
             break;
@@ -1707,7 +1780,8 @@ int run_script(struct info_script* info, struct script_data* position)
                     if ((tmprm2) && (tmprm2->dir_option[rev_dir[curr->param[0]]]) && (tmprm2->dir_option[rev_dir[curr->param[0]]]->to_room == real_room(tmprm->number)))
                         set_exit_state(tmprm2, rev_dir[curr->param[0]], curr->param[1]);
                 }
-            }
+            } else
+                report_script_range(info->index, curr, "direction", curr->param[0], NUM_OF_DIRS, 0);
             curr = curr->next;
             break;
 
