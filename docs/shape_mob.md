@@ -247,26 +247,58 @@ Set an explicit number if you need sharper senses (higher) or dulled senses
 
 ## Resistances and vulnerabilities (MAN SHAPE MOB 36/37)
 
-Fields `/36` (resistance) and `/37` (vulnerability) are bitvectors that map to
-the specialization attack groups. Bits are shared with object resist/vuln flags:
+Fields `/36` (resistance) and `/37` (vulnerability) are bitvectors. Each bit is a
+`RESIST_*` id (`structs.h`), which is **not** the same list as the `PLRSPEC_*`
+specialization ids — the two diverged, which is why `skill_data` carries the
+resist id explicitly. Bits are shared with the object resist/vuln flags:
 
-| Bit # | Group | Value |
-|-------|-------|-------|
-| 0 | None / general | 1 |
+| Bit # | Element | Value |
+|-------|---------|-------|
+| 0 | Ungrouped / general | 1 |
 | 1 | Fire | 2 |
 | 2 | Cold | 4 |
 | 3 | Regeneration | 8 |
 | 4 | Protection | 16 |
 | 5 | Animals | 32 |
 | 6 | Stealth | 64 |
-| 7 | Wild fighting | 128 |
+| 7 | Physical (also hit/crush weapon damage and archery) | 128 |
 | 8 | Teleport | 256 |
 | 9 | Illusion | 512 |
 | 10 | Lightning | 1024 |
 | 11 | Mind | 2048 |
+| 12 | Dark | 4096 |
 
+Bits 13–15 exist in the mask but have no name and no consumer; leave them clear.
 Most of these hooks are only consulted by a handful of spells/skills; when in
 doubt, leave both vectors at 0.
+
+### These two fields are flag-only — they carry no strength
+
+A bit is all-or-nothing. A mob that sets the fire resistance bit resists fire by
+the flat built-in amount; a mob that sets the fire vulnerability bit takes the
+flat extra. **There is no way to write "80 % resistant to fire" into a `.mob`
+record.**
+
+This is a format limitation, not an oversight in the editor. The mob record has
+no affect list at all: `parse_mobile` (`db.cpp`) ends each record immediately
+after the `language perception resistance vulnerability script_number spirit
+will_teach` line and moves straight to the next `#vnum`. Objects carry
+`MAX_OBJ_AFFECT` `A <location> <modifier>` slots in the `.obj` file; mobs have
+no equivalent, and `shapemob` therefore has no affect editor — rows `/36` and
+`/37` edit the raw bitvectors and nothing else.
+
+### How to give a mob a graded resistance
+
+Put it on an item the mob wears. Object affect `A 27 <modifier>` is
+`APPLY_SPELL`, whose modifier encodes `strength * 256 + spell_number`; the
+resist spells are 161–166 (fire, cold, lightning, illusion, physical, dark).
+Zone command `E` equips the object onto the last loaded mob and calls
+`equip_char` (`zone.cpp:844`), which fires `APPLY_SPELL` exactly as it does for
+a player — so the mob ends up with a real graded resistance affect.
+
+A worn item and the mob's own bit are independent sources, and the two are
+combined when damage is calculated. See `docs/systems/magic-system.md` for the
+element list and how a resistance's strength is applied.
 
 ## Special procedures (MAN SHAPE MOB2 29)
 
