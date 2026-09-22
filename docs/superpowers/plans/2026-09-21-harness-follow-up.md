@@ -568,3 +568,10 @@ git commit -m "docs: harness follow-up complete"
 - Spec coverage: manual plan row 3 (splash bystander) → Task 4; row 4 (distance falloff) → Tasks 1-2; ledger findings 96-97 → Task 5, 184 alias → Task 6, 144 → Task 7, 184 dead class → Task 8.
 - Placeholders: the fireball resolution markers and the bystander keyword are named as values to confirm against `lib/misc/messages` and `mob/11.mob` with the exact procedure; the alias test's stream prefix is to be read from `Crash_load`. No TBDs.
 - Type consistency: `ROOM_DISTANT_CELL` (Task 1) is what Task 2 reads; `SUMMON_SUCCESS` is imported from `test_summon`; `stat_replies` and `wait_for_engagement` signatures match `combat_support.py`.
+
+## Deviations by ruling (2026-09-21)
+
+- Tasks 4b (`get_number`) and 4c (`find_all_dots`) were inserted mid-plan: the sanitized CI job found an overlapping `strcpy` in each, live in production on every `N.keyword`/`all.x` input, fixed with `memmove` (ledger `.superpowers/sdd/2026-09-21-harness-follow-up/progress.md` lines 51, 65).
+- Task 4 was redesigned in round 3: the melee partner became Harnvictim (level 10) instead of Harnfighter (level 20), because Big Brother refuses a level-30 caster's splash against a level-10 player before either bystander is reached (`big_brother.cpp:381-394`; ledger lines 79-81).
+- The same redesign dropped Task 4's finishing-kill phases: no mob death writes an exploit record, so they proved only liveness against regen, PvP and prompt spam, not the invariant under test (ledger line 79).
+- The account-migration snapshot decision: it stays in its legacy 80-byte encoding and is not a rollback source for exploit ids; no code change, already stated at `account_management_migration.cpp:150-153` (ledger line 3).

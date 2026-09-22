@@ -1,6 +1,7 @@
-"""A fireball's splash engages a bystander mob with the caster and with nobody else: the splashed
-bystander fights Harncaller, never the melee partner that is fighting the primary target, and no
-player record is manufactured for or against either player. spell_fireball (mage.cpp:1914-1996)
+"""manual-test-plan.md item 3 (splash-damage bystander): a fireball's splash engages a bystander
+mob with the caster and with nobody else: the splashed bystander fights Harncaller, never the
+melee partner that is fighting the primary target, and no player record is manufactured for or
+against either player. spell_fireball (mage.cpp:1914-1996)
 delivers the primary hit to the cast's own victim, then walks every other occupant of the room
 (1959-1991) and rolls each one independently at target_number 0.2 (0.8 once that occupant already
 fights the caster), delivering SPELL_FIREBALL2 through apply_spell_damage (mage.cpp:1989); it is
@@ -9,32 +10,23 @@ combat with the caster. No gtest can pin this: it needs the server's own splash 
 live room of loaded mobs, two real player sessions, and the records the running server writes to
 disk.
 
-The melee partner is Harnvictim (level 10), not Harnfighter (level 20), because Big Brother makes
-a level-10 partner an impossible splash victim and so removes the caster-versus-partner PvP branch
-this scenario used to have to recover from. damage_credited consults
-big_brother::is_target_valid before anything else (fight.cpp:1847-1849) and refuses the hit with
-"...protecting your target.  Your hand is stayed." without reaching either set_fighting call;
-is_target_valid rejects a PC victim whose is_level_range_appropriate fails
-(big_brother.cpp:315-316), and that check fails when attacker_level >= defender_level * 3
-(big_brother.cpp:381-394) -- exactly Harncaller's 30 against Harnvictim's 10, both read through
-get_level_legend_cap, which is get_level_a and caps a PC at LEVEL_MAX 30 (char_utils.cpp:307-318).
-SPELL_FIREBALL2 is in the harmful-skill set (big_brother.cpp:74), so the skill-aware overload of
-is_target_valid rejects it too rather than letting it through as potentially helpful. Harnfighter's
-20 sits inside the permitted band (30 < 60), which is why it was a legal splash victim. Harnimp,
-standing in the room to run the staging, is spared by the same guard's earlier god branch
-(big_brother.cpp:303), so the two bystander orcs are the only occupants a splash can engage at
-all -- and a "protecting your target" line on the caster's transcript does not by itself say
-which of the two protected players it spared.
+The melee partner is Harnvictim (level 10), not Harnfighter (level 20): Big Brother's
+three-times-level band (gotchas.md "Characters and rendering") makes a level-10 partner an
+impossible splash victim, so picking Harnvictim removes the caster-versus-partner PvP branch
+this scenario used to have to recover from, leaving the two bystander orcs as the only occupants
+a splash can engage at all.
 
 Every cast kills the primary target, so the partner's own share line is this scenario's per-cast
 credit observation. Mob 1130 (target orc, keyword "target") has a fixed 30/30 hit-point ceiling
 (11.mob, loaded verbatim into mob_proto[i].abilities.hit with no level scaling, db.cpp
 load_mobiles ~1739-1740) that wizset cannot raise (SAFE_HIT below states the clamp); the primary
-hit's raw damage is never less than 30 before a save (mage.cpp:1919's unconditional "30 +" term)
-and scale_spell_damage (mage.cpp:131-141) scales it up, not down, against a plain NPC with no
-player-level saving-throw bonus; and the orc cannot save, since new_saves_spell (spell_pa.cpp:245-266)
-needs number(1, 20) plus its own save value of 1 (get_character_saving_throw, spell_pa.cpp:203-220:
-an NPC's mage "profession level" is its own level 5, two thirds of it, a third of that; intel 10
+hit's three number(1, magic_power)/2 terms (mage.cpp:1919) put the roll far above the 35 that
+update_pos needs to kill it (hit <= -CON/2 on a 30/30, CON-10 orc), and scale_spell_damage's
+saving_throw-0 multiplier against a plain NPC is exactly 1.0, not an increase (mage.cpp:104-118,
+131-141); a rare low roll is the named precondition failure at the cast, not scaled away. The orc
+cannot save, since new_saves_spell (spell_pa.cpp:245-266) needs number(1, 20) plus its own save
+value of 1 (get_character_saving_throw, spell_pa.cpp:203-220: an NPC's mage "profession level" is
+its own level 5, two thirds of it, a third of that; intel 10
 adds nothing) to exceed Harncaller's DC of 22 (get_saving_throw_dc, spell_pa.cpp:227-233: 10 plus a
 third of mage level 30 plus a quarter of intel 18 above 8, with no specialization bonus) -- 21 at
 the very best roll. A cast that nonetheless leaves the target standing is reported as a failed
@@ -56,12 +48,16 @@ A splash is detected by reading both bystanders' own stat lines after every reso
 from the caster's transcript order: expect() returns as soon as any one marker is seen, so it can
 return on the primary line before a same-cast splash line has even arrived on the socket.
 
-Bound: two bystanders rolling independently at 0.2 each give a single cast at least a
-1 - 0.8**2 = 0.36 chance of landing a splash on one of them, so SPLASH_ATTEMPTS casts leave an
-all-miss chance of 0.64**15, about 0.12%, reported as a failed precondition rather than a bare
-loop timeout. This is a plain Bernoulli-confidence bound, not a resource one: the target is
-reloaded fresh, the bystanders are re-floored and both players restored on every attempt, so
-nothing the loop consumes can run out first. The harness pins the server's RNG seed
+Bound: two bystanders rolling independently at 0.2 each give a single resolved cast at least a
+1 - 0.8**2 = 0.36 chance of landing a splash on one of them, so SPLASH_ATTEMPTS casts that
+resolve leave an all-miss chance of 0.64**15, about 0.12%, reported as a failed precondition
+rather than a bare loop timeout -- the bound is on casts that resolved, not casts sent. A rare
+fizzle (do_cast's knowledge check, spell_pa.cpp:932) spends one of the SPLASH_ATTEMPTS iterations
+without resolving anything, so the loop can end with slightly fewer than fifteen resolved casts;
+the target is untouched by a fizzle, so this costs a turn, not a reload. This is a plain
+Bernoulli-confidence bound, not a resource one: the target is reloaded fresh, the bystanders are
+re-floored and both players restored on every attempt, so nothing the loop consumes can run out
+first. The harness pins the server's RNG seed
 (conftest.py's DEFAULT_SEED, applied by test_harness.cpp's seed_random_from_environment), so
 which cast splashes is reproducible only up to how many number() calls the real-time combat
 pulses have consumed by then; the bound is what keeps the loop honest when that ordering shifts,
@@ -96,9 +92,12 @@ PRIMARY_MISS = "Your fireball burns out before it reaches"  # :258
 # (mage.cpp:1984-1985), not a messages-file pair at all. Its death line (:479) is never needed,
 # since the bystanders' fixed ceiling keeps a splash hit from being lethal.
 SPLASH_HIT = "The heat of your fireball burns"
+CONCENTRATION_LOST = "You lost your concentration!"  # do_cast, spell_pa.cpp:932
+NO_TARGET_IN_ROOM = "Nobody here by that name."  # interpre.cpp:731, TAR_CHAR_ROOM
 # PRIMARY_HIT and PRIMARY_MISS are here so a cast that did not kill still ends the wait promptly
-# and fails on the precondition assertion below rather than on this timeout.
-RESOLUTION_MARKERS = (PRIMARY_DEATH, PRIMARY_HIT, PRIMARY_MISS, SPLASH_HIT)
+# and fails on the precondition assertion below rather than on this timeout. CONCENTRATION_LOST
+# and NO_TARGET_IN_ROOM are named precondition failures, not resolutions: see the loop below.
+RESOLUTION_MARKERS = (PRIMARY_DEATH, PRIMARY_HIT, PRIMARY_MISS, SPLASH_HIT, CONCENTRATION_LOST, NO_TARGET_IN_ROOM)
 
 MELEE_PARTNER = "Harnvictim"
 SPLASH_ATTEMPTS = 15
@@ -175,6 +174,10 @@ def test_splash_engages_the_bystander_with_the_caster_and_manufactures_no_credit
 
         caller.send_line("cast 'fireball' target")
         resolved = caller.expect(RESOLUTION_MARKERS, timeout=12.0)
+        if NO_TARGET_IN_ROOM in resolved:
+            pytest.fail(f"the partner killed the target before the cast landed:\n{resolved[-800:]}")
+        if CONCENTRATION_LOST in resolved:
+            continue  # a fizzle is a spent cast, not a resolved one; the target is still alive
         assert PRIMARY_DEATH in resolved, f"the primary hit left the target orc standing:\n{resolved[-800:]}"
         # The partner was engaged with the target and present when the fireball killed it, so
         # group_gain sends it a share line. Consumed on every attempt, so that no earlier
@@ -187,7 +190,7 @@ def test_splash_engages_the_bystander_with_the_caster_and_manufactures_no_credit
         if splashed_bystander is not None:
             break
         _reload_target(imp)
-    assert splashed_bystander is not None, f"no splash landed in {SPLASH_ATTEMPTS} casts (all-miss chance ~0.12%)"
+    assert splashed_bystander is not None, f"no splash landed among the resolved casts of {SPLASH_ATTEMPTS} sent"
 
     partner_key = MELEE_PARTNER.lower()
     splashed_line = _fighting_line(imp, splashed_bystander)

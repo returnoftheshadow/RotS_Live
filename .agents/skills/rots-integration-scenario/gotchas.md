@@ -46,6 +46,9 @@ behaviour lives so you can confirm it still holds.
   `transfer` does not. Transfer first, restore second.
 - **`purge <mob>` and `load mob <vnum>`** are the way to reset a mob between attempts; there
   is no command that strips a room affect, which is why each test boots its own server.
+- **`wizset <name> room` resolves to `roomflag` by prefix match**, not the `room` field: the
+  `fields[]` table lists `roomflag` before `room` and `do_wizset`'s lookup takes the first
+  prefix match (`act_wiz.cpp:2766-2767`, field order). Use `teleport <name> <vnum>` instead.
 
 ## Characters and rendering
 
