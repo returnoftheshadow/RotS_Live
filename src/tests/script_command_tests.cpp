@@ -23,6 +23,7 @@ void clear_char(struct char_data* ch, int mode);
 extern struct room_data world;
 extern int top_of_world;
 extern struct descriptor_data* descriptor_list;
+extern int rev_dir[];
 
 namespace {
 
@@ -155,6 +156,73 @@ TEST(ScriptChangeExitTo, SkipsADirectionOutsideTheSix)
 
     for (int d = 0; d < NUM_OF_DIRS; ++d)
         EXPECT_EQ(nullptr, world[kRoomA].dir_option[d]);
+}
+
+/* ---- SET_EXIT_STATE <dir> <state> <room>: open/close/lock a door and its
+ * other side.  Direction 0 is north, a real direction, but the command used
+ * to treat a 0 as "not set" and silently do nothing. ---- */
+
+/* A closed door from room A to room B in <dir>, and back again. */
+class DoorBetweenRooms {
+public:
+    explicit DoorBetweenRooms(int dir)
+        : m_dir(dir)
+    {
+        m_there.exit_info = EX_ISDOOR | EX_CLOSED;
+        m_there.to_room = kRoomB;
+        m_back.exit_info = EX_ISDOOR | EX_CLOSED;
+        m_back.to_room = kRoomA;
+        world[kRoomA].dir_option[dir] = &m_there;
+        world[kRoomB].dir_option[rev_dir[dir]] = &m_back;
+    }
+    ~DoorBetweenRooms()
+    {
+        world[kRoomA].dir_option[m_dir] = nullptr;
+        world[kRoomB].dir_option[rev_dir[m_dir]] = nullptr;
+    }
+
+    room_direction_data m_there {};
+    room_direction_data m_back {};
+
+private:
+    int m_dir;
+};
+
+void open_door(int dir)
+{
+    info_script info = make_info();
+    info.rm[0] = &world[kRoomA];
+    Script s;
+    s.add(SCRIPT_SET_EXIT_STATE, dir, 0, SCRIPT_PARAM_RM1);
+    s.run(info);
+}
+
+TEST(ScriptSetExitState, OpensADoorToTheEast)
+{
+    TwoRooms rooms;
+    DoorBetweenRooms door(1);
+    open_door(1);
+    EXPECT_FALSE(IS_SET(door.m_there.exit_info, EX_CLOSED));
+    EXPECT_FALSE(IS_SET(door.m_back.exit_info, EX_CLOSED));
+}
+
+TEST(ScriptSetExitState, OpensADoorToTheNorth)
+{
+    TwoRooms rooms;
+    DoorBetweenRooms door(0);
+    open_door(0);
+    EXPECT_FALSE(IS_SET(door.m_there.exit_info, EX_CLOSED));
+    EXPECT_FALSE(IS_SET(door.m_back.exit_info, EX_CLOSED));
+}
+
+TEST(ScriptSetExitState, SkipsADirectionOutsideTheSix)
+{
+    TwoRooms rooms;
+    DoorBetweenRooms door(0);
+    open_door(NUM_OF_DIRS);
+    open_door(-1);
+    EXPECT_TRUE(IS_SET(door.m_there.exit_info, EX_CLOSED));
+    EXPECT_TRUE(IS_SET(door.m_back.exit_info, EX_CLOSED));
 }
 
 /* ---- TELEPORT_CHAR_XL: move CH1 to <room variable> ---- */

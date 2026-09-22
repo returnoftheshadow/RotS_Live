@@ -1696,7 +1696,10 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_SET_EXIT_STATE:
-            if (curr->param[0]) {
+            /* param[0] is the direction, and 0 is north: testing it for
+             * non-zero made every north door impossible to set.  Check the
+             * range instead, since set_exit_state indexes the exits with it. */
+            if (curr->param[0] >= 0 && curr->param[0] < NUM_OF_DIRS) {
                 tmprm = get_room_param(curr->param[2], info);
                 if (set_exit_state(tmprm, curr->param[0], curr->param[1])) {
                     tmpint = tmprm->dir_option[curr->param[0]]->to_room;
