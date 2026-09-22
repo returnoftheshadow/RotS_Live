@@ -1537,7 +1537,7 @@ void group_gain(char_data* killer, char_data* dead_man)
         int group_bonus = std::min(share * capped_level / 2, (level_total - npc_level_malus - capped_level) * share / 4);
         int tmp = exp_with_modifiers(character, dead_man, share * capped_level + group_bonus);
 
-        vsend_to_char(character, "You receive your share of experience -- %d points.\r\n", tmp);
+        vsend_to_char(character, "You receive your share of experience -- %d points.\r\n", cap_exp_gain(tmp));
         gain_exp(character, tmp);
         change_alignment(character, dead_man);
 
@@ -1926,13 +1926,6 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
                 stop_riding(attacker);
             if (IS_RIDING(victim) && (victim->mount_data.mount == attacker))
                 stop_riding(victim);
-
-            if (IS_NPC(attacker) && IS_NPC(victim) && victim->master && !number(0, 10) && IS_AFFECTED(victim, AFF_CHARM) && (victim->master->in_room == attacker->in_room)) {
-                if (attacker->specials.fighting)
-                    stop_fighting(attacker);
-                hit(attacker, victim->master, TYPE_UNDEFINED);
-                return 0;
-            }
         }
 
         if (GET_POS(victim) > POSITION_STUNNED) {

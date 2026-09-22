@@ -308,6 +308,20 @@ std::string expected_msdp_array_pair(const std::string& variable, const std::vec
     return msdp_packet(payload);
 }
 
+std::string msdp_table_value(const std::string& table_payload)
+{
+    std::string value;
+    value.push_back(static_cast<char>(MSDP_TABLE_OPEN));
+    value += table_payload;
+    value.push_back(static_cast<char>(MSDP_TABLE_CLOSE));
+    return value;
+}
+
+std::string expected_msdp_table_pair(const std::string& variable, const std::string& table_payload)
+{
+    return expected_msdp_pair(variable, msdp_table_value(table_payload));
+}
+
 std::string expected_atcp_pair(const std::string& variable, const std::string& value)
 {
     std::string packet;
@@ -344,6 +358,47 @@ bool output_contains_array_value(const std::string& output, const std::string& v
     const std::string terminal_marker = marker + static_cast<char>(MSDP_ARRAY_CLOSE);
     return output.find(marker + static_cast<char>(MSDP_VAL)) != std::string::npos
         || output.find(terminal_marker) != std::string::npos;
+}
+
+void append_expected_table_value(std::string& payload, const std::string& name, const std::string& value)
+{
+    payload.push_back(static_cast<char>(MSDP_VAR));
+    payload += name;
+    payload.push_back(static_cast<char>(MSDP_VAL));
+    payload += value;
+}
+
+void append_expected_table_value(std::string& payload, const std::string& name, int value)
+{
+    append_expected_table_value(payload, name, std::to_string(value));
+}
+
+std::string expected_group_member_table(
+    const std::string& name, int health, int mana, int movement)
+{
+    std::string payload;
+    payload.push_back(static_cast<char>(MSDP_TABLE_OPEN));
+    append_expected_table_value(payload, "NAME", name);
+    append_expected_table_value(payload, "HEALTH", health);
+    append_expected_table_value(payload, "MANA", mana);
+    append_expected_table_value(payload, "MOVEMENT", movement);
+    payload.push_back(static_cast<char>(MSDP_TABLE_CLOSE));
+    return payload;
+}
+
+std::string expected_group_table(const std::vector<std::string>& member_tables)
+{
+    std::string payload;
+    payload.push_back(static_cast<char>(MSDP_VAR));
+    payload += "MEMBERS";
+    payload.push_back(static_cast<char>(MSDP_VAL));
+    payload.push_back(static_cast<char>(MSDP_ARRAY_OPEN));
+    for (const std::string& member_table : member_tables) {
+        payload.push_back(static_cast<char>(MSDP_VAL));
+        payload += member_table;
+    }
+    payload.push_back(static_cast<char>(MSDP_ARRAY_CLOSE));
+    return payload;
 }
 
 TEST(ProtocolInput, IgnoresLoneIacByteOnFreshDescriptor)
@@ -654,11 +709,7 @@ TEST(MSDPProtocol, SendsListsTablesAndArraysWithMSDPMarkers)
     MSDPSetTable(&context.descriptor, eMSDP_ROOM, table_payload.c_str());
     MSDPSend(&context.descriptor, eMSDP_ROOM);
 
-    std::string expected_table;
-    expected_table.push_back(static_cast<char>(MSDP_TABLE_OPEN));
-    expected_table += table_payload;
-    expected_table.push_back(static_cast<char>(MSDP_TABLE_CLOSE));
-    EXPECT_EQ(context.read_output(), expected_msdp_pair("ROOM", expected_table));
+    EXPECT_EQ(context.read_output(), expected_msdp_table_pair("ROOM", table_payload));
 
     std::string array_payload;
     array_payload.push_back(static_cast<char>(MSDP_VAL));
@@ -813,12 +864,14 @@ TEST(MSDPProtocol, ListsConfigurableAndGuiVariables)
     std::string sendable_output = context.read_output();
     EXPECT_TRUE(output_contains_array_value(sendable_output, "CHARACTER_NAME")) << sendable_output;
     EXPECT_TRUE(output_contains_array_value(sendable_output, "HEALTH")) << sendable_output;
+    EXPECT_TRUE(output_contains_array_value(sendable_output, "GROUP")) << sendable_output;
     EXPECT_FALSE(output_contains_array_value(sendable_output, "BUTTON_1")) << sendable_output;
 
     feed_msdp_command(&context.descriptor, "LIST", "REPORTABLE_VARIABLES");
     std::string reportable_output = context.read_output();
     EXPECT_TRUE(output_contains_array_value(reportable_output, "CHARACTER_NAME")) << reportable_output;
     EXPECT_TRUE(output_contains_array_value(reportable_output, "HEALTH")) << reportable_output;
+    EXPECT_TRUE(output_contains_array_value(reportable_output, "GROUP")) << reportable_output;
     EXPECT_FALSE(output_contains_array_value(reportable_output, "BUTTON_1")) << reportable_output;
 
     feed_msdp_command(&context.descriptor, "LIST", "CONFIGURABLE_VARIABLES");
@@ -1414,6 +1467,96 @@ TEST(MSDPProtocol, MsdpUpdateEmitsIndoorAndOutdoorWeather)
     EXPECT_FALSE(outdoor_context.descriptor.pProtocol->pVariables[eMDSP_WEATHER]->bDirty);
 }
 
+TEST(MSDPProtocol, MsdpUpdateClearsGroupWhenUngrouped)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_GROUP });
+    MSDPSetTable(&context.descriptor, eMSDP_GROUP,
+        expected_group_table({ expected_group_member_table("stale member", 75, 60, 50) }).c_str());
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    const std::string expected_group = expected_group_table({});
+    EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_GROUP]->pValueString,
+        msdp_table_value(expected_group).c_str());
+    EXPECT_EQ(context.read_output(), expected_msdp_table_pair("GROUP", expected_group));
+    EXPECT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_GROUP]->bDirty);
+}
+
+TEST(MSDPProtocol, MsdpUpdateEmitsAllGroupMembersWithPercentages)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+    char_data player_member {};
+    char_data npc_member {};
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    initialize_msdp_player(&player_member, "Boromir");
+    clear_char(&npc_member, MOB_ISNPC);
+    SET_BIT(npc_member.specials2.act, MOB_ISNPC);
+    npc_member.player.short_descr = strdup("orc \"guard\"\n");
+
+    context.character.abilities.hit = 200;
+    context.character.tmpabilities.hit = 150;
+    context.character.abilities.mana = 100;
+    context.character.tmpabilities.mana = 50;
+    context.character.abilities.move = 80;
+    context.character.tmpabilities.move = 20;
+
+    player_member.abilities.hit = 90;
+    player_member.tmpabilities.hit = 45;
+    player_member.abilities.mana = 120;
+    player_member.tmpabilities.mana = 90;
+    player_member.abilities.move = 100;
+    player_member.tmpabilities.move = 100;
+
+    npc_member.abilities.hit = 40;
+    npc_member.tmpabilities.hit = 10;
+    npc_member.abilities.mana = 0;
+    npc_member.tmpabilities.mana = 10;
+    npc_member.abilities.move = 20;
+    npc_member.tmpabilities.move = -5;
+
+    group_data group(&context.character);
+    group.add_member(&player_member);
+    group.add_member(&npc_member);
+
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_GROUP });
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    const std::string expected_group = expected_group_table({
+        expected_group_member_table("Aragorn", 75, 50, 25),
+        expected_group_member_table("Boromir", 50, 75, 100),
+        expected_group_member_table("orc \\\"guard\\\"\\n", 25, 0, 0),
+    });
+    EXPECT_EQ(context.read_output(), expected_msdp_table_pair("GROUP", expected_group));
+    EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_GROUP]->pValueString,
+        msdp_table_value(expected_group).c_str());
+    EXPECT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_GROUP]->bDirty);
+
+    msdp_update();
+
+    EXPECT_EQ(context.read_output(), "");
+
+    player_member.tmpabilities.mana = 30;
+    msdp_update();
+
+    const std::string updated_group = expected_group_table({
+        expected_group_member_table("Aragorn", 75, 50, 25),
+        expected_group_member_table("Boromir", 50, 25, 100),
+        expected_group_member_table("orc \\\"guard\\\"\\n", 25, 0, 0),
+    });
+    EXPECT_EQ(context.read_output(), expected_msdp_table_pair("GROUP", updated_group));
+}
+
 TEST(MSDPProtocol, MsdpUpdateClearsOpponentFieldsWhenNotFighting)
 {
     ScopedDescriptorList descriptor_list_scope;
@@ -1437,6 +1580,50 @@ TEST(MSDPProtocol, MsdpUpdateClearsOpponentFieldsWhenNotFighting)
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "0") + expected_msdp_pair("OPPONENT_LEVEL", "")
             + expected_msdp_pair("OPPONENT_NAME", ""));
+}
+
+TEST(MSDPProtocol, MsdpUpdatePublishesNothingForDescriptorAtCharacterMenu)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    enable_msdp_reports(context.descriptor.pProtocol,
+        { eMSDP_CHARACTER_NAME, eMSDP_ROOM_NAME, eMSDP_ROOM_VNUM });
+
+    /* A descriptor parked at the character-selection menu holds a character that
+       has been loaded but not entered, and load_character() (objsave.cpp) leaves
+       the player file's load_room *vnum* in in_room at that stage. Indexing
+       world[] with it would publish a real but completely unrelated room. */
+    context.descriptor.connected = CON_SLCT;
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_ROOM_NAME]->pValueString, "");
+    EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_ROOM_VNUM]->ValueInt, 0);
+}
+
+TEST(MSDPProtocol, MsdpUpdatePublishesOnceDescriptorIsPlaying)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_ROOM_VNUM });
+    context.descriptor.connected = CON_PLYNG;
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    /* Same descriptor, now in the game: the real room is published normally. */
+    EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_ROOM_VNUM]->ValueInt,
+        world[context.character.in_room].number);
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_pair("ROOM_VNUM", std::to_string(world[context.character.in_room].number)));
 }
 
 TEST(MSDPProtocol, MsdpUpdateEmitsNpcOpponentDetails)
@@ -1522,6 +1709,95 @@ TEST(MSDPProtocol, MsdpUpdateMasksPlayerOpponentDetails)
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "25") + expected_msdp_pair("OPPONENT_LEVEL", "???")
             + expected_msdp_pair("OPPONENT_NAME", pc_star_types[RACE_HUMAN]));
+}
+
+// --- Regression tests for the "dirty flag dropped while MSDP is off" bug -------------------------
+// MSDP is off by default for new characters; a client may enable it after login. Values dirtied
+// while MSDP was off (notably login-time constants like CHARACTER_NAME) must NOT be marked clean
+// without actually being sent, or they are lost for the session.
+
+TEST(MSDPProtocol, MsdpUpdateKeepsVariableDirtyWhenMsdpIsOff)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+    ASSERT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
+
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
+}
+
+TEST(MSDPProtocol, MsdpUpdateFlushesValueDirtiedWhileMsdpWasOff)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+    MSDPUpdate(&context.descriptor);
+    context.read_output();
+
+    SET_BIT(context.character.specials2.pref, PRF_MSDP);
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(), expected_msdp_pair("CHARACTER_NAME", "Aragorn"));
+}
+
+TEST(MSDPProtocol, MsdpFlushKeepsVariableDirtyWhenMsdpIsOff)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+
+    MSDPFlush(&context.descriptor, eMSDP_CHARACTER_NAME);
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
+}
+
+TEST(MSDPProtocol, MsdpSendTableKeepsVariableDirtyWhenMsdpIsOff)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_ROOM });
+
+    MSDPSendTable(&context.descriptor, eMSDP_ROOM, "contents");
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_ROOM]->bDirty);
+}
+
+TEST(MSDPProtocol, MarkAllReportedDirtyForcesResendOnNextUpdate)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+    MSDPUpdate(&context.descriptor);
+    context.read_output();
+    ASSERT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
+
+    MSDPMarkAllReportedDirty(&context.descriptor);
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(), expected_msdp_pair("CHARACTER_NAME", "Aragorn"));
 }
 
 } // namespace

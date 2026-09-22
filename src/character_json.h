@@ -1,9 +1,12 @@
 #ifndef CHARACTER_JSON_H
 #define CHARACTER_JSON_H
 
+#include "color.h"
+#include "json_utils.h"
 #include "structs.h"
 
 #include <array>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -160,15 +163,60 @@ std::string serialize_character_to_json_v2b(const CharacterData& character);
 bool deserialize_character_from_json_v2a(const std::string& json, CharacterData* character, std::string* error_message = nullptr);
 bool deserialize_character_from_json_v2b(const std::string& json, CharacterData* character, std::string* error_message = nullptr);
 
+// Two or more entries in a name-keyed table that produce the SAME JSON key. The character file
+// writes skills and talks as objects keyed by name, so a table carrying a duplicate name (today
+// skills 125 and 126, both "trash") makes a character holding values in both serialize to a
+// duplicate key -- which the reader refuses, for the whole file. That is the one way this writer can
+// produce something its own reader will not take back, so it is checked directly rather than by
+// re-parsing every save.
+struct NamedKeyCollision {
+    std::string table; // "skill", "talk" or "color"
+    std::string key; // the JSON key the entries share
+    std::vector<int> indices; // the slots sharing it, ascending
+    // Whether a duplicate of this key makes the READER refuse the whole file. True for skills and
+    // talks, which parse through parse_named_integer_object and its duplicate check. False for
+    // colours: parse_colors_object resolves each key to a slot and assigns, so a duplicate silently
+    // overwrites instead -- a fidelity defect worth reporting at boot, but not a reason to refuse a
+    // player's save.
+    bool duplicate_refuses_the_file = true;
+};
+
+// The scan behind named_key_collisions(), exposed so its behaviour can be tested directly against
+// synthetic tables rather than only against whatever consts.cpp happens to contain today.
+std::vector<NamedKeyCollision> find_key_collisions(const char* table_name, int slot_count,
+    const std::function<std::string(int)>& key_for_index);
+
+// Computed once from the static tables. Empty on a healthy build; boot reports whatever is here.
+const std::vector<NamedKeyCollision>& named_key_collisions();
+
+// Empty when this character can be written and read back. Otherwise a sentence naming the clash,
+// for the refusal message.
+std::string first_unwritable_named_value(const CharacterData& character);
+
 std::vector<std::string> encode_player_flags(long flags);
 std::vector<std::string> encode_preference_flags(long flags);
+// Every act/pref bit character JSON has a name for. A bit outside the mask cannot be written and
+// is silently dropped by encode_player_flags/encode_preference_flags.
+long serializable_player_flag_mask();
+long serializable_preference_flag_mask();
 std::vector<std::string> encode_affected_flags(long flags);
 std::vector<std::string> encode_hide_flags(long flags);
 
 bool decode_player_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
-bool decode_preference_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
+bool decode_preference_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr, bool skip_unknown_names = false);
 bool decode_affected_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
 bool decode_hide_flags(const std::vector<std::string>& names, long* flags, std::string* error_message = nullptr);
+
+// Colour-slot JSON, shared with the account-level PPC store so the codebase has one
+// colour format. encode returns the object BODY (no surrounding braces), sparse: only
+// slots that differ from the default appear. parse resets both arrays to defaults and
+// then fills them from one JSON object; both arrays must hold MAX_COLOR_FIELDS entries.
+// skip_unknown_keys makes the parse forward-compatible for the account store, whose parse
+// failures are fatal at boot: both an unrecognised slot name and an unrecognised colour mode
+// are skipped (the affected colour value falls back to the default) instead of failing.
+std::string encode_color_slots_object(const char* colors, const color_slot_data* color_settings);
+bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
+    color_slot_data* color_settings, std::string* error_message = nullptr, bool skip_unknown_keys = false);
 
 } // namespace character_json
 

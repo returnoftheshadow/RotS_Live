@@ -1768,14 +1768,18 @@ void obj_to_room(struct obj_data* object, int room)
             world[room].light++;
         }
     }
-    for (tmp = 0, tmpobj = world[room].contents; tmpobj && (tmp < 1000);
+    for (tmp = 0, tmpobj = world[room].contents; tmpobj && (tmp <= 1000);
          tmpobj = tmpobj->next_content, tmp++)
         ;
-    if (tmp >= 1000) {
-        mudlog("obj_to_room: infinite loop in room contents.",
-            NRM, LEVEL_GOD, TRUE);
-        world[room].contents = object;
-        object->next_content = 0;
+    if (tmp == 1000) {
+        // Report once, as the floor reaches 1000 objects; a busier floor stays silent. A floor this
+        // large is legitimate -- a mass quit drops every quitter's gear in one room, much of it through
+        // here, so reporting every drop flooded the log and every online god. This used to "recover"
+        // by resetting the room's contents to this object, which left every other object claiming the
+        // room but off its list, and obj_from_room crashed when one decayed. A real cycle would already
+        // have hung the duplicate scan above.
+        sprintf(buf, "obj_to_room: the floor of room %d has reached 1000 objects.", world[room].number);
+        mudlog(buf, NRM, LEVEL_GOD, TRUE);
     }
     object->in_room = room;
     object->carried_by = 0;

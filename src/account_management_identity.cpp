@@ -42,9 +42,45 @@ bool is_valid_account_name(const std::string& account_name, std::string* error_m
     return true;
 }
 
+// An EXISTING character's name, as the account layer stores it and builds paths from it. No
+// 3-character minimum: live data still holds legacy characters from before that rule (Ao, El, Pi,
+// ...), and linking them must not fail on length. New names are held to MIN_NAME_LENGTH by
+// valid_name (ban.cpp) before they ever reach here; this only guards the path component.
+bool is_valid_character_name(const std::string& character_name, std::string* error_message)
+{
+    const std::string normalized_name = normalize_account_name(character_name);
+    if (normalized_name.empty()) {
+        set_error(error_message, "Character names must not be empty.");
+        return false;
+    }
+
+    if (normalized_name.length() > MAX_ACCOUNT_NAME_LENGTH) {
+        set_error(error_message, "Character names must be 20 characters or fewer.");
+        return false;
+    }
+
+    for (char character : normalized_name) {
+        if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '-') {
+            set_error(error_message, "Character names may only contain letters, numbers, '-' and '_'.");
+            return false;
+        }
+    }
+
+    set_error(error_message, "");
+    return true;
+}
+
 bool is_valid_email(const std::string& email, std::string* error_message)
 {
     const std::string normalized_email = normalize_email(email);
+    // First, so an absurd address is refused for its length rather than for whichever shape rule it
+    // happens to trip. The normalized form is the one checked because that is the one stored and
+    // composed into paths -- see MAX_EMAIL_LENGTH for why a path component needs a bound at all.
+    if (normalized_email.length() > static_cast<size_t>(MAX_EMAIL_LENGTH)) {
+        set_error(error_message, "Email addresses must be " + std::to_string(MAX_EMAIL_LENGTH) + " characters or fewer.");
+        return false;
+    }
+
     const size_t at_position = normalized_email.find('@');
     if (normalized_email.empty() || at_position == std::string::npos || at_position == 0 || at_position + 1 >= normalized_email.length()) {
         set_error(error_message, "Email addresses must contain text before and after '@'.");
@@ -324,7 +360,9 @@ bool account_has_character(const AccountData& account, const std::string& charac
         != account.characters.end();
 }
 
-bool select_linked_character(const AccountData& account, const std::string& character_name, std::string* normalized_character_name, std::string* error_message)
+bool select_linked_character(const std::string& root_directory, const AccountData& account,
+    const std::string& character_name, RosterSort sort, RosterFilter filter,
+    std::string* normalized_character_name, std::string* error_message)
 {
     if (normalized_character_name == nullptr) {
         set_error(error_message, "Character output parameter must not be null.");
@@ -337,7 +375,7 @@ bool select_linked_character(const AccountData& account, const std::string& char
         return false;
     }
 
-    bool selection_is_numeric = !trimmed_selection.empty();
+    bool selection_is_numeric = true;
     for (char character : trimmed_selection) {
         if (!std::isdigit(static_cast<unsigned char>(character))) {
             selection_is_numeric = false;
@@ -345,24 +383,33 @@ bool select_linked_character(const AccountData& account, const std::string& char
         }
     }
 
-    const size_t displayed_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
-
     if (selection_is_numeric) {
+        // The SAME ordered list the roster rendered, so row N always selects the character shown
+        // at row N. Deriving an order here independently is what would reintroduce the PR #289
+        // class of bug.
+        const std::vector<size_t> indices = ordered_roster_indices(root_directory, account, sort, filter);
+
         char* end_ptr = nullptr;
-        const unsigned long selected_index = std::strtoul(trimmed_selection.c_str(), &end_ptr, 10);
-        if (end_ptr == nullptr || *end_ptr != '\0' || selected_index == 0 || selected_index > displayed_count) {
+        const unsigned long selected_row = std::strtoul(trimmed_selection.c_str(), &end_ptr, 10);
+        if (end_ptr == nullptr || *end_ptr != '\0' || selected_row == 0 || selected_row > indices.size()) {
             set_error(error_message, "Select a linked character by number or name, or enter 0 to return to the account menu.");
             return false;
         }
 
-        *normalized_character_name = normalize_account_name(account.characters[selected_index - 1]);
+        *normalized_character_name = normalize_account_name(account.characters[indices[selected_row - 1]]);
         set_error(error_message, "");
         return true;
     }
 
-    /* Only the roster entries actually displayed to the player are selectable by name. */
+    // By name, the active filter is deliberately ignored: a filter narrows what is LISTED, it must
+    // never make one of the player's own characters unreachable. Resolved against the SAME ordered
+    // list as the numeric path (filter neutralised to None), so "reachable by name" means exactly
+    // "would be listed if no filter were active" -- not a separately-derived insertion-order scan,
+    // which would disagree with ordered_roster_indices' sort-then-cap under any non-Account sort on
+    // an account over the display cap (PR #289 again, this time on the name path).
     const std::string normalized_selection = normalize_account_name(trimmed_selection);
-    for (size_t index = 0; index < displayed_count; ++index) {
+    const std::vector<size_t> unfiltered_indices = ordered_roster_indices(root_directory, account, sort, RosterFilter::None);
+    for (size_t index : unfiltered_indices) {
         const std::string normalized_linked_name = normalize_account_name(account.characters[index]);
         if (normalized_linked_name != normalized_selection)
             continue;
@@ -452,10 +499,50 @@ bool create_account(const std::string& root_directory, const std::string& accoun
     if (!is_valid_email(email, error_message))
         return false;
 
-    std::string storage_error;
-    if (account_storage_contains_unreadable_records(root_directory, &storage_error)) {
-        set_error(error_message, storage_error);
+    // The same guard create_account_for_email applies, deliberately duplicated rather than left to
+    // that one caller. This function is public header API, and the quarantine shape it protects
+    // against is one account_storage_contains_unreadable_records below cannot see: a record whose
+    // stored email disagrees with the directory it is filed under parses perfectly, so only the
+    // index knows it is unusable. Without this, a future direct caller would create a fresh account
+    // straight over a real player's record. Reached today only via create_account_for_email, whose
+    // own guard has already refused, so this changes no live behaviour.
+    // An address the index already holds is TAKEN, whether or not its record still reads. Without
+    // this, a record that went unreadable after boot fails find_account_by_email_internal's read, the
+    // address reads as free, and a second record is written at the same email -- which the next boot
+    // sees as two records disputing one address and refuses permanently. The write-time
+    // "Existing account file could not be read safely." guard does not cover it: that inspects the
+    // DIRECTORY path, and a legacy flat record has nothing there.
+    if (account_index_is_authoritative_for(root_directory)) {
+        std::string occupied_path;
+        // is_contested_email as well as the lookup: find_path_by_email refuses a DISPUTED address
+        // exactly the way it refuses an absent one, so the lookup alone reads two records fighting
+        // over an address as nobody holding it. find_account_by_email_internal below refuses for
+        // the same reason and its caller only asks whether one was FOUND, so without this a third
+        // record gets written at an address that already has two.
+        if (account_index::find_path_by_email(email, &occupied_path, nullptr)
+            || account_index::is_contested_email(email)) {
+            set_error(error_message, "An account already exists for that email address.");
+            return false;
+        }
+    }
+
+    // NOT gated on the index being authoritative. Boot switches the index off for LOOKUPS the moment
+    // a bucket cannot be read -- which is precisely when these reservations matter most, because the
+    // scan that replaces it cannot see into that bucket either. What boot could not read stays
+    // recorded regardless of whether the index is answering queries.
+    if (account_index::is_quarantined(email) || email_bucket_is_quarantined(root_directory, email)) {
+        set_error(error_message, "That email address cannot be used right now.");
         return false;
+    }
+
+    // The quadratic this whole index exists to remove; see create_account_for_email for the
+    // reasoning, which applies identically here.
+    if (!account_index_is_authoritative_for(root_directory)) {
+        std::string storage_error;
+        if (account_storage_contains_unreadable_records(root_directory, &storage_error)) {
+            set_error(error_message, storage_error);
+            return false;
+        }
     }
 
     AccountData existing_email_account;
@@ -496,10 +583,68 @@ bool create_account_for_email(const std::string& root_directory, const std::stri
     if (!is_valid_email(email, error_message))
         return false;
 
-    std::string storage_error;
-    if (account_storage_contains_unreadable_records(root_directory, &storage_error)) {
-        set_error(error_message, storage_error);
+    // A quarantined record's lookup below fails the same way an unused address does (see
+    // find_account_by_email_internal's nullptr error_message), which would otherwise read as "this
+    // address is free" and let a new account overwrite a real player's unparseable-but-real record.
+    // Guarded the same way as the resolver fast paths: the index only speaks for the tree it was
+    // built against.
+    // An address the index already holds is TAKEN, whether or not its record still reads. Without
+    // this, a record that went unreadable after boot fails find_account_by_email_internal's read, the
+    // address reads as free, and a second record is written at the same email -- which the next boot
+    // sees as two records disputing one address and refuses permanently. The write-time
+    // "Existing account file could not be read safely." guard does not cover it: that inspects the
+    // DIRECTORY path, and a legacy flat record has nothing there.
+    if (account_index_is_authoritative_for(root_directory)) {
+        std::string occupied_path;
+        // is_contested_email as well as the lookup: find_path_by_email refuses a DISPUTED address
+        // exactly the way it refuses an absent one, so the lookup alone reads two records fighting
+        // over an address as nobody holding it. find_account_by_email_internal below refuses for
+        // the same reason and its caller only asks whether one was FOUND, so without this a third
+        // record gets written at an address that already has two.
+        if (account_index::find_path_by_email(email, &occupied_path, nullptr)
+            || account_index::is_contested_email(email)) {
+            set_error(error_message, "An account already exists for that email address.");
+            return false;
+        }
+    }
+
+    // NOT gated on the index being authoritative. Boot switches the index off for LOOKUPS the moment
+    // a bucket cannot be read -- which is precisely when these reservations matter most, because the
+    // scan that replaces it cannot see into that bucket either. What boot could not read stays
+    // recorded regardless of whether the index is answering queries.
+    if (account_index::is_quarantined(email) || email_bucket_is_quarantined(root_directory, email)) {
+        set_error(error_message, "That email address cannot be used right now.");
         return false;
+    }
+
+    // THE quadratic. account_storage_contains_unreadable_records opens and JSON-parses EVERY
+    // account record on the box, and this is an unauthenticated path -- anyone who can reach the
+    // login prompt can make the single-threaded pulse loop do it, once per attempt, stalling every
+    // player in the game. N creations cost N full parse-walks.
+    //
+    // With the index authoritative the walk answers a question the index has already answered.
+    // After the boot sweep every record on disk has been VISITED: readable ones are indexed and
+    // unreadable ones are quarantined (which is what this wave's shared-classifier change
+    // guarantees -- an unreadable candidate is visited, not skipped), and boot refuses to run at
+    // all past MAX_QUARANTINED_RECORDS_AT_BOOT. So the guard's real question, "is there a record we
+    // cannot read that the index does not already know about", is answered "no" by construction,
+    // and its escape hatch would have skipped every record it found anyway.
+    //
+    // What the guard was actually protecting -- creating a fresh account straight over a real
+    // player's unparseable record -- is protected per address, twice over and without a walk: the
+    // is_quarantined() refusal directly above reserves the address of every record boot could not
+    // read, and write_account_file refuses with "Existing account file could not be read safely."
+    // if anything unreadable is sitting at the destination path. That second one also covers the
+    // residual case the index cannot see, a record that becomes unreadable AFTER boot.
+    //
+    // When the index is not authoritative for this root (the test binary, or a caller working
+    // against another tree) the full scan still runs, unchanged.
+    if (!account_index_is_authoritative_for(root_directory)) {
+        std::string storage_error;
+        if (account_storage_contains_unreadable_records(root_directory, &storage_error)) {
+            set_error(error_message, storage_error);
+            return false;
+        }
     }
 
     AccountData existing_account;
@@ -541,6 +686,14 @@ bool authenticate_account(const std::string& root_directory, const std::string& 
         set_error(error_message, "Account authentication failed.");
         return false;
     }
+
+    // The record just read, so it is no longer unreadable-since-boot. Cleared here rather than left
+    // to the write chokepoint that set it: a plain login writes NOTHING (interpre.cpp only calls
+    // clear_account_login_failures when there is a failure notice to show, and that function
+    // early-returns when the counters are already zero), so a record repaired by hand went on being
+    // listed by `account index` until something happened to write it or the server rebooted.
+    if (account_index_is_authoritative_for(root_directory))
+        account_index::clear_unreadable_at_runtime(normalize_email(stored_account.normalized_email));
 
     if (stored_account.blocked) {
         set_error(error_message, "Account authentication failed.");
@@ -891,8 +1044,62 @@ bool complete_email_verification(const std::string& root_directory, const std::s
 
 bool find_linked_character_owner_account_uncached(const std::string& root_directory, const std::string& character_name, std::string* owner_account_name, std::string* error_message)
 {
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
+
+    // Index fast path. The scan below (find_character_owner_account) is what runs when the index is
+    // not authoritative for this root: the test binary, or a caller whose root_directory is not the
+    // tree the index was built against (its stored paths would belong to the wrong tree).
+    //
+    // The return convention here is the whole risk of this function and is taken verbatim from the
+    // scan: "resolved, and this character is linked to no account" is SUCCESS -- true, an empty
+    // owner name and an empty error -- while false means a genuine failure to resolve. The
+    // not-linked case is the common one (every save of an unlinked character), and account_cache
+    // memoizes it, so returning false for it would make ordinary saves look like errors.
+    if (account_index::is_enabled() && account_index::matches_root(root_directory)) {
+        if (owner_account_name == nullptr) {
+            set_error(error_message, "Owner-account output parameter must not be null.");
+            return false;
+        }
+
+        owner_account_name->clear();
+
+        std::string owner_email;
+        std::string index_error;
+        std::string indexed_owner_account_name;
+        if (!account_index::find_owner_email_by_character(character_name, &owner_email, &index_error,
+                &indexed_owner_account_name)) {
+            // The index reports the two outcomes apart by whether it set a message: empty means
+            // "no account owns this character" (the scan walks the whole tree, matches nothing and
+            // returns true with an empty owner); non-empty means the owning record exists but is
+            // quarantined, which the scan surfaces as a hard failure when the file will not parse.
+            if (!index_error.empty()) {
+                set_error(error_message, index_error);
+                return false;
+            }
+
+            set_error(error_message, "");
+            return true;
+        }
+
+        // The index answers with the owner's account name directly. This used to read and JSON-parse
+        // the whole account record just to pull `account_name` back out of it -- on every save of
+        // every linked character, which is the hottest caller this function has -- and the value was
+        // already in hand: deserialize_account_from_json normalizes account_name with the same
+        // normalize_account_name() upsert applied (account_management_storage.cpp:151), so the read
+        // could only ever return the string the index already held.
+        //
+        // The trade being made: that read also proved the record still existed and still parsed, and
+        // dropping it means trusting the index instead. That IS this design's premise -- the index is
+        // authoritative while enabled, maintained at the single write chokepoint, and nothing in the
+        // codebase deletes an account record (character deletion rewrites the record, it does not
+        // remove one; see the no-erase-API note in account_index.h). A record that would not parse is
+        // quarantined at boot and refused above rather than resolved. The scan below still reads
+        // for the roots the index does not speak for.
+        *owner_account_name = indexed_owner_account_name;
+        set_error(error_message, "");
+        return true;
+    }
 
     return find_character_owner_account(root_directory, character_name, owner_account_name, error_message);
 }
@@ -910,7 +1117,7 @@ bool admin_link_character(const std::string& root_directory, const std::string& 
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     AccountData stored_account;
@@ -939,11 +1146,170 @@ bool admin_link_character(const std::string& root_directory, const std::string& 
     return true;
 }
 
+bool admin_rename_linked_character(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::string& new_character_name, long updated_at, AccountData* account, std::string* error_message)
+{
+    if (!validate_identifier_for_path(account_name, "Account name", error_message))
+        return false;
+    if (!is_valid_character_name(character_name, error_message))
+        return false;
+    if (!validate_identifier_for_path(new_character_name, "New character name", error_message))
+        return false;
+
+    const std::string normalized_character_name = normalize_account_name(character_name);
+    const std::string normalized_new_name = normalize_account_name(new_character_name);
+    if (normalized_character_name == normalized_new_name) {
+        set_error(error_message, "The new character name is the same as the old one.");
+        return false;
+    }
+
+    AccountData stored_account;
+    if (!read_account_file(root_directory, account_name, &stored_account, error_message))
+        return false;
+
+    if (!account_has_character(stored_account, normalized_character_name)) {
+        set_error(error_message, "Character is not linked to this account.");
+        return false;
+    }
+    if (account_has_character(stored_account, normalized_new_name)) {
+        set_error(error_message, "This account already has a character named '" + normalized_new_name + "'.");
+        return false;
+    }
+
+    if (!validate_account_owned_character_path(stored_account, normalized_character_name, error_message))
+        return false;
+    if (!validate_account_owned_object_path(stored_account, normalized_character_name, error_message))
+        return false;
+    if (!validate_account_owned_exploits_path(stored_account, normalized_character_name, error_message))
+        return false;
+
+    struct StagedMove {
+        std::string from;
+        std::string to;
+        const char* label = "";
+        // The character file is the character. An object or exploits file may legitimately not
+        // exist yet; the character file not existing is the one condition that means this rename
+        // cannot be carried out at all, so it must not be forgiven along with them.
+        bool required = false;
+        bool moved = false;
+    };
+
+    // Both ends of every move come from the SAME derivation of the account's directory: the record
+    // already in hand, via resolved_*_path -> account_record_directory, which reads
+    // stored_account.normalized_email directly. Composing the destinations from the account NAME
+    // instead would round-trip through resolve_account_storage_key, and one function holding two
+    // independent derivations of one directory is the bug this branch has already had to fix twice
+    // over in the quarantine key. For the new name there is no character link yet, so the object
+    // and exploits forms fall through to their default file names -- which is what is wanted.
+    std::vector<StagedMove> staged_moves = {
+        { resolved_character_path(stored_account, root_directory, normalized_character_name),
+            resolved_character_path(stored_account, root_directory, normalized_new_name),
+            "account character file", true, false },
+        { resolved_object_path(stored_account, root_directory, normalized_character_name),
+            resolved_object_path(stored_account, root_directory, normalized_new_name),
+            "account object file", false, false },
+        { resolved_exploits_path(stored_account, root_directory, normalized_character_name),
+            resolved_exploits_path(stored_account, root_directory, normalized_new_name),
+            "account exploits file", false, false }
+    };
+
+    // Refuse before moving anything if a destination is already occupied. account_has_character
+    // above catches the ordinary case; this catches a stray file left by an interrupted rename,
+    // which would otherwise be silently overwritten by std::rename.
+    for (const StagedMove& staged_move : staged_moves) {
+        struct stat file_info { };
+        if (stat(staged_move.to.c_str(), &file_info) == 0) {
+            set_error(error_message, std::string("Refusing to rename: a ") + staged_move.label + " already exists at '" + staged_move.to + "'.");
+            return false;
+        }
+    }
+
+    auto undo_staged_moves = [&]() {
+        for (auto it = staged_moves.rbegin(); it != staged_moves.rend(); ++it) {
+            if (!it->moved)
+                continue;
+            if (std::rename(it->to.c_str(), it->from.c_str()) != 0) {
+                std::fprintf(stderr, "SYSERR: Failed to undo staged account rename '%s' -> '%s': %s\n",
+                    it->from.c_str(), it->to.c_str(), std::strerror(errno));
+            }
+        }
+    };
+
+    for (StagedMove& staged_move : staged_moves) {
+        struct stat file_info { };
+        if (stat(staged_move.from.c_str(), &file_info) != 0) {
+            // A character can legitimately lack an object or exploits file, so those are skipped.
+            // The character file is NOT skippable: validate_account_owned_character_path vouches
+            // only for the SHAPE of the stored path (it string-compares against
+            // character_json_file_name and stats nothing), so nothing before this point has
+            // established that the file is there. Forgiving it moved nothing while account.json,
+            // the index and player_table[].ch_file were all repointed at a name with no file --
+            // the "[ ?? ???]" roster row this whole function exists to prevent, reported to the
+            // immortal as a success.
+            if (errno == ENOENT && !staged_move.required)
+                continue;
+
+            if (errno == ENOENT)
+                set_error(error_message, std::string("Refusing to rename: the ") + staged_move.label + " '" + staged_move.from + "' is not there.");
+            else
+                set_error(error_message, std::string("Failed to inspect ") + staged_move.label + " '" + staged_move.from + "': " + std::strerror(errno));
+            undo_staged_moves();
+            return false;
+        }
+
+        if (std::rename(staged_move.from.c_str(), staged_move.to.c_str()) != 0) {
+            set_error(error_message, std::string("Failed to move ") + staged_move.label + " '" + staged_move.from + "' to '" + staged_move.to + "': " + std::strerror(errno));
+            undo_staged_moves();
+            return false;
+        }
+        staged_move.moved = true;
+    }
+
+    AccountData updated_account = stored_account;
+    for (std::string& listed_character : updated_account.characters) {
+        if (normalize_account_name(listed_character) == normalized_character_name)
+            listed_character = normalized_new_name;
+    }
+    for (AccountData::CharacterLinkReference& link : updated_account.character_links) {
+        if (normalize_account_name(link.character_name) != normalized_character_name)
+            continue;
+        link.character_name = normalized_new_name;
+        link.character_path = normalized_new_name + ".character.json";
+        link.object_path = normalized_new_name + ".objects.json";
+        link.exploits_path = normalized_new_name + ".exploits.json";
+    }
+    updated_account.updated_at = updated_at;
+
+    // The write is last, so a failure here leaves the account describing the state the files were
+    // just restored to rather than a state that never existed on disk -- but only while nothing has
+    // been committed. Once account.json is at its final path it names the moved files, and undoing
+    // the moves then produces the "[ ?? ???]" roster row this function exists to prevent, reported
+    // to the immortal as an error. What can still fail after the commit is retiring a stale copy,
+    // which leaves litter, not a broken character.
+    bool record_committed = false;
+    std::string write_error;
+    if (!write_account_file(root_directory, updated_account, &write_error, &record_committed)) {
+        if (!record_committed) {
+            set_error(error_message, write_error);
+            undo_staged_moves();
+            return false;
+        }
+
+        std::fprintf(stderr, "SYSERR: Renamed character '%s' to '%s' on account '%s', but the account write did not finish cleanly: %s\n",
+            normalized_character_name.c_str(), normalized_new_name.c_str(), account_name.c_str(), write_error.c_str());
+    }
+
+    if (account)
+        *account = updated_account;
+
+    set_error(error_message, "");
+    return true;
+}
+
 bool admin_link_and_migrate_character(const std::string& root_directory, const std::string& account_name, const std::string& character_name, long updated_at, AccountData* account, CharacterMigrationData* migration, std::string* error_message)
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     AccountData stored_account;
@@ -1092,7 +1458,7 @@ bool admin_delete_linked_character(const std::string& root_directory, const std:
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     AccountData stored_account;
@@ -1182,17 +1548,31 @@ bool admin_delete_linked_character(const std::string& root_directory, const std:
         updated_account.character_links.end());
     updated_account.updated_at = updated_at;
 
-    if (!write_account_file(root_directory, updated_account, error_message)) {
-        restore_staged_removals();
-        return false;
+    // Restoring the staged files is right only while nothing has been committed. Once account.json
+    // is at its final path it no longer lists the character, so putting its files back produces a
+    // record and a set of files that disagree -- and db.cpp, reading the false as "nothing
+    // happened", removes the players/ZZZ archive it made for exactly this recovery.
+    bool record_committed = false;
+    std::string write_error;
+    if (!write_account_file(root_directory, updated_account, &write_error, &record_committed)) {
+        if (!record_committed) {
+            set_error(error_message, write_error);
+            restore_staged_removals();
+            return false;
+        }
+
+        std::fprintf(stderr, "SYSERR: Deleted character '%s' from account '%s', but the account write did not finish cleanly: %s\n",
+            normalized_character_name.c_str(), account_name.c_str(), write_error.c_str());
     }
 
+    // Past the commit the character is deleted whatever happens here: a staged copy that will not
+    // unlink is litter beside the account, and reporting it as a failed deletion costs the archive.
     for (const StagedRemoval& staged_removal : staged_removals) {
         if (!staged_removal.existed)
             continue;
         if (std::remove(staged_removal.staged_path.c_str()) != 0 && errno != ENOENT) {
-            set_error(error_message, std::string("Failed to remove staged ") + staged_removal.label + " '" + staged_removal.staged_path + "': " + std::strerror(errno));
-            return false;
+            std::fprintf(stderr, "SYSERR: Failed to remove staged %s '%s': %s\n",
+                staged_removal.label, staged_removal.staged_path.c_str(), std::strerror(errno));
         }
     }
 
@@ -1207,7 +1587,7 @@ bool link_and_migrate_character(const std::string& root_directory, const std::st
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     AccountData authenticated_account;

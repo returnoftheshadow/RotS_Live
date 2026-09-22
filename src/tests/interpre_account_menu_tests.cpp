@@ -1,4 +1,6 @@
+#include "../account_errors.h"
 #include "../account_management.h"
+#include "../account_ppc.h"
 #include "../db.h"
 #include "../handler.h"
 #include "../interpre.h"
@@ -9,6 +11,8 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "test_character_support.h"
+
+#include "AccountRecordOnDiskBuilder.h"
 
 #include <gtest/gtest.h>
 
@@ -38,6 +42,7 @@ void clear_char(struct char_data* ch, int mode);
 sh_int get_naked_perception(struct char_data* ch);
 int register_pc_char(struct char_data* ch);
 void introduce_char(struct descriptor_data* d);
+int Crash_alias_load(struct char_data* ch, FILE* fp);
 int create_entry(char* name);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 int process_input(struct descriptor_data* t);
@@ -574,7 +579,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListCapitalizesFirstLetterOfStored
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("aragorn", 50, RACE_WOOD), &error_message)) << error_message;
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("legolas", 45, RACE_HUMAN), &error_message)) << error_message;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_EQ(output,
         "\n\rLinked characters:\n\r"
@@ -599,7 +604,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListOnlyChangesTheFirstByteOfStore
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("mCduck", 12, RACE_WOOD), &error_message)) << error_message;
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("oBrian", 9, RACE_HUMAN), &error_message)) << error_message;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_EQ(output,
         "\n\rLinked characters:\n\r"
@@ -613,7 +618,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListKeepsEmptyMessageForAccountsWi
 {
     account::AccountData account_data;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_EQ(output, "\n\rNo linked characters yet.\n\r");
 }
@@ -631,7 +636,7 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListFallsBackToUnknownWhoStyleEntr
     std::string error_message;
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_EQ(output,
         "\n\rLinked characters:\n\r"
@@ -648,18 +653,18 @@ TEST(InterpreAccountMenu, ShowAccountCharacterListTruncatesVeryLargeRenderedList
 
     account::AccountData account_data;
     account_data.account_name = "acct";
-    for (int index = 0; index < 105; ++index)
+    for (int index = 0; index < 205; ++index)
         account_data.characters.push_back("char" + std::to_string(index));
     std::string error_message;
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
 
-    const std::string output = account::format_account_character_list(".", account_data);
+    const std::string output = account::format_account_character_list(".", account_data, account::RosterSort::Account);
 
     EXPECT_NE(output.find("[ ?? ???] Char0"), std::string::npos);
-    EXPECT_NE(output.find("[ ?? ???] Char99"), std::string::npos);
-    EXPECT_EQ(output.find("[ ?? ???] Char100"), std::string::npos);
+    EXPECT_NE(output.find("[ ?? ???] Char199"), std::string::npos);
+    EXPECT_EQ(output.find("[ ?? ???] Char200"), std::string::npos);
     EXPECT_NE(output.find("\n\r... and 5 more\n\r"), std::string::npos);
-    EXPECT_NE(output.find("\n\r100 characters displayed.\n\r"), std::string::npos);
+    EXPECT_NE(output.find("\n\r200 characters displayed.\n\r"), std::string::npos);
 }
 
 TEST(InterpreAccountMenu, AccountMenuChoiceOneWritesCapitalizedCharacterListToDescriptorOutput)
@@ -702,6 +707,39 @@ TEST(InterpreAccountMenu, AccountMenuChoiceOneWritesCapitalizedCharacterListToDe
         "Choice: ");
 }
 
+TEST(InterpreAccountMenu, AccountMenuChoiceOneHonoursThePersistedRosterSort)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+    // Inserted in the opposite order of level, so a level-sorted render can only match by actually
+    // honouring the stored sort -- not by an accident of insertion order (Finding 2: option 1
+    // hardcoded RosterSort::Account regardless of what was persisted).
+    stored_account.characters = { "legolas", "aragorn" };
+    stored_account.roster_sort = "level";
+    stored_account.updated_at = 1700010201;
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("aragorn", 50, RACE_WOOD), &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("legolas", 45, RACE_HUMAN), &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    char choice[] = "1";
+
+    nanny(&descriptor, choice);
+
+    const std::string output = descriptor.output;
+    // A player who reads a number off this screen and later types it under option 2 must land on
+    // the same character -- so the numbering here has to match the persisted sort, even though
+    // option 1 has no selection of its own.
+    EXPECT_NE(output.find("1) [ 50 WdE] Aragorn     2) [ 45 Hum] Legolas     "), std::string::npos) << output;
+}
+
 TEST(InterpreAccountMenu, AccountMenuPlayChoiceWritesWhoStyleCharacterPromptToDescriptorOutput)
 {
     TemporaryDirectory temp_directory;
@@ -728,7 +766,8 @@ TEST(InterpreAccountMenu, AccountMenuPlayChoiceWritesWhoStyleCharacterPromptToDe
         "\n\rLinked characters for your account:\n\r"
         "1) [ 50 WdE] Aragorn     2) [ 45 Hum] Legolas     \n\r"
         "\n\r2 characters displayed.\n\r"
-        "\n\r0) Back to Account Menu.\n\r"
+        "\n\rSort: (A)-Z  (L)evel  ra(C)e  (S)ide      Show only: (W)arrior (R)anger (T)mystic (M)age\n\r"
+        "0) Back to Account Menu.\n\r"
         "\n\rCharacter number or name: ");
 }
 
@@ -895,6 +934,292 @@ TEST(InterpreAccountMenu, AccountMenuPlayChoiceZeroReturnsToAccountMenu)
         "0) Log out\n\r"
         "\n\r"
         "Choice: ");
+}
+
+TEST(InterpreAccountMenu, RosterSortKeypressDoesNotWriteAccountFile)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    const std::string account_path = "accounts/P-T/player@example.com/account.json";
+    std::string before_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &before_write, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+
+    char sort_choice[] = "l";
+    nanny(&descriptor, sort_choice);
+
+    EXPECT_TRUE(descriptor.roster_sort_dirty)
+        << "the keypress should mark the session dirty, even though it must not write yet";
+    EXPECT_EQ(static_cast<account::RosterSort>(descriptor.roster_sort), account::RosterSort::Level);
+
+    std::string after_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &after_write, &error_message)) << error_message;
+    EXPECT_EQ(before_write, after_write)
+        << "a sort keypress must not touch account.json -- the write happens only on leaving the roster";
+}
+
+TEST(InterpreAccountMenu, RosterSortLeavingViaZeroAfterChangeWritesAccountFile)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(stored_account.roster_sort.empty());
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+
+    char sort_choice[] = "l";
+    nanny(&descriptor, sort_choice);
+    ASSERT_TRUE(descriptor.roster_sort_dirty);
+
+    char leave_choice[] = "0";
+    nanny(&descriptor, leave_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    EXPECT_FALSE(descriptor.roster_sort_dirty);
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_EQ(reloaded_account.roster_sort, "level");
+}
+
+TEST(InterpreAccountMenu, RosterSortRedundantKeypressDoesNotMarkDirtyOrWriteOnLeaving)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    stored_account.roster_sort = "level";
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    const std::string account_path = "accounts/P-T/player@example.com/account.json";
+    std::string before_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &before_write, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    descriptor.roster_sort = static_cast<int>(account::RosterSort::Level);
+    descriptor.roster_sort_dirty = false;
+
+    // Pressing the already-active sort key: a player who habitually re-presses 'l' must not
+    // trigger a write on every visit -- that would be a global account_cache flush per visit
+    // against a design budgeted at once or twice per character lifetime.
+    char sort_choice[] = "l";
+    nanny(&descriptor, sort_choice);
+    EXPECT_FALSE(descriptor.roster_sort_dirty)
+        << "pressing the already-active sort key must not mark the session dirty";
+
+    char leave_choice[] = "0";
+    nanny(&descriptor, leave_choice);
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+
+    std::string after_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &after_write, &error_message)) << error_message;
+    EXPECT_EQ(before_write, after_write)
+        << "leaving without an actual sort change must not touch account.json";
+}
+
+TEST(InterpreAccountMenu, RosterSortReturningToTheStoredValueDoesNotWriteOnLeaving)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    stored_account.roster_sort = "level";
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    const std::string account_path = "accounts/P-T/player@example.com/account.json";
+    std::string before_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &before_write, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    descriptor.roster_sort = static_cast<int>(account::RosterSort::Level);
+    descriptor.roster_filter = static_cast<int>(account::RosterFilter::None);
+    descriptor.roster_sort_dirty = false;
+
+    // Press away from, then back to, the stored sort. Each keypress differs from the session's
+    // immediately-prior sort, so both mark the session dirty (the keypress handler only compares
+    // against the session's own last sort) -- but the account on disk never actually changes.
+    char away_choice[] = "a";
+    nanny(&descriptor, away_choice);
+    ASSERT_TRUE(descriptor.roster_sort_dirty);
+
+    char back_choice[] = "l";
+    nanny(&descriptor, back_choice);
+    ASSERT_TRUE(descriptor.roster_sort_dirty)
+        << "the keypress handler compares against the session's own last sort, not the stored one";
+
+    char leave_choice[] = "0";
+    nanny(&descriptor, leave_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    EXPECT_FALSE(descriptor.roster_sort_dirty);
+
+    std::string after_write;
+    ASSERT_TRUE(account::read_text_file(account_path, &after_write, &error_message)) << error_message;
+    EXPECT_EQ(before_write, after_write)
+        << "leaving on a sort that matches the stored value must not touch account.json, even though "
+           "the session round-tripped through a dirty state getting there";
+}
+
+TEST(InterpreAccountMenu, RosterSortStoredValueLoadsWhenReenteringRoster)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    stored_account.roster_sort = "level";
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTMENU;
+    // Stale session state from a hypothetical earlier visit -- entering the roster must both
+    // load the stored sort and reset these, not just leave whatever was there.
+    descriptor.roster_sort = static_cast<int>(account::RosterSort::Account);
+    descriptor.roster_filter = static_cast<int>(account::RosterFilter::Warrior);
+    descriptor.roster_sort_dirty = true;
+
+    char play_choice[] = "2";
+    nanny(&descriptor, play_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTSLCT);
+    EXPECT_EQ(static_cast<account::RosterSort>(descriptor.roster_sort), account::RosterSort::Level);
+    EXPECT_EQ(static_cast<account::RosterFilter>(descriptor.roster_filter), account::RosterFilter::None);
+    EXPECT_FALSE(descriptor.roster_sort_dirty);
+}
+
+TEST(InterpreAccountMenu, RosterSortAndFilterKeysMapToTheClaimedEnumerators)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    stored_account.characters = { "aragorn", "legolas" };
+    ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
+
+    struct KeyExpectation {
+        char key;
+        bool is_sort_key;
+        account::RosterSort expected_sort;
+        account::RosterFilter expected_filter;
+    };
+    // Tasks 3/4 already prove RosterSort::Race and RosterFilter::Ranger etc. order/filter
+    // correctly; this only proves each KEY maps to the enumerator it claims to (a transposed
+    // label, e.g. 'c' wired to Side instead of Race, would ship undetected otherwise).
+    const KeyExpectation expectations[] = {
+        { 'a', true, account::RosterSort::Name, account::RosterFilter::None },
+        { 'l', true, account::RosterSort::Level, account::RosterFilter::None },
+        { 'c', true, account::RosterSort::Race, account::RosterFilter::None },
+        { 's', true, account::RosterSort::Side, account::RosterFilter::None },
+        { 'w', false, account::RosterSort::Account, account::RosterFilter::Warrior },
+        { 'r', false, account::RosterSort::Account, account::RosterFilter::Ranger },
+        { 't', false, account::RosterSort::Account, account::RosterFilter::Mystic },
+        { 'm', false, account::RosterSort::Account, account::RosterFilter::Mage },
+    };
+
+    for (const KeyExpectation& expectation : expectations) {
+        descriptor_data descriptor = make_descriptor();
+        descriptor.connected = CON_ACCTSLCT;
+
+        char choice[2] = { expectation.key, '\0' };
+        nanny(&descriptor, choice);
+
+        if (expectation.is_sort_key) {
+            EXPECT_EQ(static_cast<account::RosterSort>(descriptor.roster_sort), expectation.expected_sort)
+                << "key '" << expectation.key << "' did not select the sort it claims to";
+        } else {
+            EXPECT_EQ(static_cast<account::RosterFilter>(descriptor.roster_filter), expectation.expected_filter)
+                << "key '" << expectation.key << "' did not select the filter it claims to";
+        }
+    }
+}
+
+TEST(InterpreAccountMenu, RosterSortPersistsOnSuccessfulCharacterSelection)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorListReset descriptor_list_reset;
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    static char test_motd[] = "Test MOTD\r\n";
+    ScopedMotdOverride motd_override(test_motd);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    char_file_u legolas = make_stored_character("legolas", 45, RACE_HUMAN);
+    legolas.specials2.idnum = 7373;
+    legolas.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "acct", legolas, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_object_file(".", "acct", "legolas", &error_message)) << error_message;
+    ASSERT_TRUE(account::write_default_account_exploit_file(".", "acct", "legolas", &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010201, &stored_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTSLCT;
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
+
+    char sort_choice[] = "l";
+    nanny(&descriptor, sort_choice);
+    ASSERT_TRUE(descriptor.roster_sort_dirty);
+
+    // Selecting a character is how a player normally leaves the roster -- this is the path
+    // Finding 1 says was silently dropping the sort (only "0" persisted it before the fix).
+    char select_choice[] = "1";
+    nanny(&descriptor, select_choice);
+
+    EXPECT_EQ(descriptor.connected, CON_SLCT);
+    ASSERT_NE(descriptor.character, nullptr);
+    ASSERT_NE(descriptor.character->player.name, nullptr);
+    EXPECT_STREQ(descriptor.character->player.name, "legolas")
+        << "selecting must load the character rendered at that row, not merely some character";
+    EXPECT_FALSE(descriptor.roster_sort_dirty);
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_EQ(reloaded_account.roster_sort, "level");
+
+    free_char(descriptor.character);
+    descriptor.character = nullptr;
 }
 
 TEST(InterpreAccountMenu, ActiveLevelNinetyOneBlocksDifferentLinkedCharacterBeforeSelectionSideEffects)
@@ -2454,6 +2779,93 @@ TEST(InterpreAccountMenu, AccountMenuLinkChoiceUsesPlayerFacingSuccessMessage)
     EXPECT_EQ(std::count(reloaded_account.characters.begin(), reloaded_account.characters.end(), "aragorn"), 1);
 }
 
+TEST(InterpreAccountMenu, AccountMenuLinkFailureIsLoggedAndLeavesTheLegacyFilesInPlace)
+{
+    // The one-way door onto the account system. A conversion that cannot complete told the player
+    // and nobody else -- no syslog line, no mudlog -- so a character stuck outside account storage
+    // was invisible unless the player thought to report it. The in-game link path already logs its
+    // failures; this is the path a returning player uses to add a character from 1998.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("players/ZZZ", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("exploits", 0700), 0);
+    ASSERT_EQ(mkdir("exploits/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+
+    char_file_u legacy_character = make_stored_character("aragorn", 50, RACE_WOOD);
+    legacy_character.specials2.idnum = 4242;
+    legacy_character.last_logon = 1700010202;
+    const std::string legacy_player_path = write_valid_legacy_player_file(temp_directory.path(), legacy_character);
+    const int legacy_player_index = create_entry(const_cast<char*>("aragorn"));
+    ASSERT_GE(legacy_player_index, 0);
+    std::snprintf(player_table[legacy_player_index].ch_file, sizeof(player_table[legacy_player_index].ch_file), "%s", legacy_player_path.c_str());
+    player_table[legacy_player_index].level = legacy_character.level;
+    player_table[legacy_player_index].race = legacy_character.race;
+    player_table[legacy_player_index].idnum = legacy_character.specials2.idnum;
+    player_table[legacy_player_index].log_time = legacy_character.last_logon;
+    player_table[legacy_player_index].flags = legacy_character.specials2.act;
+
+    descriptor_data descriptor = make_descriptor();
+
+    char menu_choice[] = "3";
+    nanny(&descriptor, menu_choice);
+    ASSERT_EQ(descriptor.connected, CON_ACCTLINKNAME);
+
+    char name_choice[] = "aragorn";
+    nanny(&descriptor, name_choice);
+    ASSERT_EQ(descriptor.connected, CON_ACCTLEGPWD);
+
+    descriptor.output[0] = '\0';
+    descriptor.bufptr = 0;
+    descriptor.bufspace = SMALL_BUFSIZE - 1;
+
+    // The account's own directory loses its write bit, so the conversion cannot put anything there.
+    const std::string account_directory = "accounts/P-T/player@example.com";
+    ASSERT_EQ(chmod(account_directory.c_str(), 0500), 0);
+
+    account_errors::clear();
+    testing::internal::CaptureStderr();
+    char password_choice[] = "LegacyPw1";
+    nanny(&descriptor, password_choice);
+    const std::string logged = testing::internal::GetCapturedStderr();
+    ASSERT_EQ(chmod(account_directory.c_str(), 0700), 0);
+
+    EXPECT_EQ(descriptor.connected, CON_ACCTMENU);
+    EXPECT_NE(logged.find("ACCTERR migration acct=acct char=aragorn:"), std::string::npos)
+        << "a failed conversion must name the account and the character; logged: " << logged;
+
+    // And be answerable afterwards, which is the whole point: the player reports this hours later.
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    ASSERT_EQ(recorded.size(), 1u);
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Migration);
+    EXPECT_EQ(recorded[0].character, "aragorn");
+    EXPECT_EQ(recorded[0].account, "acct");
+    account_errors::clear();
+
+    struct stat legacy_info { };
+    EXPECT_EQ(stat(legacy_player_path.c_str(), &legacy_info), 0)
+        << "the legacy player file must survive a failed conversion";
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    EXPECT_FALSE(account::account_has_character(reloaded_account, "aragorn"));
+}
+
 TEST(InterpreAccountMenu, InGameLinkChoiceUsesPlayerFacingSuccessMessage)
 {
     TemporaryDirectory temp_directory;
@@ -2509,6 +2921,95 @@ TEST(InterpreAccountMenu, InGameLinkChoiceUsesPlayerFacingSuccessMessage)
     EXPECT_EQ(std::string(descriptor.output).find("account storage"), std::string::npos);
     EXPECT_TRUE(account::account_has_character(reloaded_account, "aragorn"));
 
+    free_char(descriptor.character);
+    descriptor.character = nullptr;
+}
+
+// Linking in-game is the one route that clears the login state and then hands the descriptor
+// straight back to CON_PLYNG. The account identity has to survive that clear: everything
+// account-level reads d->account_name (PPC propagation, the live-sibling lookup, the account
+// menu's active-session scan) and treats an empty one as "not an account session", while
+// save_char resolves the owning account from the character-link index and writes the account
+// regardless. A descriptor left nameless therefore keeps writing the account while receiving
+// nothing -- two characters of one account then overwrite each other on alternating autosaves.
+TEST(InterpreAccountMenu, InGameLinkKeepsTheDescriptorsAccountName)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+    ScopedDescriptorListReset descriptor_list_reset;
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("players/ZZZ", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("exploits", 0700), 0);
+    ASSERT_EQ(mkdir("exploits/A-E", 0700), 0);
+
+    account::AccountData stored_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
+
+    char_file_u legacy_character = make_stored_character("aragorn", 50, RACE_WOOD);
+    legacy_character.specials2.idnum = 4242;
+    legacy_character.last_logon = 1700010202;
+    const std::string legacy_player_path = write_valid_legacy_player_file(temp_directory.path(), legacy_character);
+    const int legacy_player_index = create_entry(const_cast<char*>("aragorn"));
+    ASSERT_GE(legacy_player_index, 0);
+    std::snprintf(player_table[legacy_player_index].ch_file, sizeof(player_table[legacy_player_index].ch_file), "%s", legacy_player_path.c_str());
+    player_table[legacy_player_index].level = legacy_character.level;
+    player_table[legacy_player_index].race = legacy_character.race;
+    player_table[legacy_player_index].idnum = legacy_character.specials2.idnum;
+    player_table[legacy_player_index].log_time = legacy_character.last_logon;
+    player_table[legacy_player_index].flags = legacy_character.specials2.act;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_ACCTLINKPWD;
+    descriptor.character = new char_data {};
+    clear_char(descriptor.character, MOB_VOID);
+    register_pc_char(descriptor.character);
+    descriptor.character->desc = &descriptor;
+    descriptor.character->player.name = strdup("aragorn");
+    descriptor.character->player.level = 50;
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
+    std::snprintf(descriptor.account_character_name, sizeof(descriptor.account_character_name), "%s", "aragorn");
+
+    // A second character of the same account, already playing.
+    descriptor_data sibling_descriptor = make_descriptor();
+    sibling_descriptor.connected = CON_PLYNG;
+    char_data* sibling = attach_active_character(&sibling_descriptor, "legolas", 40, 5151);
+    sibling->ppc_account_loaded = true;
+    descriptor_list = &sibling_descriptor;
+
+    char password_choice[] = "ValidPass1";
+    nanny(&descriptor, password_choice);
+
+    ASSERT_EQ(descriptor.connected, CON_PLYNG);
+    EXPECT_STREQ(descriptor.account_name, "acct")
+        << "the linked character is now an authenticated session of that account and must stay one";
+    EXPECT_STREQ(descriptor.account_email, "")
+        << "the rest of the login scratch state must still be cleared";
+    EXPECT_STREQ(descriptor.account_password, "");
+    EXPECT_STREQ(descriptor.account_character_name, "");
+
+    // The consequence that matters: this descriptor is reachable by the account-level walks
+    // again, so a settings change on it is pushed to the account's other online character
+    // instead of being silently reverted by that character's next autosave.
+    ASSERT_TRUE(descriptor.character->ppc_account_loaded);
+    SET_BIT(PRF_FLAGS(descriptor.character), PRF_BRIEF);
+    ppc_propagate_from(descriptor.character);
+    EXPECT_TRUE(PRF_FLAGGED(sibling, PRF_BRIEF))
+        << "a nameless descriptor is invisible to propagation while still writing the account";
+
+    free_char(sibling);
+    sibling_descriptor.character = nullptr;
     free_char(descriptor.character);
     descriptor.character = nullptr;
 }
@@ -4263,6 +4764,97 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharactersAvoidsLegacyFil
     free_char(loaded_character);
 }
 
+TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharacterDoesNotInheritLeftoverLegacyObjectFiles)
+{
+    // A legacy plrobjs/<name>.obj can outlive its character -- the live server has hundreds with no
+    // character at all. The first login reads that file BEFORE the account-native one (Crash_load),
+    // and a brand-new character goes straight from creation into the game without passing through
+    // selection, which is what clears these files for an existing character. So a new character
+    // given that name used to walk in carrying the old one's equipment and aliases.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+    ScopedStartRoomOverride start_room_override(RACE_HUMAN, 0);
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("exploits", 0700), 0);
+    ASSERT_EQ(mkdir("exploits/A-E", 0700), 0);
+    ensure_test_world_room(1200);
+    create_entry(const_cast<char*>("existingplayer"));
+    static char test_motd[] = "Test MOTD\r\n";
+    ScopedMotdOverride motd_override(test_motd);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData leftover_objects;
+    leftover_objects.rent.rentcode = RENT_CRASH;
+    leftover_objects.aliases.push_back({ "inheritmark", "say left behind by the old character" });
+    std::string leftover_object_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(leftover_objects, &leftover_object_bytes, &error_message)) << error_message;
+    const std::string leftover_object_path = account::legacy_object_file_path(".", "aragorn");
+    const std::string leftover_exploits_path = account::legacy_exploits_file_path(".", "aragorn");
+    {
+        FILE* file = std::fopen(leftover_object_path.c_str(), "wb");
+        ASSERT_NE(file, nullptr);
+        ASSERT_EQ(std::fwrite(leftover_object_bytes.data(), 1, leftover_object_bytes.size(), file), leftover_object_bytes.size());
+        ASSERT_EQ(std::fclose(file), 0);
+        file = std::fopen(leftover_exploits_path.c_str(), "wb");
+        ASSERT_NE(file, nullptr);
+        const std::string leftover_exploit_bytes(sizeof(exploit_record), '\0');
+        ASSERT_EQ(std::fwrite(leftover_exploit_bytes.data(), 1, leftover_exploit_bytes.size(), file), leftover_exploit_bytes.size());
+        ASSERT_EQ(std::fclose(file), 0);
+    }
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.character = new char_data {};
+    clear_char(descriptor.character, MOB_VOID);
+    register_pc_char(descriptor.character);
+    descriptor.character->desc = &descriptor;
+    descriptor.connected = CON_QSEX;
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "*ACCOUNT*");
+    descriptor.character->player.sex = SEX_MALE;
+    descriptor.character->player.race = RACE_HUMAN;
+    descriptor.character->player.name = strdup("aragorn");
+
+    introduce_char(&descriptor);
+
+    account::AccountData reloaded_account;
+    ASSERT_TRUE(account::read_account_file(".", "acct", &reloaded_account, &error_message)) << error_message;
+    ASSERT_EQ(reloaded_account.characters.size(), 1u) << descriptor.output;
+
+    struct stat file_info { };
+    EXPECT_NE(stat(leftover_object_path.c_str(), &file_info), 0)
+        << "a leftover legacy object file must not survive into the new character's first login";
+    EXPECT_NE(stat(leftover_exploits_path.c_str(), &file_info), 0);
+
+    // The first login, as enter-game performs it.
+    char_file_u stored_character {};
+    ASSERT_TRUE(account::read_account_character_file(".", "acct", "aragorn", &stored_character, &error_message)) << error_message;
+    std::string object_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(".", "aragorn", &object_bytes, &error_message)) << error_message;
+    char_data* loaded_character = new char_data {};
+    clear_char(loaded_character, MOB_VOID);
+    store_to_char(&stored_character, loaded_character);
+    descriptor_data loaded_descriptor = make_descriptor();
+    std::snprintf(loaded_descriptor.account_name, sizeof(loaded_descriptor.account_name), "%s", "acct");
+    loaded_character->desc = &loaded_descriptor;
+    stage_account_backed_object_bytes_for_character(loaded_character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(loaded_character);
+    ASSERT_NE(fp, nullptr);
+    Crash_alias_load(loaded_character, fp);
+    EXPECT_EQ(std::fclose(fp), 0);
+    EXPECT_EQ(GET_ALIAS(loaded_character), nullptr) << "the new character loaded the old character's aliases";
+
+    free_char(descriptor.character);
+    descriptor.character = nullptr;
+    free_char(loaded_character);
+}
+
 TEST(InterpreAccountMenu, IntroduceCharRejectsTooLongAccountNativeIndexPathWithoutTruncation)
 {
     TemporaryDirectory temp_directory;
@@ -4279,9 +4871,13 @@ TEST(InterpreAccountMenu, IntroduceCharRejectsTooLongAccountNativeIndexPathWitho
     ScopedMotdOverride motd_override(test_motd);
 
     const char* account_name = "abcdefghijklmnopqrst";
-    const char* long_email = "abcdefghijklmnopqrst123456789012345678901234567890@example.com";
+    // Derived from the buffer rather than hardcoded: ch_file has been widened once, and a fixture
+    // that quietly stops exceeding it turns this into a test of nothing.
+    const std::string long_email = std::string(sizeof(player_table[0].ch_file), 'a') + "@example.com";
+    // Planted, not registered: MAX_EMAIL_LENGTH refuses this address at create_account now, and a
+    // record put on disk by hand is the route that can still produce an over-length path.
     std::string error_message;
-    ASSERT_TRUE(account::create_account(".", account_name, long_email, "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
+    rots_tests::plant_account_record_with_unvalidated_email(".", account_name, long_email, {}, 1700010200);
     const std::string account_character_path = account::account_character_player_path(".", account_name, "aragorn");
     ASSERT_GE(account_character_path.size(), sizeof(player_table[0].ch_file))
         << "Test setup must exceed the legacy player index path buffer.";
@@ -4337,17 +4933,20 @@ TEST(InterpreAccountMenu, AccountSelectionRejectsTooLongAccountNativeIndexPathWi
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 
     const char* account_name = "abcdefghijklmnopqrst";
-    const char* long_email = "abcdefghijklmnopqrst123456789012345678901234567890@example.com";
+    // Derived from the buffer rather than hardcoded: ch_file has been widened once, and a fixture
+    // that quietly stops exceeding it turns this into a test of nothing.
+    const std::string long_email = std::string(sizeof(player_table[0].ch_file), 'a') + "@example.com";
+    // Planted, not registered: MAX_EMAIL_LENGTH refuses this address at create_account now. The
+    // record lists the character from the start, so the link admin_link_character used to add is
+    // already there and the object and exploit writers below still resolve through it.
     std::string error_message;
-    account::AccountData account_data;
-    ASSERT_TRUE(account::create_account(".", account_name, long_email, "ValidPass1", 1700010200, &account_data, &error_message)) << error_message;
+    rots_tests::plant_account_record_with_unvalidated_email(".", account_name, long_email, { "aragorn" }, 1700010200);
 
     char_file_u stored_character = make_stored_character("aragorn", 1, RACE_HUMAN);
     stored_character.specials2.idnum = 4242;
     ASSERT_TRUE(account::write_account_character_file(".", account_name, stored_character, &error_message)) << error_message;
     ASSERT_TRUE(account::write_default_account_object_file(".", account_name, "aragorn", &error_message)) << error_message;
     ASSERT_TRUE(account::write_default_account_exploit_file(".", account_name, "aragorn", &error_message)) << error_message;
-    ASSERT_TRUE(account::admin_link_character(".", account_name, "aragorn", 1700010201, &account_data, &error_message)) << error_message;
     const std::string account_character_path = account::account_character_player_path(".", account_name, "aragorn");
     ASSERT_GE(account_character_path.size(), sizeof(player_table[0].ch_file))
         << "Test setup must exceed the legacy player index path buffer.";
@@ -4355,7 +4954,7 @@ TEST(InterpreAccountMenu, AccountSelectionRejectsTooLongAccountNativeIndexPathWi
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", account_name);
-    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", long_email);
+    std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", long_email.c_str());
 
     char selection[] = "1";
     nanny(&descriptor, selection);

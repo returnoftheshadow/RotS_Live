@@ -202,10 +202,13 @@ namespace {
             return false;
         }
 
-        if (parsed_alias.keyword.size() >= 20) {
-            set_error(error_message, "Alias keyword must fit within 19 characters.");
-            return false;
-        }
+        // Clamped, not refused, and symmetric with the binary reader. A file written before that
+        // clamp existed can carry a 20-character keyword -- the JSON writer never length-checked --
+        // and migration deleted the legacy .obj behind it. Refusing here would cost that character
+        // its rent, gold, inventory and worn equipment permanently over one character of an alias
+        // name. Nothing downstream can hold more than 19 anyway (alias_list::keyword).
+        if (parsed_alias.keyword.size() > MAX_ALIAS_KEYWORD_LENGTH)
+            parsed_alias.keyword.resize(MAX_ALIAS_KEYWORD_LENGTH);
 
         *alias = std::move(parsed_alias);
         set_error(error_message, "");
@@ -384,7 +387,12 @@ bool object_save_data_from_binary_impl(
         }
 
         AliasData alias;
-        alias.keyword.assign(keyword_bytes, std::find(keyword_bytes, keyword_bytes + sizeof(keyword_bytes), '\0'));
+        // The legacy field is 20 raw bytes and the in-game buffer is char[20], so a keyword
+        // that fills it carries no terminator; keep the 19 characters that can be stored.
+        char* keyword_end = std::find(keyword_bytes, keyword_bytes + sizeof(keyword_bytes), '\0');
+        if (keyword_end == keyword_bytes + sizeof(keyword_bytes))
+            keyword_end = keyword_bytes + sizeof(keyword_bytes) - 1;
+        alias.keyword.assign(keyword_bytes, keyword_end);
         alias.command.assign(bytes.data() + offset, static_cast<size_t>(command_length));
         offset += static_cast<size_t>(command_length);
         parsed_data.aliases.push_back(std::move(alias));
@@ -785,6 +793,134 @@ bool deserialize_objects_from_json(const std::string& json, ObjectSaveData* data
     *data = std::move(parsed_data);
     set_error(error_message, "");
     return true;
+}
+
+namespace {
+
+    std::string indexed_path(const std::string& path, size_t index)
+    {
+        return path + "[" + std::to_string(index) + "]";
+    }
+
+    std::string first_differing_object_record_field(const std::string& path, const ObjectRecord& a, const ObjectRecord& b)
+    {
+        if (a.item_number != b.item_number)
+            return path + ".item_number";
+        for (size_t index = 0; index < a.values.size(); ++index) {
+            if (a.values[index] != b.values[index])
+                return indexed_path(path + ".values", index);
+        }
+        if (a.extra_flags != b.extra_flags)
+            return path + ".extra_flags";
+        if (a.weight != b.weight)
+            return path + ".weight";
+        if (a.timer != b.timer)
+            return path + ".timer";
+        if (a.bitvector != b.bitvector)
+            return path + ".bitvector";
+        for (size_t index = 0; index < a.affects.size(); ++index) {
+            const std::string affect_path = indexed_path(path + ".affects", index);
+            if (a.affects[index].location != b.affects[index].location)
+                return affect_path + ".location";
+            if (a.affects[index].modifier != b.affects[index].modifier)
+                return affect_path + ".modifier";
+        }
+        if (a.wear_pos != b.wear_pos)
+            return path + ".wear_pos";
+        if (a.loaded_by != b.loaded_by)
+            return path + ".loaded_by";
+        return std::string();
+    }
+
+    std::string first_differing_object_list_field(const std::string& path, const std::vector<ObjectRecord>& a, const std::vector<ObjectRecord>& b)
+    {
+        if (a.size() != b.size())
+            return path + ".size";
+        for (size_t index = 0; index < a.size(); ++index) {
+            std::string field = first_differing_object_record_field(indexed_path(path, index), a[index], b[index]);
+            if (!field.empty())
+                return field;
+        }
+        return std::string();
+    }
+
+} // namespace
+
+std::string first_differing_field(const ObjectSaveData& a, const ObjectSaveData& b)
+{
+    if (a.version != b.version)
+        return "version";
+    if (a.rent.time != b.rent.time)
+        return "rent.time";
+    if (a.rent.rentcode != b.rent.rentcode)
+        return "rent.rentcode";
+    if (a.rent.net_cost_per_hour != b.rent.net_cost_per_hour)
+        return "rent.net_cost_per_hour";
+    if (a.rent.gold != b.rent.gold)
+        return "rent.gold";
+    if (a.rent.nitems != b.rent.nitems)
+        return "rent.nitems";
+    if (a.rent.spare0 != b.rent.spare0)
+        return "rent.spare0";
+    if (a.rent.spare1 != b.rent.spare1)
+        return "rent.spare1";
+    if (a.rent.spare2 != b.rent.spare2)
+        return "rent.spare2";
+    if (a.rent.spare3 != b.rent.spare3)
+        return "rent.spare3";
+    if (a.rent.spare4 != b.rent.spare4)
+        return "rent.spare4";
+    if (a.rent.spare5 != b.rent.spare5)
+        return "rent.spare5";
+    if (a.rent.spare6 != b.rent.spare6)
+        return "rent.spare6";
+    if (a.rent.spare7 != b.rent.spare7)
+        return "rent.spare7";
+
+    std::string field = first_differing_object_list_field("objects", a.objects, b.objects);
+    if (!field.empty())
+        return field;
+
+    for (size_t index = 0; index < a.board_points.size(); ++index) {
+        if (a.board_points[index] != b.board_points[index])
+            return indexed_path("board_points", index);
+    }
+
+    if (a.aliases.size() != b.aliases.size())
+        return "aliases.size";
+    for (size_t index = 0; index < a.aliases.size(); ++index) {
+        if (a.aliases[index].keyword != b.aliases[index].keyword)
+            return indexed_path("aliases", index) + ".keyword";
+        if (a.aliases[index].command != b.aliases[index].command)
+            return indexed_path("aliases", index) + ".command";
+    }
+
+    if (a.followers.size() != b.followers.size())
+        return "followers.size";
+    for (size_t index = 0; index < a.followers.size(); ++index) {
+        const FollowerData& follower_a = a.followers[index];
+        const FollowerData& follower_b = b.followers[index];
+        const std::string path = indexed_path("followers", index);
+        if (follower_a.fol_vnum != follower_b.fol_vnum)
+            return path + ".fol_vnum";
+        if (follower_a.mount_vnum != follower_b.mount_vnum)
+            return path + ".mount_vnum";
+        if (follower_a.wimpy != follower_b.wimpy)
+            return path + ".wimpy";
+        if (follower_a.exp != follower_b.exp)
+            return path + ".exp";
+        if (follower_a.flag_config != follower_b.flag_config)
+            return path + ".flag_config";
+        if (follower_a.spare1 != follower_b.spare1)
+            return path + ".spare1";
+        if (follower_a.spare2 != follower_b.spare2)
+            return path + ".spare2";
+        field = first_differing_object_list_field(path + ".objects", follower_a.objects, follower_b.objects);
+        if (!field.empty())
+            return field;
+    }
+
+    return std::string();
 }
 
 } // namespace objects_json

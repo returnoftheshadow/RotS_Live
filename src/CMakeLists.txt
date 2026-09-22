@@ -52,6 +52,10 @@ set(ROTS_SERVER_SOURCES
     act_wiz.cpp
     account_management.cpp
     account_cache.cpp
+    account_ppc.cpp
+    account_index.cpp
+    account_errors.cpp
+    roster_cache.cpp
     character_json.cpp
     exploits_json.cpp
     json_utils.cpp
@@ -125,12 +129,17 @@ set(ROTS_TEST_SOURCES
     tests/battle_mage_handler_tests.cpp
     tests/account_management_tests.cpp
     tests/account_cache_tests.cpp
+    tests/account_index_tests.cpp
+    tests/account_errors_tests.cpp
+    tests/roster_cache_tests.cpp
+    tests/account_ppc_tests.cpp
     tests/account_management_assets_header_compile.cpp
     tests/account_management_identity_header_compile.cpp
     tests/account_management_migration_header_compile.cpp
     tests/account_management_presentation_header_compile.cpp
     tests/account_management_storage_header_compile.cpp
     tests/account_management_types_header_compile.cpp
+    tests/act_comm_tests.cpp
     tests/act_wiz_tests.cpp
     tests/affect_update_tests.cpp
     tests/caster_snapshot_tests.cpp
@@ -150,6 +159,11 @@ set(ROTS_TEST_SOURCES
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
+    tests/limits_tests.cpp
+    tests/script_flow_tests.cpp
+    tests/idle_follower_tests.cpp
+    tests/room_contents_tests.cpp
+    tests/process_output_tests.cpp
     tests/json_perf_tests.cpp
     tests/objects_json_tests.cpp
     tests/player_finalize_tests.cpp
@@ -171,6 +185,7 @@ set(ROTS_TEST_SOURCES
     tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp
     tests/xp_formula_tests.cpp
+    tests/load_scalp_tests.cpp
 )
 
 add_executable(ageland ${ROTS_SERVER_SOURCES})

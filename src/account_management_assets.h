@@ -9,6 +9,13 @@ bool write_account_character_file(const std::string& root_directory, const std::
 bool write_linked_character_file(const std::string& root_directory, const std::string& character_name, const char_file_u& stored_character, std::string* error_message = nullptr);
 bool read_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, char_file_u* stored_character, std::string* error_message = nullptr);
 bool inspect_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, bool* exists, std::string* error_message = nullptr);
+
+// The same two reads, for a caller that already holds the account record. The name-taking forms
+// above are exactly these preceded by read_account_file(root, account_name) -- a lookup that the
+// boot index walker must not perform, because it runs while the index it would consult is still
+// being built. Everything else should keep using the name-taking forms.
+bool read_account_character_file_from_record(const std::string& root_directory, const AccountData& account, const std::string& character_name, char_file_u* stored_character, std::string* error_message = nullptr);
+bool inspect_account_character_file_from_record(const std::string& root_directory, const AccountData& account, const std::string& character_name, bool* exists, std::string* error_message = nullptr);
 bool account_character_file_exists(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
 bool remove_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* error_message = nullptr);
 

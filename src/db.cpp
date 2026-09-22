@@ -26,13 +26,17 @@
 #include "zone.h"
 
 #include "account_cache.h"
+#include "account_index.h"
+#include "account_errors.h"
 #include "account_management.h"
+#include "account_ppc.h"
 #include "big_brother.h"
 #include "char_utils.h"
 #include "character_json.h"
 #include "exploits_json.h"
 #include "kill_contributors.h"
 #include "player_file_finalize.h"
+#include "roster_cache.h"
 #include "skill_timer.h"
 #include <cstdio>
 #include <iostream>
@@ -310,7 +314,31 @@ void boot_db(void)
     // O(N) directory scans, with a full flush on every account.json write (write_account_file). See
     // account_cache.h. This is the adopted Phase-1 optimization; JSON serialize/deserialize stay on v1.
     account_cache::set_enabled(true);
+    roster_cache::set_enabled(true);
+    // The game chdir()s into lib/ before this runs, so every account path in the server is composed
+    // against ".". The index records that root and refuses to answer a resolver called with any
+    // other one (it would hand back paths from this tree) -- see account_index.h.
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
     log("Account-resolution cache: enabled.");
+
+    // A name-keyed table with the same name twice cannot write a character that holds values in
+    // both slots -- the file would carry a duplicate key and no reader would take it back. That is a
+    // static defect in the tables, so it is reported once here rather than rediscovered by every
+    // save. Not fatal: it only bites the characters holding both, and save_char refuses exactly
+    // those with a reason.
+    for (const character_json::NamedKeyCollision& collision : character_json::named_key_collisions()) {
+        std::string slots;
+        for (int index : collision.indices) {
+            if (!slots.empty())
+                slots += ", ";
+            slots += std::to_string(index);
+        }
+        sprintf(buf, "Table check: %s slots %s all produce the key '%s'. A character with values in more than one of them cannot be saved.",
+            collision.table.c_str(), slots.c_str(), collision.key.c_str());
+        log(buf);
+        mudlog(buf, BRF, LEVEL_IMMORT, TRUE);
+    }
 
     log("Resetting the game time:");
     reset_time();
@@ -625,87 +653,181 @@ void populate_player_index_entry_from_store(const char_file_u& stored_character,
     top_idnum = MAX(top_idnum, indexed_character.specials2.idnum);
 }
 
-void build_account_native_player_index(void)
-{
-    DIR* accounts_root = opendir("accounts");
-    if (accounts_root == nullptr)
-        return;
+namespace {
 
-    while (dirent* bucket_entry = readdir(accounts_root)) {
-        if (bucket_entry->d_name[0] == '.')
-            continue;
+    // Characters the boot walk could not read. Each one already logs its own line, but a line per
+    // character buried in the syslog is not a report: a character missing from player_table cannot
+    // be selected, and the player is simply told it does not exist. The count is mudlogged beside
+    // the quarantine count so it is seen rather than found later.
+    std::size_t g_unreadable_character_files_at_boot = 0;
+    // Buckets that would not open during the walk. Each one hides an unknown number of accounts.
+    std::size_t g_unreadable_buckets_at_boot = 0;
+    // Records the walk could not read or parse AT ALL -- the only class MAX_QUARANTINED_RECORDS_AT_BOOT
+    // is a detector for. Its rationale is ours: a serialization or normalize_email change breaks every
+    // record at once, so six of them means we shipped something. Everything else quarantine files --
+    // a record sitting where its own email does not resolve, a legacy flat record with no usable
+    // address, a bucket that would not open -- is an operator's doing, and a system administrator who
+    // copied an account directory in place did not intend to stop the server. Counting those against
+    // the limit locked every player out over litter: one copied directory files TWO entries, so three
+    // of them passed the limit. They stay quarantined, counted and listed; they just do not refuse the
+    // boot.
+    std::size_t g_unparseable_account_records_at_boot = 0;
 
-        const std::string bucket_path = std::string("accounts/") + bucket_entry->d_name;
-        DIR* bucket_dir = opendir(bucket_path.c_str());
-        if (bucket_dir == nullptr)
-            continue;
+    void visit_account_record_for_boot_index(const account::AccountRecordOnDisk& record)
+    {
+        if (!record.parsed) {
+            if (record.unreadable_bucket)
+                ++g_unreadable_buckets_at_boot;
+            else
+                ++g_unparseable_account_records_at_boot;
+            // The single most likely failure -- a corrupt account.json -- must leave per-record
+            // evidence in the log, not just the aggregate count; this mirrors the message the
+            // exit(1) it replaced used to print.
+            sprintf(buf, "Failed to read account-native index source '%s': %s",
+                record.record_path.c_str(), record.failure_reason.c_str());
+            log(buf);
+            const std::string filed_under = account::account_index_quarantine_key(record);
+            account_index::quarantine(filed_under, record.record_path, record.failure_reason);
+            // A quarantined record locks its owner out of the game, so it belongs in the list an
+            // immortal can ask about after boot, not only in `account index`.
+            account_errors::record(account_errors::Source::Boot, filed_under, std::string(), record.failure_reason);
+            return;
+        }
 
-        while (dirent* account_entry = readdir(bucket_dir)) {
-            if (account_entry->d_name[0] == '.')
-                continue;
-
-            const std::string account_json_path = bucket_path + "/" + account_entry->d_name + "/account.json";
-            std::string account_json_text;
-            if (!read_text_file_contents(account_json_path, &account_json_text))
-                continue;
-
-            account::AccountData account_data;
-            std::string error_message;
-            if (!account::deserialize_account_from_json(account_json_text, &account_data, &error_message)) {
-                sprintf(buf, "Failed to read account-native index source '%s': %s",
-                    account_json_path.c_str(), error_message.c_str());
+        if (record.directory_layout) {
+            // The record must be AT the path its own email says it is at. Every other path in the
+            // server -- save_char, character reads, the roster -- is composed from
+            // normalize_email(account.normalized_email) and a bucket computed from it, so a record
+            // filed anywhere else is one the running game cannot find: its saves would land in a
+            // second directory beside it and its characters would read as absent. Comparing the
+            // whole canonical path rather than just the directory name is what also catches a record
+            // sitting in the wrong BUCKET, whose name matches perfectly.
+            //
+            // An earlier version of this compared normalize_email() on both sides, which ACCEPTED a
+            // directory that differs only in case. That is worse than quarantining it: the walk then
+            // reaches the character loop below, whose read resolves through the normalized directory
+            // and gets ENOENT, which inspect_account_character_file_from_record reports as "does not
+            // exist" -- so every character on the account is dropped from the player index with no
+            // log line and no counter. Refusing the record is the loud failure; accepting it is the
+            // silent one.
+            const std::string declared_email = account::normalize_email(record.account.normalized_email);
+            const std::string canonical_record_path = "./accounts/"
+                + account::account_bucket_for_name(declared_email) + "/" + declared_email + "/account.json";
+            if (record.record_path != canonical_record_path) {
+                sprintf(buf, "Account-native index source '%s' is not at the path its email '%s' resolves to ('%s').",
+                    record.record_path.c_str(), record.account.normalized_email.c_str(), canonical_record_path.c_str());
                 log(buf);
-                closedir(bucket_dir);
-                closedir(accounts_root);
-                exit(1);
-            }
 
-            if (account::normalize_email(account_data.normalized_email) != std::string(account_entry->d_name)) {
-                sprintf(buf, "Account-native index source '%s' has mismatched normalized email '%s'.",
-                    account_json_path.c_str(), account_data.normalized_email.c_str());
+                const std::string filed_under = account::account_index_quarantine_key(record);
+                account_index::quarantine(filed_under, record.record_path, buf);
+
+                // Reserve the address the record DECLARES as well as the one it is filed under.
+                // They are different in exactly this case, and the declared one is what its owner
+                // types at the login prompt -- leave it unreserved and it reads as free, so
+                // registration writes a fresh empty account at the player's real address while
+                // their record sits inert under the other name.
+                if (!declared_email.empty() && declared_email != filed_under)
+                    account_index::quarantine(declared_email, record.record_path, buf);
+                // One record, however many addresses it reserves: record it once, under the address
+                // it is filed under. buf already names the address it declares.
+                account_errors::record(account_errors::Source::Boot, filed_under, std::string(), buf);
+                return;
+            }
+        } else {
+            // A legacy flat record that discloses no usable email cannot be reached by
+            // find_path_by_email/find_email_by_account_name once the index is authoritative (Task
+            // 5), so silently indexing nothing for it would make the record vanish -- neither
+            // indexed, quarantined, nor counted. Quarantine it instead, keyed by its own path since
+            // it has revealed no email to key it by.
+            if (account::normalize_email(record.account.normalized_email).empty()) {
+                sprintf(buf, "Legacy flat account record '%s' has no usable email address.",
+                    record.record_path.c_str());
                 log(buf);
-                closedir(bucket_dir);
-                closedir(accounts_root);
-                exit(1);
-            }
-
-            for (const std::string& character_name : account_data.characters) {
-                const std::string character_path = account::account_character_player_path(".", account_data.account_name, character_name);
-
-                char_file_u stored_character {};
-                if (!account::read_account_character_file(".", account_data.account_name, character_name, &stored_character, &error_message)) {
-                    const std::string read_error = error_message;
-                    bool account_character_exists = false;
-                    std::string inspect_error;
-                    if (!account::inspect_account_character_file(".", account_data.account_name, character_name, &account_character_exists, &inspect_error)) {
-                        sprintf(buf, "Failed to inspect account-native character file '%s': %s",
-                            character_path.c_str(), inspect_error.c_str());
-                        log(buf);
-                        closedir(bucket_dir);
-                        closedir(accounts_root);
-                        exit(1);
-                    }
-
-                    if (!account_character_exists)
-                        continue;
-
-                    sprintf(buf, "Failed to read account-native character file '%s': %s",
-                        character_path.c_str(), read_error.c_str());
-                    log(buf);
-                    closedir(bucket_dir);
-                    closedir(accounts_root);
-                    exit(1);
-                }
-
-                populate_player_index_entry_from_store(stored_character, character_path);
+                const std::string filed_under = account::account_index_quarantine_key(record);
+                account_index::quarantine(filed_under, record.record_path, buf);
+                account_errors::record(account_errors::Source::Boot, filed_under, std::string(), buf);
+                return;
             }
         }
 
-        closedir(bucket_dir);
+        account_index::upsert(record.account, record.record_path, !record.directory_layout);
+
+        // Legacy flat records have no per-account directory, so their characters are not
+        // account-native -- nothing further to index for this record (see task addendum).
+        if (!record.directory_layout)
+            return;
+
+        // record.record_path is ".../<email>/account.json"; its parent directory is the account
+        // directory that owns every character file linked to this record.
+        static const std::string account_json_suffix = "/account.json";
+        const std::string account_directory = record.record_path.substr(
+            0, record.record_path.size() - account_json_suffix.size());
+
+        for (const std::string& character_name : record.account.characters) {
+            // The record we just parsed IS the account, so its directory is already known. Both
+            // reads below therefore take the *_from_record forms, which resolve nothing: the
+            // name-taking forms would call read_account_file -> find_account_file_path_by_account_name
+            // and account_character_directory -> resolve_account_storage_key, both of which consult
+            // the very index this walk is still building. That made correctness depend on the upsert
+            // above happening before this loop; it no longer does, and nothing here touches the
+            // index at all.
+            //
+            // The name mirrors character_json_file_name (account_management.cpp:85), which is
+            // slug + ".character.json" where the slug is normalize_account_name. That helper is
+            // private to the account_management translation unit and is not visible here, so the
+            // two pieces are composed directly. If either ever changes, this line changes with it.
+            const std::string character_path = account_directory + "/"
+                + account::normalize_account_name(character_name) + ".character.json";
+
+            char_file_u stored_character {};
+            std::string error_message;
+            if (!account::read_account_character_file_from_record(".", record.account, character_name, &stored_character, &error_message)) {
+                const std::string read_error = error_message;
+                bool account_character_exists = false;
+                std::string inspect_error;
+                // A per-character asset failure is NOT the account's failure. The account.json we
+                // are walking parsed perfectly well; one of the character files it points at did
+                // not. Quarantining here would erase the account's keys and reserve its email, which
+                // locks the player out of every OTHER character they own and refuses their address
+                // for account creation -- over a file that has nothing to do with the record's own
+                // integrity. And it is reachable: one unknown skill/slot/flag NAME rejects an entire
+                // character file in this codebase, so a single legacy character would take its
+                // owner's whole account down with it.
+                //
+                // So this is treated exactly as the !account_character_exists case just below
+                // already is: log it and go on to the next character. Only a failure of account.json
+                // ITSELF quarantines the account. The log line is the only evidence that this
+                // character did not make it into player_table, so it stays.
+                if (!account::inspect_account_character_file_from_record(".", record.account, character_name, &account_character_exists, &inspect_error)) {
+                    sprintf(buf, "Failed to inspect account-native character file '%s': %s (account '%s' stays usable; this character is not in the player index)",
+                        character_path.c_str(), inspect_error.c_str(), record.record_path.c_str());
+                    log(buf);
+                    // The line above carries the path and the caveat; this carries the two names, so
+                    // the character can be asked about by name once boot has scrolled past.
+                    account_errors::record(account_errors::Source::Boot, record.account.account_name,
+                        character_name, inspect_error);
+                    ++g_unreadable_character_files_at_boot;
+                    continue;
+                }
+
+                if (!account_character_exists)
+                    continue;
+
+                sprintf(buf, "Failed to read account-native character file '%s': %s (account '%s' stays usable; this character is not in the player index)",
+                    character_path.c_str(), read_error.c_str(), record.record_path.c_str());
+                log(buf);
+                account_errors::record(account_errors::Source::Boot, record.account.account_name,
+                    character_name, read_error);
+                ++g_unreadable_character_files_at_boot;
+                continue;
+            }
+
+            populate_player_index_entry_from_store(stored_character, character_path);
+        }
     }
 
-    closedir(accounts_root);
-}
+} // namespace
+
 
 int load_player_from_account_json_path(char* name, const char* player_path, struct char_file_u* char_element)
 {
@@ -744,6 +866,92 @@ int load_player_from_account_json_path(char* name, const char* player_path, stru
 }
 
 } // namespace
+
+void build_account_native_player_index(void)
+{
+    // Per run, not per process: this is no longer only ever called once from boot_db.
+    g_unreadable_character_files_at_boot = 0;
+    g_unreadable_buckets_at_boot = 0;
+    g_unparseable_account_records_at_boot = 0;
+
+    std::string error_message;
+    if (!account::for_each_account_record_on_disk(".", visit_account_record_for_boot_index, &error_message)) {
+        // "No accounts directory yet" is a legitimate first boot: the index is correctly empty and
+        // stays authoritative. Any OTHER failure (EACCES after a hand deploy, EMFILE/ENFILE) means
+        // the index is empty because the directory could not be read, not because there is nothing
+        // in it -- and an empty authoritative index answers every login with "No account exists for
+        // that email address.", the exact string interpre.cpp matches to offer the player a NEW
+        // account. Every player on the box would be told their account is gone and invited to
+        // register over it. Fall back to the directory scan, which reports the real error instead.
+        if (access("./accounts", F_OK) != 0 && errno == ENOENT)
+            return;
+
+        sprintf(buf, "Account index: %s. The index is NOT authoritative; account lookups fall back to scanning.",
+            error_message.c_str());
+        log(buf);
+        mudlog(buf, BRF, LEVEL_IMMORT, TRUE);
+        account_index::clear();
+        account_index::set_enabled(false);
+        return;
+    }
+
+    if (g_unreadable_buckets_at_boot > 0) {
+        // One unreadable bucket is a fifth of the address space gone: the index is missing an unknown
+        // number of accounts, and each such bucket counts as a SINGLE quarantined record, so five of
+        // them (the whole letter range) does not even reach MAX_QUARANTINED_RECORDS_AT_BOOT. An
+        // authoritative index that is missing accounts answers "No account exists for that email
+        // address." for every one of them -- the string interpre.cpp matches to offer a new account.
+        // Fall back to scanning, which refuses with the real error instead, exactly as the
+        // whole-directory failure above does.
+        sprintf(buf, "Account index: %lu account bucket(s) could not be read. The index is NOT authoritative; account lookups fall back to scanning.",
+            static_cast<unsigned long>(g_unreadable_buckets_at_boot));
+        log(buf);
+        mudlog(buf, BRF, LEVEL_IMMORT, TRUE);
+        // Disabled for LOOKUPS, but deliberately NOT cleared. The quarantine entries record which
+        // buckets could not be read, and that is exactly what the creation guard and the per-address
+        // reservation consult to refuse the addresses inside them while letting every other address
+        // through. Clearing here threw that away at the only moment it mattered, which turned one
+        // bucket with a bad mode into a server-wide refusal of all account creation. The whole-tree
+        // failure above still clears, because nothing was read there at all.
+        account_index::set_enabled(false);
+        return;
+    }
+
+    const std::size_t quarantined = account_index::quarantined_count();
+    if (quarantined > 0) {
+        sprintf(buf, "Account index: %lu record(s) quarantined; use the account index wizard command to list them.",
+            static_cast<unsigned long>(quarantined));
+        log(buf);
+        mudlog(buf, BRF, LEVEL_IMMORT, TRUE);
+    }
+
+    if (g_unreadable_character_files_at_boot > 0) {
+        // Not fatal and deliberately not counted against MAX_QUARANTINED_RECORDS_AT_BOOT: a bad
+        // character file is not the account's failure, and refusing the boot over one would lock
+        // its owner out of every other character they own. But it must not be silent -- each of
+        // these is a character that cannot be selected, and the player is told only that it does
+        // not exist.
+        sprintf(buf, "Account index: %lu account-native character file(s) could not be read and are NOT in the player index; see the per-character lines above.",
+            static_cast<unsigned long>(g_unreadable_character_files_at_boot));
+        log(buf);
+        mudlog(buf, BRF, LEVEL_IMMORT, TRUE);
+    }
+
+    if (g_unparseable_account_records_at_boot > account_index::MAX_QUARANTINED_RECORDS_AT_BOOT) {
+        sprintf(buf, "Account index: %lu unreadable account records exceeds the limit of %lu. Refusing to boot.",
+            static_cast<unsigned long>(g_unparseable_account_records_at_boot),
+            static_cast<unsigned long>(account_index::MAX_QUARANTINED_RECORDS_AT_BOOT));
+        log(buf);
+        exit(1);
+    }
+
+    // size() counts quarantined records too -- they are indexed, and hold their address -- so name
+    // them here rather than letting the total read as "accounts that resolve".
+    sprintf(buf, "Account index: %lu record(s) indexed, %lu of them quarantined.",
+        static_cast<unsigned long>(account_index::size()),
+        static_cast<unsigned long>(account_index::quarantined_count()));
+    log(buf);
+}
 
 //  Reads a field from the player filename format (using FAT as index)
 
@@ -889,9 +1097,10 @@ bool delete_player_character_by_index(int index)
     const bool account_native_entry = has_suffix(player_table[index].ch_file, ".character.json");
 
     // A name the account layer refuses cannot be linked to an account at all (linking validates the
-    // same way), so there is nothing to unlink and the legacy path stays correct for it. A handful
-    // of very old characters are in this bucket - two-letter names, names starting with '#'.
-    if (!account::is_valid_account_name(character_name)) {
+    // same way), so there is nothing to unlink and the legacy path stays correct for it. Two-letter
+    // legacy names ARE linkable (no length minimum for existing characters); names starting with
+    // '#' are not.
+    if (!account::is_valid_character_name(character_name)) {
         if (account_native_entry) {
             sprintf(buf, "delete_player_character_by_index: refusing to delete %s: stored in account storage under a name the account layer rejects",
                 character_name);
@@ -2491,7 +2700,10 @@ int load_player_from_text(char* name, const char* player_text, struct char_file_
 int load_player(char* name, struct char_file_u* char_element)
 {
     int tmp;
-    char playerfname[100];
+    // Sized off the field it copies, not a round number. It was 100 while ch_file was 80, which
+    // made it safe by accident; widening ch_file to 160 for account-native paths took that away and
+    // an ordinary long email address was enough to run off the end of this buffer on every login.
+    char playerfname[sizeof(player_table->ch_file)];
     char* pf = 0;
 
     for (tmp = 0; name[tmp]; ++tmp)
@@ -2507,7 +2719,7 @@ int load_player(char* name, struct char_file_u* char_element)
         return -1;
     }
 
-    sprintf(playerfname, "%s", (player_table + tmp)->ch_file);
+    snprintf(playerfname, sizeof(playerfname), "%s", (player_table + tmp)->ch_file);
     if (has_suffix(playerfname, ".character.json"))
         return load_player_from_account_json_path(name, playerfname, char_element);
 
@@ -3222,6 +3434,21 @@ void save_char(struct char_data* ch, int load_room, int notify_char)
     const bool account_native_player_entry = has_suffix((player_table + tmp)->ch_file, ".character.json");
     const bool linked_character = account::find_linked_character_owner_account(".", GET_NAME(ch), &owner_account_name, &account_error) && !owner_account_name.empty();
     if (linked_character) {
+        // An account whose storage key will not resolve makes every account_character_* path
+        // collapse onto accounts/__invalid_account__. Nothing enumerates that directory, so a save
+        // written there is lost the moment the process restarts -- and, worse, the branch below
+        // that repairs a "missing" character file would CREATE it there and then repoint
+        // player_table at it, so the real file goes stale while the log reports success. Refuse
+        // loudly instead: a refused save is one save, a redirected save is every save from here on.
+        const std::string account_directory = account::account_character_directory(".", owner_account_name, GET_NAME(ch));
+        if (account::is_invalid_account_storage_directory(account_directory)) {
+            sprintf(buf, "save_char: REFUSING to save %s: account '%s' has no resolvable storage key, so its character files would land in %s and be lost. NOTHING was saved for this character.",
+                GET_NAME(ch), owner_account_name.c_str(), account_directory.c_str());
+            log(buf);
+            mudlog(buf, BRF, LEVEL_IMMORT, TRUE);
+            return;
+        }
+
         bool wrote_account_character_file = false;
         std::string character_file_error;
         const bool has_account_character_file = account::account_character_file_exists(".", owner_account_name, GET_NAME(ch), &character_file_error);
@@ -3255,6 +3482,7 @@ void save_char(struct char_data* ch, int load_room, int notify_char)
                 log(buf);
             }
         }
+        ppc_store_character_to_account(owner_account_name, ch);
     } else if (account_native_player_entry) {
         if (account_error.empty())
             sprintf(buf, "save_char: refusing legacy fallback for account-native character %s because linked ownership could not be resolved", GET_NAME(ch));
@@ -4029,6 +4257,11 @@ void forget_crimes(char_data* ch, int criminal)
 //*************************************************************************
 //*************************************************************************
 
+// Every member, not the six this used to set. The world is allocated with `new room_data[]`, so
+// anything left out here is whatever the allocator last had in that block until the loader writes
+// it -- and IS_DARK (utils.h) reads sector_type, room_flags and light, so a room that has not been
+// loaded yet answers "is it dark in here?" out of stale heap bytes. room_track and bleed_track are
+// absent on purpose: their own element constructors already zero them.
 room_data::room_data()
 {
     // create_bulk() used to calloc() the whole world array (see the
@@ -4039,7 +4272,7 @@ room_data::room_data()
     number = -1;
     zone = 0;
     level = 0;
-    sector_type = 0;
+    sector_type = SECT_INSIDE;
     name = 0;
     description = 0;
     ex_description = nullptr;
@@ -4758,46 +4991,192 @@ int delete_exploits_file(char* name)
     return (1);
 }
 
-int rename_char(struct char_data* ch, char* newname)
+// A rename of a character whose files live in account storage, resolved but not yet carried out.
+// The legacy path below deletes the character's file and lets the next save recreate it under the
+// new name; for an account-native character that delete destroys the only copy, and account.json
+// goes on naming a file that is no longer there -- the roster then shows the row as "[ ?? ???]" and
+// it can never be played again.
+//
+// Deciding and doing are separate steps because one thing has to happen BETWEEN them: the namechange
+// exploit record. write_exploits refuses to write for a character its own account no longer lists,
+// and committing the rename rewrites account.json to the new name while GET_NAME(ch) is still the
+// old one -- so a record written after the commit is silently dropped.
+struct account_native_rename {
+    bool applies = false;
+    std::string owner_account_name;
+    std::string old_name;
+    std::string new_character_path;
+};
+
+// A refusal is both logged (for the syslog) and reported back in words, because the only caller that
+// can reach a rename is `wizset <victim> name <newname>`, which has an immortal waiting on an answer.
+static void set_rename_error(std::string* error_message, const std::string& message)
+{
+    if (error_message != nullptr)
+        *error_message = message;
+}
+
+// Returns false only when the rename should be ABANDONED. A character that is not account-native is
+// not this function's business and reports success with plan->applies left false. Nothing on disk
+// has moved when this returns, either way.
+static bool plan_account_native_rename(struct char_data* ch, int player_i, const char* newname,
+    account_native_rename* plan, std::string* error_message)
+{
+    *plan = account_native_rename();
+    if (!has_suffix(player_table[player_i].ch_file, ".character.json"))
+        return true;
+
+    plan->old_name = GET_NAME(ch);
+    if (!account::is_valid_account_name(newname)) {
+        sprintf(buf, "rename_char: refusing to rename account-native character %s to %s: the account layer rejects that name",
+            plan->old_name.c_str(), newname);
+        log(buf);
+        set_rename_error(error_message, "the account layer will not accept that name.");
+        return false;
+    }
+
+    std::string account_error;
+    if (!account::find_linked_character_owner_account(".", plan->old_name, &plan->owner_account_name, &account_error)) {
+        sprintf(buf, "rename_char: refusing to rename %s: linked ownership could not be resolved: %s",
+            plan->old_name.c_str(), account_error.c_str());
+        log(buf);
+        set_rename_error(error_message, "the owning account could not be resolved: " + account_error);
+        return false;
+    }
+
+    if (plan->owner_account_name.empty()) {
+        sprintf(buf, "rename_char: refusing to rename %s: stored in account storage but no account claims it",
+            plan->old_name.c_str());
+        log(buf);
+        set_rename_error(error_message, "the character is in account storage but no account claims it.");
+        return false;
+    }
+
+    plan->new_character_path = account::account_character_player_path(".", plan->owner_account_name,
+        account::normalize_account_name(newname));
+
+    // Checked here, before any file moves, because every other writer of ch_file goes through
+    // update_player_index_entry_from_store, which REFUSES an over-length path rather than truncating
+    // it. Truncating instead would drop the ".character.json" suffix the live save path tests for,
+    // and populate_player_index_entry_from_store rebuilds this same path at boot and exit(1)s when
+    // it does not fit -- one rename would be enough to stop the server booting at all.
+    if (plan->new_character_path.size() >= sizeof(player_table[player_i].ch_file)) {
+        sprintf(buf, "rename_char: refusing to rename %s to %s: the account-native path is %zu bytes; player index limit is %zu",
+            plan->old_name.c_str(), newname, plan->new_character_path.size(),
+            sizeof(player_table[player_i].ch_file) - 1);
+        log(buf);
+        set_rename_error(error_message, "that name makes the stored path too long for the player index. A shorter name will fit.");
+        return false;
+    }
+
+    plan->applies = true;
+    return true;
+}
+
+// Moves the character, object and exploits files, rewrites account.json, and repoints the player
+// index at the new path. Returns false when the rename could not be carried out.
+static bool commit_account_native_rename(int player_i, const char* newname,
+    const account_native_rename& plan, std::string* error_message)
+{
+    std::string rename_error;
+    if (!account::admin_rename_linked_character(".", plan.owner_account_name, plan.old_name, newname,
+            time(0), nullptr, &rename_error)) {
+        sprintf(buf, "rename_char: could not rename %s to %s in account %s: %s",
+            plan.old_name.c_str(), newname, plan.owner_account_name.c_str(), rename_error.c_str());
+        log(buf);
+        set_rename_error(error_message, "the account layer could not carry it out: " + rename_error);
+        return false;
+    }
+
+    // The player index must follow the files, or the next save resolves the old path. Planning
+    // already refused a path that would not fit, so this cannot truncate.
+    std::snprintf(player_table[player_i].ch_file, sizeof(player_table[player_i].ch_file), "%s",
+        plan.new_character_path.c_str());
+    return true;
+}
+
+int rename_char(struct char_data* ch, char* newname, std::string* error_message)
 {
     char namebuf[64], *c, new_exploit_file[64], old_exploit_file[64];
     int player_i, i;
 
-    if ((!*newname || !ch) || (find_player_in_table(newname, -1) != -1) || (!Crash_get_filename(GET_NAME(ch), buf)) || ((player_i = find_name(GET_NAME(ch))) < 0))
+    // Split one condition per refusal: the caller is an immortal typing `wizset ... name ...`, and
+    // "it did not work" without a reason is what sent them to the syslog to guess.
+    set_rename_error(error_message, "");
+    if (!*newname || !ch) {
+        set_rename_error(error_message, "no new name was given.");
+        return -1;
+    }
+    if (find_player_in_table(newname, -1) != -1) {
+        set_rename_error(error_message, "that name is already taken.");
+        return -1;
+    }
+    if (!Crash_get_filename(GET_NAME(ch), buf)) {
+        set_rename_error(error_message, "that character's object file could not be resolved.");
+        return -1;
+    }
+    if ((player_i = find_name(GET_NAME(ch))) < 0) {
+        set_rename_error(error_message, "that character is not in the player index.");
+        return -1;
+    }
+
+    // Account-native characters are renamed through the account layer, which moves the three files
+    // and rewrites account.json together. A refusal here aborts the rename entirely rather than
+    // falling through to the legacy path, whose rm would destroy the character. Nothing has moved
+    // yet -- only the decision has been made.
+    account_native_rename account_rename;
+    if (!plan_account_native_rename(ch, player_i, newname, &account_rename, error_message))
         return -1;
 
     /* note this in exploits, i hate the ! on NOTE, so we use ACHIEVEMENT */
+    // Written while the account still lists the OLD name, because write_exploits refuses to write
+    // for a character its account does not claim -- and the commit below rewrites account.json to
+    // the new name while GET_NAME(ch) is still the old one. The commit then moves the exploits file
+    // along with the character, so the record follows it to the new name. A commit that fails after
+    // this point leaves the record behind under the old name, which is the honest outcome: the
+    // namechange was attempted, and both the attempt and the failure are logged.
     sprintf(namebuf, "Name: %s->%s", GET_NAME(ch), newname);
     vmudlog(BRF, "%s namechanged: now known as %s.", GET_NAME(ch), newname);
     add_exploit_record(EXPLOIT_ACHIEVEMENT, ch, 0, namebuf);
 
-    /* remove their char file */
-    sprintf(namebuf, "rm %s", buf);
-    system(namebuf);
+    const bool renamed_in_account_storage = account_rename.applies;
+    if (renamed_in_account_storage && !commit_account_native_rename(player_i, newname, account_rename, error_message))
+        return -1;
+
+    if (!renamed_in_account_storage) {
+        /* remove their char file */
+        sprintf(namebuf, "rm %s", buf);
+        system(namebuf);
+    }
 
     /* make the name file-ready */
     for (c = newname; *c; ++c)
         *c = tolower(unaccent(*c));
 
-    /* get the name of the new exploit file */
-    get_char_directory(newname, namebuf);
-    sprintf(new_exploit_file, "exploits%s%s.exploits", namebuf, newname);
+    if (!renamed_in_account_storage) {
+        /* get the name of the new exploit file */
+        get_char_directory(newname, namebuf);
+        sprintf(new_exploit_file, "exploits%s%s.exploits", namebuf, newname);
 
-    /* get the name of the old exploit file */
-    get_char_directory(GET_NAME(ch), namebuf);
-    strcpy(buf, GET_NAME(ch));
-    for (c = buf; *c; ++c)
-        *c = tolower(unaccent(*c));
+        /* get the name of the old exploit file */
+        get_char_directory(GET_NAME(ch), namebuf);
+        strcpy(buf, GET_NAME(ch));
+        for (c = buf; *c; ++c)
+            *c = tolower(unaccent(*c));
 
-    sprintf(old_exploit_file, "exploits%s%s.exploits", namebuf, buf);
+        sprintf(old_exploit_file, "exploits%s%s.exploits", namebuf, buf);
 
-    /* now move the exploits */
-    sprintf(buf, "mv %s %s", old_exploit_file, new_exploit_file);
-    system(buf);
+        /* now move the exploits */
+        sprintf(buf, "mv %s %s", old_exploit_file, new_exploit_file);
+        system(buf);
 
-    /* now remove their ch_file */
-    sprintf(namebuf, "rm %s", player_table[player_i].ch_file);
-    system(namebuf);
+        /* now remove their ch_file */
+        sprintf(namebuf, "rm %s", player_table[player_i].ch_file);
+        system(namebuf);
+    }
+    // else: admin_rename_linked_character already moved the character, object and exploits files
+    // and rewrote account.json, and ch_file has been repointed at the new path. Falling through to
+    // the legacy steps here is exactly the bug this guard exists to prevent.
 
     /* release the buffers in the player table and in their personal
      * char_data structure */

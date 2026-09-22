@@ -681,6 +681,12 @@ ACMD(do_alias)
         //  send_to_char(buf,ch);
         return;
     }
+    if (strlen(arg) > MAX_ALIAS_KEYWORD_LENGTH) {
+        sprintf(buf, "An alias keyword may be at most %d characters long.\n\r", MAX_ALIAS_KEYWORD_LENGTH);
+        send_to_char(buf, ch);
+        return;
+    }
+
     count = 0;
     for (list = ch->specials.alias, list2 = 0; list; list2 = list, list = list->next) {
         //    printf("list->keyword=%s\n",list->keyword);
@@ -730,8 +736,8 @@ ACMD(do_alias)
         //    printf("replacing alias\n");
         list2 = list;
     }
-    strncpy(list2->keyword, arg, 20);
-    list2->keyword[strlen(arg)] = 0;
+    strncpy(list2->keyword, arg, MAX_ALIAS_KEYWORD_LENGTH);
+    list2->keyword[MAX_ALIAS_KEYWORD_LENGTH] = 0;
 
     RELEASE(list2->command);
     //  list2->command=(char *)calloc(strlen(arg2)+1,1);

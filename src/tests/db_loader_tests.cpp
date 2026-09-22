@@ -1,4 +1,6 @@
 #include "../account_cache.h"
+#include "../account_errors.h"
+#include "../account_index.h"
 #include "../account_management.h"
 #include "../char_utils.h"
 #include "../color.h"
@@ -6,6 +8,7 @@
 #include "../exploits_json.h"
 #include "../handler.h"
 #include "../objects_json.h"
+#include "AccountRecordOnDiskBuilder.h"
 #include "../utils.h"
 #include "test_character_support.h"
 
@@ -18,12 +21,15 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <limits.h>
+#include <new>
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
 #include <system_error>
 #include <unistd.h>
 #include <vector>
+
+void build_account_native_player_index(void);
 
 extern struct player_index_element* player_table;
 extern struct room_data world;
@@ -608,6 +614,33 @@ TEST(DbLoader, WritePlayerTextTruncatesAnOverlongHostToTheFieldWidth)
     free(character.player.description);
 }
 
+TEST(DbLoader, DoesNotLeaveTheAccountIndexAuthoritativeWhenTheAccountsDirectoryCannotBeWalked)
+{
+    // A walk that fails for any reason other than "there are no accounts yet" leaves the index
+    // empty. If it stays enabled, every resolver answers "No account exists for that email address."
+    // for every player on the box -- the exact string interpre.cpp matches to offer registration.
+    // Falling back to the directory scan reports the real error instead and offers nothing.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    // A regular file where the accounts directory belongs: opendir fails with ENOTDIR, which is
+    // deterministic whatever uid the test runs as.
+    write_file(temp_directory.path() + "/accounts", "not a directory");
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    const bool still_enabled = account_index::is_enabled();
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_FALSE(still_enabled)
+        << "an empty index must not stay authoritative after the accounts walk failed";
+}
+
 TEST(DbLoader, LegacyPlayerTextRoundTripPreservesCombatState)
 {
     TemporaryDirectory temp_directory;
@@ -1012,6 +1045,184 @@ TEST(DbLoader, BuildPlayerIndexIncludesLegacyAndAccountNativeCharacters)
     EXPECT_EQ(loaded_character.player_index, 1);
 }
 
+TEST(DbLoader, LoadsAnAccountNativeCharacterIndexedUnderALongEmailAddress)
+{
+    // Nothing caps the length of an email address -- is_valid_email checks shape, not size -- and an
+    // account-native path is "./accounts/<bucket>/<email>/<name>.character.json": 31 fixed bytes
+    // plus the address plus the character name. player_index_element::ch_file holds 160 of those and
+    // update_player_index_entry_from_store accepts anything that fits, so an ordinary long corporate
+    // address indexes without complaint. load_player then has to carry that path, and it runs on
+    // every login for that character.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+
+    const std::string long_email = "a-very-long-but-entirely-ordinary-address@long-subdomain.example.com";
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", long_email, "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "legolas", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "legolas");
+    stored_character.level = 25;
+    stored_character.race = 3;
+    stored_character.last_logon = 1700010200;
+    stored_character.specials2.idnum = 222;
+    stored_character.specials2.act = 0;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    build_player_index();
+
+    ASSERT_EQ(top_of_p_table, 0);
+    // The premise of the test: a path the player index holds happily but that does not fit in a
+    // 100-byte buffer. If this ever stops being true the test below proves nothing.
+    ASSERT_GT(std::strlen(player_table[0].ch_file), static_cast<std::size_t>(100));
+
+    // Forked, because the regression this guards against is a stack-buffer overflow: in-process it
+    // aborts the whole binary and every later suite goes unreported with it.
+    EXPECT_EXIT(
+        {
+            char lookup_name[] = "legolas";
+            char_file_u loaded_character {};
+            const int result = load_player(lookup_name, &loaded_character);
+            std::exit((result == 1 && std::strcmp(loaded_character.name, "legolas") == 0) ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
+}
+
+TEST(DbLoader, TheLongestPermittedEmailAndCharacterNameStillFitThePlayerIndexField)
+{
+    // MAX_EMAIL_LENGTH exists to keep this true, so assert it against the real path composer and
+    // the real index rather than re-deriving the arithmetic here. If either the cap or the field
+    // changes, this is what says whether they still agree.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+
+    const std::string longest_email = std::string(account::MAX_EMAIL_LENGTH - std::strlen("@example.com"), 'a') + "@example.com";
+    ASSERT_EQ(longest_email.length(), static_cast<std::size_t>(account::MAX_EMAIL_LENGTH));
+    const char longest_character_name[] = "abcdefghijkl";
+    ASSERT_EQ(std::strlen(longest_character_name), static_cast<std::size_t>(MAX_NAME_LENGTH));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", longest_email, "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", longest_character_name, 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", longest_character_name);
+    stored_character.level = 25;
+    stored_character.race = 3;
+    stored_character.last_logon = 1700010200;
+    stored_character.specials2.idnum = 333;
+    stored_character.specials2.act = 0;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    build_player_index();
+
+    ASSERT_EQ(top_of_p_table, 0);
+    EXPECT_LT(std::strlen(player_table[0].ch_file), sizeof(player_table[0].ch_file));
+    EXPECT_NE(std::string(player_table[0].ch_file).find(".character.json"), std::string::npos);
+
+    char lookup_name[] = "abcdefghijkl";
+    char_file_u loaded_character {};
+    ASSERT_EQ(load_player(lookup_name, &loaded_character), 1);
+    EXPECT_EQ(loaded_character.specials2.idnum, 333);
+}
+
+TEST(DbLoader, BuildPlayerIndexKeepsTheAccountUsableWhenOneCharacterFileIsUnreadable)
+{
+    // One unreadable <name>.character.json must not lock its owner out of the whole account. The
+    // boot walker used to quarantine the ACCOUNT for a per-character asset failure, which erases the
+    // account's keys and reserves its email -- so a single bad character file locked the player out
+    // of every other character they own, and refused their address for account creation, over a file
+    // that says nothing about the account record's own integrity. And it is reachable: one unknown
+    // skill/slot/flag NAME rejects an entire character file in this codebase.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+    account_index::clear();
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "twochar", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "twochar", "legolas", 1700010102, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "twochar", "gimli", 1700010103, nullptr, &error_message)) << error_message;
+
+    char_file_u good_character = make_stored_character("legolas");
+    good_character.specials2.idnum = 222;
+    ASSERT_TRUE(account::write_account_character_file(".", "twochar", good_character, &error_message)) << error_message;
+
+    char_file_u broken_character = make_stored_character("gimli");
+    broken_character.specials2.idnum = 223;
+    ASSERT_TRUE(account::write_account_character_file(".", "twochar", broken_character, &error_message)) << error_message;
+    // Present (so the walker's "does it exist?" branch says yes) but unreadable -- the shape a
+    // character file with one unrecognised skill name has.
+    write_file(account::account_character_player_path(".", "twochar", "gimli"),
+        "{ this is not valid character json");
+
+    // Cleared last, so what the boot walk itself produced is what the assertions below observe
+    // rather than the upserts create_account/admin_link_character did during setup.
+    account_index::clear();
+    account_errors::clear();
+    build_player_index();
+
+    EXPECT_EQ(account_index::quarantined_count(), 0u)
+        << "a bad character file is not the ACCOUNT failing to parse";
+
+    // The character is silently absent from the player index, and its owner is told only that it
+    // does not exist. The boot line naming it scrolls away; this is what an immortal can still ask.
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    ASSERT_EQ(recorded.size(), 1u) << "exactly the one character that could not be read";
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Boot);
+    EXPECT_EQ(recorded[0].character, "gimli");
+    EXPECT_EQ(recorded[0].account, "twochar");
+    EXPECT_FALSE(recorded[0].reason.empty());
+    account_errors::clear();
+
+    std::string record_path;
+    EXPECT_TRUE(account_index::find_path_by_email("player@example.com", &record_path, nullptr))
+        << "the owner must still be able to log in";
+    EXPECT_TRUE(account_index::find_path_by_account_name("twochar", &record_path, nullptr));
+
+    std::string owner_email;
+    EXPECT_TRUE(account_index::find_owner_email_by_character("legolas", &owner_email, nullptr))
+        << "the account's OTHER characters must still resolve, or their saves stop";
+    EXPECT_EQ(owner_email, "player@example.com");
+
+    // The broken character is simply absent from the player index -- which is what the log line the
+    // walker still prints is evidence of.
+    ASSERT_EQ(top_of_p_table, 0);
+    EXPECT_STREQ(player_table[0].name, "legolas");
+
+    account_index::clear();
+}
+
 TEST(DbLoader, BuildPlayerIndexFailsClosedWhenAccountNativePathDoesNotFitPlayerIndex)
 {
     TemporaryDirectory temp_directory;
@@ -1028,15 +1239,20 @@ TEST(DbLoader, BuildPlayerIndexFailsClosedWhenAccountNativePathDoesNotFitPlayerI
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 
     const char* account_name = "abcdefghijklmnopqrst";
-    const char* long_email = "abcdefghijklmnopqrst123456789012345678901234567890@example.com";
-    std::string error_message;
-    ASSERT_TRUE(account::create_account(".", account_name, long_email, "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
-    ASSERT_TRUE(account::admin_link_character(".", account_name, "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+    // Derived from the buffer, not hardcoded: ch_file was widened once already, and a fixture that
+    // silently stops exceeding it turns this into a test of nothing.
+    const std::string long_email = std::string(sizeof(player_table[0].ch_file), 'a') + "@example.com";
+    // Planted rather than registered: MAX_EMAIL_LENGTH refuses this address at create_account, so a
+    // record put on disk by hand -- restored from a backup, edited by an operator -- is the one
+    // route that can still walk an over-length path into the boot index. That is the case this
+    // guard has to survive. See tests/AccountRecordOnDiskBuilder.h.
+    const std::string account_directory = rots_tests::plant_account_record_with_unvalidated_email(
+        ".", account_name, long_email, { "aragorn" });
 
     char_file_u stored_character = make_stored_character("aragorn");
     stored_character.specials2.idnum = 222;
-    ASSERT_TRUE(account::write_account_character_file(".", account_name, stored_character, &error_message)) << error_message;
-    ASSERT_GE(account::account_character_player_path(".", account_name, "aragorn").size(), sizeof(player_table[0].ch_file))
+    rots_tests::plant_account_character_file(account_directory, stored_character);
+    ASSERT_GE((account_directory + "/aragorn.character.json").size(), sizeof(player_table[0].ch_file))
         << "Test setup must exceed the legacy player index path buffer.";
 
     EXPECT_EXIT(build_player_index(), ::testing::ExitedWithCode(1),
@@ -1386,6 +1602,51 @@ TEST(ObjSave, AliasSaveSkipsAnEmptyCommandSoTheLoaderReadsTheRest)
     free(last.command);
     ASSERT_EQ(std::fclose(file), 0);
     test_support::release_test_character(character);
+}
+
+TEST(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
+{
+    ensure_test_world_room(3001);
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 10;
+    stored_character.language = LANG_HUMAN;
+    stored_character.specials2.load_room = 3001;
+    stored_character.weight = 210;
+    stored_character.height = 72;
+    store_to_char(&stored_character, &character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.aliases.push_back({ "nineteen_characters", "kill orc" });
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+
+    // The legacy save stores the keyword as 20 raw bytes, so an alias of exactly 20
+    // characters reaches the loader with no terminator of its own.
+    const size_t keyword_offset = object_bytes.find("nineteen_characters");
+    ASSERT_NE(keyword_offset, std::string::npos);
+    ASSERT_EQ(object_bytes[keyword_offset + 19], '\0');
+    object_bytes[keyword_offset + 19] = 'x';
+
+    stage_account_backed_object_bytes_for_character(&character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(&character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_TRUE(Crash_alias_load(&character, fp));
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(GET_ALIAS(&character), nullptr);
+    EXPECT_STREQ(GET_ALIAS(&character)->keyword, "nineteen_characters");
+    EXPECT_STREQ(GET_ALIAS(&character)->command, "kill orc");
 }
 
 TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableItems)
@@ -2325,4 +2586,499 @@ TEST(DbLoader, ObjFromRoomIgnoresAnObjectThatIsNotInItsRoomsContents)
     EXPECT_EQ(world[0].contents, &resident);
     EXPECT_EQ(stray.in_room, NOWHERE);
     world[0].contents = nullptr;
+}
+
+TEST(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeRead)
+{
+    // Five letter buckets exist (A-E, F-J, K-O, P-T, U-Z) and each unreadable bucket files as ONE
+    // quarantined record, so a chmod accident across accounts/ yields exactly 5 -- which does not
+    // exceed MAX_QUARANTINED_RECORDS_AT_BOOT and so boots with an authoritative, EMPTY index. Every
+    // login is then told no account exists. One unreadable bucket is already enough to mean the
+    // index is missing an unknown number of accounts, so it must not speak for the tree.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+    ASSERT_EQ(chmod("accounts/P-T", 0000), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    const bool still_enabled = account_index::is_enabled();
+    chmod("accounts/P-T", 0700);
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_FALSE(still_enabled)
+        << "a bucket the server cannot read leaves the index incomplete, so it must not be authoritative";
+}
+
+TEST(DbLoader, BootsPastMoreMisfiledRecordsThanTheQuarantineLimit)
+{
+    // The limit is a bug detector -- "a serialization change broke every record, we shipped
+    // something" -- not a corruption tolerance. A record filed where its own email does not resolve
+    // is nobody's bug but the operator's: backing up an account directory in place makes one, and
+    // each one files TWO quarantine entries (the name it sits under, and the address it declares).
+    // A handful of such copies used to exceed the limit and stop the server, locking out every
+    // player over files a system administrator put there with no intention of preventing a boot.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    // Derived from the limit, not a fixed six: a raised limit must not quietly turn this into a
+    // test of a tree that never reached it.
+    const std::size_t misfiled_records = account_index::MAX_QUARANTINED_RECORDS_AT_BOOT + 1;
+    std::string error_message;
+    for (std::size_t index = 0; index < misfiled_records; ++index) {
+        const std::string email = "a" + std::to_string(index) + "@example.com";
+        const std::string account_name = "alpha-admin" + std::to_string(index);
+        ASSERT_TRUE(account::create_account(".", account_name, email, "ValidPass1", 1700010101, nullptr, &error_message))
+            << error_message;
+        ASSERT_EQ(rename(("accounts/A-E/" + email).c_str(), ("accounts/A-E/" + email + ".bak").c_str()), 0);
+    }
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    EXPECT_EXIT(
+        {
+            build_account_native_player_index();
+            std::exit(0);
+        },
+        ::testing::ExitedWithCode(0), "");
+
+    account_index::set_enabled(false);
+    account_index::clear();
+}
+
+TEST(DbLoader, StillRefusesToBootPastMoreUnreadableRecordsThanTheQuarantineLimit)
+{
+    // The other half of the same limit: records the server could not read or parse at all are the
+    // class it was written for, and six of them still stop the boot.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    for (std::size_t index = 0; index <= account_index::MAX_QUARANTINED_RECORDS_AT_BOOT; ++index)
+        write_file("accounts/A-E/broken" + std::to_string(index) + ".json", "this is not an account record");
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    EXPECT_EXIT(build_account_native_player_index(), ::testing::ExitedWithCode(1), "Refusing to boot");
+
+    account_index::set_enabled(false);
+    account_index::clear();
+}
+
+TEST(DbLoader, RefusesADirectoryAccountThatIsNotAtThePathItsEmailResolvesTo)
+{
+    // Every path the running server composes for an account comes from
+    // normalize_email(account.normalized_email) plus a bucket computed from it, so a record filed
+    // anywhere else cannot be found by the game at all. An earlier version of this check compared
+    // normalize_email() on BOTH sides, which accepted a directory differing only in case -- and the
+    // walk then reached the character loop, where the read resolves through the normalized
+    // directory, gets ENOENT, and is reported as "does not exist": every character on the account
+    // dropped from the player index with no log line and no counter. Refuse the record instead.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "bob@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_EQ(rename("accounts/A-E/bob@example.com", "accounts/A-E/Bob@Example.com"), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    std::string record_path;
+    const bool resolves = account_index::find_path_by_email("bob@example.com", &record_path, nullptr);
+    const bool reserved = account_index::is_quarantined("bob@example.com");
+    const std::size_t quarantined = account_index::quarantined_count();
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_EQ(quarantined, 1u) << "a record the game cannot resolve must be refused, not indexed";
+    EXPECT_FALSE(resolves) << "it must not answer lookups for an address whose files it cannot reach";
+    EXPECT_TRUE(reserved) << "and its address must stay reserved, or registration writes over the owner";
+}
+
+TEST(DbLoader, ReservesTheAddressADirectoryAccountDeclaresAsWellAsTheOneItIsFiledUnder)
+{
+    // Filed under alice@..., declares alice2@... . Quarantining only the directory name leaves the
+    // DECLARED address -- the one the owner types at the login prompt -- reading free, so
+    // create_account_for_email writes a fresh empty account there while the real record sits inert.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "alice2@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_EQ(rename("accounts/A-E/alice2@example.com", "accounts/A-E/alice@example.com"), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    const bool filed_under_reserved = account_index::is_quarantined("alice@example.com");
+    const bool declared_reserved = account_index::is_quarantined("alice2@example.com");
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_TRUE(filed_under_reserved) << "the address it is filed under must be reserved";
+    EXPECT_TRUE(declared_reserved) << "so must the address it declares -- that is the one its owner types";
+}
+
+TEST(DbLoader, RecordsAnAccountRecordQuarantinedAtBootSoAnImmortalCanAskAboutIt)
+{
+    // `account errors` is the one place an immortal can ask what went wrong since the last reboot.
+    // A quarantined account locks its owner out entirely, so it belongs in that list beside the
+    // character files the boot walk could not read -- not only in `account index`.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "bob@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    {
+        std::FILE* file = std::fopen("accounts/A-E/bob@example.com/account.json", "w");
+        ASSERT_NE(file, nullptr);
+        std::fputs("{\"version\": 1, \"account_name\": \"alpha-adm", file);
+        std::fclose(file);
+    }
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+    account_errors::clear();
+
+    build_account_native_player_index();
+
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    const std::size_t quarantined = account_index::quarantined_count();
+    account_index::set_enabled(false);
+    account_index::clear();
+    account_errors::clear();
+
+    ASSERT_EQ(quarantined, 1u);
+    ASSERT_EQ(recorded.size(), 1u) << "the quarantined record must be recorded exactly once";
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Boot);
+    EXPECT_EQ(recorded[0].account, "bob@example.com") << "named by the address it is filed under";
+    EXPECT_TRUE(recorded[0].character.empty()) << "a whole account, not one character";
+    EXPECT_FALSE(recorded[0].reason.empty()) << "carrying why it could not be read";
+}
+
+TEST(DbLoader, RecordsAMisfiledAccountRecordOnceEvenThoughTwoAddressesAreReserved)
+{
+    // A record filed under alice@ that declares alice2@ is quarantined under BOTH addresses. That is
+    // one bad record, so it must be one entry -- two would read as two broken accounts.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "alice2@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_EQ(rename("accounts/A-E/alice2@example.com", "accounts/A-E/alice@example.com"), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+    account_errors::clear();
+
+    build_account_native_player_index();
+
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    account_index::set_enabled(false);
+    account_index::clear();
+    account_errors::clear();
+
+    ASSERT_EQ(recorded.size(), 1u) << "one misfiled record is one failure";
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Boot);
+    EXPECT_EQ(recorded[0].account, "alice@example.com") << "named by the address it is filed under";
+    EXPECT_NE(recorded[0].reason.find("alice2@example.com"), std::string::npos) << "the reason says which address it declares";
+}
+
+TEST(DbLoader, RecordsAFlatAccountRecordWithNoUsableEmailByItsPath)
+{
+    // A legacy flat record (accounts/<bucket>/<name>.json) that discloses no email is quarantined
+    // under its own path, since it has no address to be keyed by. It is still a locked-out account.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "bob@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    std::string record_text;
+    {
+        std::FILE* file = std::fopen("accounts/A-E/bob@example.com/account.json", "r");
+        ASSERT_NE(file, nullptr);
+        char chunk[4096];
+        std::size_t read_bytes = 0;
+        while ((read_bytes = std::fread(chunk, 1, sizeof(chunk), file)) > 0)
+            record_text.append(chunk, read_bytes);
+        std::fclose(file);
+    }
+    const std::string with_email = "\"normalized_email\": \"bob@example.com\"";
+    const std::size_t at = record_text.find(with_email);
+    ASSERT_NE(at, std::string::npos) << record_text;
+    record_text.replace(at, with_email.size(), "\"normalized_email\": \"\"");
+    std::filesystem::remove_all("accounts/A-E/bob@example.com");
+    {
+        std::FILE* file = std::fopen("accounts/A-E/alpha-admin.json", "w");
+        ASSERT_NE(file, nullptr);
+        std::fputs(record_text.c_str(), file);
+        std::fclose(file);
+    }
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+    account_errors::clear();
+
+    build_account_native_player_index();
+
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    const std::size_t quarantined = account_index::quarantined_count();
+    account_index::set_enabled(false);
+    account_index::clear();
+    account_errors::clear();
+
+    ASSERT_EQ(quarantined, 1u) << "the flat record with no email must be quarantined";
+    ASSERT_EQ(recorded.size(), 1u) << "and recorded exactly once";
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Boot);
+    EXPECT_NE(recorded[0].account.find("alpha-admin.json"), std::string::npos) << "named by its path, the only key it has";
+    EXPECT_TRUE(recorded[0].character.empty());
+}
+
+TEST(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeStatted)
+{
+    // The opendir failure below this check synthesizes an unreadable-bucket record precisely so the
+    // index refuses to speak for a tree it could not read. The stat above it just skipped the
+    // bucket -- no record, no log, no counter -- and the walk still reported success. An accounts/
+    // directory with read but not search permission fails EVERY bucket stat that way: the index
+    // comes up empty and authoritative, and every player is told no account exists for them.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "bob@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+
+    // Readable (opendir and readdir still work), but not searchable (stat on any child fails).
+    ASSERT_EQ(chmod("accounts", 0400), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    const bool still_enabled = account_index::is_enabled();
+    chmod("accounts", 0700);
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_FALSE(still_enabled)
+        << "a bucket the server cannot stat hides an unknown number of accounts, so the index must not be authoritative";
+}
+
+TEST(DbLoader, RecordsTheNamechangeExploitForAnAccountNativeCharacter)
+{
+    // The namechange achievement is the only record that a character used to be somebody else, and
+    // write_exploits refuses to write for a character its account no longer lists. Writing the
+    // record after the account rename therefore dropped it silently: account.json had already been
+    // rewritten to the new name while GET_NAME(ch) was still the old one.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+    std::snprintf(player_table[0].ch_file, sizeof(player_table[0].ch_file), "%s",
+        account::account_character_player_path(".", "alpha-admin", "aragorn").c_str());
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&stored_character, &character);
+
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "alpha-admin");
+    character.desc = &descriptor;
+
+    char new_name[] = "Bartholomew";
+    ASSERT_EQ(rename_char(&character, new_name), 1);
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(".", "bartholomew", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 1u) << "the renamed character must carry the record of what it used to be called";
+    EXPECT_EQ(records[0].type, EXPLOIT_ACHIEVEMENT);
+    EXPECT_NE(std::string(records[0].chVictimName).find("aragorn->"), std::string::npos)
+        << "recorded as: " << records[0].chVictimName;
+}
+
+TEST(DbLoader, RefusesARenameWhoseAccountNativePathWouldNotFitThePlayerIndex)
+{
+    // Every other writer of player_table[].ch_file goes through update_player_index_entry_from_store,
+    // which REFUSES an over-length path rather than truncating it. The rename wrote the new path
+    // with a raw snprintf: in memory the entry silently lost its ".character.json" suffix, and on
+    // the next boot populate_player_index_entry_from_store rebuilt the same over-length path, hit
+    // the guard, and exit(1)'d -- one rename could stop the server from booting at all.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+
+    std::string error_message;
+    // Sized so the OLD path still fits ch_file and the NEW one does not -- that is the whole
+    // scenario. Path is 31 bytes of structure + email + name, "aragorn" is 7 and "bartholomew" 11,
+    // so an email of (buffer - 40) puts the two either side of the limit at any buffer width.
+    const std::string long_email = std::string(sizeof(player_table[0].ch_file) - 40 - 12, 'f') + "@example.com";
+    // Planted, not registered: MAX_EMAIL_LENGTH refuses this address at create_account now. See
+    // tests/AccountRecordOnDiskBuilder.h for why an on-disk record is still worth guarding.
+    const std::string account_directory = rots_tests::plant_account_record_with_unvalidated_email(
+        ".", "long-account", long_email, { "aragorn" });
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    rots_tests::plant_account_character_file(account_directory, stored_character);
+
+    const std::string old_character_path = account::account_character_player_path(".", "long-account", "aragorn");
+    std::snprintf(player_table[0].ch_file, sizeof(player_table[0].ch_file), "%s", old_character_path.c_str());
+
+    const std::string would_be_path = account::account_character_player_path(".", "long-account", "bartholomew");
+    ASSERT_GE(would_be_path.size(), sizeof(player_table[0].ch_file))
+        << "this fixture only means anything if the new path really does not fit: " << would_be_path;
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&stored_character, &character);
+
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "long-account");
+    character.desc = &descriptor;
+
+    char new_name[] = "Bartholomew";
+    EXPECT_EQ(rename_char(&character, new_name), -1) << "a rename that cannot be indexed must be abandoned, not half-done";
+
+    struct stat file_info { };
+    EXPECT_EQ(stat(old_character_path.c_str(), &file_info), 0) << "the character must still be where it was";
+    EXPECT_STREQ(player_table[0].ch_file, old_character_path.c_str()) << "the player index must still point at it";
+    EXPECT_EQ(stat(would_be_path.c_str(), &file_info), -1) << "nothing may have been written to the path that does not fit";
+
+    account::AccountData account_data;
+    ASSERT_TRUE(account::read_account_file(".", "long-account", &account_data, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(account_data, "aragorn")) << "the account must still claim the character by its old name";
+}
+
+TEST(DbLoader, RefusesARenameToANameThatIsAlreadyTakenAndSaysSo)
+{
+    // The only caller that can reach rename_char is `wizset <victim> name <newname>`, and it has
+    // nothing but the return value to go on. This refusal in particular logged nothing at all, so
+    // an immortal renaming onto an existing name had no way to find out that is what happened.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&stored_character, &character);
+
+    char taken_name[] = "Aragorn";
+    std::string rename_error;
+    EXPECT_EQ(rename_char(&character, taken_name, &rename_error), -1);
+    EXPECT_NE(rename_error.find("already"), std::string::npos) << "reported as: " << rename_error;
+}
+
+TEST(DbLoader, ANewRoomStartsInitializedRatherThanWithWhateverWasOnTheHeap)
+{
+    // room_data::room_data() set six of its members and left every other one indeterminate --
+    // including sector_type, room_flags and light, which are the exact three IS_DARK reads
+    // (utils.h:238), and the people/contents/dir_option pointers. The world is allocated with
+    // `new room_data[]`, so a room the loader has not filled in yet answers "is it dark in here?"
+    // out of whatever the allocator last left in that block. In the test binary that made
+    // SpellParser.MagicRoomMessageOmitsColorCodesForObserversWithoutColorEnabled pass or fail
+    // depending on which other tests ran first.
+    alignas(room_data) unsigned char storage[sizeof(room_data)];
+    std::memset(storage, 0xAA, sizeof(storage));
+
+    room_data* room = new (storage) room_data();
+
+    EXPECT_EQ(static_cast<int>(room->light), 0);
+    EXPECT_EQ(room->room_flags, 0L);
+    EXPECT_EQ(room->sector_type, SECT_INSIDE);
+    EXPECT_EQ(room->alignment, 0);
+    EXPECT_EQ(room->people, nullptr);
+    EXPECT_EQ(room->contents, nullptr);
+    EXPECT_EQ(room->ex_description, nullptr);
+    EXPECT_EQ(room->funct, nullptr);
+    EXPECT_EQ(room->bfs_next, nullptr);
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction)
+        EXPECT_EQ(room->dir_option[direction], nullptr) << "direction " << direction;
+}
+
+TEST(DbLoader, ThePlayerIndexHoldsTheAccountNativePathOfAnOrdinaryEmailAddress)
+{
+    // The account-native path is 31 bytes of fixed structure plus the email plus the character
+    // name. With MAX_NAME_LENGTH at 12 and ch_file at 80, that leaves 36 characters for an email
+    // address -- and nothing anywhere caps email length. Worse, the conversion path writes the
+    // files and links the character with NO length check, so the failure does not surface then: it
+    // surfaces at the next boot, in populate_player_index_entry_from_store, as exit(1). A player
+    // with an ordinary address converting a character stops the server starting.
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    const std::string ordinary_path = "./accounts/A-E/alexandra.richardson@student.university.edu/aragorn.character.json";
+    ASSERT_GT(ordinary_path.size(), 80u) << "this fixture only means anything if it exceeded the old limit";
+
+    std::string error_message;
+    EXPECT_TRUE(update_player_index_entry_from_store(&stored_character, ordinary_path.c_str(), &error_message))
+        << error_message;
+    EXPECT_STREQ(player_table[stored_character.player_index].ch_file, ordinary_path.c_str())
+        << "the path must be held whole -- a truncated one loses the .character.json suffix save_char tests for";
 }

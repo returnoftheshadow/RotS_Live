@@ -1,6 +1,7 @@
 #include "../character_json.h"
 #include "../utils.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -243,6 +244,95 @@ std::string specialization_fragment(int specialization)
     return "\"specialization\": " + std::to_string(specialization);
 }
 
+TEST(CharacterJson, KeyCollisionScanReportsEverySlotSharingAKey)
+{
+    // Tested against synthetic tables rather than only consts.cpp, so the scan is pinned even when
+    // the real tables change.
+    const auto three_way = [](int index) {
+        return (index == 1 || index == 4 || index == 7) ? std::string("shared") : "unique_" + std::to_string(index);
+    };
+    const std::vector<character_json::NamedKeyCollision> found = character_json::find_key_collisions("probe", 9, three_way);
+    ASSERT_EQ(found.size(), 1u);
+    EXPECT_EQ(found[0].table, "probe");
+    EXPECT_EQ(found[0].key, "shared");
+    EXPECT_EQ(found[0].indices, (std::vector<int> { 1, 4, 7 })) << "every slot, in order, not just the first pair";
+    EXPECT_TRUE(found[0].duplicate_refuses_the_file) << "the default is the dangerous reading";
+}
+
+TEST(CharacterJson, KeyCollisionScanFindsNothingInATableWithUniqueNames)
+{
+    const auto unique = [](int index) { return "key_" + std::to_string(index); };
+    EXPECT_TRUE(character_json::find_key_collisions("probe", 32, unique).empty());
+}
+
+TEST(CharacterJson, ColourCollisionsAreReportedButNeverRefuseASave)
+{
+    // parse_colors_object resolves each key to a slot and assigns; unlike skills and talks it has no
+    // duplicate check, so a duplicate colour name silently overwrites rather than making the file
+    // unreadable. It is worth seeing at boot and must not cost anyone their save.
+    for (const character_json::NamedKeyCollision& collision : character_json::named_key_collisions()) {
+        if (collision.table == "color")
+            EXPECT_FALSE(collision.duplicate_refuses_the_file) << "key " << collision.key;
+        else
+            EXPECT_TRUE(collision.duplicate_refuses_the_file) << collision.table << " key " << collision.key;
+    }
+}
+
+TEST(CharacterJson, FindsTheSkillTableEntriesThatShareAJsonKey)
+{
+    // consts.cpp carries two skills both named "trash" (125 and 126). Names are what the character
+    // file keys skills by, so those two produce one key -- and a character with values in both
+    // serializes to a duplicate key that the reader refuses for the whole file. Boot reports this;
+    // the save path uses it to refuse the one character that would trip it.
+    const std::vector<character_json::NamedKeyCollision>& collisions = character_json::named_key_collisions();
+
+    const auto trash = std::find_if(collisions.begin(), collisions.end(),
+        [](const character_json::NamedKeyCollision& collision) {
+            return collision.table == "skill" && collision.key == "trash";
+        });
+    ASSERT_NE(trash, collisions.end()) << "the known duplicate skill name must be reported";
+    ASSERT_EQ(trash->indices.size(), 2u);
+    EXPECT_EQ(trash->indices[0], 125);
+    EXPECT_EQ(trash->indices[1], 126);
+}
+
+TEST(CharacterJson, RefusesACharacterHoldingValuesInBothHalvesOfACollidingPair)
+{
+    character_json::CharacterData character;
+    character.skills.assign(MAX_SKILLS, 0);
+    character.talks.assign(MAX_TOUNGE, 0);
+
+    EXPECT_TRUE(character_json::first_unwritable_named_value(character).empty())
+        << "a character with no skills at all is writable";
+
+    character.skills[125] = 40;
+    EXPECT_TRUE(character_json::first_unwritable_named_value(character).empty())
+        << "one side of the pair is fine -- the key is written once";
+
+    character.skills[126] = 60;
+    const std::string clash = character_json::first_unwritable_named_value(character);
+    EXPECT_FALSE(clash.empty()) << "values in both halves produce a duplicate key";
+    EXPECT_NE(clash.find("trash"), std::string::npos) << clash;
+}
+
+TEST(CharacterJson, ResolvesASharedSkillKeyToTheLowestSlotItNames)
+{
+    // The parser's key lookup was a linear first-match scan and is now a memoized map; both must
+    // resolve a shared key to the LOWEST slot, or a character's value silently moves slots on load.
+    character_json::CharacterData character = character_json::character_data_from_store(make_stored_character());
+    character.skills.assign(MAX_SKILLS, 0);
+    character.skills[125] = 7;
+
+    const std::string json = character_json::serialize_character_to_json(character);
+    ASSERT_NE(json.find("\"trash\""), std::string::npos) << "fixture must actually emit the shared key";
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    ASSERT_TRUE(character_json::deserialize_character_from_json(json, &parsed, &error_message)) << error_message;
+    EXPECT_EQ(parsed.skills[125], 7);
+    EXPECT_EQ(parsed.skills[126], 0) << "the value must not land in the higher slot";
+}
+
 TEST(CharacterJson, EncodesFlagBitvectorsAsReadableNames)
 {
     EXPECT_EQ(character_json::encode_player_flags(PLR_WRITING | PLR_INCOGNITO), (std::vector<std::string> { "writing", "incognito" }));
@@ -257,6 +347,20 @@ TEST(CharacterJson, RejectsUnknownFlagNamesWhenDecoding)
 
     EXPECT_FALSE(character_json::decode_player_flags({ "writing", "mystery_flag" }, &flags, &error_message));
     EXPECT_NE(error_message.find("Unknown player flag"), std::string::npos);
+}
+
+// decode_preference_flags gained a defaulted skip_unknown_names parameter so the account-level
+// PPC store can tolerate a name it doesn't recognise (a rolled-back binary must still boot).
+// Character-file parsing must keep calling it with the default (false) and keep rejecting an
+// unknown name outright -- this is a deliberately separate, still-open issue for character
+// files, not something this change should silently fix.
+TEST(CharacterJson, RejectsUnknownPreferenceFlagNameByDefault)
+{
+    long flags = 0;
+    std::string error_message;
+
+    EXPECT_FALSE(character_json::decode_preference_flags({ "brief", "mystery_flag" }, &flags, &error_message));
+    EXPECT_NE(error_message.find("Unknown preference flag"), std::string::npos);
 }
 
 TEST(CharacterJson, BuildsCharacterDataFromStoredCharacterUsingMysticProfessionName)
@@ -577,6 +681,23 @@ TEST(CharacterJson, RejectsOutOfRangeNamedColorValuesDuringDeserialization)
     EXPECT_NE(error_message.find("colors[1]"), std::string::npos);
 }
 
+// The account store deliberately tolerates an unrecognised colour mode (see
+// AccountPpcStorage.PreferencesBlockSkipsAnUnknownColourModeInsteadOfFailingToParse): a failed
+// account parse is fatal at boot. Character files opt out of that leniency and stay strict, so
+// a character file carrying a mode this build does not know about is still rejected outright.
+TEST(CharacterJson, RejectsUnknownColorModesDuringDeserialization)
+{
+    std::string json = make_valid_character_json();
+    json = replace_once(json,
+        "\"chat\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 5}, \"background\": {\"mode\": \"default\"}}",
+        "\"chat\": {\"foreground\": {\"mode\": \"palette256\", \"value\": 137}, \"background\": {\"mode\": \"default\"}}");
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    EXPECT_FALSE(character_json::deserialize_character_from_json(json, &parsed, &error_message));
+    EXPECT_FALSE(error_message.empty());
+}
+
 TEST(CharacterJson, SerializesSkillsAndTalksAsNamedObjects)
 {
     const std::string json = character_json::serialize_character_to_json(character_json::character_data_from_store(make_stored_character()));
@@ -598,6 +719,46 @@ TEST(CharacterJson, SerializesCustomColorsAsNamedObject)
     EXPECT_NE(json.find("\"roomname\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 1}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
     EXPECT_NE(json.find("\"magic\": {\"foreground\": {\"mode\": \"truecolor\", \"value\": 12, \"r\": 180, \"g\": 80, \"b\": 255}, \"background\": {\"mode\": \"default\"}}"), std::string::npos);
     EXPECT_NE(json.find("\"weather\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 13}, \"background\": {\"mode\": \"truecolor\", \"value\": 11, \"r\": 10, \"g\": 20, \"b\": 35}}"), std::string::npos);
+}
+
+TEST(CharacterJson, AcceptsLegacyReservedFifteenKeyAsTheMobColorSlot)
+{
+    /*
+     * convert_old_colormask() forces every slot to ansi16 on load, so slot 15
+     * was serialized as "reserved_15" into every character file written before
+     * it became the 'mob' colour.  An unrecognised colour key is a fatal parse
+     * error, so those files must still load.
+     */
+    char_file_u stored = make_stored_character();
+    stored.profs.colors[COLOR_MOB] = CBLU;
+    stored.profs.color_settings[COLOR_MOB].foreground.mode = COLOR_VALUE_ANSI16;
+    stored.profs.color_settings[COLOR_MOB].foreground.ansi = CBLU;
+    const std::string json = replace_once(
+        character_json::serialize_character_to_json(character_json::character_data_from_store(stored)),
+        "\"mob\":", "\"reserved_15\":");
+    ASSERT_NE(json.find("\"reserved_15\":"), std::string::npos) << json;
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    ASSERT_TRUE(character_json::deserialize_character_from_json(json, &parsed, &error_message)) << error_message;
+
+    ASSERT_EQ(parsed.colors.size(), static_cast<size_t>(MAX_COLOR_FIELDS));
+    EXPECT_EQ(parsed.colors[COLOR_MOB], CBLU);
+    EXPECT_EQ(parsed.color_settings[COLOR_MOB].foreground.mode, COLOR_VALUE_ANSI16);
+    EXPECT_EQ(parsed.color_settings[COLOR_MOB].foreground.value, CBLU);
+}
+
+TEST(CharacterJson, SerializesTheMobColorSlotUnderItsCurrentName)
+{
+    char_file_u stored = make_stored_character();
+    stored.profs.colors[COLOR_MOB] = CBLU;
+    stored.profs.color_settings[COLOR_MOB].foreground.mode = COLOR_VALUE_ANSI16;
+    stored.profs.color_settings[COLOR_MOB].foreground.ansi = CBLU;
+
+    const std::string json = character_json::serialize_character_to_json(character_json::character_data_from_store(stored));
+
+    EXPECT_NE(json.find("\"mob\": {\"foreground\": {\"mode\": \"ansi16\", \"value\": 4}"), std::string::npos) << json;
+    EXPECT_EQ(json.find("reserved_15"), std::string::npos) << json;
 }
 
 TEST(CharacterJson, DeserializesLegacyCharacterJsonWithoutColorsAsDefaults)

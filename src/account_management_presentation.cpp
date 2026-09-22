@@ -23,24 +23,27 @@ std::string format_account_timestamp(long timestamp)
 
 } // namespace
 
-std::string format_account_character_prompt(const std::string& root_directory, const AccountData& account)
+std::string format_account_character_prompt(const std::string& root_directory,
+    const AccountData& account, RosterSort sort, RosterFilter filter)
 {
     std::ostringstream output;
     output << "\n\rLinked characters for your account:\n\r";
-    output << format_account_character_short_roster(root_directory, account);
-    output << "\n\r0) Back to Account Menu.\n\r";
+    output << format_account_character_short_roster(root_directory, account, sort, filter);
+    output << "\n\rSort: (A)-Z  (L)evel  ra(C)e  (S)ide      Show only: (W)arrior (R)anger (T)mystic (M)age\n\r";
+    output << "0) Back to Account Menu.\n\r";
     output << "\n\rCharacter number or name: ";
     return output.str();
 }
 
-std::string format_account_character_list(const std::string& root_directory, const AccountData& account)
+std::string format_account_character_list(const std::string& root_directory,
+    const AccountData& account, RosterSort sort)
 {
     if (account.characters.empty())
         return "\n\rNo linked characters yet.\n\r";
 
     std::ostringstream output;
     output << "\n\rLinked characters:\n\r";
-    output << format_account_character_short_roster(root_directory, account);
+    output << format_account_character_short_roster(root_directory, account, sort, RosterFilter::None);
     return output.str();
 }
 

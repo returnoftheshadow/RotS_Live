@@ -19,7 +19,8 @@ help:
 	@printf "  make build          Build the ageland server binary\n"
 	@printf "  make test           Run the C++ unit tests\n"
 	@printf "  make smoke-account  Build the game/proxy and run the account smoke flow\n"
-	@printf "  make format         Run clang-format via the CMake target\n"
+	@printf "  make format         clang-format the WHOLE tree -- see the warning above the target;\n"
+	@printf "                      format only your changed files instead\n"
 	@printf "  make run            Build and start the server in the foreground\n"
 	@printf "  make clean          Clean the configured CMake build tree\n"
 	@printf "  make integration-unit  Run the harness unit tests (no server)\n"
@@ -47,6 +48,13 @@ smoke-account: setup build
 	cargo build -p proxy
 	python3 tools/account_smoke.py
 
+# DO NOT RUN THIS on a change you are about to commit. It is clang-format over the WHOLE
+# tree: ~1200 lines nobody touched get rewritten (db.cpp and act_wiz.cpp worst), and the
+# fragment #includes in account_management.cpp get reordered into something that does not
+# compile. Format only what you changed:
+#     cd src && clang-format -i -style=WebKit <files you changed>
+# (-style=WebKit is passed on the command line here too, which overrides the repo-root
+# .clang-format, so that file is effectively unused -- match WebKit.)
 format: $(CMAKE_CACHE)
 	+$(CMAKE) --build $(BUILD_DIR) --target format
 

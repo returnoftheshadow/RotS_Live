@@ -44,6 +44,30 @@ TEST(Color, RendersLegacyAnsiForegroundSelections)
     EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_CHAT)), std::string(color_sequence[CMAG]));
 }
 
+// Every live setter clamps, but nothing on the parse path does: a hand-edited or corrupt
+// character file -- or, now that preferences are account-owned, one bad value in account.json
+// copied onto every character on the account -- can carry an ANSI index that is not in
+// color_sequence[]. Render nothing rather than whatever follows the table.
+TEST(Color, IgnoresOutOfRangeStoredAnsiForegroundValues)
+{
+    char_data character {};
+    initialize_player_character(&character);
+
+    character.profs->color_settings[COLOR_CHAT].foreground.mode = COLOR_VALUE_ANSI16;
+    character.profs->color_settings[COLOR_CHAT].foreground.ansi = 200;
+    character.profs->colors[COLOR_CHAT] = CNRM;
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_CHAT)), std::string(""));
+
+    // The same value reached through the legacy colors[] array, which is a signed char.
+    character.profs->color_settings[COLOR_SAY].foreground.mode = COLOR_VALUE_DEFAULT;
+    character.profs->colors[COLOR_SAY] = static_cast<char>(120);
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_SAY)), std::string(""));
+
+    // A valid index still renders.
+    set_colornum(&character, COLOR_TELL, CBWHT);
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_TELL)), std::string(color_sequence[CBWHT]));
+}
+
 TEST(Color, RendersTrueColorForegroundSelections)
 {
     char_data character {};
@@ -200,4 +224,56 @@ TEST(Color, InterpreterAcceptsColorAsAliasForColour)
     ASSERT_GE(colour_command, 0);
     EXPECT_EQ(cmd_info[color_command].command_pointer, cmd_info[colour_command].command_pointer);
     EXPECT_EQ(cmd_info[color_command].command_pointer, &do_color);
+}
+
+TEST(Color, MobSlotIsConfigurableThroughTheCommand)
+{
+    char_data character {};
+    descriptor_data descriptor = make_descriptor();
+    initialize_player_character(&character);
+    character.desc = &descriptor;
+
+    char command[] = "mob bright blue";
+    do_color(&character, command, nullptr, 0, 0);
+
+    EXPECT_EQ(get_colornum(&character, COLOR_MOB), CBBLU);
+    EXPECT_EQ(character.profs->color_settings[COLOR_MOB].foreground.mode, COLOR_VALUE_ANSI16);
+    EXPECT_NE(std::string(descriptor.output).find("You colour mob"), std::string::npos);
+}
+
+TEST(Color, MobSlotStartsNormalUntilTheDefaultSetIsApplied)
+{
+    char_data character {};
+    initialize_player_character(&character);
+
+    /* Nothing is stored for the new slot, so existing players see mobiles
+     * uncoloured until they ask for a colour. */
+    EXPECT_EQ(get_colornum(&character, COLOR_MOB), CNRM);
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_MOB)), std::string(""));
+
+    set_colors_default(&character);
+
+    EXPECT_EQ(get_colornum(&character, COLOR_MOB), CGRN);
+    EXPECT_EQ(get_colornum(&character, COLOR_CHAR), CGRN);
+    EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_MOB)), std::string(color_sequence[CGRN]));
+}
+
+TEST(Color, MobSlotDoesNotStealTheMagicAbbreviation)
+{
+    char field[] = "m";
+
+    EXPECT_EQ(old_search_block(field, 0, strlen(field), color_fields, FALSE) - 1, COLOR_MAGIC);
+}
+
+TEST(Color, CharacterSlotSelectedForPlayersAndMobSlotForNpcs)
+{
+    char_data player {};
+    char_data mobile {};
+    initialize_player_character(&player);
+    clear_char(&mobile, MOB_VOID);
+    SET_BIT(MOB_FLAGS(&mobile), MOB_ISNPC);
+
+    EXPECT_EQ(char_color_slot(&player), COLOR_CHAR);
+    EXPECT_EQ(char_color_slot(&mobile), COLOR_MOB);
+    EXPECT_EQ(char_color_slot(nullptr), COLOR_CHAR);
 }

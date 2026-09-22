@@ -1,9 +1,12 @@
 #include "account_management.h"
 #include "account_cache.h"
+#include "account_errors.h"
+#include "account_index.h"
 #include "character_json.h"
 #include "exploits_json.h"
 #include "json_utils.h"
 #include "objects_json.h"
+#include "roster_cache.h"
 #include "utils.h"
 
 #include <cerrno>
@@ -28,7 +31,19 @@ extern char* race_abbrevs[];
 
 namespace account {
 namespace {
-    constexpr size_t kMaxDisplayedAccountCharacters = 100;
+    // Bounds the roster the account menu renders AND the set select_linked_character will match,
+    // so a character is never displayed without being selectable or vice versa. Characters past
+    // this point are unreachable by number and by name, so the limit is an access ceiling, not
+    // just a display one. The hard ceiling is the descriptor output buffer: rows are 27 bytes at
+    // their widest, two per line, and once a write exceeds LARGE_BUFSIZE write_to_output sets
+    // bufptr = -1 and silently discards everything else bound for that socket, leaving the player
+    // with a blank screen and no prompt. For the unsectioned sorts that cliff sits at 585 rows;
+    // under Side sort the section headers and inter-section blank lines add overhead on top of the
+    // same rows, so the cliff sits a few rows lower there. RendersAFullRosterWithinTheOutputBuffer
+    // guards both the unsectioned Account-sort render and the sectioned Side-sort render at the
+    // current cap (200 rows), which is comfortably under either cliff; it does not re-derive either
+    // cliff's exact row count.
+    constexpr size_t kMaxDisplayedAccountCharacters = 200;
 
     using CharacterLinkReference = AccountData::CharacterLinkReference;
 
@@ -91,44 +106,189 @@ namespace {
         return ::race_abbrevs[race];
     }
 
-    std::string format_account_character_short_entry(const std::string& root_directory, const AccountData& account, size_t index, const std::string& character_name)
+    std::string format_account_character_short_entry(size_t display_row,
+        const std::string& character_name, const roster_cache::RosterSummary& summary)
     {
         const std::string display_name = format_character_name_for_display(character_name);
 
-        char_file_u stored_character {};
-        std::string error_message;
-        if (!read_account_character_file(root_directory, account.account_name, character_name, &stored_character, &error_message))
-        {
-            char line[256];
-            std::snprintf(line, sizeof(line), "%zu) [ ?? ???] %-12.12s", index + 1, display_name.c_str());
+        char line[256];
+        if (!summary.readable) {
+            std::snprintf(line, sizeof(line), "%zu) [ ?? ???] %-12.12s", display_row, display_name.c_str());
             return line;
         }
 
-        char line[256];
-        std::snprintf(line, sizeof(line), "%zu) [%3d %s] %-12.12s", index + 1, stored_character.level, safe_race_abbrev(stored_character.race), display_name.c_str());
+        std::snprintf(line, sizeof(line), "%zu) [%3d %s] %-12.12s", display_row,
+            summary.level, safe_race_abbrev(summary.race), display_name.c_str());
         return line;
     }
 
-    std::string format_account_character_short_roster(const std::string& root_directory, const AccountData& account)
+    // Derived coefficient for one profession, mirroring get_prof_coof (char_utils.cpp) but reading
+    // the cached raw value instead of a live char_data. Only the Uruk-mage -100 is profession-
+    // specific, so it is the one that can change WHICH profession is highest -- filtering on the
+    // raw value would put those characters under the wrong letter. The Orc (x*2+2)/3 scaling is
+    // applied uniformly to every profession of the same character and is monotonic, so on its own
+    // it can only collapse a near-tie into an exact tie (which, under >=, widens who matches); it
+    // can never invert the ordering between two of an Orc's professions.
+    int derived_prof_coof(const roster_cache::RosterSummary& summary, int profession)
+    {
+        const short raw = summary.prof_coof[profession];
+        int derived = square_root[raw];
+        if (summary.race == RACE_ORC)
+            derived = (derived * 2 + 2) / 3;
+        else if (summary.race == RACE_URUK && profession == PROF_MAGE)
+            derived -= 100;
+        return derived;
+    }
+
+    // Side ordering: gods, lights, darks, third side. Derived from race, never stored.
+    int side_rank_for_race(int race)
+    {
+        if (race == RACE_GOD)
+            return 0;
+        if (race >= RACE_HUMAN && race <= RACE_BEORNING)
+            return 1;
+        if (race == RACE_MAGUS || race == RACE_HARADRIM)
+            return 3;
+        return 2;
+    }
+
+    // Side rank reserved for characters whose file could not be read. They have no race and so no
+    // side; ordered_roster_indices already sorts them last, and this keeps them out of a real
+    // side's section rather than silently padding one.
+    constexpr int kUnreadableSideRank = 99;
+
+    const char* side_section_label(int side_rank)
+    {
+        switch (side_rank) {
+        case 0:
+            return "Gods";
+        case 1:
+            return "Good";
+        case 2:
+            return "Evil";
+        case 3:
+            return "Third Side";
+        default:
+            return "Unavailable";
+        }
+    }
+
+    int side_rank_for_summary(const roster_cache::RosterSummary& summary)
+    {
+        return summary.readable ? side_rank_for_race(summary.race) : kUnreadableSideRank;
+    }
+
+    bool summary_matches_filter(const roster_cache::RosterSummary& summary, RosterFilter filter)
+    {
+        if (filter == RosterFilter::None)
+            return true;
+        if (!summary.readable)
+            return false; // no coefficients known; spec says unreadable rows are excluded by filters
+
+        int wanted = PROF_WARRIOR;
+        if (filter == RosterFilter::Ranger)
+            wanted = PROF_RANGER;
+        else if (filter == RosterFilter::Mystic)
+            wanted = PROF_CLERIC;
+        else if (filter == RosterFilter::Mage)
+            wanted = PROF_MAGE;
+
+        const int wanted_value = derived_prof_coof(summary, wanted);
+        for (int profession = 1; profession <= MAX_PROFS; ++profession) {
+            if (profession == wanted)
+                continue;
+            if (derived_prof_coof(summary, profession) > wanted_value)
+                return false;
+        }
+        // >= every other profession, so ties match under every tied letter.
+        return true;
+    }
+
+    const char* roster_filter_label(RosterFilter filter)
+    {
+        switch (filter) {
+        case RosterFilter::Warrior:
+            return "Warrior";
+        case RosterFilter::Ranger:
+            return "Ranger";
+        case RosterFilter::Mystic:
+            return "Mystic";
+        case RosterFilter::Mage:
+            return "Mage";
+        default:
+            return "";
+        }
+    }
+
+    char roster_filter_key(RosterFilter filter)
+    {
+        switch (filter) {
+        case RosterFilter::Warrior:
+            return 'W';
+        case RosterFilter::Ranger:
+            return 'R';
+        case RosterFilter::Mystic:
+            return 'T';
+        case RosterFilter::Mage:
+            return 'M';
+        default:
+            return ' ';
+        }
+    }
+
+    std::string format_account_character_short_roster(const std::string& root_directory,
+        const AccountData& account, RosterSort sort, RosterFilter filter)
     {
         if (account.characters.empty())
             return "\n\rNo linked characters yet.\n\r";
 
+        const std::vector<size_t> indices = ordered_roster_indices(root_directory, account, sort, filter);
+        if (indices.empty())
+            return "\n\rNo linked characters match that filter.\n\r";
+
         std::ostringstream output;
-        const size_t displayed_count = std::min(account.characters.size(), kMaxDisplayedAccountCharacters);
-        for (size_t index = 0; index < displayed_count; ++index) {
-            output << format_account_character_short_entry(root_directory, account, index, account.characters[index]);
-            if ((index + 1) % 2 == 0)
+        // Column position WITHIN the current section, so a section holding an odd number of rows
+        // does not drag the next section out of alignment. Row NUMBERING stays continuous across
+        // sections regardless -- row N must still select the character printed at row N.
+        size_t column = 0;
+        int previous_side_rank = -1;
+        for (size_t row = 0; row < indices.size(); ++row) {
+            roster_cache::RosterSummary summary {};
+            roster_cache::get(root_directory, account.account_name, account.characters[indices[row]], &summary);
+
+            if (sort == RosterSort::Side) {
+                const int side_rank = side_rank_for_summary(summary);
+                if (side_rank != previous_side_rank) {
+                    if (column % 2 != 0)
+                        output << "\n\r";
+                    if (previous_side_rank != -1)
+                        output << "\n\r";
+                    output << "-- " << side_section_label(side_rank) << " --\n\r";
+                    previous_side_rank = side_rank;
+                    column = 0;
+                }
+            }
+
+            output << format_account_character_short_entry(row + 1, account.characters[indices[row]], summary);
+            ++column;
+            if (column % 2 == 0)
                 output << "\n\r";
         }
 
-        if (displayed_count % 2 != 0)
+        if (column % 2 != 0)
             output << "\n\r";
 
-        if (account.characters.size() > displayed_count)
-            output << "\n\r... and " << (account.characters.size() - displayed_count) << " more\n\r";
-
-        output << "\n\r" << displayed_count << " character" << (displayed_count == 1 ? "" : "s") << " displayed.\n\r";
+        output << "\n\r";
+        if (filter != RosterFilter::None) {
+            // Never let a filtered roster be mistaken for the whole roster.
+            output << indices.size() << " of " << account.characters.size()
+                   << " characters shown (" << roster_filter_label(filter) << ").  Press "
+                   << roster_filter_key(filter) << " to clear.\n\r";
+        } else {
+            if (account.characters.size() > indices.size())
+                output << "... and " << (account.characters.size() - indices.size()) << " more\n\r\n\r";
+            output << indices.size() << " character" << (indices.size() == 1 ? "" : "s") << " displayed.\n\r";
+        }
         return output.str();
     }
 
@@ -594,6 +754,19 @@ namespace {
         if (!validate_identifier_for_path(account_identifier, "Account name", nullptr))
             return "";
 
+        // Index fast path: the storage key is the email that keys the record, which the index
+        // already holds. Deliberately NOT parsed back out of the record path -- for a legacy flat
+        // record (accounts/<bucket>/<name>.json) the parent directory is the bucket, so that would
+        // silently yield "A-E" as an account's storage key. Guarded on the root the index was built
+        // against: its paths and keys are meaningful only for that tree, so any other root falls
+        // through to the scan below.
+        if (account_index::is_enabled() && account_index::matches_root(root_directory)) {
+            std::string storage_key;
+            if (!account_index::find_email_by_account_name(account_identifier, &storage_key, nullptr))
+                return "";
+            return storage_key;
+        }
+
         AccountData stored_account;
         if (read_account_file(root_directory, account_identifier, &stored_account, nullptr))
             return normalize_email(stored_account.normalized_email);
@@ -601,42 +774,138 @@ namespace {
         return "";
     }
 
-    bool read_account_file_from_bucket_entry(const std::string& bucket_path, const dirent& account_entry, AccountData* account, std::string* error_message)
+    // --- What a bucket entry IS ------------------------------------------------------------------
+    //
+    // Decided in exactly one place, because two walkers depend on the answer and must not disagree.
+    // for_each_account_record_on_disk (account_management_storage.cpp) decides what the INDEX sees;
+    // account_storage_contains_unreadable_records decides whether account creation is allowed at
+    // all. Every historical disagreement between them produced the same outcome: a record the guard
+    // called unreadable that nothing quarantined, so neither of the guard's escape hatches fired and
+    // EVERY registration on the server was refused, permanently, with nothing logged and `account
+    // index` showing 0 quarantined.
+    enum class BucketEntryKind {
+        // Filesystem litter. Never visited by the enumerator (so it cannot count towards
+        // MAX_QUARANTINED_RECORDS_AT_BOOT) and never a record the creation guard may refuse over.
+        NotARecord,
+        // The directory layout: <bucket>/<email>/account.json.
+        DirectoryRecord,
+        // The legacy flat layout: <bucket>/<name>.json, a regular file.
+        FlatRecord,
+        // Candidate-shaped but we could not even stat it: EACCES from a bad umask on a manual SFTP
+        // deploy or a partial restore, ELOOP, EIO, ENAMETOOLONG. This is a record we cannot read,
+        // NOT litter. ENOENT is the only errno that means "this name does not resolve to anything",
+        // and that one lands in NotARecord above.
+        Unreadable,
+    };
+
+    struct BucketEntryClassification {
+        BucketEntryKind kind = BucketEntryKind::NotARecord;
+        // The JSON that holds the record. For Unreadable it is whichever path the stat actually
+        // failed on, so the quarantine key and the log line name the thing that could not be read.
+        std::string record_path;
+        // Set only for Unreadable.
+        std::string failure_reason;
+        // Whether the entry is KNOWN to be a directory. False for an entry we could not stat at all
+        // -- we genuinely do not know -- which is what keeps the quarantine key path-shaped for that
+        // case; see account_index_quarantine_key.
+        bool directory_layout = false;
+    };
+
+    BucketEntryClassification classify_bucket_entry(const std::string& bucket_path, const char* entry_name)
     {
-        const std::string entry_path = bucket_path + "/" + account_entry.d_name;
+        BucketEntryClassification classification;
+
+        // Hidden entries are litter to BOTH walkers. "." and ".." are the obvious pair, but the ones
+        // that actually turn up are a macOS AppleDouble "._account.json" left by an rsync, an editor
+        // swap file, a .DS_Store. The enumerator has always skipped every dotfile while the guard
+        // skipped only "." and "..", so one stray AppleDouble refused every registration on the box.
+        if (entry_name == nullptr || entry_name[0] == '.')
+            return classification;
+
+        const std::string entry_path = bucket_path + "/" + entry_name;
         struct stat entry_info { };
-        if (stat(entry_path.c_str(), &entry_info) != 0)
-            return false;
+        if (stat(entry_path.c_str(), &entry_info) != 0) {
+            // ENOENT means the name readdir handed us does not resolve to anything -- in practice a
+            // dangling symlink, since stat() follows the link. That is litter.
+            if (errno == ENOENT)
+                return classification;
+
+            classification.kind = BucketEntryKind::Unreadable;
+            classification.record_path = entry_path;
+            classification.failure_reason = "Failed to stat account record '" + entry_path + "': " + std::strerror(errno);
+            return classification;
+        }
 
         if (S_ISDIR(entry_info.st_mode)) {
+            classification.directory_layout = true;
             const std::string account_json_path = entry_path + "/account.json";
             struct stat account_json_info { };
             if (stat(account_json_path.c_str(), &account_json_info) != 0) {
+                // A directory with no account.json yet is a normal transient artifact:
+                // write_account_file creates the account directory before it writes the temp file,
+                // so a crash between those two steps leaves one behind. Litter.
                 if (errno == ENOENT) {
-                    set_error(error_message, "Entry is not an account record.");
-                    return false;
+                    classification.directory_layout = false;
+                    return classification;
                 }
 
-                set_error(error_message, "Failed to stat account file '" + account_json_path + "': " + std::strerror(errno));
-                return false;
+                // Anything else -- most reachably an account directory whose search bit a bad umask
+                // or a partial restore stripped -- is a real player's record we cannot read. Keeping
+                // directory_layout true is what makes the quarantine key the email directory's own
+                // name, so the owner's ADDRESS stays reserved rather than being handed to the next
+                // person who registers with it.
+                classification.kind = BucketEntryKind::Unreadable;
+                classification.record_path = account_json_path;
+                classification.failure_reason = "Failed to stat account file '" + account_json_path + "': " + std::strerror(errno);
+                return classification;
             }
 
-            return read_account_file_from_path(account_json_path, account, error_message);
+            classification.kind = BucketEntryKind::DirectoryRecord;
+            classification.record_path = account_json_path;
+            return classification;
         }
 
-        const std::string file_name = account_entry.d_name;
-        if (S_ISREG(entry_info.st_mode) && file_name.length() >= 6 && file_name.substr(file_name.length() - 5) == ".json")
-            return read_account_file_from_path(entry_path, account, error_message);
+        // S_ISREG, not merely "not a directory": a fifo or a device node named "x.json" is litter,
+        // not a record either walker can read.
+        if (!S_ISREG(entry_info.st_mode))
+            return classification;
 
-        set_error(error_message, "Entry is not an account record.");
-        return false;
+        const std::string file_name = entry_name;
+        if (!(file_name.length() >= 6 && file_name.compare(file_name.length() - 5, 5, ".json") == 0))
+            return classification;
+
+        classification.kind = BucketEntryKind::FlatRecord;
+        classification.record_path = entry_path;
+        return classification;
+    }
+
+    bool read_account_file_from_bucket_entry(const std::string& bucket_path, const dirent& account_entry, AccountData* account, std::string* error_message)
+    {
+        const BucketEntryClassification classification = classify_bucket_entry(bucket_path, account_entry.d_name);
+        switch (classification.kind) {
+        case BucketEntryKind::NotARecord:
+            // The sentinel every caller keys off. Returning false with error_message untouched made
+            // account_storage_contains_unreadable_records treat litter as a record it could not
+            // read, which refuses EVERY new account.
+            set_error(error_message, "Entry is not an account record.");
+            return false;
+        case BucketEntryKind::Unreadable:
+            set_error(error_message, classification.failure_reason);
+            return false;
+        case BucketEntryKind::DirectoryRecord:
+        case BucketEntryKind::FlatRecord:
+            break;
+        }
+
+        return read_account_file_from_path(classification.record_path, account, error_message);
     }
 
     bool is_directory_bucket_entry(const std::string& bucket_path, const dirent& account_entry)
     {
-        const std::string entry_path = bucket_path + "/" + account_entry.d_name;
-        struct stat entry_info { };
-        return stat(entry_path.c_str(), &entry_info) == 0 && S_ISDIR(entry_info.st_mode);
+        // Expressed through the shared classifier rather than a second stat with its own rule --
+        // the two walkers disagreeing about "is this a directory record" is the same class of bug
+        // as them disagreeing about "is this a record at all".
+        return classify_bucket_entry(bucket_path, account_entry.d_name).directory_layout;
     }
 
     bool find_account_file_path_by_account_name(const std::string& root_directory, const std::string& account_name, std::string* account_path, std::string* error_message)
@@ -644,6 +913,22 @@ namespace {
         if (account_path == nullptr) {
             set_error(error_message, "Account-path output parameter must not be null.");
             return false;
+        }
+
+        // Index fast path. The scan below is what runs when the index is not authoritative for
+        // this root: the test binary, which never calls boot_db, and any caller working against a
+        // tree other than the one the index was built for.
+        // account_index::find_path_by_account_name reproduces this function's not-found text
+        // verbatim, and the path it returns may end in "<name>.json" for a legacy flat record --
+        // exactly as the scan's own directory-over-flat precedence would return it.
+        if (account_index::is_enabled() && account_index::matches_root(root_directory)) {
+            std::string indexed_path;
+            if (!account_index::find_path_by_account_name(account_name, &indexed_path, error_message))
+                return false;
+
+            *account_path = indexed_path;
+            set_error(error_message, "");
+            return true;
         }
 
         const std::string normalized_account_name = normalize_account_name(account_name);
@@ -805,10 +1090,84 @@ namespace {
         return true;
     }
 
+    // A record the index resolved but whose file will not read. This is the ordinary shape of
+    // post-boot corruption and it is NOT reached by the write chokepoint: a login reads the record
+    // before it ever writes one, so a record that cannot be read fails here and the write never
+    // happens. Marking only at the write site therefore missed the common case entirely -- proved
+    // live: a corrupted record produced "Expected string value." at the email prompt while
+    // `account index` still reported 0 unreadable.
+    //
+    // Report-only, and once per record. See account_index::note_unreadable_at_runtime for why this
+    // must not quarantine.
+    void note_unreadable_record_at_runtime(const std::string& record_key, const std::string& record_path, const std::string& reason)
+    {
+        if (record_key.empty())
+            return;
+        if (!account_index::note_unreadable_at_runtime(record_key, reason.empty() ? "Account record could not be read." : reason))
+            return;
+
+        char log_buffer[MAX_STRING_LENGTH];
+        std::snprintf(log_buffer, sizeof(log_buffer),
+            "Account record '%s' could not be read after boot: %s (the account is still indexed; `account index` lists it)",
+            record_path.c_str(), reason.empty() ? "Account record could not be read." : reason.c_str());
+        log(log_buffer);
+        mudlog(log_buffer, BRF, LEVEL_IMMORT, TRUE);
+    }
+
     bool find_account_by_email_internal(const std::string& root_directory, const std::string& email, AccountData* account, std::string* error_message)
     {
         if (account == nullptr) {
             set_error(error_message, "Account output parameter must not be null.");
+            return false;
+        }
+
+        // Index fast path -- this is the change that removes the full accounts/ scan from every
+        // login. The record itself is still read from disk (the index holds keys only), and
+        // read_account_file_from_path handles both on-disk layouts, so a legacy flat path needs no
+        // special casing. The unknown-email text matches this function's own below verbatim;
+        // interpre.cpp string-compares against it. Falls through to the scan for a root the index
+        // was not built against.
+        if (account_index::is_enabled() && account_index::matches_root(root_directory)) {
+            std::string indexed_path;
+            if (!account_index::find_path_by_email(email, &indexed_path, error_message)) {
+                // A record can APPEAR after boot. lib/accounts is in no backup of its own, so a
+                // hand restore while the game is up is the normal way it gets repaired -- and
+                // nothing walks accounts/ again after the boot sweep. Handing the index's miss
+                // straight back tells interpre.cpp the address is free, which offers the player
+                // registration over the restored record, and write_account_file's occupancy check
+                // does not fire because the derived account name matches the record's own.
+                //
+                // One stat, not a walk: the path for an email is deterministic, so this cannot
+                // reintroduce the quadratic the index exists to remove.
+                const std::string normalized_email_key = normalize_email(email);
+                if (account_index::is_quarantined(normalized_email_key)
+                    || account_index::is_contested_email(normalized_email_key)) {
+                    // Already answered, deliberately, and must not be re-adopted here.
+                    return false;
+                }
+
+                const std::string appeared_path = account_file_path_from_email(root_directory, normalized_email_key);
+                AccountData appeared_account;
+                std::string appeared_error;
+                if (!path_exists(appeared_path)
+                    || !read_account_file_from_path(appeared_path, &appeared_account, &appeared_error)
+                    || normalize_email(appeared_account.normalized_email) != normalized_email_key)
+                    return false;
+
+                // Adopt it, so the resolvers, the creation guards and save_char all agree from here
+                // on rather than each rediscovering it.
+                account_index::upsert(appeared_account, appeared_path);
+                *account = appeared_account;
+                set_error(error_message, "");
+                return true;
+            }
+            std::string read_error;
+            if (read_account_file_from_path(indexed_path, account, &read_error)) {
+                set_error(error_message, "");
+                return true;
+            }
+            note_unreadable_record_at_runtime(normalize_email(email), indexed_path, read_error);
+            set_error(error_message, read_error);
             return false;
         }
 
@@ -893,8 +1252,73 @@ namespace {
         return false;
     }
 
+    // The index key a bucket entry that FAILED to parse is (or would be) filed under. Expressed
+    // through account_index_quarantine_key rather than restating its rule: for the directory layout
+    // the key is the entry name, for a legacy flat file it is the file's own path -- and an unparsed
+    // record discloses no email, so neither shape needs the record read. Takes the shared
+    // classification so this and for_each_account_record_on_disk cannot key the same entry
+    // differently; keying it differently is what twice put the index and the disk into disagreement
+    // over a record that was really right there.
+    std::string account_index_key_for_unparsed_bucket_entry(const std::string& entry_name,
+        const BucketEntryClassification& classification)
+    {
+        AccountRecordOnDisk record;
+        record.directory_entry_name = entry_name;
+        record.record_path = classification.record_path;
+        record.directory_layout = classification.directory_layout;
+        record.parsed = false;
+        return account_index_quarantine_key(record);
+    }
+
+    // The key for_each_account_record_on_disk files a bucket it could not open() under: the bucket's
+    // own path, path-shaped like the other two unparsed shapes. A whole bucket that will not open is
+    // every account in it leaving the index at once, so it has to be quarantined (visible, counted,
+    // and armed as an escape hatch here) rather than silently skipped by one walker and treated as
+    // fatal by the other.
+    std::string account_index_key_for_unreadable_bucket(const std::string& bucket_path)
+    {
+        AccountRecordOnDisk record;
+        record.record_path = bucket_path;
+        record.directory_layout = false;
+        record.parsed = false;
+        return account_index_quarantine_key(record);
+    }
+
+    // True when the bucket this email would live in is itself quarantined. A bucket that would not
+    // opendir() is filed as ONE record under its own path, so the accounts inside it were never
+    // enumerated and none of their addresses is quarantined individually. is_quarantined() is keyed
+    // by email and can never match a path-shaped key, which left every player in that bucket able to
+    // register a fresh account straight over their own unreadable record.
+    bool email_bucket_is_quarantined(const std::string& root_directory, const std::string& email)
+    {
+        const std::string bucket_path = root_directory + "/accounts/" + account_bucket_for_name(normalize_email(email));
+        return account_index::is_quarantined_record_key(account_index_key_for_unreadable_bucket(bucket_path));
+    }
+
+    // "The index speaks for this tree": enabled AND built against this root. Every fast path in this
+    // file is guarded by exactly this pair -- the index holds paths and keys for one tree only, so
+    // answering a caller working against a different root would hand back this tree's answers.
+    bool account_index_is_authoritative_for(const std::string& root_directory)
+    {
+        return account_index::is_enabled() && account_index::matches_root(root_directory);
+    }
+
     bool account_storage_contains_unreadable_records(const std::string& root_directory, std::string* error_message)
     {
+        // A record the index already quarantined is a known-bad record the game has deliberately
+        // chosen to run with: boot logged it, counted it, reserved its email against exactly the
+        // overwrite this function guards, and refused to continue at all past
+        // MAX_QUARANTINED_RECORDS_AT_BOOT. Reporting it here as well would stop EVERY player from
+        // creating an account until an operator noticed one bad file -- the whole outcome quarantine
+        // exists to avoid.
+        //
+        // Be honest about the reachability: both live callers (create_account,
+        // create_account_for_email) now SKIP this whole walk when the index is authoritative, so as
+        // things stand this flag is always false and the escape hatches below never fire. They are
+        // kept because they are the correct behaviour for any caller that runs this scan with the
+        // index on, and because deleting them would make re-adding such a caller silently refuse
+        // every registration -- which is the exact bug this wave is fixing.
+
         const std::string accounts_directory = root_directory + "/accounts";
         DIR* accounts_dir = opendir(accounts_directory.c_str());
         if (accounts_dir == nullptr) {
@@ -908,7 +1332,9 @@ namespace {
         }
 
         while (dirent* bucket_entry = readdir(accounts_dir)) {
-            if (std::strcmp(bucket_entry->d_name, ".") == 0 || std::strcmp(bucket_entry->d_name, "..") == 0)
+            // Every hidden entry, not just "." and "..": the enumerator has always skipped the whole
+            // dotfile class, and the two walkers must agree about what is even a candidate.
+            if (bucket_entry->d_name[0] == '.')
                 continue;
 
             const std::string bucket_path = accounts_directory + "/" + bucket_entry->d_name;
@@ -918,25 +1344,43 @@ namespace {
 
             DIR* bucket_dir = opendir(bucket_path.c_str());
             if (bucket_dir == nullptr) {
+                // Deliberately NOT gated on index_is_authority. The one condition that files this
+                // quarantine key -- a bucket boot could not open -- is also the condition that makes
+                // build_account_native_player_index stop trusting the index for lookups, so gating
+                // the hatch on authority made it dead exactly when it was needed and refused every
+                // account creation on the server. The quarantine set is a record of what boot could
+                // not read; it is not a lookup path, and it stays valid whether or not the index is
+                // answering queries. The address that would live in this bucket is refused
+                // separately, by email_bucket_is_quarantined.
+                if (account_index::is_quarantined_record_key(account_index_key_for_unreadable_bucket(bucket_path)))
+                    continue;
+
                 closedir(accounts_dir);
                 set_error(error_message, "Failed to open account bucket directory '" + bucket_path + "': " + std::strerror(errno));
                 return true;
             }
 
             while (dirent* account_entry = readdir(bucket_dir)) {
-                if (std::strcmp(account_entry->d_name, ".") == 0 || std::strcmp(account_entry->d_name, "..") == 0)
+                const BucketEntryClassification classification = classify_bucket_entry(bucket_path, account_entry->d_name);
+                if (classification.kind == BucketEntryKind::NotARecord)
                     continue;
 
-                AccountData stored_account;
-                std::string read_error;
-                if (!read_account_file_from_bucket_entry(bucket_path, *account_entry, &stored_account, &read_error)) {
-                    if (read_error == "Entry is not an account record.")
+                if (classification.kind != BucketEntryKind::Unreadable) {
+                    AccountData stored_account;
+                    if (read_account_file_from_path(classification.record_path, &stored_account, nullptr))
                         continue;
-                    closedir(bucket_dir);
-                    closedir(accounts_dir);
-                    set_error(error_message, "Existing account records could not be read safely.");
-                    return true;
                 }
+
+                // Same reasoning as the bucket hatch above: a record boot already quarantined is one
+                // the game deliberately chose to run with, and its address is reserved.
+                if (account_index::is_quarantined_record_key(
+                        account_index_key_for_unparsed_bucket_entry(account_entry->d_name, classification)))
+                    continue;
+
+                closedir(bucket_dir);
+                closedir(accounts_dir);
+                set_error(error_message, "Existing account records could not be read safely.");
+                return true;
             }
 
             closedir(bucket_dir);
@@ -1360,6 +1804,31 @@ namespace {
             return reader->parse_long(&account->password_reset_code_expires_at, error_message);
         if (key == "password_reset_attempt_count")
             return reader->parse_integer(&account->password_reset_attempt_count, error_message);
+        if (key == "roster_sort")
+            return reader->parse_string(&account->roster_sort, error_message);
+        if (key == "preferences") {
+            account->preferences.present = true;
+            return reader->parse_object([account](const std::string& nested_key,
+                                            json_utils::JsonReader* nested_reader, std::string* nested_error_message) {
+                if (nested_key == "flags") {
+                    std::vector<std::string> flag_names;
+                    if (!nested_reader->parse_string_array(&flag_names, nested_error_message))
+                        return false;
+                    long flags = 0;
+                    if (!character_json::decode_preference_flags(flag_names, &flags, nested_error_message, /*skip_unknown_names=*/true))
+                        return false;
+                    account->preferences.preference_flags = flags & PPC_PRF_MASK;
+                    return true;
+                }
+                if (nested_key == "colors") {
+                    return character_json::parse_color_slots_object(nested_reader,
+                        account->preferences.colors, account->preferences.color_settings, nested_error_message,
+                        /*skip_unknown_keys=*/true);
+                }
+                return nested_reader->skip_value(nested_error_message);
+            },
+                error_message);
+        }
 
         return reader->skip_value(error_message);
     }
@@ -1385,6 +1854,95 @@ namespace {
     }
 
 } // namespace
+
+std::vector<size_t> ordered_roster_indices(const std::string& root_directory,
+    const AccountData& account, RosterSort sort, RosterFilter filter)
+{
+    std::vector<size_t> indices;
+    std::vector<roster_cache::RosterSummary> summaries(account.characters.size());
+
+    for (size_t index = 0; index < account.characters.size(); ++index) {
+        roster_cache::get(root_directory, account.account_name, account.characters[index], &summaries[index]);
+        if (summary_matches_filter(summaries[index], filter))
+            indices.push_back(index);
+    }
+
+    // stable_sort so equal keys keep insertion order and a redraw never reshuffles them.
+    // Unreadable characters have no level/race/coefficients and sort last under every ordering.
+    if (sort != RosterSort::Account) {
+        std::stable_sort(indices.begin(), indices.end(),
+            [&](size_t left, size_t right) {
+                const roster_cache::RosterSummary& a = summaries[left];
+                const roster_cache::RosterSummary& b = summaries[right];
+                if (a.readable != b.readable)
+                    return a.readable;
+                if (!a.readable)
+                    return false;
+
+                if (sort == RosterSort::Name)
+                    return to_lower_copy(account.characters[left]) < to_lower_copy(account.characters[right]);
+                if (sort == RosterSort::Level)
+                    return a.level > b.level;
+                if (sort == RosterSort::Race)
+                    return a.race < b.race;
+                // Side groups by side, then A-Z within the side. Falling back to insertion order
+                // here would make the side key look inert for any account whose link order already
+                // happens to be side-grouped.
+                const int left_side = side_rank_for_race(a.race);
+                const int right_side = side_rank_for_race(b.race);
+                if (left_side != right_side)
+                    return left_side < right_side;
+                return to_lower_copy(account.characters[left]) < to_lower_copy(account.characters[right]);
+            });
+    }
+
+    if (indices.size() > kMaxDisplayedAccountCharacters)
+        indices.resize(kMaxDisplayedAccountCharacters);
+    return indices;
+}
+
+const char* roster_sort_to_string(RosterSort sort)
+{
+    switch (sort) {
+    case RosterSort::Name:
+        return "name";
+    case RosterSort::Level:
+        return "level";
+    case RosterSort::Race:
+        return "race";
+    case RosterSort::Side:
+        return "side";
+    default:
+        return "";
+    }
+}
+
+bool roster_sort_from_string(const std::string& value, RosterSort* sort)
+{
+    if (sort == nullptr)
+        return false;
+    if (value.empty()) {
+        *sort = RosterSort::Account;
+        return true;
+    }
+    if (value == "name") {
+        *sort = RosterSort::Name;
+        return true;
+    }
+    if (value == "level") {
+        *sort = RosterSort::Level;
+        return true;
+    }
+    if (value == "race") {
+        *sort = RosterSort::Race;
+        return true;
+    }
+    if (value == "side") {
+        *sort = RosterSort::Side;
+        return true;
+    }
+    return false;
+}
 
 // Read an entire text file into *contents (POSIX-backed). Exposed for stage-timing the
 // LOAD pipeline's file-read step.
@@ -1453,10 +2011,15 @@ bool write_text_file_atomically(const std::string& path, const std::string& text
 
 // Keep the internal helper fragment before the public fragments. The split is
 // intentionally low-risk and still shares one translation unit for now.
+// clang-format off
+// Order is load-bearing: these fragments are textually included into this TU and each one uses
+// helpers defined by the ones above it. clang-format sorts include blocks alphabetically, which
+// reorders them into a build break -- hence the guard.
 #include "account_management_internal.cpp"
 #include "account_management_identity.cpp"
 #include "account_management_storage.cpp"
 #include "account_management_assets.cpp"
+// clang-format on
 
 namespace {
 
@@ -1464,7 +2027,7 @@ namespace {
     {
         if (!is_valid_account_name(migration.account_name, error_message))
             return false;
-        if (!validate_identifier_for_path(migration.character_name, "Character name", error_message))
+        if (!is_valid_character_name(migration.character_name, error_message))
             return false;
 
         if (normalize_account_name(expected_account_name) != normalize_account_name(migration.account_name)) {
@@ -1483,7 +2046,9 @@ namespace {
 
 } // namespace
 
+// clang-format off
 #include "account_management_migration.cpp"
 #include "account_management_presentation.cpp"
+// clang-format on
 
 } // namespace account

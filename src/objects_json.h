@@ -76,6 +76,10 @@ bool object_save_data_to_binary(const ObjectSaveData& data, std::string* bytes, 
 std::string serialize_objects_to_json(const ObjectSaveData& data);
 bool deserialize_objects_from_json(const std::string& json, ObjectSaveData* data, std::string* error_message = nullptr);
 
+// Empty when `a` and `b` hold the same stored values; otherwise the path of the first field that
+// differs, e.g. "followers[0].objects[2].timer".
+std::string first_differing_field(const ObjectSaveData& a, const ObjectSaveData& b);
+
 } // namespace objects_json
 
 #endif

@@ -1,6 +1,7 @@
 #ifndef ACCOUNT_MANAGEMENT_TYPES_H
 #define ACCOUNT_MANAGEMENT_TYPES_H
 
+#include "color.h"
 #include "db.h"
 #include "structs.h"
 
@@ -9,10 +10,38 @@
 
 namespace account {
 
+// Declared here (rather than in account_management.h, which pulls in identity/presentation
+// headers before defining its own types) because select_linked_character (identity.h) and
+// format_account_character_prompt (presentation.h) both need these types in their signatures.
+enum class RosterSort {
+    Account, // insertion order: the pre-feature behaviour, and the default for accounts that never chose
+    Name,
+    Level,
+    Race,
+    Side,
+};
+
+enum class RosterFilter {
+    None,
+    Warrior,
+    Ranger,
+    Mystic,
+    Mage,
+};
+
 static constexpr int ACCOUNT_SCHEMA_VERSION = 1;
 static constexpr int MIN_PASSWORD_LENGTH = 8;
 static constexpr int MIN_ACCOUNT_NAME_LENGTH = 3;
 static constexpr int MAX_ACCOUNT_NAME_LENGTH = 20;
+// The address is a path component: an account-native character file lives at
+// "<root>/accounts/<bucket>/<email>/<name>.character.json", 31 bytes of fixed structure plus the
+// address plus the character name, and player_index_element::ch_file has to hold the result. At
+// ch_file[160] and MAX_NAME_LENGTH 12 the arithmetic permits 116; 100 leaves headroom for both to
+// move without the two silently disagreeing, and is over three times the longest address in live
+// data. Nothing else bounded this: is_valid_email checked shape and characters only, and the prompt
+// accepts up to MAX_INPUT_LENGTH. The fixture that fails if this number and that field stop
+// agreeing is DbLoader.TheLongestPermittedEmailAndCharacterNameStillFitThePlayerIndexField.
+static constexpr int MAX_EMAIL_LENGTH = 100;
 static constexpr long EMAIL_VERIFICATION_WINDOW_SECONDS = 15 * 60;
 static constexpr long EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60;
 static constexpr int MAX_EMAIL_VERIFICATION_ATTEMPTS = 5;
@@ -24,6 +53,16 @@ static constexpr int MAX_FAILED_LOGIN_HOST_LENGTH = 49;
 static constexpr long PASSWORD_RESET_WINDOW_SECONDS = EMAIL_VERIFICATION_WINDOW_SECONDS;
 static constexpr long PASSWORD_RESET_RESEND_COOLDOWN_SECONDS = EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS;
 static constexpr int MAX_PASSWORD_RESET_ATTEMPTS = MAX_EMAIL_VERIFICATION_ATTEMPTS;
+
+// A player's preferred configuration: how they want to see and hear the game. Shared by
+// every character on the account. `present` is false for an account that has never stored
+// one -- that is the signal to seed it from the next character that plays.
+struct AccountPreferences {
+    bool present = false;
+    long preference_flags = 0;
+    char colors[MAX_COLOR_FIELDS] = {};
+    color_slot_data color_settings[MAX_COLOR_FIELDS] = {};
+};
 
 struct AccountData {
     struct CharacterLinkReference {
@@ -40,6 +79,10 @@ struct AccountData {
     std::string password_salt;
     std::vector<std::string> characters;
     std::vector<CharacterLinkReference> character_links;
+    // Empty means "never chosen": the roster keeps insertion order, matching pre-feature behaviour.
+    // One of "", "name", "level", "race", "side".
+    std::string roster_sort;
+    AccountPreferences preferences;
     bool email_verified = false;
     std::string email_verified_by;
     long email_verified_at = 0;

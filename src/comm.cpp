@@ -42,6 +42,7 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <string>
 #include <vector>
 
 #define MAX_HOSTNAME 256
@@ -577,24 +578,86 @@ void add_prompt(char* prompt, struct char_data* ch, long flag);
 timeval opt_time;
 int pulse = 0; // moved here from being a local variable
 
+static int get_stat_percent(int current, int maximum)
+{
+    if (maximum <= 0)
+        return 0;
+    if (current <= 0)
+        return 0;
+
+    const float percent = (static_cast<float>(current) / static_cast<float>(maximum)) * 100.0f;
+
+    return static_cast<int>(percent);
+}
+
 int get_health_percent(char_data* character)
 {
-    const float current_health = GET_HIT(character);
-    const float max_health = GET_MAX_HIT(character);
-    if (max_health <= 0.0f)
-        return 0;
-    if (current_health <= 0.0f)
-        return 0;
+    return get_stat_percent(GET_HIT(character), GET_MAX_HIT(character));
+}
 
-    const float health_percent = (current_health / max_health) * 100.0f;
+static void append_msdp_table_value(std::string& payload, const char* name, const std::string& value)
+{
+    payload += static_cast<char>(MSDP_VAR);
+    payload += name;
+    payload += static_cast<char>(MSDP_VAL);
+    payload += value;
+}
 
-    return (int)health_percent;
+static void append_msdp_table_value(std::string& payload, const char* name, int value)
+{
+    append_msdp_table_value(payload, name, std::to_string(value));
+}
+
+static std::string get_group_msdp_table(const group_data* group)
+{
+    std::string payload;
+    payload += static_cast<char>(MSDP_VAR);
+    payload += "MEMBERS";
+    payload += static_cast<char>(MSDP_VAL);
+    payload += static_cast<char>(MSDP_ARRAY_OPEN);
+
+    if (group != nullptr) {
+        for (const_char_iter iter = group->begin(); iter != group->end(); ++iter) {
+            const char_data* member = *iter;
+            if (member == nullptr)
+                continue;
+
+            payload += static_cast<char>(MSDP_VAL);
+            payload += static_cast<char>(MSDP_TABLE_OPEN);
+            append_msdp_table_value(payload, "NAME", MSDPSanitizeValue(GET_NAME(member)));
+            append_msdp_table_value(payload, "HEALTH",
+                get_stat_percent(GET_HIT(member), GET_MAX_HIT(member)));
+            append_msdp_table_value(payload, "MANA",
+                get_stat_percent(GET_MANA(member), GET_MAX_MANA(member)));
+            append_msdp_table_value(payload, "MOVEMENT",
+                get_stat_percent(GET_MOVE(member), GET_MAX_MOVE(member)));
+            payload += static_cast<char>(MSDP_TABLE_CLOSE);
+        }
+    }
+
+    payload += static_cast<char>(MSDP_ARRAY_CLOSE);
+    return payload;
 }
 
 void msdp_update()
 {
     for (auto desc = descriptor_list; desc; desc = desc->next) {
         if (!desc->character || IS_NPC(desc->character)) {
+            continue;
+        }
+
+        /* Only publish game state for a descriptor that is actually in the game.
+           While a descriptor sits at the login / account / character-selection
+           menus, desc->character is a character that has been loaded but not yet
+           entered -- and load_character() (objsave.cpp) deliberately parks the
+           player file's load_room *vnum* in ch->in_room at that stage, because
+           calc_load_room() reads it back as a vnum via real_room(). Without this
+           check we index world[] with that vnum as though it were an rnum and
+           publish a real, valid, completely unrelated room: coherent VNUM+NAME,
+           somewhere the character has never been. Renting returns the player to
+           the menu, so that bogus value was the last one many clients received
+           before disconnecting -- and the one they persisted. */
+        if (desc->connected != CON_PLYNG) {
             continue;
         }
 
@@ -716,6 +779,7 @@ void msdp_update()
         }
 
         MSDPSetNumber(desc, eMSDP_SPIRIT, GET_SPIRIT(desc->character));
+        MSDPSetTable(desc, eMSDP_GROUP, get_group_msdp_table(desc->character->group).c_str());
 
         MSDPUpdate(desc);
     }
@@ -1597,6 +1661,9 @@ SocketType pnew_descriptor(SocketType s)
     *pnewd->account_email = '\0';
     *pnewd->account_password = '\0';
     *pnewd->account_character_name = '\0';
+    pnewd->roster_sort = 0;
+    pnewd->roster_filter = 0;
+    pnewd->roster_sort_dirty = false;
     pnewd->pos = -1;
     //   pnewd->wait = 1;
     pnewd->prompt_mode = 0;
@@ -1641,15 +1708,23 @@ SocketType pnew_descriptor(SocketType s)
 
 extern sh_int screen_width; /* config.cpp */
 
-void append_lines(char* target, char* source, int* len)
+/* Copies source to target, breaking lines longer than screen_width. Writes at most `space` bytes,
+   the terminating NUL included, and returns false if all of source did not fit. */
+bool append_lines(char* target, char* source, int* len, size_t space)
 {
     register sh_int i, tmp;
     int sourcelen;
+    const char* const last = target + space - 1; /* reserved for the NUL */
+    bool fitted = true;
 
     tmp = *len;
     sourcelen = strlen(source);
 
     for (i = 0; i < sourcelen; i++) {
+        if (target >= last) {
+            fitted = false;
+            break;
+        }
         *(target++) = source[i];
         tmp++;
         if (source[i] == '\r')
@@ -1657,6 +1732,10 @@ void append_lines(char* target, char* source, int* len)
         if (source[i] == '\n')
             tmp--;
         if (tmp > screen_width) {
+            if (last - target < 2) {
+                fitted = false;
+                break;
+            }
             *(target++) = '\n';
             *(target++) = '\r';
             tmp = 0;
@@ -1664,6 +1743,7 @@ void append_lines(char* target, char* source, int* len)
     }
     *len = tmp;
     *target = 0;
+    return fitted;
 }
 
 char process_output_buffer[LARGE_BUFSIZE + 20];
@@ -1689,9 +1769,13 @@ int process_output(struct descriptor_data* t)
         t->bare_prompt_pending = false;
     } else
         i_shift = 0;
-    if ((t->character) && (IS_SET(PRF_FLAGS(t->character), PRF_WRAP)))
-        append_lines(i + 2 + i_shift, t->output, &wid_count);
-    else
+    bool wrap_cut_short = false;
+    if ((t->character) && (IS_SET(PRF_FLAGS(t->character), PRF_WRAP))) {
+        /* The wrap breaks make the text longer than the queue it came from; keep it inside the
+           buffer, leaving room for the "**OVERFLOW**" and "\n\r" added below. */
+        const size_t space = sizeof(process_output_buffer) - (2 + i_shift) - strlen("**OVERFLOW**") - strlen("\n\r");
+        wrap_cut_short = !append_lines(i + 2 + i_shift, t->output, &wid_count, space);
+    } else
         strcpy(i + 2 + i_shift, t->output);
 
     /* they don't have latin-1 set. unaccent all of our latin-1 chars */
@@ -1700,7 +1784,7 @@ int process_output(struct descriptor_data* t)
             for (c = i + 2; *c; ++c)
                 *c = unaccent(*c);
 
-    if (t->bufptr < 0)
+    if (t->bufptr < 0 || wrap_cut_short)
         strcat(i + 2, "**OVERFLOW**");
 
     if (!t->connected && !(t->character && !IS_NPC(t->character) && PRF_FLAGGED(t->character, PRF_COMPACT)))

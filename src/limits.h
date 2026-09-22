@@ -30,6 +30,15 @@ int xp_to_level(int level);
 void do_start(struct char_data* ch);
 void finalize_new_character_start_state(struct char_data* ch);
 void set_title(struct char_data* ch);
+/* The most experience a single award can bank. */
+const int constexpr MAX_EXP_PER_GAIN = 7000;
+
+/*
+ * How much of a prospective award would actually be banked by gain_exp.
+ * Callers that announce an award to the player should report this, not
+ * the raw amount, so the number shown matches the experience received.
+ */
+int cap_exp_gain(int gain);
 void gain_exp(struct char_data* ch, int gain);
 void gain_exp_regardless(struct char_data* ch, int gain);
 void gain_condition(struct char_data* ch, int condition, int value);

@@ -39,6 +39,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | [Magic system — mage spells](systems/magic-system.md) | ✅ damage, saves, resistance, penetration, scaling, mana regen | `mage.cpp`, `spell_pa.cpp`, `consts.cpp` |
 | [Cleric / Mystic system](systems/cleric-mystic-system.md) | ✅ powers, saves, mental combat, spirit, scaling | `mystic.cpp`, `clerics.cpp`, `spell_pa.cpp` |
 | [Experience & progression](systems/experience-and-progression.md) | ✅ gain/loss vectors, kill/hit formulas, tier tables, population | `limits.cpp`, `fight.cpp`, `act_offe.cpp`, `clerics.cpp` |
+| [Idle, the void & followers](systems/idle-void-and-followers.md) | ✅ observed live; historic behaviour, not to be changed | `limits.cpp::check_idling`, `handler.cpp`, `objsave.cpp` |
 
 ⬜ Races ·
 Movement/zones · Objects/equipment · Mob AI/specprocs · Shops/economy ·

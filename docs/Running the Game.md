@@ -33,7 +33,7 @@ Each directory follows the structure created by `make setup`:
 
 1. Upload the source via SFTP to the appropriate `src` directory.
 2. In `src`, move the previous code base into the `backup/` folder after running `make clean` to avoid stale files.
-3. Copy the new code into `src` and compile with `make all -j6`.
+3. Copy the new code into `src` and compile with `make all -j2`.
 4. Restart the port so the changes take effect:
    - In-game: `shutdown reboot`
    - Or via shell: `systemctl restart <service-name>`

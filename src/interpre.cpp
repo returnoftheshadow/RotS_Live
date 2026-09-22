@@ -18,6 +18,8 @@
 #include <vector>
 
 #include "account_management.h"
+#include "account_errors.h"
+#include "account_ppc.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -2724,7 +2726,10 @@ void show_account_menu(struct descriptor_data* d, const account::AccountData& ac
 
 void show_account_character_list(struct descriptor_data* d, const account::AccountData& account_data)
 {
-    const std::string character_list = account::format_account_character_list(kAccountStorageRoot, account_data);
+    account::RosterSort stored_sort = account::RosterSort::Account;
+    account::roster_sort_from_string(account_data.roster_sort, &stored_sort);
+    const std::string character_list = account::format_account_character_list(
+        kAccountStorageRoot, account_data, stored_sort);
     SEND_TO_Q(character_list.c_str(), d);
 }
 
@@ -2764,6 +2769,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
             SEND_TO_Q("Reconnecting to unswitched char.", d);
             REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
             clear_account_backed_object_bytes_for_character(d->character);
+            ppc_apply_account_to_character(d->account_name, d->character);
             STATE(d) = CON_PLYNG;
             if (!d->pProtocol)
                 d->pProtocol = ProtocolCreate();
@@ -2801,6 +2807,7 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
             d->character = tmp_ch;
             tmp_ch->specials.timer = 0;
             REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+            ppc_apply_account_to_character(d->account_name, d->character);
             STATE(d) = CON_PLYNG;
             if (!d->pProtocol)
                 d->pProtocol = ProtocolCreate();
@@ -2829,8 +2836,50 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
 
 void show_account_character_prompt(struct descriptor_data* d, const account::AccountData& account_data)
 {
-    const std::string prompt = account::format_account_character_prompt(kAccountStorageRoot, account_data);
+    const std::string prompt = account::format_account_character_prompt(kAccountStorageRoot, account_data,
+        static_cast<account::RosterSort>(d->roster_sort),
+        static_cast<account::RosterFilter>(d->roster_filter));
     SEND_TO_Q(prompt.c_str(), d);
+}
+
+// Writes the descriptor's current roster sort onto the account only if it actually changed this
+// visit (d->roster_sort_dirty). write_account_file calls account_cache::invalidate_all(), which
+// drops every account's cached entry globally, and save_char consumes that cache on every save
+// (db.cpp) where a miss is a full scan of every account.json on disk -- so this must stay off the
+// per-keypress path and fire only when the player actually leaves the roster (via "0" or by
+// successfully selecting a character).
+//
+// Re-reads the account from disk rather than trusting the caller's (possibly stale) copy: on the
+// character-selection call site, ensure_character_migration can run between when the caller's
+// account_data snapshot was taken and this call, and that migration can itself write account.json.
+// Persisting the caller's stale snapshot would clobber that write. account_cache memoises the read,
+// so this is not an extra disk hit in the common case.
+void persist_roster_sort_if_dirty(struct descriptor_data* d, account::AccountData& account_data)
+{
+    if (!d->roster_sort_dirty)
+        return;
+
+    account::AccountData current_account;
+    std::string read_error;
+    if (!account::read_account_file(kAccountStorageRoot, d->account_name, &current_account, &read_error)) {
+        vmudlog(BRF, "Failed to reload account to persist roster sort for %s: %s",
+            d->account_name, read_error.c_str());
+        d->roster_sort_dirty = false;
+        return;
+    }
+
+    account::RosterSort current_sort = static_cast<account::RosterSort>(d->roster_sort);
+    const std::string current_sort_string = account::roster_sort_to_string(current_sort);
+    if (current_account.roster_sort != current_sort_string) {
+        current_account.roster_sort = current_sort_string;
+        std::string persist_error;
+        if (!account::write_account_file(kAccountStorageRoot, current_account, &persist_error))
+            vmudlog(BRF, "Failed to persist roster sort for %s: %s",
+                d->account_name, persist_error.c_str());
+        else
+            account_data.roster_sort = current_sort_string;
+    }
+    d->roster_sort_dirty = false;
 }
 
 void handle_account_authenticated(struct descriptor_data* d, const account::AccountData& account_data)
@@ -2944,6 +2993,48 @@ static bool ensure_descriptor_character_for_account_selection(struct descriptor_
     d->character->desc = d;
     SET_BIT(PRF_FLAGS(d->character), PRF_LATIN1);
     return true;
+}
+
+/* The tail of character creation, shared by the prompted and the skipped path so the two
+   cannot drift apart. */
+static void finish_new_character_creation(struct descriptor_data* d)
+{
+    /* Give them an autowimpy of 10 */
+    WIMP_LEVEL(d->character) = 10;
+    introduce_char(d);
+    show_character_menu(d);
+    STATE(d) = CON_SLCT;
+    vmudlog(NRM, "%s [%s] new player.", GET_NAME(d->character), d->host);
+}
+
+static const char* const kDefaultColourSetPrompt = "\r\n"
+                                                   "On RotS, you are allowed to create your own colour scheme.\r\n"
+                                                   "However, many new players find this burdensome, and prefer\r\n"
+                                                   "a quick way to enable colours; thus, we have made available\r\n"
+                                                   "a default set of colours to satisfy those players who rather\r\n"
+                                                   "dive into the game than muck around in the RotS manual pages.\r\n"
+                                                   "\r\n"
+                                                   "Please note that you may disable ANSI colours at any time by\r\n"
+                                                   "typing 'colour off'; furthermore, we encourage you to read\r\n"
+                                                   "our manual entry on how to define your own, personalized set\r\n"
+                                                   "of colours via the 'help colour' or 'manual general colour'\r\n"
+                                                   "commands.\r\n"
+                                                   "\r\n"
+                                                   "Do you wish to enable the default colour set (Y/N)? ";
+
+/* A player's colour scheme and latin-1 choice live on the account, so ask for them only
+   on the account's first character. On any later character, answering would overwrite a
+   scheme the player already tuned; inherit it silently instead. */
+static int begin_creation_appearance_prompts(struct descriptor_data* d)
+{
+    if (ppc_account_has_preferences(d->account_name)) {
+        ppc_apply_account_to_character(d->account_name, d->character);
+        finish_new_character_creation(d);
+        return CON_SLCT;
+    }
+
+    SEND_TO_Q(kDefaultColourSetPrompt, d);
+    return CON_COLOR;
 }
 
 void nanny(struct descriptor_data* d, char* arg)
@@ -3394,14 +3485,73 @@ void nanny(struct descriptor_data* d, char* arg)
                 return;
             }
 
+            // Single-letter sort and filter keys. New names are a minimum of 3 characters (valid_name,
+            // ban.cpp); the shortest linked legacy names in live data are 2, so no name collides. A
+            // one-letter legacy character, were one ever linked, is still selectable by number.
+            if (strlen(arg) == 1) {
+                const char key = LOWER(*arg);
+                account::RosterSort new_sort = static_cast<account::RosterSort>(d->roster_sort);
+                account::RosterFilter new_filter = static_cast<account::RosterFilter>(d->roster_filter);
+                bool handled = true;
+                bool sort_changed = false;
+
+                switch (key) {
+                case 'a':
+                    sort_changed = (new_sort != account::RosterSort::Name);
+                    new_sort = account::RosterSort::Name;
+                    break;
+                case 'l':
+                    sort_changed = (new_sort != account::RosterSort::Level);
+                    new_sort = account::RosterSort::Level;
+                    break;
+                case 'c':
+                    sort_changed = (new_sort != account::RosterSort::Race);
+                    new_sort = account::RosterSort::Race;
+                    break;
+                case 's':
+                    sort_changed = (new_sort != account::RosterSort::Side);
+                    new_sort = account::RosterSort::Side;
+                    break;
+                case 'w':
+                    new_filter = (new_filter == account::RosterFilter::Warrior) ? account::RosterFilter::None : account::RosterFilter::Warrior;
+                    break;
+                case 'r':
+                    new_filter = (new_filter == account::RosterFilter::Ranger) ? account::RosterFilter::None : account::RosterFilter::Ranger;
+                    break;
+                case 't':
+                    new_filter = (new_filter == account::RosterFilter::Mystic) ? account::RosterFilter::None : account::RosterFilter::Mystic;
+                    break;
+                case 'm':
+                    new_filter = (new_filter == account::RosterFilter::Mage) ? account::RosterFilter::None : account::RosterFilter::Mage;
+                    break;
+                default:
+                    handled = false;
+                    break;
+                }
+
+                if (handled) {
+                    d->roster_sort = static_cast<int>(new_sort);
+                    d->roster_filter = static_cast<int>(new_filter);
+                    if (sort_changed)
+                        d->roster_sort_dirty = true;
+                    show_account_character_prompt(d, account_data);
+                    return;
+                }
+            }
+
             if (!strcmp(arg, "0")) {
+                // Leaving the roster back to the account menu is one of the two places a changed
+                // sort gets persisted (the other is a successful character selection, below).
+                persist_roster_sort_if_dirty(d, account_data);
                 show_account_menu(d, account_data);
                 STATE(d) = CON_ACCTMENU;
                 return;
             }
 
             std::string selected_character_name;
-            if (!account::select_linked_character(account_data, arg, &selected_character_name, &error_message)) {
+            if (!account::select_linked_character(kAccountStorageRoot, account_data, arg,
+                    static_cast<account::RosterSort>(d->roster_sort), static_cast<account::RosterFilter>(d->roster_filter),
+                    &selected_character_name, &error_message)) {
                 SEND_TO_Q((error_message + "\n\r").c_str(), d);
                 show_account_character_prompt(d, account_data);
                 return;
@@ -3511,6 +3661,10 @@ void nanny(struct descriptor_data* d, char* arg)
                 return;
             }
 
+            // Selecting a character is the other way a player leaves the roster (see the "0"
+            // branch above) -- persist a changed sort here too, or it is silently lost every time
+            // a player actually plays instead of backing out to the account menu first.
+            persist_roster_sort_if_dirty(d, account_data);
             complete_existing_character_login(d, load_result);
         }
         break;
@@ -3531,6 +3685,15 @@ void nanny(struct descriptor_data* d, char* arg)
             std::string error_message;
 
             if (!account::link_and_migrate_character(kAccountStorageRoot, d->account_name, arg, GET_NAME(d->character), time(0), &account_data, &migration, &error_message)) {
+                // The success case below has always mudlogged. The failure case told the player and
+                // nobody else -- no log, no mudlog -- so a conversion that cannot complete was
+                // invisible unless the player thought to report it. That is the wrong way round:
+                // this is the one-way door onto the account system, and a character that will not
+                // convert is stuck outside it. It is not hypothetical either -- a legacy character
+                // whose description exceeds 511 bytes fails load_char outright, and there are
+                // hundreds of those on live.
+                account_errors::record(account_errors::Source::Migration, d->account_name,
+                    GET_NAME(d->character), error_message);
                 SEND_TO_Q((error_message + "\n\r").c_str(), d);
                 clear_account_login_state(d);
                 STATE(d) = CON_PLYNG;
@@ -3542,7 +3705,22 @@ void nanny(struct descriptor_data* d, char* arg)
                 + format_account_character_name_for_display(GET_NAME(d->character))
                 + " to your account.\n\r";
             SEND_TO_Q(success_message.c_str(), d);
+            ppc_apply_account_to_character(account_data.account_name.c_str(), d->character);
+            /* Unlike every other caller of clear_account_login_state, this one hands the
+               descriptor straight back to CON_PLYNG instead of ending or restarting the
+               session, so the login scratch state (email, password, pending character name)
+               must go but the account identity must not: from here on this descriptor really
+               is an authenticated session of that account, and every account-level path keyed
+               off d->account_name -- PPC propagation, the live-sibling lookup, the account
+               menu's active-session scan -- reads an empty name as "not an account session".
+               save_char meanwhile resolves the owning account from the character-link index,
+               not from this field, so it keeps writing the account regardless. Leaving the
+               name cleared is what makes two characters of one account write each other's
+               settings back and forth on alternating autosaves, each write also flushing the
+               global account cache. Restore it, the way every other route into CON_PLYNG
+               leaves it populated. */
             clear_account_login_state(d);
+            set_account_login_name(d, account_data.account_name);
             STATE(d) = CON_PLYNG;
         }
         break;
@@ -3665,6 +3843,11 @@ void nanny(struct descriptor_data* d, char* arg)
                     SEND_TO_Q("\n\rNo linked characters are available to play.\n\r", d);
                     show_account_menu(d, account_data);
                 } else {
+                    account::RosterSort stored_sort = account::RosterSort::Account;
+                    account::roster_sort_from_string(account_data.roster_sort, &stored_sort);
+                    d->roster_sort = static_cast<int>(stored_sort);
+                    d->roster_filter = static_cast<int>(account::RosterFilter::None);
+                    d->roster_sort_dirty = false;
                     show_account_character_prompt(d, account_data);
                     STATE(d) = CON_ACCTSLCT;
                 }
@@ -3760,6 +3943,12 @@ void nanny(struct descriptor_data* d, char* arg)
             account::CharacterMigrationData migration;
             std::string error_message;
             if (!account::admin_link_and_migrate_character(kAccountStorageRoot, d->account_name, legacy_name, time(0), &account_data, &migration, &error_message)) {
+                // Same reasoning as the in-game link path above: this is the one-way door onto
+                // account storage, and a character that will not convert is stuck outside it.
+                // Telling only the player made that invisible -- and this is the path a returning
+                // player uses for a character that has been sitting in players/ for decades.
+                account_errors::record(account_errors::Source::Migration, d->account_name,
+                    legacy_name, error_message);
                 SEND_TO_Q((error_message + "\n\r").c_str(), d);
                 *d->account_character_name = '\0';
                 if (account::read_account_file(kAccountStorageRoot, d->account_name, &account_data, nullptr))
@@ -4108,22 +4297,7 @@ void nanny(struct descriptor_data* d, char* arg)
             if (*arg == existing_profs[tmp].letter)
                 for (i = 0; i < 5; i++)
                     GET_PROF_POINTS(i, d->character) = existing_profs[tmp].Class_points[i];
-        SEND_TO_Q("\r\n"
-                  "On RotS, you are allowed to create your own colour scheme.\r\n"
-                  "However, many new players find this burdensome, and prefer\r\n"
-                  "a quick way to enable colours; thus, we have made available\r\n"
-                  "a default set of colours to satisfy those players who rather\r\n"
-                  "dive into the game than muck around in the RotS manual pages.\r\n"
-                  "\r\n"
-                  "Please note that you may disable ANSI colours at any time by\r\n"
-                  "typing 'colour off'; furthermore, we encourage you to read\r\n"
-                  "our manual entry on how to define your own, personalized set\r\n"
-                  "of colours via the 'help colour' or 'manual general colour'\r\n"
-                  "commands.\r\n"
-                  "\r\n"
-                  "Do you wish to enable the default colour set (Y/N)? ",
-            d);
-        STATE(d) = CON_COLOR;
+        STATE(d) = begin_creation_appearance_prompts(d);
         break;
     case CON_COLOR:
         if (is_abbrev(arg, "yes")) {
@@ -4161,13 +4335,7 @@ void nanny(struct descriptor_data* d, char* arg)
         } else
             SEND_TO_Q("\r\nOk, you will use the latin-1 character set.\r\n", d);
 
-        /* Give them an autowimpy of 10 */
-        WIMP_LEVEL(d->character) = 10;
-        introduce_char(d);
-        show_character_menu(d);
-        STATE(d) = CON_SLCT;
-        vmudlog(NRM, "%s [%s] new player.",
-            GET_NAME(d->character), d->host);
+        finish_new_character_creation(d);
         break;
     case CON_QOWN:
         break;
@@ -4248,6 +4416,7 @@ void nanny(struct descriptor_data* d, char* arg)
                     d->character = tmp_ch;
                     tmp_ch->specials.timer = 0;
                     REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+                    ppc_apply_account_to_character(d->account_name, d->character);
                     STATE(d) = CON_PLYNG;
                     if (!d->pProtocol)
                         d->pProtocol = ProtocolCreate();
@@ -4260,6 +4429,14 @@ void nanny(struct descriptor_data* d, char* arg)
             // endnew
             reset_char(d->character);
             load_character(d->character); // new function in objsave
+            // Apply before saving, never after: save_char writes the character's PPC back to
+            // the account, so saving first would push this character's stale, just-loaded copy
+            // over whatever a sibling character last changed. ppc_store_character_to_account
+            // also refuses to write until the apply has happened, so the invariant holds even
+            // if this ordering is later disturbed -- but the order is what a reader sees first.
+            // The apply also prefers an already-playing sibling's in-memory PPC over the
+            // account file, which can be an autosave interval behind it.
+            ppc_apply_account_to_character(d->account_name, d->character);
             save_char(d->character, d->character->in_room, 0);
             STATE(d) = CON_PLYNG;
             report_news(d->character);
@@ -4584,24 +4761,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
 
         if (*arg == '=') {
             if (points_used(d->character) <= 150) {
-                /* Must sync with message in CON_COLOR above */
-                SEND_TO_Q("\r\n"
-                          "On RotS, you are allowed to create your own colour scheme.\r\n"
-                          "However, many new players find this burdensome, and prefer\r\n"
-                          "a quick way to enable colours; thus, we have made available\r\n"
-                          "a default set of colours to satisfy those players who rather\r\n"
-                          "dive into the game than muck around in the RotS manual pages.\r\n"
-                          "\r\n"
-                          "Please note that you may disable ANSI colours at any time by\r\n"
-                          "typing 'colour off'; furthermore, we encourage you to read\r\n"
-                          "our manual entry on how to define your own, personalized set\r\n"
-                          "of colours via the 'help colour' or 'manual general colour'\r\n"
-                          "commands.\r\n"
-                          "\r\n"
-                          "Do you wish to enable the default colour set (Y/N)? ",
-                    d);
-
-                return CON_COLOR;
+                return begin_creation_appearance_prompts(d);
             } else {
                 SEND_TO_Q("You've allocated more than 150 creation points.\r\n"
                           "Please revise your decisions.\r\n"
@@ -4743,6 +4903,24 @@ void introduce_char(struct descriptor_data* d)
     if (account_backed_character) {
         account::AccountData account_data;
         std::string error_message;
+        // A legacy plrobjs/<name>.obj or .exploits file can outlive its character, and the first
+        // login reads the legacy object file before the account-native one (Crash_load). Selection
+        // clears these for an existing character; a new one enters the game straight from here, so
+        // clear them now. Nothing can still own them: the checks above refused a name that is linked
+        // to an account or belongs to a character that still exists.
+        if (!account::clear_account_character_runtime_support_files(kAccountStorageRoot, GET_NAME(d->character), &error_message)) {
+            SET_BIT(PLR_FLAGS(d->character), PLR_DELETED);
+            if (d->pos >= 0 && d->pos <= top_of_p_table) {
+                player_table[d->pos].flags |= PLR_DELETED;
+                player_table[d->pos].ch_file[0] = '\0';
+            }
+            SEND_TO_Q("Old files for that name could not be cleared, so the new character was rolled back. Please reconnect and try again.\n\r", d);
+            vmudlog(NRM, "Rolled back new character %s for account %s: could not clear leftover legacy files: %s",
+                GET_NAME(d->character), d->account_name, error_message.c_str());
+            STATE(d) = CON_CLOSE;
+            return;
+        }
+
         char_to_store(d->character, &stored_character);
         const int initial_load_room = d->character->specials2.load_room;
         stored_character.specials2.load_room = initial_load_room;
@@ -4782,6 +4960,10 @@ void introduce_char(struct descriptor_data* d)
         }
         if (GET_LEVEL(d->character) == 1)
             add_exploit_record(EXPLOIT_BIRTH, d->character, 0, NULL);
+        // Same apply-before-save rule as the enter-game path. On a brand-new account this is
+        // what seeds the account from the colour/latin-1 answers just given; on an account that
+        // already has a scheme it re-applies it, so the save below cannot write anything else.
+        ppc_apply_account_to_character(d->account_name, d->character);
         save_char(d->character, initial_load_room, 0);
     } else
         save_char(d->character, NOWHERE, 0);

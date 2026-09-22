@@ -9,6 +9,7 @@ std::string normalize_account_name(const std::string& account_name);
 std::string normalize_email(const std::string& email);
 
 bool is_valid_account_name(const std::string& account_name, std::string* error_message = nullptr);
+bool is_valid_character_name(const std::string& character_name, std::string* error_message = nullptr);
 bool is_valid_email(const std::string& email, std::string* error_message = nullptr);
 bool is_valid_password(const std::string& password, std::string* error_message = nullptr);
 
@@ -17,7 +18,9 @@ bool verify_password(const std::string& password, const std::string& password_ha
 bool initialize_new_account(const std::string& account_name, const std::string& email, const std::string& password, long created_at, AccountData* account, std::string* error_message = nullptr);
 bool add_character_to_account(AccountData* account, const std::string& character_name, std::string* error_message = nullptr);
 bool account_has_character(const AccountData& account, const std::string& character_name);
-bool select_linked_character(const AccountData& account, const std::string& character_name, std::string* normalized_character_name, std::string* error_message = nullptr);
+bool select_linked_character(const std::string& root_directory, const AccountData& account,
+    const std::string& character_name, RosterSort sort, RosterFilter filter,
+    std::string* normalized_character_name, std::string* error_message = nullptr);
 bool prepare_email_verification_code(AccountData* account, long sent_at, std::string* verification_code, std::string* error_message = nullptr);
 bool confirm_email_verification_code(AccountData* account, const std::string& verification_code, const std::string& verified_by, long verified_at, std::string* error_message = nullptr);
 void verify_email(AccountData* account, const std::string& verified_by, long verified_at);
@@ -70,6 +73,15 @@ bool admin_block_account(const std::string& root_directory, const std::string& a
 bool admin_unblock_account(const std::string& root_directory, const std::string& account_name, long updated_at, AccountData* account, std::string* error_message = nullptr);
 bool admin_reset_password(const std::string& root_directory, const std::string& account_name, const std::string& new_password, const std::string& reset_by, long reset_at, AccountData* account, std::string* error_message = nullptr);
 bool admin_delete_linked_character(const std::string& root_directory, const std::string& account_name, const std::string& character_name, long updated_at, AccountData* account, std::string* error_message = nullptr);
+// Renames a character the account owns: moves its three account-owned files and rewrites both the
+// `characters` list and the matching `character_links` row. All of it, or none of it -- a failure
+// anywhere restores every file it had already moved and leaves account.json untouched.
+//
+// This exists because rename_char (db.cpp) was written for legacy storage, where deleting the
+// character's file was harmless: the character was simply re-saved under its new name. For an
+// account-native character the same delete destroys the only copy, and the account goes on listing
+// a name whose file is gone.
+bool admin_rename_linked_character(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::string& new_character_name, long updated_at, AccountData* account, std::string* error_message = nullptr);
 bool link_and_migrate_character(const std::string& root_directory, const std::string& account_name, const std::string& password, const std::string& character_name, long updated_at, AccountData* account, CharacterMigrationData* migration, std::string* error_message = nullptr);
 
 } // namespace account

@@ -2,7 +2,7 @@ bool write_account_character_file(const std::string& root_directory, const std::
 {
     if (!validate_identifier_for_path(account_name, "Account name", error_message))
         return false;
-    if (!validate_identifier_for_path(stored_character.name, "Character name", error_message))
+    if (!is_valid_character_name(stored_character.name, error_message))
         return false;
 
     AccountData account;
@@ -11,10 +11,18 @@ bool write_account_character_file(const std::string& root_directory, const std::
     if (!validate_account_owned_character_path(account, stored_character.name, error_message))
         return false;
 
-    const std::string account_directory = account_character_directory(root_directory, account_name, stored_character.name);
+    // Composed from the record we just read rather than resolved back from its name -- see
+    // account_record_directory (account_management_internal.cpp).
+    const std::string account_storage_key = normalize_email(account.normalized_email);
+    const std::string account_directory = account_record_directory(root_directory, account);
+    // The save that must never be silently lost. Everything under the invalid-account sentinel is
+    // invisible to the index and to the boot walk, so writing a character file there means the
+    // player's progress goes to a path nothing will ever read back.
+    if (refuse_invalid_account_storage_directory(account_directory, account_name, error_message))
+        return false;
     if (!create_directory_if_missing(root_directory + "/accounts", error_message))
         return false;
-    if (!create_directory_if_missing(root_directory + "/accounts/" + account_bucket_for_name(resolve_account_storage_key(root_directory, account_name)), error_message))
+    if (!create_directory_if_missing(root_directory + "/accounts/" + account_bucket_for_name(account_storage_key), error_message))
         return false;
     if (!create_directory_if_missing(account_directory, error_message))
         return false;
@@ -26,7 +34,40 @@ bool write_account_character_file(const std::string& root_directory, const std::
 
     const std::string final_path = resolved_character_path(account, root_directory, stored_character.name);
     const std::string json = character_json::serialize_character_to_json(character_data);
-    return write_text_file_atomically(final_path, json, error_message);
+
+    // The struct round trip above proves the DATA survives; it says nothing about the TEXT, and the
+    // two can disagree in exactly one way: skills and talks are keyed by NAME, and a table carrying
+    // the same name twice (skills 125 and 126 are both "trash") makes a character holding values in
+    // both emit that key twice -- which the reader refuses, for the whole file. Nothing below can
+    // put the previous file back: the write replaces the character's only copy, and the next login
+    // is told the character does not exist.
+    //
+    // Checked directly against the table's own collisions rather than by re-parsing what we just
+    // wrote. Re-parsing cost ~334us on every save of a median character and grew with skill count;
+    // this is one comparison per collision the tables actually have (one, today) and is exact for
+    // the same mechanism. named_key_collisions() is reported at boot, so a table that grows a new
+    // duplicate is visible rather than merely refused later.
+    const std::string unwritable = character_json::first_unwritable_named_value(character_data);
+    if (!unwritable.empty()) {
+        // Worded to match the migration guard's refusal (account_management_internal.cpp): the two
+        // catch the same thing at different moments, and the conversion path's own test pins this
+        // phrase.
+        set_error(error_message, "Character file for '" + std::string(stored_character.name)
+                + "' was not written: it cannot be read back (" + unwritable + ").");
+        // The player keeps playing while their progress stops being written, so this one has to be
+        // askable in game rather than only findable in the log.
+        account_errors::record(account_errors::Source::Save, account_name, stored_character.name,
+            unwritable);
+        return false;
+    }
+
+    if (!write_text_file_atomically(final_path, json, error_message))
+        return false;
+
+    // Single character-file write chokepoint: drop this character's cached roster summary so the
+    // next render reflects the new level/race/coefficients. Only this character -- see roster_cache.h.
+    roster_cache::invalidate_character(root_directory, stored_character.name);
+    return true;
 }
 
 bool write_linked_character_file(const std::string& root_directory, const std::string& character_name, const char_file_u& stored_character, std::string* error_message)
@@ -44,14 +85,20 @@ bool write_linked_character_file(const std::string& root_directory, const std::s
 
 bool read_account_character_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, char_file_u* stored_character, std::string* error_message)
 {
+    AccountData account;
+    if (!read_account_file(root_directory, account_name, &account, error_message))
+        return false;
+
+    return read_account_character_file_from_record(root_directory, account, character_name, stored_character, error_message);
+}
+
+bool read_account_character_file_from_record(const std::string& root_directory, const AccountData& account, const std::string& character_name, char_file_u* stored_character, std::string* error_message)
+{
     if (stored_character == nullptr) {
         set_error(error_message, "Stored character output parameter must not be null.");
         return false;
     }
 
-    AccountData account;
-    if (!read_account_file(root_directory, account_name, &account, error_message))
-        return false;
     if (!validate_account_owned_character_path(account, character_name, error_message))
         return false;
 
@@ -83,6 +130,12 @@ bool inspect_account_character_file(const std::string& root_directory, const std
     AccountData account;
     if (!read_account_file(root_directory, account_name, &account, error_message))
         return false;
+
+    return inspect_account_character_file_from_record(root_directory, account, character_name, exists, error_message);
+}
+
+bool inspect_account_character_file_from_record(const std::string& root_directory, const AccountData& account, const std::string& character_name, bool* exists, std::string* error_message)
+{
     if (!validate_account_owned_character_path(account, character_name, error_message))
         return false;
 
@@ -133,7 +186,18 @@ bool write_linked_character_object_file(const std::string& root_directory, const
         return true;
     }
 
-    return write_account_object_file(root_directory, owner_account_name, character_name, object_bytes, error_message);
+    // Every game save is copied into the account here (refresh_account_backed_object_file), so read
+    // the bytes the way the game's own loader does. The idle-out save, Crash_idlesave, writes no
+    // follower section (historic -- docs/systems/idle-void-and-followers.md), and it is also the save
+    // that destroys keys and NORENT items: refusing it left objects.json at the save before, and the
+    // next login handed those items back. The tolerant read forgives only a follower section that is
+    // missing entirely; a save cut off anywhere else is still refused. write_account_object_file
+    // stays strict for direct writes.
+    objects_json::ObjectSaveData object_data;
+    if (!objects_json::legacy_object_save_data_from_binary(object_bytes, &object_data, nullptr, error_message))
+        return false;
+
+    return write_account_object_json_file(root_directory, owner_account_name, character_name, object_data, error_message);
 }
 
 bool read_account_object_file(const std::string& root_directory, const std::string& account_name, const std::string& character_name, std::string* object_bytes, std::string* error_message)
@@ -292,7 +356,7 @@ bool remove_account_exploit_file(const std::string& root_directory, const std::s
 
 bool clear_account_character_runtime_support_files(const std::string& root_directory, const std::string& character_name, std::string* error_message)
 {
-    if (!validate_identifier_for_path(character_name, "Character name", error_message))
+    if (!is_valid_character_name(character_name, error_message))
         return false;
 
     const std::string object_path = legacy_object_file_path(root_directory, character_name);

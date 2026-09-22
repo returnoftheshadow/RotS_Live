@@ -1,6 +1,9 @@
+#include "../account_index.h"
+#include "../account_errors.h"
 #include "../account_management.h"
 #include "../exploits_json.h"
 #include "../objects_json.h"
+#include "../roster_cache.h"
 #include "../utils.h"
 #include "test_character_support.h"
 
@@ -13,9 +16,11 @@
 #include <ctime>
 #include <dirent.h>
 #include <limits.h>
+#include <regex>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <utility>
 
 extern struct player_index_element* player_table;
 extern int top_of_p_table;
@@ -360,6 +365,19 @@ TEST(AccountManagement, RejectsMalformedEmailAddresses)
     EXPECT_NE(error_message.find("recipient"), std::string::npos);
 }
 
+TEST(AccountManagement, RejectsEmailAddressesLongerThanTheStorageLayerCanCarry)
+{
+    std::string error_message;
+
+    const std::string at_the_limit = std::string(account::MAX_EMAIL_LENGTH - std::strlen("@example.com"), 'a') + "@example.com";
+    ASSERT_EQ(at_the_limit.length(), static_cast<std::size_t>(account::MAX_EMAIL_LENGTH));
+    EXPECT_TRUE(account::is_valid_email(at_the_limit, &error_message)) << error_message;
+
+    const std::string one_over = std::string(1 + account::MAX_EMAIL_LENGTH - std::strlen("@example.com"), 'a') + "@example.com";
+    EXPECT_FALSE(account::is_valid_email(one_over, &error_message));
+    EXPECT_NE(error_message.find(std::to_string(account::MAX_EMAIL_LENGTH)), std::string::npos) << error_message;
+}
+
 TEST(AccountManagement, AcceptsConservativeAccountNames)
 {
     std::string error_message;
@@ -375,6 +393,29 @@ TEST(AccountManagement, RejectsAccountNamesWithUnsupportedCharacters)
     EXPECT_FALSE(account::is_valid_account_name("Alpha Admin!", &error_message));
     EXPECT_NE(error_message.find("letters"), std::string::npos)
         << "Expected invalid account-name failures to explain the supported character set.";
+}
+
+// Live data holds legacy characters older than the 3-character creation minimum (Ao, El, Fy, Ia,
+// Li, Pi, Ru). New names still go through valid_name (ban.cpp); the account layer must only refuse
+// what cannot be a safe path component, never an existing character for being short.
+TEST(AccountManagement, AcceptsShortExistingCharacterNames)
+{
+    std::string error_message;
+
+    EXPECT_TRUE(account::is_valid_character_name("pi", &error_message)) << error_message;
+    EXPECT_TRUE(account::is_valid_character_name("A", &error_message)) << error_message;
+    EXPECT_FALSE(account::is_valid_account_name("pi", &error_message));
+}
+
+TEST(AccountManagement, RejectsCharacterNamesThatAreNotSafePathComponents)
+{
+    std::string error_message;
+
+    EXPECT_FALSE(account::is_valid_character_name("", &error_message));
+    EXPECT_FALSE(error_message.empty());
+    EXPECT_FALSE(account::is_valid_character_name("../pi", &error_message));
+    EXPECT_NE(error_message.find("letters"), std::string::npos) << error_message;
+    EXPECT_FALSE(account::is_valid_character_name(std::string(account::MAX_ACCOUNT_NAME_LENGTH + 1, 'a'), &error_message));
 }
 
 TEST(AccountManagement, RejectsPasswordsMissingRequiredComplexity)
@@ -643,12 +684,12 @@ TEST(AccountManagement, SelectsOnlyCharactersLinkedToTheAccount)
     std::string selected_character;
     std::string error_message;
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "2", &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "2", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "legolas");
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "gandalf", &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "gandalf", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
-    EXPECT_FALSE(account::select_linked_character(account_data, "0", &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "0", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
@@ -658,10 +699,10 @@ TEST(AccountManagement, SelectsLinkedCharactersByFullName)
     std::string selected_character;
     std::string error_message;
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "aragorn", &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "aragorn", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "aragorn");
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "Legolas", &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "Legolas", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "legolas");
 }
 
@@ -671,10 +712,10 @@ TEST(AccountManagement, SelectsLinkedCharactersByNameIgnoringCaseAndSurroundingS
     std::string selected_character;
     std::string error_message;
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "ArAgOrN", &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "ArAgOrN", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "aragorn");
 
-    ASSERT_TRUE(account::select_linked_character(account_data, "  Legolas  ", &selected_character, &error_message)) << error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "  Legolas  ", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
     EXPECT_EQ(selected_character, "legolas");
 }
 
@@ -684,13 +725,13 @@ TEST(AccountManagement, RejectsCharacterNamesThatAreNotLinkedToTheAccount)
     std::string selected_character;
     std::string error_message;
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "gandalf", &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "gandalf", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "arago", &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "arago", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "aragorn the second", &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "aragorn the second", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
@@ -698,23 +739,62 @@ TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
 {
     account::AccountData account_data = make_account();
     account_data.characters.clear();
-    for (int index = 1; index <= 101; ++index)
+    for (int index = 1; index <= 201; ++index)
         account_data.characters.push_back("character" + std::to_string(index));
 
     std::string selected_character;
     std::string error_message;
 
-    EXPECT_TRUE(account::select_linked_character(account_data, "100", &selected_character, &error_message)) << error_message;
-    EXPECT_EQ(selected_character, "character100");
+    EXPECT_TRUE(account::select_linked_character(".", account_data, "200", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "character200");
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "101", &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "201", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 
-    EXPECT_TRUE(account::select_linked_character(account_data, "character100", &selected_character, &error_message)) << error_message;
-    EXPECT_EQ(selected_character, "character100");
+    EXPECT_TRUE(account::select_linked_character(".", account_data, "character200", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message)) << error_message;
+    EXPECT_EQ(selected_character, "character200");
 
-    EXPECT_FALSE(account::select_linked_character(account_data, "character101", &selected_character, &error_message));
+    EXPECT_FALSE(account::select_linked_character(".", account_data, "character201", account::RosterSort::Account, account::RosterFilter::None, &selected_character, &error_message));
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
+}
+
+// The roster is written to the descriptor in a single SEND_TO_Q. write_to_output (comm.cpp) grows
+// the descriptor to a LARGE_BUFSIZE buffer and, once a write no longer fits, sets bufptr = -1 and
+// silently drops that write and every later one bound for the socket -- the player sees a blank
+// screen and never gets a prompt back. Nothing else in the codebase bounds the roster against that
+// limit, so raising kMaxDisplayedAccountCharacters past the point where a full roster stops fitting
+// must fail here rather than on a player.
+TEST(AccountManagement, RendersAFullRosterWithinTheOutputBuffer)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters.clear();
+    // Far more characters than any sane cap, so the roster always renders exactly the cap's worth
+    // of rows. This holds the test correct for every cap value: below the cliff it renders `cap`
+    // rows and fits, above it renders `cap` rows and overflows, and a cap beyond this count still
+    // overflows because this many rows alone already exceed the buffer.
+    for (int index = 1; index <= 1000; ++index)
+        account_data.characters.push_back("character" + std::to_string(index));
+
+    // No account exists at this root, so every row takes the "[ ?? ???]" fallback -- which is
+    // exactly as wide as a populated row carrying a three-character race abbreviation, and so is
+    // the widest a row can render.
+    const std::string prompt = account::format_account_character_prompt(".", account_data, account::RosterSort::Account, account::RosterFilter::None);
+
+    EXPECT_LT(prompt.size(), static_cast<size_t>(LARGE_BUFSIZE))
+        << "A full roster no longer fits the descriptor output buffer; output would be silently "
+           "discarded. Lower kMaxDisplayedAccountCharacters or shorten the row format.";
+
+    // The Side sort adds a section header and inter-section blank lines on top of every row, so it
+    // renders slightly larger than the unsectioned Account sort above -- and that guard alone says
+    // nothing about whether the sectioned path also fits. Every character here is unreadable (no
+    // account exists at this root), so this also renders as a single "-- Unavailable --" section,
+    // the worst case for header overhead relative to row count.
+    const std::string side_sorted_prompt = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Side, account::RosterFilter::None);
+
+    EXPECT_LT(side_sorted_prompt.size(), static_cast<size_t>(LARGE_BUFSIZE))
+        << "A full Side-sorted roster no longer fits the descriptor output buffer; output would be "
+           "silently discarded. Lower kMaxDisplayedAccountCharacters or shorten the row/header format.";
 }
 
 TEST(AccountManagement, BlocksAndUnblocksAccountsWithAuditMetadata)
@@ -993,13 +1073,14 @@ TEST(AccountManagement, FormatsCharacterPromptWithLinkedCharacterList)
     legolas.race = RACE_HUMAN;
     ASSERT_TRUE(account::write_account_character_file(".", account_data.account_name, legolas, &error_message)) << error_message;
 
-    const std::string prompt = account::format_account_character_prompt(".", account_data);
+    const std::string prompt = account::format_account_character_prompt(".", account_data, account::RosterSort::Account, account::RosterFilter::None);
 
     EXPECT_EQ(prompt,
         "\n\rLinked characters for your account:\n\r"
         "1) [ 50 WdE] Aragorn     2) [ 45 Hum] Legolas     \n\r"
         "\n\r2 characters displayed.\n\r"
-        "\n\r0) Back to Account Menu.\n\r"
+        "\n\rSort: (A)-Z  (L)evel  ra(C)e  (S)ide      Show only: (W)arrior (R)anger (T)mystic (M)age\n\r"
+        "0) Back to Account Menu.\n\r"
         "\n\rCharacter number or name: ");
 }
 
@@ -1416,6 +1497,57 @@ TEST(AccountManagement, LinksAndMigratesCharacterAfterAuthenticatingAccount)
     EXPECT_EQ(error_message, "Account authentication failed.");
 }
 
+TEST(AccountManagement, LinksAndMigratesTwoLetterLegacyCharacter)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/P-T").c_str(), 0700), 0);
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("Pi"));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700012222, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(temp_directory.path(), "alpha-admin", "VerifierAdmin", 1700012222, nullptr, &error_message)) << error_message;
+
+    account::AccountData linked_account;
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin", "ValidPass1", "Pi", 1700012223, &linked_account, &migration, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(linked_account, "pi"));
+    EXPECT_EQ(migration.character_name, "pi");
+    EXPECT_TRUE(migration.player_file.present);
+
+    // The record that now lists "pi" has to read back, or the whole account becomes unreadable.
+    account::AccountData reread_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), "alpha-admin", &reread_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(reread_account, "pi"));
+
+    std::string owner_account_name;
+    ASSERT_TRUE(account::find_linked_character_owner_account(temp_directory.path(), "pi", &owner_account_name, &error_message)) << error_message;
+    EXPECT_EQ(owner_account_name, "alpha-admin");
+
+    // Renaming INTO a short name is a new name, so the creation minimum still applies.
+    EXPECT_FALSE(account::admin_rename_linked_character(temp_directory.path(), "alpha-admin", "pi", "ab", 1700012224, nullptr, &error_message));
+
+    ASSERT_TRUE(account::admin_delete_linked_character(temp_directory.path(), "alpha-admin", "pi", 1700012225, &reread_account, &error_message)) << error_message;
+    EXPECT_FALSE(account::account_has_character(reread_account, "pi"));
+}
+
+TEST(AccountManagement, AdminLinksAndMigratesTwoLetterLegacyCharacter)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("El"));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700012230, nullptr, &error_message)) << error_message;
+
+    account::AccountData linked_account;
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::admin_link_and_migrate_character(temp_directory.path(), "alpha-admin", "El", 1700012231, &linked_account, &migration, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(linked_account, "el"));
+    EXPECT_TRUE(migration.player_file.present);
+}
+
 TEST(AccountManagement, DoesNotLeaveCharacterLinkedWhenMigrationFails)
 {
     TemporaryDirectory temp_directory;
@@ -1443,6 +1575,71 @@ TEST(AccountManagement, BuildsAccountLinkedCharacterSnapshotPaths)
         "/game/lib/accounts/P-T/player@example.com/aragorn.objects.json");
     EXPECT_EQ(account::account_character_exploits_path("/game/lib", "player@example.com", "aragorn"),
         "/game/lib/accounts/P-T/player@example.com/aragorn.exploits.json");
+}
+
+TEST(AccountManagement, RefusesToWriteACharacterFileItCannotReadBack)
+{
+    // The write validates struct -> CharacterData -> struct and never parses the TEXT it produces.
+    // Skills are keyed by name and the skill table carries two entries with the same name, so a
+    // character with values in both emits the same key twice and the reader refuses the whole file.
+    // Written over the previous save, that is the character's only copy replaced by one nothing can
+    // load -- and the player is told the character does not exist.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, nullptr, &error_message)) << error_message;
+
+    const char_file_u original = make_stored_character("aragorn");
+    ASSERT_TRUE(account::write_account_character_file(temp_directory.path(), "alpha-admin", original, &error_message)) << error_message;
+
+    // Every skill practised, rather than naming the duplicated pair by index: the table is world
+    // data and the pair moves.
+    char_file_u every_skill = original;
+    every_skill.level = 50;
+    for (int skill = 0; skill < MAX_SKILLS; ++skill)
+        every_skill.skills[skill] = 1;
+
+    account_errors::clear();
+    EXPECT_FALSE(account::write_account_character_file(temp_directory.path(), "alpha-admin", every_skill, &error_message))
+        << "a file the reader will refuse must not replace the character's only copy";
+
+    // A refused save is the most dangerous thing on the list: the player keeps playing and their
+    // progress is not being written. It must be answerable in game, not only in the log.
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    ASSERT_EQ(recorded.size(), 1u);
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Save);
+    EXPECT_EQ(recorded[0].character, "aragorn");
+    EXPECT_EQ(recorded[0].account, "alpha-admin");
+    account_errors::clear();
+
+    char_file_u loaded {};
+    std::string read_error;
+    ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded, &read_error))
+        << "the character that was on disk must still load: " << read_error;
+    EXPECT_EQ(loaded.level, original.level)
+        << "and it must still be the character that was written, not the one that was refused";
+}
+
+TEST(AccountManagement, StillSavesACharacterHoldingOnlyOneHalfOfACollidingPair)
+{
+    // The guard must refuse the character that would produce a duplicate key and nobody else. One
+    // side of the pair writes the key once, which reads back fine -- refusing it would stop a real
+    // player's saves over nothing.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, nullptr, &error_message)) << error_message;
+
+    char_file_u one_side = make_stored_character("aragorn");
+    one_side.skills[125] = 40;
+    ASSERT_TRUE(account::write_account_character_file(temp_directory.path(), "alpha-admin", one_side, &error_message))
+        << error_message;
+
+    char_file_u loaded {};
+    ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded, &error_message)) << error_message;
+    EXPECT_EQ(loaded.skills[125], 40) << "and the value survives the round trip";
 }
 
 TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFile)
@@ -1607,6 +1804,95 @@ TEST(AccountManagement, AccountNativeObjectWriteRejectsLegacyObjectFileWithoutFo
     EXPECT_FALSE(account::write_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", object_bytes, &error_message));
     EXPECT_NE(error_message.find("Truncated objects data while reading follower record"), std::string::npos);
     EXPECT_FALSE(account::account_object_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
+}
+
+TEST(AccountManagement, LinkedCharacterObjectRefreshAcceptsAnIdleSaveWithoutFollowerSection)
+{
+    // Every game save is copied into the account through write_linked_character_object_file. The
+    // idle-out save (Crash_idlesave) writes no follower section -- historic behaviour -- and it is
+    // also the save that destroys keys and NORENT items. When that copy was refused, objects.json
+    // kept the previous 30-second save, and the next login handed the unrentable items back.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, nullptr, &error_message)) << error_message;
+
+    const int kKeyVnum = 11376;
+    const int kNorentVnum = 1138;
+    const int kRingVnum = 6654;
+
+    objects_json::ObjectSaveData autosave;
+    autosave.rent.rentcode = RENT_CRASH;
+    for (int vnum : { kKeyVnum, kNorentVnum, kRingVnum }) {
+        autosave.objects.push_back(objects_json::ObjectRecord {});
+        autosave.objects.back().item_number = vnum;
+        autosave.objects.back().wear_pos = MAX_WEAR;
+    }
+    std::string autosave_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(autosave, &autosave_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_linked_character_object_file(temp_directory.path(), "aragorn", autosave_bytes, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData idle_save;
+    idle_save.rent.rentcode = RENT_TIMEDOUT;
+    idle_save.objects.push_back(objects_json::ObjectRecord {});
+    idle_save.objects.back().item_number = kRingVnum;
+    idle_save.objects.back().wear_pos = MAX_WEAR;
+    std::string idle_save_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(idle_save, &idle_save_bytes, &error_message)) << error_message;
+    ASSERT_GT(idle_save_bytes.size(), sizeof(follower_file_elem));
+    idle_save_bytes.erase(idle_save_bytes.size() - sizeof(follower_file_elem)); // no follower section, as Crash_idlesave writes it
+
+    EXPECT_TRUE(account::write_linked_character_object_file(temp_directory.path(), "aragorn", idle_save_bytes, &error_message)) << error_message;
+
+    std::string loaded_bytes;
+    ASSERT_TRUE(account::read_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded_bytes, &error_message)) << error_message;
+    objects_json::ObjectSaveData loaded;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(loaded_bytes, &loaded, &error_message)) << error_message;
+    EXPECT_EQ(loaded.rent.rentcode, RENT_TIMEDOUT) << "objects.json still holds the save before the idle-out";
+    ASSERT_EQ(loaded.objects.size(), 1u) << "the key and the NORENT item would come back at the next login";
+    EXPECT_EQ(loaded.objects[0].item_number, kRingVnum);
+    EXPECT_TRUE(loaded.followers.empty());
+}
+
+TEST(AccountManagement, LinkedCharacterObjectRefreshStillRejectsAPartialFollowerRecord)
+{
+    // Only a follower section missing entirely is forgiven. A save cut off part-way through a
+    // follower record is damaged, and must not replace the good copy.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, nullptr, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData good;
+    good.rent.rentcode = RENT_CRASH;
+    good.objects.push_back(objects_json::ObjectRecord {});
+    good.objects.back().item_number = 1234;
+    good.objects.back().wear_pos = MAX_WEAR;
+    std::string good_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(good, &good_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_linked_character_object_file(temp_directory.path(), "aragorn", good_bytes, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData with_follower = good;
+    with_follower.followers.push_back(objects_json::FollowerData {});
+    with_follower.followers.back().fol_vnum = 6601;
+    std::string damaged_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(with_follower, &damaged_bytes, &error_message)) << error_message;
+    // Drop the terminator, the follower's object sentinel and half of its follower record.
+    const size_t cut = sizeof(follower_file_elem) + sizeof(obj_file_elem) + sizeof(follower_file_elem) / 2;
+    ASSERT_GT(damaged_bytes.size(), cut);
+    damaged_bytes.erase(damaged_bytes.size() - cut);
+
+    EXPECT_FALSE(account::write_linked_character_object_file(temp_directory.path(), "aragorn", damaged_bytes, &error_message));
+    EXPECT_NE(error_message.find("Truncated objects data"), std::string::npos) << error_message;
+
+    std::string loaded_bytes;
+    ASSERT_TRUE(account::read_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded_bytes, &error_message)) << error_message;
+    objects_json::ObjectSaveData loaded;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(loaded_bytes, &loaded, &error_message)) << error_message;
+    ASSERT_EQ(loaded.objects.size(), 1u);
+    EXPECT_EQ(loaded.objects[0].item_number, 1234) << "the good copy must be left in place";
 }
 
 TEST(AccountManagement, WritesDefaultAccountNativeObjectFile)
@@ -1890,6 +2176,263 @@ TEST(AccountManagement, MigratesLegacyCharacterFilesIntoAccountNativeAssetsWitho
     struct stat file_info { };
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0)
         << "Expected successful migration to rely on account-native assets without persisting a transitional snapshot file.";
+}
+
+TEST(AccountManagement, KeepsTheIndexCurrentWhenRetiringALegacyAccountFileFails)
+{
+    // The upsert sits after the two post-rename retirement steps, so a retirement that fails leaves
+    // account.json in place on disk with the index still holding the pre-write keys. A character
+    // linked by that write is then missing from the index, save_char resolves it as unlinked and
+    // refuses the legacy fallback -- silent total save loss until the next reboot.
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    std::string error_message;
+
+    account::AccountData account_data;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700007776, &account_data, &error_message)) << error_message;
+
+    // A legacy flat record that IS readable and IS this account's -- so the pre-commit guard on
+    // retirement targets passes it -- but which cannot be unlinked, because its bucket has lost the
+    // write bit. std::remove fails EACCES after the commit. (A record the guard can REJECT up front
+    // is the separate case below; this one has to reach the post-commit bailout to be worth
+    // anything.) The temp file and the rename both land inside the account's own email directory,
+    // which stays writable, so only the retirement is affected.
+    const std::string legacy_bucket = root + "/accounts/" + account::account_bucket_for_name("alpha-admin");
+    const std::string legacy_flat_path = legacy_bucket + "/alpha-admin.json";
+    mkdir(legacy_bucket.c_str(), 0700);
+    write_text_file(legacy_flat_path,
+        read_file_contents(root + "/accounts/" + account::account_bucket_for_name("player@example.com") + "/player@example.com/account.json"));
+    ASSERT_EQ(chmod(legacy_bucket.c_str(), 0500), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(root);
+    account_index::set_enabled(true);
+
+    const bool write_reported_failure = !account::write_account_file(root, account_data, &error_message);
+
+    std::string indexed_path;
+    const bool index_knows_the_record = account_index::find_path_by_email("player@example.com", &indexed_path, nullptr);
+
+    chmod(legacy_bucket.c_str(), 0700);
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_TRUE(write_reported_failure) << "a failed retirement must still be reported";
+    EXPECT_TRUE(index_knows_the_record)
+        << "account.json is on disk after the rename, so the index must reflect it even though retirement failed";
+}
+
+TEST(AccountManagement, RefusesToWriteWhenALegacyRecordItWouldRetireCannotBeRead)
+{
+    // legacy_flat_path is composed from the ACCOUNT NAME, and a fresh registration derives that name
+    // from the email -- so "bob@example.com" derives "bob" and lands exactly on an existing
+    // accounts/<bucket>/bob.json. An unparseable record there is quarantined under its own PATH (it
+    // has disclosed no email to be keyed by), so every email-keyed creation guard misses and the
+    // write used to reach its retirement step and std::remove a real player's only copy. Nothing
+    // this function deletes may go unread first.
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    std::string error_message;
+
+    ASSERT_EQ(mkdir((root + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/accounts/A-E").c_str(), 0700), 0);
+
+    const std::string legacy_flat_path = root + "/accounts/A-E/bob.json";
+    const std::string original_bytes = "{ \"account_name\": \"bob\", this record no longer parses";
+    write_text_file(legacy_flat_path, original_bytes);
+
+    account::AccountData account_data;
+    account_data.account_name = "bob";
+    account_data.normalized_email = "bob@example.com";
+    account_data.password_hash = "hash";
+    account_data.password_salt = "salt";
+
+    EXPECT_FALSE(account::write_account_file(root, account_data, &error_message))
+        << "a record that cannot be read must not be retired";
+    EXPECT_EQ(error_message, "Existing account file could not be read safely.");
+    EXPECT_EQ(read_file_contents(legacy_flat_path), original_bytes)
+        << "the unreadable record is the only copy, and must survive untouched";
+}
+
+TEST(AccountManagement, RefusesRegistrationWhoseEmailLivesInsideAnUnreadableAccountBucket)
+{
+    // A bucket directory that will not opendir() is filed by the boot walk as ONE quarantined record
+    // keyed by the bucket's own path -- the accounts inside it are never seen, so none of their
+    // emails is quarantined individually. is_quarantined(email) normalizes its argument and can
+    // never match a path-shaped key, so the registration guard waves through every player in that
+    // bucket and writes a fresh account over a real record.
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    std::string error_message;
+
+    const std::string bucket_path = root + "/accounts/" + account::account_bucket_for_name("player@example.com");
+    account_index::clear();
+    account_index::set_root_directory(root);
+    account_index::set_enabled(true);
+    account_index::quarantine(bucket_path, bucket_path, "Failed to open account bucket directory");
+
+    const bool created = account::create_account_for_email(root, "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message);
+
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_FALSE(created)
+        << "registering into a bucket the server cannot read writes a new account over a real player's record";
+}
+
+TEST(AccountManagement, MigratesLegacyCharacterWhosePersistedActCarriesTheCrashFlag)
+{
+    // PLR_CRASH is set on any inventory change (handler.cpp) and persisted by the legacy saver, but
+    // the JSON loader masks it off by design. Conversion must still be allowed: on live data 3260 of
+    // 6906 character records carry this bit, and refusing them all strands nearly half the player base.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.act |= PLR_CRASH;
+    write_valid_legacy_player_file(temp_directory.path(), stored_character);
+    write_text_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), make_valid_object_bytes());
+    write_text_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), make_valid_exploit_bytes());
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, &migration, &error_message))
+        << "Expected a character carrying the transient PLR_CRASH bit to convert. Error: " << error_message;
+}
+
+TEST(AccountManagement, MigratesLegacyCharacterWhosePersistedBadPasswordCountIsNonZero)
+{
+    // specials2.bad_pws is persisted by the legacy saver (db.cpp) but never serialized to JSON. A
+    // failed login increments it and saves, so this is the ordinary on-disk state of exactly the
+    // offline character an immortal migrates by hand.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.bad_pws = 3;
+    write_valid_legacy_player_file(temp_directory.path(), stored_character);
+    write_text_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), make_valid_object_bytes());
+    write_text_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), make_valid_exploit_bytes());
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007777, &migration, &error_message))
+        << "Expected a character with a non-zero bad-password count to convert. Error: " << error_message;
+}
+
+TEST(AccountManagement, MigratesLegacyCharacterWithJunkInGeneralProfessionSlot)
+{
+    // profs arrays are [MAX_PROFS + 1]; slot 0 is PROF_GENERAL, which no accessor reads. The legacy
+    // saver still writes it, and 53 live characters carry junk there (Li: prof_coef 0 = 1; others
+    // -27008, 32000, ...). Character JSON carries only MAGE..WARRIOR, so slot 0 cannot survive.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007778, nullptr, &error_message)) << error_message;
+
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.profs.prof_coof[PROF_GENERAL] = -27008;
+    stored_character.profs.prof_level[PROF_GENERAL] = 1;
+    stored_character.profs.prof_exp[PROF_GENERAL] = 9728;
+    write_valid_legacy_player_file(temp_directory.path(), stored_character);
+    write_text_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), make_valid_object_bytes());
+    write_text_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), make_valid_exploit_bytes());
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007779, &migration, &error_message))
+        << "Expected junk in the unused PROF_GENERAL slot not to block conversion. Error: " << error_message;
+}
+
+namespace {
+
+// Same directory layout and fixture files as the other legacy-migration tests above.
+void write_legacy_character_with_support_files(const std::string& root, const char_file_u& stored_character)
+{
+    ASSERT_EQ(mkdir((root + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/exploits/A-E").c_str(), 0700), 0);
+    write_valid_legacy_player_file(root, stored_character);
+    write_text_file(account::legacy_object_file_path(root, stored_character.name), make_valid_object_bytes());
+    write_text_file(account::legacy_exploits_file_path(root, stored_character.name), make_valid_exploit_bytes());
+}
+
+} // namespace
+
+TEST(AccountManagement, MigratesLegacyCharacterCarryingFlagBitsCharacterJsonCannotName)
+{
+    // Character JSON stores act/pref as NAMED flags. PRF_NOTHING2 (pref bit 6) has no name and no
+    // reader; 58 live characters carry it (Alanis, Alkar, Turgon, ...), and one (Dandelo) carries
+    // act bit 22, which has no PLR_ definition at all. Neither can survive, and neither is lost.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007780, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.pref |= PRF_NOTHING2 | PRF_BRIEF;
+    stored_character.specials2.act |= (1L << 22) | PLR_NOSHOUT;
+    write_legacy_character_with_support_files(temp_directory.path(), stored_character);
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007781, &migration, &error_message))
+        << "Expected flag bits with no name in character JSON not to block conversion. Error: " << error_message;
+}
+
+TEST(AccountManagement, MigratesLegacyCharacterWithGapsBetweenAffectSlots)
+{
+    // Character JSON keeps only non-empty affects and reloads them packed from slot 0, so a legacy
+    // file with an empty slot before a used one comes back in different positions. The game loads
+    // every non-empty slot regardless of position (db.cpp store_to_char). 15 live characters.
+    TemporaryDirectory temp_directory;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700007782, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    for (affected_type& affect : stored_character.affected)
+        affect = affected_type {};
+    stored_character.affected[0].type = 41;
+    stored_character.affected[0].duration = 61;
+    stored_character.affected[1].type = 69;
+    stored_character.affected[1].duration = 120;
+    write_legacy_character_with_support_files(temp_directory.path(), stored_character);
+
+    // save_player repacks affects from slot 0 on the way out, so move them to slots 2 and 3 in the
+    // text itself -- the shape of the live files (angurth: "affect 2 41 61 0 0 1", "affect 3 ...").
+    const std::string player_path = account::legacy_player_file_path(temp_directory.path(), "aragorn");
+    std::string player_text = read_file_contents(player_path);
+    const std::string slot0 = "affect      0 ";
+    const std::string slot1 = "affect      1 ";
+    ASSERT_NE(player_text.find(slot0), std::string::npos) << player_text;
+    ASSERT_NE(player_text.find(slot1), std::string::npos) << player_text;
+    player_text.replace(player_text.find(slot0), slot0.size(), "affect      2 ");
+    player_text.replace(player_text.find(slot1), slot1.size(), "affect      3 ");
+    write_text_file(player_path, player_text);
+
+    account::CharacterMigrationData migration;
+    EXPECT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700007783, &migration, &error_message))
+        << "Expected gaps between affect slots not to block conversion. Error: " << error_message;
 }
 
 TEST(AccountManagement, PersistedMigrationSnapshotOmitsLegacyPlayerPasswordAndHostData)
@@ -2499,6 +3042,141 @@ TEST(AccountManagement, MigrationRejectsPartialFollowerSectionAndCleansUpAccount
     EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
 }
 
+namespace {
+
+// Sets up a legacy character with all three files and returns their paths, so a test can prove the
+// rule that matters: whatever goes wrong, the sources are exactly as they were.
+struct LegacySourceFiles {
+    std::string player_path;
+    std::string object_path;
+    std::string exploit_path;
+    std::string player_text;
+    std::string object_bytes;
+    std::string exploit_bytes;
+};
+
+LegacySourceFiles write_complete_legacy_character(const std::string& root, const std::string& character_name)
+{
+    LegacySourceFiles sources;
+    sources.player_path = account::legacy_player_file_path(root, character_name);
+    sources.object_path = account::legacy_object_file_path(root, character_name);
+    sources.exploit_path = account::legacy_exploits_file_path(root, character_name);
+    sources.player_text = write_valid_legacy_player_file(root, make_stored_character(character_name.c_str()));
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.rent.gold = 4200;
+    object_data.aliases.push_back({ "assist", "kill orc" });
+    std::string error_message;
+    EXPECT_TRUE(objects_json::object_save_data_to_binary(object_data, &sources.object_bytes, &error_message)) << error_message;
+    write_text_file(sources.object_path, sources.object_bytes);
+
+    sources.exploit_bytes = make_valid_exploit_bytes();
+    write_text_file(sources.exploit_path, sources.exploit_bytes);
+    return sources;
+}
+
+// A path the atomic write cannot rename onto. Non-empty on purpose: cleanup std::remove()s the
+// output paths, and remove() rmdir's an EMPTY directory, which would take the obstruction away and
+// make the test pass for the wrong reason.
+void obstruct_path_with_directory(const std::string& path)
+{
+    ASSERT_EQ(mkdir(path.c_str(), 0700), 0);
+    write_text_file(path + "/occupied", "occupied");
+}
+
+void expect_legacy_sources_untouched(const LegacySourceFiles& sources)
+{
+    EXPECT_EQ(read_file_contents(sources.player_path), sources.player_text);
+    EXPECT_EQ(read_file_contents(sources.object_path), sources.object_bytes);
+    EXPECT_EQ(read_file_contents(sources.exploit_path), sources.exploit_bytes);
+}
+
+} // namespace
+
+TEST(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheObjectFileCannotBeWritten)
+{
+    // The rule, at the failure point nothing covered: not a malformed source this time but a write
+    // that will not land. By then the character file has already been written, so "stop and leave
+    // the sources alone" also means taking that back.
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+
+    const LegacySourceFiles sources = write_complete_legacy_character(temp_directory.path(), "aragorn");
+    obstruct_path_with_directory(account::account_character_object_path(temp_directory.path(), "alpha-admin", "aragorn"));
+
+    account::CharacterMigrationData migration;
+    EXPECT_FALSE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, &migration, &error_message));
+
+    expect_legacy_sources_untouched(sources);
+    EXPECT_FALSE(account::account_character_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr))
+        << "the character file written before the failure must not be left behind";
+    EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
+}
+
+TEST(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheCharacterFileCannotBeWritten)
+{
+    // The first output written, and the one whose failure path deliberately does no cleanup --
+    // safe only while its write is the last thing that step does. Pinned here so a later edit that
+    // adds work after that write has to answer for it.
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+
+    const LegacySourceFiles sources = write_complete_legacy_character(temp_directory.path(), "aragorn");
+    obstruct_path_with_directory(account::account_character_player_path(temp_directory.path(), "alpha-admin", "aragorn"));
+
+    account::CharacterMigrationData migration;
+    EXPECT_FALSE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, &migration, &error_message));
+
+    expect_legacy_sources_untouched(sources);
+    EXPECT_FALSE(account::account_object_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
+    EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
+}
+
+TEST(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheExploitFileCannotBeWritten)
+{
+    // The last output written, so by this point both of the others are on disk and both have to go
+    // back. Same rule, one step later.
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+
+    const LegacySourceFiles sources = write_complete_legacy_character(temp_directory.path(), "aragorn");
+    obstruct_path_with_directory(account::account_character_exploits_path(temp_directory.path(), "alpha-admin", "aragorn"));
+
+    account::CharacterMigrationData migration;
+    EXPECT_FALSE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, &migration, &error_message));
+
+    expect_legacy_sources_untouched(sources);
+    EXPECT_FALSE(account::account_character_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr))
+        << "the character file written before the failure must not be left behind";
+    EXPECT_FALSE(account::account_object_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr))
+        << "nor the object file";
+}
+
 TEST(AccountManagement, MigrationWritesDefaultAccountNativeObjectFileWhenLegacyObjectDataIsMissing)
 {
     TemporaryDirectory temp_directory;
@@ -2700,6 +3378,51 @@ TEST(AccountManagement, MigrationRestoresRetiredFilesWhenExploitRetirementFails)
     EXPECT_FALSE(account::account_character_file_exists(temp_directory.path(), "alpha-admin", "aragorn", &error_message));
     EXPECT_FALSE(account::account_object_file_exists(temp_directory.path(), "alpha-admin", "aragorn", &error_message));
     EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", &error_message));
+}
+
+TEST(AccountManagement, MigrationKeepsItsOutputsWhenItCannotPutTheLegacyOriginalsBack)
+{
+    // The other way a conversion could end with no copy of the character. When retirement fails
+    // part-way it restores the legacy files it had already deleted -- but restore_retired_legacy_files
+    // only appends to the error string, so a restore that did not work reported nothing, and the
+    // caller went on to delete the account-native files anyway.
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    ASSERT_EQ(mkdir((root + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+
+    const std::string player_path = account::legacy_player_file_path(root, "aragorn");
+    const std::string object_path = account::legacy_object_file_path(root, "aragorn");
+    const std::string exploits_bucket = root + "/exploits/A-E";
+    write_valid_legacy_player_file(root, make_stored_character("aragorn"));
+    write_text_file(object_path, make_valid_object_bytes());
+    write_text_file(account::legacy_exploits_file_path(root, "aragorn"), make_valid_exploit_bytes());
+
+    // Retirement gets as far as the exploit file and fails there, exactly as
+    // MigrationRestoresRetiredFilesWhenExploitRetirementFails arranges it.
+    ASSERT_EQ(chmod(exploits_bucket.c_str(), 0500), 0);
+    // And the player file cannot be put back: write_snapshot_bytes stages through "<path>.tmp", and
+    // a non-empty directory sitting there means it can neither be opened nor renamed over.
+    ASSERT_EQ(mkdir((player_path + ".tmp").c_str(), 0700), 0);
+    write_text_file(player_path + ".tmp/occupant", "not empty");
+
+    account::CharacterMigrationData migration;
+    EXPECT_FALSE(account::migrate_legacy_character_by_name(root, "alpha-admin", "aragorn", 1700010102, &migration, &error_message));
+
+    ASSERT_EQ(chmod(exploits_bucket.c_str(), 0700), 0);
+
+    const bool legacy_survives = access(player_path.c_str(), F_OK) == 0;
+    const bool account_native_survives = account::account_character_file_exists(root, "alpha-admin", "aragorn", &error_message);
+    EXPECT_TRUE(legacy_survives || account_native_survives)
+        << "a restore that did not work must not be followed by deleting the only remaining copy: "
+        << "neither " << player_path << " nor the account-native character file is left";
 }
 
 TEST(AccountManagement, MigrationWritesDefaultAccountNativeExploitFileWhenLegacyExploitDataIsMissing)
@@ -3506,4 +4229,1528 @@ TEST(AccountManagement, VerifyPasswordResetCodeCountsWrongCodesLikeTheCompleting
     account::AccountData after_verify;
     ASSERT_TRUE(account::read_account_file(root, "alpha-admin", &after_verify, &error_message)) << error_message;
     EXPECT_EQ(after_verify.password_reset_attempt_count, 1);
+}
+
+namespace {
+
+// SetUp/TearDown (rather than toggling roster_cache inline in the test body) so cleanup still runs
+// if an ASSERT_* fails partway through: an inline toggle leaves g_enabled == true leaked into every
+// later test in the binary on a failed assertion, in a suite that already aborts partway through on
+// a known baseline crash. Mirrors RosterCacheTest in roster_cache_tests.cpp.
+class RosterCacheDropOnWriteTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        roster_cache::clear();
+        roster_cache::set_enabled(true);
+    }
+    void TearDown() override
+    {
+        roster_cache::set_enabled(false);
+        roster_cache::clear();
+    }
+};
+
+} // namespace
+
+// write_account_character_file is the single chokepoint for character-file writes (5 call sites,
+// including save_char's autosave path). If it does not drop the cached summary, a level-up would
+// leave the roster showing the old level indefinitely.
+TEST_F(RosterCacheDropOnWriteTest, WritingACharacterFileDropsItsCachedRosterSummary)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData account_data = make_account();
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", account_data.account_name, account_data.normalized_email,
+        "ValidPass1", 1700010200, nullptr, &error_message))
+        << error_message;
+
+    char_file_u aragorn = make_stored_character("aragorn");
+    aragorn.level = 10;
+    aragorn.race = RACE_WOOD;
+    ASSERT_TRUE(account::write_account_character_file(".", account_data.account_name, aragorn, &error_message))
+        << error_message;
+
+    roster_cache::RosterSummary summary {};
+    ASSERT_TRUE(roster_cache::get(".", account_data.account_name, "aragorn", &summary));
+    ASSERT_EQ(summary.level, 10);
+
+    aragorn.level = 11;
+    ASSERT_TRUE(account::write_account_character_file(".", account_data.account_name, aragorn, &error_message))
+        << error_message;
+
+    ASSERT_TRUE(roster_cache::get(".", account_data.account_name, "aragorn", &summary));
+    EXPECT_EQ(summary.level, 11) << "cached summary survived a character write";
+}
+
+namespace {
+
+// Builds an account whose characters are deliberately NOT in name, level, or race order, so a
+// passing sort test cannot be an accident of insertion order. gimli/aragorn/legolas are all light-
+// side races (side rank 1), so "ugluk" (dark-side, an Orc) is included too -- without it, every
+// Side-sort render in this fixture would collapse to exactly one section, and a test could pass
+// while never exercising row numbering across a section boundary.
+account::AccountData make_sortable_account()
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "gimli", "aragorn", "legolas", "ugluk" };
+    return account_data;
+}
+
+// Backing reader for ordering tests: level/race/coefficients per character name. Asserts the root
+// directory it was called with, so a caller that hardcodes (or drifts to) a different root than the
+// renderer used -- rather than threading root_directory through -- fails loudly here instead of
+// silently reading a disjoint (and therefore all-unreadable) cache entry. Every caller in this file
+// uses "." by convention.
+bool sortable_reader(const std::string& root_directory, const std::string&, const std::string& character_name,
+    char_file_u* stored_character, std::string* error_message)
+{
+    EXPECT_EQ(root_directory, ".") << "reader invoked with an unexpected root directory -- selection and "
+                                       "rendering must resolve roster_cache entries against the same root";
+    *stored_character = char_file_u {};
+    if (character_name == "gimli") {
+        stored_character->level = 30;
+        stored_character->race = RACE_DWARF;
+        stored_character->profs.prof_coof[PROF_WARRIOR] = 160;
+    } else if (character_name == "aragorn") {
+        stored_character->level = 50;
+        stored_character->race = RACE_HUMAN;
+        stored_character->profs.prof_coof[PROF_RANGER] = 160;
+    } else if (character_name == "legolas") {
+        stored_character->level = 40;
+        stored_character->race = RACE_WOOD;
+        stored_character->profs.prof_coof[PROF_MAGE] = 160;
+    } else if (character_name == "ugluk") {
+        // Lowest level and highest race index of the four, so it sorts last under both Level and
+        // Race without disturbing the other three's relative order. Its only nonzero coefficient is
+        // Mystic (Cleric), so it is cleanly excluded from the Warrior/Ranger/Mage filters below and
+        // is the sole match for Mystic -- rather than tying with every profession at the raw-0
+        // baseline and muddying every filter's expected result.
+        stored_character->level = 20;
+        stored_character->race = RACE_ORC;
+        stored_character->profs.prof_coof[PROF_CLERIC] = 160;
+    } else {
+        if (error_message)
+            *error_message = "unknown character";
+        return false;
+    }
+    if (error_message)
+        *error_message = "";
+    return true;
+}
+
+std::vector<std::string> names_in_order(const account::AccountData& account_data,
+    account::RosterSort sort, account::RosterFilter filter)
+{
+    const std::vector<size_t> indices = account::ordered_roster_indices(".", account_data, sort, filter);
+    std::vector<std::string> names;
+    for (size_t index : indices)
+        names.push_back(account_data.characters[index]);
+    return names;
+}
+
+// Parses "N) [ lvl race] Name" row entries out of rendered roster/prompt text, in the order they
+// appear (two entries can share one line, so this scans the whole text rather than per-line). Row
+// numbers are returned exactly as printed and left unvalidated here -- callers assert the
+// numbering themselves, so a renderer that skips, repeats, or 0-indexes rows fails the assertion
+// rather than being silently reindexed away by the parser.
+std::vector<std::pair<int, std::string>> parse_rendered_roster_rows(const std::string& prompt)
+{
+    static const std::regex kRowPattern(R"((\d+)\)\s*\[[^\]]*\]\s*(\S+))");
+    std::vector<std::pair<int, std::string>> rows;
+    for (std::sregex_iterator it(prompt.begin(), prompt.end(), kRowPattern), end; it != end; ++it)
+        rows.emplace_back(std::stoi((*it)[1].str()), (*it)[2].str());
+    return rows;
+}
+
+// Splits rendered text into lines on the renderer's own "\n\r" line terminator, so a test can
+// assert actual line structure (which row starts a fresh line, which line a header sits alone on)
+// rather than only which substrings appear somewhere in the blob. A trailing empty element would
+// only ever appear if the text does not end on a terminator; every caller here asserts on that too.
+std::vector<std::string> split_on_terminator(const std::string& text)
+{
+    std::vector<std::string> lines;
+    size_t start = 0;
+    while (start <= text.size()) {
+        const size_t terminator = text.find("\n\r", start);
+        if (terminator == std::string::npos) {
+            lines.push_back(text.substr(start));
+            break;
+        }
+        lines.push_back(text.substr(start, terminator - start));
+        start = terminator + 2;
+    }
+    return lines;
+}
+
+class RosterOrderTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        roster_cache::clear();
+        roster_cache::set_backing_reader_for_testing(&sortable_reader);
+        roster_cache::set_enabled(true);
+    }
+    void TearDown() override
+    {
+        roster_cache::set_backing_reader_for_testing(nullptr);
+        roster_cache::set_enabled(false);
+        roster_cache::clear();
+    }
+};
+
+} // namespace
+
+TEST_F(RosterOrderTest, AccountSortPreservesInsertionOrder)
+{
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::None),
+        (std::vector<std::string> { "gimli", "aragorn", "legolas", "ugluk" }));
+}
+
+TEST_F(RosterOrderTest, NameSortIsAlphabetical)
+{
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Name, account::RosterFilter::None),
+        (std::vector<std::string> { "aragorn", "gimli", "legolas", "ugluk" }));
+}
+
+TEST_F(RosterOrderTest, LevelSortIsHighestFirst)
+{
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::None),
+        (std::vector<std::string> { "aragorn", "legolas", "gimli", "ugluk" }));
+}
+
+TEST_F(RosterOrderTest, RaceSortIsAscendingByRaceIndex)
+{
+    // RACE_HUMAN 1 < RACE_DWARF 2 < RACE_WOOD 3 < RACE_ORC 13
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Race, account::RosterFilter::None),
+        (std::vector<std::string> { "aragorn", "gimli", "legolas", "ugluk" }));
+}
+
+TEST_F(RosterOrderTest, FilterKeepsOnlyCharactersWhoseHighestCoefficientMatches)
+{
+    const account::AccountData account_data = make_sortable_account();
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Warrior),
+        (std::vector<std::string> { "gimli" }));
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Ranger),
+        (std::vector<std::string> { "aragorn" }));
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mage),
+        (std::vector<std::string> { "legolas" }));
+    // ugluk's only nonzero coefficient is Mystic (Cleric), so it is the sole Mystic match.
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mystic),
+        (std::vector<std::string> { "ugluk" }));
+}
+
+TEST_F(RosterOrderTest, FilterAndSortCompose)
+{
+    account::AccountData account_data = make_sortable_account();
+    account_data.characters.push_back("gimli"); // duplicate name is fine: same summary, same filter
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::Warrior),
+        (std::vector<std::string> { "gimli", "gimli" }));
+}
+
+// square_root[] is monotonic non-decreasing, so a filter that compared RAW prof_coof values would
+// pass every other test in this file identically. This case only distinguishes raw from derived:
+// raw says Mage (40 > 30), but the Uruk-mage penalty flips it (square_root[40]-100=532 <
+// square_root[30]=547), so derived says Warrior.
+TEST_F(RosterOrderTest, FilterUsesDerivedCoefficientsNotRawValues)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "uruk1" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string&,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_URUK;
+            stored_character->profs.prof_coof[PROF_MAGE] = 40;
+            stored_character->profs.prof_coof[PROF_WARRIOR] = 30;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Warrior),
+        (std::vector<std::string> { "uruk1" }));
+    EXPECT_TRUE(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mage).empty());
+}
+
+// stable_sort is load-bearing: a redraw must never reshuffle rows with equal sort keys. Two
+// DISTINCT names ("zed" before "amy" in insertion order, the opposite of alphabetical) share a
+// level, so only a genuinely stable sort reproduces this exact expected order.
+TEST_F(RosterOrderTest, EqualSortKeysPreserveInsertionOrder)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "zed", "mid", "amy" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_HUMAN;
+            stored_character->level = (character_name == "mid") ? 30 : 20; // zed and amy tie
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::None),
+        (std::vector<std::string> { "mid", "zed", "amy" }));
+}
+
+// Side sort groups by side and orders A-Z WITHIN each side, rather than leaving equal-side rows in
+// link order. Without this, an account whose link order already happens to be side-grouped sees no
+// visible change at all when pressing the side key.
+TEST_F(RosterOrderTest, SideSortOrdersAlphabeticallyWithinEachSide)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "zulu", "alpha", "orczz", "orcaa", "mike" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string& root_directory, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            EXPECT_EQ(root_directory, ".");
+            *stored_character = char_file_u {};
+            if (character_name == "orczz" || character_name == "orcaa")
+                stored_character->race = RACE_ORC;   // dark
+            else
+                stored_character->race = RACE_HUMAN; // light
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    // Lights A-Z, then darks A-Z -- not link order within either side.
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Side, account::RosterFilter::None),
+        (std::vector<std::string> { "alpha", "mike", "zulu", "orcaa", "orczz" }));
+}
+
+// The side view is rendered in labelled sections. Numbering stays continuous ACROSS sections, so
+// row N still selects the character printed at row N -- the invariant the whole feature rests on.
+TEST_F(RosterOrderTest, SideSortRendersLabelledSectionsWithContinuousNumbering)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "orcaa", "human1", "godone" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            if (character_name == "orcaa")
+                stored_character->race = RACE_ORC;
+            else if (character_name == "godone")
+                stored_character->race = RACE_GOD;
+            else
+                stored_character->race = RACE_HUMAN;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    const std::string prompt = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Side, account::RosterFilter::None);
+
+    EXPECT_NE(prompt.find("-- Gods --"), std::string::npos) << prompt;
+    EXPECT_NE(prompt.find("-- Good --"), std::string::npos) << prompt;
+    EXPECT_NE(prompt.find("-- Evil --"), std::string::npos) << prompt;
+    // No third-side character linked, so that header must not appear at all.
+    EXPECT_EQ(prompt.find("-- Third Side --"), std::string::npos) << prompt;
+
+    // Sections appear in side order, and numbering runs 1,2,3 straight through them.
+    const size_t gods = prompt.find("-- Gods --");
+    const size_t lights = prompt.find("-- Good --");
+    const size_t darks = prompt.find("-- Evil --");
+    EXPECT_LT(gods, lights);
+    EXPECT_LT(lights, darks);
+    EXPECT_NE(prompt.find("1) [  0 Imm] Godone"), std::string::npos) << prompt;
+    EXPECT_NE(prompt.find("2) [  0 Hum] Human1"), std::string::npos) << prompt;
+    EXPECT_NE(prompt.find("3) [  0 Orc] Orcaa"), std::string::npos) << prompt;
+
+    // Other sorts must NOT gain section headers.
+    const std::string by_level = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Level, account::RosterFilter::None);
+    EXPECT_EQ(by_level.find("-- Gods --"), std::string::npos) << by_level;
+}
+
+// The renderer resets its column counter at each section boundary, so a section with an ODD row
+// count does not drag the following section out of pair alignment. Three lights (odd) followed by
+// two darks exercises exactly that: without the "column = 0" reset, the lone trailing light would
+// pair up with the first dark on one line instead of each section starting fresh; and a final-flush
+// check that tested indices.size() % 2 instead of column % 2 would (5 total, odd) wrongly emit an
+// extra blank line after the already-complete final pair. Asserts actual rendered LINE structure,
+// not just substring presence.
+TEST_F(RosterOrderTest, ColumnPairingResetsAtEachSectionBoundary)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "amy", "bob", "cara", "dan", "eve" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            if (character_name == "dan" || character_name == "eve")
+                stored_character->race = RACE_ORC; // dark
+            else
+                stored_character->race = RACE_HUMAN; // light
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    const std::string prompt = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Side, account::RosterFilter::None);
+    const std::vector<std::string> lines = split_on_terminator(prompt);
+
+    const auto lights_it = std::find(lines.begin(), lines.end(), "-- Good --");
+    ASSERT_NE(lights_it, lines.end()) << prompt;
+    const size_t lights = static_cast<size_t>(lights_it - lines.begin());
+    ASSERT_LE(lights + 7, lines.size() - 1) << "prompt is shorter than expected:\n"
+                                            << prompt;
+
+    // Lights section (3 rows, odd): row 1 starts a fresh line right after the header, paired with
+    // row 2; row 3 (the odd one out) is alone on its own line, itself properly terminated (not left
+    // dangling into the next header).
+    EXPECT_NE(lines[lights + 1].find("1) ["), std::string::npos) << prompt;
+    EXPECT_NE(lines[lights + 1].find("2) ["), std::string::npos) << prompt;
+    EXPECT_EQ(lines[lights + 1].find("3) ["), std::string::npos)
+        << "row 3 leaked onto the same line as rows 1-2:\n"
+        << prompt;
+
+    EXPECT_NE(lines[lights + 2].find("3) ["), std::string::npos) << prompt;
+    EXPECT_EQ(lines[lights + 2].find("4) ["), std::string::npos)
+        << "row 4 (Darks) leaked onto the odd Lights trailer's line -- the column counter was not "
+           "reset at the section boundary:\n"
+        << prompt;
+
+    // Exactly one blank line separates the odd trailer from the next header.
+    EXPECT_EQ(lines[lights + 3], "") << prompt;
+    EXPECT_EQ(lines[lights + 4], "-- Evil --") << prompt;
+
+    // Darks section (2 rows, even): row 4 starts a fresh line right after its own header, paired
+    // with row 5 -- proving the reset actually put column back to 0 rather than merely happening to
+    // look right after an odd trailer.
+    EXPECT_NE(lines[lights + 5].find("4) ["), std::string::npos) << prompt;
+    EXPECT_NE(lines[lights + 5].find("5) ["), std::string::npos) << prompt;
+
+    // The final section ends on a complete (even) pair, so exactly ONE blank line separates it from
+    // the "N characters displayed." footer -- not two. A final-flush check keyed off the total row
+    // count (5, odd) rather than the actual trailing column parity (2, even) would insert a spurious
+    // extra blank line here.
+    EXPECT_EQ(lines[lights + 6], "") << prompt;
+    EXPECT_NE(lines[lights + 7], "") << "an extra blank line was emitted after the final pair:\n"
+                                     << prompt;
+    EXPECT_NE(lines[lights + 7].find("characters displayed."), std::string::npos) << prompt;
+}
+
+TEST_F(RosterOrderTest, SideSortOrdersGodsLightsDarksThenThirdSide)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "magus1", "orc1", "human1" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            if (character_name == "magus1")
+                stored_character->race = RACE_MAGUS;
+            else if (character_name == "orc1")
+                stored_character->race = RACE_ORC;
+            else
+                stored_character->race = RACE_HUMAN;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Side, account::RosterFilter::None),
+        (std::vector<std::string> { "human1", "orc1", "magus1" }));
+}
+
+TEST_F(RosterOrderTest, TiedHighestCoefficientAppearsUnderEveryTiedFilter)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "twinned" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string&,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_HUMAN;
+            stored_character->profs.prof_coof[PROF_WARRIOR] = 150;
+            stored_character->profs.prof_coof[PROF_MAGE] = 150;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Warrior).size(), 1u);
+    EXPECT_EQ(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Mage).size(), 1u);
+    EXPECT_TRUE(names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Ranger).empty());
+}
+
+TEST_F(RosterOrderTest, UnreadableCharactersSortLastAndAreExcludedByFilters)
+{
+    account::AccountData account_data = make_sortable_account();
+    account_data.characters.insert(account_data.characters.begin(), "brokenchar");
+
+    // sortable_reader returns false for "brokenchar".
+    const std::vector<std::string> by_level = names_in_order(account_data, account::RosterSort::Level, account::RosterFilter::None);
+    ASSERT_EQ(by_level.size(), 5u);
+    EXPECT_EQ(by_level.back(), "brokenchar");
+
+    const std::vector<std::string> warriors = names_in_order(account_data, account::RosterSort::Account, account::RosterFilter::Warrior);
+    EXPECT_EQ(warriors, (std::vector<std::string> { "gimli" }));
+}
+
+// An unreadable summary defaults race to 0, which is also RACE_GOD. If side_rank_for_summary ever
+// dropped its "readable" check, an unreadable character would render under a SECOND "-- Gods --"
+// header instead of "-- Unavailable --", and nothing above would fail: readable_god still renders
+// under the first (and only expected) "-- Gods --" header regardless. This asserts the header
+// count directly, plus which section each character actually renders under.
+TEST_F(RosterOrderTest, UnreadableCharacterRendersUnderUnavailableNotASecondGodsSection)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters = { "godone", "brokenchar" };
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            if (character_name == "brokenchar") {
+                if (error_message)
+                    *error_message = "unreadable";
+                return false;
+            }
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_GOD;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    const std::string prompt = account::format_account_character_prompt(
+        ".", account_data, account::RosterSort::Side, account::RosterFilter::None);
+
+    ASSERT_NE(prompt.find("-- Unavailable --"), std::string::npos) << prompt;
+
+    const size_t first_gods = prompt.find("-- Gods --");
+    ASSERT_NE(first_gods, std::string::npos) << prompt;
+    EXPECT_EQ(prompt.find("-- Gods --", first_gods + 1), std::string::npos)
+        << "\"-- Gods --\" rendered more than once -- the unreadable character likely fell into "
+           "its own Gods section instead of Unavailable:\n"
+        << prompt;
+
+    const std::vector<std::pair<int, std::string>> rows = parse_rendered_roster_rows(prompt);
+    ASSERT_EQ(rows.size(), 2u);
+    EXPECT_EQ(rows[0].second, "Godone") << "readable god-race character must render first, under Gods:\n"
+                                        << prompt;
+    EXPECT_EQ(rows[1].second, "Brokenchar")
+        << "unreadable character must render last, under Unavailable:\n"
+        << prompt;
+
+    const size_t unavailable = prompt.find("-- Unavailable --");
+    const size_t godone_row = prompt.find("Godone");
+    const size_t brokenchar_row = prompt.find("Brokenchar");
+    ASSERT_NE(godone_row, std::string::npos);
+    ASSERT_NE(brokenchar_row, std::string::npos);
+    EXPECT_LT(godone_row, unavailable) << "Godone must render before the Unavailable section:\n"
+                                       << prompt;
+    EXPECT_GT(brokenchar_row, unavailable) << "Brokenchar must render after the Unavailable header:\n"
+                                           << prompt;
+}
+
+// Names are character1..character250. Lexicographically "character250" < "character3" (the digit
+// '2' loses to '3' at the first differing position), so a cap-AFTER-sort implementation keeps
+// character250 in its 200-entry result while a cap-BEFORE-sort implementation (insertion prefix
+// character1..character200) never even considers it. Comparing against the fully-sorted-then-
+// truncated expectation catches that difference; asserting size()==200 alone would not.
+TEST_F(RosterOrderTest, OrderingIsCappedAtTheDisplayedRosterLimitAfterSorting)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters.clear();
+    for (int index = 1; index <= 250; ++index)
+        account_data.characters.push_back("character" + std::to_string(index));
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string&,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->level = 1;
+            stored_character->race = RACE_HUMAN;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    const std::vector<size_t> indices = account::ordered_roster_indices(
+        ".", account_data, account::RosterSort::Name, account::RosterFilter::None);
+    ASSERT_EQ(indices.size(), 200u);
+
+    std::vector<std::string> actual;
+    for (size_t index : indices)
+        actual.push_back(account_data.characters[index]);
+
+    std::vector<std::string> expected_full_order = account_data.characters;
+    std::sort(expected_full_order.begin(), expected_full_order.end());
+    const std::vector<std::string> expected(expected_full_order.begin(), expected_full_order.begin() + 200);
+
+    EXPECT_EQ(actual, expected);
+    EXPECT_NE(std::find(actual.begin(), actual.end(), "character250"), actual.end())
+        << "a cap-before-sort implementation would never surface character250";
+}
+
+// 250 characters, of which exactly 210 match the Warrior filter (the rest are mages). The cap must
+// apply to the 210 post-filter matches, not to the pre-filter 250 -- so the result is 200, not 210
+// truncated from a smaller filtered set that happened to already fit, and not a filter applied
+// after an incorrect pre-filter cap.
+TEST_F(RosterOrderTest, OrderingIsCappedAfterFiltering)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters.clear();
+    for (int index = 1; index <= 250; ++index)
+        account_data.characters.push_back("character" + std::to_string(index));
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string& character_name,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->race = RACE_HUMAN;
+            const int suffix = std::stoi(character_name.substr(std::string("character").size()));
+            if (suffix <= 210)
+                stored_character->profs.prof_coof[PROF_WARRIOR] = 100;
+            else
+                stored_character->profs.prof_coof[PROF_MAGE] = 100;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    EXPECT_EQ(account::ordered_roster_indices(".", account_data,
+                  account::RosterSort::Account, account::RosterFilter::Warrior)
+                  .size(),
+        200u);
+}
+
+// The PR #289 invariant, generalised: whatever row N shows must be what typing N selects, under
+// every sort and every filter. This is the single most important test in the feature. Renders the
+// ACTUAL prompt (format_account_character_prompt) and parses the rows out of the rendered text,
+// rather than comparing select_linked_character against ordered_roster_indices directly -- the
+// latter would only prove the selector agrees with its own ordering helper, not with what the
+// player is actually shown, and could not catch a renderer that diverged (a second cap, a skipped
+// unreadable row, 0-based numbering, ...).
+TEST_F(RosterOrderTest, SelectionByNumberMatchesTheRenderedRowUnderEverySortAndFilter)
+{
+    const account::AccountData account_data = make_sortable_account();
+
+    const account::RosterSort sorts[] = { account::RosterSort::Account, account::RosterSort::Name,
+        account::RosterSort::Level, account::RosterSort::Race, account::RosterSort::Side };
+    const account::RosterFilter filters[] = { account::RosterFilter::None,
+        account::RosterFilter::Warrior, account::RosterFilter::Ranger, account::RosterFilter::Mage };
+
+    for (account::RosterSort sort : sorts) {
+        for (account::RosterFilter filter : filters) {
+            const std::string prompt = account::format_account_character_prompt(".", account_data, sort, filter);
+            const std::vector<std::pair<int, std::string>> rows = parse_rendered_roster_rows(prompt);
+
+            for (size_t index = 0; index < rows.size(); ++index) {
+                ASSERT_EQ(rows[index].first, static_cast<int>(index + 1))
+                    << "rendered roster rows are not numbered sequentially from 1";
+            }
+
+            for (size_t index = 0; index < rows.size(); ++index) {
+                const size_t row = index + 1;
+                std::string selected;
+                std::string error_message;
+                ASSERT_TRUE(account::select_linked_character(".", account_data,
+                    std::to_string(row), sort, filter, &selected, &error_message))
+                    << "row " << row << ": " << error_message;
+                // Both sides normalised: the renderer prints the display form ("Aragorn"),
+                // select_linked_character returns normalize_account_name's form ("aragorn").
+                EXPECT_EQ(selected, account::normalize_account_name(rows[index].second))
+                    << "row " << row << " renders " << rows[index].second
+                    << " but selects " << selected;
+            }
+
+            std::string selected;
+            std::string error_message;
+            EXPECT_FALSE(account::select_linked_character(".", account_data,
+                std::to_string(rows.size() + 1), sort, filter, &selected, &error_message))
+                << "a row past the end of the rendered roster was selectable";
+        }
+    }
+}
+
+// The concrete scenario from the review that caught this: 250 linked characters (well over the
+// 200-entry display cap) under a non-Account sort, with one character inserted past the cap
+// boundary (insertion index 210) whose name sorts to the very front. ordered_roster_indices sorts
+// the FULL list and only then truncates to 200, so this character renders at row 1 -- but a name
+// scan bounded by insertion order ([0, 200) of account.characters as stored) would never reach
+// insertion index 210 and would reject the player's own character as "no such character". Both the
+// row-number path and the name path must find it.
+TEST_F(RosterOrderTest, SelectionByNameFindsACharacterPastTheInsertionOrderCapUnderANonAccountSort)
+{
+    account::AccountData account_data = make_account();
+    account_data.characters.clear();
+    for (int index = 0; index < 210; ++index)
+        account_data.characters.push_back("zzfiller" + std::to_string(index));
+    account_data.characters.push_back("aaearly"); // insertion index 210: past a [0, 200) insertion-order scan
+    for (int index = 210; index < 249; ++index)
+        account_data.characters.push_back("zzfiller" + std::to_string(index));
+    ASSERT_EQ(account_data.characters.size(), 250u);
+
+    roster_cache::set_backing_reader_for_testing(
+        [](const std::string&, const std::string&, const std::string&,
+            char_file_u* stored_character, std::string* error_message) -> bool {
+            *stored_character = char_file_u {};
+            stored_character->level = 1;
+            stored_character->race = RACE_HUMAN;
+            if (error_message)
+                *error_message = "";
+            return true;
+        });
+    roster_cache::clear();
+
+    const std::vector<std::string> displayed = names_in_order(account_data, account::RosterSort::Name, account::RosterFilter::None);
+    ASSERT_EQ(displayed.size(), 200u);
+    ASSERT_EQ(displayed.front(), "aaearly") << "test setup: expected the out-of-order character to sort first";
+
+    std::string selected_by_number;
+    std::string error_message;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "1",
+        account::RosterSort::Name, account::RosterFilter::None, &selected_by_number, &error_message))
+        << error_message;
+    EXPECT_EQ(selected_by_number, "aaearly");
+
+    std::string selected_by_name;
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "aaearly",
+        account::RosterSort::Name, account::RosterFilter::None, &selected_by_name, &error_message))
+        << error_message;
+    EXPECT_EQ(selected_by_name, "aaearly");
+}
+
+TEST_F(RosterOrderTest, SelectionByNameWorksForACharacterHiddenByTheActiveFilter)
+{
+    const account::AccountData account_data = make_sortable_account();
+
+    std::string selected;
+    std::string error_message;
+    // "aragorn" is a Ranger, so the Warrior filter hides them; selecting by name must still work,
+    // because a filter must never make one of a player's characters unreachable.
+    ASSERT_TRUE(account::select_linked_character(".", account_data, "aragorn",
+        account::RosterSort::Account, account::RosterFilter::Warrior, &selected, &error_message))
+        << error_message;
+    EXPECT_EQ(selected, "aragorn");
+}
+
+// roster_sort_to_string / roster_sort_from_string are named deliverables that Tasks 4 and 5 both
+// build on (a persisted preference and, presumably, a "sort" subcommand). No roster_cache
+// interaction here, so these do not need the RosterOrderTest fixture.
+
+TEST(RosterSortStringConversion, RoundTripsAllEnumValues)
+{
+    const account::RosterSort sorts[] = {
+        account::RosterSort::Account,
+        account::RosterSort::Name,
+        account::RosterSort::Level,
+        account::RosterSort::Race,
+        account::RosterSort::Side,
+    };
+    for (account::RosterSort sort : sorts) {
+        account::RosterSort parsed = account::RosterSort::Level; // sentinel, must be overwritten
+        ASSERT_TRUE(account::roster_sort_from_string(account::roster_sort_to_string(sort), &parsed));
+        EXPECT_EQ(parsed, sort);
+    }
+}
+
+// Pinned explicitly, not just described: "never chose" (empty string) and "chose Account" persist
+// as the same string, so a stored preference round-trips through account::RosterSort::Account.
+TEST(RosterSortStringConversion, AccountSortRoundTripsThroughEmptyString)
+{
+    EXPECT_STREQ(account::roster_sort_to_string(account::RosterSort::Account), "");
+
+    account::RosterSort parsed = account::RosterSort::Level;
+    ASSERT_TRUE(account::roster_sort_from_string("", &parsed));
+    EXPECT_EQ(parsed, account::RosterSort::Account);
+}
+
+TEST(RosterSortStringConversion, GarbageStringIsRejected)
+{
+    account::RosterSort parsed = account::RosterSort::Level;
+    EXPECT_FALSE(account::roster_sort_from_string("not-a-real-sort", &parsed));
+}
+
+TEST(RosterSortStringConversion, NullOutputPointerIsRejected)
+{
+    EXPECT_FALSE(account::roster_sort_from_string("name", nullptr));
+}
+
+TEST(AccountManagement, RosterSortRoundTripsThroughAccountJson)
+{
+    account::AccountData account_data = make_account();
+    account_data.roster_sort = "level";
+
+    const std::string json = account::serialize_account_to_json(account_data);
+    EXPECT_NE(json.find("\"roster_sort\": \"level\""), std::string::npos) << json;
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &parsed_account, &error_message)) << error_message;
+    EXPECT_EQ(parsed_account.roster_sort, "level");
+}
+
+// Existing account files predate this field. They must load and fall back to insertion order,
+// which is why no schema-version bump or migration is needed.
+TEST(AccountManagement, AccountJsonWithoutRosterSortLoadsWithInsertionOrder)
+{
+    account::AccountData account_data = make_account();
+    std::string json = account::serialize_account_to_json(account_data);
+
+    const size_t field_start = json.find("  \"roster_sort\"");
+    ASSERT_NE(field_start, std::string::npos);
+    const size_t field_end = json.find('\n', field_start);
+    json.erase(field_start, field_end - field_start + 1);
+
+    account::AccountData parsed_account;
+    std::string error_message;
+    ASSERT_TRUE(account::deserialize_account_from_json(json, &parsed_account, &error_message)) << error_message;
+    EXPECT_TRUE(parsed_account.roster_sort.empty());
+
+    account::RosterSort sort = account::RosterSort::Name;
+    ASSERT_TRUE(account::roster_sort_from_string(parsed_account.roster_sort, &sort));
+    EXPECT_EQ(sort, account::RosterSort::Account);
+}
+
+TEST(AccountManagement, WriteAccountFileIndexesTheRecord)
+{
+    account_index::clear();
+
+    TemporaryDirectory temp_directory;
+    // write_account_file only indexes a record written against the index's own root -- the write
+    // side of the same matches_root() guard the resolvers apply. Without declaring the root, the
+    // upsert is (correctly) skipped and the assertions below would be pinning the gap instead of the
+    // behaviour. account_index::clear() puts the root back to "." for whatever runs next.
+    account_index::set_root_directory(temp_directory.path());
+    account::AccountData account_data;
+    std::string error_message;
+    ASSERT_TRUE(account::initialize_new_account("indexed", "indexed@example.com", "Password123", 1000, &account_data, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_file(temp_directory.path(), account_data, &error_message)) << error_message;
+
+    std::string path;
+    EXPECT_TRUE(account_index::find_path_by_email("indexed@example.com", &path, nullptr));
+    EXPECT_TRUE(account_index::find_path_by_account_name("indexed", &path, nullptr));
+
+    account_index::clear();
+}
+
+TEST(AccountManagement, WriteAccountFileIndexesNewlyLinkedCharacters)
+{
+    account_index::clear();
+
+    TemporaryDirectory temp_directory;
+    account_index::set_root_directory(temp_directory.path());
+    account::AccountData account_data;
+    std::string error_message;
+    ASSERT_TRUE(account::initialize_new_account("linker", "linker@example.com", "Password123", 1000, &account_data, &error_message)) << error_message;
+    ASSERT_TRUE(account::add_character_to_account(&account_data, "Frodo", &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_file(temp_directory.path(), account_data, &error_message)) << error_message;
+
+    std::string owner_email;
+    ASSERT_TRUE(account_index::find_owner_email_by_character("Frodo", &owner_email, nullptr));
+    EXPECT_EQ(owner_email, "linker@example.com");
+
+    account_index::clear();
+}
+
+TEST(AccountManagement, AWriteRejectedBeforeAnyFileWorkLeavesTheIndexAlone)
+{
+    account_index::clear();
+
+    TemporaryDirectory temp_directory;
+    account_index::set_root_directory(temp_directory.path());
+    account::AccountData account_data;
+    std::string error_message;
+    ASSERT_TRUE(account::initialize_new_account("failer", "failer@example.com", "Password123", 1000, &account_data, &error_message)) << error_message;
+    account_data.account_name = ""; // rejected by validate_identifier_for_path before any file work
+
+    EXPECT_FALSE(account::write_account_file(temp_directory.path(), account_data, &error_message));
+
+    std::string path;
+    EXPECT_FALSE(account_index::find_path_by_email("failer@example.com", &path, nullptr))
+        << "a write that never landed must never appear in the index";
+
+    account_index::clear();
+}
+
+TEST(AccountManagement, AWriteThatFailsAfterReachingDiskLeavesTheIndexAlone)
+{
+    // The companion to the test above, and the one that exercises the ordering that matters: this
+    // write creates the account/bucket directories and opens its temp file before failing on the
+    // occupied-target check, so an upsert placed anywhere but after the rename would already have
+    // fired. The early-validation case never reaches file work at all.
+    account_index::clear();
+
+    TemporaryDirectory temp_directory;
+    account_index::set_root_directory(temp_directory.path());
+
+    account::AccountData occupier;
+    std::string error_message;
+    ASSERT_TRUE(account::initialize_new_account("occupier", "shared@example.com", "Password123", 1000, &occupier, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_file(temp_directory.path(), occupier, &error_message)) << error_message;
+
+    account::AccountData intruder;
+    ASSERT_TRUE(account::initialize_new_account("intruder", "shared@example.com", "Password123", 1000, &intruder, &error_message)) << error_message;
+    EXPECT_FALSE(account::write_account_file(temp_directory.path(), intruder, &error_message))
+        << "the target path is already held by a different account";
+    EXPECT_EQ(error_message, "Account storage path is already occupied by a different account.");
+
+    std::string path;
+    EXPECT_FALSE(account_index::find_path_by_account_name("intruder", &path, nullptr))
+        << "a write that never landed must never appear in the index";
+    EXPECT_TRUE(account_index::find_path_by_account_name("occupier", &path, nullptr))
+        << "and it must not disturb the record that is really there";
+
+    account_index::clear();
+}
+
+// --- Wave 3, item 2: a save must never land in the invalid-account sentinel ----------------------
+//
+// account_character_directory() (and account_record_directory(), its record-in-hand twin) fall back
+// to accounts/__invalid_account__ when an account's storage key will not resolve. Nothing
+// enumerates that directory: the index never sees it, the boot walk never sees it, and the next
+// cleanup sweeps it away. A character file written there is silently lost -- the log reports
+// success, the real file goes stale, and save_char repoints player_table at the doomed path so
+// every later save follows it.
+
+// Breaks the account's storage key on disk without touching anything else: the record still parses
+// and is still found by name, but it discloses no email, so every account_character_* path for it
+// collapses onto the sentinel. This is the reachable shape (a legacy record with no usable address);
+// write_account_file will not produce it, which is why it is written by hand here.
+std::string blank_out_stored_email(const std::string& account_path)
+{
+    std::string account_json = read_file_contents(account_path);
+    const std::string original = "\"normalized_email\": \"player@example.com\"";
+    EXPECT_NE(account_json.find(original), std::string::npos);
+    account_json.replace(account_json.find(original), original.size(), "\"normalized_email\": \"\"");
+    write_text_file(account_path, account_json);
+    return account_json;
+}
+
+TEST(AccountManagement, RefusesToWriteACharacterFileIntoTheInvalidAccountSentinel)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(root, "alpha-admin", "aragorn", 1700007777, nullptr, &error_message)) << error_message;
+    blank_out_stored_email(root + "/accounts/P-T/player@example.com/account.json");
+
+    const std::string sentinel = root + "/accounts/__invalid_account__";
+    ASSERT_TRUE(account::is_invalid_account_storage_directory(
+        account::account_character_directory(root, "alpha-admin", "aragorn")))
+        << "the fixture is meant to make this account's storage key unresolvable";
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    EXPECT_FALSE(account::write_account_character_file(root, "alpha-admin", stored_character, &error_message))
+        << "writing nothing is better than writing somewhere that will be swept away";
+    EXPECT_NE(error_message.find("no resolvable storage key"), std::string::npos) << error_message;
+
+    // The assertion that would still have passed under the bug if this only checked the return
+    // value: the file must not be on disk at all. Reverted, write_account_character_file returns
+    // true and this directory holds aragorn.character.json.
+    struct stat sentinel_info { };
+    EXPECT_NE(stat(sentinel.c_str(), &sentinel_info), 0)
+        << "the invalid-account sentinel directory must never be created";
+}
+
+TEST(AccountManagement, RefusesToWriteObjectAndExploitFilesIntoTheInvalidAccountSentinel)
+{
+    // The other write paths that compose a destination from the same unresolvable key. Checked
+    // because "check whether the sentinel can be reached from any other write path" is the half of
+    // this fix that a single-site patch would have missed.
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700007776, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(root, "alpha-admin", "aragorn", 1700007777, nullptr, &error_message)) << error_message;
+    blank_out_stored_email(root + "/accounts/P-T/player@example.com/account.json");
+
+    EXPECT_FALSE(account::write_default_account_object_file(root, "alpha-admin", "aragorn", &error_message));
+    EXPECT_NE(error_message.find("no resolvable storage key"), std::string::npos) << error_message;
+
+    error_message.clear();
+    EXPECT_FALSE(account::write_default_account_exploit_file(root, "alpha-admin", "aragorn", &error_message));
+    EXPECT_NE(error_message.find("no resolvable storage key"), std::string::npos) << error_message;
+
+    struct stat sentinel_info { };
+    EXPECT_NE(stat((root + "/accounts/__invalid_account__").c_str(), &sentinel_info), 0);
+}
+
+TEST(AccountManagement, IdentifiesTheInvalidAccountSentinelWhereverItAppears)
+{
+    EXPECT_TRUE(account::is_invalid_account_storage_directory("./accounts/__invalid_account__"));
+    EXPECT_TRUE(account::is_invalid_account_storage_directory("/srv/rots/lib/accounts/__invalid_account__"));
+    EXPECT_TRUE(account::is_invalid_account_storage_directory("__invalid_account__"));
+    // Not the sentinel: a real account directory, and a name that merely contains the sentinel.
+    EXPECT_FALSE(account::is_invalid_account_storage_directory("./accounts/P-T/player@example.com"));
+    EXPECT_FALSE(account::is_invalid_account_storage_directory("./accounts/__invalid_account__x"));
+}
+
+// --- Wave 3, item 4: a refused write must not leak a descriptor or a temp file -------------------
+
+// Counts this process's open descriptors. write_account_file runs on every successful login
+// (clear_account_login_failures), so a per-call leak walks a process that runs for weeks towards
+// EMFILE -- at which point the server can neither accept connections nor write player files.
+std::size_t count_open_descriptors()
+{
+    DIR* descriptors = opendir("/proc/self/fd");
+    EXPECT_NE(descriptors, nullptr) << "Expected /proc/self/fd for the descriptor-leak check.";
+    if (descriptors == nullptr)
+        return 0;
+
+    std::size_t open_count = 0;
+    while (dirent* entry = readdir(descriptors)) {
+        if (std::strcmp(entry->d_name, ".") == 0 || std::strcmp(entry->d_name, "..") == 0)
+            continue;
+        ++open_count;
+    }
+    closedir(descriptors);
+    return open_count;
+}
+
+TEST(AccountManagement, ARefusedAccountWriteLeaksNoDescriptorAndLeavesNoTempFile)
+{
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    std::string error_message;
+
+    account::AccountData account_data;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com", "ValidPass1", 1700007776, &account_data, &error_message)) << error_message;
+
+    // The record at the destination path no longer parses, which is the "Existing account file
+    // could not be read safely." refusal -- one of the two early returns that used to happen after
+    // the temp file was already open.
+    const std::string final_path = root + "/accounts/P-T/player@example.com/account.json";
+    write_text_file(final_path, "{ this is not an account record");
+
+    ASSERT_FALSE(account::write_account_file(root, account_data, &error_message));
+    EXPECT_EQ(error_message, "Existing account file could not be read safely.");
+
+    // Reverted, this file is sitting there after every refusal.
+    struct stat temp_info { };
+    EXPECT_NE(stat((final_path + ".tmp").c_str(), &temp_info), 0)
+        << "a refused write must not leave a temporary file behind";
+
+    // And the descriptor itself. One refusal is invisible; the login path repeats it.
+    const std::size_t before = count_open_descriptors();
+    for (int attempt = 0; attempt < 40; ++attempt)
+        EXPECT_FALSE(account::write_account_file(root, account_data, nullptr));
+    EXPECT_EQ(count_open_descriptors(), before)
+        << "write_account_file leaked a descriptor per refused write";
+}
+
+TEST(AccountManagement, ARefusedWriteOverAnotherAccountsPathLeaksNoDescriptorEither)
+{
+    // The second early return: the destination parses fine but belongs to a different account.
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    std::string error_message;
+
+    account::AccountData occupant;
+    ASSERT_TRUE(account::create_account(root, "occupant", "player@example.com", "ValidPass1", 1700007776, &occupant, &error_message)) << error_message;
+
+    account::AccountData intruder = occupant;
+    intruder.account_name = "intruder";
+
+    const std::string final_path = root + "/accounts/P-T/player@example.com/account.json";
+    ASSERT_FALSE(account::write_account_file(root, intruder, &error_message));
+    EXPECT_EQ(error_message, "Account storage path is already occupied by a different account.");
+
+    struct stat temp_info { };
+    EXPECT_NE(stat((final_path + ".tmp").c_str(), &temp_info), 0);
+
+    const std::size_t before = count_open_descriptors();
+    for (int attempt = 0; attempt < 40; ++attempt)
+        EXPECT_FALSE(account::write_account_file(root, intruder, nullptr));
+    EXPECT_EQ(count_open_descriptors(), before);
+}
+
+namespace {
+bool path_exists_for_test(const std::string& path)
+{
+    struct stat info { };
+    return stat(path.c_str(), &info) == 0;
+}
+} // namespace
+
+// --- Conversion loss guard -----------------------------------------------------------------------
+//
+// A legacy character converts to JSON exactly once and the legacy file is deleted immediately after.
+// If the conversion loses something, the original is already gone. These pin the guard that reads
+// the written file back and refuses before anything is retired.
+
+TEST(AccountManagement, RefusesAConversionWhoseWrittenFileCannotBeReadBack)
+{
+    // Not a contrived fault: skills are keyed by NAME in the character JSON and the skill table has
+    // duplicate names -- indices 125 and 126 are both "trash" (consts.cpp:587-588). A character with
+    // a value in both serializes to duplicate keys and will not parse back. Before the guard, the
+    // conversion "succeeded", the legacy file was deleted, and the character was left unloadable.
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+
+    char_file_u aragorn = make_stored_character("aragorn");
+    aragorn.skills[125] = 40;
+    aragorn.skills[126] = 60;
+    ASSERT_FALSE(write_valid_legacy_player_file(temp_directory.path(), aragorn).empty());
+    const std::string legacy_path = temp_directory.path() + "/players/A-E/aragorn";
+    ASSERT_TRUE(path_exists_for_test(legacy_path)) << legacy_path;
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com",
+        "ValidPass1", 1700012222, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(temp_directory.path(), "alpha-admin", "VerifierAdmin",
+        1700012222, nullptr, &error_message)) << error_message;
+
+    account::AccountData linked_account;
+    account::CharacterMigrationData migration;
+    EXPECT_FALSE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin",
+        "ValidPass1", "aragorn", 1700012223, &linked_account, &migration, &error_message));
+    EXPECT_NE(error_message.find("cannot be read back"), std::string::npos) << error_message;
+
+    // The whole point of refusing before retirement: the character is exactly as it was.
+    EXPECT_TRUE(path_exists_for_test(legacy_path)) << "the legacy file was retired despite the refusal";
+
+    // Nothing half-converted is left in the account directory.
+    EXPECT_FALSE(path_exists_for_test(temp_directory.path()
+        + "/accounts/P-T/player@example.com/aragorn.character.json"));
+
+    // And the account never claimed it, so the roster does not offer a character that cannot load.
+    account::AccountData account_data;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), "alpha-admin", &account_data, &error_message))
+        << error_message;
+    EXPECT_FALSE(account::account_has_character(account_data, "aragorn"));
+}
+
+TEST(AccountManagement, StillConvertsACharacterThatSurvivesTheRoundTrip)
+{
+    // The guard must not refuse ordinary characters -- if it did, it would close the only route onto
+    // the account system.
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("aragorn"));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com",
+        "ValidPass1", 1700012222, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_verify_email(temp_directory.path(), "alpha-admin", "VerifierAdmin",
+        1700012222, nullptr, &error_message)) << error_message;
+
+    account::AccountData linked_account;
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin",
+        "ValidPass1", "aragorn", 1700012223, &linked_account, &migration, &error_message))
+        << error_message;
+    EXPECT_TRUE(account::account_has_character(linked_account, "aragorn"));
+}
+
+TEST(AccountManagement, AFailedConversionNeverLeavesACharacterWithNoCopyAtAll)
+{
+    // The conversion deletes the legacy originals and then retires its own transitional
+    // <name>.migration.json. If that last step fails, the failure path used to delete the
+    // account-native files it had just written -- and the legacy files were already gone, so the
+    // character existed nowhere. Whatever else a failed conversion does, it must never end with no
+    // copy of the character on disk.
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    ASSERT_EQ(mkdir((root + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((root + "/players/A-E").c_str(), 0700), 0);
+    write_valid_legacy_player_file(root, make_stored_character("aragorn"));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(root, "alpha-admin", "player@example.com",
+        "ValidPass1", 1700012222, nullptr, &error_message))
+        << error_message;
+    ASSERT_TRUE(account::admin_verify_email(root, "alpha-admin", "VerifierAdmin",
+        1700012222, nullptr, &error_message))
+        << error_message;
+
+    // A non-empty directory where the transitional file goes: std::remove() answers ENOTEMPTY, while
+    // every sibling file in the same directory still deletes normally. An interrupted conversion or
+    // a half-extracted backup leaves artifacts at exactly this path.
+    const std::string snapshot_path = account::account_character_snapshot_path(root, "alpha-admin", "aragorn");
+    ASSERT_EQ(mkdir(snapshot_path.c_str(), 0700), 0);
+    write_text_file(snapshot_path + "/occupant", "not empty");
+
+    const std::string legacy_player_path = account::legacy_player_file_path(root, "aragorn");
+    const std::string account_character_path = account::account_character_player_path(root, "alpha-admin", "aragorn");
+    ASSERT_EQ(access(legacy_player_path.c_str(), F_OK), 0) << "fixture must start with a legacy character on disk";
+
+    account::AccountData linked_account;
+    account::CharacterMigrationData migration;
+    const bool converted = account::link_and_migrate_character(root, "alpha-admin",
+        "ValidPass1", "aragorn", 1700012223, &linked_account, &migration, &error_message);
+
+    const bool legacy_survives = access(legacy_player_path.c_str(), F_OK) == 0;
+    const bool account_native_survives = access(account_character_path.c_str(), F_OK) == 0;
+    ASSERT_TRUE(legacy_survives || account_native_survives)
+        << "the conversion " << (converted ? "reported success" : "failed")
+        << " and left no copy of the character: neither " << legacy_player_path
+        << " nor " << account_character_path;
+
+    // And the conversion is not merely survivable, it is done: the legacy originals were retired
+    // before this step, so there is nothing left to abandon. A leftover transitional file is
+    // reported and stepped over, not treated as a reason to undo work that already happened.
+    EXPECT_TRUE(converted) << error_message;
+    EXPECT_TRUE(account_native_survives) << account_character_path;
+    EXPECT_FALSE(legacy_survives) << "the legacy original is retired by a conversion that succeeded";
+    EXPECT_TRUE(account::account_has_character(linked_account, "aragorn"))
+        << "a converted character must be linked to the account, not left orphaned beside it";
+}
+
+TEST(AccountManagement, RefusesRegistrationForAnAddressWhoseIndexedRecordWillNotRead)
+{
+    // The write-time occupancy check reads final_path, which is always the DIRECTORY layout. A legacy
+    // flat record that parsed at boot and became unreadable afterwards is therefore never consulted:
+    // find_account_by_email_internal fails its read, the address reads as free, and a second record
+    // is written at the same email. The next boot sees two records disputing one address and refuses
+    // it permanently -- the real player can no longer log in.
+    TemporaryDirectory temp_directory;
+    const std::string root = temp_directory.path();
+    std::string error_message;
+
+    // A legacy FLAT record is the whole story for this address: nothing sits at the directory path,
+    // so the write-time guard has nothing to refuse on and only the index knows the address is taken.
+    const std::string bucket = root + "/accounts/" + account::account_bucket_for_name("alpha-admin");
+    ASSERT_EQ(mkdir((root + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir(bucket.c_str(), 0700), 0);
+    const std::string flat_path = bucket + "/alpha-admin.json";
+    write_text_file(flat_path, "{ no longer valid json");
+
+    account::AccountData indexed_record;
+    indexed_record.normalized_email = "player@example.com";
+    indexed_record.account_name = "alpha-admin";
+
+    account_index::clear();
+    account_index::set_root_directory(root);
+    account_index::set_enabled(true);
+    account_index::upsert(indexed_record, flat_path, true);
+
+    std::string indexed_path;
+    ASSERT_TRUE(account_index::find_path_by_email("player@example.com", &indexed_path, nullptr))
+        << "the address must be indexed for this to test anything";
+
+    const bool created = account::create_account_for_email(root, "player@example.com", "ValidPass2", 1700007777, nullptr, &error_message);
+
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_FALSE(created)
+        << "an address the index already holds must stay occupied even when its record will not read";
+}
+
+// --- admin_rename_linked_character -------------------------------------------------------------
+//
+// rename_char (db.cpp) predates account storage: it system("rm")s player_table[i].ch_file, which
+// for an account-native character IS the account's <name>.character.json, and never rewrites
+// account.json. The character's save is destroyed while the account keeps listing the old name,
+// leaving a roster row that renders "[ ?? ???]" and cannot be played. These cover the account-layer
+// half of the fix: move the three files and rewrite the account, atomically, or change nothing.
+
+namespace {
+
+// Writes the three account-owned files for a linked character, so a rename has something to move.
+void write_linked_character_files(const std::string& root, const std::string& account_name,
+    const std::string& character_name, const std::string& marker)
+{
+    const std::string character_path = account::account_character_player_path(root, account_name, character_name);
+    const std::string object_path = account::account_character_object_path(root, account_name, character_name);
+    const std::string exploits_path = account::account_character_exploits_path(root, account_name, character_name);
+    for (const auto& entry : { std::make_pair(character_path, marker + "-character"),
+             std::make_pair(object_path, marker + "-objects"),
+             std::make_pair(exploits_path, marker + "-exploits") }) {
+        FILE* file = std::fopen(entry.first.c_str(), "wb");
+        ASSERT_NE(file, nullptr) << "could not create " << entry.first;
+        std::fwrite(entry.second.data(), 1, entry.second.size(), file);
+        std::fclose(file);
+    }
+}
+
+bool path_is_present(const std::string& path)
+{
+    struct stat file_info { };
+    return stat(path.c_str(), &file_info) == 0;
+}
+
+std::string read_whole(const std::string& path)
+{
+    FILE* file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr)
+        return std::string();
+    std::string out;
+    char buffer[512];
+    while (true) {
+        const size_t n = std::fread(buffer, 1, sizeof(buffer), file);
+        if (n > 0)
+            out.append(buffer, n);
+        if (n < sizeof(buffer))
+            break;
+    }
+    std::fclose(file);
+    return out;
+}
+
+} // namespace
+
+TEST(AccountManagement, RenamingALinkedCharacterMovesItsFilesAndRewritesTheAccount)
+{
+    TemporaryDirectory temp_directory;
+    account::AccountData account_data;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com",
+        "ValidPass1", 1700006000, &account_data, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), account_data.account_name,
+        "oldname", 1700006001, &account_data, &error_message)) << error_message;
+    write_linked_character_files(temp_directory.path(), account_data.account_name, "oldname", "payload");
+
+    ASSERT_TRUE(account::admin_rename_linked_character(temp_directory.path(),
+        account_data.account_name, "oldname", "newname", 1700006002, &account_data, &error_message))
+        << error_message;
+
+    const std::string old_character = account::account_character_player_path(temp_directory.path(), account_data.account_name, "oldname");
+    const std::string new_character = account::account_character_player_path(temp_directory.path(), account_data.account_name, "newname");
+    const std::string new_object = account::account_character_object_path(temp_directory.path(), account_data.account_name, "newname");
+    const std::string new_exploits = account::account_character_exploits_path(temp_directory.path(), account_data.account_name, "newname");
+
+    EXPECT_FALSE(path_is_present(old_character)) << "the old character file must not survive the rename";
+    EXPECT_TRUE(path_is_present(new_character)) << "the character file must exist under the new name";
+    EXPECT_TRUE(path_is_present(new_object));
+    EXPECT_TRUE(path_is_present(new_exploits));
+    // The CONTENT must move, not just the name -- this is the whole point.
+    EXPECT_EQ(read_whole(new_character), "payload-character");
+    EXPECT_EQ(read_whole(new_object), "payload-objects");
+    EXPECT_EQ(read_whole(new_exploits), "payload-exploits");
+
+    account::AccountData reread;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), account_data.account_name, &reread, &error_message)) << error_message;
+    EXPECT_FALSE(account::account_has_character(reread, "oldname")) << "the account must stop listing the old name";
+    EXPECT_TRUE(account::account_has_character(reread, "newname")) << "the account must list the new name";
+}
+
+namespace {
+
+// A legacy flat record this account's write would retire, readable and this account's own (so the
+// pre-commit guard passes it), sitting in a bucket that has lost its write bit -- so the retirement
+// std::remove fails with EACCES AFTER account.json has been renamed into place. Returns the bucket
+// so the caller can restore its mode.
+std::string plant_unretirable_legacy_record(const std::string& root, const std::string& account_name,
+    const std::string& email)
+{
+    const std::string legacy_bucket = root + "/accounts/" + account::account_bucket_for_name(account_name);
+    mkdir(legacy_bucket.c_str(), 0700);
+    const std::string account_json = root + "/accounts/" + account::account_bucket_for_name(email)
+        + "/" + email + "/account.json";
+    write_text_file(legacy_bucket + "/" + account_name + ".json", read_file_contents(account_json));
+    EXPECT_EQ(chmod(legacy_bucket.c_str(), 0500), 0);
+    return legacy_bucket;
+}
+
+} // namespace
+
+TEST(AccountManagement, RenamingALinkedCharacterStandsWhenRetiringALegacyRecordFails)
+{
+    // The account write commits -- account.json is renamed into place, the cache is flushed and the
+    // index re-derived -- and only then can a retirement std::remove fail. Reported as a failed
+    // rename, the caller undid the file moves, so account.json and the index named the character
+    // "newname" while its files sat at "oldname": the "[ ?? ???]" roster row this function exists
+    // to prevent, handed to the immortal as an error. A stale legacy file left behind is litter.
+    TemporaryDirectory temp_directory;
+    account::AccountData account_data;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com",
+        "ValidPass1", 1700006300, &account_data, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), account_data.account_name,
+        "oldname", 1700006301, &account_data, &error_message)) << error_message;
+    write_linked_character_files(temp_directory.path(), account_data.account_name, "oldname", "payload");
+
+    const std::string legacy_bucket = plant_unretirable_legacy_record(temp_directory.path(),
+        account_data.account_name, "player@example.com");
+
+    const bool renamed = account::admin_rename_linked_character(temp_directory.path(),
+        account_data.account_name, "oldname", "newname", 1700006302, &account_data, &error_message);
+    chmod(legacy_bucket.c_str(), 0700);
+
+    EXPECT_TRUE(renamed) << error_message;
+
+    const std::string new_character = account::account_character_player_path(temp_directory.path(), account_data.account_name, "newname");
+    EXPECT_TRUE(path_is_present(new_character)) << "the files must stay where the committed account record says they are";
+    EXPECT_EQ(read_whole(new_character), "payload-character");
+    EXPECT_FALSE(path_is_present(account::account_character_player_path(temp_directory.path(), account_data.account_name, "oldname")));
+
+    account::AccountData reread;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), account_data.account_name, &reread, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(reread, "newname"));
+}
+
+TEST(AccountManagement, DeletingALinkedCharacterStandsWhenRetiringALegacyRecordFails)
+{
+    // Same post-commit bailout on the deletion path, where the undo is worse: the character files
+    // were restored while account.json no longer listed the character, and db.cpp -- reading the
+    // false as "nothing happened" -- deleted the players/ZZZ archive it had just made for exactly
+    // this recovery.
+    TemporaryDirectory temp_directory;
+    account::AccountData account_data;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com",
+        "ValidPass1", 1700006400, &account_data, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), account_data.account_name,
+        "oldname", 1700006401, &account_data, &error_message)) << error_message;
+    write_linked_character_files(temp_directory.path(), account_data.account_name, "oldname", "payload");
+
+    const std::string legacy_bucket = plant_unretirable_legacy_record(temp_directory.path(),
+        account_data.account_name, "player@example.com");
+
+    const bool deleted = account::admin_delete_linked_character(temp_directory.path(),
+        account_data.account_name, "oldname", 1700006402, &account_data, &error_message);
+    chmod(legacy_bucket.c_str(), 0700);
+
+    EXPECT_TRUE(deleted) << error_message;
+    EXPECT_FALSE(path_is_present(account::account_character_player_path(temp_directory.path(), account_data.account_name, "oldname")))
+        << "the character file must not be restored under a record that no longer lists it";
+
+    account::AccountData reread;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), account_data.account_name, &reread, &error_message)) << error_message;
+    EXPECT_FALSE(account::account_has_character(reread, "oldname"));
+}
+
+TEST(AccountManagement, DeletingALinkedCharacterStandsWhenAStagedFileCannotBeRemoved)
+{
+    // The staged copies are removed last, after the account write has committed. A staged path that
+    // will not unlink -- here a stray directory left where the object file belongs -- was reported
+    // as a failed deletion, and db.cpp then removed the players/ZZZ archive. The character is
+    // deleted either way; the staged leftover is litter.
+    TemporaryDirectory temp_directory;
+    account::AccountData account_data;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com",
+        "ValidPass1", 1700006500, &account_data, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), account_data.account_name,
+        "oldname", 1700006501, &account_data, &error_message)) << error_message;
+    write_linked_character_files(temp_directory.path(), account_data.account_name, "oldname", "payload");
+
+    const std::string object_path = account::account_character_object_path(temp_directory.path(), account_data.account_name, "oldname");
+    ASSERT_EQ(std::remove(object_path.c_str()), 0);
+    ASSERT_EQ(mkdir(object_path.c_str(), 0700), 0);
+    write_text_file(object_path + "/stray", "stray");
+
+    EXPECT_TRUE(account::admin_delete_linked_character(temp_directory.path(),
+        account_data.account_name, "oldname", 1700006502, &account_data, &error_message))
+        << error_message;
+    EXPECT_FALSE(path_is_present(account::account_character_player_path(temp_directory.path(), account_data.account_name, "oldname")));
+
+    account::AccountData reread;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), account_data.account_name, &reread, &error_message)) << error_message;
+    EXPECT_FALSE(account::account_has_character(reread, "oldname"));
+}
+
+TEST(AccountManagement, RenamingALinkedCharacterOntoAnExistingNameChangesNothing)
+{
+    TemporaryDirectory temp_directory;
+    account::AccountData account_data;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com",
+        "ValidPass1", 1700006100, &account_data, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), account_data.account_name,
+        "oldname", 1700006101, &account_data, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), account_data.account_name,
+        "taken", 1700006102, &account_data, &error_message)) << error_message;
+    write_linked_character_files(temp_directory.path(), account_data.account_name, "oldname", "first");
+    write_linked_character_files(temp_directory.path(), account_data.account_name, "taken", "second");
+
+    EXPECT_FALSE(account::admin_rename_linked_character(temp_directory.path(),
+        account_data.account_name, "oldname", "taken", 1700006103, &account_data, &error_message));
+
+    // Neither character may be disturbed by the refusal.
+    EXPECT_EQ(read_whole(account::account_character_player_path(temp_directory.path(), account_data.account_name, "oldname")), "first-character");
+    EXPECT_EQ(read_whole(account::account_character_player_path(temp_directory.path(), account_data.account_name, "taken")), "second-character");
+    account::AccountData reread;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), account_data.account_name, &reread, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(reread, "oldname"));
+    EXPECT_TRUE(account::account_has_character(reread, "taken"));
+}
+
+TEST(AccountManagement, RenamingACharacterTheAccountDoesNotOwnIsRefused)
+{
+    TemporaryDirectory temp_directory;
+    account::AccountData account_data;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com",
+        "ValidPass1", 1700006200, &account_data, &error_message)) << error_message;
+
+    EXPECT_FALSE(account::admin_rename_linked_character(temp_directory.path(),
+        account_data.account_name, "stranger", "newname", 1700006201, &account_data, &error_message));
+    EXPECT_NE(error_message.find("not linked"), std::string::npos) << error_message;
+}
+
+TEST(AccountManagement, RefusesToRenameALinkedCharacterWhoseCharacterFileIsMissing)
+{
+    // The staged-move loop skipped any source that stat()'d ENOENT, uniformly -- including the
+    // character file. That is the one condition meaning the rename cannot be carried out: all three
+    // moves no-op, account.json and character_links are rewritten to the new name, the index is
+    // upserted and player_table[].ch_file is repointed, and rename_char returns success. The account
+    // then lists a character with no file behind it -- the "[ ?? ???]" roster row this function
+    // exists to prevent. validate_account_owned_character_path does not cover it: it string-compares
+    // the stored path against character_json_file_name() and stats nothing.
+    TemporaryDirectory temp_directory;
+    account::AccountData account_data;
+    std::string error_message;
+
+    ASSERT_TRUE(account::create_account_for_email(temp_directory.path(), "player@example.com",
+        "ValidPass1", 1700006000, &account_data, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), account_data.account_name,
+        "oldname", 1700006001, &account_data, &error_message)) << error_message;
+    write_linked_character_files(temp_directory.path(), account_data.account_name, "oldname", "payload");
+
+    const std::string old_character = account::account_character_player_path(temp_directory.path(), account_data.account_name, "oldname");
+    ASSERT_EQ(std::remove(old_character.c_str()), 0);
+
+    EXPECT_FALSE(account::admin_rename_linked_character(temp_directory.path(),
+        account_data.account_name, "oldname", "newname", 1700006002, &account_data, &error_message))
+        << "a rename with no character file to move must be refused, not reported as done";
+    EXPECT_NE(error_message.find("is not there"), std::string::npos) << "reported as: " << error_message;
+
+    account::AccountData stored_account;
+    ASSERT_TRUE(account::read_account_file(temp_directory.path(), account_data.account_name, &stored_account, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(stored_account, "oldname"))
+        << "the account must still claim the character by the name its files are under";
+    EXPECT_FALSE(account::account_has_character(stored_account, "newname"))
+        << "and must not have been repointed at a name with nothing behind it";
+
+    // The object and exploits files must not have been left half-moved either.
+    EXPECT_TRUE(path_is_present(account::account_character_object_path(temp_directory.path(), account_data.account_name, "oldname")));
+    EXPECT_TRUE(path_is_present(account::account_character_exploits_path(temp_directory.path(), account_data.account_name, "oldname")));
 }

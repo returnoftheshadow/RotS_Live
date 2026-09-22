@@ -1,3 +1,4 @@
+#include "../account_errors.h"
 #include "../account_management.h"
 #include "../db.h"
 #include "../exploits_json.h"
@@ -8,6 +9,8 @@
 #include "../utils.h"
 #include "../zone.h"
 #include "test_character_support.h"
+
+#include "AccountRecordOnDiskBuilder.h"
 
 #include <gtest/gtest.h>
 
@@ -22,8 +25,10 @@
 ACMD(do_account);
 ACMD(do_whoacct);
 ACMD(do_wizstat);
+ACMD(do_wizset);
 extern struct player_index_element* player_table;
 extern struct descriptor_data* descriptor_list;
+extern struct char_data* character_list;
 extern struct room_data world;
 extern struct index_data* obj_index;
 extern int top_of_p_table;
@@ -134,6 +139,23 @@ public:
 
 private:
     descriptor_data* m_previous_descriptor_list;
+};
+
+class ScopedCharacterList {
+public:
+    ScopedCharacterList()
+        : m_previous_character_list(character_list)
+    {
+        character_list = nullptr;
+    }
+
+    ~ScopedCharacterList()
+    {
+        character_list = m_previous_character_list;
+    }
+
+private:
+    char_data* m_previous_character_list;
 };
 
 descriptor_data make_descriptor()
@@ -364,6 +386,148 @@ std::string make_valid_exploit_bytes()
     std::string exploit_bytes;
     EXPECT_TRUE(exploits_json::exploit_records_to_binary(records, &exploit_bytes, &error_message)) << error_message;
     return exploit_bytes;
+}
+
+TEST(ActWiz, AccountMigrateCharFailureIsLogged)
+{
+    // A migration that will not complete is a record worth keeping whoever ran it. The immortal sees
+    // the reason on their screen and nobody else does -- and by the time a player reports that their
+    // 1998 character never appeared, the only evidence of the attempt is whatever the log holds.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    account::AccountData created_account;
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010200, &created_account, &error_message)) << error_message;
+
+    descriptor_data descriptor = make_descriptor();
+    char_data admin {};
+    admin.desc = &descriptor;
+    admin.player.name = strdup("tester");
+
+    account_errors::clear();
+    char migrate_command[] = "migratechar player@example.com nosuchcharacter";
+    testing::internal::CaptureStderr();
+    do_account(&admin, migrate_command, nullptr, 0, 0);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    // Asserted as one string: the loader already writes its own lines to stderr while failing, so a
+    // bare search for the character name passes on output that says nothing about the migration
+    // having been attempted. The fixed field order is what makes this a precise query.
+    EXPECT_NE(logged.find("ACCTERR migration acct=alpha-admin char=nosuchcharacter by=tester:"), std::string::npos)
+        << "a failed migration must name the account, the character and who ran it; logged: " << logged;
+
+    // And it must still be answerable when the log line has scrolled away.
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    ASSERT_EQ(recorded.size(), 1u);
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Migration);
+    EXPECT_EQ(recorded[0].account, "alpha-admin");
+    EXPECT_EQ(recorded[0].character, "nosuchcharacter");
+
+    account_errors::clear();
+    free(admin.player.name);
+}
+
+TEST(ActWiz, AccountErrorsListsWhatThisBootRecordedNewestFirst)
+{
+    // The retrieval half. Everything here already reached the log when it happened; this is for the
+    // player who reports it hours later, once the lines have scrolled away.
+    account_errors::clear();
+    account_errors::record(account_errors::Source::Migration, "alpha-admin", "aragorn", "description exceeds 511 bytes");
+    account_errors::record(account_errors::Source::Save, "alpha-admin", "legolas", "it cannot be read back");
+
+    descriptor_data descriptor = make_descriptor();
+    char_data admin {};
+    admin.desc = &descriptor;
+    admin.player.name = strdup("tester");
+
+    char errors_command[] = "errors";
+    do_account(&admin, errors_command, nullptr, 0, 0);
+    const std::string output = descriptor.small_outbuf;
+
+    const std::size_t save_row = output.find("legolas");
+    const std::size_t migration_row = output.find("aragorn");
+    ASSERT_NE(save_row, std::string::npos) << output;
+    ASSERT_NE(migration_row, std::string::npos) << output;
+    EXPECT_LT(save_row, migration_row) << "newest first, so the most recent failure is at the top";
+    EXPECT_NE(output.find("migration"), std::string::npos) << output;
+    EXPECT_NE(output.find("save"), std::string::npos) << output;
+    EXPECT_NE(output.find("it cannot be read back"), std::string::npos) << output;
+
+    account_errors::clear();
+    free(admin.player.name);
+}
+
+TEST(ActWiz, AccountErrorsShowsHowManyTimesAFailureHasRecurred)
+{
+    // A save refusal repeats every autosave. The row has to say that it is still happening, or a
+    // single collapsed line reads like a one-off from hours ago.
+    account_errors::clear();
+    for (int attempt = 0; attempt < 4; ++attempt)
+        account_errors::record(account_errors::Source::Save, "alpha-admin", "aragorn", "it cannot be read back");
+
+    descriptor_data descriptor = make_descriptor();
+    char_data admin {};
+    admin.desc = &descriptor;
+    admin.player.name = strdup("tester");
+
+    char errors_command[] = "errors";
+    do_account(&admin, errors_command, nullptr, 0, 0);
+    const std::string output = descriptor.small_outbuf;
+
+    EXPECT_NE(output.find("x4"), std::string::npos) << "the row must show the recurrence count: " << output;
+
+    account_errors::clear();
+    free(admin.player.name);
+}
+
+TEST(ActWiz, AccountErrorsSaysSoWhenThisBootHasRecordedNothing)
+{
+    // A quiet boot must read as quiet. An empty report that says nothing at all is indistinguishable
+    // from a command that did not work.
+    account_errors::clear();
+
+    descriptor_data descriptor = make_descriptor();
+    char_data admin {};
+    admin.desc = &descriptor;
+    admin.player.name = strdup("tester");
+
+    char errors_command[] = "errors";
+    do_account(&admin, errors_command, nullptr, 0, 0);
+
+    EXPECT_NE(std::string(descriptor.small_outbuf).find("No account errors"), std::string::npos)
+        << descriptor.small_outbuf;
+
+    free(admin.player.name);
+}
+
+TEST(ActWiz, AccountErrorsShowsOnlyAsManyRowsAsAsked)
+{
+    account_errors::clear();
+    for (int index = 0; index < 5; ++index) {
+        account_errors::record(account_errors::Source::Boot, "alpha-admin",
+            "char" + std::to_string(index), "unreadable");
+    }
+
+    descriptor_data descriptor = make_descriptor();
+    char_data admin {};
+    admin.desc = &descriptor;
+    admin.player.name = strdup("tester");
+
+    char errors_command[] = "errors 2";
+    do_account(&admin, errors_command, nullptr, 0, 0);
+    const std::string output = descriptor.small_outbuf;
+
+    EXPECT_NE(output.find("char4"), std::string::npos) << output;
+    EXPECT_NE(output.find("char3"), std::string::npos) << output;
+    EXPECT_EQ(output.find("char2"), std::string::npos) << "asked for two rows: " << output;
+    // Saying how many were held is what stops a capped view reading as the whole truth.
+    EXPECT_NE(output.find("5"), std::string::npos) << output;
+
+    account_errors::clear();
+    free(admin.player.name);
 }
 
 TEST(ActWiz, AccountCommandAcceptsEmailForShowAndMutatingSubcommands)
@@ -1095,3 +1259,96 @@ TEST(ActWiz, StatRoomSkipsPrototypeVnumForPrototypelessObject)
 }
 
 } // namespace
+
+// --- wizset <victim> name <newname> ---------------------------------------------------------
+//
+// The only reachable caller of rename_char (`rent namechange` sits behind an unconditional
+// `return TRUE;` at objsave.cpp:1692). It discarded rename_char's result, so every refusal the
+// account layer makes -- including the over-length player-index path -- was reported to the
+// immortal as a success while the character kept its old name.
+
+// Puts an implementor in the world who owns an account-native character file, and returns them.
+// Renaming yourself is the shape that needs no room: CAN_SEE returns 1 immediately for sub == obj.
+char_data* make_account_native_implementor(descriptor_data* descriptor, const char* account_name,
+    const char* email, const char* bucket)
+{
+    EXPECT_EQ(mkdir("accounts", 0700), 0);
+    EXPECT_EQ(mkdir((std::string("accounts/") + bucket).c_str(), 0700), 0);
+    EXPECT_EQ(mkdir("players", 0700), 0);
+    EXPECT_EQ(mkdir("players/A-E", 0700), 0);
+
+    // Planted rather than registered. One caller needs an address longer than MAX_EMAIL_LENGTH,
+    // which create_account refuses, and planting is what an operator restoring a record by hand
+    // does anyway -- so both callers take one code path instead of branching on whether the address
+    // happens to be legal. See tests/AccountRecordOnDiskBuilder.h.
+    const std::string account_directory = rots_tests::plant_account_record_with_unvalidated_email(
+        ".", account_name, email, { "aragorn" });
+
+    char_file_u stored_character = make_stored_character("aragorn", LEVEL_IMPL);
+    rots_tests::plant_account_character_file(account_directory, stored_character);
+    std::snprintf(player_table[0].ch_file, sizeof(player_table[0].ch_file), "%s",
+        account::account_character_player_path(".", account_name, "aragorn").c_str());
+
+    char_data* implementor = attach_active_character(descriptor, "aragorn", LEVEL_IMPL, 1234);
+    std::snprintf(descriptor->account_name, sizeof(descriptor->account_name), "%s", account_name);
+    character_list = implementor;
+    return implementor;
+}
+
+TEST(ActWiz, WizsetNameReportsARefusedRenameRatherThanClaimingSuccess)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorList descriptor_list_guard;
+    ScopedCharacterList character_list_guard;
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+
+    descriptor_data descriptor = make_descriptor();
+    // Sized so "aragorn"'s path still fits ch_file and "bartholomew"'s does not: 31 bytes of fixed
+    // structure + email + name, with the two names 4 apart. Derived from the buffer so a future
+    // widening cannot quietly turn this into a test of nothing.
+    const std::string long_email = std::string(sizeof(player_table[0].ch_file) - 40 - 12, 'f') + "@example.com";
+    char_data* implementor = make_account_native_implementor(&descriptor, "long-account",
+        long_email.c_str(), "F-J");
+
+    char command[] = "player aragorn name Bartholomew";
+    do_wizset(implementor, command, nullptr, 0, 0);
+
+    const std::string output = descriptor.output;
+    EXPECT_EQ(output.find("successfully"), std::string::npos)
+        << "a refused rename must not be reported as a success -- got: " << output;
+    EXPECT_NE(output.find("refused"), std::string::npos)
+        << "the immortal must be told the rename was refused -- got: " << output;
+    EXPECT_NE(output.find("player index"), std::string::npos)
+        << "and told why, rather than being sent to the syslog -- got: " << output;
+    EXPECT_STREQ(implementor->player.name, "aragorn") << "the character must keep its name";
+
+    free(implementor->player.name);
+    delete implementor;
+}
+
+TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
+{
+    // rename_char writes the shared `buf` all the way through (it starts by filling it with
+    // Crash_get_filename), and do_wizset's tail sends `buf` to the immortal after the switch. So a
+    // successful rename printed its success line and then a second line of whatever rename_char had
+    // last left in the buffer.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedDescriptorList descriptor_list_guard;
+    ScopedCharacterList character_list_guard;
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+
+    descriptor_data descriptor = make_descriptor();
+    char_data* implementor = make_account_native_implementor(&descriptor, "alpha-admin",
+        "player@example.com", "A-E");
+
+    char command[] = "player aragorn name Bartholomew";
+    do_wizset(implementor, command, nullptr, 0, 0);
+
+    EXPECT_EQ(std::string(descriptor.output), "You changed their name successfully.\n\r");
+    EXPECT_STREQ(implementor->player.name, "Bartholomew");
+
+    free(implementor->player.name);
+    delete implementor;
+}
