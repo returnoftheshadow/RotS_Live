@@ -20,6 +20,14 @@
   in the fixture; blaze damage scales with it, so every blaze scenario protects the imp and
   room_still_burning checks the room name), the alias-list leak in the new crash-load gtest, and
   neutralize_melee's prompt race. Nothing open is a new production defect.
+- Merged release-frodo (2026-09-22, 3f17f22; PR #309 now targets release-frodo; CI green at d830fac, run 35782755818:
+  74 scenarios, 1141/1141 unit tests on both jobs). Ten files conflicted; every resolution keeps both
+  sides (merge commit body). Idle rent writes an empty follower section and extracts nothing, reconciling
+  the strict account-native reader with release-frodo's idle-out tests. The merge exposed and this branch
+  fixed: lib/text/msdp_tbl had outgrown the 8192-byte text loader on release-frodo (MSDP help never loaded,
+  boot SYSERR) -- file_to_string_alloc now reads through a growable buffer; eight release-frodo tests freed
+  new-allocated characters through the server's free (alloc-dealloc mismatch under ASan) -- allocated
+  through test_support now; ci.yml triggers gained release-frodo.
 - Deploy caveat still standing (from the 2026-09-15 task below): the account-native exploits history is
   a one-way schema change; do not roll a server back to a pre-widening binary once a wide victim id has
   been recorded.
