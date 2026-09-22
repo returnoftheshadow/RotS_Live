@@ -44,7 +44,8 @@ without hunting through old text files.
    `world/scr/old/`). `/implement` copies the temporary version into the live
    `script_table` if the script existed when the MUD booted. `/done` performs
    `/implement`, `/save`, then `/free`. New scripts require a reboot before
-   they can be implemented.
+   they can be implemented. `/implement` lists every line that names a room,
+   mobile or object that does not exist (see [Error messages](#error-messages)).
 5. `/free` abandons changes and exits shaping. Always `/save` first if you care
    about the edits.
 
@@ -152,7 +153,7 @@ noted earlier.
 |---------|-------------|
 | `LOAD_MOB` / `LOAD_OBJ` | Create a new mob/object by vnum and assign it to a `chx` or `obx`. Scripts are responsible for placing the object (use `OBJ_TO_CHAR`/`OBJ_TO_ROOM`). |
 | `LOAD_OBJ_X` | Clone an existing object referenced in `obx`. |
-| `EQUIP_CHAR` | Load up to five vnums on a character and auto-wear them. |
+| `EQUIP_CHAR` | Load up to five vnums on a character and auto-wear them. Leave unused slots as `0`. |
 | `EXTRACT_CHAR` | Remove a mobile from the game (inventory drops in room). Never use on PCs. |
 | `EXTRACT_OBJ` | Remove an object from the game. |
 
@@ -166,7 +167,7 @@ noted earlier.
 | `SET_INT_VALUE`, `SET_INT_SUM`, `SET_INT_SUB`, `SET_INT_MULT`, `SET_INT_DIV`, `SET_INT_RANDOM` | Perform integer math and assign the result to `intx` or fields like `ch1.hit`. Use with caution when targeting live character stats. |
 | `SET_INT_WAR_STATUS` | Store fame-war state in an integer (1 if whities lead, -1 darkies lead, 0 tie). |
 | `SET_EXIT_STATE` | Open/close/lock a door (state 0=open, 1=closed, 2=closed+locked). Automatically mirrors to the reverse exit and sends default messages. |
-| `CHANGE_EXIT_TO` | Change an exit’s destination room. |
+| `CHANGE_EXIT_TO` | Change an exit’s destination room. The exit must already exist; a room with no exit in that direction is reported and the line is skipped. |
 | `ASSIGN_ROOM` | Retrieve an object in a room by vnum. |
 
 ### Modifying the world
@@ -175,7 +176,7 @@ noted earlier.
 |---------|-------------|
 | `OBJ_FROM_CHAR` / `OBJ_FROM_ROOM` | Remove an object from a character or room (no destination). Combine with `OBJ_TO_*` to teleport items. |
 | `OBJ_TO_CHAR` / `OBJ_TO_ROOM` | Place an object in inventory or the room contents. |
-| `TELEPORT_CHAR`, `TELEPORT_CHAR_X`, `TELEPORT_CHAR_XL` | Move characters between rooms (with or without followers). These commands do **not** send messages; scripts must narrate arrivals/departures. |
+| `TELEPORT_CHAR`, `TELEPORT_CHAR_X`, `TELEPORT_CHAR_XL` | Move characters between rooms (with or without followers). These commands do **not** send messages; scripts must narrate arrivals/departures. If the `TELEPORT_CHAR_XL` room is not set (an unset room variable, or the room of an unset character) it is reported and the line is skipped. |
 | `RAW_KILL` | Kill a character immediately (silent corpse). Ensure your script handles messaging and loot placement if needed. |
 | `GAIN_EXP` | Adjust experience (positive or negative). Handles level-up/level-loss automatically. |
 | `PAGE_ZONE_MAP` | Show the shaped zone map to a character (handy for maze hints). |
@@ -187,6 +188,32 @@ noted earlier.
 | `SEND_TO_CHAR` | Send formatted text to a single character. Use `%s` to insert `strx` or `.name`. |
 | `SEND_TO_ROOM` | Broadcast to the room (including the source). |
 | `SEND_TO_ROOM_X` | Broadcast to the room except a specific character (e.g., to hide secret messages). |
+
+## Error messages
+
+A line that names something that does not exist is reported with the script
+number and the line number shown in brackets by `/1` and `/50`. It goes to the
+log, and to anyone at area god or above with `syslog` set to `normal` or
+higher.
+
+```
+SCRIPT ERROR: script #2212, line 14 (load mob): mobile vnum 31099 not found
+```
+
+- **Vnum not found** (`load mob`, `load obj`, `equip char`, `assign inv`,
+  `assign room`, `teleport`, `teleport x`, `change exit to`): reported at boot,
+  on `/implement` (shown to the builder directly as well), and every time the
+  line runs. The line still runs as it always did -- the message only tells
+  you it is wrong.
+- **`(change exit to): room R has no exit D`**: the room has no exit in that
+  direction (or the direction is not 0-5). The line is skipped.
+- **`(teleport xl): room not found`**: the room parameter is not set. The line
+  is skipped.
+- **`line N: negative room lookup`**: something the line set off looked up a
+  room that does not exist.
+
+Run-time messages repeat every time the line runs, so a busy script with a bad
+line shows up often -- that is deliberate.
 
 ## Equipment, race, and exit tables
 
