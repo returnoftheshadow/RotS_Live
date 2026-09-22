@@ -517,6 +517,30 @@ the room of the caster. If the target has summon protection on
 the spell will fail. 
 
 #
+"BLAZE"
+
+[Syntax      ] cast 'blaze'
+               cast 'blaze' <target>
+[Group       ] Magic-User, Fire
+[Level       ] 18
+[Minimum Cost] 15
+[Offensive   ] Yes
+[Description ]
+---Casting "Blaze" with no target breathes a cloud of fire over the room.
+Everyone present who is not friendly to the caster is burnt at once, and the
+room then bursts into a firestorm that keeps burning anyone who stays in it,
+friend or foe, for a time that grows with the caster's level.  Each burn is
+based on the caster's level when the blaze was lit, and a successful save
+halves it.  A stronger blaze cast on the same room renews the firestorm and
+takes it over; a weaker one changes nothing.  Kills by the firestorm are
+credited to the caster who lit it, even after that caster has left.
+---Casting "Blaze" on a <target> breathes fire on that one creature instead,
+without lighting the room.
+  Only people specializing in Fire can learn it.
+
+See: SPECIALIZATIONS, FIRE
+
+#
 FIRE
 
 Fire spells, such as fireball or firebolt tend to be unpredictable, as is
