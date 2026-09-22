@@ -57,6 +57,16 @@ behaviour lives so you can confirm it still holds.
   refused.
 - **Summon fails across sides.** `other_side()` (`handler.cpp`) places a magus opposite a
   wood elf; Harncaller (human) exists so summon has a same-side caster.
+- **Big Brother makes a three-times-lower-level player an impossible damage target**, and a
+  god an impossible one at any level. `damage_credited` asks `big_brother::is_target_valid`
+  before anything else (`fight.cpp:1847-1849`), sends the attacker "...protecting your target.
+  Your hand is stayed." and returns 0 without reaching either `set_fighting` call, so no
+  engagement happens either. The band is `attacker_level >= defender_level * 3` (or the
+  reverse) on `is_level_range_appropriate` (`big_brother.cpp:381-394`), reached from
+  `is_target_valid` at `:315-316`, and `victim->player.level >= LEVEL_MINIMM` at `:303` for a
+  god. On the roster that is Harncaller (30) against Harnvictim (10) and against Harnimp
+  (100), but not against Harnfighter (20). Pick the partner accordingly: it decides whether an
+  area spell can splash your own bystander player into PvP with the caster.
 - **A mob special needs `MOB_SPEC` as well as the program number.** The harness snake
   (`mob/11.mob` #1131) carries act flags `3`; without the flag the program is never bound and
   the mob never bites. `tests/integration/unit/test_world.py` pins this.
