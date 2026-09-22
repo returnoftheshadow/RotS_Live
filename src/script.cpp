@@ -1078,6 +1078,9 @@ int run_script(struct info_script* info, struct script_data* position)
                     curr = curr->next;
                     break;
                 }
+                /* Cleared first, as ASSIGN_INV and ASSIGN_ROOM do: with no
+                 * character it used to keep an earlier line's object. */
+                tmpobj = 0;
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch)
                     tmpobj = tmpch->equipment[curr->param[2]];

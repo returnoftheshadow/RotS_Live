@@ -327,6 +327,25 @@ TEST_F(WornObject, AssignEqSkipsASlotOutsideTheRange)
     EXPECT_EQ(7, info.ints[0]);
 }
 
+/* ASSIGN_EQ with its character variable unset must find nothing.  It used to
+ * keep whatever object an earlier line of the same run had touched and hand
+ * that to the script as "found".  Here DO_DROP (also with an unset character)
+ * is the earlier line: it looks up ob2 and drops nothing. */
+TEST_F(WornObject, AssignEqWithAnUnsetCharacterFindsNothing)
+{
+    info_script info = make_info();
+    info.ob[1] = &m_obj;
+    info.ints[0] = 7;
+    Script s;
+    s.add(SCRIPT_DO_DROP, SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB2);
+    s.add(SCRIPT_ASSIGN_EQ, SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB1, WEAR_BODY);
+    s.set_param(1, 3, SCRIPT_PARAM_INT1);
+    s.run(info);
+
+    EXPECT_EQ(nullptr, info.ob[0]);
+    EXPECT_EQ(0, info.ints[0]);
+}
+
 /* ---- TELEPORT_CHAR_XL: move CH1 to <room variable> ---- */
 
 /* TELEPORT_CHAR_XL runs only when run_script's tmpint, left by an earlier
