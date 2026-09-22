@@ -206,9 +206,12 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
     /* Successful hit */
     if (damg) {
         player_spec::battle_mage_handler battle_mage_handler(victim);
-        /* Illusion resistance: a one-in-three chance to shrug off a Will hit.
-           This is the only place RESIST_ILLU does anything, since no illusion
-           spell deals damage. */
+        /* Illusion resistance: when a hit rolls the Will stat, a one-in-three chance to
+           reroll it onto one of the other targets. The hit is NOT blocked - it always lands,
+           for the same damage; only which stat it drains changes. A reroll can land on 6
+           (concentration), which feeds the attacker spirits, so a resistant victim gives
+           spirits away very slightly more often (about one hit in 126). This is the only
+           place RESIST_ILLU does anything, since no illusion spell deals damage. */
         const int will_stat = 2;
         if (utils::is_resistant(*victim, RESIST_ILLU)) {
             tmp = number(0, 6);
