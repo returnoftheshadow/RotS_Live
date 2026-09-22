@@ -1744,21 +1744,107 @@ int clamp_resist_magnitude(int magnitude)
     return magnitude;
 }
 
-/* One implementation for all six resist spells. Slot ownership follows spell_evasion:
-   an item or an unequip strips whatever holds the slot first, so an item always wins it
-   and removing the item always clears it. */
+/* The affect a worn item installs never ticks down; a cast always does. */
+static bool is_item_held(const affected_type* affect) { return affect && affect->duration == -1; }
+
+/* The strongest resistance a still-worn item grants through this resist spell, or 0 when none
+   does. Decodes APPLY_SPELL exactly as affect_modify() does, and skips a HOLD item that is not
+   holdable because equip_char() never applied that item's affects in the first place. */
+static int strongest_worn_resist(const char_data* victim, int resist_type)
+{
+    int strongest = 0;
+
+    for (int pos = 0; pos < MAX_WEAR; ++pos) {
+        const obj_data* item = victim->equipment[pos];
+        if (!item || ((pos == HOLD) && !CAN_WEAR(item, ITEM_HOLD)))
+            continue;
+
+        for (int j = 0; j < MAX_OBJ_AFFECT; ++j) {
+            const obj_affected_type& affect = item->affected[j];
+            if ((affect.location != APPLY_SPELL) || ((affect.modifier & 255) != resist_type))
+                continue;
+
+            int magnitude = affect.modifier / 256;
+            if (!magnitude)
+                magnitude = GET_LEVEL(victim);
+            strongest = std::max(strongest, clamp_resist_magnitude(magnitude));
+        }
+    }
+
+    return strongest;
+}
+
+static void install_resist_affect(char_data* victim, int resist_type, int modifier, int duration,
+    int magnitude)
+{
+    affected_type newaf;
+
+    newaf.type = resist_type;
+    newaf.duration = duration;
+    newaf.modifier = modifier;
+    newaf.location = APPLY_RESIST;
+    newaf.bitvector = 0;
+    newaf.counter = 0;
+    newaf.effect_modifier = magnitude;
+
+    if (has_debug_flag(victim)) {
+        sprintf(buf, "::RESIST::apply type %d modifier %d eff_mod %d duration %d\n\r",
+            newaf.type, newaf.modifier, newaf.effect_modifier, newaf.duration);
+        debug_flag_msg(buf, victim);
+    }
+
+    affect_to_char(victim, &newaf);
+}
+
+/* One implementation for all six resist spells. Each element has one slot.
+
+   Between worn items the strongest holds it, whatever order they went on in, so a login that
+   re-equips by wear slot lands on the same value the player had. A weaker item put on beside a
+   stronger one changes nothing and says nothing.
+
+   Taking an item off only clears the slot when that item was the one holding it (same
+   strength), and then the strongest item still worn takes it back quietly - the player never
+   lost the resistance, so there is nothing to announce.
+
+   An item still always takes the slot from a cast, and a cast still cannot displace an item. */
 void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
     int type, int is_object, const char* str)
 {
-    affected_type newaf;
     affected_type* current_effect = affected_by_spell(victim, resist_type);
 
-    if ((type == SPELL_TYPE_ANTI) || is_object) {
+    if (type == SPELL_TYPE_ANTI) {
+        if (!is_object) {
+            if (current_effect != NULL)
+                affect_remove(victim, current_effect);
+            return;
+        }
+
+        /* eff_mod is the strength of the item coming off. */
+        if (!is_item_held(current_effect)
+            || (current_effect->effect_modifier != clamp_resist_magnitude(eff_mod)))
+            return;
+
+        affect_remove(victim, current_effect);
+
+        const int remaining = strongest_worn_resist(victim, resist_type);
+        if (remaining > 0)
+            install_resist_affect(victim, resist_type, modifier, -1, remaining);
+        return;
+    }
+
+    if (is_object) {
+        const int magnitude = clamp_resist_magnitude(eff_mod);
+
+        if (is_item_held(current_effect) && (current_effect->effect_modifier >= magnitude))
+            return;
+
         if (current_effect != NULL)
             affect_remove(victim, current_effect);
-        if (type == SPELL_TYPE_ANTI)
-            return;
-        current_effect = NULL;
+
+        install_resist_affect(victim, resist_type, modifier, -1, magnitude);
+        sprintf(buf, "You feel resistant to %s!\n\r", str);
+        send_to_char(buf, victim);
+        return;
     }
 
     if (current_effect) {
@@ -1780,22 +1866,8 @@ void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data
 
     const int level = get_mystic_caster_level(caster);
 
-    newaf.type = resist_type;
-    newaf.duration = (is_object) ? -1 : level * 2;
-    newaf.modifier = modifier;
-    newaf.location = APPLY_RESIST;
-    newaf.bitvector = 0;
-    newaf.counter = 0;
-    newaf.effect_modifier = clamp_resist_magnitude(
-        (is_object) ? eff_mod : cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, *caster)));
-
-    if (has_debug_flag(victim)) {
-        sprintf(buf, "::RESIST::apply type %d modifier %d eff_mod %d duration %d\n\r",
-            newaf.type, newaf.modifier, newaf.effect_modifier, newaf.duration);
-        debug_flag_msg(buf, victim);
-    }
-
-    affect_to_char(victim, &newaf);
+    install_resist_affect(victim, resist_type, modifier, level * 2,
+        clamp_resist_magnitude(cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, *caster))));
     sprintf(buf, "You feel resistant to %s!\n\r", str);
     send_to_char(buf, victim);
 }

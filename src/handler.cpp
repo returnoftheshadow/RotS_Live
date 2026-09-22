@@ -918,7 +918,7 @@ affected_type* affected_by_spell(const char_data* ch, byte skill, affected_type*
 
 /* Returns aff's counterpart on ch only when it is the sole affect of that type, i.e. when
    removing it cannot strip a slot something else still depends on. Unused: slot ownership
-   is settled by the strip-then-add rule in do_resist_spell. Kept for reference. */
+   is settled in do_resist_spell (strongest worn item holds it). Kept for reference. */
 affected_type* removeable_spell_affection(const char_data* ch, affected_type* aff, affected_type* start_affect)
 {
     int match_count = 0;

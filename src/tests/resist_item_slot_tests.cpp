@@ -1,24 +1,18 @@
 /* Ownership of an element's resist slot when more than one item grants it.
  *
- * Each element has exactly one affect slot, and an item always seizes it: do_resist_spell's
- * is_object branch removes whatever holds the element before installing its own. That rule is
- * inherited from spell_evasion and predates per-element magnitudes; while every item merely set
- * the same flag it was invisible, and it only became observable once items carried differing
- * strengths.
+ * Each element has exactly one affect slot. Between worn items the strongest holds it, in
+ * whatever order they went on: a weaker item put on beside a stronger one changes nothing and
+ * prints nothing. Login re-equips by wear slot rather than in the order the player dressed, so
+ * this is what keeps a character's value the same across a relog or reboot.
  *
- * Two of the tests below therefore lock in behaviour that is KNOWN TO BE WRONG and has been
- * accepted as-is rather than fixed:
+ * Taking an item off only clears the slot when that item was the one holding it, and the
+ * strongest item still worn then takes it back without a message - the player never lost the
+ * resistance.
  *
- *   - the last item worn owns the element, not the strongest, so a weaker item silently
- *     downgrades a stronger one;
- *   - removing the newer of two items on the same element leaves the older one worn and
- *     granting nothing at all, because its affect was destroyed rather than suppressed.
- *
- * They are pinned deliberately. The slot rule sits under equip_char/unequip_char, far from
- * anything obviously about resistances, so a change here would otherwise land silently and
- * shift live damage numbers with nothing to catch it. If a test here fails, decide whether the
- * behaviour was meant to change and update the test with that decision recorded - do not relax
- * it to make a build green.
+ * Before 2026-09-22 the last item worn owned the slot and any unequip on the element cleared
+ * it; the maintainer asked for this rule instead. The rule sits under equip_char/unequip_char,
+ * far from anything obviously about resistances, so these tests pin it: if one fails, decide
+ * whether the behaviour was meant to change and record that - do not relax it to go green.
  *
  * The harness drives the real equip_char/unequip_char path rather than calling do_resist_spell,
  * so it covers the APPLY_SPELL decode and the affect_total pass as well as the slot rule.
@@ -33,6 +27,7 @@
 #include "utils.h"
 
 #include <cstring>
+#include <string>
 
 extern struct index_data* obj_index;
 extern struct obj_data* obj_proto;
@@ -63,6 +58,7 @@ struct ItemResistBench {
 
     char_data character {};
     char character_name[16] = "slotbench";
+    descriptor_data descriptor {};
 
     ItemResistBench()
         : previous_obj_index(obj_index)
@@ -87,6 +83,19 @@ struct ItemResistBench {
         character.player.race = RACE_HUMAN;
         character.player.level = 20;
         character.in_room = NOWHERE;
+
+        descriptor.output = descriptor.small_outbuf;
+        descriptor.bufspace = SMALL_BUFSIZE - 1;
+        character.desc = &descriptor;
+        clear_output();
+    }
+
+    /* What the character has been told since the last clear. */
+    std::string output() const { return descriptor.output; }
+    void clear_output()
+    {
+        descriptor.small_outbuf[0] = '\0';
+        descriptor.bufptr = 0;
     }
 
     void define_prototype(int slot, int vnum, const char* name, const char* short_description,
@@ -112,6 +121,7 @@ struct ItemResistBench {
 
     ~ItemResistBench()
     {
+        character.desc = nullptr;
         while (character.affected)
             affect_remove(&character, character.affected);
 
@@ -143,6 +153,17 @@ int granted_percent(char_data* character, int spell)
     return affect ? affect->effect_modifier : -1;
 }
 
+int count_affects_in_slot(const char_data* character, int spell)
+{
+    int found = 0;
+    int count = 0;
+    for (affected_type* aff = character->affected; aff && count < MAX_AFFECT; aff = aff->next, count++) {
+        if (aff->type == spell)
+            ++found;
+    }
+    return found;
+}
+
 } // namespace
 
 TEST(ItemResistSlot, EachElementHasItsOwnSlotSoUnrelatedItemsDoNotInterfere)
@@ -172,70 +193,109 @@ TEST(ItemResistSlot, EachElementHasItsOwnSlotSoUnrelatedItemsDoNotInterfere)
            "has to put its own bit back";
 }
 
-TEST(ItemResistSlot, TheLastItemWornOwnsTheElementEvenIfItIsWeaker)
+TEST(ItemResistSlot, TheStrongestWornItemHoldsTheSlotWhicheverGoesOnFirst)
 {
-    // KNOWN DEFECT, pinned on purpose. Largest-wins governs a cast sitting alongside an item,
-    // but not two items: the second one removes the first instead of joining it, so a 10%
-    // amulet worn over a 40% ring downgrades the wearer rather than being ignored.
-    ItemResistBench bench;
+    {
+        ItemResistBench bench;
+        equip_char(&bench.character, bench.spawn(kStrongFireRingVnum), WEAR_FINGER_R);
+        equip_char(&bench.character, bench.spawn(kWeakFireRingVnum), WEAR_FINGER_L);
 
-    obj_data* strong_ring = bench.spawn(kStrongFireRingVnum);
-    obj_data* weak_amulet = bench.spawn(kWeakFireRingVnum);
-    ASSERT_NE(strong_ring, nullptr);
-    ASSERT_NE(weak_amulet, nullptr);
+        EXPECT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), kStrongFirePercent)
+            << "a weaker item put on second must not downgrade the stronger one";
+        EXPECT_EQ(count_affects_in_slot(&bench.character, SPELL_RESIST_FIRE), 1);
+    }
+    {
+        ItemResistBench bench;
+        equip_char(&bench.character, bench.spawn(kWeakFireRingVnum), WEAR_FINGER_R);
+        equip_char(&bench.character, bench.spawn(kStrongFireRingVnum), WEAR_FINGER_L);
 
-    equip_char(&bench.character, strong_ring, WEAR_FINGER_R);
-    ASSERT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), kStrongFirePercent);
-
-    equip_char(&bench.character, weak_amulet, WEAR_FINGER_L);
-
-    EXPECT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), kWeakFirePercent)
-        << "the stronger item's affect was destroyed, not merely outranked";
+        EXPECT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), kStrongFirePercent)
+            << "a stronger item put on second takes the slot";
+        EXPECT_EQ(count_affects_in_slot(&bench.character, SPELL_RESIST_FIRE), 1);
+    }
 }
 
-TEST(ItemResistSlot, RemovingTheNewerItemLeavesTheOlderOneGrantingNothing)
+TEST(ItemResistSlot, AWeakerItemGoingOnSaysNothingAndAStrongerOneAnnouncesItself)
 {
-    // KNOWN DEFECT, pinned on purpose. The older item is still worn, but the affect that
-    // represented it was removed when the newer item seized the slot, and nothing replays it:
-    // affect_total skips APPLY_SPELL gear affects, so only a fresh equip re-fires one.
     ItemResistBench bench;
+    equip_char(&bench.character, bench.spawn(kWeakFireRingVnum), WEAR_FINGER_R);
+    ASSERT_NE(bench.output().find("You feel resistant to fire!"), std::string::npos)
+        << bench.output();
 
-    obj_data* strong_ring = bench.spawn(kStrongFireRingVnum);
-    obj_data* weak_amulet = bench.spawn(kWeakFireRingVnum);
+    bench.clear_output();
+    equip_char(&bench.character, bench.spawn(kStrongFireRingVnum), WEAR_FINGER_L);
+    EXPECT_NE(bench.output().find("You feel resistant to fire!"), std::string::npos)
+        << "the stronger item actually changed what the player has: " << bench.output();
 
-    equip_char(&bench.character, strong_ring, WEAR_FINGER_R);
-    equip_char(&bench.character, weak_amulet, WEAR_FINGER_L);
-    ASSERT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), kWeakFirePercent);
-
-    unequip_char(&bench.character, WEAR_FINGER_L);
-
-    ASSERT_NE(bench.character.equipment[WEAR_FINGER_R], nullptr)
-        << "the stronger ring is still worn";
-    EXPECT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), -1)
-        << "a worn resist item is granting nothing";
-    EXPECT_FALSE(bench.character.specials.resistance & (1 << RESIST_FIRE))
-        << "and the element's bit is clear despite the item being worn";
+    obj_data* weak = unequip_char(&bench.character, WEAR_FINGER_R);
+    ASSERT_NE(weak, nullptr);
+    bench.clear_output();
+    equip_char(&bench.character, weak, WEAR_FINGER_R);
+    EXPECT_EQ(bench.output().find("resistant"), std::string::npos)
+        << "a weaker item going on beside a stronger one changes nothing: " << bench.output();
 }
 
-TEST(ItemResistSlot, ReEquippingTheOlderItemRestoresIt)
+TEST(ItemResistSlot, RemovingTheWeakerItemLeavesTheStrongerOneInPlace)
 {
-    // The escape hatch, and the reason the defect above has never been reported: logging in
-    // re-equips every worn item, and each equip re-fires APPLY_SPELL. Any relog or reboot
-    // therefore repairs the lost resistance on its own.
     ItemResistBench bench;
+    equip_char(&bench.character, bench.spawn(kStrongFireRingVnum), WEAR_FINGER_R);
+    equip_char(&bench.character, bench.spawn(kWeakFireRingVnum), WEAR_FINGER_L);
 
-    obj_data* strong_ring = bench.spawn(kStrongFireRingVnum);
-    obj_data* weak_amulet = bench.spawn(kWeakFireRingVnum);
-
-    equip_char(&bench.character, strong_ring, WEAR_FINGER_R);
-    equip_char(&bench.character, weak_amulet, WEAR_FINGER_L);
+    bench.clear_output();
     unequip_char(&bench.character, WEAR_FINGER_L);
-    ASSERT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), -1);
 
-    obj_data* removed = unequip_char(&bench.character, WEAR_FINGER_R);
-    ASSERT_NE(removed, nullptr);
-    equip_char(&bench.character, removed, WEAR_FINGER_R);
-
-    EXPECT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), kStrongFirePercent);
+    EXPECT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), kStrongFirePercent)
+        << "the item coming off never held the slot, so the slot is untouched";
     EXPECT_TRUE(bench.character.specials.resistance & (1 << RESIST_FIRE));
+    EXPECT_EQ(bench.output().find("resistant"), std::string::npos) << bench.output();
+}
+
+TEST(ItemResistSlot, RemovingTheStrongerItemFallsBackToTheWeakerOneQuietly)
+{
+    ItemResistBench bench;
+    equip_char(&bench.character, bench.spawn(kStrongFireRingVnum), WEAR_FINGER_R);
+    equip_char(&bench.character, bench.spawn(kWeakFireRingVnum), WEAR_FINGER_L);
+
+    bench.clear_output();
+    unequip_char(&bench.character, WEAR_FINGER_R);
+
+    ASSERT_NE(bench.character.equipment[WEAR_FINGER_L], nullptr);
+    EXPECT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), kWeakFirePercent)
+        << "the strongest item still worn takes the slot back";
+    EXPECT_EQ(count_affects_in_slot(&bench.character, SPELL_RESIST_FIRE), 1);
+    EXPECT_TRUE(bench.character.specials.resistance & (1 << RESIST_FIRE));
+    EXPECT_EQ(bench.output().find("resistant"), std::string::npos)
+        << "the player never lost the resistance, so nothing is announced: " << bench.output();
+}
+
+TEST(ItemResistSlot, RemovingTheLastItemClearsTheSlot)
+{
+    ItemResistBench bench;
+    equip_char(&bench.character, bench.spawn(kStrongFireRingVnum), WEAR_FINGER_R);
+    equip_char(&bench.character, bench.spawn(kWeakFireRingVnum), WEAR_FINGER_L);
+
+    unequip_char(&bench.character, WEAR_FINGER_R);
+    unequip_char(&bench.character, WEAR_FINGER_L);
+
+    EXPECT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), -1);
+    EXPECT_FALSE(bench.character.specials.resistance & (1 << RESIST_FIRE));
+}
+
+TEST(ItemResistSlot, AnItemHeldWhereItCannotBeHeldIsNotCountedOnFallback)
+{
+    // equip_char() applies no affects for an item in HOLD that is not holdable, so the fallback
+    // after an unequip must not hand its strength out either.
+    ItemResistBench bench;
+    obj_data* strong_ring = bench.spawn(kStrongFireRingVnum);
+    obj_data* weak_ring = bench.spawn(kWeakFireRingVnum);
+    REMOVE_BIT(weak_ring->obj_flags.wear_flags, ITEM_HOLD);
+
+    equip_char(&bench.character, strong_ring, WEAR_FINGER_R);
+    equip_char(&bench.character, weak_ring, HOLD);
+    ASSERT_EQ(bench.character.equipment[HOLD], weak_ring);
+
+    unequip_char(&bench.character, WEAR_FINGER_R);
+
+    EXPECT_EQ(granted_percent(&bench.character, SPELL_RESIST_FIRE), -1)
+        << "the held item never granted anything";
 }

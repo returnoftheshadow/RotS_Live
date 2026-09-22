@@ -129,6 +129,13 @@ The reason is recovery — a permanent affect cannot be re-derived when a tempor
 without rescanning all worn gear on every expiry, so item-over-spell is the ordering that never
 leaves a hole.
 
+**Amended 2026-09-22 (maintainer): between two worn items, the strongest holds the slot.** An item
+only replaces another item-held affect when it is stronger, so the value no longer depends on the
+order things were put on - which a relog or reboot re-runs by wear slot, not by the player's order.
+Taking an item off only clears the slot when that item held it; the strongest item still worn then
+re-takes it silently (22 slots x 2 affects, only when the holder comes off). Item-over-cast is
+unchanged. Implemented in `do_resist_spell`; pinned by `src/tests/resist_item_slot_tests.cpp`.
+
 **Duration.** Keep `(is_object) ? -1 : level * 2`; drop the unconditional `-1` that overwrites it.
 Item resists are permanent, cast resists expire.
 
