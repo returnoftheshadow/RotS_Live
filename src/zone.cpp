@@ -254,6 +254,15 @@ static int zrequire_room(int v) { return zresolve(v, ZREF_ROOM, true); }
 
 /* One renum line: to the log and area gods, and to the builder who ran
  * implement unless mudlog already reached them. */
+static void zone_renum_send(char* errbuf, struct char_data* to)
+{
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
+        send_to_char(errbuf, to);
+        send_to_char("\n\r", to);
+    }
+}
+
 static void zone_renum_report(int zone, int comm, const char* what, int vnum,
     bool disabled, struct char_data* to)
 {
@@ -262,11 +271,7 @@ static void zone_renum_report(int zone, int comm, const char* what, int vnum,
     sprintf(errbuf, "ZONE ERROR: zone #%d, command %d (%c): %s vnum %d not found%s",
         zone_table[zone].number, comm + 1, zone_table[zone].cmd[comm].command, what, vnum,
         disabled ? " - command disabled" : "");
-    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
-    if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
-        send_to_char(errbuf, to);
-        send_to_char("\n\r", to);
-    }
+    zone_renum_send(errbuf, to);
 }
 
 void renum_zone_one(int zone, struct char_data* to)
@@ -339,6 +344,22 @@ void renum_zone_one(int zone, struct char_data* to)
             break;
         case 'D':
             a = zone_table[zone].cmd[comm].arg1 = zrequire_room(zone_table[zone].cmd[comm].arg1);
+            break;
+        case '*': /* disabled */
+        case 'S': /* end of the list */
+        case '.': /* a row with no letter, as shapezon writes one */
+            break;
+        default:
+            /* reset_zone has no case for this letter, so the command does
+             * nothing.  load_zones reads N, X, H and Q, but nothing runs
+             * them.  A row with no letter at all is empty, not an error. */
+            if (zone_table[zone].cmd[comm].command > ' ') {
+                char errbuf[256];
+
+                sprintf(errbuf, "ZONE ERROR: zone #%d, command %d (%c): unknown command - does nothing",
+                    zone_table[zone].number, comm + 1, zone_table[zone].cmd[comm].command);
+                zone_renum_send(errbuf, to);
+            }
             break;
         }
 
