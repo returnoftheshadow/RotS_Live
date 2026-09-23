@@ -755,17 +755,30 @@ int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
     return return_value;
 }
 
+/* Scans forward from a block and returns the command to resume at.
+
+   The `curr = curr->next` in the for-increment is LOAD-BEARING: do not fold it
+   into an else-branch of the SCRIPT_BEGIN test. When the scan meets a nested
+   SCRIPT_BEGIN, the recursive call returns the command after that nested block's
+   FIRST terminator -- and for the `IF / BEGIN / ... / END_ELSE_BEGIN / END` shape
+   that nearly every world script uses, the first terminator is the
+   END_ELSE_BEGIN, so the call hands back the (usually empty) else-branch's END,
+   not the end of the nested statement. The extra advance steps over that END so
+   the scan keeps hunting for THIS level's terminator.
+
+   Without it the scan stops on the nested END, mistakes it for this block's own,
+   and resumes one END too early -- inside the very block it was asked to skip.
+   That regression shipped in 8446205 and broke the skip target at 79 sites across
+   44 live scripts (e.g. Brali #2709: giving any non-quest item ran the quest
+   reward). See src/tests/script_flow_tests.cpp. */
 script_data* get_next_command(script_data* curr)
 {
 
     curr = curr->next;
-    while (curr && curr->command_type != SCRIPT_END && curr->command_type != SCRIPT_END_ELSE_BEGIN) {
-        if (curr->command_type == SCRIPT_BEGIN) {
+    for (; (curr) && ((curr->command_type != SCRIPT_END) && (curr->command_type != SCRIPT_END_ELSE_BEGIN));
+         curr = curr->next)
+        if (curr->command_type == SCRIPT_BEGIN)
             curr = get_next_command(curr);
-        } else {
-            curr = curr->next;
-        }
-    }
 
     if (curr)
         return curr->next;

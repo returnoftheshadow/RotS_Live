@@ -63,13 +63,13 @@ class EnvTableTest(unittest.TestCase):
             self.assertIsNone(deploy.ENVS[name].tag_prefix)
             self.assertFalse(deploy.ENVS[name].require_branch)
 
-    def test_only_test_and_the_forge_test_targets_are_deployable(self) -> None:
+    def test_only_live_test_and_the_forge_test_targets_are_deployable(self) -> None:
         self.assertEqual([name for name, env in deploy.ENVS.items() if env.deployable],
-                         ["test", "zzz-forge-test", "zzz-forge-test-4k"])
+                         ["live", "test", "zzz-forge-test", "zzz-forge-test-4k"])
 
-    def test_only_test_restarts_and_it_restarts_rotsbuilding(self) -> None:
+    def test_only_live_and_test_restart_and_they_restart_their_own_services(self) -> None:
         self.assertEqual({name: env.restart_service for name, env in deploy.ENVS.items() if env.restart_service},
-                         {"test": "rotsbuilding"})
+                         {"live": "rotslive", "test": "rotsbuilding"})
 
     def test_port_dir_guard_rejects_anything_but_a_plain_name(self) -> None:
         for bad in ("../etc", "a/b", "", "Live", "a b", "x;rm"):
@@ -647,19 +647,20 @@ OTHER_GROUPS = [group for group in os.getgroups() if group != os.getgid()]
 
 
 class ChownCommandTest(RemoteCommandTestCase):
-    def test_is_valid_sh_changes_only_what_is_inside_the_folders_and_never_follows_symlinks(self) -> None:
+    def test_is_valid_sh_changes_the_folders_and_their_contents_and_never_follows_symlinks(self) -> None:
         command = deploy.chown_command(TEST_ENV, "someone", ["help_tbl"])
 
         self.assertEqual(subprocess.run(["sh", "-n", "-c", command]).returncode, 0)
-        self.assertIn("sudo find -H /rots/zzz-forge-test/src /rots/zzz-forge-test/bin -mindepth 1 "
+        self.assertIn("sudo find -H /rots/zzz-forge-test/src /rots/zzz-forge-test/bin "
                       "-exec chown -h someone {} +", command)
+        self.assertIn("sudo chown -h someone /rots/zzz-forge-test/lib/text &&", command)
         self.assertIn('sudo chown -h someone "$f"', command)
         self.assertNotIn("chown -hR", command)
+        self.assertNotIn("mindepth", command)
         self.assertNotRegex(command, r"chown (?!-h)")
-        self.assertNotRegex(command, r"chown -h someone /rots/zzz-forge-test/(src|bin|lib/text)( |$)")
 
     @unittest.skipUnless(OTHER_GROUPS, "needs a second group to change files to without sudo")
-    def test_changes_contents_but_not_the_folders_or_anything_outside_when_run_as_chgrp(self) -> None:
+    def test_changes_the_folders_and_contents_but_nothing_outside_when_run_as_chgrp(self) -> None:
         # chown needs sudo; chgrp takes the same -h flag and symlink handling, so it stands in here.
         import grp
         outside = self.root.parent / "outside"
@@ -680,10 +681,8 @@ class ChownCommandTest(RemoteCommandTestCase):
         result = self.sh(command)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        for inside in ("src/game.cpp", "src/tests", "src/tests/t.cpp", "lib/text/spel_tbl"):
+        for inside in ("src", "bin", "lib/text", "src/game.cpp", "src/tests", "src/tests/t.cpp", "lib/text/spel_tbl"):
             self.assertEqual((self.root / inside).stat().st_gid, group.gr_gid, inside)
-        for folder in ("src", "bin", "lib/text"):
-            self.assertEqual((self.root / folder).stat().st_gid, os.getgid(), folder)
         for victim in victims:
             self.assertEqual(victim.stat().st_gid, os.getgid(), victim)
 
@@ -1389,16 +1388,13 @@ class DeployTest(unittest.TestCase):
         self.assertIn("sudo may ask for a password", self.text())
         self.assertIn("/rots/dev-building4802/src/game.cpp", self.text())
 
-    def test_an_unwritable_folder_stops_without_asking_for_sudo(self) -> None:
-        runner = FakeRunner(unwritable=["/rots/dev-building4802/lib/text\n"])
+    def test_an_unwritable_folder_is_chowned_like_anything_else(self) -> None:
+        runner = FakeRunner(unwritable=["/rots/dev-building4802/lib/text\n", ""])
 
-        self.assertEqual(self.run_deploy("test", runner=runner), 1)
+        self.assertEqual(self.run_deploy("test", runner=runner), 0)
 
-        self.assertNotIn("chown", self.runner.kinds())
-        self.assertNotIn("backup", self.runner.kinds())
-        self.assertIn("FAILED at step 3", self.text())
+        self.assertEqual(self.runner.kinds()[4:8], ["unwritable", "chown", "unwritable", "backup"])
         self.assertIn("/rots/dev-building4802/lib/text", self.text())
-        self.assertIn("fix", self.text())
 
     def test_still_unwritable_after_chown_stops_before_backup(self) -> None:
         runner = FakeRunner(unwritable=["/rots/dev-building4802/src/game.cpp\n"])
@@ -1468,7 +1464,7 @@ class DeployTest(unittest.TestCase):
                 self.assertIn('put "help_tbl"', self.text())
                 self.assertIn("git pull --ff-only", self.text())
                 self.assertNotIn("chmod", self.text())
-                self.assertIn("-mindepth 1 -exec chown -h someone {} +", self.text())
+                self.assertIn("-exec chown -h someone {} +", self.text())
                 self.assertIn("readlink -m", self.text())
                 env = deploy.ENVS[name]
                 self.assertEqual(self.checkout.events, [])
@@ -1562,18 +1558,32 @@ class MainTest(unittest.TestCase):
 
     def test_envs_that_are_not_approved_cannot_deploy_or_revert(self) -> None:
         for command in ("deploy", "revert"):
-            for name in ("live", "4k", "coders"):
+            for name in ("4k", "coders"):
                 with self.subTest(command=command, env=name):
                     self.assert_refused([command, name, "someone@example.org", "2222"],
                                         f"{name} cannot be deployed or reverted for now; "
-                                        "only test, zzz-forge-test, zzz-forge-test-4k can")
-        self.assert_refused(["deploy", "live", "someone@example.org", "2222", "--dry-run"], "live cannot be deployed")
+                                        "only live, test, zzz-forge-test, zzz-forge-test-4k can")
+        self.assert_refused(["deploy", "4k", "someone@example.org", "2222", "--dry-run"], "4k cannot be deployed")
 
     def test_restart_is_refused_for_the_forge_test_targets(self) -> None:
         for name in ("zzz-forge-test", "zzz-forge-test-4k"):
             with self.subTest(env=name):
                 self.assert_refused(["deploy", name, "someone@example.org", "2222", "--restart"],
                                     f"--restart is not available for {name}")
+
+    def test_live_can_be_deployed_and_reverted(self) -> None:
+        for command in ("deploy", "revert"):
+            with self.subTest(command=command), mock.patch.object(deploy, command, return_value=0) as run:
+                self.assertEqual(deploy.main([command, "live", "someone@example.org", "2222"]), 0)
+
+                self.assertEqual(run.call_args.args[0], deploy.ENVS["live"])
+
+    def test_wires_restart_into_deploy_for_live(self) -> None:
+        with mock.patch.object(deploy, "deploy", return_value=0) as run:
+            self.assertEqual(deploy.main(["deploy", "live", "someone@example.org", "2222", "--restart"]), 0)
+
+        self.assertTrue(run.call_args.kwargs["restart"])
+        self.assertEqual(deploy.restart_command(run.call_args.args[0]), "sudo systemctl restart rotslive")
 
     def test_wires_revert_arguments_into_revert(self) -> None:
         with mock.patch.object(deploy, "revert", return_value=0) as run, \

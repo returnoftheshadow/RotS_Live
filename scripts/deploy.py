@@ -4,8 +4,8 @@
     scripts/deploy.py deploy <env> <user>@<host> <ssh-port> [--dry-run] [--restart] [--password <password>]
     scripts/deploy.py revert <env> <user>@<host> <ssh-port> [--password <password>]
 
-For now only test, zzz-forge-test and zzz-forge-test-4k can be deployed or reverted, and only test
-can be restarted.
+For now only live, test, zzz-forge-test and zzz-forge-test-4k can be deployed or reverted, and only
+live and test can be restarted.
 The login and ssh port are arguments with no defaults, so this file never records them.
 Design: docs/superpowers/specs/2026-09-13-deploy-script-design.md
 """
@@ -82,7 +82,8 @@ class Env:
 ENVS = {
     env.name: env
     for env in (
-        Env("live", "live-default3791", BOLD_RED, backup=True, tag_prefix="live-"),
+        Env("live", "live-default3791", BOLD_RED, backup=True, tag_prefix="live-", deployable=True,
+            restart_service="rotslive"),
         Env("4k", "live-pkarena4000", BOLD_MAGENTA, backup=True, tag_prefix="4k-",
             source_edits=(BIG_BROTHER_OFF,)),
         # The test port may be deployed from a feature branch, and is still tagged.
@@ -411,12 +412,13 @@ def unwritable_command(env: Env, help_names: Sequence[str]) -> str:
 
 
 def chown_command(env: Env, user: str, help_names: Sequence[str]) -> str:
-    """Gives the ssh user what is inside src and bin, and the help files. Never the folders themselves."""
+    """Gives the ssh user src, bin and lib/text, everything inside src and bin, and the help files."""
     base = port_dir(env)
     return (
-        # -mindepth 1 skips src and bin themselves. -H follows them only if they are themselves symlinks,
-        # which the outside-links check keeps inside the port. -h changes a symlink, never what it points to.
-        f"sudo find -H {q(base + '/src')} {q(base + '/bin')} -mindepth 1 -exec chown -h {q(user)} {{}} + && "
+        # -H follows src and bin only if they are themselves symlinks, which the outside-links check keeps
+        # inside the port. -h changes a symlink, never what it points to.
+        f"sudo find -H {q(base + '/src')} {q(base + '/bin')} -exec chown -h {q(user)} {{}} + && "
+        f"sudo chown -h {q(user)} {q(base + '/' + HELP_DIR)} && "
         f'for f in {_help_paths(env, help_names)}; do [ ! -e "$f" ] || sudo chown -h {q(user)} "$f" || exit 1; done'
     )
 
@@ -680,8 +682,7 @@ def dry_run_plan(env: Env, server: Server, repo: Path, help_names: Sequence[str]
     if env.backup:
         step3.append(ssh(unfinished_deploy_command(env, server)))
     step3 += [ssh(unwritable_command(env, help_names)),
-              "  only if something inside the folders is unwritable (stops instead if a folder itself is), "
-              "then re-check:",
+              "  only if something is unwritable, then re-check:",
               ssh(chown_command(env, server.user, help_names), tty=True)]
     lines += step3
     lines += [f"== 4. {STEP_TITLES[4]}",
@@ -754,12 +755,7 @@ def deploy(env: Env, server: Server, checkout, runner, *, dry_run: bool, restart
         unwritable = _lines(runner.remote(unwritable_command(env, help_names), capture=True))
         if unwritable:
             out(f"Not writable by {server.user}:\n  " + "\n  ".join(unwritable))
-            folders = {f"{port_dir(env)}/{sub}" for sub in ("src", "bin", HELP_DIR)}
-            blocked = [path for path in unwritable if path in folders]
-            if blocked:
-                raise DeployError("these folders are not writable, and the deploy never changes the folders "
-                                  "themselves; fix them by hand, then deploy again:\n  " + "\n  ".join(blocked))
-            out("Fixing ownership of what is inside the folders with sudo chown; sudo may ask for a password.")
+            out("Fixing ownership with sudo chown; sudo may ask for a password.")
             runner.remote(chown_command(env, server.user, help_names), tty=True)
             unwritable = _lines(runner.remote(unwritable_command(env, help_names), capture=True))
             if unwritable:
