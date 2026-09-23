@@ -563,8 +563,9 @@ const char* command[] = {
     "renounce",
     "mob2csv",
     "savebench", // 249
+    "", /* 250: reserved for harness, PR #309 */
     "debug",
-    "unprotect", // 251
+    "unprotect", // 252
     "\n"
 };
 
@@ -2248,9 +2249,9 @@ void assign_command_pointers(void)
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(249, POSITION_DEAD, do_savebench, LEVEL_IMPL, FALSE, 0,
         TAR_IGNORE, TAR_IGNORE, 0);
-    COMMANDO(250, POSITION_DEAD, do_debug, LEVEL_GRGOD, TRUE, 0,
+    COMMANDO(251, POSITION_DEAD, do_debug, LEVEL_GRGOD, TRUE, 0,
         TAR_NONE_OK, TAR_IGNORE, 0);
-    COMMANDO(251, POSITION_STANDING, do_unprotect, 0, TRUE, 0,
+    COMMANDO(252, POSITION_STANDING, do_unprotect, 0, TRUE, 0,
         FULL_TARGET, TAR_IGNORE, 0);
 }
 
