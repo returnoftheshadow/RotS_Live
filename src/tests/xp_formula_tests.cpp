@@ -62,8 +62,9 @@ void ensure_test_world(int minimum_room_number)
 // Room number this file claims within the shared test-binary world[] -- an out-of-band value
 // distinct from every other suite's claimed rooms (fight_credit_tests.cpp: 900-907;
 // room_affect_caster_tests.cpp: 950-953; room_affect_tick_tests.cpp: 962-990;
-// summon_targeting_tests.cpp: 1000-1001).
-constexpr int kXpFormulaRoom = 1100;
+// summon_targeting_tests.cpp: 1000-1001). It must stay below the 1024 rooms gtest_main.cpp
+// allocates: world[] quietly maps any room past the allocation onto world[0].
+constexpr int kXpFormulaRoom = 1010;
 
 // exp_with_modifiers()'s east-of-the-river bonus (src/fight.cpp:1386-1387) reads
 // zone_table[world[character->in_room].zone].x whenever RACE_GOOD(character) is true -- which is
@@ -71,18 +72,22 @@ constexpr int kXpFormulaRoom = 1100;
 // whether a given test cares about the bonus. This test binary never boots a real zone_table (see
 // mage_tests.cpp's ZoneTableGuard for the same constraint elsewhere), so every test below installs
 // this single-entry stub for its scope and restores whatever was installed before (normally
-// nullptr).
+// nullptr), along with the room's zone and top_of_world.
 struct ZoneTableGuard
 {
     zone_data* previous_table; // real zone_table found before the test; restored on scope exit
     int previous_top; // real top_of_zone_table found before the test; restored on scope exit
+    int previous_top_of_world; // top_of_world before ensure_test_world(); restored on scope exit
+    int previous_room_zone; // world[kXpFormulaRoom].zone before the stub; restored on scope exit
     zone_data stub[1] {}; // the one-zone stub table installed for the scope
 
     ZoneTableGuard()
         : previous_table(zone_table)
         , previous_top(top_of_zone_table)
+        , previous_top_of_world(top_of_world)
     {
         ensure_test_world(kXpFormulaRoom);
+        previous_room_zone = world[kXpFormulaRoom].zone;
         world[kXpFormulaRoom].zone = 0;
         zone_table = stub;
         top_of_zone_table = 0;
@@ -90,6 +95,8 @@ struct ZoneTableGuard
 
     ~ZoneTableGuard()
     {
+        world[kXpFormulaRoom].zone = previous_room_zone;
+        top_of_world = previous_top_of_world;
         zone_table = previous_table;
         top_of_zone_table = previous_top;
     }
@@ -126,6 +133,12 @@ void init_neutral_standing_mob(char_data& mob, int level)
 }
 
 } // namespace
+
+TEST(XpFormula, ClaimedRoomIsInsideTheAllocatedWorld)
+{
+    EXPECT_LT(kXpFormulaRoom, room_data::BASE_LENGTH)
+        << "a room past the allocation aliases world[0], which other suites share";
+}
 
 TEST(XpFormula, LevelCostIsQuadratic)
 {

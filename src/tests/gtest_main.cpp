@@ -12,8 +12,8 @@ int main(int argc, char* argv[])
     // The world can be sized only once per process (create_bulk() exits on a
     // second call), and world[] silently aliases indexes past the allocation
     // onto r_immort_start_room. Size it here, once, above every suite's room
-    // numbers (highest claimed: 1001), so no TU's capacity depends on which
-    // suite happens to run first.
+    // numbers (highest claimed: 1010, xp_formula_tests.cpp), so no TU's
+    // capacity depends on which suite happens to run first.
     world.create_bulk(1024);
     // Boot creates the Big Brother singleton before the game loop (db.cpp);
     // raw_kill() reports every death to it, and a player's or an orc-friend's
