@@ -216,8 +216,6 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
         if (utils::is_resistant(*victim, RESIST_ILLU)) {
             tmp = number(0, 6);
             if (number(1, 3) > 2) {
-                sprintf(buf, "SAVE::ILLU--> atkr: %s, vict: %s", GET_NAME(ch), GET_NAME(victim));
-                mudlog_debug_mob_or_player(buf, ch, victim);
                 while (tmp == will_stat)
                     tmp = number(0, 6);
             }

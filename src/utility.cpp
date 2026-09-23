@@ -1126,12 +1126,6 @@ void debug_flag_msg(char* buf, char_data* ch)
         send_to_char(buf, ch);
 }
 
-void mudlog_debug_mob_or_player(char* buf, char_data* ch, char_data* vict)
-{
-    mudlog_debug_mob(buf, ch);
-    mudlog_debug_mob(buf, vict);
-}
-
 void vmudlog(char type, char* format, ...)
 {
 #define BUFSIZE 2048

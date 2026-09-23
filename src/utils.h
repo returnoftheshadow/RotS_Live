@@ -51,7 +51,6 @@ void mudlog_debug_mob(char* buf, char_data* ch);
 void mudlog_aliased_mob(char* buf, char_data* ch, char* mob_alias);
 int has_debug_flag(char_data* ch);
 void debug_flag_msg(char* buf, char_data* ch);
-void mudlog_debug_mob_or_player(char* buf, char_data* ch, char_data* vict);
 void vmudlog(char type, char* format, ...);
 void log_death_trap(struct char_data* ch);
 int number(int from, int to);
