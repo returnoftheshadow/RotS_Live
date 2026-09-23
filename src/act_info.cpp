@@ -2718,31 +2718,44 @@ void report_mob_align(struct char_data* ch, struct char_data* victim)
         act("Killing $M won't change you.", FALSE, ch, 0, victim, TO_CHAR);
 }
 
-void report_mob_age(struct char_data* ch, struct char_data* victim)
+/* The "has been here for ..." line shown by look, consider and diagnose, without the
+   trailing line break. Empty for players and orc-friend pets, which show no age. */
+std::string mob_age_message(struct char_data* victim)
 {
     int age;
     char str[255];
     extern int average_mob_life;
 
     if (!IS_NPC(victim) || (MOB_FLAGGED(victim, MOB_ORC_FRIEND) && MOB_FLAGGED(victim, MOB_PET)))
-        return;
+        return "";
 
     age = MOB_AGE_TICKS(victim, time(0));
 
     if (age <= 1)
-        sprintf(str, "%s has just arrived to this place.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has just arrived to this place.", GET_NAME(victim));
     else if (age <= average_mob_life / 4)
-        sprintf(str, "%s has arrived but recently.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has arrived but recently.", GET_NAME(victim));
     else if (age <= average_mob_life * 3 / 4)
-        sprintf(str, "%s has been here for a little while.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has been here for a little while.", GET_NAME(victim));
     else if (age <= average_mob_life)
-        sprintf(str, "%s has been here for quite a while.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has been here for quite a while.", GET_NAME(victim));
     else if (age <= average_mob_life * 3 / 2)
-        sprintf(str, "%s has been here for a long time already.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has been here for a long time already.", GET_NAME(victim));
     else
-        sprintf(str, "%s has been here for a very long time.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has been here for a very long time.", GET_NAME(victim));
     str[0] = toupper(str[0]);
-    send_to_char(str, ch);
+    return str;
+}
+
+void report_mob_age(struct char_data* ch, struct char_data* victim)
+{
+    std::string message = mob_age_message(victim);
+
+    if (message.empty())
+        return;
+
+    message += "\r\n";
+    send_to_char(message.c_str(), ch);
 }
 
 ACMD(do_consider)
