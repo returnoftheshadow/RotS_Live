@@ -1075,6 +1075,10 @@ int run_script(struct info_script* info, struct script_data* position)
                 /* The slot indexes equipment[]; outside it, skip the line. */
                 if (curr->param[2] < 0 || curr->param[2] >= MAX_WEAR) {
                     report_script_range(info->index, curr, "slot", curr->param[2], MAX_WEAR, 0);
+                    /* A miss, like an empty slot: the result reads "not found". */
+                    ptrint = get_int_param(curr->param[3], info);
+                    if (ptrint == &info->ints[0] || ptrint == &info->ints[1] || ptrint == &info->ints[2])
+                        *ptrint = 0;
                     curr = curr->next;
                     break;
                 }
@@ -1345,10 +1349,15 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch) {
                     for (tmpint = 1; tmpint < 6; tmpint++) {
+                        /* A 0 slot is empty.  Skip it before the lookup: real
+                         * number 0 is a valid object, so an object with vnum 0
+                         * would otherwise load into every empty slot. */
+                        if (!curr->param[tmpint])
+                            continue;
                         if ((tmpint2 = real_object(curr->param[tmpint])) >= 0) {
                             tmpobj = read_object(tmpint2, REAL);
                             obj_to_char(tmpobj, tmpch);
-                        } else if (tmpint2 < 0 && curr->param[tmpint])
+                        } else
                             report_script_vnum(info->index, curr, SREF_OBJ, curr->param[tmpint], 0);
                     }
                     do_wear(tmpch, "all", 0, 0, 0);

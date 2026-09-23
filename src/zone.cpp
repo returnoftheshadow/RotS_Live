@@ -297,7 +297,13 @@ void renum_zone_one(int zone, struct char_data* to)
             }
             break;
         case 'L':
-            zone_table[zone].cmd[comm].arg2 = zresolve_room(zone_table[zone].cmd[comm].arg2);
+            /* Only subcommands 0, 1 and 6 read arg2 as a room, so only they
+             * report it.  The conversion itself is the same for all. */
+            if (zone_table[zone].cmd[comm].arg1 == 0 || zone_table[zone].cmd[comm].arg1 == 1
+                || zone_table[zone].cmd[comm].arg1 == 6)
+                zone_table[zone].cmd[comm].arg2 = zresolve_room(zone_table[zone].cmd[comm].arg2);
+            else
+                zone_table[zone].cmd[comm].arg2 = real_room(zone_table[zone].cmd[comm].arg2);
             switch (zone_table[zone].cmd[comm].arg1) {
             case 0:
             case 5:

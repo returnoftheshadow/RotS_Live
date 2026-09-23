@@ -7,6 +7,7 @@
  * Both crashed with SIGSEGV when reached from a mob's ON_DIE script.  A bad
  * line is now reported and skipped; a good line behaves exactly as before.
  */
+#include "../db.h"
 #include "../handler.h"
 #include "../protos.h"
 #include "../script.h"
@@ -15,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <vector>
 
 int run_script(struct info_script* info, struct script_data* position);
@@ -25,6 +27,10 @@ extern struct room_data world;
 extern int top_of_world;
 extern struct descriptor_data* descriptor_list;
 extern int rev_dir[];
+extern struct index_data* obj_index;
+extern struct obj_data* obj_proto;
+extern struct obj_data* object_list;
+extern int top_of_objt;
 
 namespace {
 
@@ -295,7 +301,8 @@ TEST_F(WornObject, DoRemoveSkipsASlotOutsideTheRange)
 }
 
 /* Runs ASSIGN_EQ ch1 -> ob1 for <slot>, with int1 recording whether it found
- * something.  int1 starts at 7 so "left alone" is visible. */
+ * something.  int1 starts at 7 so a line that never writes it is visible: an
+ * out-of-range slot is a miss and must write 0, "not found". */
 info_script assign_slot(char_data* ch, int slot)
 {
     info_script info = make_info();
@@ -321,10 +328,10 @@ TEST_F(WornObject, AssignEqSkipsASlotOutsideTheRange)
     wear(WEAR_BODY);
     info_script info = assign_slot(&m_ch, MAX_WEAR);
     EXPECT_EQ(nullptr, info.ob[0]);
-    EXPECT_EQ(7, info.ints[0]);
+    EXPECT_EQ(0, info.ints[0]);
     info = assign_slot(&m_ch, -1);
     EXPECT_EQ(nullptr, info.ob[0]);
-    EXPECT_EQ(7, info.ints[0]);
+    EXPECT_EQ(0, info.ints[0]);
 }
 
 /* ASSIGN_EQ with its character variable unset must find nothing.  It used to
@@ -344,6 +351,70 @@ TEST_F(WornObject, AssignEqWithAnUnsetCharacterFindsNothing)
 
     EXPECT_EQ(nullptr, info.ob[0]);
     EXPECT_EQ(0, info.ints[0]);
+}
+
+/* EQUIP_CHAR <ch> <vnum1..vnum5>: a 0 slot is empty.  Real number 0 became a
+ * valid lookup result (the first object in the table must be loadable), so an
+ * empty slot must be skipped before it is looked up -- otherwise, if an object
+ * with vnum 0 ever exists, every empty slot loads a copy of it. */
+class ObjectTableWithVnumZero : public WornObject {
+protected:
+    void SetUp() override
+    {
+        WornObject::SetUp();
+        m_saved_index = obj_index;
+        m_saved_proto = obj_proto;
+        m_saved_top = top_of_objt;
+        m_saved_list = object_list;
+        m_index[0].virt = 0;
+        clear_object(&m_proto[0]);
+        m_proto[0].in_room = NOWHERE;
+        m_proto[0].obj_flags.type_flag = ITEM_OTHER;
+        m_proto[0].short_description = m_short;
+        m_proto[0].name = m_short;
+        obj_index = m_index;
+        obj_proto = m_proto;
+        top_of_objt = 0;
+    }
+    void TearDown() override
+    {
+        while (obj_data* o = m_ch.carrying) {
+            obj_from_char(o);
+            free(o);
+        }
+        object_list = m_saved_list;
+        obj_index = m_saved_index;
+        obj_proto = m_saved_proto;
+        top_of_objt = m_saved_top;
+        WornObject::TearDown();
+    }
+    int carried()
+    {
+        int n = 0;
+        for (obj_data* o = m_ch.carrying; o; o = o->next_content)
+            ++n;
+        for (int slot = 0; slot < MAX_WEAR; ++slot)
+            if (m_ch.equipment[slot] && m_ch.equipment[slot] != &m_obj)
+                ++n;
+        return n;
+    }
+
+    index_data m_index[1] {};
+    obj_data m_proto[1] {};
+    index_data* m_saved_index;
+    obj_data* m_saved_proto;
+    int m_saved_top;
+    obj_data* m_saved_list;
+};
+
+TEST_F(ObjectTableWithVnumZero, EquipCharSkipsEmptySlots)
+{
+    info_script info = make_info();
+    info.ch[0] = &m_ch;
+    Script s;
+    s.add(SCRIPT_EQUIP_CHAR, SCRIPT_PARAM_CH1);
+    s.run(info);
+    EXPECT_EQ(0, carried());
 }
 
 /* ---- TELEPORT_CHAR_XL: move CH1 to <room variable> ---- */

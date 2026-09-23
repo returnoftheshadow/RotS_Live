@@ -52,6 +52,9 @@ public:
         std::rewind(f);
         load_zones(f);
         std::fclose(f);
+        // load_zones keeps its own static zone index, which only grows; the
+        // table must stay larger than the number of loads in one test run.
+        EXPECT_LT(top_of_zone_table, kZones);
         m_zone = &zone_table[top_of_zone_table];
     }
 
@@ -68,12 +71,14 @@ public:
         }
         zone_table = m_saved_table;
         top_of_zone_table = m_saved_top;
+        delete[] m_table;
     }
 
     const zone_data& zone() const { return *m_zone; }
 
 private:
-    zone_data m_table[16] {};
+    static constexpr int kZones = 1024;
+    zone_data* m_table = new zone_data[kZones] {};
     zone_data* m_zone;
     zone_data* m_saved_table;
     int m_saved_top;
