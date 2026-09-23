@@ -44,6 +44,7 @@ void build_player_index(void);
 void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(struct char_file_u* st, struct char_data* ch);
+void char_to_store(struct char_data* ch, struct char_file_u* st);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
 int Crash_alias_save(struct char_data* ch, FILE* fp);
 void Crash_follower_save(struct char_data* ch, FILE* fp);
@@ -1487,6 +1488,29 @@ TEST(DbLoader, ReturnsEmptyObjectSaveBytesForLinkedCharacterWithoutAccountNative
     std::string object_bytes;
     ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &object_bytes, &error_message)) << error_message;
     EXPECT_TRUE(object_bytes.empty());
+}
+
+// die() reads a raw engaged_opponent pointer after the dying character's
+// ON_DIE trigger. That is safe only because a player never has a script, so
+// the trigger runs nothing. If this fails, the save format now carries a
+// script: die() must re-validate that pointer after ON_DIE.
+TEST(DbLoader, PlayerSaveRoundTripNeverCarriesAScript)
+{
+    char_data* const saved = test_support::allocate_test_character(MOB_VOID);
+    saved->player.name = strdup("aragorn"); // char_to_store copies the name; free_char releases it
+    saved->specials.script_number = 7;
+
+    char_file_u store {};
+    char_to_store(saved, &store);
+
+    char_data* const loaded = test_support::allocate_test_character(MOB_VOID);
+    store_to_char(&store, loaded);
+    const int loaded_script = loaded->specials.script_number;
+
+    test_support::release_test_character(saved);
+    test_support::release_test_character(loaded);
+
+    EXPECT_EQ(loaded_script, 0) << "a player's script must not survive a save and reload";
 }
 
 TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)

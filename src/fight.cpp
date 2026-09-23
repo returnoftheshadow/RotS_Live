@@ -1276,8 +1276,9 @@ void die(char_data* dead_man, char_data* killer, int attack_type, char_data* eng
 
     // Poison carveout: engagement with a real mob at the instant of death,
     // not the credited killer, decides how a PC poison death is punished.
-    // ON_DIE (above) can extract characters; probe engagement only for the
-    // one attack type whose classification reads it.
+    // engaged_opponent is a raw pointer read after ON_DIE. That is safe only
+    // because ON_DIE runs the dying character's own script and a PC never has
+    // one (DbLoader.PlayerSaveRoundTripNeverCarriesAScript pins this).
     char_data* engaged_mob = nullptr;
     if (attack_type == SPELL_POISON) {
         engaged_mob = find_engaged_real_mob(dead_man, engaged_opponent);

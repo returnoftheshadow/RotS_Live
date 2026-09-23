@@ -3,6 +3,7 @@
 #include "../object_utils.h"
 #include "../spells.h"
 #include "../utils.h"
+#include "test_character_support.h"
 #include <gtest/gtest.h>
 
 namespace utils {
@@ -709,4 +710,45 @@ TEST(CharRegistry, ReturnsNullForAnUnregisteredInRangeSlot) {
     remove_char_exists(slot); // defensive: ensure the slot starts clean
     EXPECT_EQ(char_by_abs_number(slot), nullptr);
     remove_char_exists(slot); // restore: leave the slot unregistered
+}
+
+// stat file and wizset file free a scratch character that was never
+// registered but whose abs_number (0 from clear_char) names a live mob's slot.
+TEST(CharRegistry, FreeingAnUnregisteredCharacterLeavesTheSlotOwnerRegistered) {
+    CharUtilsTestContext owner_context;
+    const int slot = MAX_CHARACTERS - 17;
+    remove_char_exists(slot); // defensive: ensure the slot starts clean
+    set_char_exists(slot, &owner_context.character);
+
+    char_data* const scratch = test_support::allocate_test_character(MOB_VOID);
+    scratch->abs_number = slot;
+    test_support::release_test_character(scratch);
+
+    EXPECT_EQ(char_by_abs_number(slot), &owner_context.character)
+        << "freeing a character that never owned the slot must not unregister its owner";
+    remove_char_exists(slot); // restore: leave the slot unregistered
+}
+
+TEST(CharRegistry, FreeingTheRegisteredOwnerReleasesItsSlot) {
+    const int slot = MAX_CHARACTERS - 17;
+    remove_char_exists(slot); // defensive: ensure the slot starts clean
+
+    char_data* const owner = test_support::allocate_test_character(MOB_VOID);
+    owner->abs_number = slot;
+    set_char_exists(slot, owner);
+    test_support::release_test_character(owner);
+
+    EXPECT_EQ(char_by_abs_number(slot), nullptr);
+    EXPECT_EQ(char_exists(slot), 0);
+}
+
+TEST(CharRegistry, IgnoresOutOfRangeRegistration) {
+    CharUtilsTestContext context;
+    const long serial_before = context.character.registration_serial;
+
+    set_char_exists(MAX_CHARACTERS, &context.character);
+    set_char_exists(-1, &context.character);
+
+    EXPECT_EQ(context.character.registration_serial, serial_before)
+        << "an out-of-range slot must not register the character";
 }

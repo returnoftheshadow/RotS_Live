@@ -279,6 +279,7 @@ constexpr int kSentinelSlot = MAX_CHARACTERS - 201;
 constexpr int kRecycledSlot = MAX_CHARACTERS - 202;
 constexpr int kReRegisteredSlot = MAX_CHARACTERS - 203; // the same-address re-registration pin below
 constexpr int kRehashSlot = MAX_CHARACTERS - 204; // the do_rehash rebuild pin below
+constexpr int kStaleNodeSlot = MAX_CHARACTERS - 205; // the stale-entry housekeeping pin below
 
 } // namespace
 
@@ -459,6 +460,59 @@ TEST(AffectUpdateWalk, DoesNotUpdateACharacterWhoseSlotWasReRegisteredAtTheSameA
     EXPECT_TRUE(victim_node_gone) << "and the stale entry is retired";
     EXPECT_NE(captured.find("Getting Unknown char off the affected_list."), std::string::npos)
         << "the housekeeping arm must treat the entry as a stranger; stderr was: " << captured;
+}
+
+// Pin: the housekeeping arm retires only the node its stale entry was
+// captured from. Here a new registration at the same address and slot owns
+// its own node, which sits ahead of the stale one. Matching on pointer and
+// number alone would retire the live node and leave the character's affects
+// unticked for good.
+TEST(AffectUpdateWalk, RetiringAStaleEntryKeepsTheSameAddressNewRegistrationsNode) {
+    char_data victim {};
+    char_prof_data victim_profs {};
+    make_npc(victim, victim_profs, 500);
+    victim.abs_number = kStaleNodeSlot;
+    set_char_exists(kStaleNodeSlot, &victim);
+    const long stale_serial = victim.registration_serial;
+
+    affected_type victim_af = inert_affect(50);
+    affect_to_char(&victim, &victim_af);
+
+    remove_char_exists(kStaleNodeSlot);
+    set_char_exists(kStaleNodeSlot, &victim);
+    const long live_serial = victim.registration_serial;
+    universal_list* const live_node = pool_to_list(&affected_list, &affected_list_pool);
+    live_node->type = TARGET_CHAR;
+    live_node->number = kStaleNodeSlot;
+    live_node->ptr.ch = &victim;
+    live_node->serial = live_serial;
+    ASSERT_EQ(affected_list, live_node) << "the live node must precede the stale one";
+
+    const auto nodes_with_serial = [&victim](long serial) -> int {
+        int count = 0;
+        for (universal_list* node = affected_list; node; node = node->next) {
+            if (node->type == TARGET_CHAR && node->ptr.ch == &victim && node->serial == serial) {
+                ++count;
+            }
+        }
+        return count;
+    };
+
+    testing::internal::CaptureStderr();
+    affect_update();
+    const std::string captured = testing::internal::GetCapturedStderr();
+
+    const int live_nodes_after = nodes_with_serial(live_serial);
+    const int stale_nodes_after = nodes_with_serial(stale_serial);
+    const int duration_after = victim.affected ? victim.affected->duration : -1;
+    while (victim.affected) {
+        affect_remove(&victim, victim.affected);
+    }
+    remove_char_exists(kStaleNodeSlot);
+
+    EXPECT_EQ(live_nodes_after, 1) << "the new registration's node must survive; stderr was: " << captured;
+    EXPECT_EQ(stale_nodes_after, 0) << "and the stale entry's own node is the one retired";
+    EXPECT_EQ(duration_after, 49) << "the live entry still ticked the character once";
 }
 
 TEST(AffectUpdateWalk, DoesNotDereferenceAFreedCharacterThroughARecycledSlot) {

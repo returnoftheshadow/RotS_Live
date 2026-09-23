@@ -137,10 +137,8 @@ def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: 
     `marker`.
 
     `harness.tick()` always drives its command through the `imp` session (conftest.py's
-    `Harness` class) and its own `expect()` call already consumes everything up through
-    "Harness: hourly tick complete." -- including any room-wide broadcast the tick's damage
-    triggered (a lethal tick's "$n is dead!  R.I.P." among them) -- so when `observer is imp`
-    this checks `harness.tick()`'s own returned text. `observer` is a different session for a
+    `Harness` class), so a room-wide broadcast such as a lethal tick's "$n is dead!  R.I.P."
+    reaches `imp`. `observer` is a different session for a
     message fight.cpp sends only to that one character ("You are dead!  Sorry...",
     `damage_credited`'s `POSITION_DEAD` arm) -- that text never reaches `imp`'s socket at all,
     so only draining `observer` can find it.
@@ -161,36 +159,34 @@ def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: 
     that is reported explicitly instead of as a bare timeout -- it means the room can no longer
     produce the marker at all, not that this particular call was unlucky.
 
-    When `observer is imp`, EVERY `imp.command()` this loop issues -- the `refloor`/`protect`
-    commands and every `room_stat_replies()` attempt, not only `harness.tick()`'s -- is checked
-    for `marker` too: `GameSession.command()` drains up to 0.1s of already-pending text before
-    sending its own line (`session.py`), so a spontaneous real-time broadcast between iterations
-    can surface as leading noise ahead of any one of those replies, closing that gap for
-    everything but the narrow 0.1s drain window itself.
+    The marker is searched for in `observer`'s whole transcript since this call began, not in
+    individual replies: `GameSession.command()` and `harness.tick()` drain up to 0.1s of
+    already-pending text before sending and discard it (`session.py`, `conftest.py`), so a
+    real-time broadcast landing in that window never appears in any reply.
     """
-    def _seen(text: str) -> bool:
-        return observer is imp and marker in text
+    observed_from = len(observer.everything)
+
+    def _observed() -> str | None:
+        seen = observer.everything[observed_from:]
+        return seen if marker in seen else None
 
     for attempt in range(budget):
         if refloor is not None:
-            refloored = floor_hit(imp, refloor[0], refloor[1])
-            if _seen(refloored):
-                return refloored
+            floor_hit(imp, refloor[0], refloor[1])
+            if (seen := _observed()) is not None:
+                return seen
         for session in protect:
-            restored = imp.command(f"restore {session.character.name}").text
-            if _seen(restored):
-                return restored
-        tick_text = harness.tick().text
-        if _seen(tick_text):
-            return tick_text
+            imp.command(f"restore {session.character.name}")
+            if (seen := _observed()) is not None:
+                return seen
+        harness.tick()
         if observer is not imp:
-            drained = observer.drain(1.0)
-            if marker in drained:
-                return drained
+            observer.drain(1.0)
+        if (seen := _observed()) is not None:
+            return seen
         replies = room_stat_replies(imp)
-        for reply_text in replies:
-            if _seen(reply_text):
-                return reply_text
+        if (seen := _observed()) is not None:
+            return seen
         if "room name:" not in replies[-1].lower():
             pytest.fail(f"stat room never returned a parseable room-affection block in {len(replies)} attempts")
         if f"spell {spell_name}".lower() not in replies[-1].lower():

@@ -1648,12 +1648,14 @@ struct affected_list_entry {
     room_data* room; // the node's room pointer
 };
 
-// Removes the live affected_list node that still names this character, if
-// any -- the node may already have been freed by a death earlier in the tick.
+// Removes the affected_list node this entry was captured from, if it is still
+// there -- a death earlier in the tick may already have freed it. The serial
+// keeps a new registration's node at the same address and slot untouched.
 void drop_stale_character_entry(const affected_list_entry& entry)
 {
     for (universal_list* node = affected_list; node; node = node->next) {
-        if (node->type == TARGET_CHAR && node->ptr.ch == entry.ch && node->number == entry.number) {
+        if (node->type == TARGET_CHAR && node->ptr.ch == entry.ch && node->number == entry.number
+            && node->serial == entry.serial) {
             from_list_to_pool(&affected_list, &affected_list_pool, node);
             return;
         }

@@ -3666,7 +3666,12 @@ void free_char(struct char_data* ch)
 
     ch->extra_specialization_data.reset();
     ch->damage_details.reset();
-    remove_char_exists(ch->abs_number);
+    // Only the slot's registered owner may clear it. An unregistered scratch
+    // character (stat file, wizset file) carries clear_char()'s abs_number 0,
+    // which names a live mob's slot.
+    if (char_by_abs_number(ch->abs_number) == ch) {
+        remove_char_exists(ch->abs_number);
+    }
     RELEASE(ch);
 }
 

@@ -238,7 +238,8 @@ int char_exists(int num);
 void set_char_exists(int num);
 // Registers `ch` as the current owner of slot `num` and gives it a fresh
 // ch->registration_serial, so an identity captured under an earlier
-// registration of the same slot no longer resolves.
+// registration of the same slot no longer resolves. An out-of-range `num` is
+// ignored, as it is by set_char_exists(num) and remove_char_exists().
 void set_char_exists(int num, struct char_data* ch);
 void remove_char_exists(int num);
 // The character currently registered under abs_number `num`, or null when the
