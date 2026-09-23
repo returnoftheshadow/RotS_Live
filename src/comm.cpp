@@ -754,7 +754,6 @@ void msdp_update()
             MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
         }
 
-        extern std::string mob_age_message(char_data* victim);
         auto opponent = desc->character->specials.fighting;
         if (opponent && utils::is_npc(*opponent)) {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, get_health_percent(opponent));

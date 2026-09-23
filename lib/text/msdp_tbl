@@ -363,7 +363,8 @@ This variable shows your currently engaged opponent's level.
 OPPONENT_AGE
 
 This variable shows how long your currently engaged opponent has been here,
-the same line diagnose shows. It is empty when fighting a player.
+the same line diagnose shows. It is empty when fighting a player or an
+orc-friend pet.
 
 #
 SPIRIT

@@ -45,6 +45,7 @@ void check_state_deadlines(time_t now);
 void break_spell(struct char_data* ch);
 void abort_delay(char_data* wait_ch);
 void complete_delay(struct char_data* ch);
+std::string mob_age_message(struct char_data* victim);
 struct txt_block* get_from_txt_block_pool(char* line = 0);
 void put_to_txt_block_pool(struct txt_block*);
 
