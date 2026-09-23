@@ -120,7 +120,7 @@ public:
     ScopedBlazeSpellPointer& operator=(const ScopedBlazeSpellPointer&) = delete;
 
 private:
-    void (*m_previous)(char_data*, char*, int, char_data*, obj_data*, int, int); // the cell's prior value
+    spell_function m_previous; // the cell's prior value
 };
 
 // Registers a unique abs_number the way register_npc_char() would for a real

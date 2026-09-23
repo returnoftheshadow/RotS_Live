@@ -391,40 +391,6 @@ TEST(CasterSnapshot, OtherSideReflectsTheCapturedRaceNpcAndCharmFlags)
         << "an uncharmed NPC is on nobody's side";
 }
 
-// saves_poison()'s caster_snapshot form (spell_pa.cpp) reads
-// caster.willpower/caster.perception, captured from exactly the
-// GET_WILLPOWER()/GET_PERCEPTION() calls the live form reads directly -- the
-// two must agree under the same RNG draws.
-TEST(CasterSnapshot, SavesPoisonAgreesBetweenLiveAndSnapshotFormsUnderPinnedRng)
-{
-    char_data caster {};
-    char_prof_data caster_profs {};
-    caster.profs = &caster_profs;
-    caster.points.willpower = 9;
-    caster.specials2.perception = 50;
-
-    char_data victim {};
-    char_prof_data victim_profs {};
-    victim.profs = &victim_profs;
-    victim.tmpabilities.con = 10;
-    victim.points.willpower = 5;
-    victim.player.race = RACE_HUMAN;
-
-    const caster_snapshot snap = caster_snapshot::capture(caster);
-
-    // saves_poison() draws exactly two number(a, b) rolls (the offence and
-    // defense draws); both calls below are given the same value for each of
-    // their two draws, so any platform-rounding wobble lands identically on
-    // both sides and the comparison stays a pure equivalence check.
-    push_test_random_value(0.5);
-    push_test_random_value(0.5);
-    const char live = saves_poison(&victim, &caster);
-    push_test_random_value(0.5);
-    push_test_random_value(0.5);
-    EXPECT_EQ(saves_poison(&victim, snap), live);
-    clear_test_random_values();
-}
-
 TEST(CasterSnapshot, SavesPoisonOffenceReadsTheCapturedWillpowerAndPerception)
 {
     char_data victim {};
@@ -465,59 +431,48 @@ TEST(CasterSnapshot, SavesPoisonOffenceReadsTheCapturedWillpowerAndPerception)
     clear_test_random_values();
 }
 
-// ---------------------------------------------------------------------------
-// get_mystic_caster_level() (mystic.cpp), get_saving_throw_dc() and
-// new_saves_spell() (spell_pa.cpp) each gain a caster_snapshot overload
-// that owns the body; the live const char_data* form is a one-line forwarder
-// onto it. Covered here rather than mage_tests.cpp -- these three formulas
-// live in mystic.cpp/spell_pa.cpp, not mage.cpp.
-// ---------------------------------------------------------------------------
+// The mystic.cpp and spell_pa.cpp formulas, read through a snapshot. The
+// test context gives PROF_CLERIC 3, wil 17, PROF_MAGE 25, intel 21 and
+// spell_pen 2 on a Fire-spec caster.
 
-TEST(CasterSnapshot, MysticCasterLevelSnapshotFormMatchesLiveFormUnderPinnedRng)
+TEST(CasterSnapshot, MysticCasterLevelRoundsTheWillRemainderOnItsOwnRoll)
 {
-    CasterSnapshotTestContext context; // PROF_CLERIC 3, wil 17 -> will_factor 3, remainder 2 (a real draw)
+    CasterSnapshotTestContext context;
     const caster_snapshot snap = caster_snapshot::capture(context.character);
 
-    push_test_random_value(0.5);
-    const int live_level = get_mystic_caster_level(&context.character);
-    push_test_random_value(0.5);
-    EXPECT_EQ(get_mystic_caster_level(snap), live_level)
-        << "Expected the snapshot form to reproduce the live form's mystic caster level under the "
-           "same pinned remainder roll.";
+    push_test_random_value(0.0);
+    EXPECT_EQ(get_mystic_caster_level(snap), 6) << "cleric 3 + wil 17/5; the remainder roll of 0 adds nothing";
+    push_test_random_value(0.99);
+    EXPECT_EQ(get_mystic_caster_level(snap), 7) << "a non-zero remainder roll rounds the will factor up";
     clear_test_random_values();
 }
 
-TEST(CasterSnapshot, SavingThrowDcSnapshotFormMatchesLiveForm)
+TEST(CasterSnapshot, SavingThrowDcAddsTheBattleMageSpellPenBonus)
 {
-    CasterSnapshotTestContext context; // PROF_MAGE 25, intel 21, spell_pen 2
+    CasterSnapshotTestContext context;
     const caster_snapshot snap = caster_snapshot::capture(context.character);
-
-    EXPECT_EQ(get_saving_throw_dc(snap), get_saving_throw_dc(&context.character))
-        << "Expected the snapshot form to reproduce the live form's saving throw DC.";
+    EXPECT_EQ(get_saving_throw_dc(snap), 23) << "10 + 25/3 + (21-8)/4 + spell_pen 2";
 
     context.character.specials.tactics = TACTICS_AGGRESSIVE;
     context.profs.specialization = static_cast<int>(game_types::PS_BattleMage);
     const caster_snapshot battle_snap = caster_snapshot::capture(context.character);
-    EXPECT_EQ(get_saving_throw_dc(battle_snap), get_saving_throw_dc(&context.character))
-        << "Expected the battle-mage spell-pen bonus to agree between the live and snapshot forms.";
+    EXPECT_EQ(get_saving_throw_dc(battle_snap), 27) << "battle mages add tactics 4/2 + mage level 25/12";
 }
 
-TEST(CasterSnapshot, NewSavesSpellSnapshotFormMatchesLiveFormUnderPinnedRng)
+TEST(CasterSnapshot, NewSavesSpellSavesOnlyWhenTheRollBeatsTheDc)
 {
     CasterSnapshotTestContext context;
     char_data victim {};
     char_prof_data victim_profs {};
     victim.profs = &victim_profs;
     victim.player.race = RACE_HUMAN;
-    victim.tmpabilities.intel = 18;
+    victim.tmpabilities.intel = 18; // victim save (18-8)/4 = 2, plus the bonus of 3 below
 
     const caster_snapshot snap = caster_snapshot::capture(context.character);
 
-    push_test_random_value(0.5);
-    const bool live_saved = new_saves_spell(&context.character, &victim, 3);
-    push_test_random_value(0.5);
-    EXPECT_EQ(new_saves_spell(snap, &victim, 3), live_saved)
-        << "Expected the snapshot form to reproduce the live form's save result under the same "
-           "pinned roll.";
+    push_test_random_value(0.0);
+    EXPECT_FALSE(new_saves_spell(snap, &victim, 3)) << "roll 1 + save 5 does not beat DC 23";
+    push_test_random_value(0.99);
+    EXPECT_TRUE(new_saves_spell(snap, &victim, 3)) << "roll 20 + save 5 beats DC 23";
     clear_test_random_values();
 }

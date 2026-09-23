@@ -16,9 +16,8 @@
 // capture used to assert on act()/send_to_char() text (spell_pa_tests.cpp).
 //
 // WHAT THESE TESTS PROVE. A "the tick matches a live re-cast" equivalence test
-// would be vacuous: the live helper forms are one-line forwarders onto the
-// snapshot forms, so both sides run the same body no matter which
-// fields the tick reads. The blaze pin below therefore varies the RECORDED
+// would be vacuous: a re-cast and the tick both run the snapshot-form
+// helpers, so the two agree no matter which fields the tick reads. The blaze pin below therefore varies the RECORDED
 // snapshot away from the caster's current (live, wrecked) stats and shows the
 // tick still follows the recording. The poison/haze/mist pins pick caster
 // fields (willpower/perception for saves_poison(), multiples of 25 for the
@@ -39,6 +38,7 @@
 #include "../utils.h"
 #include "test_character_support.h"
 #include "test_random_utils.h"
+#include "test_spell_support.h"
 
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -276,7 +276,7 @@ private:
 // whatever was there -- gtest_main does not run assign_spell_pointers().
 class ScopedSpellPointer {
 public:
-    ScopedSpellPointer(int slot, void (*fn)(char_data*, char*, int, char_data*, obj_data*, int, int))
+    ScopedSpellPointer(int slot, spell_function fn)
         : m_slot(slot)
         , m_previous(skills[slot].spell_pointer)
     {
@@ -288,7 +288,7 @@ public:
 
 private:
     int m_slot; // the skills[] cell this scope owns
-    void (*m_previous)(char_data*, char*, int, char_data*, obj_data*, int, int); // the cell's prior value; restored on scope exit
+    spell_function m_previous; // the cell's prior value; restored on scope exit
 };
 
 // A one-item container carried (not worn) by a corpse's owner:
@@ -924,6 +924,7 @@ namespace {
 struct RecordedFallback {
     char_data* tmpch = nullptr; // the occupant the stubbed fallback spell_pointer was last called with
     int calls = 0; // how many times the stubbed fallback spell_pointer fired
+    bool snapshot_names_caster = false; // whether the last call's caster_at_cast was captured from its caster
 };
 
 // What the (stubbed) fallback spell_pointer saw -- this suite's witness that
@@ -931,10 +932,12 @@ struct RecordedFallback {
 RecordedFallback* g_recorded_fallback_slot = nullptr;
 
 void recording_fallback_spell(char_data* caster, char* /*arg*/, int /*type*/,
-    char_data* /*victim*/, obj_data* /*obj*/, int /*digit*/, int /*is_object*/)
+    char_data* /*victim*/, obj_data* /*obj*/, int /*digit*/, int /*is_object*/,
+    const caster_snapshot& caster_at_cast)
 {
     if (g_recorded_fallback_slot != nullptr) {
         g_recorded_fallback_slot->tmpch = caster;
+        g_recorded_fallback_slot->snapshot_names_caster = caster_at_cast.same_character_as(*caster);
         ++g_recorded_fallback_slot->calls;
     }
 }
@@ -975,6 +978,8 @@ TEST(RoomAffectTick, AffectUpdateRoomFallsBackToTheHistoricalRecastForAnUnknownS
         << "room_affect_tick() must have returned false for SPELL_FEAR, and the fallback re-cast "
            "must have fired exactly once";
     EXPECT_EQ(recorded.tmpch, &occupant);
+    EXPECT_TRUE(recorded.snapshot_names_caster)
+        << "run_spell() must hand the body a snapshot of the character it casts for";
 }
 
 // Change #1's other half: a spell room_affect_tick() DOES know must never
@@ -1109,7 +1114,7 @@ TEST(RoomAffectCasting, BlazeCastRecordsTheCasterSnapshot)
     CasterFixture caster(25, 0, game_types::PS_None, room.slot());
 
     clear_test_random_values();
-    spell_blaze(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_blaze, &caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
     clear_test_random_values();
 
     affected_type* blaze = room_affected_by_spell(room.room(), SPELL_BLAZE);
@@ -1127,8 +1132,8 @@ TEST(RoomAffectCasting, BlazeWeakerRecastLeavesThePreviousRecord)
     CasterFixture strong_caster(30, 0, game_types::PS_None, room.slot()); // level 35
     CasterFixture weak_caster(1, 0, game_types::PS_None, room.slot()); // level 6
 
-    spell_blaze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
-    spell_blaze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_blaze, &strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_blaze, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_BLAZE);
     ASSERT_NE(recorded, nullptr);
@@ -1144,8 +1149,8 @@ TEST(RoomAffectCasting, BlazeStrongerRecastReplacesTheRecord)
     CasterFixture weak_caster(1, 0, game_types::PS_None, room.slot()); // level 6
     CasterFixture strong_caster(30, 0, game_types::PS_None, room.slot()); // level 35
 
-    spell_blaze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
-    spell_blaze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_blaze, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_blaze, &strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_BLAZE);
     ASSERT_NE(recorded, nullptr);
@@ -1159,7 +1164,7 @@ TEST(RoomAffectCasting, HazeCastRecordsTheCasterSnapshot)
     RoomFixture room(kHazeCastRoom);
     CasterFixture caster(0, 10, game_types::PS_None, room.slot());
 
-    spell_haze(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_haze, &caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     affected_type* haze = room_affected_by_spell(room.room(), SPELL_HAZE);
     ASSERT_NE(haze, nullptr) << "a fresh cast must have created the room affect";
@@ -1175,8 +1180,8 @@ TEST(RoomAffectCasting, HazeWeakerRecastLeavesThePreviousRecord)
     CasterFixture strong_caster(0, 30, game_types::PS_None, room.slot()); // level 35
     CasterFixture weak_caster(0, 1, game_types::PS_None, room.slot()); // level 6
 
-    spell_haze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
-    spell_haze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_haze, &strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_haze, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_HAZE);
     ASSERT_NE(recorded, nullptr);
@@ -1192,8 +1197,8 @@ TEST(RoomAffectCasting, HazeStrongerRecastReplacesTheRecord)
     CasterFixture weak_caster(0, 1, game_types::PS_None, room.slot()); // level 6
     CasterFixture strong_caster(0, 30, game_types::PS_None, room.slot()); // level 35
 
-    spell_haze(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
-    spell_haze(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_haze, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_haze, &strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_HAZE);
     ASSERT_NE(recorded, nullptr);
@@ -1207,7 +1212,7 @@ TEST(RoomAffectCasting, PoisonRoomArmCastRecordsTheCasterSnapshot)
     RoomFixture room(kPoisonCastRoom);
     CasterFixture caster(0, 10, game_types::PS_None, room.slot());
 
-    spell_poison(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_poison, &caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     affected_type* poison = room_affected_by_spell(room.room(), SPELL_POISON);
     ASSERT_NE(poison, nullptr) << "a fresh cast must have created the room affect";
@@ -1223,8 +1228,8 @@ TEST(RoomAffectCasting, PoisonRoomArmWeakerRecastLeavesThePreviousRecord)
     CasterFixture strong_caster(0, 30, game_types::PS_None, room.slot()); // level 35
     CasterFixture weak_caster(0, 1, game_types::PS_None, room.slot()); // level 6
 
-    spell_poison(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
-    spell_poison(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_poison, &strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_poison, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_POISON);
     ASSERT_NE(recorded, nullptr);
@@ -1240,8 +1245,8 @@ TEST(RoomAffectCasting, PoisonRoomArmStrongerRecastReplacesTheRecord)
     CasterFixture weak_caster(0, 1, game_types::PS_None, room.slot()); // level 6
     CasterFixture strong_caster(0, 30, game_types::PS_None, room.slot()); // level 35
 
-    spell_poison(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
-    spell_poison(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_poison, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_poison, &strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     const caster_snapshot* recorded = room_affect_caster(room.room(), SPELL_POISON);
     ASSERT_NE(recorded, nullptr);
@@ -1260,7 +1265,7 @@ TEST(RoomAffectCasting, MistCastSeedsAFreshAdjacentRoomCarryingTheCaster)
 
     CasterFixture caster(25, 0, game_types::PS_None, main_room.slot()); // level 30
 
-    spell_mist_of_baazunga(&caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_mist_of_baazunga, &caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     const caster_snapshot* main_recorded = room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
     ASSERT_NE(main_recorded, nullptr) << "the fresh main-room seed must have recorded a caster";
@@ -1284,7 +1289,7 @@ TEST(RoomAffectCasting, MistCastLongerDurationRenewalReplacesTheRecordInMainAndA
     CasterFixture strong_caster(25, 0, game_types::PS_None, main_room.slot()); // level 30: main dur 6, adj dur 5
 
     // Seed both rooms weakly first, recording weak_caster in each.
-    spell_mist_of_baazunga(&weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_mist_of_baazunga, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
     ASSERT_NE(room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr);
     ASSERT_NE(room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA), nullptr);
 
@@ -1292,7 +1297,7 @@ TEST(RoomAffectCasting, MistCastLongerDurationRenewalReplacesTheRecordInMainAndA
     // room's own (quirky) comparison is against the MAIN room's new af.duration
     // (6) too -- see mage.cpp's spell_mist_of_baazunga comment -- so both
     // renewals fire and both records must move to strong_caster.
-    spell_mist_of_baazunga(&strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_mist_of_baazunga, &strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
     const caster_snapshot* main_recorded = room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
     ASSERT_NE(main_recorded, nullptr);

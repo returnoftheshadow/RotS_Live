@@ -233,11 +233,6 @@ int get_saving_throw_dc(const caster_snapshot& caster)
                caster.specialization, caster.tactics, caster.mage_prof_level, caster.spell_pen);
 }
 
-int get_saving_throw_dc(const char_data* caster)
-{
-    return get_saving_throw_dc(caster_snapshot::capture(*caster));
-}
-
 //============================================================================
 // Returns true if the victim saves against the spell, false otherwise.
 //   Save bonus is added to the victim's base save value.
@@ -265,9 +260,15 @@ bool new_saves_spell(const caster_snapshot& caster, const char_data* victim, int
     return saved;
 }
 
-bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus)
+void run_spell(int spell_index, char_data* caster, char* arg, int type,
+    char_data* victim, obj_data* obj, int digit, int is_object)
 {
-    return new_saves_spell(caster_snapshot::capture(*caster), victim, save_bonus);
+    if (!skills[spell_index].spell_pointer) {
+        return;
+    }
+
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(*caster);
+    skills[spell_index].spell_pointer(caster, arg, type, victim, obj, digit, is_object, caster_at_cast);
 }
 
 void record_spell_damage(struct char_data* caster, struct char_data* victim, int at, int dam)
@@ -334,13 +335,6 @@ char saves_poison(struct char_data* victim, const caster_snapshot& caster)
     defense = (GET_CON(victim) * 5) + (GET_WILLPOWER(victim) * 3) + (GET_RACE(victim) == RACE_WOOD ? 30 : 0);
 
     return (number(offence / 3, offence) < number(defense / 2, defense));
-}
-
-// caster.willpower and caster.perception are captured from
-// GET_WILLPOWER()/GET_PERCEPTION().
-char saves_poison(struct char_data* victim, struct char_data* caster)
-{
-    return saves_poison(victim, caster_snapshot::capture(*caster));
 }
 
 /*
@@ -990,8 +984,7 @@ ACMD(do_cast)
         }
 
         /* execute the spell */
-        ((*skills[spell_index].spell_pointer)(ch, arg, SPELL_TYPE_SPELL, tar_char, tar_obj, tar_dig,
-            0));
+        run_spell(spell_index, ch, arg, SPELL_TYPE_SPELL, tar_char, tar_obj, tar_dig, 0);
 
         /*
          * Casting a prepared spell now causes a short after-spell

@@ -11,7 +11,7 @@
 #ifndef SPELLS_H
 #define SPELLS_H
 
-#include "caster_snapshot.h" /* For the snapshot form of saves_poison() */
+#include "caster_snapshot.h" /* For the spell signature and the formula helpers */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "structs.h" /* For the MAX_SKILLS macro */
 #include <algorithm>
@@ -337,6 +337,10 @@ inline int weapon_skill_num(game_types::weapon_type weapon_type)
 struct char_data;
 struct obj_data;
 
+// The signature of every spell body; see ASPELL below.
+using spell_function = void (*)(char_data* caster, char* arg, int type, char_data* victim,
+    obj_data* obj, int digit, int is_object, const caster_snapshot& caster_at_cast);
+
 /*
  * For the 'target' member, possible targets are:
  *   bit 0: IGNORE TARGET
@@ -357,9 +361,7 @@ struct skill_data {
     char name[50];
     char type;
     char level;
-    void (*spell_pointer)(char_data* caster, char* arg,
-        int type, char_data* tar_ch,
-        obj_data* tar_obj, int digit, int is_object);
+    spell_function spell_pointer;
     byte minimum_position; /* Position for caster */
     int min_usesmana; /* Amount of mana used by a spell */
     byte beats; /* Heartbeats until ready for next */
@@ -395,11 +397,20 @@ struct attack_hit_type {
 
 void recalc_skills(struct char_data*);
 
+// A spell body. `caster_at_cast` is the caster as it stood when the spell
+// took effect, taken once by run_spell(); every caster-side formula in the
+// body reads it rather than `caster`.
 #define ASPELL(castname)                             \
     void                                             \
     castname(char_data* caster, char* arg, int type, \
         char_data* victim, obj_data* obj, int digit, \
-        int is_object)
+        int is_object, const caster_snapshot& caster_at_cast)
+
+// Runs spell `spell_index`'s body for `caster`, snapshotting the caster once
+// here so the whole spell resolves from one consistent caster state. Does
+// nothing when the spell has no body.
+void run_spell(int spell_index, char_data* caster, char* arg, int type,
+    char_data* victim, obj_data* obj, int digit, int is_object);
 
 /* Mage spell prototypes */
 ASPELL(spell_blink);
@@ -485,41 +496,26 @@ ASPELL(spell_mass_insight);
 
 bool is_strong_enough_to_tame(struct char_data* tamer, struct char_data* animal, bool include_current_followers);
 
-// Mage/mystic formula inputs, each in a live and a cast-time-snapshot form.
-// The two forms of a helper return the same value for the same caster state;
-// the snapshot form stays usable after the caster has changed, left the room,
-// or left the game.
-int get_mage_caster_level(const char_data* caster);
+// Mage/mystic formula inputs. They read the caster only through a
+// caster_snapshot, so a spell cannot re-read a caster mid-resolution. The
+// level and power helpers roll their rounding afresh on every call.
 int get_mage_caster_level(const caster_snapshot& caster);
-
-int get_mystic_caster_level(const char_data* caster);
 int get_mystic_caster_level(const caster_snapshot& caster);
-
-int get_magic_power(const char_data* caster);
 int get_magic_power(const caster_snapshot& caster);
-
-int get_saving_throw_dc(const char_data* caster);
 int get_saving_throw_dc(const caster_snapshot& caster);
-
-bool should_apply_spell_penetration(const char_data* caster);
 bool should_apply_spell_penetration(const caster_snapshot& caster);
-
-double get_spell_pen_value(const char_data* caster);
 double get_spell_pen_value(const caster_snapshot& caster);
-
-int get_save_bonus(const char_data& caster, const char_data& victim, game_types::player_specs primary_spec, game_types::player_specs opposing_spec);
 int get_save_bonus(const caster_snapshot& caster, const char_data& victim, game_types::player_specs primary_spec, game_types::player_specs opposing_spec);
-
-bool is_friendly_taget(const char_data* caster, const char_data* victim);
 bool is_friendly_taget(const caster_snapshot& caster, const char_data* victim);
-
-bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus);
 bool new_saves_spell(const caster_snapshot& caster, const char_data* victim, int save_bonus);
 
-// The victim's saving throw against `caster`, in a live and a
-// cast-time-snapshot form.
-double get_victim_saving_throw(const char_data* caster, const char_data* victim);
+// The victim's saving throw against `caster`.
 double get_victim_saving_throw(const caster_snapshot& caster, const char_data* victim);
+
+// Scales `damage_dealt` by the victim's saving throw against `who`, then deals
+// it from `attacker`, who engages the victim and is credited with a kill.
+int apply_spell_damage(const caster_snapshot& who, char_data* attacker, char_data* victim,
+    int damage_dealt, int spell_number, int hit_location);
 
 // apply_spell_damage() for a caster supplied as a cast-time snapshot. `who`
 // supplies the caster side of the victim's saving throw, `attacker` engages
@@ -528,9 +524,7 @@ double get_victim_saving_throw(const caster_snapshot& caster, const char_data* v
 int apply_spell_damage_credited(const caster_snapshot& who, char_data* attacker, char_data* victim,
     char_data* credited_killer, int damage_dealt, int spell_number, int hit_location);
 
-// The victim's poison save against `caster`, in a live and a
-// cast-time-snapshot form. Both give the same answer for the same caster state.
-char saves_poison(struct char_data* victim, struct char_data* caster);
+// The victim's poison save against `caster`.
 char saves_poison(struct char_data* victim, const caster_snapshot& caster);
 
 #endif /* SPELLS_H */

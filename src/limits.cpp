@@ -1513,8 +1513,7 @@ void affect_update_room(struct room_data* room)
                         /* 1 in 13 chance that a room spell won't do anything */
                         if (!(tmp = number(0, 12)) || (skills[tmpaf->location].is_fast && !number(0, 2))) {
                             if (!room_affect_tick(tmpaf->location, room, tmpch, *tmpaf)) {
-                                (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
-                                    tmpch, 0, 0, 0);
+                                run_spell(tmpaf->location, tmpch, "", SPELL_TYPE_SPELL, tmpch, 0, 0, 0);
                             }
                         }
                     }

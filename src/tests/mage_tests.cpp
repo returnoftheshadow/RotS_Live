@@ -5,14 +5,14 @@
 #include "../zone.h"
 #include "test_character_support.h"
 #include "test_random_utils.h"
+#include "test_spell_support.h"
 #include <algorithm>
 #include <gtest/gtest.h>
 #include <string>
 
 // get_mage_caster_level/get_magic_power/should_apply_spell_penetration/
 // get_spell_pen_value/get_victim_saving_throw/get_save_bonus/
-// is_friendly_taget are declared (both the live and caster_snapshot forms)
-// by spells.h, included above.
+// is_friendly_taget are declared by spells.h, included above.
 bool different_zone(int was_in, int to_room);
 int random_exit(int room);
 bool is_teleportation_room_valid(room_data *room);
@@ -227,11 +227,11 @@ TEST_F(MageProcTest, MageCasterLevelUsesCurrentIntelRoundingPath) {
     context.caster.tmpabilities.intel = 19;
 
     push_test_random_value(0.0);
-    EXPECT_EQ(get_mage_caster_level(&context.caster), 21)
+    EXPECT_EQ(get_mage_caster_level(caster_snapshot::capture(context.caster)), 21)
         << "Expected low queued rolls to keep the current partial-intelligence bonus unrounded.";
 
     push_test_random_value(0.99);
-    EXPECT_EQ(get_mage_caster_level(&context.caster), 22)
+    EXPECT_EQ(get_mage_caster_level(caster_snapshot::capture(context.caster)), 22)
         << "Expected high queued rolls to trigger the current partial-intelligence rounding bonus.";
 }
 
@@ -245,30 +245,30 @@ TEST_F(MageProcTest, MagicPowerUsesBattleMageBonusLevelModifierAndIntelRounding)
 
     push_test_random_value(0.0);
     push_test_random_value(0.0);
-    EXPECT_EQ(get_magic_power(&context.caster), 124)
+    EXPECT_EQ(get_magic_power(caster_snapshot::capture(context.caster)), 124)
         << "Expected magic power to combine mage level, battle-mage bonus, level modifier, and the "
            "current low-roll intel contribution.";
 
     push_test_random_value(0.99);
     push_test_random_value(0.99);
-    EXPECT_EQ(get_magic_power(&context.caster), 126)
+    EXPECT_EQ(get_magic_power(caster_snapshot::capture(context.caster)), 126)
         << "Expected magic power to increase by one when the queued intel-rounding roll succeeds.";
 }
 
 TEST(MageHelpers, SpellPenetrationAppliesForPlayersAndEligibleCharmedOrcFriends) {
     MageTestContext context;
 
-    EXPECT_TRUE(should_apply_spell_penetration(&context.caster))
+    EXPECT_TRUE(should_apply_spell_penetration(caster_snapshot::capture(context.caster)))
         << "Expected player casters to always apply spell penetration.";
 
     context.caster.specials2.act = MOB_ISNPC;
-    EXPECT_FALSE(should_apply_spell_penetration(&context.caster))
+    EXPECT_FALSE(should_apply_spell_penetration(caster_snapshot::capture(context.caster)))
         << "Expected ordinary NPC casters not to apply spell penetration.";
 
     context.caster.specials2.act = MOB_ISNPC | MOB_ORC_FRIEND;
     context.caster.specials.affected_by = AFF_CHARM;
     context.caster.master = &context.master;
-    EXPECT_TRUE(should_apply_spell_penetration(&context.caster))
+    EXPECT_TRUE(should_apply_spell_penetration(caster_snapshot::capture(context.caster)))
         << "Expected charmed orc-friend NPCs with a player master to apply spell penetration.";
 }
 
@@ -277,12 +277,12 @@ TEST(MageHelpers, SpellPenetrationRejectsCharmedOrcFriendsWithoutPlayerMaster) {
     context.caster.specials2.act = MOB_ISNPC | MOB_ORC_FRIEND;
     context.caster.specials.affected_by = AFF_CHARM;
 
-    EXPECT_FALSE(should_apply_spell_penetration(&context.caster))
+    EXPECT_FALSE(should_apply_spell_penetration(caster_snapshot::capture(context.caster)))
         << "Expected charmed orc-friend NPCs without a master to skip spell penetration.";
 
     context.master.specials2.act = MOB_ISNPC;
     context.caster.master = &context.master;
-    EXPECT_FALSE(should_apply_spell_penetration(&context.caster))
+    EXPECT_FALSE(should_apply_spell_penetration(caster_snapshot::capture(context.caster)))
         << "Expected charmed orc-friend NPCs with a non-player master to skip spell penetration.";
 }
 
@@ -290,7 +290,7 @@ TEST(MageHelpers, SpellPenValueUsesCasterAndMasterMageLevelsForCharmedNpcs) {
     MageTestContext context;
     context.caster_profs.prof_level[PROF_MAGE] = 20;
 
-    EXPECT_DOUBLE_EQ(get_spell_pen_value(&context.caster), 4.0)
+    EXPECT_DOUBLE_EQ(get_spell_pen_value(caster_snapshot::capture(context.caster)), 4.0)
         << "Expected player spell penetration to use one fifth of the caster's mage level.";
 
     context.caster.specials2.act = MOB_ISNPC;
@@ -299,7 +299,7 @@ TEST(MageHelpers, SpellPenValueUsesCasterAndMasterMageLevelsForCharmedNpcs) {
     context.caster.player.level = 20;
     context.master_profs.prof_level[PROF_MAGE] = 15;
 
-    EXPECT_DOUBLE_EQ(get_spell_pen_value(&context.caster), 5.0)
+    EXPECT_DOUBLE_EQ(get_spell_pen_value(caster_snapshot::capture(context.caster)), 5.0)
         << "Expected charmed NPC spell penetration to include one third of the master's mage "
            "level.";
 }
@@ -310,12 +310,12 @@ TEST(MageHelpers, VictimSavingThrowUsesSpellPenetrationAndPlayerLevelAdjustment)
     context.victim.specials2.saving_throw = 10;
     context.victim.player.level = 25;
 
-    EXPECT_DOUBLE_EQ(get_victim_saving_throw(&context.caster, &context.victim), 11.0)
+    EXPECT_DOUBLE_EQ(get_victim_saving_throw(caster_snapshot::capture(context.caster), &context.victim), 11.0)
         << "Expected player victims to offset spell penetration with the current level-based "
            "saving-throw adjustment.";
 
     context.caster.specials2.act = MOB_ISNPC;
-    EXPECT_DOUBLE_EQ(get_victim_saving_throw(&context.caster, &context.victim), 10.0)
+    EXPECT_DOUBLE_EQ(get_victim_saving_throw(caster_snapshot::capture(context.caster), &context.victim), 10.0)
         << "Expected NPC casters without spell penetration eligibility to leave the victim saving "
            "throw unchanged.";
 }
@@ -422,7 +422,7 @@ TEST(MageHelpers, SaveBonusUsesCasterAndVictimSpecializationMatchups) {
     context.victim_profs.specialization = static_cast<int>(game_types::PS_Cold);
 
     EXPECT_EQ(
-        get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold),
+        get_save_bonus(caster_snapshot::capture(context.caster), context.victim, game_types::PS_Fire, game_types::PS_Cold),
         -4)
         << "Expected matching caster specialization and opposing victim specialization to stack "
            "the current save-bonus reductions.";
@@ -430,14 +430,14 @@ TEST(MageHelpers, SaveBonusUsesCasterAndVictimSpecializationMatchups) {
     context.caster_profs.specialization = static_cast<int>(game_types::PS_Cold);
     context.victim_profs.specialization = static_cast<int>(game_types::PS_Fire);
     EXPECT_EQ(
-        get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold), 4)
+        get_save_bonus(caster_snapshot::capture(context.caster), context.victim, game_types::PS_Fire, game_types::PS_Cold), 4)
         << "Expected opposing caster specialization and matching victim specialization to stack "
            "the current save-bonus increases.";
 
     context.caster_profs.specialization = static_cast<int>(game_types::PS_Arcane);
     context.victim_profs.specialization = static_cast<int>(game_types::PS_Arcane);
     EXPECT_EQ(
-        get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold),
+        get_save_bonus(caster_snapshot::capture(context.caster), context.victim, game_types::PS_Fire, game_types::PS_Cold),
         -4)
         << "Expected arcane specialization to count as primary for the caster and opposing for the "
            "victim in the current implementation.";
@@ -448,15 +448,15 @@ TEST(MageHelpers, FriendlyTargetTreatsSelfFollowersAndSameSideCharactersAsFriend
     char_data follower{};
     follower.master = &context.caster;
 
-    EXPECT_TRUE(is_friendly_taget(&context.caster, &context.caster))
+    EXPECT_TRUE(is_friendly_taget(caster_snapshot::capture(context.caster), &context.caster))
         << "Expected a caster to always count as a friendly target to themselves.";
-    EXPECT_TRUE(is_friendly_taget(&context.caster, &follower))
+    EXPECT_TRUE(is_friendly_taget(caster_snapshot::capture(context.caster), &follower))
         << "Expected follower chains ending at the caster to count as friendly targets.";
-    EXPECT_TRUE(is_friendly_taget(&context.caster, &context.victim))
+    EXPECT_TRUE(is_friendly_taget(caster_snapshot::capture(context.caster), &context.victim))
         << "Expected same-side characters to count as friendly targets.";
 
     context.victim.player.race = RACE_ORC;
-    EXPECT_FALSE(is_friendly_taget(&context.caster, &context.victim))
+    EXPECT_FALSE(is_friendly_taget(caster_snapshot::capture(context.caster), &context.victim))
         << "Expected characters on the opposing side to count as non-friendly targets.";
 }
 
@@ -493,7 +493,7 @@ TEST_F(MageProcTest, MagicMissileHalvesDamageWhenSaveIsForced) {
     push_test_random_value(0.0);
     push_test_random_value(0.0);
 
-    spell_magic_missile(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_magic_missile, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     EXPECT_EQ(context.victim.tmpabilities.hit, 494)
         << "Expected strong-saving victims to halve magic missile's minimum deterministic damage "
@@ -513,7 +513,7 @@ TEST_F(MageProcTest, ChillRayAppliesChilledEffectAndTracksColdSpecOnFailedSave) 
     push_test_random_value(0.0);
     push_test_random_value(0.0);
 
-    spell_chill_ray(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_chill_ray, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     auto *cold_data =
         static_cast<cold_spec_data *>(context.caster.extra_specialization_data.current_spec_info);
@@ -535,7 +535,7 @@ TEST_F(MageProcTest, ChillRayTracksColdSpecFailureOnSavedCast) {
     push_test_random_value(0.0);
     push_test_random_value(0.0);
 
-    spell_chill_ray(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_chill_ray, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     auto *cold_data =
         static_cast<cold_spec_data *>(context.caster.extra_specialization_data.current_spec_info);
@@ -557,7 +557,7 @@ TEST_F(MageProcTest, LightningBoltUsesSpecializationBonusAndSaveReduction) {
     push_test_random_value(0.0);
     push_test_random_value(0.0);
 
-    spell_lightning_bolt(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_lightning_bolt, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     EXPECT_EQ(context.victim.tmpabilities.hit, 485)
         << "Expected lightning specialization to boost indoor lightning bolt damage before the "
@@ -577,7 +577,7 @@ TEST_F(MageProcTest, DarkBoltUsesSpecializationBonusWithoutSunPenalty) {
     push_test_random_value(0.0);
     push_test_random_value(0.0);
 
-    spell_dark_bolt(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_dark_bolt, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     EXPECT_EQ(context.victim.tmpabilities.hit, 469)
         << "Expected darkness specialization to apply its current 10% raw-damage bonus when "
@@ -605,7 +605,7 @@ TEST_F(MageProcTest, FireboltUsesFireSpecMinimumDamageAndSaveReduction) {
     push_test_random_value(0.0);
     push_test_random_value(0.0);
 
-    spell_firebolt(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_firebolt, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     EXPECT_EQ(context.victim.tmpabilities.hit, 498)
         << "Expected firebolt's strong-save path to halve the specialization-clamped minimum "
@@ -627,7 +627,7 @@ TEST_F(MageProcTest, ConeOfColdAppliesChilledEffectAndColdSpecTrackingOnFailedSa
     push_test_random_value(0.0);
     push_test_random_value(0.0);
 
-    spell_cone_of_cold(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_cone_of_cold, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     auto *cold_data =
         static_cast<cold_spec_data *>(context.caster.extra_specialization_data.current_spec_info);
@@ -867,7 +867,7 @@ TEST_F(MageProcTest, FireballSplashesTheRoomBeforeASelfFumbleKillsTheCaster) {
     queue_fireball_rolls(kForceFumbleRoll);
 
     testing::internal::CaptureStderr();
-    spell_fireball(caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_fireball, caster, nullptr, 0, &context.victim, nullptr, 0, 0);
     const std::string captured = testing::internal::GetCapturedStderr();
     // caster is freed at this point; nothing below may dereference it -- only compare the
     // pointer value or read state through survivors (character_list, world[]'s room lists).
@@ -922,7 +922,7 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
     queue_fireball_rolls(kForceNoFumbleRoll);
 
     testing::internal::CaptureStderr();
-    spell_fireball(caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_fireball, caster, nullptr, 0, &context.victim, nullptr, 0, 0);
     const std::string captured = testing::internal::GetCapturedStderr();
     // CaptureStderr dup2s a temp file over fd 2, which is also where AddressSanitizer
     // reports; the window must close (GetCapturedStderr, above) before any call that
@@ -1040,7 +1040,7 @@ TEST_F(MageProcTest, EarthquakeLetsEveryOtherOccupantFallBeforeTheCastersOwnFall
     queue_fireball_rolls(kEarthquakeSafeRoll, 100);
 
     testing::internal::CaptureStderr();
-    spell_earthquake(caster, nullptr, 0, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_earthquake, caster, nullptr, 0, nullptr, nullptr, 0, 0);
     const std::string captured = testing::internal::GetCapturedStderr();
     // caster is freed at this point (its own fall was lethal); nothing below may
     // dereference it -- only compare the pointer value or read state through survivors
@@ -1067,82 +1067,8 @@ TEST_F(MageProcTest, EarthquakeLetsEveryOtherOccupantFallBeforeTheCastersOwnFall
 }
 
 // ---------------------------------------------------------------------------
-// Every mage formula helper gains a caster_snapshot overload that owns the
-// body; the live const char_data* form is a one-line forwarder onto it.
-// These tests pin the per-call RNG rolls (which stay inside the snapshot
-// bodies) so the live and snapshot forms can be proven equivalent rather
-// than merely both compiling.
+// Snapshot-specific behaviour of the formula helpers.
 // ---------------------------------------------------------------------------
-
-TEST_F(MageProcTest, MageCasterLevelSnapshotFormMatchesLiveFormUnderPinnedRng) {
-    MageTestContext context;
-    context.caster_profs.prof_level[PROF_MAGE] = 18;
-    context.caster.tmpabilities.intel = 22; // intel_factor 4, remainder 4 -> a real number(0, 4) draw
-
-    const caster_snapshot snap = caster_snapshot::capture(context.caster);
-
-    push_test_random_value(0.5);
-    const int live_level = get_mage_caster_level(&context.caster);
-    push_test_random_value(0.5);
-    EXPECT_EQ(get_mage_caster_level(snap), live_level)
-        << "Expected the snapshot form to reproduce the live form's mage caster level under the "
-           "same pinned remainder roll.";
-}
-
-TEST_F(MageProcTest, MagicPowerSnapshotFormMatchesLiveFormUnderPinnedRng) {
-    MageTestContext context;
-    context.caster_profs.prof_level[PROF_MAGE] = 24;
-    context.caster_profs.specialization = static_cast<int>(game_types::PS_BattleMage);
-    context.caster.specials.tactics = TACTICS_AGGRESSIVE;
-    context.caster.points.spell_power = 60;
-    context.caster.tmpabilities.intel = 22; // two remainder draws per call (own + get_mage_caster_level's)
-
-    const caster_snapshot snap = caster_snapshot::capture(context.caster);
-
-    push_test_random_value(0.5);
-    push_test_random_value(0.5);
-    const int live_power = get_magic_power(&context.caster);
-    push_test_random_value(0.5);
-    push_test_random_value(0.5);
-    EXPECT_EQ(get_magic_power(snap), live_power)
-        << "Expected the snapshot form to reproduce the live form's magic power, including the "
-           "battle-mage bonus and the race-capped level modifier.";
-}
-
-TEST(MageHelpers, SpellPenetrationSnapshotFormMatchesLiveForm) {
-    MageTestContext context;
-
-    caster_snapshot snap = caster_snapshot::capture(context.caster);
-    EXPECT_EQ(should_apply_spell_penetration(snap), should_apply_spell_penetration(&context.caster))
-        << "Expected a player caster to agree between the live and snapshot forms.";
-
-    context.caster.specials2.act = MOB_ISNPC;
-    snap = caster_snapshot::capture(context.caster);
-    EXPECT_EQ(should_apply_spell_penetration(snap), should_apply_spell_penetration(&context.caster))
-        << "Expected an ordinary NPC caster to agree between the live and snapshot forms.";
-
-    context.caster.specials2.act = MOB_ISNPC | MOB_ORC_FRIEND;
-    context.caster.specials.affected_by = AFF_CHARM;
-    context.caster.master = &context.master;
-    snap = caster_snapshot::capture(context.caster);
-    EXPECT_EQ(should_apply_spell_penetration(snap), should_apply_spell_penetration(&context.caster))
-        << "Expected a charmed orc-friend NPC with a player master to agree between the live and "
-           "snapshot forms.";
-}
-
-TEST(MageHelpers, SpellPenValueSnapshotFormMatchesLiveFormForCharmedNpc) {
-    MageTestContext context;
-    context.caster_profs.prof_level[PROF_MAGE] = 20;
-    context.caster.specials2.act = MOB_ISNPC;
-    context.caster.specials.affected_by = AFF_CHARM;
-    context.caster.master = &context.master;
-    context.caster.player.level = 20;
-    context.master_profs.prof_level[PROF_MAGE] = 15;
-
-    const caster_snapshot snap = caster_snapshot::capture(context.caster);
-    EXPECT_DOUBLE_EQ(get_spell_pen_value(snap), get_spell_pen_value(&context.caster))
-        << "Expected the snapshot form to reproduce the live form's charmed-NPC master bonus.";
-}
 
 // Covers get_spell_pen_value()'s charmed-NPC-without-master arm, which the
 // snapshot form reaches through master_mage_prof_level == 0 (capture()'s
@@ -1164,66 +1090,20 @@ TEST(MageHelpers, SpellPenValueSnapshotFormHandlesCharmedNpcWithoutMaster) {
     EXPECT_DOUBLE_EQ(get_spell_pen_value(snap), 5.0)
         << "Expected the master_mage_prof_level == 0 arm to add nothing on top of the NPC's own "
            "mage level (25 / 5).";
-    EXPECT_DOUBLE_EQ(get_spell_pen_value(snap), get_spell_pen_value(&context.caster))
-        << "Expected the snapshot form to agree with the live form on the masterless arm.";
 }
 
-TEST(MageHelpers, VictimSavingThrowSnapshotFormMatchesLiveForm) {
+TEST(MageHelpers, FriendlyTargetSelfTestUsesSameCharacterAs) {
     MageTestContext context;
-    context.caster_profs.prof_level[PROF_MAGE] = 20;
-    context.victim.specials2.saving_throw = 10;
-    context.victim.player.level = 25;
-
-    caster_snapshot snap = caster_snapshot::capture(context.caster);
-    EXPECT_DOUBLE_EQ(get_victim_saving_throw(snap, &context.victim),
-        get_victim_saving_throw(&context.caster, &context.victim))
-        << "Expected the snapshot form to agree with the live form for a spell-penetrating player "
-           "caster.";
-
-    context.caster.specials2.act = MOB_ISNPC;
-    snap = caster_snapshot::capture(context.caster);
-    EXPECT_DOUBLE_EQ(get_victim_saving_throw(snap, &context.victim),
-        get_victim_saving_throw(&context.caster, &context.victim))
-        << "Expected the snapshot form to agree with the live form for a non-penetrating NPC caster.";
-}
-
-TEST(MageHelpers, SaveBonusSnapshotFormMatchesLiveForm) {
-    MageTestContext context;
-    context.caster_profs.specialization = static_cast<int>(game_types::PS_Fire);
-    context.victim_profs.specialization = static_cast<int>(game_types::PS_Cold);
-
-    const caster_snapshot snap = caster_snapshot::capture(context.caster);
-    EXPECT_EQ(get_save_bonus(snap, context.victim, game_types::PS_Fire, game_types::PS_Cold),
-        get_save_bonus(context.caster, context.victim, game_types::PS_Fire, game_types::PS_Cold))
-        << "Expected the snapshot form to agree with the live form's specialization matchup.";
-}
-
-TEST(MageHelpers, FriendlyTargetSnapshotFormAgreesWithLiveFormAndSelfTestUsesSameCharacterAs) {
-    MageTestContext context;
-    char_data follower{};
-    follower.master = &context.caster;
-
     const caster_snapshot snap = caster_snapshot::capture(context.caster);
 
-    // The self test: caster.same_character_as(*victim) must hold only for the
-    // very character the snapshot was captured from, matching the live form's
-    // `victim == caster` identity test.
+    // The self test: caster.same_character_as(*victim) holds only for the very
+    // character the snapshot was captured from.
     EXPECT_TRUE(is_friendly_taget(snap, &context.caster))
         << "Expected a caster snapshot to count as a friendly target to the character it was "
            "captured from.";
     EXPECT_TRUE(snap.same_character_as(context.caster));
     EXPECT_FALSE(snap.same_character_as(context.victim))
         << "same_character_as() must not treat an unrelated character as the captured caster.";
-
-    EXPECT_EQ(is_friendly_taget(snap, &context.caster), is_friendly_taget(&context.caster, &context.caster));
-    EXPECT_EQ(is_friendly_taget(snap, &follower), is_friendly_taget(&context.caster, &follower))
-        << "Expected the snapshot form to agree with the live form across a follower chain.";
-    EXPECT_EQ(is_friendly_taget(snap, &context.victim), is_friendly_taget(&context.caster, &context.victim))
-        << "Expected the snapshot form to agree with the live form for a same-side character.";
-
-    context.victim.player.race = RACE_ORC;
-    EXPECT_EQ(is_friendly_taget(snap, &context.victim), is_friendly_taget(&context.caster, &context.victim))
-        << "Expected the snapshot form to agree with the live form for an opposing-side character.";
 }
 
 // ---------------------------------------------------------------------------
@@ -1286,7 +1166,7 @@ TEST_F(MageProcTest, SummonMovesAWillingPlayerVictimToTheCastersRoom) {
     // success arm runs.
     push_test_random_value(0.025); // (1 - 1 + 0.5) / 20 -- midpoint of the roll==1 bucket
 
-    spell_summon(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_summon, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
 
     EXPECT_EQ(context.victim.in_room, 7)
         << "Expected the summoned victim to be moved into the caster's room.";
@@ -1332,7 +1212,7 @@ bool summon_across_zones(int victim_x, int victim_y, int save_roll) {
     context.caster.desc = &caster_descriptor;
 
     push_test_random_value((save_roll - 0.5) / 20); // midpoint of the save_roll bucket
-    spell_summon(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    test_support::cast_spell(spell_summon, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
     const bool summoned = context.victim.in_room == 7;
 
     char_from_room(&context.victim);

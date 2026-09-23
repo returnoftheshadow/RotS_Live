@@ -794,9 +794,7 @@ ACMD(do_use)
 
         if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
             stick->obj_flags.value[2]--;
-            if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                ((*skills[stick->obj_flags.value[3]].spell_pointer)(ch, "", SPELL_TYPE_STAFF, 0, 0,
-                    0, 0));
+            run_spell(stick->obj_flags.value[3], ch, "", SPELL_TYPE_STAFF, 0, 0, 0, 0);
 
         } else
             send_to_char("The staff seems powerless.\n\r", ch);
@@ -814,9 +812,7 @@ ACMD(do_use)
 
             if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
                 stick->obj_flags.value[2]--;
-                if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                    ((*skills[stick->obj_flags.value[3]].spell_pointer)(
-                        ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0));
+                run_spell(stick->obj_flags.value[3], ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0);
             } else
                 send_to_char("The wand seems powerless.\n\r", ch);
         } else
