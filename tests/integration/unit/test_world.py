@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -62,16 +63,16 @@ def test_snake_mob_binds_its_bite_special() -> None:
     assert program_number == 1, f"snake store_prog_number {program_number} must be 1 (spec_ass.cpp's virt_program_number/get_special_function select SPECIAL(snake) for 1)"
 
 
-def test_zone_twelve_sits_at_squared_distance_twenty_from_zone_eleven() -> None:
-    """spell_summon adds dx*dx + dy*dy to the save bonus (mage.cpp ~861); new_saves_spell treats a
-    bonus of 20 or more as an automatic save (spell_pa.cpp ~262), so this placement makes a
-    cross-zone summon fail deterministically."""
+def test_zone_twelve_sits_twenty_squares_from_zone_eleven() -> None:
+    """spell_summon adds the straight-line map distance, rounded down, to the save bonus
+    (mage.cpp ~867); new_saves_spell treats a bonus of 20 or more as an automatic save
+    (spell_pa.cpp ~262), so this placement makes a cross-zone summon fail deterministically."""
     eleven = (WORLD_ROOT / "zon" / "11.zon").read_text(encoding="latin-1")
     twelve = (WORLD_ROOT / "zon" / "12.zon").read_text(encoding="latin-1")
     header = re.compile(r"^\? (-?\d+) (-?\d+) \d+\s*$", flags=re.MULTILINE)
     x1, y1 = (int(value) for value in header.search(eleven).groups())
     x2, y2 = (int(value) for value in header.search(twelve).groups())
-    assert (x2 - x1) ** 2 + (y2 - y1) ** 2 == 20
+    assert math.isqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) == 20
 
 
 def test_zone_twelve_holds_only_the_distant_cell() -> None:

@@ -21,8 +21,8 @@ from rots_harness.session import (
 
 pytestmark = pytest.mark.scenario
 
-SUMMON_SUCCESS = ("appears in the room.",)  # spell_summon's act(...TO_ROOM/TO_CHAR...) to the caster's room (mage.cpp:866-867)
-SUMMONED_MARKER = "summons you!"  # spell_summon's act(...TO_CHAR...) to the victim (mage.cpp:874)
+SUMMON_SUCCESS = ("appears in the room.",)  # spell_summon's act(...TO_ROOM/TO_CHAR...) to the caster's room (mage.cpp:876-877)
+SUMMONED_MARKER = "summons you!"  # spell_summon's act(...TO_CHAR...) to the victim (mage.cpp:882)
 RECONNECT_MARKER = "Reconnecting."  # complete_existing_character_login's linkless-body branch (interpre.cpp ~2780); see _reconnect()'s docstring
 
 
@@ -100,7 +100,7 @@ def test_summon_of_a_link_dead_character_relocates_it_without_a_crash(server, im
     # act()'s TO_CHAR branch only sends when `to->desc` is set (comm.cpp:2517), and do_look
     # bails immediately on `!ch->desc` or `!ch->desc->descriptor` (act_info.cpp:1045-1048);
     # spell_summon's act(...TO_CHAR...) and do_look(victim, "", 0, 0, 0) calls on the linkless
-    # victim (mage.cpp:874-875) exercise exactly those guards. The autouse crash-monitor
+    # victim (mage.cpp:882-883) exercise exactly those guards. The autouse crash-monitor
     # fixture fails this test on any signal or sanitizer report, so no explicit crash
     # assertion is needed here.
 

@@ -1276,7 +1276,7 @@ TEST_F(MageProcTest, SummonMovesAWillingPlayerVictimToTheCastersRoom) {
 
     // new_saves_spell(): casting_dc = 10 + 0 (zero mage-prof level) +
     // (20-8)/4 = 13. get_character_saving_throw(victim) = 0 (zero mage-prof
-    // level) + (20-8)/4 = 3. spell_summon's dist is the squared distance
+    // level) + (20-8)/4 = 3. spell_summon's dist is the straight-line distance
     // between the caster's and victim's zone map coordinates: both rooms are
     // zone 0 on the zero-initialized zone_data stub, so ch_x/ch_y/v_x/v_y are
     // all 0 and dist == 0, giving save_value = 3 + 0 = 3. The single draw
@@ -1301,37 +1301,25 @@ TEST_F(MageProcTest, SummonMovesAWillingPlayerVictimToTheCastersRoom) {
     char_from_room(&context.caster);
 }
 
-// spell_summon()'s save bonus is the squared distance between the caster's
-// and victim's zone map coordinates (dist = delta_x^2 + delta_y^2), not the
-// bitwise XOR of the coordinate deltas. This test puts the two zones 4
-// x-units apart and pins a save_value that only the squared arithmetic
-// produces: under the fix the victim saves and the summon fails; under the
-// pre-fix XOR arithmetic the same setup would have let the summon succeed
-// (see the derivation below), so this test is red against the bug and green
-// against the fix.
-TEST_F(MageProcTest, SummonSaveBonusUsesSquaredZoneDistance) {
+namespace {
+
+// Casts summon from zone 0 at map square (0, 0) at a victim in zone 1 at
+// (victim_x, victim_y), with the save roll forced to save_roll. The caster
+// and victim have zero mage levels and 20 intel, so new_saves_spell()'s DC is
+// 13 and the victim's base save is 3: the victim saves when
+// save_roll + 3 + distance bonus > 13. Returns true when the victim arrived.
+bool summon_across_zones(int victim_x, int victim_y, int save_roll) {
     MageTestContext context;
     char summon_victim_name[16] = "test_target";
     context.victim.player.name = summon_victim_name;
 
-    // spell_summon() reads zone_table[room->zone].x/y for its save-bonus
-    // distance term (see ZoneTableGuard's comment above). Put the caster's
-    // zone (0) at (0, 0) and the victim's zone (1) at (4, 0), 4 x-units away
-    // -- y stays 0 for both so the y term of dist is 0.
     ZoneTableGuard zone_table_guard;
-    zone_table_guard.stub[0].x = 0;
-    zone_table_guard.stub[0].y = 0;
-    zone_table_guard.stub[1].x = 4;
-    zone_table_guard.stub[1].y = 0;
-
+    zone_table_guard.stub[1].x = victim_x;
+    zone_table_guard.stub[1].y = victim_y;
     ZoneGuard zone_guard(7, 8);
     world[7].zone = 0;
     world[8].zone = 1;
 
-    // Place both characters with real occupant chains -- different_zone()
-    // is true here (zone 0 vs zone 1), so spell_summon() also exercises
-    // prohibit_item_stay_zone_move() before the save roll; neither character
-    // carries or wears anything, so that call is a no-op.
     RoomExitGuard caster_room_guard(7);
     RoomExitGuard victim_room_guard(8);
     world[7].room_flags = 0; // clear any NO_TELEPORT leftover from an earlier suite in this room
@@ -1343,30 +1331,36 @@ TEST_F(MageProcTest, SummonSaveBonusUsesSquaredZoneDistance) {
     descriptor_data caster_descriptor = make_descriptor();
     context.caster.desc = &caster_descriptor;
 
-    // new_saves_spell(): casting_dc = 13 and get_character_saving_throw(victim)
-    // = 3, same as the same-zone test above (identical caster/victim mage
-    // levels and intel). dist = (4-0)^2 + (0-0)^2 = 16, so save_value = 3 +
-    // 16 = 19. The single draw below (the save roll, number(1,20)) is a
-    // queued midpoint of the roll==1 bucket, so roll == 1 and 1+19=20, which
-    // IS > 13 -- new_saves_spell() returns true (the victim saves) and the
-    // summon fails.
-    //
-    // Under the pre-fix bitwise-XOR arithmetic, the same coordinates would
-    // have produced dist = (4^2) + (0^2) = 6 + 2 = 8 (XOR, not squaring), so
-    // save_value = 3 + 8 = 11 and 1+11=12, which is NOT > 13 -- the summon
-    // would have incorrectly succeeded.
-    push_test_random_value(0.025); // (1 - 1 + 0.5) / 20 -- midpoint of the roll==1 bucket
-
+    push_test_random_value((save_roll - 0.5) / 20); // midpoint of the save_roll bucket
     spell_summon(&context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    const bool summoned = context.victim.in_room == 7;
 
-    EXPECT_EQ(context.victim.in_room, 8)
-        << "Expected the victim to save against the summon and stay in its own room.";
-    const std::string caster_output = caster_descriptor.output;
-    EXPECT_NE(caster_output.find("You failed."), std::string::npos)
-        << "Expected the caster to see the failure message; output was: " << caster_output;
-
-    // Fixture hygiene: the victim never moved, but char_to_room() above
-    // still linked both characters into world[]'s occupant chains.
     char_from_room(&context.victim);
     char_from_room(&context.caster);
+    return summoned;
+}
+
+} // namespace
+
+// A (3, 4) offset is 5 squares in a straight line. With roll 1 the victim
+// needs a bonus of 10 to save, so 5 lets the summon through; the squared
+// formula's 25 would have forced the save.
+TEST_F(MageProcTest, SummonDistanceBonusIsStraightLineNotSquared) {
+    EXPECT_TRUE(summon_across_zones(3, 4, 1))
+        << "Expected a 5-square summon on a roll of 1 to land.";
+}
+
+// With roll 6 the victim needs a bonus of 5, so the straight-line 5 saves.
+// The live XOR formula gave this offset a bonus of -3 and would have let the
+// summon through.
+TEST_F(MageProcTest, SummonDistanceBonusIsNotTheLiveXorFormula) {
+    EXPECT_FALSE(summon_across_zones(3, 4, 6))
+        << "Expected a 5-square summon on a roll of 6 to be saved.";
+}
+
+// A (12, 16) offset is exactly 20 squares, the bonus at which
+// new_saves_spell() forces the save whatever the roll.
+TEST_F(MageProcTest, SummonAtTwentySquaresAlwaysFails) {
+    EXPECT_FALSE(summon_across_zones(12, 16, 1))
+        << "Expected a 20-square summon to be saved even on a roll of 1.";
 }

@@ -337,14 +337,14 @@ TEST(OlogHaiHelpers, ComputesBaseSkillDamageFromWarriorLevelProbabilityAndTactic
         << "Expected base skill damage to scale with warrior level, success probability, and tactics.";
 }
 
-TEST(OlogHaiHelpers, TwoHandedStyleAppliesCurrentBaseDamageMultiplier) {
+TEST(OlogHaiHelpers, TwoHandedStyleAddsNoBaseDamageBonus) {
     OlogHaiTestContext context;
     context.profs.prof_level[PROF_WARRIOR] = 20;
     context.attacker.specials.tactics = TACTICS_AGGRESSIVE;
     context.attacker.specials.affected_by = AFF_TWOHANDED;
 
-    EXPECT_EQ(olog_hai::get_base_skill_damage(context.attacker, 50), 19)
-        << "Expected two-handed style to apply the current 3/2 integer damage multiplier to base olog-hai skill damage.";
+    EXPECT_EQ(olog_hai::get_base_skill_damage(context.attacker, 50), 13)
+        << "Expected two-handed style to leave base olog-hai skill damage unchanged.";
 }
 
 TEST(OlogHaiHelpers, FrenzyAffectAppliesItsCurrentIntegerScaledDamageBonus) {

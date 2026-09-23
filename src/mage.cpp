@@ -19,6 +19,7 @@
 #include "utils.h"
 #include "warrior_spec_handlers.h"
 #include "zone.h" /* For zone_table */
+#include <cmath>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -852,13 +853,18 @@ ASPELL(spell_summon)
     v_x = zone_table[world[victim->in_room].zone].x;
     v_y = zone_table[world[victim->in_room].zone].y;
 
-    // dist is the squared Euclidean distance between the caster's and
-    // victim's zone map coordinates, feeding the save bonus below (farther
-    // zones make the victim's save easier). Previously used `^` (bitwise
-    // XOR) here instead of squaring, which was a typo.
+    // dist is the straight-line distance between the two zones' map squares,
+    // rounded down, and becomes the victim's save bonus. The live formula,
+    // `(dx ^ 2) + (dy ^ 2)`, meant to square but used bitwise XOR.
+    // Similar: for a target due west or due north, both give about one save
+    // point per square (Vinyanost summoning from Maethelburg: 7 either way).
+    // Different: XOR turned negative deltas into negative bonuses, so a
+    // target east or south of the caster was a near-certain summon while the
+    // reverse trip was not. This distance is never negative and is the same
+    // both ways; a target 20 or more squares away always saves.
     const int delta_x = ch_x - v_x;
     const int delta_y = ch_y - v_y;
-    dist = (delta_x * delta_x) + (delta_y * delta_y);
+    dist = static_cast<int>(std::sqrt(static_cast<double>((delta_x * delta_x) + (delta_y * delta_y))));
 
     int save_bonus = dist;
     /* Make high level mobs harder to summon */

@@ -34,7 +34,7 @@ ROOM_DARK_CELL = 1133
 ROOM_CORRIDOR_ONE = 1134
 ROOM_CORRIDOR_TWO = 1135
 ROOM_CREVICE_FLOOR = 1136
-ROOM_DISTANT_CELL = 1201  # zone 12 at map (4,2): squared distance 20 from zone 11 (test_world.py)
+ROOM_DISTANT_CELL = 1201  # zone 12 at map (20,0): 20 squares from zone 11 (test_world.py)
 ROOM_WOOD_ELF_START = 1170
 
 # src/structs.h: RENT_CRASH and MAX_MAXBOARD. write_default_account_object_file
