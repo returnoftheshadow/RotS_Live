@@ -2858,9 +2858,17 @@ void store_to_char(struct char_file_u* st, struct char_data* ch)
 
     ch->damage_details.reset();
 
-    /* Add all spell effects */
+    /* Add all spell effects.
+
+       Permanent affects are deliberately NOT restored - see char_to_store for why they are no
+       longer written. They are all item-granted (equip_char re-fires APPLY_SPELL for every
+       equipped item a few steps later, in Crash_load), so restoring them here would double up
+       with the item's own affect, and would keep granting the affect for an item the character
+       no longer has. Dropping them on the read side as well as the write side is what repairs
+       the characters already carrying an orphaned record on disk: without this, every save
+       written before the fix keeps its orphan forever. */
     for (i = 0; i < MAX_AFFECT; i++) {
-        if (st->affected[i].type)
+        if (st->affected[i].type && !affect_is_permanent(st->affected[i].duration))
             affect_to_char(ch, &st->affected[i]);
     }
 
@@ -2890,22 +2898,39 @@ void char_to_store(struct char_data* ch, struct char_file_u* st)
     /* Unaffect everything a character can be affected by */
     affect_total(ch, AFFECT_TOTAL_REMOVE);
 
-    for (af = ch->affected, i = 0; i < MAX_AFFECT; i++) {
-        if (af) {
-            st->affected[i] = *af;
-            st->affected[i].next = 0;
-            af = af->next;
-        } else {
-            st->affected[i].type = 0; /* Zero signifies not used */
-            st->affected[i].duration = 0;
-            st->affected[i].modifier = 0;
-            st->affected[i].location = 0;
-            st->affected[i].bitvector = 0;
-            st->affected[i].next = 0;
-        }
+    /* Permanent affects are not persisted. An affect the tick loop will never expire
+       (limits.cpp affect_update: a duration < 0 is skipped by the decrement) is, on a player,
+       always item-granted: affect_modify's APPLY_SPELL case (handler.cpp) is the only caller in
+       the tree that passes is_object = 1, and it is reached only from equip_char/unequip_char.
+       equip_char re-fires it for every equipped item on every login (Crash_load), so the item
+       re-grants its own affect and there is nothing to save. Writing them was what let a
+       character keep a resist/evasion/armor affect for an item they no longer have, and let
+       affects for different elements pile up one per login. */
+    int stored = 0;
+    int visited = 0;
+    /* Bounded at MAX_AFFECT visits, the same bound affected_by_spell and affect_remove walk this
+       list under, so a corrupt list cannot hang a save. */
+    for (af = ch->affected; af && (visited < MAX_AFFECT); af = af->next, ++visited) {
+        if (affect_is_permanent(af->duration))
+            continue;
+        if (stored >= MAX_AFFECT)
+            break;
+        st->affected[stored] = *af;
+        st->affected[stored].next = 0;
+        ++stored;
     }
 
-    if ((i >= MAX_AFFECT) && af && af->next)
+    for (i = stored; i < MAX_AFFECT; i++) {
+        st->affected[i].type = 0; /* Zero signifies not used */
+        st->affected[i].duration = 0;
+        st->affected[i].modifier = 0;
+        st->affected[i].location = 0;
+        st->affected[i].bitvector = 0;
+        st->affected[i].effect_modifier = 0;
+        st->affected[i].next = 0;
+    }
+
+    if ((stored >= MAX_AFFECT) && af)
         log("SYSERR: WARNING: OUT OF STORE ROOM FOR AFFECTED TYPES!!!");
 
     st->player_index = GET_INDEX(ch);

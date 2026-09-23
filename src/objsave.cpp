@@ -575,7 +575,7 @@ void recalc_worn_weight(char_data* character)
 FILE* Crash_load(char_data* character)
 {
     FILE* fl;
-    struct obj_data* equip_array[11];
+    struct obj_data* equip_array[20];
     struct obj_data* obj;
     struct obj_file_elem object;
     struct rent_info rent;
@@ -592,7 +592,7 @@ FILE* Crash_load(char_data* character)
     equip_lost = 0;
 
     /* zero out our equipment array */
-    for (tmp = 0; tmp < 11; tmp++)
+    for (tmp = 0; tmp < (int)(sizeof(equip_array) / sizeof(equip_array[0])); tmp++)
         equip_array[tmp] = 0;
 
     /* ok. is their rent file intact? */
@@ -710,9 +710,35 @@ FILE* Crash_load(char_data* character)
                     obj_to_char(obj, character);
                 equip_array[0] = obj;
             } else {
-                if (obj != &dummy_sack)
-                    obj_to_obj(obj, equip_array[object.wear_pos - MAX_WEAR - 1], TRUE);
-                equip_array[object.wear_pos - MAX_WEAR] = obj;
+                /* wear_pos above MAX_WEAR encodes container nesting depth and comes straight
+                   off disk, so it has to be bounded before it indexes equip_array. An entry
+                   past the end is put in the character's inventory instead of being lost, and
+                   logged; writing it would smash the stack. */
+                const int depth = object.wear_pos - MAX_WEAR;
+                const bool depth_in_range = depth >= 1
+                    && depth < (int)(sizeof(equip_array) / sizeof(equip_array[0]));
+
+                /* An in-range depth still only names a slot; nothing guarantees the row that
+                   would have filled it was present. obj_to_obj() starts `if (!item ||
+                   !container) return;`, so a missing parent used to leave the object on
+                   object_list with no room, no carrier and no container - not destroyed, not
+                   given to the player, not logged, and holding memory until reboot. Both
+                   failures cost the player nesting rather than the item. */
+                if (!depth_in_range || !equip_array[depth - 1]) {
+                    sprintf(buf, "LOAD ERROR: %s has an object at container depth %d (%s); "
+                                 "loaded to inventory.",
+                        GET_NAME(character), depth,
+                        depth_in_range ? "its container is missing" : "out of range");
+                    log(buf);
+                    if (obj != &dummy_sack)
+                        obj_to_char(obj, character);
+                    if (depth_in_range)
+                        equip_array[depth] = obj;
+                } else {
+                    if (obj != &dummy_sack)
+                        obj_to_obj(obj, equip_array[depth - 1], TRUE);
+                    equip_array[depth] = obj;
+                }
             }
         }
     }

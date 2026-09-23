@@ -844,6 +844,24 @@ enum player_specs {
 };
 }
 
+/* Resistance / vulnerability ids. These index resistance_name[] and vulnerability_name[]
+   and are what IS_RESISTANT / IS_VULNERABLE shift by. They are NOT the PLRSPEC_* spec ids:
+   the two lists diverged, which is why skill_data carries this id explicitly. */
+#define RESIST_NONE 0
+#define RESIST_FIRE 1
+#define RESIST_COLD 2
+#define RESIST_REGN 3
+#define RESIST_PROT 4
+#define RESIST_PETS 5
+#define RESIST_STLH 6
+#define RESIST_PHYS 7
+#define RESIST_TELE 8
+#define RESIST_ILLU 9
+#define RESIST_LGHT 10
+#define RESIST_MIND 11
+#define RESIST_DARK 12
+#define RESIST_LFGT 13
+
 #define PLRSPEC_NONE 0
 #define PLRSPEC_FIRE 1
 #define PLRSPEC_COLD 2
@@ -1263,9 +1281,20 @@ struct affected_type {
     sh_int location; /* Tells which ability to change(APPLY_XXX)*/
     long bitvector; /* Tells which bits to set (AFF_XXX)       */
     sh_int counter;
+    int effect_modifier = 0; /* percentage magnitude for resistances; 0 = none */
 
     struct affected_type* next;
 };
+
+/* True for an affect the tick loop will never expire. affect_update (limits.cpp) only ever
+   decrements a duration >= 1, and treats anything negative as "leave alone", so every negative
+   duration - not just the -1 the item paths write - is permanent in practice. Used by
+   char_to_store/store_to_char, which deliberately do not persist permanent affects: on a player
+   they are all item-granted and equip_char re-applies them from the item on every login. */
+inline bool affect_is_permanent(int duration)
+{
+    return duration < 0;
+}
 
 struct follow_type {
     int fol_number; /* abs_number of the follower, for safety */
@@ -1796,6 +1825,7 @@ public:
                         variable elsewhere? */
     int interrupt_count = 0; /* Meant to store times interupted so that npc mages know to stop casting in battle */
     int interrupt_time = 0; /* Meant to be a countdown timer to remove 1 from interrupt_count */
+    int debug_flag = 0; /* Imms may set this for increased debug output */
 
     bool spec_busy;
 

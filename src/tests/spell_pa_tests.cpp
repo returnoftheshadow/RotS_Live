@@ -13,6 +13,8 @@ extern int top_of_world;
 void clear_char(struct char_data* ch, int mode);
 void say_spell(struct char_data* caster, int spell_index);
 void send_magic_room_message(struct char_data* caster, const char* message);
+bool can_cast_spell(char_data& character, int spell_index, const skill_data& spell);
+extern struct skill_data skills[];
 
 namespace {
 
@@ -101,4 +103,46 @@ TEST(SpellParser, MagicRoomMessageOmitsColorCodesForObserversWithoutColorEnabled
     EXPECT_EQ(output.find(color_sequence[CBBLU]), std::string::npos) << output;
     EXPECT_EQ(output.find(color_sequence[CNRM]), std::string::npos) << output;
     EXPECT_NE(output.find("Caster begins quietly muttering some strange, powerful words."), std::string::npos) << output;
+}
+
+namespace {
+
+/* An orc follower with everything can_cast_spell asks of one: a master, WIL 18, full spirit,
+   and no knowledge array, so GET_KNOWLEDGE reports 80 for every spell. */
+void initialize_orc_follower(char_data* pet, char_data* master)
+{
+    initialize_player_character(pet, "orc");
+    SET_BIT(MOB_FLAGS(pet), MOB_ISNPC | MOB_PET | MOB_ORC_FRIEND);
+    /* clear_char gave it a player's zeroed arrays; a loaded mob has none. */
+    free(pet->skills);
+    free(pet->knowledge);
+    pet->skills = nullptr;
+    pet->knowledge = nullptr;
+    pet->master = master;
+    pet->player.level = 30;
+    pet->tmpabilities.wil = 18;
+    pet->points.spirit = 1000;
+}
+
+} // namespace
+
+TEST(SpellParser, NpcCannotCastTheItemOnlyResistSpells)
+{
+    char_data master {};
+    char_data pet {};
+    initialize_player_character(&master, "master");
+    initialize_orc_follower(&pet, &master);
+
+    for (int spell = SPELL_RESIST_FIRE; spell <= SPELL_RESIST_DARK; ++spell)
+        EXPECT_FALSE(can_cast_spell(pet, spell, skills[spell])) << skills[spell].name;
+}
+
+TEST(SpellParser, OrcFollowerCanStillCastOrdinaryClericSpells)
+{
+    char_data master {};
+    char_data pet {};
+    initialize_player_character(&master, "master");
+    initialize_orc_follower(&pet, &master);
+
+    EXPECT_TRUE(can_cast_spell(pet, SPELL_REGENERATION, skills[SPELL_REGENERATION]));
 }

@@ -426,8 +426,19 @@ bool is_spell_free(const int spell_index)
     }
 }
 
+} // namespace
+
 bool can_cast_spell(char_data& character, int spell_index, const skill_data& spell)
 {
+    /* The six per-element resist spells exist so items can grant a resistance; they are not
+       meant to be cast. Players cannot, since nothing teaches them, but an NPC has no knowledge
+       array and so "knows" every spell - an ordered orc follower would cast them without fail.
+       Refuse them to NPCs with the message they got before the rows had spell pointers. */
+    if (utils::is_npc(character) && (spell_index >= SPELL_RESIST_FIRE) && (spell_index <= SPELL_RESIST_DARK)) {
+        send_to_char("You can not cast this!!\n\r", &character);
+        return false;
+    }
+
     if (spell_index == SPELL_EXPOSE_ELEMENTS) {
         if (character.extra_specialization_data.is_mage_spec() == false) {
             send_to_char("You need to have a mage specialization to cast this spell!\n\r",
@@ -519,6 +530,8 @@ bool can_cast_spell(char_data& character, int spell_index, const skill_data& spe
 
     return true;
 }
+
+namespace {
 
 //============================================================================
 // Returns the effective casting level for this caster and spell.

@@ -142,6 +142,15 @@ Notes:
 - Most of these (energy/regen, OB/parry/dodge, perception, resistance/vulnerability,
   spirit, prof, languages, script_number, butcher_item, rp_flag) are **RotS additions**;
   stock Diku mobiles are far simpler.
+- **There is no affect list on a mobile.** The record ends at the
+  `language … will_teach` line above and the parser moves straight to the next `#vnum`.
+  Objects carry `MAX_OBJ_AFFECT` `A <location> <modifier>` slots; mobiles have no
+  equivalent, so a mob cannot carry `APPLY_SPELL` (or any other apply) in its own record.
+- Consequently `resistance`/`vulnerability` are **flag-only: a bit, with no strength**.
+  A mob can be "resistant to fire" but not "80 % resistant to fire". To give a mob a
+  graded resistance, put `A 27 <strength*256 + spell>` on an object and equip it with the
+  zone `E` command — that path runs `equip_char` (`zone.cpp:844`) and produces a real
+  affect. See `docs/shape_mob.md` for the bit table and the builder recipe.
 
 ---
 

@@ -7,8 +7,9 @@
 #include "../exploits_json.h"
 #include "../handler.h"
 #include "../objects_json.h"
-#include "AccountRecordOnDiskBuilder.h"
+#include "../spells.h" /* SPELL_RESIST_* for the affect-persistence tests */
 #include "../utils.h"
+#include "AccountRecordOnDiskBuilder.h"
 
 #include <gtest/gtest.h>
 
@@ -28,6 +29,7 @@
 
 void build_account_native_player_index(void);
 
+extern struct skill_data skills[]; /* statically initialised in consts.cpp, no boot step needed */
 extern struct player_index_element* player_table;
 extern struct room_data world;
 extern struct index_data* obj_index;
@@ -1414,6 +1416,73 @@ TEST(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
     EXPECT_STREQ(GET_ALIAS(&character)->command, "kill orc");
 }
 
+/* A rent row whose container parent never loaded must not vanish.
+
+   wear_pos above MAX_WEAR encodes container nesting depth, and Crash_load places each object
+   inside equip_array[depth - 1]. The depth itself is bounded, but the parent slot it names can
+   still be empty - a file carrying a depth-2 row with no depth-1 row above it names a slot that
+   was never filled. obj_to_obj() begins `if (!item || !container) return;`, so the object is
+   left on object_list with no room, no carrier and no container: not destroyed, not given to
+   the player, not logged, and holding memory for the rest of the boot.
+
+   The out-of-range depth case already falls back to the character's inventory; a missing parent
+   has to do the same, so that a damaged rent file costs a player nesting, never the item. */
+TEST(DbLoader, CrashLoadKeepsAnObjectWhoseContainerParentIsMissing)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 10;
+    stored_character.language = LANG_HUMAN;
+    stored_character.specials2.load_room = 3001;
+    stored_character.weight = 210;
+    stored_character.height = 72;
+    store_to_char(&stored_character, &character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+
+    /* A worn item first, so equip_array[0] is populated - without it the branch above catches
+       everything via its `|| !equip_array[0]` escape and the container path is never reached. */
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = 1001;
+    object_data.objects[0].wear_pos = WEAR_HEAD;
+    object_data.objects[0].weight = 7;
+    object_data.objects[0].values = { 0, 0, 2, 0, 0 };
+
+    /* Then depth 2, with nothing at depth 1 to hold it. */
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[1].item_number = 1002;
+    object_data.objects[1].wear_pos = MAX_WEAR + 2;
+    object_data.objects[1].weight = 4;
+    object_data.objects[1].values = { 0, 0, 1, 0, 0 };
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message))
+        << error_message;
+
+    stage_account_backed_object_bytes_for_character(&character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(&character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(character.carrying, nullptr)
+        << "the object was dropped on the floor of memory instead of being handed to the player";
+    EXPECT_EQ(obj_index[character.carrying->item_number].virt, 1002);
+    EXPECT_EQ(character.carrying->obj_flags.weight, 4);
+}
+
 TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableItems)
 {
     ScopedObjectPrototypeTable object_prototypes;
@@ -2585,4 +2654,356 @@ TEST(DbLoader, ThePlayerIndexHoldsTheAccountNativePathOfAnOrdinaryEmailAddress)
         << error_message;
     EXPECT_STREQ(player_table[stored_character.player_index].ch_file, ordinary_path.c_str())
         << "the path must be held whole -- a truncated one loses the .character.json suffix save_char tests for";
+}
+
+/* ------------------------------------------------------------------------------------------
+   Item-granted permanent affects must not be persisted.
+
+   An item that grants a spell (APPLY_SPELL) does it through affect_modify, which is the only
+   caller in the tree that passes is_object = 1; the is_object paths in mystic.cpp all write
+   duration = -1. That affect lives on ch->affected like any other, so char_to_store used to
+   write it to the save and store_to_char used to restore it at login -- before Crash_load had
+   equipped anything. Nothing records which item produced an affect, so a restored one was never
+   reconciled against the character's actual equipment: it survived the item being given away
+   (the orphan), and it accumulated one element per login next to whatever item WAS held (the
+   stack). equip_char re-fires APPLY_SPELL for every equipped item on every login, so there is
+   nothing to persist in the first place.
+   ------------------------------------------------------------------------------------------ */
+
+namespace {
+
+/* A character char_to_store/store_to_char will accept: name, profs and skills allocated. */
+struct AffectPersistenceCharacter {
+    char_data character {};
+    char name[MAX_NAME_LENGTH + 1] = "aragorn";
+
+    AffectPersistenceCharacter()
+    {
+        clear_char(&character, MOB_VOID);
+        character.player.name = name;
+        character.player.race = RACE_HUMAN;
+    }
+
+    ~AffectPersistenceCharacter()
+    {
+        while (character.affected)
+            affect_remove(&character, character.affected);
+    }
+
+    void add_affect(int type, int duration, int location, int modifier, int effect_modifier)
+    {
+        affected_type af {};
+        af.type = type;
+        af.duration = duration;
+        af.location = location;
+        af.modifier = modifier;
+        af.bitvector = 0;
+        af.counter = 0;
+        af.effect_modifier = effect_modifier;
+        affect_to_char(&character, &af);
+    }
+};
+
+int stored_affect_count(const char_file_u& stored_character)
+{
+    int count = 0;
+    for (int i = 0; i < MAX_AFFECT; ++i)
+        if (stored_character.affected[i].type)
+            ++count;
+    return count;
+}
+
+/* Modelled on world object 2073, the ice-resistant charm: a HOLD item whose single affect is
+   "A 27 7842" -- APPLY_SPELL, with the payload packing the spell number in the low byte
+   (7842 & 255 = 162 = SPELL_RESIST_COLD) and the magnitude above it (7842 / 256 = 30). */
+constexpr int kResistCharmVnum = 2073;
+constexpr int kResistColdAtThirtyPercent = 30 * 256 + SPELL_RESIST_COLD;
+
+class ScopedResistCharmPrototype {
+public:
+    ScopedResistCharmPrototype()
+        : m_previous_obj_index(obj_index)
+        , m_previous_obj_proto(obj_proto)
+        , m_previous_top_of_objt(top_of_objt)
+        , m_previous_object_list(object_list)
+    {
+        obj_index = new index_data[1] {};
+        obj_proto = new obj_data[1] {};
+        top_of_objt = 0;
+        object_list = nullptr;
+
+        obj_index[0].virt = kResistCharmVnum;
+        obj_index[0].number = 0;
+        obj_index[0].func = 0;
+
+        clear_object(&obj_proto[0]);
+        obj_proto[0].name = strdup("charm ice");
+        obj_proto[0].short_description = strdup("an ice-resistant charm");
+        obj_proto[0].description = strdup("A white charm was left here.");
+        obj_proto[0].action_description = nullptr;
+        obj_proto[0].item_number = 0;
+        obj_proto[0].obj_flags.type_flag = ITEM_TREASURE;
+        obj_proto[0].obj_flags.wear_flags = ITEM_TAKE | ITEM_HOLD;
+        obj_proto[0].obj_flags.weight = 0;
+        obj_proto[0].affected[0].location = APPLY_SPELL;
+        obj_proto[0].affected[0].modifier = kResistColdAtThirtyPercent;
+    }
+
+    ~ScopedResistCharmPrototype()
+    {
+        while (object_list != nullptr) {
+            obj_data* next = object_list->next;
+            delete object_list;
+            object_list = next;
+        }
+
+        free(obj_proto[0].name);
+        free(obj_proto[0].short_description);
+        free(obj_proto[0].description);
+        delete[] obj_proto;
+        delete[] obj_index;
+        obj_proto = m_previous_obj_proto;
+        obj_index = m_previous_obj_index;
+        top_of_objt = m_previous_top_of_objt;
+        object_list = m_previous_object_list;
+    }
+
+private:
+    index_data* m_previous_obj_index;
+    obj_data* m_previous_obj_proto;
+    int m_previous_top_of_objt;
+    obj_data* m_previous_object_list;
+};
+
+} // namespace
+
+TEST(AffectPersistence, CharToStoreDoesNotWriteAnItemGrantedPermanentAffect)
+{
+    AffectPersistenceCharacter owner;
+    // What holding a resist-cold charm leaves on the character.
+    owner.add_affect(SPELL_RESIST_COLD, -1, APPLY_RESIST, RESIST_COLD, 30);
+
+    char_file_u stored_character {};
+    char_to_store(&owner.character, &stored_character);
+
+    EXPECT_EQ(stored_affect_count(stored_character), 0)
+        << "the charm re-grants this on equip; persisting it is what orphans it";
+}
+
+TEST(AffectPersistence, CharToStoreStillWritesATimedAffect)
+{
+    AffectPersistenceCharacter owner;
+    owner.add_affect(SPELL_RESIST_COLD, 40, APPLY_RESIST, RESIST_COLD, 30);
+
+    char_file_u stored_character {};
+    char_to_store(&owner.character, &stored_character);
+
+    ASSERT_EQ(stored_affect_count(stored_character), 1);
+    EXPECT_EQ(stored_character.affected[0].type, SPELL_RESIST_COLD);
+    EXPECT_EQ(stored_character.affected[0].duration, 40);
+    EXPECT_EQ(stored_character.affected[0].effect_modifier, 30);
+}
+
+TEST(AffectPersistence, CharToStoreKeepsATimedAffectThatFollowsAPermanentOne)
+{
+    // affect_to_char prepends, so adding the cast one second puts the permanent one behind it;
+    // add them the other way round so the permanent affect is at the head and the timed affect
+    // has to be packed down into the slot the skipped one would have taken. A "skip in place"
+    // implementation would leave a hole and drop the timed affect.
+    AffectPersistenceCharacter owner;
+    owner.add_affect(SPELL_RESIST_COLD, 40, APPLY_RESIST, RESIST_COLD, 30);
+    owner.add_affect(SPELL_RESIST_FIRE, -1, APPLY_RESIST, RESIST_FIRE, 30);
+
+    char_file_u stored_character {};
+    char_to_store(&owner.character, &stored_character);
+
+    ASSERT_EQ(stored_affect_count(stored_character), 1);
+    EXPECT_EQ(stored_character.affected[0].type, SPELL_RESIST_COLD)
+        << "the cast affect must be written, and written into the first slot";
+    EXPECT_EQ(stored_character.affected[0].duration, 40);
+}
+
+TEST(AffectPersistence, StoreToCharDropsAPermanentAffectAlreadyOnDisk)
+{
+    // The repair half of the fix: every save written before it still holds the orphan, so the
+    // read side has to drop it too or those characters keep the resistance for good.
+    ensure_test_world_room(3001);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    stored_character.affected[0].type = SPELL_RESIST_COLD;
+    stored_character.affected[0].duration = -1;
+    stored_character.affected[0].location = APPLY_RESIST;
+    stored_character.affected[0].modifier = RESIST_COLD;
+    stored_character.affected[0].effect_modifier = 30;
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&stored_character, &character);
+
+    EXPECT_EQ(affected_by_spell(&character, SPELL_RESIST_COLD), nullptr)
+        << "no item has been equipped yet -- Crash_load has not even run";
+    EXPECT_EQ(character.specials.resistance & (1 << RESIST_COLD), 0);
+
+    while (character.affected)
+        affect_remove(&character, character.affected);
+}
+
+TEST(AffectPersistence, StoreToCharStillRestoresATimedAffect)
+{
+    ensure_test_world_room(3001);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    stored_character.affected[0].type = SPELL_RESIST_COLD;
+    stored_character.affected[0].duration = 40;
+    stored_character.affected[0].location = APPLY_RESIST;
+    stored_character.affected[0].modifier = RESIST_COLD;
+    stored_character.affected[0].effect_modifier = 30;
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&stored_character, &character);
+
+    affected_type* restored = affected_by_spell(&character, SPELL_RESIST_COLD);
+    ASSERT_NE(restored, nullptr) << "a cast resistance still has to survive a relog";
+    EXPECT_EQ(restored->duration, 40);
+    EXPECT_EQ(restored->effect_modifier, 30);
+    EXPECT_NE(character.specials.resistance & (1 << RESIST_COLD), 0);
+
+    while (character.affected)
+        affect_remove(&character, character.affected);
+}
+
+TEST(AffectPersistence, ARoundTripCannotCarryAPermanentAffectBackOntoTheCharacter)
+{
+    // The whole bug in one test: hold the charm, save, log back in with nothing equipped.
+    ensure_test_world_room(3001);
+
+    AffectPersistenceCharacter owner;
+    owner.add_affect(SPELL_RESIST_LIGHT, -1, APPLY_RESIST, RESIST_LGHT, 30);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    char_to_store(&owner.character, &stored_character);
+    stored_character.specials2.load_room = 3001;
+
+    char_data reloaded {};
+    clear_char(&reloaded, MOB_VOID);
+    store_to_char(&stored_character, &reloaded);
+
+    EXPECT_EQ(affected_by_spell(&reloaded, SPELL_RESIST_LIGHT), nullptr);
+    EXPECT_EQ(reloaded.specials.resistance & (1 << RESIST_LGHT), 0)
+        << "buy one charm, log out, give it away, keep the resistance forever";
+
+    while (reloaded.affected)
+        affect_remove(&reloaded, reloaded.affected);
+}
+
+TEST(AffectPersistence, TheBoundaryBetweenKeptAndDroppedDurationsIsZero)
+{
+    // Asserted through char_to_store rather than against affect_is_permanent, which would only
+    // restate the predicate. What matters is where the cut falls: affect_update (limits.cpp)
+    // decrements a duration >= 1 and leaves anything negative alone, so 0 is an expiring affect
+    // that must still be saved and -1 is the permanent one that must not be.
+    struct Case {
+        int duration;
+        bool expected_to_persist;
+        const char* why;
+    };
+    const Case cases[] = {
+        { 40, true, "a cast resistance (level * 2) must survive a relog" },
+        { 1, true, "one tick left is still a real affect" },
+        { 0, true, "duration 0 expires on the next update; it is not permanent" },
+        { -1, false, "what every is_object path in mystic.cpp writes" },
+        { -7, false, "any negative duration never expires, so it is permanent too" },
+    };
+
+    for (const Case& test_case : cases) {
+        AffectPersistenceCharacter owner;
+        owner.add_affect(SPELL_RESIST_COLD, test_case.duration, APPLY_RESIST, RESIST_COLD, 30);
+
+        char_file_u stored_character {};
+        char_to_store(&owner.character, &stored_character);
+
+        EXPECT_EQ(stored_affect_count(stored_character), test_case.expected_to_persist ? 1 : 0)
+            << "duration " << test_case.duration << ": " << test_case.why;
+    }
+}
+
+TEST(AffectPersistence, AStillEquippedItemReGrantsItsAffectOnLogin)
+{
+    // The claim the whole fix rests on: dropping the saved record is only safe because
+    // Crash_load re-equips the item and equip_char re-fires APPLY_SPELL, which re-grants the
+    // affect. This drives the real path end to end -- store_to_char with the orphaned record
+    // present, then Crash_load with the charm still in the HOLD slot -- so it fails if anyone
+    // later changes equip_char, Crash_load or the APPLY_SPELL decode such that a character who
+    // logs in still holding a resist item comes back without the resistance.
+    ensure_test_world_room(3001);
+    ScopedResistCharmPrototype charm;
+
+    ASSERT_NE(skills[SPELL_RESIST_COLD].spell_pointer, nullptr)
+        << "the resist spells are wired statically in consts.cpp; if that goes, so does the fix";
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    // A save written before the fix: the permanent record is still on disk.
+    stored_character.affected[0].type = SPELL_RESIST_COLD;
+    stored_character.affected[0].duration = -1;
+    stored_character.affected[0].location = APPLY_RESIST;
+    stored_character.affected[0].modifier = RESIST_COLD;
+    stored_character.affected[0].effect_modifier = 30;
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&stored_character, &character);
+    ASSERT_EQ(affected_by_spell(&character, SPELL_RESIST_COLD), nullptr)
+        << "the saved record is dropped -- at this point only the item can put it back";
+
+    // ...and the object save still has the charm held.
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = kResistCharmVnum;
+    object_data.objects[0].wear_pos = HOLD;
+    object_data.objects[0].timer = -1;
+    // Crash_obj2char copies the affects off the file record over the prototype's, so the save
+    // has to carry them exactly as a real object file does: "A 27 7842" on the charm.
+    object_data.objects[0].affects[0].location = APPLY_SPELL;
+    object_data.objects[0].affects[0].modifier = kResistColdAtThirtyPercent;
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message))
+        << error_message;
+
+    stage_account_backed_object_bytes_for_character(&character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(&character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(character.equipment[HOLD], nullptr) << "the charm has to come back in the HOLD slot";
+
+    affected_type* regranted = affected_by_spell(&character, SPELL_RESIST_COLD);
+    ASSERT_NE(regranted, nullptr)
+        << "equip_char must re-grant the affect the save no longer carries";
+    EXPECT_EQ(regranted->duration, -1);
+    EXPECT_EQ(regranted->location, APPLY_RESIST);
+    EXPECT_EQ(regranted->effect_modifier, 30)
+        << "the magnitude comes off the item's own payload (7842 / 256), not the save";
+    EXPECT_NE(character.specials.resistance & (1 << RESIST_COLD), 0);
+
+    // Counted by walking the list, NOT with affected_by_spell's start_affect overload: that
+    // falls back to ch->affected when the start pointer is null (handler.cpp), so passing
+    // regranted->next on a one-element list silently restarts from the head and finds the same
+    // affect again.
+    int resist_cold_affects = 0;
+    for (affected_type* walk = character.affected; walk != nullptr; walk = walk->next)
+        if (walk->type == SPELL_RESIST_COLD)
+            ++resist_cold_affects;
+    EXPECT_EQ(resist_cold_affects, 1)
+        << "exactly one -- the restored record must not stack with the item's own";
+
+    while (character.affected)
+        affect_remove(&character, character.affected);
 }

@@ -49,12 +49,18 @@ void log(const char* str);
 void mudlog(char* str, char type, sh_int level, byte file);
 void mudlog_debug_mob(char* buf, char_data* ch);
 void mudlog_aliased_mob(char* buf, char_data* ch, char* mob_alias);
+int has_debug_flag(char_data* ch);
+void debug_flag_msg(char* buf, char_data* ch);
 void vmudlog(char type, char* format, ...);
 void log_death_trap(struct char_data* ch);
 int number(int from, int to);
 int dice(int number, int size);
 void sprintbit(long vektor, char* names[], char* result, int var);
 void sprinttype(int type, char* names[], char* result);
+void lowercase(char* str);
+void remove_pattern(char* str, char* result, char* patern);
+void sprintbit_resistances(char_data* ch, long vektor, char* names[], char* result,
+    int default_percent, int use_affect_magnitudes);
 int get_real_OB(struct char_data* ch);
 int get_real_dodge(struct char_data* ch);
 int get_real_parry(struct char_data* ch);
@@ -79,6 +85,8 @@ void free_function(void* pnt);
 int get_total_fame(char_data* ch);
 
 int get_confuse_modifier(char_data* ch);
+int resist_type_for_attack(int attack_type);
+int resist_magnitude_for(char_data* victim, int resist_type);
 int compare_obj_to_proto(obj_data* obj);
 struct obj_data* obj_to_proto(obj_data* obj);
 void check_inventory_proto(char_data* ch);

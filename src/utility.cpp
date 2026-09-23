@@ -1115,6 +1115,17 @@ void mudlog_aliased_mob(char* buf, char_data* ch, char* mob_alias)
     }
 }
 
+int has_debug_flag(char_data* ch)
+{
+    return ch ? ch->debug_flag : 0;
+}
+
+void debug_flag_msg(char* buf, char_data* ch)
+{
+    if (has_debug_flag(ch))
+        send_to_char(buf, ch);
+}
+
 void vmudlog(char type, char* format, ...)
 {
 #define BUFSIZE 2048
@@ -1203,6 +1214,81 @@ void sprinttype(int type, char* names[], char* result)
         strcpy(result, names[type]);
     else
         strcpy(result, "UNDEFINED");
+}
+
+void lowercase(char* str)
+{
+    for (int i = 0; str[i]; i++)
+        str[i] = tolower(str[i]);
+}
+
+/* Copy str into result with every occurrence of patern removed.
+
+   The previous form consumed the pattern and then unconditionally copied the character sitting
+   after it, which at the end of the string was the terminator itself - copied into result, after
+   which the loop's own i++ stepped past it and kept reading past the end of str. Advancing over
+   the match and letting the loop re-test its condition removes that case: the terminator is only
+   ever reached by the guard, never consumed as data. */
+void remove_pattern(char* str, char* result, char* patern)
+{
+    const int pattern_length = (int)strlen(patern);
+    int n = 0;
+
+    for (int i = 0; str[i] != '\0';) {
+        if (pattern_length > 0 && strncmp(str + i, patern, pattern_length) == 0) {
+            i += pattern_length;
+            continue;
+        }
+
+        result[n++] = str[i++];
+    }
+
+    result[n] = '\0';
+}
+
+/* Render a resistance or vulnerability bitvector, one per line, with the strength that
+   actually applies.
+
+   use_affect_magnitudes says which of the two tables is being drawn, and it is a flag rather
+   than a sentinel default_percent so that the call site states which table it means instead of
+   encoding it in a number that also has to read as a percentage.
+
+   For the resistance table, when a spell or item affect wrote an APPLY_RESIST entry for this
+   element the largest effect_modifier on the list wins; the lookup is resist_magnitude_for(),
+   the same function the damage path uses, so display and damage cannot drift apart. A bit with
+   no backing affect - set by a mob record or a flag-only APPLY_RESIST item - falls back to the
+   flat legacy default.
+
+   For the vulnerability table the affect list is never consulted: APPLY_RESIST affects say
+   nothing about vulnerability, and reading them here printed a resistance's percentage on the
+   vulnerable line for the same element. Vulnerability has no magnitude of its own, so it always
+   renders the flat default. */
+void sprintbit_resistances(char_data* ch, long vektor, char* names[], char* result,
+    int default_percent, int use_affect_magnitudes)
+{
+    char tmp[255];
+    int nr = 0;
+
+    *result = '\0';
+    if (vektor < 1)
+        return;
+
+    for (; vektor; vektor >>= 1, nr++) {
+        if (!(vektor & 1))
+            continue;
+        if (*names[nr] == '\n')
+            break;
+        if (!*names[nr])
+            continue;
+
+        remove_pattern(names[nr], tmp, (char*)"V-");
+        lowercase(tmp);
+
+        const int magnitude = use_affect_magnitudes ? resist_magnitude_for(ch, nr) : 0;
+        const int percent = magnitude > 0 ? magnitude : default_percent;
+
+        sprintf(result, "%s   %s (%d%%)\n\r", result, tmp, percent);
+    }
 }
 
 /* Calculate the REAL time passed over the last t2-t1 centuries (secs) */
@@ -1792,25 +1878,75 @@ void from_list_to_pool(universal_list** list, universal_list** head, universal_l
     free(body);
 }
 
-int check_resistances(char_data* victim, int attack_type)
+/* The RESIST_* an attack is resisted as. Weapon damage types and archery have no skills[]
+   row of their own and all count as physical. */
+int resist_type_for_attack(int attack_type)
 {
     extern skill_data skills[];
 
-    if ((attack_type < MAX_SKILLS) && IS_RESISTANT(victim, skills[attack_type].skill_spec))
-        return 1;
+    if (((attack_type >= TYPE_HIT) && (attack_type <= TYPE_CRUSH)) || (attack_type == SKILL_ARCHERY))
+        return RESIST_PHYS;
 
-    if ((attack_type < MAX_SKILLS) && IS_VULNERABLE(victim, skills[attack_type].skill_spec))
-        return -1;
+    if ((attack_type >= 0) && (attack_type < MAX_SKILLS))
+        return skills[attack_type].resist;
 
-    if ((attack_type >= TYPE_HIT) && (attack_type <= TYPE_CRUSH) || attack_type == SKILL_ARCHERY) {
-        if (IS_RESISTANT(victim, PLRSPEC_WILD))
-            return 1;
+    return RESIST_NONE;
+}
 
-        if (IS_VULNERABLE(victim, PLRSPEC_WILD))
-            return -1;
+/* True for the attacks whose resistance the live code resolves through a skills[] row that was
+   never meant to describe them: weapon damage types (TYPE_HIT..TYPE_CRUSH) and archery all sit
+   below MAX_SKILLS, so the live generic lookup reaches them first. */
+static bool uses_legacy_weapon_spec(int attack_type)
+{
+    return ((attack_type >= TYPE_HIT) && (attack_type <= TYPE_CRUSH))
+        || (attack_type == SKILL_ARCHERY);
+}
+
+/* 1 resistant, -1 vulnerable, 0 neither. matched_resist_type, when given, receives the RESIST_*
+   whose bit actually decided it, so the caller reads the magnitude for that element rather than
+   for the one the attack nominally belongs to.
+
+   Weapon types and archery keep the live order: the legacy spec bit first, the real element
+   second. Those rows are blank placeholders naming bit 0, plus "defend" (bit 14) colliding with
+   bludgeon, and they only came into play when MAX_SKILLS went 128 -> 256 in 2018. Correcting it
+   would change 46 live mobs, so it is deliberately held back: doing it here would mix a mob
+   toughness change into the release that introduces resistance magnitudes and make the two
+   impossible to tell apart when testing. See docs/systems/magic-system.md.
+
+   No legacy bit carries a magnitude - nothing writes an APPLY_RESIST affect for RESIST_NONE or
+   for the defend spec - so a hit resolved on one falls back to the flat rule, exactly as live. */
+int check_resistances(char_data* victim, int attack_type, int* matched_resist_type)
+{
+    extern skill_data skills[];
+
+    const int resist_type = resist_type_for_attack(attack_type);
+    int matched = resist_type;
+    int result = 0;
+
+    if (uses_legacy_weapon_spec(attack_type)) {
+        const int legacy_spec = skills[attack_type].skill_spec;
+        if (legacy_spec != resist_type) {
+            if (IS_RESISTANT(victim, legacy_spec)) {
+                matched = legacy_spec;
+                result = 1;
+            } else if (IS_VULNERABLE(victim, legacy_spec)) {
+                matched = legacy_spec;
+                result = -1;
+            }
+        }
     }
 
-    return 0;
+    if (result == 0) {
+        if (IS_RESISTANT(victim, resist_type))
+            result = 1;
+        else if (IS_VULNERABLE(victim, resist_type))
+            result = -1;
+    }
+
+    if (matched_resist_type)
+        *matched_resist_type = matched;
+
+    return result;
 }
 
 /*
