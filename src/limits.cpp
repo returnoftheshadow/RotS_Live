@@ -672,23 +672,10 @@ void point_update(void)
             //  if(PRF_FLAGGED(i, PRF_TIME) && (GET_POS(i) >= POSITION_SLEEPING))
             //    send_to_char("You feel the time passing by...\n\r",i);
 
-            // check_idling() force-renting `i` drives Crash_idlesave() -> extract_followers(),
-            // which extract_char()s every NPC follower right away; next_dude may be one of
-            // them, so its identity is captured before the call and re-resolved through
-            // char_by_abs_number() afterward instead of dereferencing the (possibly freed)
-            // pointer directly.
-            const int next_dude_abs_number = next_dude ? next_dude->abs_number : -1;
-            const long next_dude_serial = next_dude ? next_dude->registration_serial : 0;
+            // An idle disconnect extracts only `i`; its followers are released, never
+            // extracted (IdleFollowersTest.TheIdleDisconnectReleasesEveryFollowerIntoTheWorld),
+            // so next_dude stays valid.
             if (check_idling(i)) {
-                if (next_dude != nullptr) {
-                    char_data* still_there = char_by_abs_number(next_dude_abs_number);
-                    bool next_dude_still_valid = (still_there != nullptr) && (still_there == next_dude)
-                        && (still_there->registration_serial == next_dude_serial);
-                    if (!next_dude_still_valid) {
-                        log("SYSERR: point_update: the next character was extracted by an idle rent; ending this tick's walk.");
-                        break;
-                    }
-                }
                 continue;
             }
         }
