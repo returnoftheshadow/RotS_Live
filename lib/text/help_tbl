@@ -2263,6 +2263,13 @@ on yourself.
 
 See also: man power sanctuary
 #
+UNPROTECT
+
+UNPROTECT will remove any active protection spell that you currently have
+on yourself, so that a different protection can be cast on you.
+
+See also: man power protection
+#
 RECOVER
 
 RECOVER will gather all arrows expended after shooting a bow and place them
