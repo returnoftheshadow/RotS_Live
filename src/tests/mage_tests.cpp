@@ -9,10 +9,11 @@
 #include <algorithm>
 #include <gtest/gtest.h>
 #include <string>
+#include <utility>
 
 // get_mage_caster_level/get_magic_power/should_apply_spell_penetration/
 // get_spell_pen_value/get_victim_saving_throw/get_save_bonus/
-// is_friendly_taget are declared by spells.h, included above.
+// is_spared_by_room_blast are declared by spells.h, included above.
 bool different_zone(int was_in, int to_room);
 int random_exit(int room);
 bool is_teleportation_room_valid(room_data *room);
@@ -443,21 +444,247 @@ TEST(MageHelpers, SaveBonusUsesCasterAndVictimSpecializationMatchups) {
            "victim in the current implementation.";
 }
 
-TEST(MageHelpers, FriendlyTargetTreatsSelfFollowersAndSameSideCharactersAsFriendly) {
+namespace {
+
+// Stamps an uncharmed mob of `race` and `alignment` onto a zeroed char_data.
+void make_room_blast_mob(char_data &mob, int race, int alignment) {
+    mob.specials2.act = MOB_ISNPC;
+    mob.player.race = race;
+    mob.specials2.alignment = alignment;
+}
+
+// Stamps a charmed pet following `master`.
+void make_room_blast_pet(char_data &pet, char_data *master) {
+    pet.specials2.act = MOB_ISNPC | MOB_PET;
+    SET_BIT(pet.specials.affected_by, AFF_CHARM);
+    pet.master = master;
+}
+
+} // namespace
+
+// The player half of is_spared_by_room_blast(): the caster, same-side players and anyone whose
+// follow chain leads to one of them are spared; the other side is not.
+TEST(MageHelpers, RoomBlastSparesTheCasterSameSidePlayersAndTheirFollowers) {
+    MageTestContext context; // caster and master are same-side human players
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(context.caster);
+
+    char_data pet{};
+    make_room_blast_pet(pet, &context.caster);
+    char_data pets_pet{};
+    make_room_blast_pet(pets_pet, &pet);
+    char_data ally_pet{};
+    make_room_blast_pet(ally_pet, &context.master);
+    char_data enemy{};
+    enemy.player.race = RACE_ORC;
+    char_data enemy_pet{};
+    make_room_blast_pet(enemy_pet, &enemy);
+
+    EXPECT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &context.caster)) << "the caster";
+    EXPECT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &pet)) << "the caster's pet";
+    EXPECT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &pets_pet))
+        << "a follow chain that ends at the caster";
+    EXPECT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &context.master)) << "a same-side player";
+    EXPECT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &ally_pet)) << "a same-side player's pet";
+    EXPECT_FALSE(is_spared_by_room_blast(caster_at_cast, context.caster, &enemy)) << "an other-side player";
+    EXPECT_FALSE(is_spared_by_room_blast(caster_at_cast, context.caster, &enemy_pet)) << "an other-side player's pet";
+}
+
+TEST(MageHelpers, RoomBlastSelfTestUsesSameCharacterAs) {
     MageTestContext context;
+    const caster_snapshot snap = caster_snapshot::capture(context.caster);
+
+    EXPECT_TRUE(is_spared_by_room_blast(snap, context.caster, &context.caster))
+        << "a caster snapshot must spare the character it was captured from";
+    EXPECT_TRUE(snap.same_character_as(context.caster));
+    EXPECT_FALSE(snap.same_character_as(context.victim))
+        << "same_character_as() must not treat an unrelated character as the captured caster";
+}
+
+// Rule 1: race 0 (RACE_GOD) is what builders leave animals, golems and unfinished mobs at, and
+// other_side_race() puts it on every side. Such a mob has no side, so it is never spared.
+TEST(MageHelpers, RoomBlastNeverSparesAMobWithoutARace) {
+    MageTestContext context;
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(context.caster);
+
+    char_data wolf{};
+    make_room_blast_mob(wolf, RACE_GOD, 0);
+    char_data kindly_golem{};
+    make_room_blast_mob(kindly_golem, RACE_GOD, 1000);
+
+    EXPECT_FALSE(is_spared_by_room_blast(caster_at_cast, context.caster, &wolf));
+    EXPECT_FALSE(is_spared_by_room_blast(caster_at_cast, context.caster, &kindly_golem))
+        << "a good alignment does not give a raceless mob a side";
+}
+
+// Rule 2: a mob with a race is spared only when that race is on the caster's side of the race war,
+// by the same rule that places players (other_side_race()).
+TEST(MageHelpers, RoomBlastSparesOnlyMobsWhoseRaceIsOnTheCastersSide) {
+    MageTestContext context; // a human caster: the good side
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(context.caster);
+
+    for (const int good_race : { RACE_HUMAN, RACE_DWARF, RACE_WOOD, RACE_HOBBIT, RACE_HIGH, RACE_BEORNING }) {
+        char_data mob{};
+        make_room_blast_mob(mob, good_race, 0);
+        EXPECT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &mob)) << "race " << good_race;
+    }
+
+    constexpr int kHalfOrcRace = 19; // no named constant; the mob files use it for half-orcs
+    for (const int evil_race : { RACE_URUK, RACE_HARAD, RACE_ORC, RACE_EASTERLING, RACE_MAGUS, RACE_UNDEAD,
+             RACE_OLOGHAI, RACE_HARADRIM, kHalfOrcRace, RACE_TROLL }) {
+        char_data mob{};
+        make_room_blast_mob(mob, evil_race, 0);
+        EXPECT_FALSE(is_spared_by_room_blast(caster_at_cast, context.caster, &mob)) << "race " << evil_race;
+    }
+}
+
+// Rule 3: builders gave a side's outlaws that side's race, so an alignment opposed to the
+// caster's side overrides the race. Zero opposes neither side.
+TEST(MageHelpers, RoomBlastBurnsAMobWhoseAlignmentOpposesTheCastersSide) {
+    MageTestContext context;
+    const caster_snapshot good_caster = caster_snapshot::capture(context.caster);
+
+    char_data bandit{};
+    make_room_blast_mob(bandit, RACE_HUMAN, -30);
+    char_data neutral_villager{};
+    make_room_blast_mob(neutral_villager, RACE_HUMAN, 0);
+    EXPECT_FALSE(is_spared_by_room_blast(good_caster, context.caster, &bandit))
+        << "a good-side caster burns a human mob with evil alignment";
+    EXPECT_TRUE(is_spared_by_room_blast(good_caster, context.caster, &neutral_villager))
+        << "alignment 0 does not oppose the good side";
+
+    context.caster.player.race = RACE_ORC;
+    const caster_snapshot evil_caster = caster_snapshot::capture(context.caster);
+
+    char_data orc_warrior{};
+    make_room_blast_mob(orc_warrior, RACE_ORC, -500);
+    char_data orc_slave{};
+    make_room_blast_mob(orc_slave, RACE_ORC, 150);
+    char_data neutral_orc{};
+    make_room_blast_mob(neutral_orc, RACE_ORC, 0);
+    EXPECT_TRUE(is_spared_by_room_blast(evil_caster, context.caster, &orc_warrior));
+    EXPECT_FALSE(is_spared_by_room_blast(evil_caster, context.caster, &orc_slave))
+        << "an evil-side caster burns an orc mob with good alignment";
+    EXPECT_TRUE(is_spared_by_room_blast(evil_caster, context.caster, &neutral_orc))
+        << "alignment 0 does not oppose the evil side";
+}
+
+// Rule 4: a mob already fighting the caster's party (the caster, a group member, or anyone
+// following one of them) is burned whatever its race, alignment or master.
+TEST(MageHelpers, RoomBlastBurnsASameSideMobFightingTheCastersParty) {
+    MageTestContext context; // master is the caster's group-mate here
+    group_data party(&context.caster);
+    party.add_member(&context.master);
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(context.caster);
+
+    char_data pet{};
+    make_room_blast_pet(pet, &context.caster);
+    char_data mates_pet{};
+    make_room_blast_pet(mates_pet, &context.master);
+    char_data stranger{};
+    stranger.player.race = RACE_HUMAN; // a same-side player outside the party
+    char_data orc{};
+    make_room_blast_mob(orc, RACE_ORC, -500);
+
+    char_data elf{};
+    make_room_blast_mob(elf, RACE_WOOD, 500);
+    ASSERT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &elf)) << "a peaceful elf is spared";
+
+    const std::pair<char_data *, const char *> party_opponents[] = {
+        { &context.caster, "fighting the caster" },
+        { &context.master, "fighting a group-mate" },
+        { &pet, "fighting the caster's pet" },
+        { &mates_pet, "fighting a group-mate's pet" },
+    };
+    for (const auto &opponent : party_opponents) {
+        elf.specials.fighting = opponent.first;
+        EXPECT_FALSE(is_spared_by_room_blast(caster_at_cast, context.caster, &elf)) << opponent.second;
+    }
+
+    elf.specials.fighting = &orc;
+    EXPECT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &elf))
+        << "fighting someone outside the party does not count";
+    elf.specials.fighting = &stranger;
+    EXPECT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &elf))
+        << "the party is the caster's group, not the whole side";
+
+    char_data elf_follower{};
+    make_room_blast_mob(elf_follower, RACE_WOOD, 500);
+    elf_follower.master = &context.caster;
+    elf_follower.specials.fighting = &context.caster;
+    EXPECT_FALSE(is_spared_by_room_blast(caster_at_cast, context.caster, &elf_follower))
+        << "fighting the party outranks following the caster";
+}
+
+// An immortal player caster (race 0) belongs to neither side, so it shares a side with no mob.
+// Players stay under other_side(), which puts RACE_GOD on every player's side.
+TEST(MageHelpers, RoomBlastUnderAnImmortalCasterSparesNoMob) {
+    MageTestContext context;
+    char_data elf{};
+    make_room_blast_mob(elf, RACE_WOOD, 500);
+
+    context.caster.player.race = RACE_GOD;
+    const caster_snapshot immortal = caster_snapshot::capture(context.caster);
+    EXPECT_FALSE(is_spared_by_room_blast(immortal, context.caster, &elf)) << "an immortal's blast spares no mob";
+    EXPECT_TRUE(is_spared_by_room_blast(immortal, context.caster, &context.master))
+        << "other_side() puts RACE_GOD on every player's side";
+}
+
+// An uncharmed mob caster judges players by race, as it judges mobs. other_side() alone would
+// put every player on its side. A mob caster with no side (race 0) spares nobody.
+TEST(MageHelpers, RoomBlastUnderAMobCasterJudgesPlayersByRace) {
+    MageTestContext context;
+    context.caster.specials2.act = MOB_ISNPC;
+    char_data human_player{};
+    human_player.player.race = RACE_HUMAN;
+    char_data orc_player{};
+    orc_player.player.race = RACE_ORC;
+    char_data elf{};
+    make_room_blast_mob(elf, RACE_WOOD, 500);
+    char_data orc{};
+    make_room_blast_mob(orc, RACE_ORC, -500);
+
+    context.caster.player.race = RACE_HUMAN;
+    const caster_snapshot human_mob = caster_snapshot::capture(context.caster);
+    EXPECT_TRUE(is_spared_by_room_blast(human_mob, context.caster, &human_player));
+    EXPECT_FALSE(is_spared_by_room_blast(human_mob, context.caster, &orc_player));
+    EXPECT_TRUE(is_spared_by_room_blast(human_mob, context.caster, &elf));
+    EXPECT_FALSE(is_spared_by_room_blast(human_mob, context.caster, &orc));
+
+    context.caster.player.race = RACE_ORC;
+    const caster_snapshot orc_mob = caster_snapshot::capture(context.caster);
+    EXPECT_FALSE(is_spared_by_room_blast(orc_mob, context.caster, &human_player));
+    EXPECT_TRUE(is_spared_by_room_blast(orc_mob, context.caster, &orc_player));
+    EXPECT_FALSE(is_spared_by_room_blast(orc_mob, context.caster, &elf));
+    EXPECT_TRUE(is_spared_by_room_blast(orc_mob, context.caster, &orc));
+
+    context.caster.player.race = RACE_GOD;
+    const caster_snapshot raceless_mob = caster_snapshot::capture(context.caster);
+    EXPECT_FALSE(is_spared_by_room_blast(raceless_mob, context.caster, &human_player));
+    EXPECT_FALSE(is_spared_by_room_blast(raceless_mob, context.caster, &orc_player));
+    EXPECT_FALSE(is_spared_by_room_blast(raceless_mob, context.caster, &elf));
+}
+
+// A charmed caster (an orc follower ordered to cast) is judged as the head of its follow chain;
+// every other caster is judged as itself.
+TEST(MageHelpers, RoomBlastOwnerIsTheHeadOfACharmedCastersFollowChain) {
+    MageTestContext context; // caster is a player
     char_data follower{};
-    follower.master = &context.caster;
+    make_room_blast_pet(follower, &context.caster);
+    char_data followers_follower{};
+    make_room_blast_pet(followers_follower, &follower);
+    char_data mob_leader{};
+    make_room_blast_mob(mob_leader, RACE_ORC, -500);
+    char_data mob_follower{};
+    make_room_blast_mob(mob_follower, RACE_ORC, -500);
+    mob_follower.master = &mob_leader;
+    char_data masterless_charmed{};
+    make_room_blast_pet(masterless_charmed, nullptr);
 
-    EXPECT_TRUE(is_friendly_taget(caster_snapshot::capture(context.caster), &context.caster))
-        << "Expected a caster to always count as a friendly target to themselves.";
-    EXPECT_TRUE(is_friendly_taget(caster_snapshot::capture(context.caster), &follower))
-        << "Expected follower chains ending at the caster to count as friendly targets.";
-    EXPECT_TRUE(is_friendly_taget(caster_snapshot::capture(context.caster), &context.victim))
-        << "Expected same-side characters to count as friendly targets.";
-
-    context.victim.player.race = RACE_ORC;
-    EXPECT_FALSE(is_friendly_taget(caster_snapshot::capture(context.caster), &context.victim))
-        << "Expected characters on the opposing side to count as non-friendly targets.";
+    EXPECT_EQ(room_blast_owner(&context.caster), &context.caster) << "a player casts for itself";
+    EXPECT_EQ(room_blast_owner(&follower), &context.caster) << "a charmed follower casts for its master";
+    EXPECT_EQ(room_blast_owner(&followers_follower), &context.caster) << "the head of a longer chain";
+    EXPECT_EQ(room_blast_owner(&mob_follower), &mob_follower) << "an uncharmed mob casts for itself";
+    EXPECT_EQ(room_blast_owner(&masterless_charmed), &masterless_charmed) << "no master to cast for";
 }
 
 TEST(MageHelpers, ChilledEffectUsesVictimEnergyAndTracksColdSpecDrain) {
@@ -725,7 +952,7 @@ TEST_F(MageProcTest, LocateLifeSkipsBlockedDuplicateAndExcludedRooms) {
 // caster to apply_spell_damage() as its own victim. When that hit is lethal, fight.cpp's
 // damage() runs die() -> raw_kill() -> extract_char(), whose NPC arm unlinks AND free_char()s
 // the caster -- and the body used to continue straight into world[caster->in_room].people (the
-// splash loop) and is_friendly_taget(caster, victim) using the now-freed caster.
+// splash loop) and its friendly-target check using the now-freed caster.
 //
 // This depot has no extract_char test seam, so the fixture drives the real death pipeline instead
 // of stubbing it: the caster is heap-allocated and registered the way the game builds an NPC
@@ -949,6 +1176,278 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
     free_char(caster);
 }
 
+namespace {
+
+// Stamped on kFireballRoom for a scene's scope: blaze records its caster keyed on the room's
+// number, and the shared test world's rooms all default to -1.
+constexpr int kRoomBlastRoomNumber = 3007;
+
+// kFireballRoom set up for a room-blast cast: occupants, exits and flags restored on exit
+// (RoomExitGuard), the room number stamped, and any room affect a blaze leaves (with its caster
+// record) removed.
+struct ScopedBlastRoom {
+    RoomExitGuard room_guard{kFireballRoom}; // restores the room's occupants, exits and flags
+    int original_room_number = 0; // world[kFireballRoom].number before the scope
+
+    ScopedBlastRoom() {
+        original_room_number = world[kFireballRoom].number;
+        world[kFireballRoom].number = kRoomBlastRoomNumber;
+    }
+
+    ~ScopedBlastRoom() {
+        while (world[kFireballRoom].affected) {
+            affect_remove_room(&world[kFireballRoom], world[kFireballRoom].affected);
+        }
+        world[kFireballRoom].number = original_room_number;
+    }
+
+    // Links `occupants` into the room in order.
+    template <std::size_t kCount>
+    void seat(char_data *const (&occupants)[kCount]) {
+        world[kFireballRoom].people = occupants[0];
+        for (std::size_t index = 0; index + 1 < kCount; ++index) {
+            occupants[index]->next_in_room = occupants[index + 1];
+        }
+        occupants[kCount - 1]->next_in_room = nullptr;
+    }
+};
+
+// A stack occupant of kFireballRoom with more hit points than one blast can take.
+void prepare_blast_occupant(char_data &occupant, int race, int alignment) {
+    occupant.player.race = race;
+    occupant.specials2.alignment = alignment;
+    occupant.player.level = 10;
+    occupant.abilities.hit = 500;
+    occupant.tmpabilities.hit = 500;
+    occupant.specials.position = POSITION_STANDING;
+    occupant.in_room = kFireballRoom;
+}
+
+void queue_blaze_rolls() {
+    queue_fireball_rolls(0.05, 200);
+}
+
+// A room-blast scene in kFireballRoom: a good-side human player caster with one bystander per
+// sparing rule, plus an orc mob as fireball's named target. Every character is a stack object with
+// more hit points than one blast can take, so nothing dies.
+struct RoomBlastScene {
+    MageTestContext context; // the caster (a human player) and the named target (an orc mob)
+    char_data pet{}; // the caster's charmed pet: spared
+    char_data elf{}; // a peaceful wood-elf mob: spared (same-side race)
+    char_data wolf{}; // a race-0 mob: burned (rule 1, no race)
+    char_data orc{}; // an orc mob: burned (rule 2, other-side race)
+    char_data bandit{}; // a human mob with evil alignment: burned (rule 3)
+    char_data hostile_elf{}; // a wood-elf mob fighting the caster: burned (rule 4)
+    ScopedBlastRoom room; // the room, restored and cleaned on exit
+
+    explicit RoomBlastScene(game_types::player_specs specialization) {
+        context.caster_profs.specialization = static_cast<int>(specialization);
+        context.caster_profs.prof_level[PROF_MAGE] = 30; // enough power that every hit does damage
+        context.caster.in_room = kFireballRoom;
+        context.prepare_for_spell_damage();
+        context.victim.player.race = RACE_ORC;
+        context.victim.specials2.alignment = -500;
+        context.victim.in_room = kFireballRoom;
+
+        prepare_bystander(pet, RACE_ORC, -500); // a pet's own race and alignment never matter
+        pet.specials2.act |= MOB_PET;
+        SET_BIT(pet.specials.affected_by, AFF_CHARM);
+        prepare_bystander(elf, RACE_WOOD, 500);
+        prepare_bystander(wolf, RACE_GOD, 0);
+        prepare_bystander(orc, RACE_ORC, -500);
+        prepare_bystander(bandit, RACE_HUMAN, -30);
+        prepare_bystander(hostile_elf, RACE_WOOD, 500);
+        hostile_elf.specials.fighting = &context.caster;
+
+        char_data *const occupants[] = { &context.caster, &context.victim, &pet, &elf, &wolf, &orc, &bandit, &hostile_elf };
+        room.seat(occupants);
+
+        // After the occupant list: add_follower()'s act() lines walk it.
+        add_follower(&pet, &context.caster, FOLLOW_MOVE);
+    }
+
+    ~RoomBlastScene() {
+        // Returns the follow node to its pool if the cast left the pet following.
+        stop_follower(&pet, FOLLOW_MOVE);
+    }
+
+    void cast_fireball() {
+        // A human caster draws no fumble roll; every other draw is low, so each splash roll
+        // (number() <= 0.2) lands.
+        queue_blaze_rolls();
+        test_support::cast_spell(spell_fireball, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+    }
+
+    void cast_blaze() {
+        queue_blaze_rolls();
+        test_support::cast_spell(spell_blaze, &context.caster, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    }
+
+    static void prepare_bystander(char_data &bystander, int race, int alignment) {
+        bystander.specials2.act = MOB_ISNPC;
+        prepare_blast_occupant(bystander, race, alignment);
+    }
+
+    // The spared/burned split both blasts must produce for a good-side caster. The caster's own
+    // hit points are not a usable witness: the cast recalculates this bare stack caster's
+    // maximum (500 to 10). RoomBlastSelfTestUsesSameCharacterAs pins that the caster is spared.
+    void expect_only_the_casters_side_spared() const {
+        EXPECT_EQ(pet.tmpabilities.hit, 500) << "the caster's pet";
+        EXPECT_EQ(pet.master, &context.caster) << "a spared pet keeps following its master";
+        EXPECT_EQ(elf.tmpabilities.hit, 500) << "a peaceful wood-elf mob";
+        EXPECT_LT(wolf.tmpabilities.hit, 500) << "rule 1: a mob with no race";
+        EXPECT_LT(orc.tmpabilities.hit, 500) << "rule 2: an other-side race";
+        EXPECT_LT(bandit.tmpabilities.hit, 500) << "rule 3: a human mob with evil alignment";
+        EXPECT_LT(hostile_elf.tmpabilities.hit, 500) << "rule 4: an elf fighting the caster";
+    }
+};
+
+} // namespace
+
+// A fire-spec mage's splash spares the caster's side and burns everyone else. The old check asked
+// about the named target instead: aimed at a mob, which other_side() counts as friendly, it
+// cancelled the whole splash.
+TEST_F(MageProcTest, FireSpecFireballSplashSparesOnlyTheCastersSide) {
+    RoomBlastScene scene(game_types::PS_Fire);
+
+    scene.cast_fireball();
+
+    EXPECT_LT(scene.context.victim.tmpabilities.hit, 500) << "the named target takes the primary hit";
+    scene.expect_only_the_casters_side_spared();
+}
+
+// The control for the test above: without fire specialization the splash spares no one, so the
+// pet and the peaceful elf really are in its path and "spared" above is not vacuous.
+TEST_F(MageProcTest, FireballWithoutFireSpecSplashesEveryone) {
+    RoomBlastScene scene(game_types::PS_None);
+
+    scene.cast_fireball();
+
+    EXPECT_LT(scene.pet.tmpabilities.hit, 500) << "the caster's pet";
+    EXPECT_EQ(scene.pet.master, nullptr) << "a pet its master burns stops following";
+    EXPECT_LT(scene.elf.tmpabilities.hit, 500) << "a peaceful wood-elf mob";
+    EXPECT_LT(scene.wolf.tmpabilities.hit, 500);
+    EXPECT_LT(scene.orc.tmpabilities.hit, 500);
+    EXPECT_LT(scene.bandit.tmpabilities.hit, 500);
+    EXPECT_LT(scene.hostile_elf.tmpabilities.hit, 500);
+}
+
+// Blaze's first burst applies the same rules for every caster, specialized or not. The old check
+// spared every uncharmed mob, so the burst burned only other-side players.
+TEST_F(MageProcTest, BlazeBurstSparesOnlyTheCastersSide) {
+    RoomBlastScene scene(game_types::PS_None);
+
+    scene.cast_blaze();
+
+    EXPECT_LT(scene.context.victim.tmpabilities.hit, 500) << "an orc mob";
+    scene.expect_only_the_casters_side_spared();
+    EXPECT_NE(room_affected_by_spell(&world[kFireballRoom], SPELL_BLAZE), nullptr)
+        << "the burst still leaves the blaze burning";
+}
+
+// A mob casting blaze judges players by race: an orc mob's burst burns a human player and spares
+// an orc player. Before, other_side() put every player on a mob caster's side.
+TEST_F(MageProcTest, BlazeBurstFromAMobCasterBurnsOnlyOtherSidePlayers) {
+    ScopedBlastRoom room;
+    MageTestContext context; // the caster becomes an orc mob; master is the human player
+    context.caster.specials2.act = MOB_ISNPC;
+    context.caster.player.race = RACE_ORC;
+    context.caster.in_room = kFireballRoom;
+    prepare_blast_occupant(context.master, RACE_HUMAN, 0);
+    char_data orc_player{};
+    prepare_blast_occupant(orc_player, RACE_ORC, 0);
+
+    char_data *const occupants[] = { &context.caster, &context.master, &orc_player };
+    room.seat(occupants);
+
+    queue_blaze_rolls();
+    test_support::cast_spell(spell_blaze, &context.caster, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_LT(context.master.tmpabilities.hit, 500) << "a human player, on the other side";
+    EXPECT_EQ(orc_player.tmpabilities.hit, 500) << "an orc player, on the orc mob's side";
+}
+
+namespace {
+
+// A player master with an orc follower (a charmed pet and orc-friend) that casts blaze on its
+// behalf in kFireballRoom. The master is MageTestContext's caster; its group-mate is master.
+struct OrcFollowerBlazeScene {
+    ScopedBlastRoom room; // the room, restored and cleaned on exit
+    MageTestContext context; // caster: the follower's master; master: the master's group-mate
+    char_prof_data follower_profs{}; // the follower's professions, for its cast-time snapshot
+    char_data follower{}; // the casting orc follower
+
+    explicit OrcFollowerBlazeScene(int master_race) {
+        prepare_blast_occupant(context.caster, master_race, 0);
+        prepare_blast_occupant(context.master, master_race, 0);
+        prepare_blast_occupant(follower, RACE_ORC, -500);
+        follower.profs = &follower_profs;
+        follower.player.level = 30;
+        follower.specials2.act = MOB_ISNPC | MOB_PET | MOB_ORC_FRIEND;
+        SET_BIT(follower.specials.affected_by, AFF_CHARM);
+    }
+
+    ~OrcFollowerBlazeScene() {
+        stop_follower(&follower, FOLLOW_MOVE);
+    }
+
+    // Seats `occupants` (which must include the follower and its master), then attaches the
+    // follower; add_follower()'s act() lines walk the occupant list.
+    template <std::size_t kCount>
+    void seat_and_follow(char_data *const (&occupants)[kCount]) {
+        room.seat(occupants);
+        add_follower(&follower, &context.caster, FOLLOW_MOVE);
+    }
+
+    void cast_blaze() {
+        queue_blaze_rolls();
+        test_support::cast_spell(spell_blaze, &follower, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    }
+};
+
+} // namespace
+
+// An orc follower's blaze spares its Magus master and the master's group. Judged by its own orc
+// race, it burned them: other_side_race() puts orcs and the Magi on opposite sides.
+TEST_F(MageProcTest, BlazeFromAnOrcFollowerSparesItsMagusMasterAndGroup) {
+    OrcFollowerBlazeScene scene(RACE_MAGUS);
+    group_data party(&scene.context.caster);
+    party.add_member(&scene.context.master);
+    char_data elf{};
+    prepare_blast_occupant(elf, RACE_WOOD, 500);
+    elf.specials2.act = MOB_ISNPC;
+
+    char_data *const occupants[] = { &scene.follower, &scene.context.caster, &scene.context.master, &elf };
+    scene.seat_and_follow(occupants);
+    scene.cast_blaze();
+
+    EXPECT_EQ(scene.context.caster.tmpabilities.hit, 500) << "the follower's Magus master";
+    EXPECT_EQ(scene.context.master.tmpabilities.hit, 500) << "the master's group-mate";
+    EXPECT_EQ(scene.follower.master, &scene.context.caster) << "the follower still follows its master";
+    EXPECT_LT(elf.tmpabilities.hit, 500) << "an elf mob, on the other side from the Magus";
+}
+
+// Rule 4 through a follower: a mob fighting the follower's master is the master's enemy, so the
+// follower's blaze burns it. Judged as its own party, the follower saw no one fighting it.
+TEST_F(MageProcTest, BlazeFromAnOrcFollowerBurnsAMobFightingItsMaster) {
+    OrcFollowerBlazeScene scene(RACE_URUK);
+    char_data peaceful_orc{};
+    prepare_blast_occupant(peaceful_orc, RACE_ORC, -500);
+    peaceful_orc.specials2.act = MOB_ISNPC;
+    char_data hostile_orc{};
+    prepare_blast_occupant(hostile_orc, RACE_ORC, -500);
+    hostile_orc.specials2.act = MOB_ISNPC;
+    hostile_orc.specials.fighting = &scene.context.caster;
+
+    char_data *const occupants[] = { &scene.follower, &scene.context.caster, &peaceful_orc, &hostile_orc };
+    scene.seat_and_follow(occupants);
+    scene.cast_blaze();
+
+    EXPECT_EQ(scene.context.caster.tmpabilities.hit, 500) << "the follower's Uruk master";
+    EXPECT_EQ(peaceful_orc.tmpabilities.hit, 500) << "an orc mob on the master's side";
+    EXPECT_LT(hostile_orc.tmpabilities.hit, 500) << "an orc mob fighting the master";
+}
+
 // spell_earthquake's crack/fall loop (mage.cpp). The damage loop above it
 // excludes the caster (`if (tmpch != caster)`), but the fall loop does not: on the coin
 // flip the caster itself is moved into the crevice and takes fall damage INSIDE the
@@ -1090,20 +1589,6 @@ TEST(MageHelpers, SpellPenValueSnapshotFormHandlesCharmedNpcWithoutMaster) {
     EXPECT_DOUBLE_EQ(get_spell_pen_value(snap), 5.0)
         << "Expected the master_mage_prof_level == 0 arm to add nothing on top of the NPC's own "
            "mage level (25 / 5).";
-}
-
-TEST(MageHelpers, FriendlyTargetSelfTestUsesSameCharacterAs) {
-    MageTestContext context;
-    const caster_snapshot snap = caster_snapshot::capture(context.caster);
-
-    // The self test: caster.same_character_as(*victim) holds only for the very
-    // character the snapshot was captured from.
-    EXPECT_TRUE(is_friendly_taget(snap, &context.caster))
-        << "Expected a caster snapshot to count as a friendly target to the character it was "
-           "captured from.";
-    EXPECT_TRUE(snap.same_character_as(context.caster));
-    EXPECT_FALSE(snap.same_character_as(context.victim))
-        << "same_character_as() must not treat an unrelated character as the captured caster.";
 }
 
 // ---------------------------------------------------------------------------

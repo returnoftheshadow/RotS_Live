@@ -19,13 +19,14 @@ Uses `Harncaller`, not `Harnmage`, as the caster: `Harnmage` is RACE_MAGUS, othe
 in the fighter's room would also burn and engage the fighter as a second hostile target -- an
 early run of this scenario showed the fighter switching straight from the dead orc onto
 "*an Uruk*" (the mage) once the orc died. `Harncaller` shares the fighter's side, so blaze's
-`is_friendly_taget()` check (mage.cpp:2314) skips it.
+`is_spared_by_room_blast()` check (mage.cpp) skips it.
 
-blaze's on-cast room-wide burst (mage.cpp:2291-2358) also skips ordinary NPCs outright:
-`other_side_impl`'s first check (handler.cpp:145) treats an un-charmed NPC as never "the other
-side," so `is_friendly_taget()` is always true for the orc there. Only the room affect's later
-TICKS (room_affect_tick.cpp:66-79, `blaze_tick()`, driven by `harness tick`'s `affect_update()`
-sweep) reach an NPC, and they credit the recorded caster independent of who is engaged. The
+blaze's on-cast room-wide burst does burn an orc (`is_spared_by_room_blast()`, mage.cpp: an
+other-side race), and a burst hit engages the caster with whatever it hits. So both tests cast
+blaze BEFORE loading any orc, while the room holds only players the burst spares; the orcs arrive
+into the burning room, and only the room affect's later TICKS (room_affect_tick.cpp,
+`blaze_tick()`, driven by `harness tick`'s `affect_update()` sweep) reach them. Those ticks credit
+the recorded caster independent of who is engaged. The
 fighter's own melee is floored with `combat_support.neutralize_melee` so the orc's low `hit`
 can only reach zero from a blaze tick and not a stray fighter swing -- proven necessary by that
 same early run, where the fighter's own hit finished the orc before any tick could.
@@ -56,7 +57,7 @@ from __future__ import annotations
 
 import pytest
 
-from blaze_support import LETHAL_HIT, BLAZE_CAST, floor_hit, tick_until_marker
+from blaze_support import LETHAL_HIT, BLAZE_CAST, tick_until_marker
 from combat_support import neutralize_melee, stat_replies, wait_for_engagement
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
@@ -88,13 +89,12 @@ def _set_up_arena_west_fight(imp: GameSession, caller: GameSession, fighter: Gam
 
 def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server, imp, caller, fighter, harness) -> None:
     _set_up_arena_west_fight(imp, caller, fighter)
+    caller.cast("blaze", success_markers=BLAZE_CAST)  # before the orc arrives: the caster never engages it
     imp.command("load mob 1130")
-    floor_hit(imp, "target")  # below the smallest halved blaze tick
 
     fighter.command("kill target")  # the orc tanks the fighter, who cannot actually hurt it
     wait_for_engagement(imp, "target", "Harnfighter")
 
-    caller.cast("blaze", success_markers=BLAZE_CAST)  # the caster never engages the orc
     tick_until_marker(harness, imp, imp, ORC_DEATH_MARKER, protect=(caller, fighter), refloor=("target", LETHAL_HIT))
 
     # Both the still-engaged fighter and the unengaged, present caster are paid: see the module
@@ -113,14 +113,13 @@ def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server,
 
 def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, harness) -> None:
     _set_up_arena_west_fight(imp, caller, fighter)
+    caller.cast("blaze", success_markers=BLAZE_CAST)  # before the orcs arrive, as above
     imp.command("load mob 1130")
     imp.command("load mob 1132")  # the bystander, never fighting anybody
-    floor_hit(imp, "target")
 
     fighter.command("kill target")
     wait_for_engagement(imp, "target", "Harnfighter")
 
-    caller.cast("blaze", success_markers=BLAZE_CAST)
     tick_until_marker(harness, imp, imp, ORC_DEATH_MARKER, protect=(caller, fighter), refloor=("target", LETHAL_HIT))
 
     fighter.expect([SHARE_MARKER], 10.0)

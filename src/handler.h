@@ -95,6 +95,10 @@ void extract_obj(struct obj_data* obj);
 int other_side(const char_data* character, const char_data* other);
 // Same answer as the live form, from a caster's cast-time snapshot.
 int other_side(const caster_snapshot& character, const char_data* other);
+// The race half of other_side(): 1 when the two races are on opposite sides
+// of the race war. RACE_GOD is on every side. Unlike other_side(), this never
+// exempts an NPC, so it can place a mob by its race.
+int other_side_race(int character_race, int other_race);
 int other_side_num(int ch_race, int i_race);
 
 struct char_data* get_char_room(char* name, int room);

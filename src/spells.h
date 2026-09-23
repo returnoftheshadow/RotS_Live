@@ -506,7 +506,19 @@ int get_saving_throw_dc(const caster_snapshot& caster);
 bool should_apply_spell_penetration(const caster_snapshot& caster);
 double get_spell_pen_value(const caster_snapshot& caster);
 int get_save_bonus(const caster_snapshot& caster, const char_data& victim, game_types::player_specs primary_spec, game_types::player_specs opposing_spec);
-bool is_friendly_taget(const caster_snapshot& caster, const char_data* victim);
+// Whom a room-wide blast is judged for: the caster, or for a charmed caster
+// (an orc follower ordered to cast) the head of its follow chain.
+char_data* room_blast_owner(char_data* caster);
+// True when a room-wide blast (blaze's first burst, a fire-specialized
+// fireball's splash) spares `bystander`. Spared: the caster, a same-side
+// player, and anyone whose follow chain leads to either. An uncharmed mob is
+// spared only when it has a race, that race is on the caster's side, its
+// alignment does not oppose that side, and it is not fighting the caster's
+// party. An uncharmed mob caster judges players by race too; a caster whose
+// race puts it on neither side spares no mob, and as a mob spares no player.
+// `caster` is the live caster, for its group; callers pass room_blast_owner()
+// and its snapshot.
+bool is_spared_by_room_blast(const caster_snapshot& caster_at_cast, const char_data& caster, const char_data* bystander);
 bool new_saves_spell(const caster_snapshot& caster, const char_data* victim, int save_bonus);
 
 // The victim's saving throw against `caster`.

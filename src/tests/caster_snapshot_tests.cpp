@@ -17,7 +17,7 @@
 // mage.cpp helpers' own equivalence tests
 // (get_mage_caster_level()/get_magic_power()/should_apply_spell_penetration()/
 // get_spell_pen_value()/get_victim_saving_throw()/get_save_bonus()/
-// is_friendly_taget()) live in mage_tests.cpp instead, alongside the rest of
+// is_spared_by_room_blast()) live in mage_tests.cpp instead, alongside the rest of
 // mage.cpp's coverage. The room_affect_caster() registry is covered by
 // room_affect_caster_tests.cpp instead.
 

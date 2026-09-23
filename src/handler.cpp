@@ -147,31 +147,36 @@ int other_side_impl(bool character_is_npc, bool character_is_charmed, int charac
     if (character_is_npc && !character_is_charmed) {
         return 0;
     }
-    if ((character_race == RACE_GOD) || (GET_RACE(other) == RACE_GOD)) {
+    return other_side_race(character_race, GET_RACE(other));
+}
+} // namespace
+
+int other_side_race(int character_race, int other_race)
+{
+    if ((character_race == RACE_GOD) || (other_race == RACE_GOD)) {
         return 0;
     }
-    if (RACE_EAST(other) && !race_is_east(character_race)) {
+    if (race_is_east(other_race) && !race_is_east(character_race)) {
         return 1;
     }
-    if (!(RACE_EAST(other)) && race_is_east(character_race)) {
+    if (!race_is_east(other_race) && race_is_east(character_race)) {
         return 1;
     }
-    if (RACE_MAGI(other) && !race_is_magi(character_race)) {
+    if (race_is_magi(other_race) && !race_is_magi(character_race)) {
         return 1;
     }
-    if (!(RACE_MAGI(other)) && race_is_magi(character_race)) {
+    if (!race_is_magi(other_race) && race_is_magi(character_race)) {
         return 1;
     }
-    if (RACE_EVIL(other) && race_is_good(character_race)) {
+    if (race_is_evil(other_race) && race_is_good(character_race)) {
         return 1;
     }
-    if (RACE_GOOD(other) && race_is_evil(character_race)) {
+    if (race_is_good(other_race) && race_is_evil(character_race)) {
         return 1;
     }
 
     return 0;
 }
-} // namespace
 
 /*
  * Decide if `character' and `other' are on the same side of the race

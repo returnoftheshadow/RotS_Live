@@ -1103,8 +1103,8 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
 // consuming the queue (see CasterFixture's own comment above). Blaze's
 // occupant damage loop is the one place a draw COULD happen, but every test
 // below leaves the cast room's people list empty, so the loop never
-// iterates (is_friendly_taget() would skip the caster as friendly to
-// itself either way -- see mage.cpp's spell_blaze comment). No test in
+// iterates (is_spared_by_room_blast() would spare the caster either way
+// -- see mage.cpp's spell_blaze comment). No test in
 // this section needs push_test_random_value()/queue_mid_rolls().
 // ---------------------------------------------------------------------------
 

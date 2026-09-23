@@ -1856,18 +1856,122 @@ ASPELL(spell_searing_darkness)
  * does big damage at the risk of hitting others in the room
  */
 
-bool is_friendly_taget(const caster_snapshot& caster, const char_data* victim)
+namespace {
+
+// True when `character`, or the head of its follow chain, is the caster or a
+// member of the caster's group.
+bool belongs_to_casters_party(const char_data& caster, const char_data* character)
 {
-    // A caster is friendly to itself. same_character_as() holds only for the
-    // very character the snapshot was taken from.
-    if (caster.same_character_as(*victim)) {
+    const char_data* chain_head = character;
+    while (chain_head->master) {
+        chain_head = chain_head->master;
+    }
+
+    if (chain_head == &caster) {
+        return true;
+    }
+    return caster.group != nullptr && chain_head->group == caster.group;
+}
+
+// False for a caster whose race puts it on neither side: an immortal, or a
+// race-0 mob. Such a caster shares a side with no mob, and a mob caster
+// without one shares it with no player either.
+bool caster_has_a_side(const caster_snapshot& caster_at_cast)
+{
+    return race_is_good(caster_at_cast.race) || race_is_evil(caster_at_cast.race);
+}
+
+// The race and alignment half of is_spared_by_room_blast(), for an uncharmed
+// mob. other_side() cannot answer this: it puts every uncharmed NPC on
+// everyone's side.
+bool mob_is_spared_by_room_blast(const caster_snapshot& caster_at_cast, const char_data* mob)
+{
+    // Builders leave animals, golems and unfinished mobs at race 0
+    // (RACE_GOD), which other_side_race() puts on every side.
+    if (GET_RACE(mob) == RACE_GOD) {
+        return false;
+    }
+
+    if (!caster_has_a_side(caster_at_cast)) {
+        return false;
+    }
+
+    if (other_side_race(caster_at_cast.race, GET_RACE(mob))) {
+        return false;
+    }
+
+    const bool caster_is_good = race_is_good(caster_at_cast.race);
+    const bool caster_is_evil = race_is_evil(caster_at_cast.race);
+
+    // Builders gave a side's outlaws that side's race (a race-1 bandit), so
+    // an alignment opposed to the caster's side overrides the race.
+    if (caster_is_good && GET_ALIGNMENT(mob) < 0) {
+        return false;
+    }
+    if (caster_is_evil && GET_ALIGNMENT(mob) > 0) {
+        return false;
+    }
+
+    return true;
+}
+
+} // namespace
+
+char_data* room_blast_owner(char_data* caster)
+{
+    if (!IS_NPC(caster) || !IS_AFFECTED(caster, AFF_CHARM)) {
+        return caster;
+    }
+
+    char_data* owner = caster;
+    while (owner->master) {
+        owner = owner->master;
+    }
+    return owner;
+}
+
+namespace {
+
+// The snapshot a room blast spares by: the caster's own, unless a charmed
+// caster fights for someone else, whose snapshot is taken now, once per cast.
+caster_snapshot room_blast_owner_snapshot(const char_data* owner, const char_data* caster, const caster_snapshot& caster_at_cast)
+{
+    if (owner == caster) {
+        return caster_at_cast;
+    }
+    return caster_snapshot::capture(*owner);
+}
+
+} // namespace
+
+bool is_spared_by_room_blast(const caster_snapshot& caster_at_cast, const char_data& caster, const char_data* bystander)
+{
+    if (caster_at_cast.same_character_as(*bystander)) {
         return true;
     }
 
-    if (victim->master)
-        return is_friendly_taget(caster, victim->master);
+    // A mob already fighting the caster's party is burned whatever its race
+    // or whoever it follows.
+    const bool is_uncharmed_mob = IS_NPC(bystander) && !IS_AFFECTED(bystander, AFF_CHARM);
+    const char_data* const opponent = bystander->specials.fighting;
+    if (is_uncharmed_mob && opponent != nullptr && belongs_to_casters_party(caster, opponent)) {
+        return false;
+    }
 
-    return !other_side(caster, victim);
+    if (bystander->master) {
+        return is_spared_by_room_blast(caster_at_cast, caster, bystander->master);
+    }
+
+    if (is_uncharmed_mob) {
+        return mob_is_spared_by_room_blast(caster_at_cast, bystander);
+    }
+
+    // other_side() puts every player on an uncharmed mob caster's side, so a
+    // mob caster judges players by race, as it judges mobs.
+    if (caster_at_cast.is_npc && !caster_at_cast.is_charmed) {
+        return caster_has_a_side(caster_at_cast) && !other_side_race(caster_at_cast.race, GET_RACE(bystander));
+    }
+    return !other_side(caster_at_cast, bystander);
 }
 
 ASPELL(spell_fireball)
@@ -1885,10 +1989,10 @@ ASPELL(spell_fireball)
         fireball_damage = fireball_damage / 3;
     }
 
-    bool is_fire_spec = utils::get_specialization(*caster) == game_types::PS_Fire;
-    // Read before the primary hit: damage() can kill `victim`, and an NPC victim
-    // is free_char()'d by extract_char() before this function resumes.
-    const bool victim_is_friendly = is_fire_spec && is_friendly_taget(caster_at_cast, victim);
+    const bool is_fire_spec = utils::get_specialization(*caster) == game_types::PS_Fire;
+    // The splash spares by the side of whoever a charmed caster fights for.
+    char_data* const blast_owner = room_blast_owner(caster);
+    const caster_snapshot owner_at_cast = room_blast_owner_snapshot(blast_owner, caster, caster_at_cast);
 
     // The primary hit. damage() returns 1 once die() -> raw_kill() ->
     // extract_char() has run on the victim; the caller decides what may still
@@ -1922,7 +2026,7 @@ ASPELL(spell_fireball)
             continue;
 
         /* Fire specialization mages won't hit friendly targets. */
-        if (victim_is_friendly) {
+        if (is_fire_spec && is_spared_by_room_blast(owner_at_cast, *blast_owner, potential_victim)) {
             continue;
         }
 
@@ -2253,9 +2357,12 @@ ASPELL(spell_blaze)
 
         // One resolve of the caster's own room for the whole arm. The
         // damage loop below cannot move the caster: it skips friendly
-        // targets, and is_friendly_taget() counts a caster as friendly to
-        // itself.
+        // targets, and is_spared_by_room_blast() always spares the caster.
         room_data* const here = &world[caster->in_room];
+
+        // The burst spares by the side of whoever a charmed caster fights for.
+        char_data* const blast_owner = room_blast_owner(caster);
+        const caster_snapshot owner_at_cast = room_blast_owner_snapshot(blast_owner, caster, caster_at_cast);
 
         act("$n breathes out a cloud of fire!", TRUE, caster, 0, 0, TO_ROOM);
         send_to_char("You breathe out fire.\n\r", caster);
@@ -2265,7 +2372,7 @@ ASPELL(spell_blaze)
             tmpch_next = tmpch->next_in_room;
 
             // friends don't burn friends, at first...
-            if (is_friendly_taget(caster_at_cast, tmpch)) {
+            if (is_spared_by_room_blast(owner_at_cast, *blast_owner, tmpch)) {
                 continue;
             }
             dam = number(1, 30) + get_magic_power(caster_at_cast) / 2; /* same as earthquake */
