@@ -569,7 +569,7 @@ TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
 //     the PC-fixture blockers above.
 //   - FightCredit.NullCreditFallsBackToTheEngagedOpponent (this file, above)
 //     already pins "a fighting victim's sourceless death credits the engaged
-//     opponent" at the damage_credited() layer that feeds die()'s `killer`
+//     opponent" for an NPC victim at the damage_credited() layer that feeds die()'s `killer`
 //     argument; not duplicated here.
 namespace {
 

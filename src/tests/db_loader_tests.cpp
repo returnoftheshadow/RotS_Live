@@ -1490,7 +1490,7 @@ TEST(DbLoader, ReturnsEmptyObjectSaveBytesForLinkedCharacterWithoutAccountNative
     EXPECT_TRUE(object_bytes.empty());
 }
 
-// die() reads a raw engaged_opponent pointer after the dying character's
+// die() reads a raw engaged_mob pointer after the dying character's
 // ON_DIE trigger. That is safe only because a player never has a script, so
 // the trigger runs nothing. If this fails, the save format now carries a
 // script: die() must re-validate that pointer after ON_DIE.

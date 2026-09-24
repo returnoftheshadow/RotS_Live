@@ -211,8 +211,8 @@ TEST(FindEngagedRealMob, IgnoresTheVictimsOwnFightingPointer)
 
     EXPECT_EQ(find_engaged_real_mob(&victim, nullptr), nullptr)
         << "engagement direction A comes only from the captured engaged_opponent argument -- "
-           "the live specials.fighting pointer is never read, so 3-arg die() callers always "
-           "classify as unengaged";
+           "the live specials.fighting pointer is never read, so 3-arg die() callers are always "
+           "legacy; classification no longer happens in die()";
 }
 
 TEST(DeathTakesFullMobXpLoss, LegacyDerivesFromKiller)

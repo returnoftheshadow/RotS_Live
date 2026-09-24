@@ -162,7 +162,10 @@ def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: 
     The marker is searched for in `observer`'s whole transcript since this call began, not in
     individual replies: `GameSession.command()` and `harness.tick()` drain up to 0.1s of
     already-pending text before sending and discard it (`session.py`, `conftest.py`), so a
-    real-time broadcast landing in that window never appears in any reply.
+    real-time broadcast landing in that window never appears in any reply. The observer is
+    drained before each refloor because its transcript grows only when its own socket is read,
+    and a real-time death it has not yet seen would otherwise be floored again on the respawned
+    body.
     """
     observed_from = len(observer.everything)
 
@@ -171,6 +174,10 @@ def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: 
         return seen if marker in seen else None
 
     for attempt in range(budget):
+        if observer is not imp:
+            observer.drain(0.2)
+        if (seen := _observed()) is not None:
+            return seen
         if refloor is not None:
             floor_hit(imp, refloor[0], refloor[1])
             if (seen := _observed()) is not None:
