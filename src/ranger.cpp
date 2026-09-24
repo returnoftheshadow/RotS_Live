@@ -1600,6 +1600,9 @@ ACMD(do_tame)
                 if (zone_table[GET_LOADZONE(victim)].cmd[GET_LOADLINE(victim) - 1].existing < 0) {
                     zone_table[GET_LOADZONE(victim)].cmd[GET_LOADLINE(victim) - 1].existing = 0;
                 }
+                /* Cut the tame loose from its zone line, or extract_char will
+                 * decrement existing a second time when it dies. */
+                GET_LOADLINE(victim) = 0;
             }
 
             affect_from_char(victim, SKILL_TAME);
