@@ -91,8 +91,19 @@ def _set_up_arena_west_fight(imp: GameSession, caller: GameSession, fighter: Gam
     neutralize_melee(imp, "harnfighter")
 
 
-def _quit_the_fighter(fighter: GameSession, harness) -> None:
-    fighter.command("east")  # out of the burning room before the anger-clearing ticks
+def _leave_the_fire_and_quit(imp: GameSession, caller: GameSession, fighter: GameSession, harness) -> None:
+    """Walks everybody out of the burning Arena West before the fighter's quit loop.
+
+    quit_once_anger_allows fires forced `harness affects` ticks, and each one also runs the
+    room-affect sweep (limits.cpp affect_update_room), which burns any occupant of the blaze
+    room with no exemption for the caster or an immortal. The assertions are done by now, so
+    a burn cannot change a verdict, but it could kill Harncaller after the scenario passed.
+    """
+    caller.command("east")
+    fighter.command("east")
+    imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
+    caller.expect_room("Arena Centre")
+    fighter.expect_room("Arena Centre")
     quit_once_anger_allows(fighter, harness)  # attacking the orc angered the fighter
 
 
@@ -120,7 +131,7 @@ def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server,
             "1272-1275, 1288-1320); the XP-share lines above are the only observable credit"
         )
 
-    _quit_the_fighter(fighter, harness)
+    _leave_the_fire_and_quit(imp, caller, fighter, harness)
 
 
 def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, victim, harness) -> None:
@@ -162,4 +173,4 @@ def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, v
         for record in records.read_exploits(server.lib_dir, name):
             assert "bystander" not in record.victim_name.lower(), f"{name}: {record}"
 
-    _quit_the_fighter(fighter, harness)
+    _leave_the_fire_and_quit(imp, caller, fighter, harness)

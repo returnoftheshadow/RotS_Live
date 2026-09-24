@@ -35,5 +35,9 @@ def test_engaged_fighter_gets_the_share_and_the_remote_caster_does_not(server, i
     assert SHARE_MARKER in fighter_text, fighter_text
     assert SHARE_MARKER not in mage_text, mage_text
 
-    fighter.command("east")  # out of the burning room before the anger-clearing ticks
+    # Everybody out of the burning room before the anger-clearing ticks: each forced tick
+    # also runs the room-affect sweep, which burns any occupant, immortal or not.
+    fighter.command("east")
+    imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
+    fighter.expect_room("Arena Centre")
     quit_once_anger_allows(fighter, harness)  # attacking the orc angered the fighter
