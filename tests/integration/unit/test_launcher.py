@@ -70,9 +70,34 @@ def test_second_docker_lock_refuses_while_the_first_is_held(tmp_path: Path) -> N
 
 def test_docker_lock_fails_when_the_directory_is_missing(tmp_path: Path) -> None:
     lock = launcher.DockerLock(tmp_path / "missing")
-    with pytest.raises(RuntimeError, match="missing"):
+    with pytest.raises(RuntimeError, match="is missing"):
         lock.acquire(purpose="unit test")
     assert not (tmp_path / "missing").exists()
+
+
+def test_docker_lock_backs_off_when_another_lock_appears_after_its_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    created_paths: list[Path] = []
+    real_open = Path.open
+
+    def open_then_plant_rival(self: Path, mode: str = "r", *args: object, **kwargs: object):
+        handle = real_open(self, mode, *args, **kwargs)
+        if mode == "x":
+            created_paths.append(self)
+            (lock_dir / "rival-session.lock").write_text("session: rival\n", encoding="utf-8")
+        return handle
+
+    monkeypatch.setattr(Path, "open", open_then_plant_rival)
+    lock = launcher.DockerLock(lock_dir)
+    with pytest.raises(launcher.DockerLockHeld, match="rival-session.lock"):
+        lock.acquire(purpose="unit test")
+    assert len(created_paths) == 1
+    assert not created_paths[0].exists()
+    assert lock.path is None
+    assert sorted(path.name for path in lock_dir.iterdir()) == ["rival-session.lock"]
 
 
 def test_docker_lock_without_a_directory_does_nothing() -> None:

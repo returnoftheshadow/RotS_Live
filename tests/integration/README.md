@@ -86,9 +86,13 @@ launcher, each pytest session takes one lock in `/tmp/rots-docker-lock` (see
 `/tmp/rots-docker-lock/README.txt`; `ROTS_IT_DOCKER_LOCK_DIR` overrides the directory) before
 its first server starts, and holds it until the session ends, so no other job can use the
 host between two tests. The lock file is named `harness-it-<pid>-<id>.lock`, unique to the
-session, and is created atomically, so two sessions starting at once cannot both take it.
-The session refuses to start while any other `*.lock` file is present, including another
-harness session's, and fails if the lock directory is missing rather than run unlocked.
+session. The session refuses to start while any other `*.lock` file is present, including
+another harness session's, and fails if the lock directory is missing rather than run
+unlocked. It creates its own file first and then rechecks the directory, so two sessions
+starting at once may both back off; they can never both run.
+
+A session killed before its teardown leaves its lock behind. To recover, confirm that the
+`pid:` named in the file is no longer running (`ps -p <pid>`), then delete the file.
 
 ## Run output
 

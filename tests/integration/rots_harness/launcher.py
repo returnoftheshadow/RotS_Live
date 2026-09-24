@@ -136,8 +136,9 @@ class LocalProcessLauncher(ServerLauncher):
 
 class DockerLock:
     """One lock file per pytest session in the shared lock directory, named uniquely so two
-    harness sessions on one host see each other, created atomically so a race cannot let both
-    in, and held for the whole session so another job cannot slip in between two tests."""
+    harness sessions on one host see each other, and held for the whole session so another job
+    cannot slip in between two tests. The file is created first and the directory rechecked
+    afterwards, so two sessions starting at once may both back off but can never both run."""
 
     def __init__(self, lock_dir: Path | None) -> None:
         self._lock_dir = lock_dir  # None disables locking (unit tests, the local launcher)
@@ -157,13 +158,19 @@ class DockerLock:
             raise DockerLockHeld(f"another session holds the Docker lock ({', '.join(others)}); see tests/integration/README.md")
         candidate = self._lock_dir / f"{LOCK_FILE_PREFIX}-{os.getpid()}-{uuid.uuid4().hex[:8]}.lock"
         started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        body = f"session: {LOCK_FILE_PREFIX}\npid: {os.getpid()}\npurpose: {purpose}\nstart: {started}\nduration: 30m\n"
+        body = f"session: {LOCK_FILE_PREFIX}\npid: {os.getpid()}\npurpose: {purpose}\nstart: {started}\nduration: session\n"
         try:
             with candidate.open("x", encoding="utf-8") as handle:  # O_EXCL: never overwrites
                 handle.write(body)
         except FileExistsError as collision:
             raise DockerLockHeld(f"lock name collision on {candidate.name}") from collision
         self._lock_path = candidate
+        # The first glob alone leaves a window in which a concurrent session also sees an empty
+        # directory; a recheck after our file exists means at least one of the two sees the other.
+        others = sorted(path.name for path in self._lock_dir.glob("*.lock") if path != candidate)
+        if others:
+            self.release()
+            raise DockerLockHeld(f"another session took the Docker lock at the same time ({', '.join(others)}); see tests/integration/README.md")
 
     def release(self) -> None:
         if self._lock_path is not None:
