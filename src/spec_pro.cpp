@@ -3139,9 +3139,7 @@ SPECIAL(vampire_huntress)
                     af.location = APPLY_STR;
                     af.bitvector = AFF_POISON;
                     affect_join(victim, &af, FALSE, FALSE);
-                    // The huntress owns this poison, so a captive who dies of it
-                    // in the cells died to a MOB -- without the record the death
-                    // would credit nobody at all.
+                    // The huntress owns this poison. A captive who dies of it unengaged takes the gentle arm and no mob-death record (the huntress is the recorded poisoner, not the killer); without the record the death would credit nobody at all.
                     record_poison_origin(victim, host);
                     send_to_char("You feel extremely sick.\n\r", victim);
                     send_to_char(

@@ -38,7 +38,6 @@ bool seed_random_from_environment()
     }
 
     std::srand(static_cast<unsigned>(seed));
-    srandom(static_cast<unsigned>(seed));
 
     const std::string message = "Harness mode: random number generators seeded with " + std::to_string(seed) + ".";
     log(message.c_str());
