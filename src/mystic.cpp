@@ -78,6 +78,37 @@ int get_mystic_caster_level(const caster_snapshot& caster)
     return mystic_level + will_factor;
 }
 
+affected_type poison_victim_affect(const caster_snapshot& who)
+{
+    affected_type poison {};
+    poison.type = SPELL_POISON;
+    poison.duration = get_mystic_caster_level(who) + 1;
+    poison.modifier = -2;
+    poison.location = APPLY_STR;
+    poison.bitvector = AFF_POISON;
+    return poison;
+}
+
+int haze_caster_level(const caster_snapshot& who)
+{
+    int level = get_mystic_caster_level(who);
+    if (who.specialization == game_types::PS_Illusion) {
+        level += 6;
+    }
+    return level;
+}
+
+affected_type haze_victim_affect(int level, int duration)
+{
+    affected_type haze {};
+    haze.type = SPELL_HAZE;
+    haze.duration = duration;
+    haze.modifier = level;
+    haze.location = APPLY_NONE;
+    haze.bitvector = AFF_HAZE;
+    return haze;
+}
+
 /*
  * Use this macro to cause objects to override any affections
  * already on a character.  For example, the onyx ring's evasion
@@ -1147,11 +1178,7 @@ ASPELL(spell_haze)
         return;
     }
 
-    int level = get_mystic_caster_level(caster_at_cast);
-    if (utils::get_specialization(*caster) == game_types::PS_Illusion) {
-        level += 6;
-    }
-    loc_level = level;
+    loc_level = haze_caster_level(caster_at_cast);
 
     if (is_object)
         my_duration = -1;
@@ -1159,11 +1186,7 @@ ASPELL(spell_haze)
         my_duration = number(0, 1);
 
     if (!affected_by_spell(victim, SPELL_HAZE) && (is_object || !saves_mystic(victim))) {
-        af.type = SPELL_HAZE;
-        af.duration = my_duration;
-        af.modifier = loc_level;
-        af.location = APPLY_NONE;
-        af.bitvector = AFF_HAZE;
+        af = haze_victim_affect(loc_level, my_duration);
 
         affect_to_char(victim, &af);
         act("You feel dizzy as your surroundings seem to blur and twist.\n\r", TRUE, victim, 0, caster, TO_CHAR);
@@ -1274,12 +1297,7 @@ ASPELL(spell_poison)
 
     if (victim) {
         if (!saves_poison(victim, caster_at_cast) && (number(0, magus_save) < 50)) {
-            int level = get_mystic_caster_level(caster_at_cast);
-            af.type = SPELL_POISON;
-            af.duration = level + 1;
-            af.modifier = -2;
-            af.location = APPLY_STR;
-            af.bitvector = AFF_POISON;
+            af = poison_victim_affect(caster_at_cast);
 
             affect_join(victim, &af, FALSE, FALSE);
             // This poison's origin, for resolve_poisoner() to read back when it

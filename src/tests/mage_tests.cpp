@@ -465,6 +465,16 @@ TEST(MageHelpers, MistEffectiveLevelFallsOffTriangularlyPerHop) {
     EXPECT_EQ(mist_effective_level(30, -1), 30) << "a negative generation is treated as the cast room";
 }
 
+// One blaze burn is number(8, level) + 10, halved on a save. A mid roll makes number(8, 30)
+// return 8 + 23 / 2 = 19.
+TEST(MageHelpers, BlazeBurnDamageIsEightToLevelPlusTenHalvedOnASave) {
+    push_test_random_value(0.5);
+    EXPECT_EQ(blaze_burn_damage(30, false), 29);
+    push_test_random_value(0.5);
+    EXPECT_EQ(blaze_burn_damage(30, true), 14) << "halved by a right shift, as the spell always did";
+    clear_test_random_values();
+}
+
 namespace {
 
 // Stamps an uncharmed mob of `race` and `alignment` onto a zeroed char_data.

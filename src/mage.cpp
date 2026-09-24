@@ -80,6 +80,15 @@ int mist_effective_level(int caster_level, int generation)
     return std::max(0, caster_level - mist_spread_level_loss(generation));
 }
 
+int blaze_burn_damage(int level, bool saved)
+{
+    int damage = number(8, level) + 10;
+    if (saved) {
+        damage >>= 1;
+    }
+    return damage;
+}
+
 bool should_apply_spell_penetration(const caster_snapshot& caster)
 {
     // capture() evaluates exactly the player/charmed-orc-friend test the live
@@ -2448,10 +2457,7 @@ ASPELL(spell_blaze)
         int save_bonus = get_save_bonus(caster_at_cast, *victim, game_types::PS_Fire, game_types::PS_Cold);
         bool saved = new_saves_spell(caster_at_cast, victim, save_bonus);
 
-        dam = number(8, level) + 10;
-        if (saved) {
-            dam >>= 1;
-        }
+        dam = blaze_burn_damage(level, saved);
 
         if (caster != victim) {
             act("$n breathes fire on you!", TRUE, caster, 0, victim, TO_VICT);

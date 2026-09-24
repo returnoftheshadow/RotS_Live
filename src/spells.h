@@ -509,6 +509,18 @@ int mist_spread_level_loss(int generation);
 // The mage level a mist ticks and seeds with `generation` rooms out from where it was
 // breathed: `caster_level` less mist_spread_level_loss(generation), never below zero.
 int mist_effective_level(int caster_level, int generation);
+// Damage one blaze burn does to a victim at mage level `level`: 8 to `level`, plus 10,
+// halved when the victim saved.
+int blaze_burn_damage(int level, bool saved);
+// The poison a mystic's cast or a poison tick leaves on its victim: SPELL_POISON for
+// `who`'s mystic caster level + 1 ticks, -2 strength, AFF_POISON.
+affected_type poison_victim_affect(const caster_snapshot& who);
+// The level a haze applies at for `who`: the mystic caster level, plus 6 for an
+// illusion specialist.
+int haze_caster_level(const caster_snapshot& who);
+// The haze a cast or a haze tick leaves on its victim: SPELL_HAZE at `level` for
+// `duration` ticks (-1 for an object's permanent haze), AFF_HAZE.
+affected_type haze_victim_affect(int level, int duration);
 int get_saving_throw_dc(const caster_snapshot& caster);
 bool should_apply_spell_penetration(const caster_snapshot& caster);
 double get_spell_pen_value(const caster_snapshot& caster);

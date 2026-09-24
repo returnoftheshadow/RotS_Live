@@ -59,9 +59,9 @@ bool caster_is_present(const char_data* caster, const char_data* occupant)
     return caster != nullptr && caster->in_room == occupant->in_room;
 }
 
-// mage.cpp's spell_blaze() victim arm. `dam = number(8, level) + 10`, halved on
-// a save, then handed to apply_spell_damage_credited() -- which runs the ONE
-// shared scale_spell_damage() the live cast uses, reading the saving throw from
+// mage.cpp's spell_blaze() victim arm. The burn comes from the cast's own
+// blaze_burn_damage(), then goes to apply_spell_damage_credited() -- which runs the
+// ONE shared scale_spell_damage() the live cast uses, reading the saving throw from
 // the snapshot rather than from a live caster.
 void blaze_tick(const caster_snapshot& who, char_data* caster, char_data* occupant)
 {
@@ -69,28 +69,21 @@ void blaze_tick(const caster_snapshot& who, char_data* caster, char_data* occupa
     const int save_bonus = get_save_bonus(who, *occupant, game_types::PS_Fire, game_types::PS_Cold);
     const bool saved = new_saves_spell(who, occupant, save_bonus);
 
-    int dam = number(8, level) + 10;
-    if (saved) {
-        dam >>= 1;
-    }
+    const int dam = blaze_burn_damage(level, saved);
 
     // Engaging attacker == the occupant itself (never `caster`): a tick damages,
     // it does not start a fight. Only the credit moves.
     apply_spell_damage_credited(who, occupant, occupant, caster, dam, SPELL_BLAZE, 0);
 }
 
-// mystic.cpp's spell_poison() victim arm. `number(0, magus_save)` there is
-// always `number(0, 0)` (magus_save is a zero-initialized local the function
-// never writes), so it is spelled out as such here.
+// mystic.cpp's spell_poison() victim arm, applying the cast's own
+// poison_victim_affect(). `number(0, magus_save)` there is always `number(0, 0)`
+// (magus_save is a zero-initialized local the function never writes), so it is
+// spelled out as such here.
 void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occupant)
 {
     if (!saves_poison(occupant, who) && (number(0, 0) < 50)) {
-        affected_type poison_affect {};
-        poison_affect.type = SPELL_POISON;
-        poison_affect.duration = get_mystic_caster_level(who) + 1;
-        poison_affect.modifier = -2;
-        poison_affect.location = APPLY_STR;
-        poison_affect.bitvector = AFF_POISON;
+        affected_type poison_affect = poison_victim_affect(who);
         affect_join(occupant, &poison_affect, FALSE, FALSE);
 
         // The origin resolve_poisoner() reads when this poison eventually
@@ -130,22 +123,15 @@ void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occup
 }
 
 // mystic.cpp's spell_haze() victim arm, for `type == SPELL_TYPE_SPELL` with
-// `is_object == 0` -- the shape the room re-cast always produced.
+// `is_object == 0` -- the shape the room re-cast always produced. The level and
+// the affect come from the cast's own haze_caster_level() and haze_victim_affect().
 void haze_tick(const caster_snapshot& who, char_data* occupant)
 {
-    int level = get_mystic_caster_level(who);
-    if (who.specialization == game_types::PS_Illusion) {
-        level += 6;
-    }
+    const int level = haze_caster_level(who);
 
     const int my_duration = number(0, 1);
     if (!affected_by_spell(occupant, SPELL_HAZE) && !saves_mystic(occupant)) {
-        affected_type haze_affect {};
-        haze_affect.type = SPELL_HAZE;
-        haze_affect.duration = my_duration;
-        haze_affect.modifier = level;
-        haze_affect.location = APPLY_NONE;
-        haze_affect.bitvector = AFF_HAZE;
+        affected_type haze_affect = haze_victim_affect(level, my_duration);
         affect_to_char(occupant, &haze_affect);
         act("You feel dizzy as your surroundings seem to blur and twist.\n\r",
             TRUE, occupant, 0, occupant, TO_CHAR);

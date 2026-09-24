@@ -157,6 +157,7 @@ set(ROTS_TEST_SOURCES
     tests/interpre_account_menu_tests.cpp
     tests/fight_proc_tests.cpp
     tests/mage_tests.cpp
+    tests/mystic_helper_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/limits_tests.cpp
