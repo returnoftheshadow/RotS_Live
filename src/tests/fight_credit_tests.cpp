@@ -16,9 +16,10 @@
 // observe "who die() was told" directly without a kill-contributor ledger
 // to read back):
 //   (a) the pet-master redirect is observed through make_physical_corpse()'s
-//       `attack_type == SPELL_POISON || !IS_NPC(killer)` gear-move branch: a
-//       non-NPC killer pulls wearables out of any container in the corpse,
-//       an NPC killer leaves them nested. Since the pet itself is always an
+//       gear-move branch, the death_strips_corpse_containers() rule, which for
+//       the legacy class these pins drive is `attack_type == SPELL_POISON ||
+//       !IS_NPC(killer)`: a non-NPC killer pulls wearables out of any
+//       container in the corpse, an NPC killer leaves them nested. Since the pet itself is always an
 //       NPC, "the gear moved" can only happen if the redirect substituted its
 //       (non-NPC) master.
 //   (b) no death is needed at all -- engagement is fully local to
@@ -77,6 +78,8 @@ extern char_data* combat_list;
 extern int pkill_weight(struct char_data* victim, const kill_contributor_list& contributors);
 extern int pkill_opponents(struct char_data* victim, const kill_contributor_list& contributors);
 extern int pkill_valid_killer(struct char_data* killer, struct char_data* victim);
+// fight.cpp's corpse builder, declared here for the same reason.
+obj_data* make_corpse(char_data* character, char_data* killer, int attack_type, death_punishment punishment);
 
 namespace {
 
@@ -98,6 +101,7 @@ constexpr int kRedirectRoom = 900;
 constexpr int kFallbackRoom = 901;
 constexpr int kNobodyRoom = 902;
 constexpr int kPoisonRoom = 903;
+constexpr int kCorpseStripRoom = 908; // 904-907 are claimed further down this file
 
 // abs_number slot this file's poison pin hands to its NPC poisoner -- an
 // out-of-band slot distinct from poison_origin_tests.cpp's kPoisonerSlot
@@ -194,9 +198,10 @@ char_data* make_npc_victim(int room, char* short_descr, int hit_points)
 // always moves `victim`'s carried objects into the corpse's top level intact,
 // but only recurses into containers -- pulling the wearable item out to sit
 // directly in the corpse -- when `move_wearables_to_corpse()` runs, which is
-// exactly the `!IS_NPC(killer)` (or SPELL_POISON) branch. `container`/`item`
-// are stack objects; they are never RELEASE()'d because make_corpse() never
-// allocated them, only linked them.
+// the death_strips_corpse_containers() rule; for the legacy class the death
+// pipeline pins drive, that is the `!IS_NPC(killer)` (or SPELL_POISON)
+// condition. `container`/`item` are stack objects; they are never RELEASE()'d
+// because make_corpse() never allocated them, only linked them.
 struct CarriedGear {
     obj_data container {};
     obj_data item {};
@@ -1152,4 +1157,43 @@ TEST(GroupGain, PaysRoomFightersTheirShareWhenNobodyIsCredited)
         << "the character fighting the victim in the death room must be paid even when die() credits nobody";
     EXPECT_EQ(bystander.points.exp, 1000)
         << "a bystander who was not fighting the victim gets no share";
+}
+
+// The corpse follows the punishment class, not the attack type: a poison death punished as
+// a mob death leaves a wearable nested in its container, one punished as a player kill
+// pulls it out into the corpse, whoever (or nobody) landed the blow.
+TEST(FightCredit, CorpseStripFollowsThePunishmentClass)
+{
+    ScopedMobIndex prototype_table;
+    RoomGuard room_guard(kCorpseStripRoom);
+    obj_data* const previous_object_list = object_list;
+
+    {
+        char victim_short_descr[] = "a mob-death poison victim";
+        char_data* victim = make_npc_victim(kCorpseStripRoom, victim_short_descr, 1);
+        CarriedGear gear;
+        gear.attach_to(*victim);
+
+        obj_data* const corpse = make_corpse(victim, nullptr, SPELL_POISON, death_punishment::mob_death);
+
+        ASSERT_NE(corpse, nullptr);
+        EXPECT_EQ(gear.item.in_obj, &gear.container) << "a mob-death poison death must leave the wearable nested";
+        release_corpse(kCorpseStripRoom, previous_object_list);
+        remove_char_exists(victim->abs_number);
+        test_support::release_test_character(victim);
+    }
+    {
+        char victim_short_descr[] = "a player-death poison victim";
+        char_data* victim = make_npc_victim(kCorpseStripRoom, victim_short_descr, 1);
+        CarriedGear gear;
+        gear.attach_to(*victim);
+
+        obj_data* const corpse = make_corpse(victim, nullptr, SPELL_POISON, death_punishment::player_death);
+
+        ASSERT_NE(corpse, nullptr);
+        EXPECT_EQ(gear.item.in_obj, corpse) << "a player-kill poison death must pull the wearable into the corpse";
+        release_corpse(kCorpseStripRoom, previous_object_list);
+        remove_char_exists(victim->abs_number);
+        test_support::release_test_character(victim);
+    }
 }

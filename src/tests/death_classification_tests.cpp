@@ -308,3 +308,31 @@ TEST(DeathNamesPlayerContributors, TrueForPlayerOrNobodyFalseForMob)
         << "an uncredited death must still record who was fighting the victim";
     EXPECT_FALSE(death_names_player_contributors(&mob));
 }
+
+TEST(DeathStripsCorpseContainers, LegacyStripsForPoisonOrANonNpcKiller)
+{
+    char_data player { };
+    player.player.level = 20;
+    char_data mob { };
+    make_plain_mob(mob);
+
+    EXPECT_TRUE(death_strips_corpse_containers(&player, TYPE_HIT, death_punishment::legacy)) << "a player's kill strips";
+    EXPECT_TRUE(death_strips_corpse_containers(nullptr, TYPE_HIT, death_punishment::legacy))
+        << "no killer at all counts as a non-NPC killer, as it always has";
+    EXPECT_FALSE(death_strips_corpse_containers(&mob, TYPE_HIT, death_punishment::legacy)) << "a mob's kill leaves gear nested";
+    EXPECT_TRUE(death_strips_corpse_containers(&mob, SPELL_POISON, death_punishment::legacy))
+        << "an unclassified poison death keeps the historical strip";
+}
+
+TEST(DeathStripsCorpseContainers, MobDeathNeverStripsAndPlayerDeathAlwaysStrips)
+{
+    char_data player { };
+    player.player.level = 20;
+    char_data mob { };
+    make_plain_mob(mob);
+
+    EXPECT_FALSE(death_strips_corpse_containers(&player, SPELL_POISON, death_punishment::mob_death));
+    EXPECT_FALSE(death_strips_corpse_containers(nullptr, SPELL_POISON, death_punishment::mob_death));
+    EXPECT_TRUE(death_strips_corpse_containers(&mob, SPELL_POISON, death_punishment::player_death));
+    EXPECT_TRUE(death_strips_corpse_containers(nullptr, SPELL_POISON, death_punishment::player_death));
+}

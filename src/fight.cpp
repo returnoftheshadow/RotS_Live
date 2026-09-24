@@ -684,7 +684,7 @@ void move_wearables_to_corpse(obj_data* corpse)
 //============================================================================
 // Makes a corpse from the character passed in.  Returns a pointer to the corpse.
 //============================================================================
-obj_data* make_physical_corpse(char_data* character, char_data* killer, int attack_type)
+obj_data* make_physical_corpse(char_data* character, char_data* killer, int attack_type, death_punishment punishment)
 {
     obj_data* corpse = NULL;
 
@@ -748,9 +748,9 @@ obj_data* make_physical_corpse(char_data* character, char_data* killer, int atta
         }
     }
 
-    // If the character died to another player or poison, move all of their
-    // wearable gear into their corpse and out of any containers they own.
-    if (attack_type == SPELL_POISON || !IS_NPC(killer)) {
+    // Wearables come out of the character's containers when the death is
+    // punished as a player kill; death_strips_corpse_containers() holds the rule.
+    if (death_strips_corpse_containers(killer, attack_type, punishment)) {
         move_wearables_to_corpse(corpse);
     }
 
@@ -779,10 +779,10 @@ void spirit_death(char_data* character)
     move_gold(character, NULL, 1);
 }
 
-obj_data* make_corpse(char_data* character, char_data* killer, int attack_type)
+obj_data* make_corpse(char_data* character, char_data* killer, int attack_type, death_punishment punishment)
 {
     if (!IS_SHADOW(character)) {
-        return make_physical_corpse(character, killer, attack_type);
+        return make_physical_corpse(character, killer, attack_type, punishment);
     } else {
         spirit_death(character);
         return NULL;
@@ -1064,6 +1064,17 @@ bool death_counts_as_player_kill(const char_data* killer, death_punishment punis
     return killer != nullptr && !IS_NPC(killer);
 }
 
+bool death_strips_corpse_containers(const char_data* killer, int attack_type, death_punishment punishment)
+{
+    if (punishment == death_punishment::mob_death) {
+        return false;
+    }
+    if (punishment == death_punishment::player_death) {
+        return true;
+    }
+    return attack_type == SPELL_POISON || !IS_NPC(killer);
+}
+
 char_data* mobdeath_record_mob(char_data* killer, char_data* engaged_mob, death_punishment punishment)
 {
     if (punishment == death_punishment::player_death) {
@@ -1120,7 +1131,7 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_pun
         affect_remove(dead_man, dead_man->affected);
     }
     death_cry(dead_man);
-    obj_data* corpse = make_corpse(dead_man, killer, attack_type);
+    obj_data* corpse = make_corpse(dead_man, killer, attack_type, punishment);
 
     // Let big brother know that the player died.
     game_rules::big_brother& bb_instance = game_rules::big_brother::instance();

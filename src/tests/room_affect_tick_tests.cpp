@@ -296,7 +296,8 @@ private:
 // make_physical_corpse() always moves carried objects into the corpse intact,
 // but only recurses into containers -- pulling the wearable out to sit
 // directly in the corpse -- when move_wearables_to_corpse() runs, which is
-// exactly the `!IS_NPC(killer)` (or SPELL_POISON) branch. Mirrors
+// the death_strips_corpse_containers() rule; for the legacy class these NPC
+// deaths take, that is the `!IS_NPC(killer)` (or SPELL_POISON) condition. Mirrors
 // fight_credit_tests.cpp's CarriedGear.
 struct CarriedGear {
     obj_data container {};

@@ -221,6 +221,12 @@ bool death_takes_full_mob_xp_loss(const struct char_data* killer, death_punishme
 // True selects the gentle player-kill penalty over the harsh one.
 bool death_counts_as_player_kill(const struct char_data* killer, death_punishment punishment);
 
+// Whether the corpse pulls wearables and keys out of the dead character's containers so
+// they cannot be hidden from looters. A player-kill punishment strips, a mob-death
+// punishment never does, and the legacy class keeps the historical rule: a poison death
+// or any killer that is not an NPC (including no killer at all) strips.
+bool death_strips_corpse_containers(const struct char_data* killer, int attack_type, death_punishment punishment);
+
 // Whether a PC death writes EXPLOIT_DEATH entries naming its player contributors: true for a
 // player's killing blow and for an uncredited death (null killer), false when a mob's blow
 // keeps the legacy mob-death-only record.
