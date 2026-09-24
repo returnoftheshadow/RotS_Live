@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -82,7 +83,13 @@ def terminate_process(process: subprocess.Popen) -> None:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired:
         process.kill()
-        process.wait(timeout=10)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            # A process the kernel will not reap (stuck in uninterruptible I/O) must not
+            # turn fixture teardown into a traceback; the post-stop crash check reports
+            # the missing exit status.
+            print(f"server process {process.pid} survived SIGKILL for 10s", file=sys.stderr)
 
 
 class ServerLauncher:

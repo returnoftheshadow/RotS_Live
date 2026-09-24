@@ -180,3 +180,34 @@ def test_read_log_tail_returns_only_the_last_bytes_and_defaults_to_the_documente
     assert launcher.read_log_tail(log_path, max_bytes=8) == "xxxxTAIL"
     assert len(launcher.read_log_tail(log_path)) == launcher.LOG_TAIL_BYTES
     assert launcher.LOG_TAIL_BYTES == 16000
+
+
+def test_terminate_process_warns_instead_of_raising_when_the_process_survives_sigkill(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class UnreapableProcess:
+        def __init__(self) -> None:
+            self.pid = 4242
+            self.returncode: int | None = None
+            self.terminate_calls = 0
+            self.kill_calls = 0
+
+        def poll(self) -> int | None:
+            return None
+
+        def terminate(self) -> None:
+            self.terminate_calls += 1
+
+        def kill(self) -> None:
+            self.kill_calls += 1
+
+        def wait(self, timeout: float | None = None) -> int:
+            raise subprocess.TimeoutExpired(cmd="ageland", timeout=timeout or 0)
+
+    stuck_process = UnreapableProcess()
+
+    launcher.terminate_process(stuck_process)  # type: ignore[arg-type]
+
+    assert stuck_process.terminate_calls == 1
+    assert stuck_process.kill_calls == 1, "terminate_process must escalate to SIGKILL exactly once"
+    assert "survived SIGKILL" in capsys.readouterr().err

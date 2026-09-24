@@ -66,7 +66,7 @@ clean:
 	fi
 
 integration-unit:
-	$(PYTHON) -m pytest tests/integration/unit -q
+	$(PYTHON) -m pytest tests/integration/unit tools/xp_research -q
 
 integration:
 	$(PYTHON) -m pytest tests/integration -q
