@@ -146,7 +146,10 @@ void add_exploit_record(int recordtype, struct char_data* victim, const kill_con
 using ExploitRecordWriterFn = void (*)(struct char_data* recipient, struct exploit_record* record);
 // Test-only seam: routes every record add_exploit_record() finishes to `writer` instead of
 // write_exploits(), which touches disk and autosaves the recipient. nullptr restores the default.
-// Not thread-safe (the MUD and the tests are single-threaded).
+// Not thread-safe (the MUD and the tests are single-threaded). Kept in production code
+// deliberately: it is the same dependency-injection shape as roster_cache.h's and
+// account_cache.h's reader seams, and it separates assembling a record from persisting it, which
+// write_exploits() otherwise binds to disk and autosave.
 void set_exploit_record_writer_for_testing(ExploitRecordWriterFn writer);
 int delete_exploits_file(char*);
 void delete_character_file(struct char_data*);
