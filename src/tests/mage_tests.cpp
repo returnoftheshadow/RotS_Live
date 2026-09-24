@@ -646,6 +646,28 @@ TEST(MageHelpers, RoomBlastBurnsASameSideMobFightingTheCastersParty) {
         << "fighting the party outranks following the caster";
 }
 
+// Two characters without a group are not group-mates, so an ungrouped caster's party is only
+// itself and its followers: a same-side mob fighting an ungrouped stranger is spared, and one
+// fighting the caster itself still burns.
+TEST(MageHelpers, RoomBlastUnderAnUngroupedCasterSparesAMobFightingAnUngroupedStranger) {
+    MageTestContext context;
+    ASSERT_EQ(context.caster.group, nullptr) << "precondition: the fixture caster is ungrouped";
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(context.caster);
+
+    char_data stranger{};
+    stranger.player.race = RACE_HUMAN; // an ungrouped same-side player outside the party
+    char_data elf{};
+    make_room_blast_mob(elf, RACE_WOOD, 500);
+
+    elf.specials.fighting = &stranger;
+    EXPECT_TRUE(is_spared_by_room_blast(caster_at_cast, context.caster, &elf))
+        << "an ungrouped caster and an ungrouped stranger must not count as one party";
+
+    elf.specials.fighting = &context.caster;
+    EXPECT_FALSE(is_spared_by_room_blast(caster_at_cast, context.caster, &elf))
+        << "a mob fighting the ungrouped caster itself is still burned";
+}
+
 // An immortal player caster (race 0) belongs to neither side, so it shares a side with no mob.
 // Players stay under other_side(), which puts RACE_GOD on every player's side.
 TEST(MageHelpers, RoomBlastUnderAnImmortalCasterSparesNoMob) {
@@ -1435,6 +1457,89 @@ TEST_F(MageProcTest, BlackArrowPoisonLastsTheMageLevelPlusOne) {
     EXPECT_EQ(poison->duration, mage_level + 1);
     EXPECT_EQ(poison->modifier, -2);
     EXPECT_EQ(poison->location, APPLY_STR);
+}
+
+namespace {
+
+// abs_number slots the poisoner pins below register. Nothing else in this file claims them, and
+// they were chosen clear of the slots the other suites in the monolithic runner claim.
+constexpr int kBlackArrowCasterSlot = MAX_CHARACTERS - 1201;
+constexpr int kMysticPoisonCasterSlot = MAX_CHARACTERS - 1202;
+constexpr int kMysticPoisonSecondCasterSlot = MAX_CHARACTERS - 1203;
+
+} // namespace
+
+// Black arrow names its mage as the poisoner, and still does when it lands on a victim who is
+// already poisoned: the join replaces the running poison, which clears the record, so the
+// record must be written after it. Rolls as in the duration test above. Before the second
+// arrow the running poison is cut to 1 tick, so an arrow that poisons shows as a renewed duration.
+TEST_F(MageProcTest, BlackArrowRecordsTheMageAsThePoisonerEvenOnAnAlreadyPoisonedVictim) {
+    MageTestContext context;
+    context.caster_profs.prof_level[PROF_MAGE] = 30;
+    context.prepare_for_spell_damage();
+    test_support::ScopedAffectCleanup victim_affects(context.victim);
+    test_support::ScopedCharExists caster_registration(context.caster, kBlackArrowCasterSlot);
+
+    queue_fireball_rolls(0.0, 60);
+    test_support::cast_spell(spell_black_arrow, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
+    affected_type* poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "precondition: the first arrow poisons";
+    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster) << "the first arrow must record its mage";
+
+    poison->duration = 1;
+    queue_fireball_rolls(0.0, 60);
+    test_support::cast_spell(spell_black_arrow, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
+    poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "precondition: the victim is still poisoned after the second arrow";
+    ASSERT_GT(poison->duration, 1) << "precondition: the second arrow poisons";
+    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster)
+        << "a second arrow joins the running poison and must keep its mage recorded";
+    clear_test_random_values();
+}
+
+// Mystic poison names its caster, keeps that record when the same caster poisons again, and a
+// different caster poisoning the same victim becomes the recorded poisoner. Before each later
+// cast the running poison is cut to 1 tick, so a poison that lands shows as a renewed duration.
+TEST_F(MageProcTest, MysticPoisonKeepsItsPoisonerAndASecondPoisonerTakesOver) {
+    MageTestContext context;
+    context.caster_profs.prof_level[PROF_CLERIC] = 10;
+    context.master_profs.prof_level[PROF_CLERIC] = 10;
+    context.prepare_for_spell_damage();
+    context.master.in_room = context.victim.in_room; // the second poisoner stands with the victim
+    context.master.specials.position = POSITION_STANDING;
+    // saves_poison()'s defense is then 0, so the poison always lands. affect_total() recomputes an
+    // NPC's willpower as level + tmpabilities.wil - confusion / 10, which stays 0 here: the level
+    // is 0 (prepare_for_spell_damage()), wil is 0 and the victim is not confused.
+    context.victim.tmpabilities.con = 0;
+    context.victim.points.willpower = 0;
+    test_support::ScopedAffectCleanup victim_affects(context.victim);
+    test_support::ScopedCharExists caster_registration(context.caster, kMysticPoisonCasterSlot);
+    test_support::ScopedCharExists master_registration(context.master, kMysticPoisonSecondCasterSlot);
+
+    queue_fireball_rolls(0.5, 60);
+    test_support::cast_spell(spell_poison, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
+    affected_type* poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "precondition: the poison lands";
+    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster) << "the first poison must record its caster";
+
+    poison->duration = 1;
+    queue_fireball_rolls(0.5, 60);
+    test_support::cast_spell(spell_poison, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
+    poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "precondition: the victim is still poisoned after the second poison";
+    ASSERT_GT(poison->duration, 1) << "precondition: the second poison lands";
+    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster)
+        << "re-poisoning an already-poisoned victim must keep the caster recorded";
+
+    poison->duration = 1;
+    queue_fireball_rolls(0.5, 60);
+    test_support::cast_spell(spell_poison, &context.master, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
+    poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "precondition: the victim is still poisoned after the second poisoner's cast";
+    ASSERT_GT(poison->duration, 1) << "precondition: the second poisoner's poison lands";
+    EXPECT_EQ(resolve_poisoner(context.victim), &context.master)
+        << "a second poisoner's landed poison must become the recorded origin";
+    clear_test_random_values();
 }
 
 namespace {

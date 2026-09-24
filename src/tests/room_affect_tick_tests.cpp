@@ -50,6 +50,7 @@ extern struct room_data world;
 extern struct weather_data weather_info;
 extern int top_of_world;
 extern struct char_data* character_list;
+extern struct char_data* combat_list;
 extern struct obj_data* object_list;
 extern struct index_data* mob_index;
 extern struct skill_data skills[];
@@ -328,6 +329,20 @@ private:
     spell_function m_previous; // the cell's prior value; restored on scope exit
 };
 
+// Saves and clears the global combat_list for a test whose tick damages, and restores it on
+// scope exit, so a fight the tick starts between stack characters never reaches another test.
+struct CombatListGuard {
+    char_data* previous; // combat_list found before the test; restored on scope exit
+    CombatListGuard()
+        : previous(combat_list)
+    {
+        combat_list = nullptr;
+    }
+    ~CombatListGuard() { combat_list = previous; }
+    CombatListGuard(const CombatListGuard&) = delete;
+    CombatListGuard& operator=(const CombatListGuard&) = delete;
+};
+
 // A one-item container carried (not worn) by a corpse's owner:
 // make_physical_corpse() always moves carried objects into the corpse intact,
 // but only recurses into containers -- pulling the wearable out to sit
@@ -486,6 +501,7 @@ affected_type dummy_affect()
 // snapshot instead makes the first occupant take much more.
 TEST(RoomAffectTick, BlazeTickDamageComesFromTheSnapshotNotTheCastersCurrentStats)
 {
+    CombatListGuard combat_list_guard;
     RoomFixture room_a(kBlazeRoomA);
     RoomFixture room_b(kBlazeRoomB);
 
@@ -527,7 +543,7 @@ TEST(RoomAffectTick, BlazeTickDamageComesFromTheSnapshotNotTheCastersCurrentStat
 }
 
 // ---------------------------------------------------------------------------
-// blaze: a lethal tick credits the recorded caster and never engages it
+// blaze: a lethal tick credits the recorded caster
 // ---------------------------------------------------------------------------
 // Who was credited is read back through Big Brother: raw_kill() hands every
 // death to on_character_died(), which for an orc-friend NPC victim with a
@@ -545,8 +561,9 @@ void ensure_big_brother()
     game_rules::big_brother::create(weather_info, &world);
 }
 
-TEST(RoomAffectTick, BlazeTickCreditsTheRecordedCasterWithoutEngagingIt)
+TEST(RoomAffectTick, LethalBlazeTickCreditsTheRecordedCaster)
 {
+    CombatListGuard combat_list_guard;
     ensure_big_brother();
     ScopedMobIndex prototype_table;
     RoomFixture occupant_room(kBlazeRoomA);
@@ -582,9 +599,8 @@ TEST(RoomAffectTick, BlazeTickCreditsTheRecordedCasterWithoutEngagingIt)
         << "extract_char()'s NPC arm must have unlinked the dead occupant from character_list";
     EXPECT_EQ(occupant_room.room()->people, nullptr)
         << "extract_char()'s NPC arm must have unlinked the dead occupant from the room's occupant list";
-    EXPECT_EQ(caster.ch.specials.fighting, nullptr)
-        << "the credited caster must never be engaged by the tick that kills through it -- "
-           "damage_credited() only ever engages the occupant itself";
+    // The death's stop_fighting() clears any engagement, so whether the caster was engaged is
+    // pinned on a surviving occupant in BlazeTickNeverEngagesACasterStandingInTheRoom.
 
     obj_data* const corpse = occupant_room.room()->contents;
     ASSERT_NE(corpse, nullptr) << "raw_kill() must have created a corpse in the death room";
@@ -610,6 +626,7 @@ TEST(RoomAffectTick, BlazeTickCreditsTheRecordedCasterWithoutEngagingIt)
 // same-side looter unprotected.
 TEST(RoomAffectTick, BlazeTickWithAnUnresolvableCasterCreditsNobody)
 {
+    CombatListGuard combat_list_guard;
     ensure_big_brother();
     ScopedMobIndex prototype_table;
     RoomFixture occupant_room(kBlazeRoomA);
@@ -641,7 +658,6 @@ TEST(RoomAffectTick, BlazeTickWithAnUnresolvableCasterCreditsNobody)
     clear_test_random_values();
 
     EXPECT_EQ(character_list, nullptr) << "the occupant still dies";
-    EXPECT_EQ(caster.ch.specials.fighting, nullptr);
 
     obj_data* const corpse = occupant_room.room()->contents;
     ASSERT_NE(corpse, nullptr) << "raw_kill() must have created a corpse in the death room";
@@ -659,12 +675,49 @@ TEST(RoomAffectTick, BlazeTickWithAnUnresolvableCasterCreditsNobody)
     release_corpse(*occupant_room.room(), previous_object_list);
 }
 
+// A blaze tick burns the occupant through itself, so a caster standing in the room is never
+// pulled into a fight. The tick here is not lethal: a death runs stop_fighting() on every
+// opponent, which would hide an engagement.
+TEST(RoomAffectTick, BlazeTickNeverEngagesACasterStandingInTheRoom)
+{
+    CombatListGuard combat_list_guard;
+    ensure_big_brother();
+    RoomFixture room(kBlazeRoomA);
+
+    char_data occupant {};
+    char_prof_data occupant_profs {};
+    make_weak_occupant(occupant, occupant_profs, 500);
+    occupant.in_room = room.slot();
+
+    CasterFixture caster(25, 0, game_types::PS_None, room.slot());
+    ScopedCharExists caster_registration(caster.ch, kCasterASlot);
+    room.room()->people = &occupant;
+    occupant.next_in_room = &caster.ch;
+    caster.ch.next_in_room = nullptr;
+    set_room_affect_caster(room.room(), SPELL_BLAZE, caster_snapshot::capture(caster.ch));
+
+    affected_type affect = dummy_affect();
+    queue_mid_rolls();
+    room_affect_tick(SPELL_BLAZE, room.room(), &occupant, affect);
+    clear_test_random_values();
+
+    ASSERT_LT(occupant.tmpabilities.hit, 500) << "precondition: the blaze tick burned the occupant";
+    ASSERT_GT(occupant.tmpabilities.hit, 0) << "precondition: the occupant survives the tick";
+    EXPECT_EQ(caster.ch.specials.fighting, nullptr)
+        << "a blaze tick burns the occupant through itself and must never start a fight with "
+           "its caster, who stands in the room";
+    EXPECT_EQ(occupant.specials.fighting, nullptr)
+        << "a blaze tick burns the occupant through itself and must never engage the occupant "
+           "with its caster";
+}
+
 // ---------------------------------------------------------------------------
 // poison
 // ---------------------------------------------------------------------------
 
 TEST(RoomAffectTick, PoisonTickRecordsTheResolvedCasterAsPoisoner)
 {
+    CombatListGuard combat_list_guard;
     RoomFixture room(kPoisonRoom);
 
     char_data occupant {};
@@ -688,8 +741,147 @@ TEST(RoomAffectTick, PoisonTickRecordsTheResolvedCasterAsPoisoner)
     EXPECT_EQ(poison->duration, 16);
 }
 
+// A room-poison tick on an occupant who is already poisoned keeps the recorded caster, and a
+// renewal that hands the room to another caster makes that caster the occupant's poisoner.
+// Before each later tick the running poison is cut to 1 tick, so a tick that lands shows as a
+// renewed duration.
+TEST(RoomAffectTick, PoisonTickOnAnAlreadyPoisonedOccupantKeepsThenReplacesTheRecordedCaster)
+{
+    CombatListGuard combat_list_guard;
+    RoomFixture room(kPoisonRoom);
+
+    char_data occupant {};
+    char_prof_data occupant_profs {};
+    make_weak_occupant(occupant, occupant_profs, 500);
+    // Once the first poison lands, affect_total() recomputes an NPC's willpower as level +
+    // tmpabilities.wil - confusion / 10. With level 0 (wil is already 0) it stays 0, so
+    // saves_poison()'s defense stays 0 and every tick lands.
+    occupant.player.level = 0;
+    test_support::ScopedAffectCleanup occupant_affects(occupant);
+
+    CasterFixture first_caster(0, 10, game_types::PS_None, kPoisonRoom);
+    ScopedCharExists first_registration(first_caster.ch, kCasterASlot);
+    CasterFixture second_caster(0, 12, game_types::PS_None, kPoisonRoom);
+    ScopedCharExists second_registration(second_caster.ch, kCasterBSlot);
+    set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(first_caster.ch));
+
+    affected_type affect = dummy_affect();
+    room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
+    affected_type* poison = affected_by_spell(&occupant, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "precondition: the first tick poisons";
+    ASSERT_EQ(resolve_poisoner(occupant), &first_caster.ch) << "precondition: the first tick records its caster";
+
+    poison->duration = 1;
+    room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
+    poison = affected_by_spell(&occupant, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "precondition: the occupant is still poisoned after the second tick";
+    ASSERT_GT(poison->duration, 1) << "precondition: the second tick lands";
+    EXPECT_EQ(resolve_poisoner(occupant), &first_caster.ch)
+        << "a second tick joins the running poison and must keep the caster recorded";
+
+    poison->duration = 1;
+    set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(second_caster.ch));
+    room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
+    poison = affected_by_spell(&occupant, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "precondition: the occupant is still poisoned after the new caster's tick";
+    ASSERT_GT(poison->duration, 1) << "precondition: the new caster's tick lands";
+    EXPECT_EQ(resolve_poisoner(occupant), &second_caster.ch)
+        << "the room's new caster must become the occupant's poisoner";
+}
+
+// A poison tick that kills credits the recorded caster, read back through Big Brother as in
+// the blaze credit pin above. Only the landed arm deals damage, so the occupant's death shows
+// the poison landed.
+TEST(RoomAffectTick, LethalPoisonTickCreditsTheRecordedCaster)
+{
+    CombatListGuard combat_list_guard;
+    ensure_big_brother();
+    ScopedMobIndex prototype_table;
+    RoomFixture occupant_room(kPoisonRoom);
+    RoomFixture caster_room(kAwayRoom);
+
+    char occupant_short_descr[] = "a testing poison victim";
+    char_data* occupant = make_heap_occupant(occupant_room.slot(), occupant_short_descr, 1); // the tick deals 5
+    occupant->specials2.act |= MOB_ORC_FRIEND; // so Big Brother records this corpse's killer
+    character_list = occupant;
+    occupant->next = nullptr;
+    occupant_room.room()->people = occupant;
+    occupant->next_in_room = nullptr;
+    ASSERT_TRUE(IS_NPC(occupant)) << "precondition: the victim is a mob, so the caster is the only player in scope";
+    // clear_char() leaves constitution and willpower at 0, so saves_poison()'s defense is 0 and
+    // the poison lands; constitution 0 also makes any hit point at or below 0 fatal.
+    ASSERT_EQ(GET_CON(occupant), 0) << "precondition: the occupant cannot save and dies at 0 hit points";
+    ASSERT_EQ(GET_WILLPOWER(occupant), 0) << "precondition: the occupant cannot save";
+
+    CasterFixture caster(0, 10, game_types::PS_None, kAwayRoom); // standing elsewhere entirely
+    ASSERT_FALSE(IS_NPC(&caster.ch)) << "precondition: the recorded caster is a player";
+    ScopedCharExists caster_registration(caster.ch, kCasterASlot);
+    set_room_affect_caster(occupant_room.room(), SPELL_POISON, caster_snapshot::capture(caster.ch));
+
+    CarriedGear gear;
+    gear.attach_to(*occupant);
+
+    affected_type affect = dummy_affect();
+    obj_data* const previous_object_list = object_list;
+
+    queue_mid_rolls();
+    room_affect_tick(SPELL_POISON, occupant_room.room(), occupant, affect);
+    clear_test_random_values();
+    // occupant is freed at this point; nothing below may dereference it.
+
+    ASSERT_EQ(character_list, nullptr) << "precondition: the poison landed and its 5-point tick killed the 1-hit occupant";
+    obj_data* const corpse = occupant_room.room()->contents;
+    ASSERT_NE(corpse, nullptr) << "raw_kill() must have created a corpse in the death room";
+    ASSERT_EQ(gear.item.in_obj, corpse) << "precondition: the corpse holds the victim's gear (Big Brother ignores empty corpses)";
+
+    game_rules::big_brother& big_brother = game_rules::big_brother::instance();
+    EXPECT_TRUE(big_brother.is_corpse_protected(&caster.ch, corpse))
+        << "the lethal poison tick must credit the recorded caster, the only player in scope";
+
+    big_brother.on_corpse_decayed(corpse);
+    release_corpse(*occupant_room.room(), previous_object_list);
+}
+
+// The poison counterpart of BlazeTickNeverEngagesACasterStandingInTheRoom, on a non-lethal tick
+// for the same reason.
+TEST(RoomAffectTick, PoisonTickNeverEngagesACasterStandingInTheRoom)
+{
+    CombatListGuard combat_list_guard;
+    ensure_big_brother();
+    RoomFixture room(kPoisonRoom);
+
+    char_data occupant {};
+    char_prof_data occupant_profs {};
+    make_weak_occupant(occupant, occupant_profs, 500);
+    occupant.in_room = room.slot();
+    test_support::ScopedAffectCleanup occupant_affects(occupant);
+
+    CasterFixture caster(0, 10, game_types::PS_None, room.slot());
+    ScopedCharExists caster_registration(caster.ch, kCasterASlot);
+    room.room()->people = &occupant;
+    occupant.next_in_room = &caster.ch;
+    caster.ch.next_in_room = nullptr;
+    set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(caster.ch));
+
+    affected_type affect = dummy_affect();
+    queue_mid_rolls();
+    room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
+    clear_test_random_values();
+
+    ASSERT_NE(affected_by_spell(&occupant, SPELL_POISON), nullptr) << "precondition: the poison lands";
+    ASSERT_LT(occupant.tmpabilities.hit, 500) << "precondition: the landed poison's tick damaged the occupant";
+    ASSERT_GT(occupant.tmpabilities.hit, 0) << "precondition: the occupant survives the tick";
+    EXPECT_EQ(caster.ch.specials.fighting, nullptr)
+        << "a poison tick damages the occupant through itself and must never start a fight with "
+           "its caster, who stands in the room";
+    EXPECT_EQ(occupant.specials.fighting, nullptr)
+        << "a poison tick damages the occupant through itself and must never engage the occupant "
+           "with its caster";
+}
+
 TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRecordsNoPoisoner)
 {
+    CombatListGuard combat_list_guard;
     RoomFixture room(kPoisonNoRecordRoom);
     // No set_room_affect_caster() call at all: room_affect_caster() answers nullptr.
 
@@ -717,6 +909,7 @@ TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRe
 
 TEST(RoomAffectTick, PoisonTickWithAnExplicitNoneRecordRecordsNoPoisoner)
 {
+    CombatListGuard combat_list_guard;
     RoomFixture room(kPoisonNoneRoom);
     set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::none());
 
