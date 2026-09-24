@@ -19,7 +19,7 @@ build/integration-venv/bin/pip install pytest
 ## Running
 
 ```sh
-make integration-unit PYTHON=build/integration-venv/bin/python   # no server, 43 tests
+make integration-unit PYTHON=build/integration-venv/bin/python   # no server, 76 tests
 make integration      PYTHON=build/integration-venv/bin/python   # boots a server
 ```
 
@@ -43,10 +43,13 @@ helpers' individual timeouts (`GameSession.expect`/`command`, `tick_until_marker
 
 ## AddressSanitizer
 
-CI is the gate: the `integration-asan` job in `.github/workflows/ci.yml` builds the server
-under AddressSanitizer on native Linux and runs this suite against it, so a use-after-free
-fails the run. Docker runs on a Mac stay for development; the i386 container has no
-sanitizer runtime.
+The `integration-asan` job in `.github/workflows/ci.yml` is CI's memory-safety gate: it
+builds the server under AddressSanitizer on native Linux and runs this suite against it, so
+a use-after-free fails the run. The i386 container has no sanitizer runtime. CI's
+`i386-plain` job builds the plain 32-bit server in that container and runs this suite against
+it through the Docker launcher, along with the 32-bit unit tests. It is the only CI run in
+which `test_linkless_death.py` is an ordinary test; under AddressSanitizer it is a strict
+expected failure. On a Mac, Docker runs are for development.
 
 To reproduce the CI build on Linux (the tree must be fresh; the configure rule only runs
 when `<BUILD_DIR>/CMakeCache.txt` is absent, so changing `SANITIZE` needs a new directory):
@@ -76,8 +79,9 @@ success; and a report is only attributed to a test if it lands in `game.log` bef
 test's teardown check.
 
 A report found during a test's teardown, or a server that dies before it listens, keeps
-its run directory. CI sets `ROTS_IT_KEEP=1` and uploads every run directory as the
-`integration-run-directories` artifact.
+its run directory. Both CI jobs set `ROTS_IT_KEEP=1` and upload every run directory:
+`integration-asan` as the `integration-run-directories` artifact, `i386-plain` as
+`i386-plain-run-directories`.
 
 ## Shared Docker lock
 

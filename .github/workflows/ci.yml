@@ -159,3 +159,77 @@ jobs:
           path: build/integration/
           if-no-files-found: ignore
           retention-days: 7
+
+  i386-plain:
+    name: 32-bit Unit Tests and Scenarios on the Plain Server
+    runs-on: ubuntu-24.04
+    # Not yet measured on a runner. Locally under QEMU on 2026-09-24: image 1.5 min, both
+    # targets 4 min, gtest 22 s, integration suite 16 min (105 tests, 29 scenarios); about
+    # 22 min in all. Native i386 should be faster. 60 is a generous first guess: cut it to fit
+    # after the first green run.
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run the container as the runner's user
+        # docker-compose.yml runs the service as ROTS_UID:ROTS_GID, 1000:1000 unless set, and
+        # only the runner's own uid can write the bind-mounted checkout.
+        run: |
+          echo "ROTS_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "ROTS_GID=$(id -g)" >> "$GITHUB_ENV"
+
+      - name: Build the i386 toolchain image
+        # The image developers build and test in. On this x86-64 runner it runs natively, without
+        # the QEMU layer a Mac adds. The unit tests and server here are 32-bit (x87 floating point,
+        # a 32-bit long); the server also carries the shipped build's -funsigned-char, which the
+        # unit tests do not. The other jobs' unit tests are 64-bit.
+        run: docker compose build
+
+      - name: Build server and unit tests in the i386 container
+        # -T on every `docker compose run`: the service asks for a TTY and a runner has none.
+        id: build
+        run: |
+          docker compose run --rm -T rots bash -lc \
+            'make configure setup && cmake --build build --target ageland ageland_tests -j"$(nproc)"'
+
+      - name: Create the shared Docker lock directory
+        # The Docker launcher holds a session lock here and will not run if the directory is missing.
+        run: mkdir -p /tmp/rots-docker-lock
+
+      - name: Install pytest
+        # python3-pytest is the harness runner (pytest 7.4; the harness needs 7.0+ for the
+        # pythonpath ini key). The server runs in the container, so the host needs nothing else.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pytest
+
+      - name: Run integration suite through the Docker launcher
+        # choose_launcher() picks the local launcher on Linux. Forcing docker makes this job CI's
+        # only run of DockerComposeLauncher, and its only run of the scenarios on an unsanitized
+        # server: the linkless-death scenario is a strict expected failure under AddressSanitizer.
+        env:
+          ROTS_IT_LAUNCHER: docker
+          ROTS_IT_KEEP: "1"
+        run: make integration
+
+      - name: Run 32-bit C++ unit tests
+        # The binary directly: ctest's PRE_TEST discovery finds no tests under bullseye's CMake
+        # 3.18. Runs after the integration suite, and also when that fails, so neither result
+        # hides the other.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: docker compose run --rm -T rots bash -lc './bin/tests'
+
+      - name: Upload run directories
+        # always(), as in integration-asan. A distinct name: two jobs in one run cannot upload
+        # artifacts with the same name.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i386-plain-run-directories
+          path: build/integration/
+          if-no-files-found: ignore
+          retention-days: 7
