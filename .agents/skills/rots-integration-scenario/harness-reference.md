@@ -54,6 +54,10 @@ sanitized gate.
 | `harness` | `Harness` | `.tick()` runs the hourly block once; `.affects()` forces one person-affect pass |
 | `fail_on_server_crash` | autouse | fails the test on any signal or sanitizer report in `game.log` |
 
+`launcher.server_binary_is_sanitized(binary)` tells a scenario whether the server binary is an
+AddressSanitizer build (it carries `__asan_init`), whichever launcher starts it, e.g. for an
+xfail only ASan can trigger.
+
 ## Roster (`rots_harness/fixtures.py`, `STANDARD_ROSTER`)
 
 | Name | Race | Level | Professions | Skills | Hit / Mana / Move | Starts in |
@@ -84,6 +88,12 @@ and a wood elf are on opposite sides, which `summon` refuses.
 Harness mobs: `1130` target orc (plain melee target), `1131` snake with the poison special
 (`MOB_SPEC` set). Load with `load mob <vnum>`; remove with `purge <keyword>`.
 
+Harness objects: `1130` harness token, `1136` leather bag (keyword `bag`, an open
+container that holds the cap), `1137` leather cap (keyword `cap`, head armour). Load with
+`load obj <vnum>`, which puts the object in the loader's inventory. A new harness object must
+avoid the vnums `spec_ass.cpp` passes to `ASSIGNOBJ`. The token sits on one of them, a
+`gen_board`, and is harmless only because no scenario carries or looks at it.
+
 ## `GameSession` (`rots_harness/session.py`)
 
 | Method | Returns | Behaviour |
@@ -98,14 +108,20 @@ Harness mobs: `1130` target orc (plain melee target), `1131` snake with the pois
 | `drop_link()` | none | closes the socket without quitting (link-dead) |
 | `everything()` | `str` | the whole transcript so far |
 
-`Transcript`: `.text`, `.contains(marker)`, `.hit_points() -> (current, max) | None` from a
-`stat` reply, `.abilities() -> dict | None`, `.room_name() -> str | None` from a `look`.
+`Transcript`: `.text`, `.contains(marker)`, `.hit_points() -> (current, max) | None` and
+`.experience() -> int | None` (the live `XP:` value) from a `stat` reply,
+`.abilities() -> dict | None`, `.room_name() -> str | None` from a `look`.
 
 ## Records (`rots_harness/records.py`)
 
 `read_exploits(lib_dir, name) -> list[ExploitRecord]` reads `<name>.exploits.json`;
 `read_character(lib_dir, name) -> dict` reads the character file. Both read the run's
 `lib/`, so call them after the server has saved (a quit, a death, or `save`).
+
+`read_pkills(lib_dir) -> list[PkillRecord]` reads the binary `lib/misc/pklist`: one 24-byte
+`PKILL` record (`pkill.h`) per credited killer, with idnums in `killer_id`/`victim_id`.
+`pkill_create()` appends them when a player is killed by other players, so no save is
+needed. An empty or missing file reads as no records (`boot_pkills()` recreates it empty).
 
 ## Support modules (`tests/integration/scenarios/`)
 

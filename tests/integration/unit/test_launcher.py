@@ -257,3 +257,24 @@ def test_terminate_process_warns_instead_of_raising_when_the_process_survives_si
     assert stuck_process.terminate_calls == 1
     assert stuck_process.kill_calls == 1, "terminate_process must escalate to SIGKILL exactly once"
     assert "survived SIGKILL" in capsys.readouterr().err
+
+
+def test_server_binary_is_sanitized_when_it_carries_the_asan_runtime_entry_point(tmp_path: Path) -> None:
+    binary = tmp_path / "ageland"
+    binary.write_bytes(b"\x7fELF" + b"\0" * 64 + launcher.ASAN_RUNTIME_MARKER + b"\0" * 64)
+
+    assert launcher.server_binary_is_sanitized(binary)
+
+
+def test_server_binary_is_not_sanitized_without_the_asan_runtime_entry_point(tmp_path: Path) -> None:
+    binary = tmp_path / "ageland"
+    binary.write_bytes(b"\x7fELF" + b"\0" * 64 + b"__libc_start_main" + b"\0" * 64)
+    empty_binary = tmp_path / "empty"
+    empty_binary.write_bytes(b"")
+
+    assert not launcher.server_binary_is_sanitized(binary)
+    assert not launcher.server_binary_is_sanitized(empty_binary)
+
+
+def test_a_missing_server_binary_is_not_sanitized(tmp_path: Path) -> None:
+    assert not launcher.server_binary_is_sanitized(tmp_path / "bin" / "ageland")
