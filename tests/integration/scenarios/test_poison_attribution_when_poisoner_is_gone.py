@@ -7,13 +7,11 @@ from __future__ import annotations
 import pytest
 
 import poison_support
-from poison_support import affect_ticks_until_death, death_tick_budget, poison_until_it_lands
+from combat_support import quit_once_anger_allows
+from poison_support import MAGE_RESPAWN_ROOM, affect_ticks_until_death, death_tick_budget, poison_until_it_lands
 from rots_harness import fixtures, records
 
 pytestmark = pytest.mark.scenario
-
-QUIT_BLOCKED = "You may not quit yet."  # act_othe.cpp do_quit, while SPELL_ANGER lingers
-QUIT_SUCCEEDED = ("Goodbye", "As you quit")
 
 
 def _poison_then_separate(imp, mage, victim, victim_hit: int | None = None) -> None:
@@ -31,33 +29,12 @@ def _poison_then_separate(imp, mage, victim, victim_hit: int | None = None) -> N
     mage.expect_room("Arena West")
 
 
-def _quit_once_anger_allows(mage, harness, attempts: int = 10) -> None:
-    """Casting an offensive spell affects the caster with SPELL_ANGER (char_utils_combat.cpp's
-    on_attacked_character, duration 5 against a player victim), and do_quit refuses to let a
-    mortal quit while it lingers. comm.cpp's fast block (fast_update()/affect_update(), every
-    PULSE_FAST_UPDATE ~3s) runs regardless of harness_mode -- only the hourly weather/point/stat
-    block is gated -- but SPELL_ANGER is a slow (non-"is_fast") affect: affect_update_person only
-    ages it when the current real-time phase matches the phase recorded when it was applied, which
-    is roughly once per game hour (~60s), or unconditionally on a forced `harness affects` tick
-    (harness_force_affect_phase). Waiting on the real phase match would be impractically slow, so
-    this ages it down with the same forced tick that advances the victim's poison DoT. This is done
-    with the victim's hit left at its roster default (well above the few points of damage these
-    ticks deal) so the anger-clearing ticks cannot land the kill first; the victim's hit is lowered
-    for its own death countdown only after this returns.
-    """
-    for _attempt in range(attempts):
-        mage.send_line("quit")
-        text = mage.expect(QUIT_SUCCEEDED + (QUIT_BLOCKED,), 8.0)
-        if QUIT_BLOCKED not in text:
-            mage.close()
-            return
-        harness.affects()
-    pytest.fail(f"harnmage's SPELL_ANGER never cleared enough to quit in {attempts} forced ticks")
-
-
 def test_poisoner_who_quits_before_the_lethal_tick_is_credited_with_nothing(server, imp, mage, victim, harness) -> None:
     _poison_then_separate(imp, mage, victim)
-    _quit_once_anger_allows(mage, harness)
+    # The victim's hit stays at its roster default (well above the few points of damage these
+    # forced ticks deal) so the anger-clearing ticks cannot land the kill first; it is lowered
+    # for the death countdown only afterwards.
+    quit_once_anger_allows(mage, harness)
 
     imp.command("wizset harnvictim hit 10")
     assert affect_ticks_until_death(harness, victim, death_tick_budget(10)), "the victim should die of the forced poison ticks"
@@ -77,7 +54,9 @@ def test_poisoner_who_quits_before_the_lethal_tick_is_credited_with_nothing(serv
 def test_poisoner_slain_before_the_lethal_tick_is_still_named(server, imp, mage, victim, harness) -> None:
     _poison_then_separate(imp, mage, victim, victim_hit=10)
     imp.command("slay harnmage")
-    assert mage.command("look").room_name() is not None, "the slain mage keeps its body and stays logged in"
+    # The slain mage keeps its body and stays logged in, waking in its start room.
+    respawn_look = mage.expect_room(MAGE_RESPAWN_ROOM)
+    assert "Arena West" not in respawn_look.text, f"the slain mage must have left the room it was slain in: {respawn_look.text}"
 
     assert affect_ticks_until_death(harness, victim, death_tick_budget(10)), "the victim should die of the forced poison ticks"
 

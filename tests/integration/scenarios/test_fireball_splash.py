@@ -66,17 +66,18 @@ as it does between seeds.
 The two records assertions are what "manufactures no credit" means on disk. No exploit record is
 written for a mob's death at all -- die() returns through raw_kill() for an NPC before any
 add_exploit_record call (gotchas.md) -- so a record appearing for either player would have to have
-been manufactured by the splash's own bookkeeping. Both bystanders are purged before the test
-returns, so that nothing is still swinging at the caster while the session fixtures tear the
-sessions down; the SPELL_ANGER those swings left behind can still refuse a `quit` (gotchas.md),
-which the fixtures already handle.
+been manufactured by the splash's own bookkeeping. An empty read would equally follow from reading
+the wrong directory, so Harnfighter first dies to the brute orc and its own death record is read
+back (`combat_support.prove_exploit_reader_with_a_brute_death`). Both bystanders are purged
+before that, so that nothing is still swinging at the caster, and the test ends by ageing away
+the caster's and the partner's SPELL_ANGER so that both can quit.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from combat_support import stat_replies, wait_for_engagement
+from combat_support import prove_exploit_reader_with_a_brute_death, quit_once_anger_allows, stat_replies, wait_for_engagement
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
 
@@ -150,7 +151,7 @@ def _reload_target(imp: GameSession) -> None:
     _imp_do(imp, "load mob 1130", (LOAD_TARGET_CREATED,))
 
 
-def test_splash_engages_the_bystander_with_the_caster_and_manufactures_no_credit(server, imp, caller, victim) -> None:
+def test_splash_engages_the_bystander_with_the_caster_and_manufactures_no_credit(server, imp, caller, victim, fighter, harness) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
     for name in ("harncaller", MELEE_PARTNER):
         imp.command(f"transfer {name}")
@@ -204,11 +205,16 @@ def test_splash_engages_the_bystander_with_the_caster_and_manufactures_no_credit
     partner_line = _fighting_line(imp, MELEE_PARTNER)
     assert "harncaller" not in partner_line.lower(), partner_line
 
-    for name in ("Harncaller", MELEE_PARTNER):
-        assert records.read_exploits(server.lib_dir, name) == [], name
-
     # Ends the caster's fight (see the module docstring's last paragraph). Purged by the bare
     # keyword, not the numbered form: once the first copy is gone the survivor is "1.bystander"
     # again, so a second `purge 2.bystander` would find nothing and leave the caster in combat.
     for _ in range(len(BYSTANDERS)):
         _imp_do(imp, "purge bystander", PURGE_REPLIES)
+
+    prove_exploit_reader_with_a_brute_death(server, imp, fighter, "Harnfighter")
+    for name in ("Harncaller", MELEE_PARTNER):
+        assert records.read_exploits(server.lib_dir, name) == [], name
+
+    # Both fought orcs, so both carry SPELL_ANGER, which refuses a plain quit.
+    quit_once_anger_allows(caller, harness)
+    quit_once_anger_allows(victim, harness)

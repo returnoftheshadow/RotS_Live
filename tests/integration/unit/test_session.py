@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-from rots_harness import session
-from rots_harness.session import Transcript, ends_with_prompt
+import socket
+from pathlib import Path
+
+import pytest
+
+from rots_harness import fixtures, session
+from rots_harness.launcher import ServerHandle
+from rots_harness.session import GameSession, QuitRefused, Transcript, ends_with_prompt
 
 
 def test_transcript_parses_the_stat_hit_point_line() -> None:
@@ -57,3 +63,59 @@ def test_transcript_parses_the_stat_ability_line() -> None:
 
 def test_transcript_abilities_is_none_without_the_line() -> None:
     assert Transcript("HP :[10/60]").abilities() is None
+
+
+class FakeSocket:
+    """Stands in for the server connection: `replies` maps a line the session sends to the
+    bytes the server answers with; a line with no entry is never answered."""
+
+    def __init__(self, replies: dict[str, bytes]) -> None:
+        self._replies = replies
+        self._pending = b""
+        self.closed = False
+
+    def settimeout(self, _timeout: float) -> None:
+        pass
+
+    def sendall(self, data: bytes) -> None:
+        self._pending += self._replies.get(data.decode("latin-1").strip(), b"")
+
+    def recv(self, _size: int) -> bytes:
+        if not self._pending:
+            raise socket.timeout()
+        chunk, self._pending = self._pending, b""
+        return chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def connect_fake_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, replies: dict[str, bytes]) -> tuple[GameSession, FakeSocket]:
+    fake_socket = FakeSocket(replies)
+    monkeypatch.setattr(session.socket, "create_connection", lambda _address, timeout: fake_socket)
+    handle = ServerHandle("127.0.0.1", 1, tmp_path / "game.log", None)  # type: ignore[arg-type]
+    game_session = GameSession(handle, fixtures.STANDARD_ROSTER[1], 2, tmp_path)
+    return game_session, fake_socket
+
+
+def test_quit_the_server_never_answers_raises_quit_refused_and_closes_the_socket(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    game_session, fake_socket = connect_fake_session(monkeypatch, tmp_path, {})
+    with pytest.raises(QuitRefused):
+        game_session.quit(timeout=0.3)
+    assert fake_socket.closed, "a refused quit must still release the connection"
+    assert game_session.is_closed
+
+
+def test_quit_answered_with_goodbye_returns_and_marks_the_session_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    game_session, fake_socket = connect_fake_session(monkeypatch, tmp_path, {"quit": b"Goodbye, friend.. Come back soon!\r\n"})
+    game_session.quit(timeout=0.3)
+    assert game_session.is_closed
+    assert fake_socket.closed
+
+
+def test_drop_link_marks_the_session_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    game_session, fake_socket = connect_fake_session(monkeypatch, tmp_path, {})
+    assert not game_session.is_closed
+    game_session.drop_link()
+    assert game_session.is_closed
+    assert fake_socket.closed

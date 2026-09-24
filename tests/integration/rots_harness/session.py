@@ -30,6 +30,10 @@ class SessionTimeout(AssertionError):
     pass
 
 
+class QuitRefused(RuntimeError):
+    """The server did not answer `quit` with a farewell; the character is still in the game (usually still fighting)."""
+
+
 def ends_with_prompt(text: str) -> bool:
     stripped = text.rstrip()
     return bool(stripped) and stripped.endswith(PROMPT_TERMINATORS)
@@ -71,12 +75,18 @@ class GameSession:
         self._sanitizer = TelnetStreamSanitizer()
         self._clean = ""
         self._consumed = 0
+        self._closed = False
         transcript_dir.mkdir(parents=True, exist_ok=True)
         self._transcript_path = transcript_dir / f"{character.name.lower()}.txt"
 
     @property
     def everything(self) -> str:
         return self._clean
+
+    @property
+    def is_closed(self) -> bool:
+        """True once the test has quit or dropped the link; the connection is gone either way."""
+        return self._closed
 
     def _pump(self) -> bool:
         try:
@@ -178,10 +188,13 @@ class GameSession:
             last = Transcript(self._consume())
         raise SessionTimeout(f"{self.character.name}: {words!r} never produced {success_markers!r} in {attempts} attempts; last transcript:\n{last.text[-1500:]}")
 
-    def quit(self) -> None:
+    def quit(self, timeout: float = 8.0) -> None:
+        """Quits and closes the connection; raises QuitRefused when no farewell arrives."""
         self.send_line("quit")
         try:
-            self.expect(["Goodbye", "As you quit"], 8.0)
+            self.expect(["Goodbye", "As you quit"], timeout)
+        except SessionTimeout as refusal:
+            raise QuitRefused(f"{self.character.name}: quit was refused or never answered") from refusal
         finally:
             self.close()
 
@@ -189,6 +202,7 @@ class GameSession:
         self.close()
 
     def close(self) -> None:
+        self._closed = True
         try:
             self._socket.close()
         except OSError:

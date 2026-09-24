@@ -1,8 +1,8 @@
 """Shared helpers for scenarios that force a mob or player into (or out of) melee, defang a
 mob's own attacks so a forced tick or DoT is what lands the kill, or need a `stat` reply that is
 not stale broadcast noise racing `command()`'s end-of-prompt check -- used by test_kill_credit.py,
-test_poison_punishment_player_poison_mob_fight.py, test_poison_punishment_snake.py, and (via
-blaze_support.room_stat_replies) the blaze scenarios.
+test_fireball_splash.py, test_poison_punishment_player_poison_mob_fight.py,
+test_poison_punishment_snake.py, and (via blaze_support.room_stat_replies) the blaze scenarios.
 """
 
 from __future__ import annotations
@@ -12,7 +12,14 @@ from typing import Callable
 
 import pytest
 
+from poison_support import DEATH_MARKER
+from rots_harness import fixtures, records
 from rots_harness.session import GameSession
+
+BRUTE_ORC_VNUM = 1133  # world/mob/11.mob: "exists to kill a player who stands and fights"
+BRUTE_ENERGY_REGEN = 100
+QUIT_BLOCKED = "You may not quit yet."  # act_othe.cpp do_quit, while SPELL_ANGER lingers
+QUIT_SUCCEEDED = ("Goodbye", "As you quit")
 
 
 def wait_for_engagement(imp: GameSession, mob_name: str, victim_name: str, timeout: float = 10.0) -> None:
@@ -103,3 +110,49 @@ def stat_replies(imp: GameSession, target: str, is_genuine: Callable[[str], bool
         if is_genuine(text):
             break
     return replies
+
+
+def prove_exploit_reader_with_a_brute_death(server, imp: GameSession, player: GameSession, player_name: str, timeout: float = 30.0) -> None:
+    """Positive control for a scenario that asserts some exploit record was NOT written: has
+    `player` die to the brute orc's melee in Arena Centre and asserts records.read_exploits()
+    sees the EXPLOIT_MOBDEATH record die() writes for it, so an empty read elsewhere in the same
+    test means "no record", not "wrong directory". Only the dead player's own file changes: no
+    player fights it, so kill_contributors() names nobody. `imp` is left in Arena Centre and the
+    brute is purged, so nothing is still fighting when the session fixtures quit.
+    """
+    imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
+    imp.command(f"transfer {player_name}")
+    player.expect_room("Arena Centre")
+    imp.command(f"load mob {BRUTE_ORC_VNUM}")
+    # Every harness mob loads with an energy regen of 0 (11.mob), so it only ever defends; the
+    # brute needs a regen to build ENE_TO_HIT and swing back (fight.cpp's violence pulse).
+    imp.command(f"wizset brute ENE_regen {BRUTE_ENERGY_REGEN}")
+    imp.command(f"wizset {player_name} hit 1")
+    player.command("kill brute")
+    player.expect([DEATH_MARKER], timeout)
+    imp.command("purge brute")
+
+    player_records = records.read_exploits(server.lib_dir, player_name)
+    assert any(record.type == records.EXPLOIT_MOBDEATH and "brute" in record.victim_name.lower() for record in player_records), (
+        f"positive control: the reader must see the death record the server just wrote for {player_name}: {player_records}"
+    )
+
+
+def quit_once_anger_allows(player: GameSession, harness, attempts: int = 10) -> None:
+    """Quits `player`, first ageing away the SPELL_ANGER that attacking a character leaves on
+    the attacker (char_utils_combat.cpp's on_attacked_character) and that makes do_quit refuse.
+    SPELL_ANGER is a slow (non-"is_fast") affect: affect_update_person only ages it when the
+    current real-time phase matches the phase recorded when it was applied, which is roughly
+    once per game hour (~60s), or unconditionally on a forced `harness affects` tick
+    (harness_force_affect_phase). Waiting on the real phase match would be impractically slow,
+    so each refusal is followed by one forced tick. The forced ticks age every other affect too,
+    so call this only once the scenario's own assertions are done or cannot be disturbed.
+    """
+    for _attempt in range(attempts):
+        player.send_line("quit")
+        text = player.expect(QUIT_SUCCEEDED + (QUIT_BLOCKED,), 8.0)
+        if QUIT_BLOCKED not in text:
+            player.close()
+            return
+        harness.affects()
+    pytest.fail(f"{player.character.name}'s SPELL_ANGER never cleared enough to quit in {attempts} forced ticks")

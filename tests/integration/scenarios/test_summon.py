@@ -110,8 +110,6 @@ def test_summon_of_a_link_dead_character_relocates_it_without_a_crash(server, im
     reconnected = _reconnect(server, "Harnvictim")
     try:
         reconnected.expect_room("Arena East")
+        reconnected.quit()
     finally:
-        try:
-            reconnected.quit()
-        except Exception:
-            reconnected.close()
+        reconnected.close()

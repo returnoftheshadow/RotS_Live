@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import pytest
 
+from combat_support import quit_once_anger_allows
 from rots_harness import fixtures
 from rots_harness.session import GameSession, SessionTimeout
 
@@ -143,3 +144,5 @@ def test_the_casters_fall_is_reported_last(server, imp, mage, fighter, victim, c
         assert caster_positions[-1] == len(lines) - 1, (
             f"{observer_name} saw a fall line after the caster's own: {lines}"
         )
+
+    quit_once_anger_allows(mage, harness)  # the quake's damage to the others angered the caster

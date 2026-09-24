@@ -69,6 +69,9 @@ def server(request: pytest.FixtureRequest) -> HarnessServer:
         yield harness_server
     finally:
         launcher.stop(handle)
+        shutdown_problems = harness_server.monitor.check_after_stop()
+        if shutdown_problems:
+            harness_server.crash_detected = True
         keep = keep_run_directory(
             keep_requested=os.environ.get("ROTS_IT_KEEP") == "1",
             tests_failed_so_far=request.session.testsfailed,
@@ -78,6 +81,8 @@ def server(request: pytest.FixtureRequest) -> HarnessServer:
             print(f"\nrun directory kept at {run_dir}")
         else:
             shutil.rmtree(run_dir, ignore_errors=True)
+        if shutdown_problems:
+            pytest.fail("server problems during shutdown:\n" + "\n".join(shutdown_problems))
 
 
 @pytest.fixture(autouse=True)
@@ -108,10 +113,9 @@ def _session_fixture(fixture_name: str, character_name: str):
     def session(server: HarnessServer):
         game_session = _login(server, character_name)
         yield game_session
-        try:
-            game_session.quit()
-        except Exception:
-            game_session.close()
+        if game_session.is_closed:
+            return  # the test quit or dropped the link itself
+        game_session.quit()  # QuitRefused fails the test: a character left fighting is a scenario bug
     return session
 
 

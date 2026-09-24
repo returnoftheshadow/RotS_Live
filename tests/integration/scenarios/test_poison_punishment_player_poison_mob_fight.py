@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 import poison_support
-from combat_support import neutralize_melee, wait_for_engagement
+from combat_support import neutralize_melee, quit_once_anger_allows, wait_for_engagement
 from poison_support import affect_ticks_until_death, death_tick_budget, poison_until_it_lands
 from rots_harness import fixtures, records
 
@@ -78,3 +78,5 @@ def test_player_poison_death_while_engaged_with_the_brute_is_harsh_and_keeps_the
 
     mage_records = records.read_exploits(server.lib_dir, "Harnmage")
     assert any(record.type == records.EXPLOIT_PK and record.victim_name.lower() == "harnvictim" for record in mage_records), mage_records
+
+    quit_once_anger_allows(mage, harness)  # the poison cast angered the caster

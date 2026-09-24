@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from blaze_support import BLAZE_CAST
+from combat_support import quit_once_anger_allows
 from rots_harness import fixtures
 
 pytestmark = pytest.mark.scenario
@@ -33,3 +34,6 @@ def test_engaged_fighter_gets_the_share_and_the_remote_caster_does_not(server, i
     mage_text = mage.drain(2.0)
     assert SHARE_MARKER in fighter_text, fighter_text
     assert SHARE_MARKER not in mage_text, mage_text
+
+    fighter.command("east")  # out of the burning room before the anger-clearing ticks
+    quit_once_anger_allows(fighter, harness)  # attacking the orc angered the fighter

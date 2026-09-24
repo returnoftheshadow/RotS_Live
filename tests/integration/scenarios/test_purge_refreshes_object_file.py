@@ -33,6 +33,7 @@ def test_purging_a_player_refreshes_the_account_native_object_file(server, imp, 
     # purge target are excluded from the "$n disintegrates $N" message.
     purge_result = imp.command("purge harnvictim")
     assert purge_result.contains("Harnvictim has lost his link."), purge_result.text
+    victim.drop_link()  # the purge already closed this connection server-side
 
     after_path = objects_json_path(server.lib_dir, "Harnvictim")
     after = json.loads(after_path.read_text())

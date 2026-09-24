@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 import poison_support
+from combat_support import quit_once_anger_allows
 from poison_support import affect_ticks_until_death, death_tick_budget, poison_until_it_lands
 from rots_harness import fixtures, records
 
@@ -48,3 +49,5 @@ def test_remote_player_poison_death_is_gentle_and_fully_attributed(server, imp, 
     mage_records = records.read_exploits(server.lib_dir, "Harnmage")
     kills = [record for record in mage_records if record.type == records.EXPLOIT_PK]
     assert any(record.victim_name.lower() == "harnvictim" for record in kills), mage_records
+
+    quit_once_anger_allows(mage, harness)  # the poison cast angered the caster

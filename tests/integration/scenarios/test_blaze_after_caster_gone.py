@@ -22,7 +22,7 @@ from __future__ import annotations
 import pytest
 
 from blaze_support import LETHAL_HIT, BLAZE_CAST, tick_until_marker
-from poison_support import DEATH_MARKER
+from poison_support import DEATH_MARKER, MAGE_RESPAWN_ROOM
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
 
@@ -51,7 +51,9 @@ def _tick_until_dead(harness, imp, victim) -> None:
 def test_blaze_ticks_survive_the_casters_death_and_still_credit_the_mage(server, imp, mage, victim, harness) -> None:
     _blaze_the_centre(imp, mage, victim)
     imp.command("slay harnmage")
-    assert mage.command("look").room_name() is not None, "a slain player keeps its body and its registration serial"
+    # A slain player keeps its body and its registration serial: it wakes in its start room.
+    respawn_look = mage.expect_room(MAGE_RESPAWN_ROOM)
+    assert "Arena Centre" not in respawn_look.text, f"the slain mage must have left the burning room: {respawn_look.text}"
 
     _tick_until_dead(harness, imp, victim)
 
@@ -90,8 +92,6 @@ def test_blaze_ticks_after_a_link_drop_never_name_the_next_login(server, imp, ma
         assert not any(record.victim_name.lower() == "harncaller" for record in victim_records), f"the new login must never be credited: {victim_records}"
         caller_records = records.read_exploits(server.lib_dir, "Harncaller")
         assert not any(record.victim_name.lower() == "harncaller" for record in caller_records), f"the new login must never be credited: {caller_records}"
+        caller.quit()
     finally:
-        try:
-            caller.quit()
-        except Exception:
-            caller.close()
+        caller.close()

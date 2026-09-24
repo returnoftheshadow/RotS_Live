@@ -39,9 +39,13 @@ raw_kill() at fight.cpp:1272-1275, before any of the function's four add_exploit
 (1290/1300/1314/1320) -- every one of them gated to `!IS_NPC(dead_man)`. Exploit records exist
 only for a player's death, never a mob's, regardless of who is credited; the brief for this task
 expected a mob-kill record type to confirm and tighten an assertion to, and this is the
-confirmation that no such record exists. "Kill credit" for a mob kill is observable only through
-group_gain()'s XP-share line (fight.cpp:1408-1553): it pays the present, credited killer (line
-1428, `killer_is_present && killer != dead_man`) and, separately, anyone still fighting the dead
+confirmation that no such record exists. Because an empty read would equally follow from reading
+the wrong directory, each test starts by having Harnvictim die to the brute orc
+(`combat_support.prove_exploit_reader_with_a_brute_death`) and reading that record back, before
+the blaze is cast (a burning room would otherwise reach the participants while it waits).
+"Kill credit" for a mob kill is observable only through group_gain()'s XP-share line
+(fight.cpp:1408-1553): it pays the present, credited killer (line 1428,
+`killer_is_present && killer != dead_man`) and, separately, anyone still fighting the dead
 mob at the death instant (the room walk at 1446-1453, which reads survivors' own un-cleared
 `specials.fighting` pointers -- the dead mob's OWN pointer is cleared by its stop_fighting() call
 before die() runs, but nothing clears the reverse pointer on whoever was still swinging at it).
@@ -58,7 +62,7 @@ from __future__ import annotations
 import pytest
 
 from blaze_support import LETHAL_HIT, BLAZE_CAST, tick_until_marker
-from combat_support import neutralize_melee, stat_replies, wait_for_engagement
+from combat_support import neutralize_melee, prove_exploit_reader_with_a_brute_death, quit_once_anger_allows, stat_replies, wait_for_engagement
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
 
@@ -87,7 +91,13 @@ def _set_up_arena_west_fight(imp: GameSession, caller: GameSession, fighter: Gam
     neutralize_melee(imp, "harnfighter")
 
 
-def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server, imp, caller, fighter, harness) -> None:
+def _quit_the_fighter(fighter: GameSession, harness) -> None:
+    fighter.command("east")  # out of the burning room before the anger-clearing ticks
+    quit_once_anger_allows(fighter, harness)  # attacking the orc angered the fighter
+
+
+def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server, imp, caller, fighter, victim, harness) -> None:
+    prove_exploit_reader_with_a_brute_death(server, imp, victim, "Harnvictim")  # before any fire burns
     _set_up_arena_west_fight(imp, caller, fighter)
     caller.cast("blaze", success_markers=BLAZE_CAST)  # before the orc arrives: the caster never engages it
     imp.command("load mob 1130")
@@ -110,8 +120,11 @@ def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server,
             "1272-1275, 1288-1320); the XP-share lines above are the only observable credit"
         )
 
+    _quit_the_fighter(fighter, harness)
 
-def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, harness) -> None:
+
+def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, victim, harness) -> None:
+    prove_exploit_reader_with_a_brute_death(server, imp, victim, "Harnvictim")  # before any fire burns
     _set_up_arena_west_fight(imp, caller, fighter)
     caller.cast("blaze", success_markers=BLAZE_CAST)  # before the orcs arrive, as above
     imp.command("load mob 1130")
@@ -148,3 +161,5 @@ def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, h
     for name in ("Harncaller", "Harnfighter"):
         for record in records.read_exploits(server.lib_dir, name):
             assert "bystander" not in record.victim_name.lower(), f"{name}: {record}"
+
+    _quit_the_fighter(fighter, harness)
