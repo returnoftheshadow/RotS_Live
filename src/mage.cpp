@@ -19,6 +19,7 @@
 #include "utils.h"
 #include "warrior_spec_handlers.h"
 #include "zone.h" /* For zone_table */
+#include <algorithm>
 #include <cmath>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,27 @@ int get_magic_power(const caster_snapshot& caster)
     }
 
     return caster_level + level_modifier + intel_factor;
+}
+
+namespace {
+
+// Per-hop step of the mist's spread loss; the loss after g hops is the triangular sum
+// step * g * (g + 1) / 2, so each further room costs 3 more levels than the last.
+constexpr int kMistSpreadLossStep = 3;
+
+} // namespace
+
+int mist_spread_level_loss(int generation)
+{
+    if (generation <= 0) {
+        return 0;
+    }
+    return kMistSpreadLossStep * generation * (generation + 1) / 2;
+}
+
+int mist_effective_level(int caster_level, int generation)
+{
+    return std::max(0, caster_level - mist_spread_level_loss(generation));
 }
 
 bool should_apply_spell_penetration(const caster_snapshot& caster)
@@ -2522,6 +2544,7 @@ ASPELL(spell_mist_of_baazunga)
     af.modifier = modifier;
     af.location = SPELL_MIST_OF_BAAZUNGA;
     af.bitvector = 0;
+    af.counter = 0; // spread generation: the room the mist is breathed in
 
     /* Apply the full spell to main room */
     if ((oldaf = room_affected_by_spell(room,
@@ -2534,6 +2557,8 @@ ASPELL(spell_mist_of_baazunga)
             // the duration: a renewal that made the mist last longer is the
             // one now hanging, a weaker one leaves the record alone.
             set_room_affect_caster(room, SPELL_MIST_OF_BAAZUNGA, caster_at_cast);
+            // A mist that drifted or spread here becomes this cast's source room.
+            oldaf->counter = 0;
         }
         /*
          * This has been commented out for a pretty long time;
@@ -2550,6 +2575,7 @@ ASPELL(spell_mist_of_baazunga)
     }
 
     /* Apply a smaller spell to the joined rooms */
+    const int seed_level = mist_effective_level(level, 1);
     for (direction = 0; direction < NUM_OF_DIRS; direction++) {
         if (room->dir_option[direction]) {
             if (room->dir_option[direction]->to_room != NOWHERE) {
@@ -2568,18 +2594,22 @@ ASPELL(spell_mist_of_baazunga)
                 }
 
                 af2.type = ROOMAFF_SPELL;
-                af2.duration = level / 6;
+                af2.duration = seed_level / 6;
                 af2.modifier = mod;
                 af2.location = SPELL_MIST_OF_BAAZUNGA;
                 af2.bitvector = 0;
+                af2.counter = 1;
 
                 if ((oldaf = room_affected_by_spell(next,
                          SPELL_MIST_OF_BAAZUNGA))) {
                     if (oldaf->duration < af.duration) {
                         oldaf->duration = af.duration;
                         set_room_affect_caster(next, SPELL_MIST_OF_BAAZUNGA, caster_at_cast);
+                        oldaf->counter = std::min<sh_int>(oldaf->counter, 1);
                     }
-                } else {
+                } else if (af2.duration > 0) {
+                    // A seed that would last no tick at all is not placed; the
+                    // room tick applies the same rule.
                     affect_to_room(next, &af2, caster_at_cast);
                 }
             }

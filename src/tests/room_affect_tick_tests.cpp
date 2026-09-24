@@ -107,6 +107,18 @@ constexpr int kMistCastAdjacentRoom = 988;
 constexpr int kMistRenewMainRoom = 989;
 constexpr int kMistRenewAdjacentRoom = 990;
 constexpr int kPoisonSavedBlindRoom = 991;
+// Rooms for the mist's spread-falloff pins (generation carried in `counter`).
+constexpr int kMistFalloffMainRoom = 992;
+constexpr int kMistFalloffSeedRoom = 993;
+constexpr int kMistFalloffDeepRoom = 994;
+constexpr int kMistFalloffDeepSeedRoom = 995;
+constexpr int kMistFalloffRenewMainRoom = 996;
+constexpr int kMistFalloffRenewNeighbourRoom = 997;
+// Rooms for the cast arm's spread-falloff pins.
+constexpr int kMistCastWeakMainRoom = 998;
+constexpr int kMistCastWeakAdjacentRoom = 999;
+constexpr int kMistCastGenerationMainRoom = 1000;
+constexpr int kMistCastGenerationAdjacentRoom = 1001;
 
 // abs_number slots this suite registers, in a band no sibling suite in the
 // monolithic runner uses (affect_update_tests: MAX_CHARACTERS - 201/-202;
@@ -135,7 +147,7 @@ void queue_mid_rolls(int count = 60)
 // ---------------------------------------------------------------------------
 
 // The real world[] array indices RoomFixture uses, independent of the
-// disambiguating "room number" (960-990) baked into room->number for the
+// disambiguating "room number" (960-1001) baked into room->number for the
 // (room, spell) caster-store map key. world[]'s backing storage can only
 // ever be sized ONCE for the whole process -- room_data::create_bulk()
 // hard-exits (`exit(0)`) if BASE_WORLD is already set (db.cpp:4025-4032) --
@@ -877,7 +889,7 @@ TEST(RoomAffectTick, MistTickRenewsFromTheSnapshotLevelAndNeverShortensAStronger
     east_exit.to_room = stronger_adjacent.slot();
     main_room.room()->dir_option[EAST] = &east_exit;
 
-    // level = get_mage_caster_level(who) = 25 + 25/5 = 30 -> level/5 = 6, level/6 = 5.
+    // level = get_mage_caster_level(who) = 25 + 25/5 = 30 -> level/5 = 6.
     CasterFixture caster(25, 0, game_types::PS_None, kMistMainRoom);
     set_room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA, caster_snapshot::capture(caster.ch));
 
@@ -918,7 +930,8 @@ TEST(RoomAffectTick, MistTickSeedsAnEmptyAdjacentRoomCarryingTheCaster)
     north_exit.to_room = adjacent.slot();
     main_room.room()->dir_option[NORTH] = &north_exit;
 
-    // level = 25 + 25/5 = 30 -> the fresh adjacent seed carries level/6 = 5.
+    // level = 25 + 25/5 = 30, falling to 27 one hop out -> the fresh adjacent seed
+    // carries 27/6 = 4.
     CasterFixture caster(25, 0, game_types::PS_None, kMistMainRoom);
     const caster_snapshot recorded = caster_snapshot::capture(caster.ch);
     set_room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA, recorded);
@@ -928,13 +941,126 @@ TEST(RoomAffectTick, MistTickSeedsAnEmptyAdjacentRoomCarryingTheCaster)
 
     affected_type* seeded = room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
     ASSERT_NE(seeded, nullptr) << "an empty adjacent room must be freshly seeded";
-    EXPECT_EQ(seeded->duration, 5);
+    EXPECT_EQ(seeded->duration, 4);
 
     const caster_snapshot* seeded_caster = room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
     ASSERT_NE(seeded_caster, nullptr)
         << "the fresh seed must carry the SAME caster the main room's mist was ticked from";
     EXPECT_STREQ(seeded_caster->name, recorded.name);
     EXPECT_EQ(seeded_caster->mage_prof_level, recorded.mage_prof_level);
+}
+
+// A mist affect's counter is its spread generation: 0 where it was breathed, one more per
+// room it has spread. A tick seeds an empty neighbour one generation out, at the level the
+// falloff leaves for that generation.
+TEST(RoomAffectTick, MistTickSeedsANeighbourOneGenerationOutAtTheReducedLevel)
+{
+    RoomFixture main_room(kMistFalloffMainRoom);
+    RoomFixture neighbour(kMistFalloffSeedRoom);
+    room_direction_data north_exit {};
+    north_exit.to_room = neighbour.slot();
+    main_room.room()->dir_option[NORTH] = &north_exit;
+
+    CasterFixture caster(25, 0, game_types::PS_None, kMistFalloffMainRoom); // level 30
+    const caster_snapshot recorded = caster_snapshot::capture(caster.ch);
+
+    affected_type cast_mist {};
+    cast_mist.type = ROOMAFF_SPELL;
+    cast_mist.duration = 6;
+    cast_mist.modifier = 0;
+    cast_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    cast_mist.bitvector = 0;
+    cast_mist.counter = 0;
+    affect_to_room(main_room.room(), &cast_mist, recorded);
+
+    affected_type affect = dummy_affect();
+    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, main_room.room(), main_room.room()->people, affect);
+
+    affected_type* seeded = room_affected_by_spell(neighbour.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(seeded, nullptr);
+    EXPECT_EQ(seeded->counter, 1) << "one room out from the cast room";
+    EXPECT_EQ(seeded->duration, 4) << "level 30 falls to 27 one hop out; 27 / 6 = 4";
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 0)
+        << "the cast room's own generation never changes";
+}
+
+// Three rooms out, a level-30 mist is at level 12: it still renews its own room (12 / 5 = 2
+// ticks) but the next generation would be level 0, so no seed is placed at all.
+TEST(RoomAffectTick, MistTickAtTheThirdGenerationRenewsItselfButSeedsNothing)
+{
+    RoomFixture deep_room(kMistFalloffDeepRoom);
+    RoomFixture beyond(kMistFalloffDeepSeedRoom);
+    room_direction_data east_exit {};
+    east_exit.to_room = beyond.slot();
+    deep_room.room()->dir_option[EAST] = &east_exit;
+
+    CasterFixture caster(25, 0, game_types::PS_None, kMistFalloffDeepRoom); // level 30
+    affected_type deep_mist {};
+    deep_mist.type = ROOMAFF_SPELL;
+    deep_mist.duration = 1;
+    deep_mist.modifier = 0;
+    deep_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    deep_mist.bitvector = 0;
+    deep_mist.counter = 3;
+    affect_to_room(deep_room.room(), &deep_mist, caster_snapshot::capture(caster.ch));
+
+    affected_type affect = dummy_affect();
+    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, deep_room.room(), deep_room.room()->people, affect);
+
+    EXPECT_EQ(room_affected_by_spell(deep_room.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 2)
+        << "renewed from the generation-3 level of 12";
+    EXPECT_EQ(room_affected_by_spell(beyond.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+        << "a seed whose level would be 0 is never placed";
+    EXPECT_FALSE(IS_SET(beyond.room()->room_flags, SHADOWY)) << "nor does the room darken";
+}
+
+// Renewing an existing neighbour from a room closer to the source pulls the neighbour's
+// generation in (a mist that reached a room by a long way round is now one hop from the
+// cast room) and never pushes it out.
+TEST(RoomAffectTick, MistTickRenewsANeighbourAndPullsItsGenerationCloser)
+{
+    RoomFixture main_room(kMistFalloffRenewMainRoom);
+    RoomFixture neighbour(kMistFalloffRenewNeighbourRoom);
+    room_direction_data west_exit {};
+    west_exit.to_room = neighbour.slot();
+    main_room.room()->dir_option[WEST] = &west_exit;
+    // The way back, so the reverse tick below reaches the cast room.
+    room_direction_data east_exit {};
+    east_exit.to_room = main_room.slot();
+    neighbour.room()->dir_option[EAST] = &east_exit;
+
+    CasterFixture caster(25, 0, game_types::PS_None, kMistFalloffRenewMainRoom); // level 30
+    const caster_snapshot recorded = caster_snapshot::capture(caster.ch);
+
+    affected_type cast_mist {};
+    cast_mist.type = ROOMAFF_SPELL;
+    cast_mist.duration = 6;
+    cast_mist.modifier = 0;
+    cast_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    cast_mist.bitvector = 0;
+    cast_mist.counter = 0;
+    affect_to_room(main_room.room(), &cast_mist, recorded);
+
+    affected_type far_mist {};
+    far_mist.type = ROOMAFF_SPELL;
+    far_mist.duration = 1;
+    far_mist.modifier = 0;
+    far_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    far_mist.bitvector = 0;
+    far_mist.counter = 3;
+    affect_to_room(neighbour.room(), &far_mist, recorded);
+
+    affected_type affect = dummy_affect();
+    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, main_room.room(), main_room.room()->people, affect);
+
+    affected_type* renewed = room_affected_by_spell(neighbour.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(renewed, nullptr);
+    EXPECT_EQ(renewed->duration, 6) << "renewed against the ticking room's own level / 5, as before";
+    EXPECT_EQ(renewed->counter, 1) << "now one hop from the cast room";
+
+    // The reverse never happens: ticking the far room must not push the cast room out.
+    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, neighbour.room(), neighbour.room()->people, affect);
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 0);
 }
 
 TEST(RoomAffectTick, UnknownSpellHasNoTickBodyAndReturnsFalse)
@@ -1090,6 +1216,7 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
     mist_affect.modifier = 0;
     mist_affect.location = SPELL_MIST_OF_BAAZUNGA;
     mist_affect.bitvector = 0;
+    mist_affect.counter = 2;
     affect_to_room(source_room.room(), &mist_affect, recorded);
 
     source_room.room()->room_flags = 0;
@@ -1116,6 +1243,10 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
     EXPECT_STREQ(moved_caster->name, recorded.name)
         << "the destination's recorded caster must be the SAME one the source room's mist carried";
     EXPECT_EQ(moved_caster->mage_prof_level, recorded.mage_prof_level);
+
+    affected_type* moved_mist = room_affected_by_spell(dest_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(moved_mist, nullptr);
+    EXPECT_EQ(moved_mist->counter, 2) << "a drifting mist keeps its generation";
 
     EXPECT_EQ(room_affected_by_spell(source_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
         << "the source room's mist affect must have been removed by the move";
@@ -1311,6 +1442,88 @@ TEST(RoomAffectCasting, MistCastSeedsAFreshAdjacentRoomCarryingTheCaster)
     ASSERT_NE(adjacent_recorded, nullptr)
         << "an empty adjacent room must be freshly seeded carrying the SAME caster";
     EXPECT_TRUE(adjacent_recorded->same_character_as(caster.ch));
+
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 1)
+        << "the adjacent seed is one generation out from the cast room";
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 0)
+        << "the room the mist was breathed in is generation 0";
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 6)
+        << "the cast room lasts level 30 / 5 = 6";
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 4)
+        << "level 30 falls to 27 one hop out; 27 / 6 = 4";
+}
+
+// A caster too weak for the one-hop falloff to leave a lasting seed breathes a mist only
+// into the room they stand in.
+TEST(RoomAffectCasting, MistCastByAWeakCasterSeedsNoAdjacentRoom)
+{
+    RoomFixture main_room(kMistCastWeakMainRoom);
+    RoomFixture adjacent(kMistCastWeakAdjacentRoom);
+    room_direction_data south_exit {};
+    south_exit.to_room = adjacent.slot();
+    main_room.room()->dir_option[SOUTH] = &south_exit;
+    main_room.room()->room_flags = 0;
+    adjacent.room()->room_flags = 0;
+
+    // level 6: main dur 1; one hop out the level is 3, and 3 / 6 = 0
+    CasterFixture weak_caster(1, 0, game_types::PS_None, main_room.slot());
+
+    test_support::cast_spell(spell_mist_of_baazunga, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    affected_type* main_mist = room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(main_mist, nullptr) << "the caster's own room is always misted";
+    EXPECT_EQ(main_mist->duration, 1) << "level 6 / 5 = 1";
+
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+        << "a seed of level 3 / 6 = 0 ticks is never placed";
+    EXPECT_EQ(room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+        << "nor is a caster recorded for it";
+    EXPECT_FALSE(IS_SET(adjacent.room()->room_flags, SHADOWY)) << "nor does the room darken";
+}
+
+// A cast that renews its own room makes that room the mist's source (generation 0), and a
+// renewed neighbour is pulled in to one hop out, however far its mist had come.
+TEST(RoomAffectCasting, MistCastRenewalResetsTheMainGenerationAndPullsTheAdjacentOneIn)
+{
+    RoomFixture main_room(kMistCastGenerationMainRoom);
+    RoomFixture adjacent(kMistCastGenerationAdjacentRoom);
+    room_direction_data west_exit {};
+    west_exit.to_room = adjacent.slot();
+    main_room.room()->dir_option[WEST] = &west_exit;
+
+    CasterFixture caster(25, 0, game_types::PS_None, main_room.slot()); // level 30
+    const caster_snapshot recorded = caster_snapshot::capture(caster.ch);
+
+    affected_type drifted_mist {};
+    drifted_mist.type = ROOMAFF_SPELL;
+    drifted_mist.duration = 1;
+    drifted_mist.modifier = 0;
+    drifted_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    drifted_mist.bitvector = 0;
+    drifted_mist.counter = 2;
+    affect_to_room(main_room.room(), &drifted_mist, recorded);
+
+    affected_type far_mist {};
+    far_mist.type = ROOMAFF_SPELL;
+    far_mist.duration = 1;
+    far_mist.modifier = 0;
+    far_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    far_mist.bitvector = 0;
+    far_mist.counter = 3;
+    affect_to_room(adjacent.room(), &far_mist, recorded);
+
+    test_support::cast_spell(spell_mist_of_baazunga, &caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    affected_type* main_mist = room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(main_mist, nullptr);
+    EXPECT_EQ(main_mist->duration, 6) << "renewed to level 30 / 5 = 6";
+    EXPECT_EQ(main_mist->counter, 0) << "a drifted mist the caster renews becomes the cast room";
+
+    affected_type* adjacent_mist = room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(adjacent_mist, nullptr);
+    EXPECT_EQ(adjacent_mist->duration, 6)
+        << "renewed against the MAIN room's level 30 / 5 = 6, the cast's long-standing quirk";
+    EXPECT_EQ(adjacent_mist->counter, 1) << "a generation-3 mist is pulled in to one hop out";
 }
 
 TEST(RoomAffectCasting, MistCastLongerDurationRenewalReplacesTheRecordInMainAndAdjacent)
@@ -1321,15 +1534,21 @@ TEST(RoomAffectCasting, MistCastLongerDurationRenewalReplacesTheRecordInMainAndA
     east_exit.to_room = adjacent.slot();
     main_room.room()->dir_option[EAST] = &east_exit;
 
-    CasterFixture weak_caster(1, 0, game_types::PS_None, main_room.slot()); // level 6: main dur 1, adj dur 1
-    CasterFixture strong_caster(25, 0, game_types::PS_None, main_room.slot()); // level 30: main dur 6, adj dur 5
+    // level 12: main dur 2, adjacent dur 1 (level 9 one hop out)
+    CasterFixture weak_caster(7, 0, game_types::PS_None, main_room.slot());
+    // level 30: main dur 6, adjacent dur 4 (level 27 one hop out)
+    CasterFixture strong_caster(25, 0, game_types::PS_None, main_room.slot());
 
     // Seed both rooms weakly first, recording weak_caster in each.
     test_support::cast_spell(spell_mist_of_baazunga, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
     ASSERT_NE(room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr);
     ASSERT_NE(room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA), nullptr);
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 2)
+        << "the weak cast lasts level 12 / 5 = 2";
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 1)
+        << "the weak seed lasts level 9 / 6 = 1";
 
-    // A stronger recast: main's duration (1) is raised to 6, and the adjacent
+    // A stronger recast: main's duration (2) is raised to 6, and the adjacent
     // room's own (quirky) comparison is against the MAIN room's new af.duration
     // (6) too -- see mage.cpp's spell_mist_of_baazunga comment -- so both
     // renewals fire and both records must move to strong_caster.
@@ -1346,4 +1565,9 @@ TEST(RoomAffectCasting, MistCastLongerDurationRenewalReplacesTheRecordInMainAndA
     EXPECT_TRUE(adjacent_recorded->same_character_as(strong_caster.ch))
         << "the adjacent room's longer-duration renewal must also replace the recorded caster";
     EXPECT_FALSE(adjacent_recorded->same_character_as(weak_caster.ch));
+
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 6)
+        << "the strong recast raises main to level 30 / 5 = 6";
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 6)
+        << "the adjacent renewal compares against the MAIN room's 6";
 }

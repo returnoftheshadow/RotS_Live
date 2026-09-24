@@ -446,6 +446,25 @@ TEST(MageHelpers, SaveBonusUsesCasterAndVictimSpecializationMatchups) {
            "victim in the current implementation.";
 }
 
+// A mist loses 3 levels on its first hop and 3 more on each further hop (3, 9, 18, 30
+// in total), and never goes below zero.
+TEST(MageHelpers, MistEffectiveLevelFallsOffTriangularlyPerHop) {
+    EXPECT_EQ(mist_spread_level_loss(0), 0);
+    EXPECT_EQ(mist_spread_level_loss(1), 3);
+    EXPECT_EQ(mist_spread_level_loss(2), 9);
+    EXPECT_EQ(mist_spread_level_loss(3), 18);
+    EXPECT_EQ(mist_spread_level_loss(4), 30);
+
+    EXPECT_EQ(mist_effective_level(30, 0), 30);
+    EXPECT_EQ(mist_effective_level(30, 1), 27);
+    EXPECT_EQ(mist_effective_level(30, 2), 21);
+    EXPECT_EQ(mist_effective_level(30, 3), 12);
+    EXPECT_EQ(mist_effective_level(30, 4), 0) << "clamped, never negative";
+    EXPECT_EQ(mist_effective_level(20, 3), 2);
+    EXPECT_EQ(mist_effective_level(20, 4), 0);
+    EXPECT_EQ(mist_effective_level(30, -1), 30) << "a negative generation is treated as the cast room";
+}
+
 namespace {
 
 // Stamps an uncharmed mob of `race` and `alignment` onto a zeroed char_data.

@@ -1558,6 +1558,8 @@ void affect_update_room(struct room_data* room)
                         newaf.modifier = mod;
                         newaf.location = SPELL_MIST_OF_BAAZUNGA;
                         newaf.bitvector = 0;
+                        // A drifting mist keeps its spread generation.
+                        newaf.counter = tmpaf->counter;
 
                         sprintf(buf, "The mists drift %s.\n\r", dirs[direction]);
                         send_to_room(buf, room->number);

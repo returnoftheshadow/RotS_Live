@@ -502,6 +502,13 @@ bool is_strong_enough_to_tame(struct char_data* tamer, struct char_data* animal,
 int get_mage_caster_level(const caster_snapshot& caster);
 int get_mystic_caster_level(const caster_snapshot& caster);
 int get_magic_power(const caster_snapshot& caster);
+// Loss taken off a mist's caster level once it has spread `generation` rooms from the
+// room it was breathed in: 3 for the first hop and 3 more for each further hop
+// (3, 9, 18, 30, ...). Zero for the cast room or a negative generation.
+int mist_spread_level_loss(int generation);
+// The mage level a mist ticks and seeds with `generation` rooms out from where it was
+// breathed: `caster_level` less mist_spread_level_loss(generation), never below zero.
+int mist_effective_level(int caster_level, int generation);
 int get_saving_throw_dc(const caster_snapshot& caster);
 bool should_apply_spell_penetration(const caster_snapshot& caster);
 double get_spell_pen_value(const caster_snapshot& caster);

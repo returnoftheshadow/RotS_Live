@@ -153,21 +153,31 @@ void haze_tick(const caster_snapshot& who, char_data* occupant)
     }
 }
 
-// mage.cpp's spell_mist_of_baazunga(), renewal arm. Two long-standing quirks of
-// that function are preserved verbatim: the renewal is silent (the "breathes
-// out dark mists" messages only ever fired on a FRESH cast), and an adjacent
-// room that already carries a mist is renewed against the MAIN room's
-// `level / 5` rather than against the smaller `level / 6` it would be seeded
-// with.
+// mage.cpp's spell_mist_of_baazunga(), renewal arm, with the spread falloff. The
+// room's own mist carries its spread generation in `counter`; this tick renews the
+// room at that generation's level and seeds empty neighbours one generation
+// further out. Two long-standing quirks of the cast are preserved: the renewal
+// is silent, and a neighbour that already carries a mist is renewed against
+// THIS room's `level / 5` rather than against the smaller `level / 6` it would be
+// seeded with. A renewal from a room nearer the source also pulls the
+// neighbour's generation in, never out.
 void mist_tick(const caster_snapshot& who, room_data* room)
 {
-    const int level = get_mage_caster_level(who);
+    // get_mage_caster_level() rolls its rounding on every call, so roll it once
+    // and derive every generation's level from the one result.
+    const int caster_level = get_mage_caster_level(who);
 
-    if (affected_type* here = room_affected_by_spell(room, SPELL_MIST_OF_BAAZUNGA)) {
-        if (here->duration < level / 5) {
-            here->duration = level / 5;
-        }
+    int generation = 0;
+    affected_type* const here = room_affected_by_spell(room, SPELL_MIST_OF_BAAZUNGA);
+    if (here) {
+        generation = here->counter;
     }
+    const int level = mist_effective_level(caster_level, generation);
+    if (here && here->duration < level / 5) {
+        here->duration = level / 5;
+    }
+    const int next_generation = generation + 1;
+    const int seed_level = mist_effective_level(caster_level, next_generation);
 
     for (int direction = 0; direction < NUM_OF_DIRS; direction++) {
         if (!room->dir_option[direction] || room->dir_option[direction]->to_room == NOWHERE) {
@@ -179,12 +189,21 @@ void mist_tick(const caster_snapshot& who, room_data* room)
             if (there->duration < level / 5) {
                 there->duration = level / 5;
             }
+            if (there->counter > next_generation) {
+                there->counter = next_generation;
+            }
+            continue;
+        }
+
+        // A seed that would last no tick at all is not placed: it would only
+        // darken the room for one update and vanish.
+        if (seed_level / 6 <= 0) {
             continue;
         }
 
         affected_type seeded_mist {};
         seeded_mist.type = ROOMAFF_SPELL;
-        seeded_mist.duration = level / 6;
+        seeded_mist.duration = seed_level / 6;
         if (IS_SET(next->room_flags, SHADOWY)) {
             seeded_mist.modifier = 1;
         } else {
@@ -192,6 +211,7 @@ void mist_tick(const caster_snapshot& who, room_data* room)
         }
         seeded_mist.location = SPELL_MIST_OF_BAAZUNGA;
         seeded_mist.bitvector = 0;
+        seeded_mist.counter = next_generation;
         affect_to_room(next, &seeded_mist, who);
     }
 }

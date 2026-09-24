@@ -1292,7 +1292,7 @@ struct affected_type {
     sh_int modifier; /* This is added to apropriate ability     */
     sh_int location; /* Tells which ability to change(APPLY_XXX)*/
     long bitvector; /* Tells which bits to set (AFF_XXX)       */
-    sh_int counter;
+    sh_int counter; // spell payload: maul stacks on a character affect; the spread generation (cast room 0) on a mist room affect
 
     struct affected_type* next;
 };
