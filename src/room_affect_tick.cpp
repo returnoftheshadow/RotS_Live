@@ -146,7 +146,9 @@ void haze_tick(const caster_snapshot& who, char_data* occupant)
 // is silent, and a neighbour that already carries a mist is renewed against
 // THIS room's `level / 5` rather than against the smaller `level / 6` it would be
 // seeded with. A renewal from a room nearer the source also pulls the
-// neighbour's generation in, never out.
+// neighbour's generation in, never out. The pull is independent of the duration
+// renewal: it happens even when the neighbour's duration is not raised and its
+// caster record is another caster's.
 void mist_tick(const caster_snapshot& who, room_data* room)
 {
     // get_mage_caster_level() rolls its rounding on every call, so roll it once

@@ -749,7 +749,8 @@ obj_data* make_physical_corpse(char_data* character, char_data* killer, int atta
     }
 
     // Wearables come out of the character's containers when the death is
-    // punished as a player kill; death_strips_corpse_containers() holds the rule.
+    // punished as a player kill or, for an unclassified death, by the historical
+    // rule; death_strips_corpse_containers() holds the rule.
     if (death_strips_corpse_containers(killer, attack_type, punishment)) {
         move_wearables_to_corpse(corpse);
     }

@@ -17,7 +17,7 @@ extern int harness_mode; // 1 while the server runs under the integration harnes
 
 // 1 only while `harness affects` runs affect_update(): every slow person affect then treats
 // the current time phase as matching, so one call is one tick per affect with no regen.
-// Room affects keep their own rolls (spec B1). Read by affect_update_person() in production code
+// Room affects keep their own rolls. Read by affect_update_person() in production code
 // deliberately: it is part of the -t harness contract above rather than a test-only patch, and
 // stays 0 outside harness mode.
 extern int harness_force_affect_phase;

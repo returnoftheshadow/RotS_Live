@@ -498,7 +498,8 @@ bool is_strong_enough_to_tame(struct char_data* tamer, struct char_data* animal,
 
 // Mage/mystic formula inputs. They read the caster only through a
 // caster_snapshot, so a spell cannot re-read a caster mid-resolution. The
-// level and power helpers roll their rounding afresh on every call.
+// level and power helpers roll their rounding afresh on every call. The formula
+// helpers below them are pure.
 int get_mage_caster_level(const caster_snapshot& caster);
 int get_mystic_caster_level(const caster_snapshot& caster);
 int get_magic_power(const caster_snapshot& caster);

@@ -69,10 +69,12 @@ void ensure_test_world(int minimum_room_number)
 }
 
 // Rooms this suite claims within the shared test-binary world[] -- high,
-// out-of-band values distinct from every other suite (affect_update_tests:
-// 27/28; mage_tests: up to 32; fight_credit_tests: 900-908;
-// room_affect_caster_tests: 950-953; interpre_account_menu/spell_pa/
-// db_loader_tests: 1200/3001/3002).
+// out-of-band values whose caster-store keys (2000 + N) are distinct from every
+// other suite's (affect_update_tests: 27/28; mage_tests: up to 32;
+// fight_credit_tests: 900-908; room_affect_caster_tests: 950-953;
+// interpre_account_menu/spell_pa/db_loader_tests: 1200/3001/3002). The in_room
+// values 991 and 1000-1001 overlap act_wiz_tests.cpp's world[991] and
+// summon_targeting_tests.cpp's world[1000-1001]; those suites restore their rooms.
 constexpr int kBlazeRoomA = 960;
 constexpr int kBlazeRoomB = 961;
 constexpr int kPoisonRoom = 962;
@@ -852,7 +854,8 @@ TEST(RoomAffectTick, PoisonTickSavedArmReachesABlindOccupantWhenTheCasterIsPrese
 
     const std::string occupant_output = occupant_descriptor.output;
     EXPECT_NE(occupant_output.find("fend off the poison"), std::string::npos)
-        << "a blind occupant must still be told the poison was fended off; output was: " << occupant_output;
+        << "a blind occupant must still be told the poison was fended off; output was: "
+        << occupant_output;
     EXPECT_EQ(occupant_output.find("glances directly at you"), std::string::npos) << occupant_output;
 }
 

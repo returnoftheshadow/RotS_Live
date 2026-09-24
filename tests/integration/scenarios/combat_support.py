@@ -8,13 +8,16 @@ test_poison_punishment_snake.py, and (via blaze_support.room_stat_replies) the b
 from __future__ import annotations
 
 import time
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import pytest
 
 from poison_support import DEATH_MARKER
 from rots_harness import fixtures, records
-from rots_harness.session import GameSession
+from rots_harness.session import GameSession, SessionTimeout
+
+if TYPE_CHECKING:
+    from conftest import Harness, HarnessServer
 
 BRUTE_ORC_VNUM = 1133  # world/mob/11.mob: "exists to kill a player who stands and fights"
 BRUTE_ENERGY_REGEN = 100
@@ -112,7 +115,7 @@ def stat_replies(imp: GameSession, target: str, is_genuine: Callable[[str], bool
     return replies
 
 
-def prove_exploit_reader_with_a_brute_death(server, imp: GameSession, player: GameSession, player_name: str, timeout: float = 30.0) -> None:
+def prove_exploit_reader_with_a_brute_death(server: HarnessServer, imp: GameSession, player: GameSession, player_name: str, timeout: float = 30.0) -> None:
     """Positive control for a scenario that asserts some exploit record was NOT written: has
     `player` die to the brute orc's melee in Arena Centre and asserts records.read_exploits()
     sees the EXPLOIT_MOBDEATH record die() writes for it, so an empty read elsewhere in the same
@@ -138,7 +141,7 @@ def prove_exploit_reader_with_a_brute_death(server, imp: GameSession, player: Ga
     )
 
 
-def quit_once_anger_allows(player: GameSession, harness, attempts: int = 10) -> None:
+def quit_once_anger_allows(player: GameSession, harness: Harness, attempts: int = 10) -> None:
     """Quits `player`, first ageing away the SPELL_ANGER that attacking a character leaves on
     the attacker (char_utils_combat.cpp's on_attacked_character) and that makes do_quit refuse.
     SPELL_ANGER is a slow (non-"is_fast") affect: affect_update_person only ages it when the
@@ -150,7 +153,12 @@ def quit_once_anger_allows(player: GameSession, harness, attempts: int = 10) -> 
     """
     for _attempt in range(attempts):
         player.send_line("quit")
-        text = player.expect(QUIT_SUCCEEDED + (QUIT_BLOCKED,), 8.0)
+        try:
+            text = player.expect(QUIT_SUCCEEDED + (QUIT_BLOCKED,), 8.0)
+        except SessionTimeout:
+            # Close here so the fixture teardown does not quit again and report a second failure.
+            player.close()
+            raise
         if QUIT_BLOCKED not in text:
             player.close()
             return
