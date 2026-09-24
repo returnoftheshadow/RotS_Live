@@ -1413,6 +1413,30 @@ TEST_F(MageProcTest, BlazeBurstSavePassesTheSpecializationBonus) {
         << "the burst must roll the victim's save with the specialization bonus applied";
 }
 
+// Black arrow's poison lasts the MAGE caster level + 1: it shares poison_victim_affect_at_level()
+// with the mystic poison but applies it at its own level. Every draw is queued at 0.0: the
+// victim's save roll is 1 against a DC of 23 (10 + 30 / 3 + (20 - 8) / 4), and the poison roll
+// number(1, 50) is 1, under the level, so the poison always lands.
+TEST_F(MageProcTest, BlackArrowPoisonLastsTheMageLevelPlusOne) {
+    MageTestContext context;
+    context.caster_profs.prof_level[PROF_MAGE] = 30;
+    context.prepare_for_spell_damage();
+    test_support::ScopedAffectCleanup victim_affects(context.victim);
+
+    push_test_random_value(0.0); // get_mage_caster_level()'s intel-rounding draw: 30 + 20 / 5
+    const int mage_level = get_mage_caster_level(caster_snapshot::capture(context.caster));
+    ASSERT_EQ(mage_level, 34);
+
+    queue_fireball_rolls(0.0, 60);
+    test_support::cast_spell(spell_black_arrow, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
+
+    const affected_type* poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "with every roll at its floor the poison must land";
+    EXPECT_EQ(poison->duration, mage_level + 1);
+    EXPECT_EQ(poison->modifier, -2);
+    EXPECT_EQ(poison->location, APPLY_STR);
+}
+
 namespace {
 
 // A player master with an orc follower (a charmed pet and orc-friend) that casts blaze on its

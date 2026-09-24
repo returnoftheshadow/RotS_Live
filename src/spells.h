@@ -513,8 +513,11 @@ int mist_effective_level(int caster_level, int generation);
 // Damage one blaze burn does to a victim at mage level `level`: 8 to `level`, plus 10,
 // halved when the victim saved.
 int blaze_burn_damage(int level, bool saved);
-// The poison a mystic's cast or a poison tick leaves on its victim: SPELL_POISON for
-// `who`'s mystic caster level + 1 ticks, -2 strength, AFF_POISON.
+// The poison a spell leaves on its victim when it applies at `level`: SPELL_POISON for
+// level + 1 ticks, -2 strength, AFF_POISON. Black arrow applies it at the mage caster level.
+affected_type poison_victim_affect_at_level(int level);
+// The poison a mystic's cast or a poison tick leaves on its victim:
+// poison_victim_affect_at_level() at `who`'s mystic caster level.
 affected_type poison_victim_affect(const caster_snapshot& who);
 // The level an illusion-school spell (haze, fear) applies at for `who`: the mystic caster
 // level, plus 6 for an illusion specialist.

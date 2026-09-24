@@ -78,15 +78,20 @@ int get_mystic_caster_level(const caster_snapshot& caster)
     return mystic_level + will_factor;
 }
 
-affected_type poison_victim_affect(const caster_snapshot& who)
+affected_type poison_victim_affect_at_level(int level)
 {
     affected_type poison {};
     poison.type = SPELL_POISON;
-    poison.duration = get_mystic_caster_level(who) + 1;
+    poison.duration = level + 1;
     poison.modifier = -2;
     poison.location = APPLY_STR;
     poison.bitvector = AFF_POISON;
     return poison;
+}
+
+affected_type poison_victim_affect(const caster_snapshot& who)
+{
+    return poison_victim_affect_at_level(get_mystic_caster_level(who));
 }
 
 int illusion_caster_level(const caster_snapshot& who)

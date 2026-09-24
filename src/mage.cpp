@@ -2261,12 +2261,7 @@ ASPELL(spell_black_arrow)
         dam >>= 1;
     } else if (number(1, 50) < level && GET_HIT(victim) > min_poison_dam) {
         // TODO(drelidan):  Should this conditional poison apply after damage is applied?
-        affected_type af;
-        af.type = SPELL_POISON;
-        af.duration = level + 1;
-        af.modifier = -2;
-        af.location = APPLY_STR;
-        af.bitvector = AFF_POISON;
+        affected_type af = poison_victim_affect_at_level(level);
         affect_join(victim, &af, FALSE, FALSE);
         // This poison's origin, for resolve_poisoner() to read back when it
         // kills -- see mystic.cpp's spell_poison for the same reasoning.

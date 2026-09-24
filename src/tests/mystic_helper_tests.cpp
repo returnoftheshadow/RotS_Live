@@ -69,6 +69,17 @@ TEST(MysticHelpers, HazeVictimAffectCarriesTheLevelAndDuration)
     EXPECT_EQ(haze.bitvector, AFF_HAZE);
 }
 
+TEST(MysticHelpers, PoisonVictimAffectAtLevelLastsThatLevelPlusOne)
+{
+    const affected_type poison = poison_victim_affect_at_level(34);
+
+    EXPECT_EQ(poison.type, SPELL_POISON);
+    EXPECT_EQ(poison.duration, 35);
+    EXPECT_EQ(poison.modifier, -2);
+    EXPECT_EQ(poison.location, APPLY_STR);
+    EXPECT_EQ(poison.bitvector, AFF_POISON);
+}
+
 namespace {
 
 // Casts fear from `caster` at `target` with both saving throws failed: saves_mystic() rolls
@@ -76,6 +87,8 @@ namespace {
 // rolls it once more. get_mystic_caster_level() draws nothing for wil 25.
 void cast_fear_that_lands(MysticFixture& caster, MysticFixture& target, const caster_snapshot& caster_at_cast)
 {
+    // fear's act() calls look up only the caster's room, and skip the room audience for NOWHERE
+    caster.ch.in_room = NOWHERE;
     clear_test_random_values();
     push_test_random_value(0.99); // saves_mystic(): number(0, 100) = 99, no save
     push_test_random_value(0.99); // saves_leadership()'s own saves_mystic() call
@@ -83,12 +96,11 @@ void cast_fear_that_lands(MysticFixture& caster, MysticFixture& target, const ca
     clear_test_random_values();
 }
 
-// A mob target somewhere with no room: act() skips the room audience for a character in
-// NOWHERE, and spell_fear refuses only good-on-good PLAYER fear, so a mob target always
+// A mob target: spell_fear refuses only good-on-good PLAYER fear, so a mob target always
 // reaches the saving throws.
 void prepare_fear_target(MysticFixture& target)
 {
-    target.ch.in_room = NOWHERE;
+    target.ch.in_room = NOWHERE; // keeps the target out of any room
     target.ch.specials2.act = MOB_ISNPC;
     target.ch.specials2.perception = 0;
 }
@@ -101,7 +113,6 @@ TEST(MysticHelpers, FearCastAppliesTheIllusionBonusFromTheSnapshot)
 {
     MysticFixture illusionist(game_types::PS_Illusion);
     MysticFixture target(game_types::PS_None);
-    illusionist.ch.in_room = NOWHERE;
     prepare_fear_target(target);
     test_support::ScopedAffectCleanup target_affects(target.ch);
 
@@ -122,7 +133,6 @@ TEST(MysticHelpers, FearCastIgnoresAnIllusionBonusGainedAfterTheSnapshot)
 {
     MysticFixture caster(game_types::PS_None);
     MysticFixture target(game_types::PS_None);
-    caster.ch.in_room = NOWHERE;
     prepare_fear_target(target);
     test_support::ScopedAffectCleanup target_affects(target.ch);
 
