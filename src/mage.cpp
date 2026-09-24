@@ -1745,7 +1745,10 @@ ASPELL(spell_earthquake)
         }
 
         /* deal out the damage */
-        // The fall itself. Deferring the caster's own fall to the end moves its damage() draws behind the later occupants' saves, so the RNG sequence those occupants see differs from the base; nothing in production depends on draw order, and the landing save is still drawn in the loop below at its historical point.
+        // The fall itself. Deferring the caster's own fall to the end moves its damage() draws
+        // behind the later occupants' saves, so the RNG sequence those occupants see differs from
+        // the base; nothing in production depends on draw order, and the landing save is still
+        // drawn in the loop below at its historical point.
         const auto fall = [&](char_data* faller, bool landing_saved) -> void {
             act("$n loses balance and falls down!", TRUE, faller, 0, 0, TO_ROOM);
             send_to_char("The earthquake throws you down!\n\r", faller);

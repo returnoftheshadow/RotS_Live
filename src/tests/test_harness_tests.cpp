@@ -2,6 +2,7 @@
 
 #include "../spells.h"
 #include "../structs.h"
+#include "../utils.h"
 
 #include <gtest/gtest.h>
 
@@ -53,12 +54,13 @@ TEST_F(HarnessSeedTest, SeedMakesTheRandomSequenceRepeatable)
     setenv("ROTS_RANDOM_SEED", "42", 1);
 
     ASSERT_TRUE(seed_random_from_environment());
-    const long first_draw = random();
-    const long second_draw = random();
+    // The pin draws through number() because that is the generator the harness seeds.
+    const int first_draw = number(0, 1000000);
+    const int second_draw = number(0, 1000000);
 
     ASSERT_TRUE(seed_random_from_environment());
-    EXPECT_EQ(random(), first_draw) << "reseeding with the same value must replay the sequence";
-    EXPECT_EQ(random(), second_draw);
+    EXPECT_EQ(number(0, 1000000), first_draw) << "reseeding with the same value must replay the sequence";
+    EXPECT_EQ(number(0, 1000000), second_draw);
 }
 
 namespace {

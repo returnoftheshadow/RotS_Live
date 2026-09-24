@@ -22,7 +22,7 @@ extern int harness_mode; // 1 while the server runs under the integration harnes
 // stays 0 outside harness mode.
 extern int harness_force_affect_phase;
 
-// Seeds std::rand() and random() from ROTS_RANDOM_SEED. Applies only in harness
+// Seeds std::rand(), the generator behind number(), from ROTS_RANDOM_SEED. Applies only in harness
 // mode; returns true when a seed was applied.
 bool seed_random_from_environment();
 
