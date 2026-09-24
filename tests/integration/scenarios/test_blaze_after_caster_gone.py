@@ -1,6 +1,7 @@
 """manual-test-plan.md item 1: a blaze keeps ticking after its caster is slain (the body and
 registration serial survive, so the tick still credits the mage) and after the caster's link
-drops while another character logs in (no misattribution to the new body).
+drops and the body is purged while another character logs in (the tick credits nobody, and never
+the new body).
 
 Timing model: see blaze_support.py's module docstring -- blaze ticks from the real-time fast
 block (comm.cpp, ~3s, unconditional regardless of harness_mode), `harness tick`, and
@@ -18,6 +19,8 @@ signal.
 """
 
 from __future__ import annotations
+
+import time
 
 import pytest
 
@@ -62,34 +65,48 @@ def test_blaze_ticks_survive_the_casters_death_and_still_credit_the_mage(server,
     assert any(record.victim_name.lower() == "harnmage" for record in deaths), victim_records
 
 
-def test_blaze_ticks_after_a_link_drop_never_name_the_next_login(server, imp, mage, victim, harness) -> None:
-    """Controller ruling (2026-09-20 slice-2-scenarios plan self-review): a link-dropped body
-    persists as linkless in harness mode (idle force-rent is gated off), so the room-affect
-    owner check may or may not still resolve `Harnmage` for the kill depending on timing. Only
-    the hard requirements are pinned here: `Harncaller`, who logs in after the drop and reuses
-    the freed descriptor slot, is never credited as the killer in any exploit record, and there
-    is no crash.
+def _await_linkless(imp: GameSession, name: str, timeout: float = 10.0) -> None:
+    """Wait until the server has noticed the dropped socket, so the purge that follows takes
+    the linkless-body path rather than closing a descriptor the server still holds."""
+    deadline = time.monotonic() + timeout
+    while True:
+        look = imp.command("look")
+        if any(name in line and "(linkless)" in line for line in look.text.splitlines()):
+            return
+        if time.monotonic() >= deadline:
+            pytest.fail(f"{name} never showed as linkless in the imp's room: {look.text}")
+        time.sleep(0.5)
+
+
+def test_blaze_ticks_after_a_link_drop_and_purge_credit_nobody_and_never_the_next_login(server, imp, mage, victim, harness) -> None:
+    """A link-dropped body persists as linkless in harness mode (idle force-rent is gated off),
+    and `register_npc_char()` allocates slots upward, so a scenario cannot make a later login
+    reuse the mage's slot; the recycled-slot rule is pinned by
+    `CasterSnapshot.ResolveRejectsTheSameSlotAndAddressOnceReRegistered`. What this scenario pins
+    is the freed-body arm: after the drop the imp purges the linkless body, so the caster no
+    longer resolves, the tick credits nobody, and `Harncaller`, who logs in afterwards, is never
+    named.
 
     `Harncaller`'s roster load room is Arena Centre (fixtures.py), the same room the blaze is
-    burning, so logging in after the drop puts it in the blaze's own target pool alongside
+    burning, so logging in after the purge puts it in the blaze's own target pool alongside
     `Harnvictim`; it can take and even die from the room tick like any other occupant, and that
     is not a misattribution by itself -- only a record naming `harncaller` as a killer would be.
-
-    Observed on the runs used to green this test: the tick still named `Harnmage` (the linkless
-    body was not reaped before the kill landed), on `Harnvictim`'s own death record and, when
-    the room tick also happened to catch `Harncaller`, on its death record too -- see
-    task-6-report.md for the run transcripts.
     """
     _blaze_the_centre(imp, mage, victim)
     mage.drop_link()
+    _await_linkless(imp, "Harnmage")
+    # The imp sees only "Ok." and possibly the (GC) mudlog: "disintegrates" goes TO_NOTVICT.
+    purge = imp.command("purge harnmage")
+    assert "Ok." in purge.text and "Fuuu" not in purge.text, f"the imp must purge the linkless mage: {purge.text}"
     # `caller` is not requested as a fixture: fixtures log in before the test body runs, and the
-    # relogin must happen after the drop so it reuses the freed descriptor state (brief, Task 6).
+    # relogin must happen after the purge, once the mage's body and slot are gone.
     caller = GameSession(server.handle, server.spec("Harncaller"), server.character_number("Harncaller"), server.run_dir)
     caller.login()
     try:
         _tick_until_dead(harness, imp, victim)
         victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
         assert not any(record.victim_name.lower() == "harncaller" for record in victim_records), f"the new login must never be credited: {victim_records}"
+        assert not any(record.victim_name.lower() == "harnmage" for record in victim_records), f"the purged caster must never be credited: {victim_records}"
         caller_records = records.read_exploits(server.lib_dir, "Harncaller")
         assert not any(record.victim_name.lower() == "harncaller" for record in caller_records), f"the new login must never be credited: {caller_records}"
         caller.quit()
