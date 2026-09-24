@@ -7,4 +7,22 @@ A small harness token lies here.~
 0 0 0 0 0
 1 0 0
 0 0 0 0 0
+#1136
+bag leather~
+a leather bag~
+A leather bag lies here.~
+~
+15 0 1
+3000 0 -1 0 0
+30 30 -1
+0 0 2 0 0
+#1137
+cap leather~
+a leather cap~
+A leather cap lies here.~
+~
+9 0 17
+0 0 0 0 0
+45 60 -1
+0 0 2 0 0
 #99999

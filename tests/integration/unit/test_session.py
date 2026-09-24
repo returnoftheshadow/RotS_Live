@@ -65,6 +65,19 @@ def test_transcript_abilities_is_none_without_the_line() -> None:
     assert Transcript("HP :[10/60]").abilities() is None
 
 
+def test_transcript_parses_experience_from_the_stat_level_line() -> None:
+    text = (
+        "PC 'Harnvictim'  IDNum: [9000004], In room [1131]\n"
+        "Spec:(0) None, Lev: [10], XP: [ 200000], Align: [   0]\n"
+        "HP :[60/60+3(0)]  Stamina :[40/40+1(0)]  Move :[120/120+2(0)] Spirit:[0/0+0]\n"
+    )
+    assert Transcript(text).experience() == 200000
+
+
+def test_transcript_experience_is_none_without_the_level_line() -> None:
+    assert Transcript("HP :[10/60]\nAu: 0         Exp: 200000    Align: 0\n").experience() is None
+
+
 class FakeSocket:
     """Stands in for the server connection: `replies` maps a line the session sends to the
     bytes the server answers with; a line with no entry is never answered."""

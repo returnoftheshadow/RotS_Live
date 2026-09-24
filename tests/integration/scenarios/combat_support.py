@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 
 BRUTE_ORC_VNUM = 1133  # world/mob/11.mob: "exists to kill a player who stands and fights"
 BRUTE_ENERGY_REGEN = 100
+# Harnvictim's level whenever a level-30 player must damage it: Big Brother refuses an attacker at
+# three or more times the defender's level (big_brother.cpp is_level_range_appropriate); 11 gives 33.
+VICTIM_LEVEL = 11
 QUIT_BLOCKED = "You may not quit yet."  # act_othe.cpp do_quit, while SPELL_ANGER lingers
 QUIT_SUCCEEDED = ("Goodbye", "As you quit")
 

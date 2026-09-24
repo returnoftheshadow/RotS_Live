@@ -5,6 +5,9 @@ import re
 from pathlib import Path
 
 WORLD_ROOT = Path(__file__).resolve().parents[1] / "world"
+SPEC_ASSIGN_SOURCE = Path(__file__).resolve().parents[3] / "src" / "spec_ass.cpp"
+BAG_VNUM = 1136
+CAP_VNUM = 1137
 
 
 def read_index(category: str) -> list[str]:
@@ -90,3 +93,48 @@ def test_crevice_floor_is_a_plain_down_exit_from_arena_west() -> None:
     match = re.search(r"^D5\n.*?~\n.*?~\n(\d+) \d+ 1136 \d+", room_1130, flags=re.MULTILINE | re.DOTALL)
     assert match is not None, "room 1130 must have a D5 (down) exit to 1136"
     assert match.group(1) == "0", "the way down must start open for spell_earthquake"
+
+
+def object_numbers(vnum: int) -> tuple[list[int], list[int]]:
+    """The type/extra/wear line and the five values of object `vnum` in 11.obj.
+
+    load_objects (db.cpp) reads four tilde-terminated strings, then <type> <extra_flags>
+    <wear_flags>, then <value0>..<value4>, then <weight> <cost> <cost_per_day>, then
+    <level> <rarity> <material> <script_number> <unused>.
+    """
+    text = (WORLD_ROOT / "obj" / "11.obj").read_text(encoding="latin-1")
+    match = re.search(rf"^#{vnum}\n(?:[^~]*~\n){{4}}([^\n]+)\n([^\n]+)\n", text, flags=re.MULTILINE)
+    assert match is not None, f"object {vnum} missing from 11.obj or its four strings are malformed"
+    return [int(field) for field in match.group(1).split()], [int(field) for field in match.group(2).split()]
+
+
+def test_leather_bag_is_a_takeable_container_that_is_not_a_corpse() -> None:
+    """ITEM_CONTAINER is type 15 and ITEM_TAKE wear bit 1 (structs.h). value0 is the weight
+    capacity (act_obj1.cpp checks contents plus item against it); value3 == 1 would make
+    is_corpse() (act_obj1.cpp) treat the bag as a corpse."""
+    (item_type, extra_flags, wear_flags), values = object_numbers(BAG_VNUM)
+    assert item_type == 15, f"object {BAG_VNUM} type {item_type} must be ITEM_CONTAINER (15)"
+    assert extra_flags == 0, f"object {BAG_VNUM} extra_flags {extra_flags} must be 0"
+    assert wear_flags & 1, f"object {BAG_VNUM} wear_flags {wear_flags} must include ITEM_TAKE (1)"
+    assert values[0] >= 100, f"object {BAG_VNUM} capacity {values[0]} must hold the cap"
+    assert values[1] == 0, f"object {BAG_VNUM} container flags {values[1]} must leave it open and not closeable"
+    assert values[3] == 0, f"object {BAG_VNUM} value3 {values[3]} must be 0 or is_corpse() matches it"
+
+
+def test_leather_cap_is_takeable_head_armour() -> None:
+    """ITEM_ARMOR is type 9; ITEM_TAKE is wear bit 1 and ITEM_WEAR_HEAD wear bit 16 (structs.h)."""
+    (item_type, extra_flags, wear_flags), _values = object_numbers(CAP_VNUM)
+    assert item_type == 9, f"object {CAP_VNUM} type {item_type} must be ITEM_ARMOR (9)"
+    assert extra_flags == 0, f"object {CAP_VNUM} extra_flags {extra_flags} must be 0"
+    assert wear_flags == 1 | 16, f"object {CAP_VNUM} wear_flags {wear_flags} must be ITEM_TAKE | ITEM_WEAR_HEAD (17)"
+
+
+def test_harness_objects_avoid_hard_wired_object_specials() -> None:
+    """assign_objects() (spec_ass.cpp) binds a special to fixed object vnums, most of them
+    gen_board message boards; a harness object on one of those vnums runs the special on every
+    look and, lying in a room, is taken for the board by find_board() (boards.cpp)."""
+    source = SPEC_ASSIGN_SOURCE.read_text(encoding="latin-1")
+    assigned = {int(match) for match in re.findall(r"^\s*ASSIGNOBJ\((\d+),", source, flags=re.MULTILINE)}
+    assert assigned, f"no ASSIGNOBJ lines found in {SPEC_ASSIGN_SOURCE}"
+    for vnum in (BAG_VNUM, CAP_VNUM):
+        assert vnum not in assigned, f"object {vnum} has a special hard-wired by spec_ass.cpp's ASSIGNOBJ"

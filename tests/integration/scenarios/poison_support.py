@@ -26,6 +26,22 @@ def death_tick_budget(hit: int, con: int = ROSTER_CON) -> int:
     return -(-(hit + con // 2) // 5) + 2
 
 
+def xp_to_level(level: int) -> int:
+    """Experience at which `level` begins (limits.cpp xp_to_level)."""
+    return level * level * 1500
+
+
+def death_loss(exp: int, level: int, full: bool) -> int:
+    """Experience a player death takes (fight.cpp die()): a tenth of `base` always, plus all of
+    `base` when death_takes_full_mob_xp_loss() holds. int(x / y) mirrors C++ truncation toward zero.
+    """
+    base = int(-(exp - 3000) / (level + 2))
+    loss = min(0, int(base / 10))
+    if full:
+        loss += min(0, base)
+    return -loss
+
+
 def poison_until_it_lands(caster: GameSession, victim: GameSession, target_word: str, attempts: int = 8) -> None:
     for _attempt in range(attempts):
         victim.command("look")  # clears any AFK flag so Big Brother does not shield the victim

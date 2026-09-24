@@ -16,6 +16,12 @@ tests/integration/world/mob/11.mob record for #1131 sets MOB_SPEC (act-flags bit
 mobact.cpp's one_mobile_activity() never reaches spec_ass.cpp's virt_program_number() lookup for
 its store_prog_number, and the special silently never fires (no ASSIGNMOB entry was needed --
 the dispatch is data-driven once MOB_SPEC is set, per mobact.cpp:116-134).
+
+The gentle row also takes only the tenth of die()'s experience loss (fight.cpp): the poison is
+classified player_death, so death_takes_full_mob_xp_loss() withholds the full loss even though the
+credited killer is the snake, a real mob. Its experience is set inside the victim's level band
+after the fight ends, so no hit experience moves it, or the level that divides the loss, before the
+death.
 """
 
 from __future__ import annotations
@@ -26,7 +32,7 @@ import pytest
 
 import poison_support
 from combat_support import wait_for_disengagement
-from poison_support import POISON_LANDED, POISON_RESISTED, affect_ticks_until_death, death_tick_budget
+from poison_support import POISON_LANDED, POISON_RESISTED, affect_ticks_until_death, death_loss, death_tick_budget, xp_to_level
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
 
@@ -108,12 +114,25 @@ def test_mob_poison_death_alone_is_gentle(server, imp, victim, harness) -> None:
     imp.command("transfer harnvictim")
     victim.expect_room("Arena East")
     wait_for_disengagement(imp, ("snake", "harnvictim"))
+    level = server.spec("Harnvictim").level
+    band_experience = (xp_to_level(level) + xp_to_level(level + 1)) // 2
+    imp.command(f"wizset harnvictim exp {band_experience}")
+    before_stat = imp.command("stat harnvictim")
+    before_exp = before_stat.experience()
+    assert before_exp == band_experience, before_stat.text
     imp.command("wizset harnvictim hit 10")
 
     assert affect_ticks_until_death(harness, victim, death_tick_budget(10)), "the victim should die of the poison alone"
     victim.expect_room("Wood-elf Start")
 
     stat = imp.command("stat harnvictim")
+    after_exp = stat.experience()
+    assert after_exp is not None, stat.text
+    tenth_loss = death_loss(before_exp, level, full=False)
+    assert before_exp - after_exp == tenth_loss, (
+        f"a mob's poison death alone takes exactly the tenth ({tenth_loss}), not the full loss "
+        f"({death_loss(before_exp, level, full=True)}): {before_exp} -> {after_exp}"
+    )
     current, maximum = stat.hit_points()
     pinned = maximum // 4
     assert pinned <= current <= pinned + poison_support.REGEN_ALLOWANCE, (
