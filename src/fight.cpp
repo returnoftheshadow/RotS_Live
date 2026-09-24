@@ -894,7 +894,8 @@ char_data* resolve_poisoner(const char_data& victim)
         return nullptr;
     }
     char_data* live = char_by_abs_number(number);
-    if (live != nullptr && live == ptr && live->registration_serial == victim.specials.poisoned_by_serial && character_in_game(live)) {
+    if (live != nullptr && live == ptr && live->registration_serial == victim.specials.poisoned_by_serial
+        && character_in_game(live)) {
         return live;
     }
     return nullptr;
@@ -2202,11 +2203,15 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
         // victim through itself. Read here because die() cannot tell a tick from a direct hit.
         const bool self_inflicted = attacker == victim;
         const bool credited = credited_killer != nullptr;
+        const bool player_victim = !IS_NPC(victim);
         char_data* engaged_mob = nullptr;
-        if (attacktype == SPELL_POISON && self_inflicted) {
-            engaged_mob = find_engaged_real_mob(victim, engaged_opponent);
+        death_punishment punishment = death_punishment::legacy;
+        if (player_victim) {
+            if (attacktype == SPELL_POISON && self_inflicted) {
+                engaged_mob = find_engaged_real_mob(victim, engaged_opponent);
+            }
+            punishment = classify_pc_death(attacktype, self_inflicted, credited, engaged_mob != nullptr);
         }
-        const death_punishment punishment = classify_pc_death(attacktype, self_inflicted, credited, engaged_mob != nullptr);
 
         // The redirect applies to a local rather than to the parameter, since
         // the parameter no longer reaches die() directly; for damage() the two
@@ -2216,9 +2221,10 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
         // When nobody is credited -- a poison or room tick whose caster can no longer be
         // resolved -- the death is credited to whoever the victim was fighting. A player
         // victim of an uncredited non-poison tick is the exception: its gentle arm also keeps
-        // the historical record shape (the victim's contributors, no killer). An NPC victim
-        // still credits whoever was fighting it. A victim fighting nobody credits nobody.
-        if (killer == nullptr && engaged_opponent != nullptr && (IS_NPC(victim) || death_credit_falls_back_to_opponent(attacktype, self_inflicted, credited))) {
+        // the historical record shape (the victim's contributors, no killer). A non-player
+        // victim still credits whoever was fighting it. A victim fighting nobody credits nobody.
+        if (killer == nullptr && engaged_opponent != nullptr
+            && (!player_victim || death_credit_falls_back_to_opponent(attacktype, self_inflicted, credited))) {
             killer = engaged_opponent;
         }
         // Redirect the attacker as the pet's master if the master is in the same room as the pet.
