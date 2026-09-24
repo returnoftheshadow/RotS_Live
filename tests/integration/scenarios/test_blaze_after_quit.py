@@ -108,3 +108,39 @@ def test_blaze_death_while_fighting_a_mob_stays_gentle_when_the_caster_is_gone(s
     victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
     assert not any(record.type == records.EXPLOIT_MOBDEATH for record in victim_records), victim_records
     assert not any(record.victim_name.lower() == "harnmage" for record in victim_records), victim_records
+
+
+def test_blaze_ticks_credit_nobody_while_the_caster_sits_at_the_menu(server, imp, mage, victim, harness) -> None:
+    """The mage quits but keeps its connection at the character menu, so its body is still
+    registered when the lethal tick lands. It is out of any room, so it must not be credited,
+    and the victim takes the gentle arm."""
+    imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
+    imp.command("transfer harnmage")
+    imp.command("transfer harnvictim")
+    imp.command("restore harnmage")
+    imp.command(f"wizset harnvictim maxhit {PRE_LOOP_SURVIVABLE_HIT}")  # see the first test
+    imp.command("restore harnvictim")
+    victim.command("west")
+    mage.cast("blaze", success_markers=BLAZE_CAST)
+    mage.quit_to_menu()
+    # close() both frees the parked body and marks the session closed, so fixture teardown
+    # does not send a second quit into the menu.
+    try:
+        before = imp.command("stat harnvictim").abilities()
+        assert before is not None
+        victim.command("east")
+        victim.expect_room("Arena Centre")
+        tick_until_marker(harness, imp, victim, DEATH_MARKER, protect=(imp,), refloor=("harnvictim", LETHAL_HIT))
+        victim.expect_room("Wood-elf Start")
+
+        victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
+        assert not any(record.victim_name.lower() == "harnmage" for record in victim_records), f"a parked caster must never be named: {victim_records}"
+        mage_records = records.read_exploits(server.lib_dir, "Harnmage")
+        assert not any(record.type == records.EXPLOIT_PK for record in mage_records), f"a parked caster earns no kill: {mage_records}"
+        # stat harnmage cannot be read: the parked body is in no room.
+        stat = imp.command("stat harnvictim")
+        current, maximum = stat.hit_points()
+        assert maximum // 4 <= current <= maximum // 4 + poison_support.REGEN_ALLOWANCE, stat.text
+        assert stat.abilities() == before
+    finally:
+        mage.close()

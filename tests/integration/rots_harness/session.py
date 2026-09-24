@@ -198,6 +198,19 @@ class GameSession:
         finally:
             self.close()
 
+    def quit_to_menu(self, timeout: float = 8.0) -> None:
+        """Quits but keeps the socket open at the character menu, the state a player is in
+        between quitting and disconnecting. The body stays registered until close()."""
+        self.send_line("quit")
+        try:
+            farewell = self.expect(["Goodbye", "As you quit"], timeout)
+            # expect() consumes everything read so far, so a menu that arrived with the farewell is already in it.
+            if CHARACTER_MENU_PROMPT not in farewell:
+                self.expect([CHARACTER_MENU_PROMPT], timeout)
+        except SessionTimeout as refusal:
+            self.close()
+            raise QuitRefused(f"{self.character.name}: quit to the menu was refused or never reached the menu") from refusal
+
     def drop_link(self) -> None:
         self.close()
 

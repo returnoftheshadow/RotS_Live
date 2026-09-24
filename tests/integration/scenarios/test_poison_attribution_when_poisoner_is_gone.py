@@ -1,5 +1,5 @@
 """manual-test-plan.md item 2: poison the victim, then remove the poisoner before the lethal
-tick. A quit frees the body, so the tick credits nobody; an imp-slain player keeps its body and
+tick. Closing the socket after the quit frees the body, so the tick credits nobody; an imp-slain player keeps its body and
 registration serial, so resolve_poisoner still names the mage."""
 
 from __future__ import annotations

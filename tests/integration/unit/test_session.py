@@ -113,6 +113,13 @@ def test_quit_answered_with_goodbye_returns_and_marks_the_session_closed(monkeyp
     assert fake_socket.closed
 
 
+def test_quit_to_menu_reaching_the_menu_leaves_the_socket_open(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    game_session, fake_socket = connect_fake_session(monkeypatch, tmp_path, {"quit": b"Goodbye, friend.. Come back soon!\r\n\r\nMake your choice: "})
+    game_session.quit_to_menu(timeout=0.3)
+    assert not fake_socket.closed, "the parked body stays registered only while the socket is open"
+    assert not game_session.is_closed
+
+
 def test_drop_link_marks_the_session_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     game_session, fake_socket = connect_fake_session(monkeypatch, tmp_path, {})
     assert not game_session.is_closed
