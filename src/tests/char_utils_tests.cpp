@@ -504,14 +504,11 @@ TEST(CharUtils, RidingHelpersDependOnMountedPointersAndRegisteredCharacters) {
     context.character.mount_data.rider = &rider;
     context.character.mount_data.rider_number = 9;
 
-    set_char_exists(8);
-    set_char_exists(9);
+    test_support::ScopedCharExists mount_registration(mount, 8);
+    test_support::ScopedCharExists rider_registration(rider, 9);
 
     EXPECT_TRUE(utils::is_riding(context.character));
     EXPECT_TRUE(utils::is_ridden(context.character));
-
-    remove_char_exists(8);
-    remove_char_exists(9);
 }
 
 TEST(CharUtils, ReturnsProfileAndRaceAbbreviationsForPlayersAndNpcFallback) {
@@ -717,8 +714,7 @@ TEST(CharRegistry, ReturnsNullForAnUnregisteredInRangeSlot) {
 TEST(CharRegistry, FreeingAnUnregisteredCharacterLeavesTheSlotOwnerRegistered) {
     CharUtilsTestContext owner_context;
     const int slot = MAX_CHARACTERS - 17;
-    remove_char_exists(slot); // defensive: ensure the slot starts clean
-    set_char_exists(slot, &owner_context.character);
+    test_support::ScopedCharExists owner_registration(owner_context.character, slot);
 
     char_data* const scratch = test_support::allocate_test_character(MOB_VOID);
     scratch->abs_number = slot;
@@ -726,7 +722,6 @@ TEST(CharRegistry, FreeingAnUnregisteredCharacterLeavesTheSlotOwnerRegistered) {
 
     EXPECT_EQ(char_by_abs_number(slot), &owner_context.character)
         << "freeing a character that never owned the slot must not unregister its owner";
-    remove_char_exists(slot); // restore: leave the slot unregistered
 }
 
 TEST(CharRegistry, FreeingTheRegisteredOwnerReleasesItsSlot) {

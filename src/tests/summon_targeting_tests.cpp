@@ -57,8 +57,9 @@ void ensure_test_world(int minimum_room_number)
 // Real world[] array indices this suite claims within the shared
 // test-binary world[] -- high, out-of-band values above the other suites'
 // documented high-water mark (affect_update_tests.cpp: 27/28; mage_tests.cpp:
-// up to 32; fight_credit_tests.cpp: 900-903; room_affect_caster_tests.cpp:
-// 950-953; room_affect_tick_tests.cpp: 960-990; interpre_account_menu_tests.cpp/
+// up to 32; fight_credit_tests.cpp: 900-908; room_affect_caster_tests.cpp:
+// 950-953; room_affect_tick_tests.cpp: array slots 0-7, in_room values
+// 960-1001; interpre_account_menu_tests.cpp/
 // spell_pa_tests.cpp/db_loader_tests.cpp: array slot 0, stamped .number
 // 1200/3001/3002).
 constexpr int kCasterRoom = 1000;

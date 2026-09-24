@@ -486,8 +486,7 @@ TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
     poisoner.specials.position = POSITION_STANDING;
     poisoner.in_room = NOWHERE; // physically elsewhere (or already gone) by the time the DoT lands
     poisoner.specials.fighting = nullptr;
-    poisoner.abs_number = kPoisonerSlot;
-    set_char_exists(kPoisonerSlot, &poisoner);
+    test_support::ScopedCharExists poisoner_registration(poisoner, kPoisonerSlot);
 
     char victim_short_descr[] = "a testing poison victim";
     char_data* victim = make_npc_victim(kPoisonRoom, victim_short_descr, 1);
@@ -514,7 +513,6 @@ TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
            "`credited_killer`";
 
     release_corpse(kPoisonRoom, previous_object_list);
-    remove_char_exists(kPoisonerSlot);
 }
 
 // ---------------------------------------------------------------------------
@@ -774,8 +772,7 @@ TEST(KillContributors, UnionsFightersPoisonerAndPrimaryWithoutDuplicates)
 
     char_data poisoner {};
     poisoner.player.level = 40;
-    poisoner.abs_number = kContributorsPoisonerSlot;
-    set_char_exists(kContributorsPoisonerSlot, &poisoner);
+    test_support::ScopedCharExists poisoner_registration(poisoner, kContributorsPoisonerSlot);
     record_poison_origin(&victim, &poisoner);
     ASSERT_EQ(resolve_poisoner(victim), &poisoner) << "the poisoner must resolve before this pin can exercise it";
 
@@ -789,7 +786,6 @@ TEST(KillContributors, UnionsFightersPoisonerAndPrimaryWithoutDuplicates)
     EXPECT_TRUE(contributors.contains(&poisoner));
 
     record_poison_origin(&victim, nullptr);
-    remove_char_exists(kContributorsPoisonerSlot);
 }
 
 // Pin: "a poison death with no resolvable poisoner and nobody fighting
@@ -1181,7 +1177,6 @@ TEST(FightCredit, CorpseStripFollowsThePunishmentClass)
         ASSERT_NE(corpse, nullptr);
         EXPECT_EQ(gear.item.in_obj, &gear.container) << "a mob-death poison death must leave the wearable nested";
         release_corpse(kCorpseStripRoom, previous_object_list);
-        remove_char_exists(victim->abs_number);
         test_support::release_test_character(victim);
     }
     {
@@ -1195,7 +1190,6 @@ TEST(FightCredit, CorpseStripFollowsThePunishmentClass)
         ASSERT_NE(corpse, nullptr);
         EXPECT_EQ(gear.item.in_obj, corpse) << "a player-kill poison death must pull the wearable into the corpse";
         release_corpse(kCorpseStripRoom, previous_object_list);
-        remove_char_exists(victim->abs_number);
         test_support::release_test_character(victim);
     }
 }

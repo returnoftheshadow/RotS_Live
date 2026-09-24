@@ -44,6 +44,8 @@
 #include <gtest/gtest.h>
 #include <string>
 
+using test_support::ScopedCharExists;
+
 extern struct room_data world;
 extern struct weather_data weather_info;
 extern int top_of_world;
@@ -68,7 +70,7 @@ void ensure_test_world(int minimum_room_number)
 
 // Rooms this suite claims within the shared test-binary world[] -- high,
 // out-of-band values distinct from every other suite (affect_update_tests:
-// 27/28; mage_tests: up to 32; fight_credit_tests: 900-903;
+// 27/28; mage_tests: up to 32; fight_credit_tests: 900-908;
 // room_affect_caster_tests: 950-953; interpre_account_menu/spell_pa/
 // db_loader_tests: 1200/3001/3002).
 constexpr int kBlazeRoomA = 960;
@@ -147,7 +149,7 @@ void queue_mid_rolls(int count = 60)
 // ---------------------------------------------------------------------------
 
 // The real world[] array indices RoomFixture uses, independent of the
-// disambiguating "room number" (960-1001) baked into room->number for the
+// disambiguating "room number" (2000 + 960-1001) baked into room->number for the
 // (room, spell) caster-store map key. world[]'s backing storage can only
 // ever be sized ONCE for the whole process -- room_data::create_bulk()
 // hard-exits (`exit(0)`) if BASE_WORLD is already set (db.cpp:4025-4032) --
@@ -164,24 +166,58 @@ void queue_mid_rolls(int count = 60)
 // allocation, mirroring room_affect_caster_tests.cpp's own
 // `world[0].number = room_number` precedent (which this file should have
 // followed originally) rather than reusing the logical room number as the
-// array index.
-constexpr int kRoomSlotCount = 8; // more than the max (2) RoomFixtures ever alive at once in one test
-int next_room_slot()
+// array index. A fixture holds its slot until it is destroyed, so two live
+// fixtures never share a world[] index; eight is well above the most (two)
+// any test keeps alive at once.
+constexpr int kRoomSlotCount = 8;
+bool g_room_slot_in_use[kRoomSlotCount] = {}; // true while a live RoomFixture holds that index
+
+// Claims the lowest free world[] slot for a RoomFixture.
+int acquire_room_slot()
 {
-    static int counter = 0;
-    return counter++ % kRoomSlotCount;
+    for (int slot = 0; slot < kRoomSlotCount; ++slot) {
+        if (!g_room_slot_in_use[slot]) {
+            g_room_slot_in_use[slot] = true;
+            return slot;
+        }
+    }
+    ADD_FAILURE() << "more than " << kRoomSlotCount << " RoomFixtures alive at once";
+    return 0;
+}
+
+void release_room_slot(int slot)
+{
+    g_room_slot_in_use[slot] = false;
+}
+
+// Erases the (room, spell) caster record a test recorded without an affect. The store has
+// no direct erase; affect_remove_room() is the one path that drops a record, so a
+// throwaway affect for `spell` is added (the two-argument affect_to_room() never replaces
+// an existing record) and removed again.
+void erase_room_affect_record(room_data* room, int spell)
+{
+    if (room_affect_caster(room, spell) == nullptr) {
+        return;
+    }
+    affected_type throwaway {};
+    throwaway.type = ROOMAFF_SPELL;
+    throwaway.duration = 1;
+    throwaway.location = spell;
+    affect_to_room(room, &throwaway);
+    affect_remove_room(room, room_affected_by_spell(room, spell));
 }
 
 // Saves/restores everything a test in this file might touch on one room:
 // occupants, corpse contents, exits, flags, and the room's own affect list
 // (which also empties the (room, spell) caster store for every affect this
-// scope leaves behind, since affect_remove_room() is what erases it). Stamps
+// scope leaves behind, since affect_remove_room() is what erases it, and for
+// any record a test set without an affect). Stamps
 // a distinct room->number, since the caster store is keyed on it and
 // dummy/default rooms in the shared world[] all carry -1.
 class RoomFixture {
 public:
     explicit RoomFixture(int room_number)
-        : m_slot(next_room_slot())
+        : m_slot(acquire_room_slot())
     {
         ensure_test_world(kRoomSlotCount);
         room_data& room = world[m_slot];
@@ -216,6 +252,9 @@ public:
         while (room.affected) {
             affect_remove_room(&room, room.affected);
         }
+        for (int spell : { SPELL_BLAZE, SPELL_POISON, SPELL_HAZE, SPELL_MIST_OF_BAAZUNGA }) {
+            erase_room_affect_record(&room, spell);
+        }
         room.people = m_original_people;
         room.contents = m_original_contents;
         room.number = m_original_number;
@@ -224,6 +263,7 @@ public:
         for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
             room.dir_option[direction] = m_original_exits[direction];
         }
+        release_room_slot(m_slot);
     }
     RoomFixture(const RoomFixture&) = delete;
     RoomFixture& operator=(const RoomFixture&) = delete;
@@ -265,24 +305,6 @@ public:
 private:
     index_data* m_previous; // whatever this suite found installed (normally null)
     index_data m_entry {}; // the single prototype slot the death-path NPC's nr = 0 names
-};
-
-// Registers an abs_number AND records the pointer, the way
-// register_npc_char() does -- caster_snapshot::resolve() needs both halves.
-class ScopedCharExists {
-public:
-    ScopedCharExists(char_data& ch, int abs_number)
-        : m_ch(ch)
-    {
-        ch.abs_number = abs_number;
-        set_char_exists(abs_number, &ch);
-    }
-    ~ScopedCharExists() { remove_char_exists(m_ch.abs_number); }
-    ScopedCharExists(const ScopedCharExists&) = delete;
-    ScopedCharExists& operator=(const ScopedCharExists&) = delete;
-
-private:
-    char_data& m_ch; // the character whose registration this scope owns
 };
 
 // Installs a spell pointer into skills[slot] for the scope and restores
@@ -646,6 +668,7 @@ TEST(RoomAffectTick, PoisonTickRecordsTheResolvedCasterAsPoisoner)
     char_data occupant {};
     char_prof_data occupant_profs {};
     make_weak_occupant(occupant, occupant_profs, 500);
+    test_support::ScopedAffectCleanup occupant_affects(occupant);
 
     CasterFixture caster(0, 10, game_types::PS_None, kPoisonRoom);
     ScopedCharExists caster_registration(caster.ch, kCasterASlot);
@@ -661,10 +684,6 @@ TEST(RoomAffectTick, PoisonTickRecordsTheResolvedCasterAsPoisoner)
     // duration = get_mystic_caster_level(who) + 1 = (cleric_prof 10 + wil 25/5) + 1 = 16, entirely
     // from the RECORDED caster -- the occupant's own cleric_prof/wil are both 0.
     EXPECT_EQ(poison->duration, 16);
-
-    while (occupant.affected) {
-        affect_remove(&occupant, occupant.affected);
-    }
 }
 
 TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRecordsNoPoisoner)
@@ -675,6 +694,7 @@ TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRe
     char_data occupant {};
     char_prof_data occupant_profs {};
     make_weak_occupant(occupant, occupant_profs, 500);
+    test_support::ScopedAffectCleanup occupant_affects(occupant);
 
     affected_type affect = dummy_affect();
     room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
@@ -691,10 +711,6 @@ TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRe
     // (wil = 0), so get_mystic_caster_level() = 1 + 0 = 1, and duration = 1 + 1 = 2 -- still the
     // OCCUPANT's own (weak) stats standing in, matching the historical self-re-cast shape.
     EXPECT_EQ(poison->duration, 2);
-
-    while (occupant.affected) {
-        affect_remove(&occupant, occupant.affected);
-    }
 }
 
 TEST(RoomAffectTick, PoisonTickWithAnExplicitNoneRecordRecordsNoPoisoner)
@@ -705,6 +721,7 @@ TEST(RoomAffectTick, PoisonTickWithAnExplicitNoneRecordRecordsNoPoisoner)
     char_data occupant {};
     char_prof_data occupant_profs {};
     make_weak_occupant(occupant, occupant_profs, 500);
+    test_support::ScopedAffectCleanup occupant_affects(occupant);
 
     affected_type affect = dummy_affect();
     room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
@@ -712,10 +729,6 @@ TEST(RoomAffectTick, PoisonTickWithAnExplicitNoneRecordRecordsNoPoisoner)
     EXPECT_EQ(resolve_poisoner(occupant), nullptr)
         << "an explicit caster_snapshot::none() record must credit nobody, exactly like no record "
            "at all";
-
-    while (occupant.affected) {
-        affect_remove(&occupant, occupant.affected);
-    }
 }
 
 TEST(RoomAffectTick, PoisonTickSavedArmMessagesTheOccupantAndThePresentCaster)
@@ -805,8 +818,7 @@ TEST(RoomAffectTick, PoisonTickSavedArmSendsTheVictimLineDirectlyWhenThereIsNoCa
 
     const std::string occupant_output = occupant_descriptor.output;
     EXPECT_NE(occupant_output.find("fend off the poison"), std::string::npos)
-        << "with no caster to anchor act() on, the victim-facing line must still be delivered "
-           "directly: "
+        << "with no caster recorded, the victim-facing line must still be delivered directly: "
         << occupant_output;
 }
 
@@ -855,6 +867,7 @@ TEST(RoomAffectTick, HazeTickAppliesFromTheSnapshotLevelPlusTheIllusionBonus)
     char_data occupant {};
     char_prof_data occupant_profs {};
     make_weak_occupant(occupant, occupant_profs, 500);
+    test_support::ScopedAffectCleanup occupant_affects(occupant);
     occupant.specials2.perception = 0; // saves_mystic() defense = 0
 
     CasterFixture caster(0, 10, game_types::PS_Illusion, kHazeRoom);
@@ -871,10 +884,6 @@ TEST(RoomAffectTick, HazeTickAppliesFromTheSnapshotLevelPlusTheIllusionBonus)
     // level = get_mystic_caster_level(who) + 6 (Illusion) = (10 + 25/5) + 6 = 21, entirely from
     // the RECORDED caster -- the occupant carries no mystic levels of its own.
     EXPECT_EQ(haze->modifier, 21);
-
-    while (occupant.affected) {
-        affect_remove(&occupant, occupant.affected);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1156,6 +1165,7 @@ TEST(RoomAffectTick, AffectUpdateRoomNeverFallsBackForASpellItOwns)
     char_data occupant {};
     char_prof_data occupant_profs {};
     make_weak_occupant(occupant, occupant_profs, 500);
+    test_support::ScopedAffectCleanup occupant_affects(occupant);
     occupant.specials2.perception = 0;
     occupant.in_room = kNoFallbackRoom;
     room.room()->people = &occupant;
@@ -1184,10 +1194,6 @@ TEST(RoomAffectTick, AffectUpdateRoomNeverFallsBackForASpellItOwns)
         << "room_affect_tick() handles SPELL_HAZE, so the fallback re-cast must never fire";
     EXPECT_NE(affected_by_spell(&occupant, SPELL_HAZE), nullptr)
         << "the real tick must still have run and applied haze to the occupant";
-
-    while (occupant.affected) {
-        affect_remove(&occupant, occupant.affected);
-    }
 }
 
 // Change #3: a mist that MOVES keeps its recorded caster, and the (freed)

@@ -1214,9 +1214,9 @@ TEST(ActWiz, WhoAcctFormatsLongFieldsIntoStableColumns)
 // does not carry a stale vnum over from the entry printed just before it.
 TEST(ActWiz, StatRoomSkipsPrototypeVnumForPrototypelessObject)
 {
-    constexpr int kRoomNumber = 991; // unclaimed world[] slot in this binary; highest reserved
-                                      // below the 1024-room world.create_bulk() size is 990
-                                      // (room_affect_tick_tests.cpp).
+    constexpr int kRoomNumber = 991; // a world[] slot no other suite writes in this binary;
+                                      // room_affect_tick_tests.cpp uses 960-1001 only as
+                                      // in_room values (its fixtures sit at world[0-7]).
     ScopedStatRoomZone zone_scope(kRoomNumber / 100);
     ScopedStatRoomObjIndex obj_index_scope(1234);
     ScopedStatRoomRoomState room_state(kRoomNumber);

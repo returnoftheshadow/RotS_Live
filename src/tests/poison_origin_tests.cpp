@@ -24,7 +24,10 @@
 #include "../handler.h"
 #include "../spells.h"
 #include "../structs.h"
+#include "test_character_support.h"
 #include <gtest/gtest.h>
+
+using test_support::ScopedCharExists;
 
 namespace {
 
@@ -35,25 +38,6 @@ namespace {
 // caster_snapshot_tests.cpp: MAX_CHARACTERS - 401; char_utils_tests.cpp:
 // MAX_CHARACTERS - 17/-18).
 constexpr int kPoisonerSlot = MAX_CHARACTERS - 601;
-
-// RAII registration matching affect_update_tests.cpp's ScopedCharExists: the
-// two-argument set_char_exists() overload records the pointer
-// char_by_abs_number() -- and therefore resolve_poisoner() -- hands back.
-class ScopedCharExists {
-public:
-    ScopedCharExists(char_data& ch, int abs_number)
-        : m_ch(ch)
-    {
-        ch.abs_number = abs_number;
-        set_char_exists(abs_number, &ch);
-    }
-    ~ScopedCharExists() { remove_char_exists(m_ch.abs_number); }
-    ScopedCharExists(const ScopedCharExists&) = delete;
-    ScopedCharExists& operator=(const ScopedCharExists&) = delete;
-
-private:
-    char_data& m_ch; // the character whose registration this scope owns
-};
 
 // A minimal, stack-local NPC good enough to run affect_to_char()/
 // affect_remove() -- profs pointer, race, and position, mirroring

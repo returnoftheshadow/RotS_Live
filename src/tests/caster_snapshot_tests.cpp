@@ -5,6 +5,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../warrior_spec_handlers.h"
+#include "test_character_support.h"
 #include "test_random_utils.h"
 #include <cstring>
 #include <gtest/gtest.h>
@@ -88,10 +89,8 @@ TEST(CasterSnapshot, ResolveRequiresTheSameRegisteredCharacter)
 {
     CasterSnapshotTestContext context;
     const int slot = MAX_CHARACTERS - 401;
-    remove_char_exists(slot); // defensive: ensure the slot starts clean
-    context.character.abs_number = slot;
 
-    set_char_exists(slot, &context.character);
+    test_support::ScopedCharExists registration(context.character, slot);
     const caster_snapshot snap = caster_snapshot::capture(context.character);
     EXPECT_EQ(snap.resolve(), &context.character);
 
@@ -108,8 +107,6 @@ TEST(CasterSnapshot, ResolveRequiresTheSameRegisteredCharacter)
     other_context.character.abs_number = slot;
     set_char_exists(slot, &other_context.character);
     EXPECT_EQ(snap.resolve(), nullptr);
-
-    remove_char_exists(slot); // restore: leave the slot unregistered
 }
 
 // Pin: the slot is recycled to a character allocated at the SAME address --
@@ -121,10 +118,8 @@ TEST(CasterSnapshot, ResolveRejectsTheSameSlotAndAddressOnceReRegistered)
 {
     CasterSnapshotTestContext context;
     const int slot = MAX_CHARACTERS - 402;
-    remove_char_exists(slot);
-    context.character.abs_number = slot;
 
-    set_char_exists(slot, &context.character);
+    test_support::ScopedCharExists registration(context.character, slot);
     const caster_snapshot snap = caster_snapshot::capture(context.character);
     ASSERT_EQ(snap.resolve(), &context.character);
     EXPECT_TRUE(snap.same_character_as(context.character));
@@ -137,8 +132,6 @@ TEST(CasterSnapshot, ResolveRejectsTheSameSlotAndAddressOnceReRegistered)
 
     EXPECT_EQ(snap.resolve(), nullptr) << "a re-registration is a different character, whatever its address";
     EXPECT_FALSE(snap.same_character_as(context.character));
-
-    remove_char_exists(slot);
 }
 
 TEST(CasterSnapshot, SameCharacterAsRequiresPointerAndNumberToMatch)

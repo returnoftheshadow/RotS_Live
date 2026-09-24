@@ -60,8 +60,8 @@ void ensure_test_world(int minimum_room_number)
 }
 
 // Room number this file claims within the shared test-binary world[] -- an out-of-band value
-// distinct from every other suite's claimed rooms (fight_credit_tests.cpp: 900-907;
-// room_affect_caster_tests.cpp: 950-953; room_affect_tick_tests.cpp: 962-990;
+// distinct from every other suite's claimed rooms (fight_credit_tests.cpp: 900-908;
+// room_affect_caster_tests.cpp: 950-953; room_affect_tick_tests.cpp: in_room values 960-1001;
 // summon_targeting_tests.cpp: 1000-1001). It must stay below the 1024 rooms gtest_main.cpp
 // allocates: world[] quietly maps any room past the allocation onto world[0].
 constexpr int kXpFormulaRoom = 1010;

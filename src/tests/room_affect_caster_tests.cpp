@@ -33,7 +33,7 @@ void ensure_test_world(int minimum_room_number)
 // Room numbers this file claims within the shared test-binary `world[]` --
 // high, out-of-band values distinct from the other suites' rooms
 // (affect_update_tests.cpp: 27/28; mage_tests.cpp: up to 32;
-// fight_credit_tests.cpp: 900-903; interpre_account_menu_tests.cpp/
+// fight_credit_tests.cpp: 900-908; interpre_account_menu_tests.cpp/
 // spell_pa_tests.cpp/db_loader_tests.cpp: 1200/3001/3002).
 constexpr int kFirstRoom = 950;
 constexpr int kSecondRoom = 951;
