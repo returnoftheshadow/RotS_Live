@@ -81,10 +81,14 @@ its run directory. CI sets `ROTS_IT_KEEP=1` and uploads every run directory as t
 
 ## Shared Docker lock
 
-Only one integration run can use the shared Docker host at a time. The launcher checks
-`/tmp/rots-docker-lock` (see `/tmp/rots-docker-lock/README.txt`) and refuses to start while
-any other `*.lock` file is present there. A successful start writes its own
-`uaf-port-harness-it.lock`, removed when the run finishes.
+Only one integration run can use the shared Docker host at a time. Under the docker
+launcher, each pytest session takes one lock in `/tmp/rots-docker-lock` (see
+`/tmp/rots-docker-lock/README.txt`; `ROTS_IT_DOCKER_LOCK_DIR` overrides the directory) before
+its first server starts, and holds it until the session ends, so no other job can use the
+host between two tests. The lock file is named `harness-it-<pid>-<id>.lock`, unique to the
+session, and is created atomically, so two sessions starting at once cannot both take it.
+The session refuses to start while any other `*.lock` file is present, including another
+harness session's, and fails if the lock directory is missing rather than run unlocked.
 
 ## Run output
 

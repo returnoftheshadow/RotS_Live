@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LOOPBACK = "127.0.0.1"
-LOCK_FILE_NAME = "uaf-port-harness-it.lock"
+LOCK_FILE_PREFIX = "harness-it"
 DEFAULT_LOCK_DIR = Path("/tmp/rots-docker-lock")
 
 # Host variables the local launcher forwards to the server. Everything else is dropped on
@@ -134,14 +134,52 @@ class LocalProcessLauncher(ServerLauncher):
         terminate_process(handle.process)
 
 
+class DockerLock:
+    """One lock file per pytest session in the shared lock directory, named uniquely so two
+    harness sessions on one host see each other, created atomically so a race cannot let both
+    in, and held for the whole session so another job cannot slip in between two tests."""
+
+    def __init__(self, lock_dir: Path | None) -> None:
+        self._lock_dir = lock_dir  # None disables locking (unit tests, the local launcher)
+        self._lock_path: Path | None = None  # our own file while held
+
+    @property
+    def path(self) -> Path | None:
+        return self._lock_path
+
+    def acquire(self, purpose: str) -> None:
+        if self._lock_dir is None:
+            return
+        if not self._lock_dir.is_dir():
+            raise RuntimeError(f"Docker lock directory {self._lock_dir} is missing; create it (see tests/integration/README.md, Shared Docker lock)")
+        others = sorted(path.name for path in self._lock_dir.glob("*.lock"))
+        if others:
+            raise DockerLockHeld(f"another session holds the Docker lock ({', '.join(others)}); see tests/integration/README.md")
+        candidate = self._lock_dir / f"{LOCK_FILE_PREFIX}-{os.getpid()}-{uuid.uuid4().hex[:8]}.lock"
+        started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        body = f"session: {LOCK_FILE_PREFIX}\npid: {os.getpid()}\npurpose: {purpose}\nstart: {started}\nduration: 30m\n"
+        try:
+            with candidate.open("x", encoding="utf-8") as handle:  # O_EXCL: never overwrites
+                handle.write(body)
+        except FileExistsError as collision:
+            raise DockerLockHeld(f"lock name collision on {candidate.name}") from collision
+        self._lock_path = candidate
+
+    def release(self) -> None:
+        if self._lock_path is not None:
+            try:
+                self._lock_path.unlink()
+            except FileNotFoundError:
+                pass
+        self._lock_path = None
+
+
 class DockerComposeLauncher(ServerLauncher):
-    def __init__(self, repo_root: Path, binary_relative: str = "bin/ageland", lock_dir: Path | None = DEFAULT_LOCK_DIR, service: str = "rots", startup_timeout: float = 300.0) -> None:
+    def __init__(self, repo_root: Path, binary_relative: str = "bin/ageland", service: str = "rots", startup_timeout: float = 300.0) -> None:
         self._repo_root = repo_root
         self._binary_relative = binary_relative
-        self._lock_dir = lock_dir
         self._service = service
         self._startup_timeout = startup_timeout
-        self._lock_path: Path | None = None
 
     def container_path(self, host_path: Path) -> str:
         relative = host_path.resolve().relative_to(self._repo_root.resolve())
@@ -157,27 +195,7 @@ class DockerComposeLauncher(ServerLauncher):
             self._service, "bash", "-lc", script,
         ]
 
-    def acquire_lock(self, purpose: str) -> None:
-        if self._lock_dir is None or not self._lock_dir.is_dir():
-            return
-        others = [path for path in self._lock_dir.glob("*.lock") if path.name != LOCK_FILE_NAME]
-        if others:
-            names = ", ".join(path.name for path in others)
-            raise DockerLockHeld(f"another session holds the Docker lock ({names}); see {self._lock_dir / 'README.txt'}")
-        self._lock_path = self._lock_dir / LOCK_FILE_NAME
-        started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._lock_path.write_text(
-            f"session: uaf-port-harness-it\nrepo: {self._repo_root}\nservice: {self._service}\npurpose: {purpose}\nstart: {started}\nduration: 30m\n",
-            encoding="utf-8",
-        )
-
-    def release_lock(self) -> None:
-        if self._lock_path is not None and self._lock_path.exists():
-            self._lock_path.unlink()
-        self._lock_path = None
-
     def start(self, run_dir: Path, lib_dir: Path, port: int, seed: int) -> ServerHandle:
-        self.acquire_lock(purpose="integration test server")
         process: subprocess.Popen | None = None
         try:
             container_name = f"rots-it-{uuid.uuid4().hex[:12]}"
@@ -198,7 +216,6 @@ class DockerComposeLauncher(ServerLauncher):
                 pass
             if process is not None:
                 terminate_process(process)
-            self.release_lock()
             raise
 
     def _wait_for_published_port(self, container_name: str, container_port: int, process: subprocess.Popen, log_path: Path) -> int:
@@ -217,16 +234,13 @@ class DockerComposeLauncher(ServerLauncher):
         raise RuntimeError(f"container {container_name} never published port {container_port}; log tail:\n{read_log_tail(log_path)}")
 
     def stop(self, handle: ServerHandle) -> None:
-        try:
-            if handle.container_name:
-                try:
-                    subprocess.run(["docker", "stop", "-t", "5", handle.container_name], capture_output=True, timeout=15)
-                except subprocess.TimeoutExpired:
-                    pass
-            if handle.is_alive():
-                try:
-                    handle.process.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    handle.process.kill()
-        finally:
-            self.release_lock()
+        if handle.container_name:
+            try:
+                subprocess.run(["docker", "stop", "-t", "5", handle.container_name], capture_output=True, timeout=15)
+            except subprocess.TimeoutExpired:
+                pass
+        if handle.is_alive():
+            try:
+                handle.process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                handle.process.kill()

@@ -17,7 +17,7 @@ def test_local_launcher_builds_the_server_command(tmp_path: Path) -> None:
 def test_docker_launcher_maps_run_dir_into_the_container_and_publishes_a_random_port(tmp_path: Path) -> None:
     repo_root = tmp_path
     run_dir = repo_root / "build" / "integration" / "abc123"
-    docker = launcher.DockerComposeLauncher(repo_root=repo_root, binary_relative="bin/ageland", lock_dir=None)
+    docker = launcher.DockerComposeLauncher(repo_root=repo_root, binary_relative="bin/ageland")
     command = docker.command(run_dir=run_dir, lib_dir=run_dir / "lib", port=4321, container_name="rots-it-abc123", seed=7)
     assert command[:5] == ["docker", "compose", "run", "--rm", "-T"]
     assert "--name" in command and command[command.index("--name") + 1] == "rots-it-abc123"
@@ -29,32 +29,57 @@ def test_docker_launcher_maps_run_dir_into_the_container_and_publishes_a_random_
     assert "exec /rots/bin/ageland -t -d /rots/build/integration/abc123/lib 4321" in shell_script
 
 
-def test_docker_launcher_refuses_to_start_while_another_lock_exists(tmp_path: Path) -> None:
+def test_docker_lock_refuses_while_another_lock_exists(tmp_path: Path) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
     (lock_dir / "someone-else.lock").write_text("session: other\n", encoding="utf-8")
-    docker = launcher.DockerComposeLauncher(repo_root=tmp_path, binary_relative="bin/ageland", lock_dir=lock_dir)
+    lock = launcher.DockerLock(lock_dir)
     with pytest.raises(launcher.DockerLockHeld, match="someone-else.lock"):
-        docker.acquire_lock(purpose="unit test")
+        lock.acquire(purpose="unit test")
+    assert lock.path is None
+    assert sorted(path.name for path in lock_dir.iterdir()) == ["someone-else.lock"]
 
 
-def test_docker_launcher_writes_and_removes_its_own_lock(tmp_path: Path) -> None:
+def test_docker_lock_writes_a_uniquely_named_file_and_removes_it_on_release(tmp_path: Path) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
-    docker = launcher.DockerComposeLauncher(repo_root=tmp_path, binary_relative="bin/ageland", lock_dir=lock_dir)
-    docker.acquire_lock(purpose="unit test")
-    lock_path = lock_dir / launcher.LOCK_FILE_NAME
-    assert lock_path.is_file()
+    lock = launcher.DockerLock(lock_dir)
+    lock.acquire(purpose="unit test")
+    lock_path = lock.path
+    assert lock_path is not None and lock_path.is_file()
+    assert lock_path.parent == lock_dir
+    assert lock_path.name.startswith(f"{launcher.LOCK_FILE_PREFIX}-") and lock_path.name.endswith(".lock")
     assert "purpose: unit test" in lock_path.read_text(encoding="utf-8")
-    docker.release_lock()
+    lock.release()
     assert not lock_path.exists()
+    assert lock.path is None
 
 
-def test_docker_launcher_skips_the_lock_when_the_directory_is_absent(tmp_path: Path) -> None:
-    docker = launcher.DockerComposeLauncher(repo_root=tmp_path, binary_relative="bin/ageland", lock_dir=tmp_path / "missing")
-    docker.acquire_lock(purpose="unit test")  # no exception, nothing written
-    docker.release_lock()
+def test_second_docker_lock_refuses_while_the_first_is_held(tmp_path: Path) -> None:
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    first = launcher.DockerLock(lock_dir)
+    first.acquire(purpose="first session")
+    assert first.path is not None
+    second = launcher.DockerLock(lock_dir)
+    with pytest.raises(launcher.DockerLockHeld, match=first.path.name):
+        second.acquire(purpose="second session")
+    assert second.path is None
+    first.release()
+
+
+def test_docker_lock_fails_when_the_directory_is_missing(tmp_path: Path) -> None:
+    lock = launcher.DockerLock(tmp_path / "missing")
+    with pytest.raises(RuntimeError, match="missing"):
+        lock.acquire(purpose="unit test")
     assert not (tmp_path / "missing").exists()
+
+
+def test_docker_lock_without_a_directory_does_nothing() -> None:
+    lock = launcher.DockerLock(None)
+    lock.acquire(purpose="unit test")
+    assert lock.path is None
+    lock.release()
 
 
 def test_allocate_free_port_returns_a_high_port() -> None:
@@ -91,7 +116,7 @@ def test_local_launcher_kills_the_process_when_the_port_never_opens(
     assert recorded_processes[0].poll() is not None
 
 
-def test_docker_launcher_releases_the_lock_and_stops_the_container_when_start_fails(
+def test_docker_launcher_stops_the_container_when_start_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class FakeComposeProcess:
@@ -112,8 +137,6 @@ def test_docker_launcher_releases_the_lock_and_stops_the_container_when_start_fa
         def wait(self, timeout: float | None = None) -> int:
             return 0
 
-    lock_dir = tmp_path / "locks"
-    lock_dir.mkdir()
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     lib_dir = run_dir / "lib"
@@ -129,11 +152,9 @@ def test_docker_launcher_releases_the_lock_and_stops_the_container_when_start_fa
     monkeypatch.setattr(launcher.subprocess, "Popen", lambda *args, **kwargs: fake_process)
     monkeypatch.setattr(launcher.subprocess, "run", fake_run)
 
-    docker = launcher.DockerComposeLauncher(repo_root=tmp_path, binary_relative="bin/ageland", lock_dir=lock_dir, startup_timeout=0.2)
+    docker = launcher.DockerComposeLauncher(repo_root=tmp_path, binary_relative="bin/ageland", startup_timeout=0.2)
     with pytest.raises(RuntimeError):
         docker.start(run_dir, lib_dir, port=4321, seed=1)
-
-    assert not (lock_dir / launcher.LOCK_FILE_NAME).exists()
 
     stop_calls = [argv for argv in recorded_argv if argv[:4] == ["docker", "stop", "-t", "5"]]
     assert len(stop_calls) == 1

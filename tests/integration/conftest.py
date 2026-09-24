@@ -11,7 +11,7 @@ import pytest
 
 from rots_harness import fixtures
 from rots_harness.crashmonitor import CrashMonitor
-from rots_harness.launcher import DEFAULT_LOCK_DIR, DockerComposeLauncher, LocalProcessLauncher, ServerHandle, ServerLauncher, allocate_free_port
+from rots_harness.launcher import DEFAULT_LOCK_DIR, DockerComposeLauncher, DockerLock, LocalProcessLauncher, ServerHandle, ServerLauncher, allocate_free_port
 from rots_harness.libbuilder import RunLibBuilder
 from rots_harness.retention import keep_run_directory
 from rots_harness.session import GameSession, Transcript
@@ -45,13 +45,28 @@ def choose_launcher() -> ServerLauncher:
     if mode == "local":
         return LocalProcessLauncher(REPO_ROOT / binary_relative)
     if mode == "docker":
-        lock_dir = Path(os.environ["ROTS_IT_DOCKER_LOCK_DIR"]) if "ROTS_IT_DOCKER_LOCK_DIR" in os.environ else DEFAULT_LOCK_DIR
-        return DockerComposeLauncher(REPO_ROOT, binary_relative, lock_dir)
+        return DockerComposeLauncher(REPO_ROOT, binary_relative)
     raise RuntimeError(f"ROTS_IT_LAUNCHER must be 'local' or 'docker', not {mode!r}")
 
 
+@pytest.fixture(scope="session")
+def docker_lock():
+    """Held for the whole pytest session when the docker launcher is in use."""
+    mode = os.environ.get("ROTS_IT_LAUNCHER") or ("local" if platform.system() == "Linux" else "docker")
+    if mode != "docker":
+        yield None
+        return
+    lock_dir = Path(os.environ["ROTS_IT_DOCKER_LOCK_DIR"]) if "ROTS_IT_DOCKER_LOCK_DIR" in os.environ else DEFAULT_LOCK_DIR
+    lock = DockerLock(lock_dir)
+    lock.acquire(purpose="integration test session")
+    try:
+        yield lock
+    finally:
+        lock.release()
+
+
 @pytest.fixture  # each test gets a fresh server: no command reliably strips a room affect, so isolation is by reboot
-def server(request: pytest.FixtureRequest) -> HarnessServer:
+def server(request: pytest.FixtureRequest, docker_lock: DockerLock | None) -> HarnessServer:  # docker_lock: requested only so the session lock is held first
     run_dir = REPO_ROOT / "build" / "integration" / uuid.uuid4().hex[:12]
     run_dir.mkdir(parents=True)
     try:
