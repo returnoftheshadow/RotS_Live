@@ -884,7 +884,8 @@ void death_cry(struct char_data* ch)
 // nullptr, and so does one whose abs_number has since been recycled by a
 // different mob. This is caster_snapshot::resolve()'s shape, for the same
 // reason (see its own comment and handler.h's char_by_abs_number()); the
-// pointer serves purely as an identity token to compare against.
+// pointer serves purely as an identity token to compare against. A poisoner
+// parked at the character menu fails character_in_game() and resolves to nullptr.
 char_data* resolve_poisoner(const char_data& victim)
 {
     const int number = victim.specials.poisoned_by_abs_number;
@@ -893,7 +894,7 @@ char_data* resolve_poisoner(const char_data& victim)
         return nullptr;
     }
     char_data* live = char_by_abs_number(number);
-    if (live != nullptr && live == ptr && live->registration_serial == victim.specials.poisoned_by_serial) {
+    if (live != nullptr && live == ptr && live->registration_serial == victim.specials.poisoned_by_serial && character_in_game(live)) {
         return live;
     }
     return nullptr;

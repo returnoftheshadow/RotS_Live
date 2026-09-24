@@ -267,6 +267,11 @@ void remove_char_exists(int num);
 // recorded abs_number back into a character without dereferencing a possibly
 // stale pointer.
 struct char_data* char_by_abs_number(int num);
+// Whether `character` is in the game world: in a room. A player who quit sits at the
+// character menu with its registration intact until the socket closes, but extract_char()
+// took it out of its room first; a linkless body and a respawned player keep their room.
+// Credit and attribution resolvers require this, so a parked character is never credited.
+bool character_in_game(const struct char_data* character);
 int register_npc_char(struct char_data*);
 int register_pc_char(struct char_data*);
 

@@ -4575,7 +4575,9 @@ void write_exploits(char_data* ch, exploit_record* record)
         // state-changing event. Persist the character immediately after the CONFIRMED write so a crash
         // before the next autosave snapshot cannot roll the event back. Gated on the successful write
         // only -- not the orphaned-account early return above, nor a logged write failure.
-        save_char(ch, NOWHERE, 0);
+        // A recipient outside any room (parked at the menu) keeps the load room its quit saved;
+        // NOWHERE would let save_char() write -1.
+        save_char(ch, character_in_game(ch) ? NOWHERE : ch->specials2.load_room, 0);
     }
 }
 

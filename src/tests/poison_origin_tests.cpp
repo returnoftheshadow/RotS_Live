@@ -84,6 +84,26 @@ TEST(PoisonOrigin, RecordAndResolveRoundTrip)
     EXPECT_EQ(resolve_poisoner(victim), &poisoner);
 }
 
+// A poisoner parked at the character menu after a quit keeps its registration until the
+// socket closes, but extract_char() has already taken it out of its room. It is not in the
+// game, so it must not be credited for the poison meanwhile.
+TEST(PoisonOrigin, ResolveRejectsAPoisonerParkedOutsideAnyRoom)
+{
+    char_data poisoner {};
+    poisoner.in_room = 7;
+    ScopedCharExists poisoner_exists { poisoner, kPoisonerSlot };
+
+    char_data victim {};
+    record_poison_origin(&victim, &poisoner);
+    ASSERT_EQ(resolve_poisoner(victim), &poisoner);
+
+    poisoner.in_room = NOWHERE;
+    EXPECT_EQ(resolve_poisoner(victim), nullptr) << "a parked poisoner is out of the game";
+
+    poisoner.in_room = 7;
+    EXPECT_EQ(resolve_poisoner(victim), &poisoner) << "back in a room, it resolves again";
+}
+
 TEST(PoisonOrigin, ResolveReturnsNullptrAfterThePoisonerIsExtracted)
 {
     char_data poisoner {};
@@ -94,8 +114,9 @@ TEST(PoisonOrigin, ResolveReturnsNullptrAfterThePoisonerIsExtracted)
     record_poison_origin(&victim, &poisoner);
     ASSERT_EQ(resolve_poisoner(victim), &poisoner);
 
-    // The poisoner was extracted: remove_char_exists() is exactly what
-    // extract_char()'s NPC/PC arms do to a freed character's slot.
+    // The poisoner was extracted: remove_char_exists() is what extract_char() does for a mob
+    // and for a player whose socket is gone. A player parked at the menu keeps its slot and is
+    // rejected by character_in_game() instead.
     remove_char_exists(kPoisonerSlot);
 
     EXPECT_EQ(resolve_poisoner(victim), nullptr)

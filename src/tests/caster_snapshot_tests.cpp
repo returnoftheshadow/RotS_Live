@@ -109,6 +109,26 @@ TEST(CasterSnapshot, ResolveRequiresTheSameRegisteredCharacter)
     EXPECT_EQ(snap.resolve(), nullptr);
 }
 
+// A character parked at the character menu after a quit keeps its registration until the
+// socket closes, but extract_char() has already taken it out of its room. It is not in the
+// game, so it must not be credited for anything its affects do meanwhile.
+TEST(CasterSnapshot, ResolveRejectsACharacterParkedOutsideAnyRoom)
+{
+    CasterSnapshotTestContext context;
+    const int slot = MAX_CHARACTERS - 401;
+    context.character.in_room = 7;
+
+    test_support::ScopedCharExists registration(context.character, slot);
+    const caster_snapshot snap = caster_snapshot::capture(context.character);
+    ASSERT_EQ(snap.resolve(), &context.character);
+
+    context.character.in_room = NOWHERE;
+    EXPECT_EQ(snap.resolve(), nullptr) << "a parked character is out of the game";
+
+    context.character.in_room = 7;
+    EXPECT_EQ(snap.resolve(), &context.character) << "back in a room, it resolves again";
+}
+
 // Pin: the slot is recycled to a character allocated at the SAME address --
 // the case pointer-plus-number identity cannot see. register_npc_char()'s
 // cursor wraps back to a freed slot and the allocator reuses the freed block,

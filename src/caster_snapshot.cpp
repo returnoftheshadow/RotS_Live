@@ -71,7 +71,7 @@ char_data* caster_snapshot::resolve() const
         return nullptr;
     }
     char_data* live = char_by_abs_number(abs_number);
-    if (live != nullptr && live == identity_ptr && live->registration_serial == identity_serial) {
+    if (live != nullptr && live == identity_ptr && live->registration_serial == identity_serial && character_in_game(live)) {
         return live;
     }
     return nullptr;

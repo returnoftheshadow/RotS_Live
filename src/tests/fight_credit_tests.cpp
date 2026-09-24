@@ -474,8 +474,9 @@ TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
 {
     ScopedMobIndex prototype_table;
     RoomGuard room_guard(kPoisonRoom);
+    RoomGuard poisoner_room_guard(kNobodyRoom);
 
-    char poisoner_short_descr[] = "a testing poisoner, long gone";
+    char poisoner_short_descr[] = "a testing poisoner, elsewhere";
     char_data poisoner {};
     poisoner.specials2.act = MOB_ISNPC;
     poisoner.player.race = RACE_HUMAN;
@@ -484,7 +485,7 @@ TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
     poisoner.abilities.hit = 500;
     poisoner.tmpabilities.hit = 500;
     poisoner.specials.position = POSITION_STANDING;
-    poisoner.in_room = NOWHERE; // physically elsewhere (or already gone) by the time the DoT lands
+    poisoner.in_room = kNobodyRoom; // stands in a different room from the victim when the DoT lands
     poisoner.specials.fighting = nullptr;
     test_support::ScopedCharExists poisoner_registration(poisoner, kPoisonerSlot);
 

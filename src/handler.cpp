@@ -2596,6 +2596,10 @@ struct char_data* char_by_abs_number(int num)
     }
     return characters_by_abs_number[num];
 }
+bool character_in_game(const struct char_data* character)
+{
+    return character != nullptr && character->in_room != NOWHERE;
+}
 int register_npc_char(struct char_data* mob)
 {
     int i, flag;

@@ -48,8 +48,9 @@ struct caster_snapshot {
     // not merely a character that has since taken over the same abs_number.
     bool same_character_as(const char_data& ch) const;
 
-    // The captured character if it is still in the game under the same
-    // registration, else null. Never dereferences the captured pointer, so an
-    // extracted or slot-recycled caster resolves to null rather than dangling.
+    // The captured character if it is still in the game (registered under the
+    // same serial and standing in a room), else null. Never dereferences the
+    // captured pointer, so an extracted or slot-recycled caster resolves to null
+    // rather than dangling.
     char_data* resolve() const;
 };
