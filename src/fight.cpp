@@ -950,6 +950,11 @@ void offer_kill_contributor(kill_contributor_list& contributors,
     contributors.add(candidate);
 }
 
+bool is_uncredited_non_poison_tick(int attack_type, bool self_inflicted, bool credited)
+{
+    return self_inflicted && !credited && attack_type != SPELL_POISON;
+}
+
 } // namespace
 
 bool kill_contributor_list::contains(const char_data* candidate) const
@@ -994,6 +999,8 @@ kill_contributor_list kill_contributors(char_data* victim, char_data* primary)
     }
 
     char_data* const poisoner = resolve_poisoner(*victim);
+    // A recorded poisoner contributes to every death of the victim while the poison runs,
+    // whatever landed the last blow: owner ruling, 2026-09-24.
     offer_kill_contributor(contributors, victim, poisoner);
     offer_kill_contributor(contributors, victim, primary);
     return contributors;
@@ -1007,15 +1014,20 @@ bool is_real_mob(const char_data* character)
     return !MOB_FLAGGED(character, MOB_PET) && !MOB_FLAGGED(character, MOB_ORC_FRIEND);
 }
 
-death_punishment classify_pc_death(int attack_type, bool engaged_with_real_mob)
+death_punishment classify_pc_death(int attack_type, bool self_inflicted, bool credited, bool engaged_with_real_mob)
 {
-    if (attack_type != SPELL_POISON) {
-        return death_punishment::legacy;
+    if (attack_type == SPELL_POISON && self_inflicted) {
+        return engaged_with_real_mob ? death_punishment::mob_death : death_punishment::player_death;
     }
-    if (engaged_with_real_mob) {
-        return death_punishment::mob_death;
+    if (is_uncredited_non_poison_tick(attack_type, self_inflicted, credited)) {
+        return death_punishment::player_death;
     }
-    return death_punishment::player_death;
+    return death_punishment::legacy;
+}
+
+bool death_credit_falls_back_to_opponent(int attack_type, bool self_inflicted, bool credited)
+{
+    return !is_uncredited_non_poison_tick(attack_type, self_inflicted, credited);
 }
 
 // engaged_opponent is checked before the combat_list walk; the preference
@@ -1047,8 +1059,8 @@ bool death_takes_full_mob_xp_loss(const char_data* killer, death_punishment puni
 bool death_names_player_contributors(const char_data* killer)
 {
     // IS_NPC() already treats a null pointer as "not a mob"; the explicit
-    // null case documents that an uncredited death (a poison or room tick
-    // whose source is gone) still records who was fighting the victim.
+    // null case documents that a death with no killer still names the
+    // victim's contributors on the death record.
     return killer == nullptr || !IS_NPC(killer);
 }
 
@@ -1097,9 +1109,9 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
     raw_kill(dead_man, killer, attack_type, death_punishment::legacy);
 }
 
-// The punishment classification is computed once in die(); every direct
-// caller goes through the 3-arg forwarder above and keeps the killer-based
-// legacy rule.
+// The punishment classification is computed once in damage_credited() and
+// handed through die(); every direct caller goes through the 3-arg forwarder
+// above and keeps the killer-based legacy rule.
 void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_punishment punishment)
 {
     waiting_type tmpwtl;
@@ -1226,19 +1238,21 @@ int check_death_ward(struct char_data* ch)
         return FALSE;
 }
 
-// Forward declaration of the 4-arg die(); the 3-arg form forwards to it.
-void die(char_data* dead_man, char_data* killer, int attack_type, char_data* engaged_opponent);
+// Forward declaration of the 5-arg die(); the 3-arg form forwards to it.
+void die(char_data* dead_man, char_data* killer, int attack_type, char_data* engaged_mob, death_punishment punishment);
 
-// A 3-arg caller passing SPELL_POISON would always classify as unengaged.
+// A 3-arg caller (scripted deaths, a quit while mortally wounded, clerics.cpp) is a direct,
+// classified-as-legacy death with no engaged mob.
 void die(char_data* dead_man, char_data* killer, int attack_type)
 {
-    die(dead_man, killer, attack_type, nullptr);
+    die(dead_man, killer, attack_type, nullptr, death_punishment::legacy);
 }
 
-// `engaged_opponent` is the victim's own target captured before
-// stop_fighting() -- the one engagement direction a combat_list walk cannot
-// recover. Null from every caller except damage_credited()'s death branch.
-void die(char_data* dead_man, char_data* killer, int attack_type, char_data* engaged_opponent)
+// `engaged_mob` and `punishment` come from damage_credited(), the one caller that can see the
+// tick shape and the pre-fallback credit; both are read after ON_DIE, which is safe because
+// ON_DIE runs the dying character's own script and a PC never has one
+// (DbLoader.PlayerSaveRoundTripNeverCarriesAScript pins this).
+void die(char_data* dead_man, char_data* killer, int attack_type, char_data* engaged_mob, death_punishment punishment)
 {
     /* Character doesn't die if call_trigger returns FALSE */
     if (call_trigger(ON_DIE, dead_man, killer, 0) == FALSE) {
@@ -1283,17 +1297,6 @@ void die(char_data* dead_man, char_data* killer, int attack_type, char_data* eng
         raw_kill(dead_man, killer, attack_type);
         return;
     }
-
-    // Poison carveout: engagement with a real mob at the instant of death,
-    // not the credited killer, decides how a PC poison death is punished.
-    // engaged_opponent is a raw pointer read after ON_DIE. That is safe only
-    // because ON_DIE runs the dying character's own script and a PC never has
-    // one (DbLoader.PlayerSaveRoundTripNeverCarriesAScript pins this).
-    char_data* engaged_mob = nullptr;
-    if (attack_type == SPELL_POISON) {
-        engaged_mob = find_engaged_real_mob(dead_man, engaged_opponent);
-    }
-    const death_punishment punishment = classify_pc_death(attack_type, engaged_mob != nullptr);
 
     /* log mobdeaths */
     char_data* const mobdeath_mob = mobdeath_record_mob(killer, engaged_mob, punishment);
@@ -2170,9 +2173,9 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
 
     // The opponent the victim is engaged with at the instant it dies, captured
     // HERE because the stop_fighting() call on the very next line retargets or
-    // clears specials.fighting for a dead character. The credit fallback below
-    // and die()'s poison-death engagement classification both read this
-    // captured value, never the post-stop pointer.
+    // clears specials.fighting for a dead character. The credit fallback and
+    // the poison-death engagement below both read this captured value, never
+    // the post-stop pointer.
     char_data* const engaged_opponent = victim->specials.fighting;
 
     if (!AWAKE(victim))
@@ -2180,16 +2183,27 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
             stop_fighting(victim);
 
     if (GET_POS(victim) == POSITION_DEAD) {
+        // The tick shape: a room-affect tick, a poison tick, starvation or a fall hits the
+        // victim through itself. Read here because die() cannot tell a tick from a direct hit.
+        const bool self_inflicted = attacker == victim;
+        const bool credited = credited_killer != nullptr;
+        char_data* engaged_mob = nullptr;
+        if (attacktype == SPELL_POISON && self_inflicted) {
+            engaged_mob = find_engaged_real_mob(victim, engaged_opponent);
+        }
+        const death_punishment punishment = classify_pc_death(attacktype, self_inflicted, credited, engaged_mob != nullptr);
+
         // The redirect applies to a local rather than to the parameter, since
         // the parameter no longer reaches die() directly; for damage() the two
         // pointers are identical, so this block stays byte-for-byte the
         // historical one.
         char_data* killer = credited_killer;
-        // When nobody is credited -- a poison or room tick whose caster can no
-        // longer be resolved -- the death is credited to whoever the victim was
-        // fighting. A victim fighting nobody still credits nobody: this never
-        // invents a killer.
-        if (killer == nullptr && engaged_opponent != nullptr) {
+        // When nobody is credited -- a poison or room tick whose caster can no longer be
+        // resolved -- the death is credited to whoever the victim was fighting. A player
+        // victim of an uncredited non-poison tick is the exception: its gentle arm also keeps
+        // the historical record shape (the victim's contributors, no killer). An NPC victim
+        // still credits whoever was fighting it. A victim fighting nobody credits nobody.
+        if (killer == nullptr && engaged_opponent != nullptr && (IS_NPC(victim) || death_credit_falls_back_to_opponent(attacktype, self_inflicted, credited))) {
             killer = engaged_opponent;
         }
         // Redirect the attacker as the pet's master if the master is in the same room as the pet.
@@ -2199,7 +2213,7 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
             }
         }
 
-        die(victim, killer, attacktype, engaged_opponent);
+        die(victim, killer, attacktype, engaged_mob, punishment);
         return 1;
     } else {
         return 0;

@@ -73,6 +73,8 @@ void blaze_tick(const caster_snapshot& who, char_data* caster, char_data* occupa
 
     // Engaging attacker == the occupant itself (never `caster`): a tick damages,
     // it does not start a fight. Only the credit moves.
+    // The credit follows the caster even when the occupant is a same-side
+    // groupmate: owner ruling, 2026-09-24.
     apply_spell_damage_credited(who, occupant, occupant, caster, dam, SPELL_BLAZE, 0);
 }
 

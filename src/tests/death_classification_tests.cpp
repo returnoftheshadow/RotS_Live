@@ -67,20 +67,50 @@ TEST(IsRealMob, PlainNpcIsARealMob)
     EXPECT_TRUE(is_real_mob(&mob));
 }
 
-TEST(ClassifyPcDeath, NonPoisonIsLegacyRegardlessOfEngagement)
+// The tick shape is a self-inflicted hit (attacker == victim). A tick whose caster no longer
+// resolves credits nobody, and that uncredited tick death takes the gentle arm the historical
+// self-credit gave it. A credited tick (a caster that still resolves, player or mob) and every
+// direct hit stay on the legacy arm, where the credited killer decides.
+TEST(ClassifyPcDeath, UncreditedSelfInflictedNonPoisonDeathIsAPlayerDeath)
 {
-    EXPECT_EQ(classify_pc_death(TYPE_HIT, true), death_punishment::legacy);
-    EXPECT_EQ(classify_pc_death(TYPE_HIT, false), death_punishment::legacy);
-    EXPECT_EQ(classify_pc_death(TYPE_UNDEFINED, true), death_punishment::legacy);
-    EXPECT_EQ(classify_pc_death(TYPE_UNDEFINED, false), death_punishment::legacy);
-    EXPECT_EQ(classify_pc_death(SPELL_BLAZE, true), death_punishment::legacy)
-        << "room-affect damage ticks are outside the carveout";
+    EXPECT_EQ(classify_pc_death(SPELL_BLAZE, true, false, false), death_punishment::player_death);
+    EXPECT_EQ(classify_pc_death(SPELL_BLAZE, true, false, true), death_punishment::player_death)
+        << "an engaged mob does not turn an uncredited tick into a mob death";
+    EXPECT_EQ(classify_pc_death(TYPE_SUFFERING, true, false, true), death_punishment::player_death);
 }
 
-TEST(ClassifyPcDeath, PoisonEngagedIsMobDeathUnengagedIsPlayerDeath)
+TEST(ClassifyPcDeath, CreditedOrDirectNonPoisonDeathIsLegacy)
 {
-    EXPECT_EQ(classify_pc_death(SPELL_POISON, true), death_punishment::mob_death);
-    EXPECT_EQ(classify_pc_death(SPELL_POISON, false), death_punishment::player_death);
+    EXPECT_EQ(classify_pc_death(SPELL_BLAZE, true, true, false), death_punishment::legacy)
+        << "a tick whose caster still resolves is the caster's kill";
+    EXPECT_EQ(classify_pc_death(TYPE_HIT, false, true, true), death_punishment::legacy);
+    EXPECT_EQ(classify_pc_death(TYPE_HIT, false, false, false), death_punishment::legacy);
+    EXPECT_EQ(classify_pc_death(TYPE_UNDEFINED, false, false, true), death_punishment::legacy)
+        << "a scripted death with no killer keeps its historical arm";
+}
+
+TEST(ClassifyPcDeath, PoisonTickEngagedIsMobDeathUnengagedIsPlayerDeath)
+{
+    EXPECT_EQ(classify_pc_death(SPELL_POISON, true, true, true), death_punishment::mob_death);
+    EXPECT_EQ(classify_pc_death(SPELL_POISON, true, false, true), death_punishment::mob_death);
+    EXPECT_EQ(classify_pc_death(SPELL_POISON, true, true, false), death_punishment::player_death);
+    EXPECT_EQ(classify_pc_death(SPELL_POISON, true, false, false), death_punishment::player_death);
+}
+
+TEST(ClassifyPcDeath, DirectPoisonHitIsLegacySoItsSourceDecides)
+{
+    EXPECT_EQ(classify_pc_death(SPELL_POISON, false, true, true), death_punishment::legacy);
+    EXPECT_EQ(classify_pc_death(SPELL_POISON, false, true, false), death_punishment::legacy);
+}
+
+TEST(DeathCreditFallsBackToOpponent, OnlyAnUncreditedNonPoisonTickKeepsNobody)
+{
+    EXPECT_FALSE(death_credit_falls_back_to_opponent(SPELL_BLAZE, true, false));
+    EXPECT_FALSE(death_credit_falls_back_to_opponent(TYPE_SUFFERING, true, false));
+    EXPECT_TRUE(death_credit_falls_back_to_opponent(SPELL_POISON, true, false))
+        << "the poison carveout needs the engaged mob on the record";
+    EXPECT_TRUE(death_credit_falls_back_to_opponent(TYPE_HIT, false, false));
+    EXPECT_TRUE(death_credit_falls_back_to_opponent(SPELL_BLAZE, true, true));
 }
 
 TEST(FindEngagedRealMob, EngagedOpponentRealMobIsFound)

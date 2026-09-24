@@ -205,9 +205,19 @@ enum class death_punishment {
 // Null and players answer false.
 bool is_real_mob(const struct char_data* character);
 
-// Only SPELL_POISON classifies away from legacy; engagement with a real mob
-// then decides mob_death vs player_death regardless of the poison's source.
-death_punishment classify_pc_death(int attack_type, bool engaged_with_real_mob);
+// Punishment class for a player character's death. `self_inflicted` is the tick shape
+// (attacker == victim: a room-affect tick, a poison tick, starvation, a fall); `credited` says
+// whether anybody was credited before the engaged-opponent fallback. A self-inflicted poison
+// death is decided by engagement with a real mob. Any other self-inflicted death that credits
+// nobody (a tick whose caster no longer resolves, a builder-placed affect) takes the gentle
+// arm the historical self-credit gave it. Everything else, including every direct hit, is
+// legacy: the credited killer decides.
+death_punishment classify_pc_death(int attack_type, bool self_inflicted, bool credited, bool engaged_with_real_mob);
+// Whether an uncredited death may be credited to whoever the victim was fighting. False only
+// for the uncredited non-poison tick above, so its death record still names the victim's
+// contributors instead of turning the engaged mob into the killer. It answers for
+// player-character victims; an NPC victim always falls back.
+bool death_credit_falls_back_to_opponent(int attack_type, bool self_inflicted, bool credited);
 
 // The real mob counted as engaged with `victim` at the instant of death, or
 // null. `engaged_opponent` must be captured before stop_fighting() runs;
