@@ -4857,6 +4857,23 @@ void set_exploit_record_writer_for_testing(ExploitRecordWriterFn writer)
     exploit_record_writer_override = writer;
 }
 
+namespace {
+
+// The character a kill record credits for `contributor`: a pet or orc-friend
+// is credited as its master wherever the master stands, as the exploit walks
+// did before kill_contributors(), whose own redirect needs the master in the
+// same room.
+char_data* exploit_record_credit(char_data* contributor)
+{
+    const bool is_pet_or_orc_friend = MOB_FLAGGED(contributor, MOB_PET) || MOB_FLAGGED(contributor, MOB_ORC_FRIEND);
+    if (IS_NPC(contributor) && is_pet_or_orc_friend && contributor->master != nullptr) {
+        return contributor->master;
+    }
+    return contributor;
+}
+
+} // namespace
+
 void add_exploit_record(int recordtype, char_data* victim, const kill_contributor_list& contributors)
 {
     if (IS_NPC(victim) || (GET_LEVEL(victim) >= LEVEL_IMMORT)) {
@@ -4871,14 +4888,21 @@ void add_exploit_record(int recordtype, char_data* victim, const kill_contributo
     exploit_record exploitrec {};
     stamp_exploit_record_time(&exploitrec);
 
+    // Each credited character is written once: a pet's master can also be a
+    // contributor in its own right.
+    kill_contributor_list credited;
     int death_entries_written = 0;
     for (int contributor_index = 0; contributor_index < contributors.count; ++contributor_index) {
-        char_data* contributor = contributors.entries[contributor_index];
-        // Mobs keep no history and earn no trophies (a pet or orc-friend already reached the
-        // list as its master where kill_contributors() applies that rule), and immortals never
-        // take kill credit. kill_contributors() excludes both already; this guard keeps the
-        // rule local for any hand-built list.
-        if (IS_NPC(contributor) || GET_LEVEL(contributor) >= LEVEL_IMMORT) {
+        char_data* const contributor = exploit_record_credit(contributors.entries[contributor_index]);
+        // Mobs keep no history and earn no trophies, immortals never take kill
+        // credit, and nobody is credited with their own death (their pet can
+        // be a contributor). kill_contributors() excludes the last two for
+        // list members; this guard also covers the masters
+        // exploit_record_credit() substitutes.
+        if (contributor == victim || IS_NPC(contributor) || GET_LEVEL(contributor) >= LEVEL_IMMORT) {
+            continue;
+        }
+        if (!credited.add(contributor)) {
             continue;
         }
 
