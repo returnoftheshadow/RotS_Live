@@ -25,12 +25,12 @@
 // arm could free a character out from under affect_update_room()'s occupant
 // walk.
 //
-// The saved arm's two messages are both kept, but re-aimed: the victim-facing
-// line always reaches the occupant (the old caster == victim shape suppressed
-// it outright inside act()), and the caster-facing "$N shrugs off your poison
-// with ease." is delivered only when the recorded caster is still alive AND
-// standing in this room -- otherwise there is nobody to address. See
-// poison_tick() below for the full account.
+// The saved arm's two messages are both kept: the victim-facing line is sent
+// straight to the occupant, so it always arrives (the old caster == victim
+// shape suppressed it outright inside act()), and the caster-facing "$N shrugs
+// off your poison with ease." is delivered only when the recorded caster is
+// still alive AND standing in this room -- otherwise there is nobody to
+// address. See poison_tick() below for the full account.
 
 #include "room_affect_tick.h"
 
@@ -113,21 +113,12 @@ void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occup
         // (`damage_credited(i, i, resolve_poisoner(*i), ...)`).
         damage_credited(occupant, occupant, caster, 5, SPELL_POISON, 0);
     } else {
-        // The original saved arm (mystic.cpp) sent TWO lines, both anchored on
-        // the caster: a TO_VICT line to the poisoned character and a TO_CHAR
-        // line to whoever cast it. Anchoring the first on `caster` is also
-        // what lets it through act()'s `recipient != ch` gate -- with
-        // caster == victim, which is all the old room re-cast could
-        // produce, act() suppressed the victim's own line entirely and
-        // delivered only the (self-addressed) second one. With no caster left
-        // to anchor on there is nothing for act() to render, so the line is
-        // sent directly, the way this function's other victim-facing message
-        // ("You feel very sick.") already is.
-        if (caster != nullptr) {
-            act("You feel your body fend off the poison.", TRUE, caster, 0, occupant, TO_VICT);
-        } else {
-            send_to_char("You feel your body fend off the poison.\n\r", occupant);
-        }
+        // The victim-facing line goes straight to the occupant. It carries no
+        // act() codes, and routing it through act() anchored on the caster let
+        // CAN_SEE() drop it, or render it as "glances directly at you", whenever
+        // the occupant could not see a remote or invisible caster. (The old
+        // room re-cast, with caster == victim, never showed it at all.)
+        send_to_char("You feel your body fend off the poison.\n\r", occupant);
 
         // ...and the caster-facing line only when there IS a caster to address:
         // still alive AND standing in this room. A caster who walked away, or

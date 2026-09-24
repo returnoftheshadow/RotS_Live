@@ -1510,11 +1510,14 @@ void affect_update_room(struct room_data* room)
                     // below would then read recycled storage. No tick body removes a
                     // room affect today (raw_kill() strips the DEAD CHARACTER's
                     // affects, not the room's), so this cannot fire; it is here so a
-                    // future tick that does remove one fails safe. `continue` rather
-                    // than `break`: `break` would only leave the switch and fall
-                    // straight into the very code this guards.
+                    // future tick that does remove one fails safe. `continue` would
+                    // step the loop onto `next_tmpaf`, read from the node just
+                    // returned to the pool; `break` would fall into the duration and
+                    // mist-move code below that reads the same node; nothing after
+                    // the loop needs to run for a room with no affects left, so
+                    // `return`.
                     if (!room->affected) {
-                        continue;
+                        return;
                     }
                 } else {
                     sprintf(buf2, "Attempt to cast spell %d in room %d", tmpaf->location,
@@ -1652,9 +1655,17 @@ void drop_stale_character_entry(const affected_list_entry& entry)
 
 void affect_update()
 {
-    // Reused across ticks so the per-tick snapshot allocates only on growth.
-    static std::vector<affected_list_entry> snapshot;
-    snapshot.clear();
+    int entry_count = 0;
+    for (universal_list* node = affected_list; node; node = node->next) {
+        ++entry_count;
+    }
+
+    // A local sized by the counting pass above: one allocation per tick, and a
+    // tick body that re-enters affect_update() (a death script loading mobs
+    // whose affects tick) builds its own snapshot instead of clearing this one
+    // out from under the walk below.
+    std::vector<affected_list_entry> snapshot;
+    snapshot.reserve(entry_count);
     for (universal_list* node = affected_list; node; node = node->next) {
         affected_list_entry entry {};
         entry.type = node->type;

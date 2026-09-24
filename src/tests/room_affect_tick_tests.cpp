@@ -106,6 +106,7 @@ constexpr int kMistCastMainRoom = 987;
 constexpr int kMistCastAdjacentRoom = 988;
 constexpr int kMistRenewMainRoom = 989;
 constexpr int kMistRenewAdjacentRoom = 990;
+constexpr int kPoisonSavedBlindRoom = 991;
 
 // abs_number slots this suite registers, in a band no sibling suite in the
 // monolithic runner uses (affect_update_tests: MAX_CHARACTERS - 201/-202;
@@ -794,6 +795,40 @@ TEST(RoomAffectTick, PoisonTickSavedArmSendsTheVictimLineDirectlyWhenThereIsNoCa
         << "with no caster to anchor act() on, the victim-facing line must still be delivered "
            "directly: "
         << occupant_output;
+}
+
+// The victim-facing "fend off" line reaches the occupant even when the occupant cannot
+// see the present caster: it carries no act() codes, so it must not go through act()'s
+// CAN_SEE() gate, which dropped it for a blind occupant (and can render "glances
+// directly at you" for an invisible caster).
+TEST(RoomAffectTick, PoisonTickSavedArmReachesABlindOccupantWhenTheCasterIsPresent)
+{
+    RoomFixture room(kPoisonSavedBlindRoom);
+
+    char_data occupant {};
+    char_prof_data occupant_profs {};
+    make_weak_occupant(occupant, occupant_profs, 500);
+    occupant.tmpabilities.con = 100; // defense = 500, so saves_poison()'s comparison is never zero
+    occupant.in_room = kPoisonSavedBlindRoom;
+    SET_BIT(occupant.specials.affected_by, AFF_BLIND);
+    descriptor_data occupant_descriptor = make_descriptor();
+    occupant.desc = &occupant_descriptor;
+
+    CasterFixture caster(0, 10, game_types::PS_None, kPoisonSavedBlindRoom); // same room: "present"
+    ScopedCharExists caster_registration(caster.ch, kCasterASlot);
+    descriptor_data caster_descriptor = make_descriptor();
+    caster.ch.desc = &caster_descriptor;
+    set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(caster.ch));
+
+    affected_type affect = dummy_affect();
+    queue_mid_rolls();
+    room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
+    clear_test_random_values();
+
+    const std::string occupant_output = occupant_descriptor.output;
+    EXPECT_NE(occupant_output.find("fend off the poison"), std::string::npos)
+        << "a blind occupant must still be told the poison was fended off; output was: " << occupant_output;
+    EXPECT_EQ(occupant_output.find("glances directly at you"), std::string::npos) << occupant_output;
 }
 
 // ---------------------------------------------------------------------------
