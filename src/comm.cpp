@@ -759,14 +759,17 @@ void msdp_update()
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, get_health_percent(opponent));
             MSDPSetString(desc, eMSDP_OPPONENT_NAME, GET_NAME(opponent));
             MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, std::to_string(GET_LEVEL(opponent)).c_str());
+            MSDPSetString(desc, eMSDP_OPPONENT_AGE, mob_age_message(opponent).c_str());
         } else if (opponent && utils::is_pc(*opponent)) {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, get_health_percent(opponent));
             MSDPSetString(desc, eMSDP_OPPONENT_NAME, pc_star_types[utils::get_race(*opponent)]);
             MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "???");
+            MSDPSetString(desc, eMSDP_OPPONENT_AGE, "");
         } else {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, 0);
             MSDPSetString(desc, eMSDP_OPPONENT_NAME, "");
             MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "");
+            MSDPSetString(desc, eMSDP_OPPONENT_AGE, "");
         }
 
         MSDPSetNumber(desc, eMSDP_SPIRIT, GET_SPIRIT(desc->character));

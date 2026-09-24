@@ -197,6 +197,7 @@ typedef enum {
     eMSDP_OPPONENT_HEALTH_MAX,
     eMSDP_OPPONENT_LEVEL,
     eMSDP_OPPONENT_NAME,
+    eMSDP_OPPONENT_AGE,
 
     /* World */
     eMSDP_AREA_NAME,
