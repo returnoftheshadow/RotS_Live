@@ -18,6 +18,7 @@ bool different_zone(int was_in, int to_room);
 int random_exit(int room);
 bool is_teleportation_room_valid(room_data *room);
 void apply_chilled_effect(char_data *caster, char_data *victim);
+int get_character_saving_throw(const char_data* victim);
 
 struct loclife_coord {
     int number;
@@ -35,6 +36,7 @@ extern struct index_data* mob_index;
 extern struct obj_data* object_list;
 extern struct char_data* combat_list;
 extern struct char_data* combat_next_dude;
+extern short spllog_save;
 
 namespace {
 
@@ -1365,6 +1367,21 @@ TEST_F(MageProcTest, BlazeBurstFromAMobCasterBurnsOnlyOtherSidePlayers) {
 
     EXPECT_LT(context.master.tmpabilities.hit, 500) << "a human player, on the other side";
     EXPECT_EQ(orc_player.tmpabilities.hit, 500) << "an orc player, on the orc mob's side";
+}
+
+// The burst's saving throw carries the fire/cold specialization bonus, as every later
+// blaze tick and every other mage spell does. new_saves_spell() records the save value it
+// used in spllog_save; the last occupant the burst rolls for is hostile_elf.
+TEST_F(MageProcTest, BlazeBurstSavePassesTheSpecializationBonus) {
+    RoomBlastScene scene(game_types::PS_Fire);
+
+    scene.cast_blaze();
+
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(scene.context.caster);
+    const int specialization_bonus = get_save_bonus(caster_at_cast, scene.hostile_elf, game_types::PS_Fire, game_types::PS_Cold);
+    ASSERT_EQ(specialization_bonus, -2) << "a fire-spec caster against an unspecialized victim";
+    EXPECT_EQ(spllog_save, get_character_saving_throw(&scene.hostile_elf) + specialization_bonus)
+        << "the burst must roll the victim's save with the specialization bonus applied";
 }
 
 namespace {

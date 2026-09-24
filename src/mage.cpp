@@ -2378,7 +2378,8 @@ ASPELL(spell_blaze)
             dam = number(1, 30) + get_magic_power(caster_at_cast) / 2; /* same as earthquake */
 
             int save_bonus = get_save_bonus(caster_at_cast, *tmpch, game_types::PS_Fire, game_types::PS_Cold);
-            bool saved = new_saves_spell(caster_at_cast, tmpch, save_bonus + tmpch == caster ? 3 : 0);
+            // The caster was spared above, so there is no self-save case; the bonus is the fire/cold specialization modifier the ticks also apply.
+            bool saved = new_saves_spell(caster_at_cast, tmpch, save_bonus);
 
             if (saved) {
                 dam = dam >> 1;
