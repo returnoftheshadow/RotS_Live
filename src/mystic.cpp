@@ -89,7 +89,7 @@ affected_type poison_victim_affect(const caster_snapshot& who)
     return poison;
 }
 
-int haze_caster_level(const caster_snapshot& who)
+int illusion_caster_level(const caster_snapshot& who)
 {
     int level = get_mystic_caster_level(who);
     if (who.specialization == game_types::PS_Illusion) {
@@ -1178,7 +1178,7 @@ ASPELL(spell_haze)
         return;
     }
 
-    loc_level = haze_caster_level(caster_at_cast);
+    loc_level = illusion_caster_level(caster_at_cast);
 
     if (is_object)
         my_duration = -1;
@@ -1218,10 +1218,7 @@ ASPELL(spell_fear)
         return;
     }
 
-    int level = get_mystic_caster_level(caster_at_cast);
-    if (utils::get_specialization(*caster) == game_types::PS_Illusion) {
-        level += 6;
-    }
+    const int level = illusion_caster_level(caster_at_cast);
     if (!affected_by_spell(victim, SPELL_FEAR) && !saves_mystic(victim) && !saves_leadership(victim)) {
         af.type = SPELL_FEAR;
         af.duration = level;

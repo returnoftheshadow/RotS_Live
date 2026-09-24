@@ -124,10 +124,10 @@ void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occup
 
 // mystic.cpp's spell_haze() victim arm, for `type == SPELL_TYPE_SPELL` with
 // `is_object == 0` -- the shape the room re-cast always produced. The level and
-// the affect come from the cast's own haze_caster_level() and haze_victim_affect().
+// the affect come from the cast's own illusion_caster_level() and haze_victim_affect().
 void haze_tick(const caster_snapshot& who, char_data* occupant)
 {
-    const int level = haze_caster_level(who);
+    const int level = illusion_caster_level(who);
 
     const int my_duration = number(0, 1);
     if (!affected_by_spell(occupant, SPELL_HAZE) && !saves_mystic(occupant)) {

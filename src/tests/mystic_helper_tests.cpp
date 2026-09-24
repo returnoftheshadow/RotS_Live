@@ -1,8 +1,12 @@
-// The victim-side formulas mystic.cpp's casts share with the room-affect ticks.
+// The victim-side formulas mystic.cpp's casts share with the room-affect ticks, and the
+// spell_fear cast pins that hold it to the same snapshot rule.
 #include "../caster_snapshot.h"
+#include "../handler.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_character_support.h"
+#include "test_random_utils.h"
 #include <gtest/gtest.h>
 
 namespace {
@@ -43,15 +47,15 @@ TEST(MysticHelpers, PoisonVictimAffectLastsTheMysticLevelPlusOneAndDrainsStrengt
     EXPECT_EQ(poison.bitvector, AFF_POISON);
 }
 
-TEST(MysticHelpers, HazeCasterLevelAddsSixForAnIllusionist)
+TEST(MysticHelpers, IllusionCasterLevelAddsSixForAnIllusionist)
 {
     MysticFixture plain(game_types::PS_None);
     MysticFixture illusionist(game_types::PS_Illusion);
     const caster_snapshot plain_snapshot = caster_snapshot::capture(plain.ch);
     const caster_snapshot illusion_snapshot = caster_snapshot::capture(illusionist.ch);
 
-    EXPECT_EQ(haze_caster_level(plain_snapshot), get_mystic_caster_level(plain_snapshot));
-    EXPECT_EQ(haze_caster_level(illusion_snapshot), get_mystic_caster_level(illusion_snapshot) + 6);
+    EXPECT_EQ(illusion_caster_level(plain_snapshot), get_mystic_caster_level(plain_snapshot));
+    EXPECT_EQ(illusion_caster_level(illusion_snapshot), get_mystic_caster_level(illusion_snapshot) + 6);
 }
 
 TEST(MysticHelpers, HazeVictimAffectCarriesTheLevelAndDuration)
@@ -63,4 +67,72 @@ TEST(MysticHelpers, HazeVictimAffectCarriesTheLevelAndDuration)
     EXPECT_EQ(haze.modifier, 17);
     EXPECT_EQ(haze.location, APPLY_NONE);
     EXPECT_EQ(haze.bitvector, AFF_HAZE);
+}
+
+namespace {
+
+// Casts fear from `caster` at `target` with both saving throws failed: saves_mystic() rolls
+// number(0, 100) against perception 0 (a save only on a zero roll) and saves_leadership()
+// rolls it once more. get_mystic_caster_level() draws nothing for wil 25.
+void cast_fear_that_lands(MysticFixture& caster, MysticFixture& target, const caster_snapshot& caster_at_cast)
+{
+    clear_test_random_values();
+    push_test_random_value(0.99); // saves_mystic(): number(0, 100) = 99, no save
+    push_test_random_value(0.99); // saves_leadership()'s own saves_mystic() call
+    spell_fear(&caster.ch, nullptr, SPELL_TYPE_SPELL, &target.ch, nullptr, 0, 0, caster_at_cast);
+    clear_test_random_values();
+}
+
+// A mob target somewhere with no room: act() skips the room audience for a character in
+// NOWHERE, and spell_fear refuses only good-on-good PLAYER fear, so a mob target always
+// reaches the saving throws.
+void prepare_fear_target(MysticFixture& target)
+{
+    target.ch.in_room = NOWHERE;
+    target.ch.specials2.act = MOB_ISNPC;
+    target.ch.specials2.perception = 0;
+}
+
+} // namespace
+
+// spell_fear reads the illusion bonus from the cast-time snapshot, as haze does, so a
+// specialization the caster dropped after the snapshot still counts.
+TEST(MysticHelpers, FearCastAppliesTheIllusionBonusFromTheSnapshot)
+{
+    MysticFixture illusionist(game_types::PS_Illusion);
+    MysticFixture target(game_types::PS_None);
+    illusionist.ch.in_room = NOWHERE;
+    prepare_fear_target(target);
+    test_support::ScopedAffectCleanup target_affects(target.ch);
+
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(illusionist.ch);
+    illusionist.profs.specialization = static_cast<int>(game_types::PS_None); // dropped after the snapshot
+
+    cast_fear_that_lands(illusionist, target, caster_at_cast);
+
+    const affected_type* fear = affected_by_spell(&target.ch, SPELL_FEAR);
+    ASSERT_NE(fear, nullptr) << "with both saves failed, fear must land";
+    EXPECT_EQ(fear->duration, get_mystic_caster_level(caster_at_cast) + 6)
+        << "the illusion bonus comes from the snapshot, not the live caster";
+    EXPECT_EQ(fear->modifier, get_mystic_caster_level(caster_at_cast) + 6 + 10);
+}
+
+// ...and a specialization gained after the snapshot does not count.
+TEST(MysticHelpers, FearCastIgnoresAnIllusionBonusGainedAfterTheSnapshot)
+{
+    MysticFixture caster(game_types::PS_None);
+    MysticFixture target(game_types::PS_None);
+    caster.ch.in_room = NOWHERE;
+    prepare_fear_target(target);
+    test_support::ScopedAffectCleanup target_affects(target.ch);
+
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(caster.ch);
+    caster.profs.specialization = static_cast<int>(game_types::PS_Illusion); // gained after the snapshot
+
+    cast_fear_that_lands(caster, target, caster_at_cast);
+
+    const affected_type* fear = affected_by_spell(&target.ch, SPELL_FEAR);
+    ASSERT_NE(fear, nullptr) << "with both saves failed, fear must land";
+    EXPECT_EQ(fear->duration, get_mystic_caster_level(caster_at_cast))
+        << "no bonus: the snapshot was taken before the caster became an illusionist";
 }

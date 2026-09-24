@@ -516,9 +516,9 @@ int blaze_burn_damage(int level, bool saved);
 // The poison a mystic's cast or a poison tick leaves on its victim: SPELL_POISON for
 // `who`'s mystic caster level + 1 ticks, -2 strength, AFF_POISON.
 affected_type poison_victim_affect(const caster_snapshot& who);
-// The level a haze applies at for `who`: the mystic caster level, plus 6 for an
-// illusion specialist.
-int haze_caster_level(const caster_snapshot& who);
+// The level an illusion-school spell (haze, fear) applies at for `who`: the mystic caster
+// level, plus 6 for an illusion specialist.
+int illusion_caster_level(const caster_snapshot& who);
 // The haze a cast or a haze tick leaves on its victim: SPELL_HAZE at `level` for
 // `duration` ticks (-1 for an object's permanent haze), AFF_HAZE.
 affected_type haze_victim_affect(int level, int duration);
