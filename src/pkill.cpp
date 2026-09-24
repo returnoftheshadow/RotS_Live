@@ -115,9 +115,9 @@ int pkill_weight(struct char_data* victim, const kill_contributor_list& contribu
 
     /*
      * Membership changed with the contributor list -- pets redirect to their
-     * masters, and immortals and the victim itself are excluded before it is
-     * built -- but the level-counting rule below is deliberately unchanged:
-     * every remaining contributor's level counts, NPCs included.
+     * masters, and the victim itself is excluded before it is built -- but the
+     * level-counting rule below is deliberately unchanged: every contributor's
+     * level counts, NPCs and immortals included.
      */
     total_levels = 0;
     for (int contributor_index = 0; contributor_index < contributors.count; ++contributor_index) {

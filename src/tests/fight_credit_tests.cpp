@@ -706,9 +706,10 @@ TEST(KillContributors, PetFightingTheVictimContributesAsItselfWhenMasterIsElsewh
     EXPECT_EQ(contributors.entries[0], &pet) << "with the master elsewhere, the pet contributes as itself";
 }
 
-// Pin: an immortal candidate is never a contributor, regardless of how it
-// reaches offer_kill_contributor() (here: a plain combat_list fighter).
-TEST(KillContributors, ImmortalCandidateIsExcluded)
+// Pin: an immortal fighting the victim is a contributor like any other player; only the
+// exploit history's victim-side exclusion and pkill_valid_killer()'s killer skip treat
+// immortals specially.
+TEST(KillContributors, ImmortalCandidateIsAContributor)
 {
     CombatListGuard combat_list_guard;
 
@@ -724,7 +725,8 @@ TEST(KillContributors, ImmortalCandidateIsExcluded)
 
     kill_contributor_list contributors = kill_contributors(&victim, nullptr);
 
-    EXPECT_EQ(contributors.count, 0) << "an immortal must never be added as a contributor";
+    ASSERT_EQ(contributors.count, 1) << "an immortal fighting the victim contributes";
+    EXPECT_EQ(contributors.entries[0], &immortal_fighter);
 }
 
 // Pin: the victim itself is never a contributor, even when handed in

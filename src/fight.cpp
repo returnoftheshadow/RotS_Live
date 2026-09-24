@@ -923,11 +923,9 @@ namespace {
 
 // Normalizes one contributor candidate and offers it to `contributors`.
 //
-// The pet redirect runs BEFORE the exclusions rather than after them: applying
-// them to the character that actually lands in the list is what makes the two
-// guarantees hold under every route -- an immortal's pet would otherwise put
-// its immortal master in the list, and a victim's own pet would put the
-// victim in its own kill record.
+// The pet redirect runs BEFORE the victim exclusion rather than after it:
+// checking the character that actually lands in the list is what keeps a
+// victim's own pet from putting the victim in its own kill record.
 void offer_kill_contributor(kill_contributor_list& contributors,
     const char_data* victim, char_data* candidate)
 {
@@ -944,7 +942,7 @@ void offer_kill_contributor(kill_contributor_list& contributors,
         candidate = candidate->master;
     }
 
-    if (candidate == victim || GET_LEVEL(candidate) >= LEVEL_IMMORT) {
+    if (candidate == victim) {
         return;
     }
 

@@ -136,7 +136,7 @@ struct kill_contributor_list;
 // Records a player-involved death from die()'s deduplicated contributor list. EXPLOIT_PK writes
 // one trophy naming `victim` to every player contributor; EXPLOIT_DEATH writes one "killed by"
 // entry to `victim` per player contributor, the first flagged as the separator the exploits
-// display groups a death by. NPC and immortal contributors are skipped; any other `recordtype`
+// display groups a death by. NPC contributors are skipped; any other `recordtype`
 // is refused (logged, nothing written). The list is trusted to be null-free and deduplicated, as
 // kill_contributor_list::add() guarantees. Contributors need not be in combat_list, so a remote
 // room-affect caster or an absent poisoner is recorded like anyone else.

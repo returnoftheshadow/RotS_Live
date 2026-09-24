@@ -4894,12 +4894,10 @@ void add_exploit_record(int recordtype, char_data* victim, const kill_contributo
     int death_entries_written = 0;
     for (int contributor_index = 0; contributor_index < contributors.count; ++contributor_index) {
         char_data* const contributor = exploit_record_credit(contributors.entries[contributor_index]);
-        // Mobs keep no history and earn no trophies, immortals never take kill
-        // credit, and nobody is credited with their own death (their pet can
-        // be a contributor). kill_contributors() excludes the last two for
-        // list members; this guard also covers the masters
-        // exploit_record_credit() substitutes.
-        if (contributor == victim || IS_NPC(contributor) || GET_LEVEL(contributor) >= LEVEL_IMMORT) {
+        // Mobs keep no history and earn no trophies, and nobody is credited
+        // with their own death (their pet can be a contributor). The guard
+        // also covers the masters exploit_record_credit() substitutes.
+        if (contributor == victim || IS_NPC(contributor)) {
             continue;
         }
         if (!credited.add(contributor)) {

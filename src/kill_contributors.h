@@ -35,6 +35,6 @@ struct kill_contributor_list {
 // Builds that set for `victim`'s death. `primary` is the character die() was
 // told did it -- it may be null, and may be standing anywhere. Membership
 // rules, applied to every candidate: an NPC pet or orc-friend whose master
-// stands in the same room contributes as its MASTER; the victim itself and
-// immortals are never contributors.
+// stands in the same room contributes as its MASTER; the victim itself is
+// never a contributor.
 kill_contributor_list kill_contributors(struct char_data* victim, struct char_data* primary);
