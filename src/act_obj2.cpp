@@ -201,10 +201,8 @@ ACMD(do_drink)
         af.modifier = 0;
         af.location = APPLY_NONE;
         af.bitvector = AFF_POISON;
-        affect_join(ch, &af, FALSE, FALSE);
-        // The container's poisoner is never recorded, so nulling here avoids
-        // crediting a stale poisoner for this death.
-        record_poison_origin(ch, nullptr);
+        // Only the stronger poison stays; a consumed poison has no poisoner to record.
+        apply_consumed_poison(ch, af);
     }
 
     call_trigger(ON_DRINK, temp, ch, 0);
@@ -279,10 +277,8 @@ ACMD(do_eat)
         af.modifier = 0;
         af.location = APPLY_NONE;
         af.bitvector = AFF_POISON;
-        affect_join(ch, &af, FALSE, FALSE);
-        // Poisoned food's source is never recorded either; clear any stale
-        // poisoner from an earlier poisoning instead of leaving it credited.
-        record_poison_origin(ch, nullptr);
+        // Only the stronger poison stays; a consumed poison has no poisoner to record.
+        apply_consumed_poison(ch, af);
     }
 
     call_trigger(ON_EAT, food, ch, 0);

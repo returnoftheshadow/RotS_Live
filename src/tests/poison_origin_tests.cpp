@@ -270,3 +270,60 @@ TEST(PoisonOrigin, ClearCharBlanksThePoisonRecord)
     EXPECT_EQ(character.specials.poisoned_by_abs_number, -1);
     EXPECT_EQ(character.specials.poisoned_by, nullptr);
 }
+
+// Poisoned food or drink has no recorded poisoner. It replaces a weaker poison (and clears the
+// record, since nobody owns the new one) and leaves a stronger one, and its poisoner, alone.
+TEST(PoisonOrigin, ConsumedPoisonLeavesAStrongerSpellPoisonAndItsPoisoner)
+{
+    char_data poisoner {};
+    ScopedCharExists poisoner_exists { poisoner, kPoisonerSlot };
+    char_data victim {};
+    char_prof_data victim_profs {};
+    make_npc(victim, victim_profs);
+    test_support::ScopedAffectCleanup victim_affects(victim);
+    affected_type spell_poison = inert_poison_affect(20);
+    affect_to_char(&victim, &spell_poison);
+    record_poison_origin(&victim, &poisoner);
+
+    apply_consumed_poison(&victim, inert_poison_affect(5));
+
+    const affected_type* poison = affected_by_spell(&victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr);
+    EXPECT_EQ(poison->duration, 20) << "the weaker consumed poison changes nothing";
+    EXPECT_EQ(resolve_poisoner(victim), &poisoner);
+}
+
+TEST(PoisonOrigin, ConsumedPoisonReplacesAWeakerSpellPoisonAndClearsThePoisoner)
+{
+    char_data poisoner {};
+    ScopedCharExists poisoner_exists { poisoner, kPoisonerSlot };
+    char_data victim {};
+    char_prof_data victim_profs {};
+    make_npc(victim, victim_profs);
+    test_support::ScopedAffectCleanup victim_affects(victim);
+    affected_type spell_poison = inert_poison_affect(5);
+    affect_to_char(&victim, &spell_poison);
+    record_poison_origin(&victim, &poisoner);
+
+    apply_consumed_poison(&victim, inert_poison_affect(20));
+
+    const affected_type* poison = affected_by_spell(&victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr);
+    EXPECT_EQ(poison->duration, 20) << "the stronger consumed poison takes over";
+    EXPECT_EQ(resolve_poisoner(victim), nullptr) << "nobody owns a consumed poison";
+}
+
+TEST(PoisonOrigin, ConsumedPoisonOnAnUnpoisonedCharacterAppliesAndRecordsNobody)
+{
+    char_data victim {};
+    char_prof_data victim_profs {};
+    make_npc(victim, victim_profs);
+    test_support::ScopedAffectCleanup victim_affects(victim);
+
+    apply_consumed_poison(&victim, inert_poison_affect(8));
+
+    const affected_type* poison = affected_by_spell(&victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr);
+    EXPECT_EQ(poison->duration, 8);
+    EXPECT_EQ(resolve_poisoner(victim), nullptr);
+}

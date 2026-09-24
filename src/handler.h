@@ -193,6 +193,11 @@ struct char_data* resolve_poisoner(const struct char_data& victim);
 // behind it -- clears the record rather than leaving it half-set. `poisoner` is
 // not retained: only its identity is stored, and it is never dereferenced later.
 void record_poison_origin(struct char_data* victim, struct char_data* poisoner);
+// Applies poison from eaten or drunk food, which has no recorded poisoner. Only the stronger
+// poison stays on `victim`: a consumed poison no longer than the one already running changes
+// nothing (and the running poison keeps its poisoner); a longer one replaces it and clears the
+// record, since nobody owns it.
+void apply_consumed_poison(struct char_data* victim, const struct affected_type& poison);
 
 // Punishment class for a PC death, chosen by classify_pc_death().
 enum class death_punishment {

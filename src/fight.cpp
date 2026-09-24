@@ -921,6 +921,20 @@ void record_poison_origin(char_data* victim, char_data* poisoner)
     victim->specials.poisoned_by_serial = poisoner_serial;
 }
 
+void apply_consumed_poison(char_data* victim, const affected_type& poison)
+{
+    const affected_type* running = affected_by_spell(victim, SPELL_POISON);
+    if (running != nullptr && running->duration >= poison.duration) {
+        return;
+    }
+    if (running != nullptr) {
+        affect_from_char(victim, SPELL_POISON);
+    }
+    affected_type consumed = poison;
+    affect_to_char(victim, &consumed);
+    record_poison_origin(victim, nullptr);
+}
+
 namespace {
 
 // Normalizes one contributor candidate and offers it to `contributors`.
