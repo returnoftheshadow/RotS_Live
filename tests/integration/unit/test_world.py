@@ -66,6 +66,16 @@ def test_snake_mob_binds_its_bite_special() -> None:
     assert program_number == 1, f"snake store_prog_number {program_number} must be 1 (spec_ass.cpp's virt_program_number/get_special_function select SPECIAL(snake) for 1)"
 
 
+def test_snake_mob_has_the_perception_that_lands_every_bite() -> None:
+    """saves_poison() (spell_pa.cpp) scales the snake's offence by its perception; the arithmetic is
+    in test_poison_punishment_snake.py's module docstring."""
+    text = (WORLD_ROOT / "mob" / "11.mob").read_text(encoding="latin-1")
+    record = text.split("#1131", 1)[1].split("#1132", 1)[0]
+    lines = [line for line in record.splitlines() if line.strip()]
+    perception = int(lines[16].split()[1])  # <language> <perception> <resistance> <vulnerability> <script> <spirit> <will_teach>
+    assert perception == 100, f"snake perception {perception} must be 100 or a bite can be resisted"
+
+
 def test_zone_twelve_sits_twenty_squares_from_zone_eleven() -> None:
     """spell_summon adds the straight-line map distance, rounded down, to the save bonus
     (mage.cpp ~867); new_saves_spell treats a bonus of 20 or more as an automatic save

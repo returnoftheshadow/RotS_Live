@@ -24,6 +24,7 @@ PROMPT_TERMINATORS = (">", "]")
 HIT_POINT_PATTERN = re.compile(r"HP :\[(\d+)/(\d+)")
 ABILITY_PATTERN = re.compile(r"Str:\[(\d+)/\d+/\d+\] Int:\[(\d+)/\d+/\d+\] Wil:\[(\d+)/\d+/\d+\] Dex:\[(\d+)/\d+/\d+\] Con: \[(\d+)/\d+/\d+\] Lea:\[(\d+)/\d+/\d+\]")
 EXPERIENCE_PATTERN = re.compile(r"XP: \[\s*(-?\d+)\]")
+PERCEPTION_WILLPOWER_PATTERN = re.compile(r"Perception (-?\d+), Willpower (-?\d+),")
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -66,6 +67,13 @@ class Transcript:
         if match is None:
             return None
         return int(match.group(1))
+
+    def perception_and_willpower(self) -> tuple[int, int] | None:
+        """do_stat_character's `Perception %d, Willpower %d,` line (act_wiz.cpp): (perception, willpower)."""
+        match = PERCEPTION_WILLPOWER_PATTERN.search(self.text)
+        if match is None:
+            return None
+        return int(match.group(1)), int(match.group(2))
 
     def room_name(self) -> str | None:
         for line in self.text.splitlines():

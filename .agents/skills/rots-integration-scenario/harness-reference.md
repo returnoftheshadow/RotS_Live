@@ -111,6 +111,7 @@ avoid the vnums `spec_ass.cpp` passes to `ASSIGNOBJ`. The token sits on one of t
 `Transcript`: `.text`, `.contains(marker)`, `.hit_points() -> (current, max) | None` and
 `.experience() -> int | None` (the live `XP:` value) from a `stat` reply,
 `.abilities() -> dict | None`, `.room_name() -> str | None` from a `look`.
+`.perception_and_willpower() -> (perception, willpower) | None` reads a `stat` reply's `Perception %d, Willpower %d,` line.
 
 ## Records (`rots_harness/records.py`)
 

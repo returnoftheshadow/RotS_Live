@@ -41,6 +41,14 @@ BLAZE_TICK_ON_VICTIM = re.compile(r"spell=blaze, damage=\d+, from Harnvictim\(\d
 VICTIM_CREDITED_DEATH = "Harnvictim killed by"
 
 
+def _stat_victim(imp: GameSession) -> Transcript:
+    """`stat harnvictim` from the burning room, retried past a tick broadcast's early prompt."""
+    replies = stat_replies(imp, "harnvictim", lambda text: "'harnvictim'" in text.lower() and Transcript(text).hit_points() is not None)
+    stat = Transcript(replies[-1])
+    assert stat.hit_points() is not None, f"stat harnvictim never returned a parseable reply: {replies}"
+    return stat
+
+
 def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mage, victim, harness) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnmage")
@@ -56,7 +64,7 @@ def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mag
     mage.cast("blaze", success_markers=BLAZE_CAST)
     mage.quit()
 
-    before = imp.command("stat harnvictim").abilities()
+    before = _stat_victim(imp).abilities()
     assert before is not None
     victim.command("east")
     victim.expect_room("Arena Centre")
@@ -70,7 +78,7 @@ def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mag
     victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
     assert not any(record.victim_name.lower() == "harnmage" for record in victim_records), f"a departed caster must never be named: {victim_records}"
 
-    stat = imp.command("stat harnvictim")
+    stat = _stat_victim(imp)
     current, maximum = stat.hit_points()
     assert maximum // 4 <= current <= maximum // 4 + poison_support.REGEN_ALLOWANCE, (
         f"an uncredited tick death takes the gentle arm: hit must be max/4 plus regen, got {current}/{maximum}: {stat.text}"
@@ -98,7 +106,7 @@ def test_blaze_death_while_fighting_a_mob_stays_gentle_when_the_caster_is_gone(s
     # Blaze burns the brute too; a deep pool keeps it alive and engaged for the whole tick loop.
     imp.command("wizset brute maxhit 4000")
     imp.command("wizset brute hit 4000")
-    before = imp.command("stat harnvictim").abilities()
+    before = _stat_victim(imp).abilities()
     assert before is not None
     victim.command("east")
     victim.expect_room("Arena Centre")
@@ -108,7 +116,7 @@ def test_blaze_death_while_fighting_a_mob_stays_gentle_when_the_caster_is_gone(s
     tick_until_marker(harness, imp, victim, DEATH_MARKER, protect=(imp,), refloor=("harnvictim", LETHAL_HIT))
     victim.expect_room("Wood-elf Start")
 
-    stat = imp.command("stat harnvictim")
+    stat = _stat_victim(imp)
     current, maximum = stat.hit_points()
     assert maximum // 4 <= current <= maximum // 4 + poison_support.REGEN_ALLOWANCE, stat.text
     assert stat.abilities() == before
@@ -133,7 +141,7 @@ def test_blaze_ticks_credit_nobody_while_the_caster_sits_at_the_menu(server, imp
     # close() both frees the parked body and marks the session closed, so fixture teardown
     # does not send a second quit into the menu.
     try:
-        before = imp.command("stat harnvictim").abilities()
+        before = _stat_victim(imp).abilities()
         assert before is not None
         victim.command("east")
         victim.expect_room("Arena Centre")
@@ -145,20 +153,12 @@ def test_blaze_ticks_credit_nobody_while_the_caster_sits_at_the_menu(server, imp
         mage_records = records.read_exploits(server.lib_dir, "Harnmage")
         assert not any(record.type == records.EXPLOIT_PK for record in mage_records), f"a parked caster earns no kill: {mage_records}"
         # stat harnmage cannot be read: the parked body is in no room.
-        stat = imp.command("stat harnvictim")
+        stat = _stat_victim(imp)
         current, maximum = stat.hit_points()
         assert maximum // 4 <= current <= maximum // 4 + poison_support.REGEN_ALLOWANCE, stat.text
         assert stat.abilities() == before
     finally:
         mage.close()
-
-
-def _stat_victim(imp: GameSession) -> Transcript:
-    """`stat harnvictim` from the burning room, retried past a tick broadcast's early prompt."""
-    replies = stat_replies(imp, "harnvictim", lambda text: "'harnvictim'" in text.lower() and Transcript(text).hit_points() is not None)
-    stat = Transcript(replies[-1])
-    assert stat.hit_points() is not None, f"stat harnvictim never returned a parseable reply: {replies}"
-    return stat
 
 
 def test_blaze_death_while_fighting_a_player_records_that_player_when_the_caster_is_gone(server, imp, mage, victim, caller, harness) -> None:

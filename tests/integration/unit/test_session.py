@@ -78,6 +78,15 @@ def test_transcript_experience_is_none_without_the_level_line() -> None:
     assert Transcript("HP :[10/60]\nAu: 0         Exp: 200000    Align: 0\n").experience() is None
 
 
+def test_transcript_parses_perception_and_willpower_from_the_stat_line() -> None:
+    text = "HP :[60/60+3(0)]\nEncumbrance 0, Leg_encu 0, Perception 100, Willpower 99,\nCoins: [        0]\n"
+    assert Transcript(text).perception_and_willpower() == (100, 99)
+
+
+def test_transcript_perception_and_willpower_is_none_without_the_line() -> None:
+    assert Transcript("HP :[10/60]\nCoins: [        0]\n").perception_and_willpower() is None
+
+
 class FakeSocket:
     """Stands in for the server connection: `replies` maps a line the session sends to the
     bytes the server answers with; a line with no entry is never answered."""

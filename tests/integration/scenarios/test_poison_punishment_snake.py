@@ -17,6 +17,15 @@ mobact.cpp's one_mobile_activity() never reaches spec_ass.cpp's virt_program_num
 its store_prog_number, and the special silently never fires (no ASSIGNMOB entry was needed --
 the dispatch is data-driven once MOB_SPEC is set, per mobact.cpp:116-134).
 
+Every bite lands, whatever the RNG draws. spell_poison() resists a bite when saves_poison()
+(spell_pa.cpp) finds number(offence / 3, offence) < number(defense / 2, defense), with offence =
+snake willpower * 8 * perception / 100 and defense = victim CON * 5 + willpower * 3 + 30 for a wood
+elf. The #1131 record gives the snake perception 100 and the setup raises its willpower to 99, so
+offence is 792 and its lowest roll, 264, beats Harnvictim's highest defence, 139 (CON 11,
+willpower 18). The setup reads all four values through `stat` and asserts offence / 3 > defense
+before the fight starts; the bite wait (90s of wall-clock time for the snake's own violence rounds)
+names them if no bite lands.
+
 The gentle row also takes only the tenth of die()'s experience loss (fight.cpp): the poison is
 classified player_death, so death_takes_full_mob_xp_loss() withholds the full loss even though the
 credited killer is the snake, a real mob. Its experience is set inside the victim's level band
@@ -27,30 +36,83 @@ death.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 
 import pytest
 
 import poison_support
-from combat_support import wait_for_disengagement
+from combat_support import stat_replies, wait_for_disengagement
 from poison_support import POISON_LANDED, POISON_RESISTED, affect_ticks_until_death, death_loss, death_tick_budget, xp_to_level
 from rots_harness import fixtures, records
-from rots_harness.session import GameSession
+from rots_harness.session import GameSession, Transcript
 
 pytestmark = pytest.mark.scenario
 
 BITE_MARKER = "bites you!"  # spec_pro.cpp SPECIAL(snake)
 POISON_WAIT_BUDGET = 90.0  # wall-clock seconds tolerated for the snake to land a bite
+WOOD_ELF_POISON_BONUS = 30  # saves_poison(), spell_pa.cpp
+# do_stat_character's first line (act_wiz.cpp), lower-cased: "MALE MOB 'a harness snake'  IDNum: ...".
+SNAKE_STAT_HEADER = "mob 'a harness snake'"
+VICTIM_STAT_HEADER = "pc 'harnvictim'"
 
 
-def _wait_for_snake_poison_to_land(victim: GameSession, budget: float = POISON_WAIT_BUDGET) -> str:
-    """Waits out resisted bites until one lands, rather than assuming the first one does.
+@dataclass(frozen=True)
+class PoisonSaveInputs:
+    """The four values saves_poison() (spell_pa.cpp) reads, as `stat` printed them."""
 
-    A landed bite still runs spell_poison()'s saves_poison() roll (spell_pa.cpp); wizset-ing the
-    snake's level (see _engage_snake_until_poisoned) only raises the odds, it does not force a
-    land. This mirrors poison_support.poison_until_it_lands()'s retry idiom for the player-cast
-    scenarios, adapted for a bite the harness cannot re-trigger on demand (it is driven by the
-    mob's own real-time mobile_activity() pulse, not a command this session can repeat).
-    """
+    snake_perception: int  # the snake's "Perception" on its stat line
+    snake_willpower: int  # the snake's "Willpower" on its stat line
+    victim_con: int  # the victim's current Con from its ability line
+    victim_willpower: int  # the victim's "Willpower" on its stat line
+
+    @classmethod
+    def read(cls, snake_stat: Transcript, victim_stat: Transcript) -> PoisonSaveInputs:
+        snake_perception, snake_willpower = snake_stat.perception_and_willpower()
+        _victim_perception, victim_willpower = victim_stat.perception_and_willpower()
+        return cls(snake_perception, snake_willpower, victim_stat.abilities()["con"], victim_willpower)
+
+    @property
+    def offence(self) -> int:
+        return self.snake_willpower * 8 * self.snake_perception // 100
+
+    @property
+    def defense(self) -> int:
+        return self.victim_con * 5 + self.victim_willpower * 3 + WOOD_ELF_POISON_BONUS
+
+    def every_bite_lands(self) -> bool:
+        return self.offence // 3 > self.defense
+
+    def describe(self) -> str:
+        return (
+            f"snake perception {self.snake_perception}, willpower {self.snake_willpower}; "
+            f"victim con {self.victim_con}, willpower {self.victim_willpower}; "
+            f"offence roll {self.offence // 3}..{self.offence} against defence roll {self.defense // 2}..{self.defense}"
+        )
+
+
+def _own_stat(imp: GameSession, target: str, header: str) -> Transcript:
+    """`stat <target>` cut to start at its own header, retried until that part carries both the
+    ability line and the perception line; stale text ahead of the header is dropped."""
+
+    def own_part(text: str) -> Transcript | None:
+        start = text.lower().find(header)
+        if start < 0:
+            return None
+        part = Transcript(text[start:])
+        if part.abilities() is None or part.perception_and_willpower() is None:
+            return None
+        return part
+
+    replies = stat_replies(imp, target, lambda text: own_part(text) is not None)
+    part = own_part(replies[-1])
+    assert part is not None, f"stat {target} never returned its own ability and perception lines: {replies}"
+    return part
+
+
+def _wait_for_snake_poison_to_land(victim: GameSession, inputs: PoisonSaveInputs, budget: float = POISON_WAIT_BUDGET) -> str:
+    """Waits for the first bite to land, reading past any resisted one so a failure shows every
+    bite the victim saw. The bite comes from the snake's own real-time mobile_activity() pulse,
+    so the only bound is wall-clock time."""
     deadline = time.monotonic() + budget
     accumulated = ""
     while time.monotonic() < deadline:
@@ -62,47 +124,30 @@ def _wait_for_snake_poison_to_land(victim: GameSession, budget: float = POISON_W
         accumulated += text
         if POISON_LANDED[0] in text:
             return accumulated
-    pytest.fail(f"the snake never landed a poisoned bite within {budget}s: {accumulated[-2000:]}")
+    pytest.fail(f"the snake never landed a poisoned bite within {budget}s ({inputs.describe()}): {accumulated[-2000:]}")
 
 
 def _engage_snake_until_poisoned(imp, victim) -> dict[str, int]:
     imp.command(f"goto {fixtures.ROOM_CORRIDOR_ONE}")
     imp.command("transfer harnvictim")
     # Bite chance is number(0, 42 - level) < min(1 + level/4, 4) (spec_pro.cpp SPECIAL(snake)):
-    # level 89 makes every violence round in which the bite check runs a bite attempt. Level 89
-    # is also load-bearing for a second reason: get_naked_willpower() (utility.cpp) is
-    # GET_PROF_LEVEL(cleric, mob) + GET_WILL(mob), and GET_PROF_LEVEL (utils.h) returns
-    # GET_LEVEL(ch) outright for any NPC -- so a mob's *naked willpower* tracks its level, not
-    # its fixed WIL ability (10 in this .mob file). saves_poison() (spell_pa.cpp) rolls the
-    # snake's (willpower * 8 * perception) offence against the wood-elf victim's (con*5 +
-    # willpower*3 + a flat +30 race bonus) defense; at the level the bite-frequency check alone
-    # needs (40, naked willpower 50) the offence's range never reaches the defense's range and
-    # the bite can never land -- confirmed empirically (zero landings across 9 resisted bites in
-    # 175s of real time).
-    #
-    # Setting the level alone is not enough: naked willpower is only *recomputed* by
-    # affect_naked() (handler.cpp), which affect_total()'s default mode calls unconditionally
-    # (unlike recalc_abilities(), which skips NPCs) -- but wizset's "level" field (case 34,
-    # act_wiz.cpp) never calls affect_total() at all, so a mob's cached willpower is whatever it
-    # was at spawn (level 10 here) until something else forces the recompute. The "will" wizset
-    # below is that trigger: it cannot change an NPC's WIL ability (recalc_abilities() skips
-    # them), but it does call affect_total(), which reads the just-raised level and recomputes
-    # willpower to 99 -- confirmed empirically (stat snake mid-fight) and load-bearing: without
-    # it, the snake keeps its spawn-time willpower (20) and the bite never lands (zero landings
-    # across 3+ resisted bites per run, in three separate runs, some run past 300s). With it,
-    # 99 lands reliably against this fixed-seed harness (landed on the first bite, ~8.5-30s in,
-    # across six separate runs) while _wait_for_snake_poison_to_land still tolerates a resisted
-    # one for robustness against any future change to this sequence's RNG consumption.
+    # level 89 makes every violence round's bite check a bite. The level also sets the snake's
+    # willpower: get_naked_willpower() (utility.cpp) adds its WIL of 10 to GET_PROF_LEVEL (utils.h),
+    # which is an NPC's own level, giving 99. affect_naked() (handler.cpp) recomputes it only inside
+    # affect_total(), which wizset's "level" field never calls, so the "will" wizset follows as the
+    # trigger: it cannot change an NPC's WIL (recalc_abilities() skips NPCs) but does call
+    # affect_total(). Without it the snake keeps its spawn-time willpower of 20.
     imp.command("wizset snake level 89")
     imp.command("wizset snake will 89")
     imp.command("wizset harnvictim maxhit 400")
     imp.command("restore harnvictim")
-    before = imp.command("stat harnvictim").abilities()
-    assert before is not None
+    victim_stat = _own_stat(imp, "harnvictim", VICTIM_STAT_HEADER)
+    inputs = PoisonSaveInputs.read(_own_stat(imp, "snake", SNAKE_STAT_HEADER), victim_stat)
+    assert inputs.every_bite_lands(), f"the snake's lowest offence roll must beat the victim's highest defence roll: {inputs.describe()}"
     victim.command("kill snake")
-    text = _wait_for_snake_poison_to_land(victim)
+    text = _wait_for_snake_poison_to_land(victim, inputs)
     assert BITE_MARKER in text, text
-    return before
+    return victim_stat.abilities()
 
 
 def test_mob_poison_death_alone_is_gentle(server, imp, victim, harness) -> None:
