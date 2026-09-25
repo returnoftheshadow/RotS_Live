@@ -8,6 +8,7 @@ WORLD_ROOT = Path(__file__).resolve().parents[1] / "world"
 SPEC_ASSIGN_SOURCE = Path(__file__).resolve().parents[3] / "src" / "spec_ass.cpp"
 BAG_VNUM = 1136
 CAP_VNUM = 1137
+AMULET_VNUM = 1138
 
 
 def read_index(category: str) -> list[str]:
@@ -139,6 +140,30 @@ def test_leather_cap_is_takeable_head_armour() -> None:
     assert wear_flags == 1 | 16, f"object {CAP_VNUM} wear_flags {wear_flags} must be ITEM_TAKE | ITEM_WEAR_HEAD (17)"
 
 
+def object_affects(vnum: int) -> list[tuple[int, int]]:
+    """The (location, modifier) pairs of object `vnum`'s `A` affect lines in 11.obj.
+
+    load_objects (db.cpp) reads each `A` token followed by <location> <modifier>, whitespace
+    separated, up to MAX_OBJ_AFFECT (2) per object.
+    """
+    text = (WORLD_ROOT / "obj" / "11.obj").read_text(encoding="latin-1")
+    record = re.search(rf"^#{vnum}\n(.*?)(?=^#\d+\s*$)", text, flags=re.MULTILINE | re.DOTALL)
+    assert record is not None, f"object {vnum} missing from 11.obj"
+    return [(int(location), int(modifier)) for location, modifier in re.findall(r"^A\s+(-?\d+)\s+(-?\d+)", record.group(1), flags=re.MULTILINE)]
+
+
+def test_sickly_amulet_is_a_neck_item_that_sets_the_poison_bit() -> None:
+    """ITEM_WORN is type 11; ITEM_TAKE is wear bit 1 and ITEM_WEAR_NECK wear bit 4 (structs.h).
+    The one affect is APPLY_BITVECTOR (28) with modifier 11: affect_modify() (handler.cpp) sets
+    bit 1 << 11, AFF_POISON, on the wearer for as long as the amulet is worn."""
+    (item_type, extra_flags, wear_flags), _values = object_numbers(AMULET_VNUM)
+    assert item_type == 11, f"object {AMULET_VNUM} type {item_type} must be ITEM_WORN (11)"
+    assert extra_flags == 0, f"object {AMULET_VNUM} extra_flags {extra_flags} must be 0"
+    assert wear_flags == 1 | 4, f"object {AMULET_VNUM} wear_flags {wear_flags} must be ITEM_TAKE | ITEM_WEAR_NECK (5)"
+    affects = object_affects(AMULET_VNUM)
+    assert affects == [(28, 11)], f"object {AMULET_VNUM} affects {affects} must be exactly APPLY_BITVECTOR 11 (AFF_POISON)"
+
+
 def test_harness_objects_avoid_hard_wired_object_specials() -> None:
     """assign_objects() (spec_ass.cpp) binds a special to fixed object vnums, most of them
     gen_board message boards; a harness object on one of those vnums runs the special on every
@@ -146,5 +171,5 @@ def test_harness_objects_avoid_hard_wired_object_specials() -> None:
     source = SPEC_ASSIGN_SOURCE.read_text(encoding="latin-1")
     assigned = {int(match) for match in re.findall(r"^\s*ASSIGNOBJ\((\d+),", source, flags=re.MULTILINE)}
     assert assigned, f"no ASSIGNOBJ lines found in {SPEC_ASSIGN_SOURCE}"
-    for vnum in (BAG_VNUM, CAP_VNUM):
+    for vnum in (BAG_VNUM, CAP_VNUM, AMULET_VNUM):
         assert vnum not in assigned, f"object {vnum} has a special hard-wired by spec_ass.cpp's ASSIGNOBJ"

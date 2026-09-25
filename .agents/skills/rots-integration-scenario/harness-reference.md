@@ -63,7 +63,7 @@ xfail only ASan can trigger.
 | Name | Race | Level | Professions | Skills | Hit / Mana / Move | Starts in |
 | --- | --- | --- | --- | --- | --- | --- |
 | Harnimp | god | 100 | all four at 30 | none | 1000 / 1000 / 1000 | 1101 Immortal Start |
-| Harnmage | magus | 30 | mage 30, mystic 30 | blaze, poison, mist, haze, summon, earthquake | 200 / 600 / 200 | 1131 Arena Centre |
+| Harnmage | magus | 30 | mage 120, mystic 30 | blaze, poison, mist, haze, summon, earthquake, remove poison, resist poison | 200 / 600 / 200 | 1131 Arena Centre |
 | Harnfighter | human | 20 | warrior 20 | none | 200 / 50 / 200 | 1131 |
 | Harnvictim | wood elf | 10 | ranger 10 | none | 60 / 40 / 120 | 1131 |
 | Harncaller | human | 30 | mage 30 | summon, blaze | 200 / 600 / 200 | 1131 |
@@ -89,7 +89,9 @@ Harness mobs: `1130` target orc (plain melee target), `1131` snake with the pois
 (`MOB_SPEC` set). Load with `load mob <vnum>`; remove with `purge <keyword>`.
 
 Harness objects: `1130` harness token, `1136` leather bag (keyword `bag`, an open
-container that holds the cap), `1137` leather cap (keyword `cap`, head armour). Load with
+container that holds the cap), `1137` leather cap (keyword `cap`, head armour), `1138` sickly
+amulet (keyword `amulet`, worn on the neck; its `A 28 11` line sets AFF_POISON on the wearer with
+no poison affect behind it, `poison_support.wear_the_sickly_amulet`). Load with
 `load obj <vnum>`, which puts the object in the loader's inventory. A new harness object must
 avoid the vnums `spec_ass.cpp` passes to `ASSIGNOBJ`. The token sits on one of them, a
 `gen_board`, and is harmless only because no scenario carries or looks at it.
@@ -128,9 +130,9 @@ needed. An empty or missing file reads as no records (`boot_pkills()` recreates 
 
 | Module | Provides |
 | --- | --- |
-| `poison_support.py` | `POISON_LANDED`, `DEATH_MARKER`, `REGEN_ALLOWANCE`, `death_tick_budget(hit)`, `poison_until_it_lands(caster, victim, word)`, `affect_ticks_until_death(harness, victim, budget)` |
+| `poison_support.py` | `POISON_LANDED`, `DEATH_MARKER`, `REGEN_ALLOWANCE`, `death_tick_budget(hit)`, `poison_until_it_lands(caster, victim, word)`, `affect_ticks_until_death(harness, victim, budget)`; remove and resist poison markers (`REMOVE_POISON_CURED`, `REMOVE_POISON_ROOM`, `RESIST_POISON_STARTED`, `RESIST_POISON_CASTER`, `RESIST_POISON_ALREADY`, `RESIST_POISON_TARGET_UNPOISONED`, `RESIST_POISON_SELF_UNPOISONED`) and `CAST_COMPLETED`; `wear_the_sickly_amulet(imp, wearer, name)`; `stat` parsers `spell_affects(text, name)` (duration and modifier of each `SPL:` line) and `affect_flags(text)` (the `AFF:` names) |
 | `blaze_support.py` | `BLAZE_CAST`, `LETHAL_HIT`, `floor_hit(imp, name)`, `room_still_burning(imp)`, `tick_until_marker(harness, imp, observer, marker, budget, protect=, refloor=)`, `wait_for_log_line(imp, server, needle)` |
-| `combat_support.py` | `wait_for_engagement(imp, mob, victim)`, `wait_for_disengagement(imp, names)`, `neutralize_melee(imp, name)`, `stat_replies(imp, target, is_genuine)` |
+| `combat_support.py` | `wait_for_engagement(imp, mob, victim)`, `wait_for_disengagement(imp, names)`, `move_out_of_the_fight(imp, mover, mover_name, opponent_name)`, `neutralize_melee(imp, name)`, `stat_replies(imp, target, is_genuine)`, `read_affect_listing(imp, name)` (a whole `stat` reply, affect lines included) |
 
 Put a helper in one of these when a second scenario needs it; a helper used once stays in
 its scenario file.

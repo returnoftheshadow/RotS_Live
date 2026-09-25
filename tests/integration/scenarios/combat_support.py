@@ -2,7 +2,8 @@
 mob's own attacks so a forced tick or DoT is what lands the kill, or need a `stat` reply that is
 not stale broadcast noise racing `command()`'s end-of-prompt check -- used by test_kill_credit.py,
 test_fireball_splash.py, test_poison_punishment_player_poison_mob_fight.py,
-test_poison_punishment_snake.py, and (via blaze_support.room_stat_replies) the blaze scenarios.
+test_poison_punishment_snake.py, test_gear_poison.py, test_remove_and_resist_poison.py, and (via
+blaze_support.room_stat_replies) the blaze scenarios.
 """
 
 from __future__ import annotations
@@ -116,6 +117,27 @@ def stat_replies(imp: GameSession, target: str, is_genuine: Callable[[str], bool
         if is_genuine(text):
             break
     return replies
+
+
+def read_affect_listing(imp: GameSession, name: str) -> str:
+    """A whole `stat <name>` reply: stat_replies() until one carries both the IDNum field and the
+    VUL: line, which do_stat_character (act_wiz.cpp) sends right before the SPL: affect lines, so
+    a reply cut short by a broadcast prompt is never parsed.
+    """
+    replies = stat_replies(imp, name, lambda text: "IDNum:" in text and "VUL:" in text)
+    if "IDNum:" not in replies[-1] or "VUL:" not in replies[-1]:
+        pytest.fail(f"stat {name} never returned a whole reply in {len(replies)} attempts: {replies[-1]}")
+    return replies[-1]
+
+
+def move_out_of_the_fight(imp: GameSession, mover: GameSession, mover_name: str, opponent_name: str) -> None:
+    """Ends the fight an offensive cast started: the imp transfers `mover_name` to Arena West and
+    waits until both sides read `Fighting: Nobody`. The imp is left in Arena West.
+    """
+    imp.command(f"goto {fixtures.ROOM_ARENA_WEST}")
+    imp.command(f"transfer {mover_name}")
+    mover.expect_room("Arena West")
+    wait_for_disengagement(imp, (mover_name, opponent_name))
 
 
 def prove_exploit_reader_with_a_brute_death(server: HarnessServer, imp: GameSession, player: GameSession, player_name: str, timeout: float = 30.0) -> None:

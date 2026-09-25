@@ -65,6 +65,10 @@ MAGE_SKILLS = {
     "haze": 100,
     "summon": 100,
     "earthquake": 100,
+    # Keys are skill_key_for_index()'s slugs (character_json.cpp): the skills[] name, lower-cased,
+    # with each run of non-alphanumerics turned into one underscore.
+    "remove_poison": 100,
+    "resist_poison": 100,
 }
 
 STANDARD_ROSTER: tuple[CharacterSpec, ...] = (
