@@ -59,6 +59,7 @@ extern struct script_head* script_table;
 int shape_standup(struct char_data* ch, int pos);
 int get_text(FILE* f, char** line);
 int get_command(char* command);
+void shape_disabled(struct char_data* ch, const char* prefix, const char* typed);
 
 // Local declarations
 int replace_script(struct char_data* ch, char* arg);
@@ -313,15 +314,11 @@ int append_script(struct char_data* ch, char* arg)
         replace_script(ch, arg);
         return -1;
     }
-    if (2 != sscanf("%s %s", str, fname)) {
-        if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_FILENAME)) {
-            send_to_char("No file defined to write into. Use 'add <filename>\n\r'", ch);
-            return -1;
-        }
-    } else {
-        sprintf(SHAPE_SCRIPT(ch)->f_from, SHAPE_SCRIPT_DIR, fname);
-        sprintf(SHAPE_SCRIPT(ch)->f_old, SHAPE_SCRIPT_BACKDIR, fname);
-        SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_FILENAME);
+    /* The old 'add <filename>' read passed its sscanf arguments the wrong way
+     * round (undefined behaviour); the file is the one the script loaded from. */
+    if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_FILENAME)) {
+        send_to_char("No file defined to write into.\n\r", ch);
+        return -1;
     }
     if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_SCRIPT_LOADED)) {
         send_to_char("you have no script to save...\n\r", ch);
@@ -813,8 +810,8 @@ void show_command(char_data* ch, script_data* script)
         break;
 
     case SCRIPT_LOAD_OBJ_X:
-        sprintf(buf, "[%d] SYS LOAD_OBJ_X       object: %s, obj variable: %s (%s)\n\r", script->number,
-            get_param_text(script->param[1]), get_param_text(script->param[1]), script->text);
+        sprintf(buf, "[%d] SYS LOAD_OBJ_X       copies ob1 into: %s (%s)\n\r", script->number,
+            get_param_text(script->param[1]), script->text);
         break;
 
     case SCRIPT_OBJ_FROM_CHAR:
@@ -964,24 +961,23 @@ void list_help_script(struct char_data* ch)
 
     send_to_char("possible fields are:\n\r", ch);
     send_to_char("1 - show current command;\n\r", ch);
-    send_to_char("2 - set mask for list of commands;\n\r", ch); // maybe??
     send_to_char("3 - change current command;\n\r", ch);
     send_to_char("4 - change parameters of the current command;\n\r", ch);
     send_to_char("5 - set comment on current command;\n\r", ch);
-    send_to_char("/3 invokes /4 and /5 as well, /4 invokes /5.\n\r", ch);
+    send_to_char("/3 asks /4 next, and /4 asks /5 for most commands.\n\r", ch);
     send_to_char("6 - select next command;\n\r", ch);
-    send_to_char("7 - select previoust command;\n\r", ch);
+    send_to_char("7 - select previous command;\n\r", ch);
     send_to_char("8 - select a command by number;\n\r", ch);
     send_to_char("9 - remove current command;\n\r", ch);
     send_to_char("10 - insert new command after the current one;\n\r", ch);
     send_to_char("11 - insert new command before the current one;\n\r", ch);
-    send_to_char("12 - define the 'current room' option (0 to ignore);\n\r", ch);
     send_to_char("13 - switch the current and the next commands;\n\r", ch);
-    send_to_char("14 - perform syntax check\n\r\n\r", ch);
+    send_to_char("\n\r", ch);
 
     send_to_char("20 - change script name\n\r", ch);
     send_to_char("21 - change script description\n\r", ch);
     send_to_char("50 - list;\n\r", ch);
+    send_to_char("51 - show script name and description;\n\r", ch);
 
     return;
 }
@@ -1069,15 +1065,12 @@ void extra_coms_script(struct char_data* ch, char* argument)
                 break;
             }
             send_to_char("Possible commands are:\n\r", ch);
-            send_to_char("new <script_number> - to create a new script;\n\r", ch);
             //      send_to_char("load   <script number #>;\n\r",ch);
             //      send_to_char("add    <zone #>;\n\r",ch);
-            send_to_char("save  [script #]- to save changes to the disk database;\n\r", ch);
-            send_to_char("delete - to remove the loaded script from the disk database;\n\r", ch);
-            send_to_char("implement - applies changes to the game, leaving disk prointact;\n\r", ch);
-            send_to_char("edit  - edit it is;\n\r", ch);
-            send_to_char("done - to save your job, implement it and stop shaping.;\n\r", ch);
-            send_to_char("free - to stop shaping.;\n\r", ch);
+            send_to_char("save - to save changes to the disk database;\n\r", ch);
+            send_to_char("implement - applies changes to the game, leaving disk intact;\n\r", ch);
+            send_to_char("done - to save your job, implement it and stop shaping;\n\r", ch);
+            send_to_char("free - to stop shaping;\n\r", ch);
             return;
         } while (0);
     } else
@@ -1089,6 +1082,9 @@ void extra_coms_script(struct char_data* ch, char* argument)
         break;
 
     case SHAPE_CREATE:
+        /* World files are made outside the game; new picked last + 1. */
+        shape_disabled(ch, "/", argument);
+        break;
         if (str2[0] == 0) {
             send_to_char("Choose zone of script by 'new <zone_number>'.\n\r", ch);
             free_script(ch);
@@ -1132,10 +1128,20 @@ void extra_coms_script(struct char_data* ch, char* argument)
         break;
 
     case SHAPE_ADD:
+        /* 'add <file>' could write into any file. */
+        if (str2[0]) {
+            shape_disabled(ch, "/", argument);
+            break;
+        }
         append_script(ch, argument);
         break;
 
     case SHAPE_DELETE:
+        /* Rewrote the zone file to drop the script. */
+        if (SHAPE_SCRIPT(ch)->procedure != SHAPE_DELETE) {
+            shape_disabled(ch, "/", argument);
+            break;
+        }
         if (SHAPE_SCRIPT(ch)->procedure != SHAPE_DELETE) {
             send_to_char("You are about to remove this script from database.\n\r Are you sure? (type 'yes' to confirm:\n\r", ch);
             SHAPE_SCRIPT(ch)
@@ -1170,7 +1176,13 @@ void extra_coms_script(struct char_data* ch, char* argument)
         break;
 
     case SHAPE_DONE:
-        replace_script(ch, argument);
+        /* A failed save must not throw the edits away. */
+        if (replace_script(ch, argument) < 0) {
+            send_to_char("Not saved - still shaping. Fix the problem and /done again,\n\r"
+                         "or /free to discard.\n\r",
+                ch);
+            break;
+        }
         implement_script(ch);
         extra_coms_script(ch, "free");
         break;
@@ -1295,77 +1307,181 @@ void extra_coms_script(struct char_data* ch, char* argument)
             = 0;                                                         \
     } while (0);
 
-#define SCRIPTDIGITCHANGE(line, num)                                       \
-    if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {            \
-        SHAPE_SCRIPT(ch)                                                   \
-            ->position                                                     \
-            = shape_standup(ch, POSITION_SHAPING);                         \
-        ch->specials.prompt_number = 2;                                    \
-        send_to_char(line, ch);                                            \
-        SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);              \
-        return;                                                            \
-    } else {                                                               \
-        tmp2 = 0;                                                          \
-        for (i = 0; i < num; i++) {                                        \
-            while ((arg[tmp2] < '0') && (arg[tmp2] != '-') && (arg[tmp2])) \
-                tmp2++;                                                    \
-            SHAPE_SCRIPT(ch)                                               \
-                ->script->param[i]                                         \
-                = atoi(arg + tmp2);                                        \
-            while ((arg[tmp2] > ' ') && (arg[tmp2]))                       \
-                tmp2++;                                                    \
-        }                                                                  \
-    }                                                                      \
-    shape_standup(ch, SHAPE_SCRIPT(ch)->position);                         \
-    ch->specials.prompt_number = 9;                                        \
-    REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);               \
-    SHAPE_SCRIPT(ch)                                                       \
-        ->editflag                                                         \
-        = 0;
+/* Command types offered at /3, grouped as the prompt lists them. */
+static const char* script_type_groups[][2] = {
+    { "Triggers:", "ON_BEFORE_ENTER ON_DAMAGE ON_DIE ON_DRINK ON_EAT ON_ENTER\n\r"
+                   "  ON_EXAMINE_OBJECT ON_HEAR_SAY ON_HEAR_YELL ON_PULL ON_RECEIVE ON_WEAR" },
+    { "Flow:    ", "BEGIN END END_ELSE_BEGIN ABORT RETURN_FALSE DO_WAIT" },
+    { "Tests:   ", "IF_INT_EQUAL IF_INT_LESS IF_INT_GREATER IF_INT_TRUE IF_INT_FALSE\n\r"
+                   "  IF_IS_NPC IF_ROOM_SUNLIT IF_STR_CONTAINS IF_STR_EQUAL" },
+    { "Values:  ", "ASSIGN_EQ ASSIGN_INV ASSIGN_ROOM ASSIGN_STR SET_INT_VALUE\n\r"
+                   "  SET_INT_SUM SET_INT_SUB SET_INT_MULT SET_INT_DIV SET_INT_RANDOM\n\r"
+                   "  SET_INT_WAR_STATUS GAIN_EXP" },
+    { "Actions: ", "DO_SAY DO_YELL DO_EMOTE DO_SOCIAL DO_DROP DO_GIVE DO_WEAR DO_REMOVE\n\r"
+                   "  DO_HIT DO_FLEE DO_FOLLOW" },
+    { "Create:  ", "LOAD_MOB LOAD_OBJ LOAD_OBJ_X EQUIP_CHAR EXTRACT_CHAR EXTRACT_OBJ\n\r"
+                   "  RAW_KILL" },
+    { "Move:    ", "OBJ_FROM_CHAR OBJ_TO_CHAR OBJ_FROM_ROOM OBJ_TO_ROOM TELEPORT_CHAR\n\r"
+                   "  TELEPORT_CHAR_X TELEPORT_CHAR_XL CHANGE_EXIT_TO SET_EXIT_STATE" },
+    { "Messages:", "SEND_TO_CHAR SEND_TO_ROOM SEND_TO_ROOM_X PAGE_ZONE_MAP" },
+};
 
-#define SCRIPTPARAMCHANGE(line, num)                             \
-    if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {  \
-        SHAPE_SCRIPT(ch)                                         \
-            ->position                                           \
-            = shape_standup(ch, POSITION_SHAPING);               \
-        ch->specials.prompt_number = 2;                          \
-        send_to_char(line, ch);                                  \
-        SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);    \
-        return;                                                  \
-    } else {                                                     \
-        tmp1 = 0;                                                \
-        tmp2 = 0;                                                \
-        memset(input[0], 0, 50);                                 \
-        memset(input[1], 0, 50);                                 \
-        memset(input[2], 0, 50);                                 \
-        memset(input[3], 0, 50);                                 \
-        for (i = 0; i < num; i++) {                              \
-            while ((arg[tmp2] != ' ') && (arg[tmp2]))            \
-                tmp2++;                                          \
-            memcpy(input[i], arg + tmp1, tmp2 - tmp1);           \
-            tmp1 = tmp2 + 1;                                     \
-            while ((arg[tmp2] == ' ') && (arg[tmp2]))            \
-                tmp2++;                                          \
-            if (!(tmp2 < (int)strlen(arg)))                      \
-                break;                                           \
-        }                                                        \
-        for (i = 0; i < num; i++)                                \
-            if (get_parameter(input[i]))                         \
-                SHAPE_SCRIPT(ch)                                 \
-                    ->script->param[i]                           \
-                    = get_parameter(input[i]);                   \
-            else                                                 \
-                SHAPE_SCRIPT(ch)                                 \
-                    ->script->param[i]                           \
-                    = atoi(input[i]);                            \
-        SHAPE_SCRIPT(ch)                                         \
-            ->position                                           \
-            = shape_standup(ch, SHAPE_SCRIPT(ch)->position);     \
-        ch->specials.prompt_number = 9;                          \
-        REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE); \
-        SHAPE_SCRIPT(ch)                                         \
-            ->editflag                                           \
-            = 0;                                                 \
+/* The name of a command type, found by asking get_command about each name
+ * in the /3 list; "?" if it is not one of them. */
+static const char* script_type_name(int type)
+{
+    static char word[40];
+    unsigned int g;
+    const char *p, *w;
+
+    for (g = 0; g < sizeof(script_type_groups) / sizeof(script_type_groups[0]); g++)
+        for (p = script_type_groups[g][1]; *p;) {
+            while (*p && *p <= ' ')
+                p++;
+            for (w = p; *p > ' '; p++)
+                ;
+            if (p > w && p - w < (int)sizeof(word)) {
+                memcpy(word, w, p - w);
+                word[p - w] = 0;
+                if (get_command(word) == type)
+                    return word;
+            }
+        }
+    return "?";
+}
+
+/* What /5 edits: the message for the SEND_TO commands, the text typed at /4
+ * for the commands that have one, a note for everything else. */
+static const char* script_text_label(int type)
+{
+    switch (type) {
+    case SCRIPT_SEND_TO_CHAR:
+    case SCRIPT_SEND_TO_ROOM:
+    case SCRIPT_SEND_TO_ROOM_X:
+        return "MESSAGE (%s = the text value, %% = a % sign) (blank = keep)";
+    case SCRIPT_DO_SAY:
+    case SCRIPT_DO_YELL:
+    case SCRIPT_DO_EMOTE:
+    case SCRIPT_DO_SOCIAL:
+    case SCRIPT_ASSIGN_STR:
+    case SCRIPT_IF_STR_CONTAINS:
+    case SCRIPT_IF_STR_EQUAL:
+        return "TEXT (same as the /4 text) (blank = keep, %q = empty)";
+    default:
+        return "COMMENT, shown in the list only (blank = keep, %q = empty)";
+    }
+}
+
+static bool script_text_is_message(int type)
+{
+    return type == SCRIPT_SEND_TO_CHAR || type == SCRIPT_SEND_TO_ROOM || type == SCRIPT_SEND_TO_ROOM_X;
+}
+
+/* Parameter prompts.  kinds has one letter per value, stored from
+ * param[first]: 'v' a variable (ch1, ob2, int1, ch1.room...), 's' a writable
+ * text variable (str1-3, obN.name), 'n' a typed number (vnum, slot, pulses). */
+static void script_show_params(struct char_data* ch, const char* label, int first, const char* kinds)
+{
+    char buf[1200], *p;
+    char* name;
+    int i, v;
+
+    p = buf + sprintf(buf, "Enter %s\n\rCurrent:", label);
+    for (i = 0; kinds[i]; i++) {
+        v = SHAPE_SCRIPT(ch)->script->param[first + i];
+        name = (kinds[i] != 'n') ? get_param_text(v) : 0;
+        if (name)
+            p += sprintf(p, " %s", name);
+        else
+            p += sprintf(p, " %d", v);
+    }
+    strcpy(p, "   (blank = keep)\n\r");
+    send_to_char(buf, ch);
+}
+
+static bool script_is_number_word(const char* w)
+{
+    if (*w == '-' || *w == '+')
+        w++;
+    if (!*w)
+        return false;
+    for (; *w; w++)
+        if (!isdigit(*w))
+            return false;
+    return true;
+}
+
+/* Reads a parameter answer.  Returns 1 if the values were stored, 0 for a
+ * blank answer (values kept), -1 if it was refused (values kept). */
+static int script_read_params(struct char_data* ch, char* arg, int first, const char* kinds)
+{
+    char word[50], lookup[50], buf[120];
+    int vals[6], n, i, v, len;
+    char *p, *w;
+
+    n = strlen(kinds);
+    for (p = arg; *p && *p <= ' '; p++)
+        ;
+    if (!*p)
+        return 0;
+    for (i = 0; i < n && *p; i++) {
+        for (w = p; *p > ' '; p++)
+            ;
+        len = p - w;
+        if (len > (int)sizeof(word) - 1)
+            len = sizeof(word) - 1;
+        memcpy(word, w, len);
+        word[len] = 0;
+        strcpy(lookup, word); /* get_parameter uppercases what it is given */
+        v = get_parameter(lookup);
+        if (kinds[i] == 'n') {
+            if (!script_is_number_word(word)) {
+                sprintf(buf, "Not a number: %s - dropped.\n\r", word);
+                send_to_char(buf, ch);
+                return -1;
+            }
+            v = atoi(word);
+        } else if (!v) {
+            if (!script_is_number_word(word)) {
+                sprintf(buf, "Unknown value: %s - dropped.\n\r", word);
+                send_to_char(buf, ch);
+                return -1;
+            }
+            v = atoi(word);
+        }
+        if (kinds[i] == 's' && v != SCRIPT_PARAM_STR1 && v != SCRIPT_PARAM_STR2 && v != SCRIPT_PARAM_STR3
+            && v != SCRIPT_PARAM_OB1_NAME && v != SCRIPT_PARAM_OB2_NAME && v != SCRIPT_PARAM_OB3_NAME) {
+            /* Anything else crashed the row when it ran. */
+            send_to_char("Must be str1-3 or obN.name. dropped.\n\r", ch);
+            return -1;
+        }
+        vals[i] = v;
+        while (*p && *p <= ' ')
+            p++;
+    }
+    for (; i < n; i++)
+        vals[i] = 0;
+    for (i = 0; i < n; i++)
+        SHAPE_SCRIPT(ch)->script->param[first + i] = vals[i];
+    return 1;
+}
+
+/* A parameter prompt: shows the label and current values, then on the
+ * answer stores them.  A refused answer ends any /3 /4 /5 chain. */
+#define SCRIPTPARAMS(line, first, kinds)                                            \
+    if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {                     \
+        SHAPE_SCRIPT(ch)->position = shape_standup(ch, POSITION_SHAPING);           \
+        ch->specials.prompt_number = strspn(kinds, "n") == strlen(kinds) ? 3 : 2;   \
+        script_show_params(ch, line, first, kinds);                                 \
+        SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);                       \
+        return;                                                                     \
+    } else {                                                                        \
+        SHAPE_SCRIPT(ch)->position = shape_standup(ch, SHAPE_SCRIPT(ch)->position); \
+        ch->specials.prompt_number = 9;                                             \
+        REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);                    \
+        SHAPE_SCRIPT(ch)->editflag = 0;                                             \
+        if (script_read_params(ch, arg, first, kinds) < 0)                          \
+            return;                                                                 \
     }
 
 void shape_center_script(struct char_data* ch, char* arg)
@@ -1376,7 +1492,6 @@ void shape_center_script(struct char_data* ch, char* arg)
     int tmp, itmp[8], tmp1, tmp2, i;
     char st1[50];
     char* ptr;
-    char input[3][50];
     script_data* tmpscript;
 
     script = SHAPE_SCRIPT(ch)->script;
@@ -1458,7 +1573,12 @@ void shape_center_script(struct char_data* ch, char* arg)
 
         case 3: // case 3: Set Command
             if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                sprintf(str, "ENTER COMMAND TYPE <>:\n\r");
+                for (i = 0; i < (int)(sizeof(script_type_groups) / sizeof(script_type_groups[0])); i++) {
+                    sprintf(str, "%s %s\n\r", script_type_groups[i][0], script_type_groups[i][1]);
+                    send_to_char(str, ch);
+                }
+                sprintf(str, "Enter COMMAND TYPE, full name e.g. DO_SAY [%s]:\n\r",
+                    script_type_name(SHAPE_SCRIPT(ch)->script->command_type));
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
                 ch->specials.prompt_number = 2;
@@ -1467,19 +1587,24 @@ void shape_center_script(struct char_data* ch, char* arg)
                     = shape_standup(ch, POSITION_SHAPING);
                 return;
             } else {
-                sscanf(arg, "%s", st1);
                 ch->specials.prompt_number = 7;
                 shape_standup(ch, SHAPE_SCRIPT(ch)->position);
-                if (tmp == 0) {
-                    send_to_char("Nothing entered. dropped.\n\r", ch);
-                    SHAPE_SCRIPT(ch)
-                        ->editflag
-                        = 0;
+                /* Blank keeps the type; an unknown name used to store type 0,
+                 * which stops the script when it runs. */
+                if (sscanf(arg, "%49s", st1) != 1) {
+                    REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                    SHAPE_SCRIPT(ch)->editflag = 0;
+                    return;
+                }
+                for (ptr = st1; *ptr; ptr++)
+                    *ptr = toupper(*ptr);
+                if (!get_command(st1)) {
+                    send_to_char("Unknown command type. dropped.\n\r", ch);
+                    REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                    SHAPE_SCRIPT(ch)->editflag = 0;
                     return;
                 }
             }
-            for (ptr = st1; *ptr; ptr++)
-                *ptr = toupper(*ptr);
 
             SHAPE_SCRIPT(ch)
                 ->script->command_type
@@ -1559,28 +1684,38 @@ void shape_center_script(struct char_data* ch, char* arg)
                 break;
 
             case SCRIPT_ASSIGN_EQ:
-                SCRIPTPARAMCHANGE("Enter character, object variable, position, and true/false integer (eg ch1 ob2 3 int1)", 4);
+                SCRIPTPARAMS("ASSIGN_EQ: character object-var slot found  e.g. ch1 ob1 16 int1\n\r"
+                             "  0 light, 1-2 fingers, 3-4 neck, 5 body, 6 head, 7 legs, 8 feet, 9 hands,\n\r"
+                             "  10 arms, 11 shield, 12 about, 13 waist, 14-15 wrists, 16 wield, 17 hold,\n\r"
+                             "  18 back, 19-21 belt"
+                             "\n\r"
+                             "  (found = int1-3: 1 if worn there, 0 if not)",
+                    0, "vvnv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_ASSIGN_INV:
-                SCRIPTPARAMCHANGE("Enter vnum of object, the assignment variable (ob1),\n\r the inventory (ch1) and true/false integer (int1)", 4);
+                SCRIPTPARAMS("ASSIGN_INV: obj-vnum object-var character count  e.g. 5400 ob1 ch1 int1\n\r"
+                             "  (count = int1-3: how many they carry)",
+                    0, "nvvv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 0;
                 break;
 
             case SCRIPT_ASSIGN_ROOM:
-                SCRIPTPARAMCHANGE("Enter vnum of object, the assignment variable (ob1),\n\r the room (rm1) and true/false integer (int1)", 4);
+                SCRIPTPARAMS("ASSIGN_ROOM: obj-vnum object-var room count  e.g. 5400 ob1 ch1.room int1\n\r"
+                             "  (count = int1-3: how many lie there)",
+                    0, "nvvv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 0;
                 break;
 
             case SCRIPT_ASSIGN_STR:
-                SCRIPTPARAMCHANGE("Enter the string to assign to (usually str1, str2 or str3): ", 1);
+                SCRIPTPARAMS("ASSIGN_STR: str1-3, or obN.name to rename the object  e.g. str1", 0, "s");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 49;
@@ -1593,91 +1728,102 @@ void shape_center_script(struct char_data* ch, char* arg)
                 break;
 
             case SCRIPT_CHANGE_EXIT_TO:
-                SCRIPTPARAMCHANGE("Enter room, exit direction (0-5) and the room the exit is to lead to:", 3);
+                SCRIPTPARAMS("CHANGE_EXIT_TO: room direction destination-vnum  e.g. ch1.room 0 1120\n\r"
+                             "  (0 n, 1 e, 2 s, 3 w, 4 u, 5 d; the exit must already exist)",
+                    0, "vnn");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_DO_DROP:
-                SCRIPTPARAMCHANGE("Enter character and the object they are to drop (eg ch1 ob2)", 2);
+                SCRIPTPARAMS("DO_DROP: character object  e.g. ch1 ob1 (only if they carry it)", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_DO_EMOTE:
-                SCRIPTPARAMCHANGE("Enter character to emote", 1);
+                SCRIPTPARAMS("DO_EMOTE: character  e.g. ch1", 0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 42;
                 break;
 
             case SCRIPT_DO_FLEE:
-                SCRIPTPARAMCHANGE("Enter character to flee", 1);
+                SCRIPTPARAMS("DO_FLEE: character  e.g. ch1", 0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_DO_FOLLOW:
-                SCRIPTPARAMCHANGE("Enter character who is to follow and the character they are to follow:", 2);
+                SCRIPTPARAMS("DO_FOLLOW: follower leader  e.g. ch2 ch1", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_DO_GIVE:
-                SCRIPTPARAMCHANGE("Enter: character to give, character to receive and object (eg ch1 ch2 ob1)", 3);
+                SCRIPTPARAMS("DO_GIVE: giver receiver object  e.g. ch1 ch2 ob1\n\r"
+                             "  (giver must carry it; the object variable is cleared after)",
+                    0, "vvv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_DO_HIT:
-                SCRIPTPARAMCHANGE("Enter attacker (ch1) and victim (ch2)", 2);
+                SCRIPTPARAMS("DO_HIT: attacker victim  e.g. ch1 ch2", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_DO_REMOVE:
-                SCRIPTPARAMCHANGE("Enter character and equipment position (eg ch1 16):", 2);
+                SCRIPTPARAMS("DO_REMOVE: character slot  e.g. ch1 16\n\r"
+                             "  0 light, 1-2 fingers, 3-4 neck, 5 body, 6 head, 7 legs, 8 feet, 9 hands,\n\r"
+                             "  10 arms, 11 shield, 12 about, 13 waist, 14-15 wrists, 16 wield, 17 hold,\n\r"
+                             "  18 back, 19-21 belt",
+                    0, "vn");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_DO_SAY:
-                SCRIPTLINECHANGE("Enter text to say. Include %s to insert a text parameter", SHAPE_SCRIPT(ch)->script->text);
+                SCRIPTLINECHANGE("TEXT to say (%s = the text value) (blank = keep)", SHAPE_SCRIPT(ch)->script->text);
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 41;
                 break;
 
             case SCRIPT_DO_SOCIAL:
-                SCRIPTPARAMCHANGE("Enter the character to perform the social, and their subject (eg ch1 ch2)", 2);
+                SCRIPTPARAMS("DO_SOCIAL: character target(optional, same room)  e.g. ch1 ch2", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 44;
                 break;
 
             case SCRIPT_DO_WAIT:
-                SCRIPTDIGITCHANGE("Enter the length of time to wait (4 = 1 second):", 1);
+                SCRIPTPARAMS("DO_WAIT: pulses to wait (4 = 1 second)\n\r"
+                             "  (ch1 waits. In mob scripts the script then goes on with only ch1 set;\n\r"
+                             "   in object scripts the rest of the script does not run.)",
+                    0, "n");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_DO_WEAR:
-                SCRIPTPARAMCHANGE("Enter character and object to wear (eg ch1, ob2):", 2);
+                SCRIPTPARAMS("DO_WEAR: character object  e.g. ch1 ob1 (only if they carry it)", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_DO_YELL:
-                SCRIPTLINECHANGE("Enter text to say.  Include %s to insert a text field.", SHAPE_SCRIPT(ch)->script->text);
+                SCRIPTLINECHANGE("TEXT to yell (%s = the text value) (blank = keep)", SHAPE_SCRIPT(ch)->script->text);
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 41;
@@ -1696,160 +1842,197 @@ void shape_center_script(struct char_data* ch, char* arg)
                 break;
 
             case SCRIPT_EQUIP_CHAR:
-                SCRIPTDIGITCHANGE("Enter up to 5 vnums of objects with which to equip a character:", 5);
-                SHAPE_SCRIPT(ch)
-                    ->script->param[5]
-                    = SHAPE_SCRIPT(ch)->script->param[0];
+                SCRIPTPARAMS("EQUIP_CHAR: up to 5 object vnums (0 = none)  e.g. 5400 5401 0 0 0", 1, "nnnnn");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 48;
                 break;
 
             case SCRIPT_EXTRACT_CHAR:
-                SCRIPTPARAMCHANGE("Enter character (can only be mobiles) to extract (eg ch1) - be careful!", 1);
+                SCRIPTPARAMS("EXTRACT_CHAR: mob to remove  e.g. ch2 (players are not removed)", 0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_EXTRACT_OBJ:
-                SCRIPTPARAMCHANGE("Enter object to extract (eg ob1) - be careful!", 1);
+                SCRIPTPARAMS("EXTRACT_OBJ: object to remove  e.g. ob1", 0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_GAIN_EXP:
-                SCRIPTPARAMCHANGE("Enter character to gain/lose exp (eg ch1) and the integer gain/loss (eg int1)", 2);
+                SCRIPTPARAMS("GAIN_EXP: character amount  e.g. ch1 int1\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)",
+                    0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_IF_INT_EQUAL:
-                SCRIPTPARAMCHANGE("Enter integers to compare (eg int1 ch1.level)", 2);
+                SCRIPTPARAMS("IF_INT_EQUAL: left right (is left = right?)  e.g. int1 ch1.level\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)"
+                             "\n\r"
+                             "  (a typed number stops the script)\n\r"
+                             "  (true: the next row runs; false: it is skipped, or its BEGIN...END block)",
+                    0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_IF_INT_LESS:
-                SCRIPTPARAMCHANGE("Enter integers to compare (eg int1 ch1.level)", 2);
+                SCRIPTPARAMS("IF_INT_LESS: left right (is left < right?)  e.g. int1 ch1.level\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)"
+                             "\n\r"
+                             "  (a typed number stops the script)\n\r"
+                             "  (true: the next row runs; false: it is skipped, or its BEGIN...END block)",
+                    0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_IF_INT_GREATER:
-                SCRIPTPARAMCHANGE("Enter integers to compare (eg int1 ch1.level)", 2);
+                SCRIPTPARAMS("IF_INT_GREATER: left right (is left > right?)  e.g. int1 ch1.level\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)"
+                             "\n\r"
+                             "  (a typed number stops the script)\n\r"
+                             "  (true: the next row runs; false: it is skipped, or its BEGIN...END block)",
+                    0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_IF_INT_TRUE:
-                SCRIPTPARAMCHANGE("Enter integer to test (eg int1 ch1.level)", 2);
+                SCRIPTPARAMS("IF_INT_TRUE: variable (true = above 0)  e.g. int1\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)"
+                             "\n\r"
+                             "  (a typed number stops the script)\n\r"
+                             "  (true: the next row runs; false: it is skipped, or its BEGIN...END block)",
+                    0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_IF_INT_FALSE:
-                SCRIPTPARAMCHANGE("Enter integer to test (eg int1 ch1.level)", 2);
+                SCRIPTPARAMS("IF_INT_FALSE: variable (false = 0 or less)  e.g. int1\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)"
+                             "\n\r"
+                             "  (a typed number stops the script)\n\r"
+                             "  (true: the next row runs; false: it is skipped, or its BEGIN...END block)",
+                    0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_IF_IS_NPC:
-                SCRIPTPARAMCHANGE("Enter character to check if they are a mobile (eg ch1)", 1);
+                SCRIPTPARAMS("IF_IS_NPC: character  e.g. ch2\n\r"
+                             "  (true: the next row runs; false: it is skipped, or its BEGIN...END block)",
+                    0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_IF_ROOM_SUNLIT:
-                SCRIPTPARAMCHANGE("Enter room to check if the sun is out (eg ch1.room)", 1);
+                SCRIPTPARAMS("IF_ROOM_SUNLIT: room  e.g. ch1.room\n\r"
+                             "  (true: the next row runs; false: it is skipped, or its BEGIN...END block)",
+                    0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_IF_STR_CONTAINS:
-                SCRIPTPARAMCHANGE("Enter main string variable which you want to check (eg ch1.name, str1)", 1);
+                SCRIPTPARAMS("IF_STR_CONTAINS: text variable  e.g. str1 ch2.name\n\r"
+                             "  (true: the next row runs; false: it is skipped, or its BEGIN...END block)",
+                    0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 47;
                 break;
 
             case SCRIPT_IF_STR_EQUAL:
-                SCRIPTPARAMCHANGE("Enter the main string variable which you want to check (eg ch1.name, str1)", 1);
+                SCRIPTPARAMS("IF_STR_EQUAL: text variable  e.g. str1\n\r"
+                             "  (true: the next row runs; false: it is skipped, or its BEGIN...END block)",
+                    0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 47;
                 break;
 
             case SCRIPT_LOAD_MOB:
-                SCRIPTPARAMCHANGE("Enter vnum of mobile and character variable to assign to (eg ch2)", 2);
+                SCRIPTPARAMS("LOAD_MOB: mob-vnum character-var  e.g. 5400 ch2\n\r"
+                             "  (it is nowhere until a TELEPORT_CHAR row places it)",
+                    0, "nv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_LOAD_OBJ:
-                SCRIPTPARAMCHANGE("Enter vnum of object and object variable to assign to (eg 5400 ob1)", 2);
+                SCRIPTPARAMS("LOAD_OBJ: obj-vnum object-var  e.g. 5400 ob1 (placed nowhere)", 0, "nv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_LOAD_OBJ_X:
-                SCRIPTPARAMCHANGE("Enter object to copy and object variable to assign to (eg ob1.vnum ob2)", 2);
+                SCRIPTPARAMS("LOAD_OBJ_X: (unused) object-var  e.g. 1 ob2 (always copies ob1)", 0, "nv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_OBJ_FROM_CHAR:
-                SCRIPTPARAMCHANGE("Enter object and character (eg ob1 ch1)", 2);
+                SCRIPTPARAMS("OBJ_FROM_CHAR: object character  e.g. ob1 ch1 (object is then nowhere)", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_OBJ_FROM_ROOM:
-                SCRIPTPARAMCHANGE("Enter object and room (eg ob1 rm1)", 2);
+                SCRIPTPARAMS("OBJ_FROM_ROOM: object room  e.g. ob1 ch1.room", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_OBJ_TO_CHAR:
-                SCRIPTPARAMCHANGE("Enter object and character (eg ob1 ch1)", 2);
+                SCRIPTPARAMS("OBJ_TO_CHAR: object character  e.g. ob1 ch1 (object must be nowhere)", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_OBJ_TO_ROOM:
-                SCRIPTPARAMCHANGE("Enter object and room (eg ob1 rm1)", 2);
+                SCRIPTPARAMS("OBJ_TO_ROOM: object room  e.g. ob1 ch1.room", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_PAGE_ZONE_MAP:
-                SCRIPTDIGITCHANGE("Enter zone number of the map you want to page:", 1);
-                SHAPE_SCRIPT(ch)
-                    ->script->param[1]
-                    = SHAPE_SCRIPT(ch)->script->param[0];
+                SCRIPTPARAMS("PAGE_ZONE_MAP: zone number (room vnum / 100)  e.g. 11", 1, "n");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 46;
                 break;
 
             case SCRIPT_RAW_KILL:
-                SCRIPTPARAMCHANGE("Enter character/player to be killed (eg ch1):", 1);
+                SCRIPTPARAMS("RAW_KILL: character to kill  e.g. ch2", 0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
@@ -1862,104 +2045,124 @@ void shape_center_script(struct char_data* ch, char* arg)
                 break;
 
             case SCRIPT_SEND_TO_CHAR:
-                SCRIPTPARAMCHANGE("Enter character to send text to (eg ch1) (and optional text field)", 2);
+                SCRIPTPARAMS("SEND_TO_CHAR: character text-value(optional)  e.g. ch1 ch2.name\n\r"
+                             "  (the message itself is asked for next)",
+                    0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_SEND_TO_ROOM:
-                SCRIPTPARAMCHANGE("Enter room to send text to (eg rm1) and optional text field (eg ch1.name)", 2);
+                SCRIPTPARAMS("SEND_TO_ROOM: room text-value(optional)  e.g. ch1.room ch1.name\n\r"
+                             "  (the message itself is asked for next)",
+                    0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_SEND_TO_ROOM_X:
-                SCRIPTPARAMCHANGE("Enter room to send text to (eg rm1), character not to see it (eg ch1) and optional text field", 3);
+                SCRIPTPARAMS("SEND_TO_ROOM_X: room hidden-from text-value(optional)\n\r"
+                             "  e.g. ch1.room ch1 ch1.name (the message itself is asked for next)",
+                    0, "vvv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_SET_EXIT_STATE:
-                SCRIPTPARAMCHANGE("Enter room (eg rm1):", 1);
-                SHAPE_SCRIPT(ch)
-                    ->script->param[2]
-                    = SHAPE_SCRIPT(ch)->script->param[0];
+                SCRIPTPARAMS("SET_EXIT_STATE: room  e.g. ch1.room", 2, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 43;
                 break;
 
             case SCRIPT_SET_INT_DIV:
-                SCRIPTPARAMCHANGE("Enter the integer to assign to, the integer, and the integer it is to be divided by", 3);
+                SCRIPTPARAMS("SET_INT_DIV: result first second (result = first / second)\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)",
+                    0, "vvv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_SET_INT_MULT:
-                SCRIPTPARAMCHANGE("Enter the integer to assign to and the two integers to multiply", 3);
+                SCRIPTPARAMS("SET_INT_MULT: result first second (result = first x second)\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)",
+                    0, "vvv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_SET_INT_RANDOM:
-                SCRIPTPARAMCHANGE("Enter the integer to assign to, the lower integer and then the higher", 3);
+                SCRIPTPARAMS("SET_INT_RANDOM: result low high (a random number from low to high)\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)",
+                    0, "vvv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_SET_INT_SUB:
-                SCRIPTPARAMCHANGE("Enter the integer to assign to, the first integer and the integer to subtract", 3);
+                SCRIPTPARAMS("SET_INT_SUB: result first second (result = first - second)\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)",
+                    0, "vvv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_SET_INT_SUM:
-                SCRIPTPARAMCHANGE("Enter the integer to assign to and the two integers to add together", 3);
+                SCRIPTPARAMS("SET_INT_SUM: result first second  e.g. int1 int2 ch1.level\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)",
+                    0, "vvv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_SET_INT_WAR_STATUS:
-                SCRIPTPARAMCHANGE("Enter integer to set to the war status: (Should almost always be int1, int2 or int3):", 1);
+                SCRIPTPARAMS("SET_INT_WAR_STATUS: variable (1 = good side leads, -1 = evil, 0 = tied)\n\r"
+                             "  (variables only - int1-3, chN.level/.hit/.race/.exp/.rank, obN.vnum;\n\r"
+                             "   the result must be int1-3 or chN.hit)",
+                    0, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_SET_INT_VALUE:
-                SCRIPTPARAMCHANGE("Enter integer parameter (eg, int1, ch1.hit - be careful!:", 1);
-                SHAPE_SCRIPT(ch)
-                    ->script->param[1]
-                    = SHAPE_SCRIPT(ch)->script->param[0];
+                SCRIPTPARAMS("SET_INT_VALUE: variable to set (int1-3 or chN.hit)  e.g. int1", 1, "v");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 45;
                 break;
 
             case SCRIPT_TELEPORT_CHAR:
-                SCRIPTPARAMCHANGE("Enter room to teleport the character (and followers) to and the character:", 2);
+                SCRIPTPARAMS("TELEPORT_CHAR: room-vnum character  e.g. 1120 ch1\n\r"
+                             "  (room is a typed number; also moves NPC followers in the room)",
+                    0, "nv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_TELEPORT_CHAR_X:
-                SCRIPTPARAMCHANGE("Enter room num to teleport to and the character:", 2);
+                SCRIPTPARAMS("TELEPORT_CHAR_X: room-vnum character  e.g. 1120 ch1 (a typed number)", 0, "nv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
                 break;
 
             case SCRIPT_TELEPORT_CHAR_XL:
-                SCRIPTPARAMCHANGE("Enter chX.room (ch1.room) to teleport to and the character:", 2);
+                SCRIPTPARAMS("TELEPORT_CHAR_XL: room character  e.g. ch2.room ch1", 0, "vv");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
@@ -1975,67 +2178,81 @@ void shape_center_script(struct char_data* ch, char* arg)
             break;
 
         case 41:
-            SCRIPTPARAMCHANGE("Enter: who to speak/yell (ch1) and optional parameter to insert (ch1.name)", 2);
+            SCRIPTPARAMS(SHAPE_SCRIPT(ch)->script->command_type == SCRIPT_DO_YELL
+                    ? "DO_YELL: speaker text-value(optional)  e.g. ch1 ch2.name"
+                    : "DO_SAY: speaker text-value(optional)  e.g. ch1 ch2.name",
+                0, "vv");
             SHAPE_SCRIPT(ch)
                 ->editflag
                 = 0;
             break;
 
         case 42:
-            SCRIPTLINECHANGE("Enter the text to emote", SHAPE_SCRIPT(ch)->script->text);
+            SCRIPTLINECHANGE("EMOTE text (blank = keep)", SHAPE_SCRIPT(ch)->script->text);
             SHAPE_SCRIPT(ch)
                 ->editflag
                 = 0;
             break;
 
         case 43:
-            SCRIPTDIGITCHANGE("Enter exit direction (0-5) and door state (0-2)", 2);
+            SCRIPTPARAMS("SET_EXIT_STATE: direction state  e.g. 0 2\n\r"
+                         "  (0 n 1 e 2 s 3 w 4 u 5 d; state 0 open, 1 closed, 2 locked)",
+                0, "nn");
             SHAPE_SCRIPT(ch)
                 ->editflag
                 = 5;
             break;
 
         case 44:
-            SCRIPTLINECHANGE("Enter the social (text) to perform (eg, nod):", SHAPE_SCRIPT(ch)->script->text);
+            SCRIPTLINECHANGE("SOCIAL name, e.g. nod (blank = keep)", SHAPE_SCRIPT(ch)->script->text);
             SHAPE_SCRIPT(ch)
                 ->editflag
                 = 0;
             break;
 
         case 45:
-            SCRIPTDIGITCHANGE("Enter integer value:", 1);
+            SCRIPTPARAMS("SET_INT_VALUE: the number to set it to  e.g. 10", 0, "n");
             SHAPE_SCRIPT(ch)
                 ->editflag
                 = 5;
             break;
 
         case 46:
-            SCRIPTPARAMCHANGE("Enter the character which is to receive the map:", 1);
+            SCRIPTPARAMS("PAGE_ZONE_MAP: character to show it to  e.g. ch1", 0, "v");
             SHAPE_SCRIPT(ch)
                 ->editflag
                 = 5;
             break;
 
         case 47:
-            SCRIPTLINECHANGE("Enter the text you want to check for (in capitals)", SHAPE_SCRIPT(ch)->script->text);
+            SCRIPTLINECHANGE(SHAPE_SCRIPT(ch)->script->command_type == SCRIPT_IF_STR_EQUAL
+                    ? "TEXT to compare with, any case (blank = keep)"
+                    : "TEXT to look for, in CAPITALS (blank = keep)",
+                SHAPE_SCRIPT(ch)->script->text);
             break;
 
         case 48:
-            SCRIPTPARAMCHANGE("Enter the character to is to receive the equipment:", 1);
+            SCRIPTPARAMS("EQUIP_CHAR: character to equip  e.g. ch1", 0, "v");
             SHAPE_SCRIPT(ch)
                 ->editflag
                 = 0;
             break;
 
         case 49:
-            SCRIPTLINECHANGE("Enter the text you wish to store: ",
-                SHAPE_SCRIPT(ch)->script->text);
+            SCRIPTLINECHANGE("TEXT to store (blank = keep)", SHAPE_SCRIPT(ch)->script->text);
             SHAPE_SCRIPT(ch)
                 ->editflag
                 = 0;
             break;
         case 5: // case 5: set comment
-            SCRIPTLINECHANGE("COMMENT", SHAPE_SCRIPT(ch)->script->text);
+            /* An empty message sends nothing. */
+            if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)
+                && script_text_is_message(SHAPE_SCRIPT(ch)->script->command_type)
+                && sscanf(arg, "%s", str) == 1 && !strcmp(str, "%q")) {
+                send_to_char("The message can't be empty.\n\r", ch);
+                arg[0] = 0;
+            }
+            SCRIPTLINECHANGE(script_text_label(SHAPE_SCRIPT(ch)->script->command_type), SHAPE_SCRIPT(ch)->script->text);
             break;
 
         case 6: // case 6: Choose next
@@ -2079,8 +2296,11 @@ void shape_center_script(struct char_data* ch, char* arg)
             break;
 
         case 8:
-            tmp1 = SHAPE_SCRIPT(ch)->script->number;
-            SCRIPTREALDIGCHANGE("New command number:", tmp1);
+            /* itmp[2], not tmp1: the macro uses tmp1 while it reads, so a
+             * blank answer used to give 0 ("Wrong command number"). */
+            itmp[2] = SHAPE_SCRIPT(ch)->script->number;
+            SCRIPTREALDIGCHANGE("row number", itmp[2]);
+            tmp1 = itmp[2];
             for (script = SHAPE_SCRIPT(ch)->root; script; script = script->next)
                 if (script->number == tmp1)
                     break;
@@ -2194,6 +2414,10 @@ void shape_center_script(struct char_data* ch, char* arg)
             break;
 
         case 12: // Case 12: change current room number
+            /* Left over from the zone editor: script rows have no room. */
+            shape_disabled(ch, "/", arg);
+            SHAPE_SCRIPT(ch)->editflag = 0;
+            break;
             SCRIPTREALDIGCHANGE("'CURRENT ROOM' number", SHAPE_SCRIPT(ch)->cur_room);
             if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_CURRFLAG)) {
                 REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_CURRFLAG);
@@ -2242,7 +2466,12 @@ void shape_center_script(struct char_data* ch, char* arg)
             break;
 
         case 20: // case 20: change script name
-            SCRIPTLINECHANGE("SCRIPT NAME", SHAPE_SCRIPT(ch)->name);
+            if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE) && sscanf(arg, "%s", str) == 1
+                && !strcmp(str, "%q")) {
+                send_to_char("The script name can't be empty.\n\r", ch);
+                arg[0] = 0;
+            }
+            SCRIPTLINECHANGE("SCRIPT NAME, a one-line title (blank = keep)", SHAPE_SCRIPT(ch)->name);
             break;
 
         case 21: //  case 21: change script description

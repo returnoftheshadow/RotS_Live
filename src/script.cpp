@@ -406,9 +406,10 @@ get_text_param_writable(int param, struct info_script* info)
         else
             return NULL;
     default:
+        /* The format had a %s with no argument to go with it. */
         vmudlog(BRF, "Script #%d attempted to write to string "
-                     "variable %s.",
-            script_table[info->index].number);
+                     "variable %d.",
+            script_table[info->index].number, param);
         return NULL;
     }
 }
@@ -1156,8 +1157,12 @@ int run_script(struct info_script* info, struct script_data* position)
         case SCRIPT_ASSIGN_STR:
             if (curr->param[0] && curr->text) {
                 wtxt = get_text_param_writable(curr->param[0], info);
-                CREATE(*wtxt, char, strlen(curr->text) + 1);
-                sprintf(*wtxt, curr->text);
+                /* Only str1-3 and obN.name can be written; anything else
+                 * crashed the server. */
+                if (wtxt) {
+                    CREATE(*wtxt, char, strlen(curr->text) + 1);
+                    sprintf(*wtxt, curr->text);
+                }
             }
             curr = curr->next;
             break;
@@ -1290,6 +1295,11 @@ int run_script(struct info_script* info, struct script_data* position)
                 if ((tmpint = find_action(curr->text)) != -1) {
                     tmpch = get_char_param(curr->param[0], info);
                     tmpch2 = get_char_param(curr->param[1], info);
+                    /* An unset performer crashed the server. */
+                    if (!tmpch) {
+                        curr = curr->next;
+                        break;
+                    }
                     if ((tmpch2) && (tmpch2->in_room == tmpch->in_room)) {
                         tmpwtl.targ1.ptr.ch = tmpch2;
                         tmpwtl.targ1.type = TARGET_CHAR;
@@ -1318,7 +1328,8 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[1]) {
                 tmpch = get_char_param(curr->param[0], info);
                 tmpobj = get_obj_param(curr->param[1], info);
-                tmpint = find_eq_pos(tmpch, tmpobj, 0);
+                /* find_eq_pos reads the object: an unset one crashed the server. */
+                tmpint = (tmpch && tmpobj) ? find_eq_pos(tmpch, tmpobj, 0) : -1;
                 if ((tmpint >= 0) && tmpch && tmpobj && (tmpobj->carried_by == tmpch) && (tmpch->equipment[tmpint] != tmpobj))
                     perform_wear(tmpch, tmpobj, tmpint);
             }
@@ -1566,7 +1577,8 @@ int run_script(struct info_script* info, struct script_data* position)
                 exit = TRUE;
                 break;
             }
-            if (IS_SUNLIT(tmprm->number)) {
+            /* IS_SUNLIT takes the room's place in world[], not its vnum. */
+            if (IS_SUNLIT(real_room(tmprm->number))) {
                 curr = curr->next;
             } else {
                 if (!curr->next) {
@@ -1663,7 +1675,8 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_LOAD_OBJ_X:
-            if (curr->param[0] && curr->param[1]) {
+            /* Always copies ob1; with ob1 unset it crashed the server. */
+            if (curr->param[0] && curr->param[1] && info->ob[0]) {
                 tmpobj = read_object(info->ob[0]->item_number, REAL);
                 if (tmpobj) {
                     assign_obj_param(curr->param[1], info, tmpobj);
@@ -1688,7 +1701,10 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpobj = get_obj_param(curr->param[0], info);
                 tmprm = get_room_param(curr->param[1], info);
                 if (tmpobj && tmprm)
-                    if ((tmpobj->in_room >= 0) ? world[tmpobj->in_room].number : 0 == tmprm->number)
+                    /* Was "in_room >= 0 ? room vnum : 0 == wanted", which took the
+                     * object out of whatever room it was in.  All 73 live lines
+                     * already name the object's own room or extract it next. */
+                    if (tmpobj->in_room >= 0 && world[tmpobj->in_room].number == tmprm->number)
                         obj_from_room(tmpobj);
             }
             curr = curr->next;
