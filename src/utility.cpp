@@ -410,6 +410,24 @@ int string_to_new_value(char* arg, int* value)
     return *value;
 }
 
+/*
+ * For the few prompts where a negative number is a real value (alignment,
+ * saving throw, an exit's "no keyhole" key or "leads nowhere" room): a typed
+ * "-N" sets -N, where string_to_new_value would subtract N.  Returns 1 if it
+ * set the value, 0 if the input was anything else.
+ */
+int string_to_negative_value(char* arg, int* value)
+{
+    while (*arg && (*arg <= ' '))
+        arg++;
+
+    if (*arg == '-' && isdigit(arg[1])) {
+        *value = -atoi(arg + 1);
+        return 1;
+    }
+    return 0;
+}
+
 //============================================================================
 int get_bow_weapon_damage(const obj_data& weapon)
 {

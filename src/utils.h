@@ -67,6 +67,7 @@ void string_add_init(struct descriptor_data*, char**);
 void string_add_finish(struct descriptor_data*);
 void string_add(struct descriptor_data*, char*);
 int string_to_new_value(char* arg, int* value);
+int string_to_negative_value(char* arg, int* value);
 char* nth(int);
 void day_to_str(time_info_data* loc_time_info, char* str);
 int find_player_in_table(char* name, int idnum);
