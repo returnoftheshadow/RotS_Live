@@ -1741,7 +1741,13 @@ void affect_update()
 void fast_update()
 {
     int freq = FAST_UPDATE_RATE;
-    for (char_data* character = character_list; character != nullptr; character = character->next) {
+    // A regen death below frees an NPC or a link-dead player, so the walk advances through the
+    // successor saved before the body runs; extract_char() relinks the list around the dead
+    // character. Not handled: a death that also frees that successor (a death special
+    // extracting another mob) leaves the saved pointer dangling.
+    char_data* next_character = nullptr;
+    for (char_data* character = character_list; character != nullptr; character = next_character) {
+        next_character = character->next;
 
         // Note:  Regen values can be negative, so we can't test if a character is below max as an
         // optimization.
@@ -1769,9 +1775,10 @@ void fast_update()
         if (GET_HIT(character) < 0 && hitregen < 0) {
             act("$n suddenly collapses on the ground.", TRUE, character, 0, 0, TO_ROOM);
             send_to_char("Your body failed to the magic.\n\r", character);
-            raw_kill(character, NULL, TYPE_UNDEFINED);
+            // Recorded before the kill, which may free the character.
             add_exploit_record(EXPLOIT_REGEN_DEATH, character, 0, NULL);
-            return;
+            raw_kill(character, NULL, TYPE_UNDEFINED);
+            continue;
         }
 
         GET_MANA(character) = std::min(GET_MANA(character) + manaregen, (int)GET_MAX_MANA(character));

@@ -9,6 +9,7 @@
 #include "raw_kill_declaration.h"
 #include "scoped_character_list.h"
 #include "scoped_combat_list.h"
+#include "scoped_descriptor_list.h"
 #include "scoped_flee_world.h"
 #include "scoped_player_death_sandbox.h"
 #include "scoped_room_occupants.h"
@@ -23,9 +24,6 @@
 #include <system_error>
 
 extern room_data world;
-extern descriptor_data* descriptor_list;
-extern descriptor_data* next_to_process;
-extern SocketType maxdesc;
 extern player_index_element* player_table;
 extern int top_of_p_table;
 
@@ -42,31 +40,6 @@ constexpr int kUnusedDirection = EAST;
 // puts its saved file in players/K-O.
 constexpr const char* kLinkDeadPlayerName = "Kitted";
 constexpr char kLinkDeadPlayerKey[] = "kitted";
-
-// Makes `descriptor` the whole descriptor_list for the scope and restores the list, the next
-// descriptor to process and maxdesc on exit: close_socket() unlinks the descriptor it frees from
-// that list and lowers maxdesc when the socket numbers match.
-class ScopedDescriptorList {
-  public:
-    explicit ScopedDescriptorList(descriptor_data* descriptor)
-        : m_previous_list(descriptor_list), m_previous_next_to_process(next_to_process),
-          m_previous_maxdesc(maxdesc) {
-        descriptor_list = descriptor;
-        next_to_process = nullptr;
-    }
-    ~ScopedDescriptorList() {
-        descriptor_list = m_previous_list;
-        next_to_process = m_previous_next_to_process;
-        maxdesc = m_previous_maxdesc;
-    }
-    ScopedDescriptorList(const ScopedDescriptorList&) = delete;
-    ScopedDescriptorList& operator=(const ScopedDescriptorList&) = delete;
-
-  private:
-    descriptor_data* m_previous_list;            // descriptor_list before the scope
-    descriptor_data* m_previous_next_to_process; // next_to_process before the scope
-    SocketType m_previous_maxdesc;               // maxdesc before the scope
-};
 
 // Publishes a one-entry player table naming kLinkDeadPlayerKey, and the players/K-O directory its
 // file is saved into under the working directory, so save_char() writes the player's record and
@@ -143,7 +116,7 @@ TEST_F(RawKill, ALinkDeadPlayerIsFreedAndItsSavedRecordIsNoLongerKitted) {
     link_dead_descriptor->connected = CON_LINKLS;
     SET_BIT(PLR_FLAGS(player), PLR_WAS_KITTED);
     const character_identity player_identity = character_identity::capture(*player);
-    ScopedDescriptorList descriptors(link_dead_descriptor);
+    test_support::ScopedDescriptorList descriptors(link_dead_descriptor);
     test_support::ScopedCharacterList characters({player});
     test_support::ScopedRoomOccupants death_room_occupants(kDeathRoom, {player});
 
