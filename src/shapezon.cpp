@@ -745,7 +745,7 @@ static const char* zone_param_prompt(struct reset_com* c, int show_current)
     case 'M':
         head = "M - load a mob into a room";
         fields = "if_flag mob_vnum room_vnum max_world chance% xp% max_alive_line trophy";
-        notes = "  max_world, max_alive_line: 0 = no limit.  xp%: 0 = normal xp\n\r";
+        notes = "  max_world, max_alive_line: 0 = no limit.  xp%: 100 = normal (0 also normal)\n\r";
         shown = 8;
         break;
     case 'O':
