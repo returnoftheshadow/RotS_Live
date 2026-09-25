@@ -1970,6 +1970,10 @@ void load_mobiles(FILE* mob_f)
                 mob_proto[i].player.sex = tmp3;
                 mob_proto[i].player.race = tmp4;
                 mob_proto[i].specials2.pref = tmp5;
+                if (tmp4 < 0 || tmp4 > 20) {
+                    sprintf(buf, "MOB ERROR: mobile #%d: race %d out of range 0-20", nr, tmp4);
+                    mudlog(buf, NRM, LEVEL_IMMORT, TRUE);
+                }
 
                 mob_proto[i].player.prof = 0;
 
