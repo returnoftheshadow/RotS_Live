@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <climits>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -957,8 +958,17 @@ TEST(AccountManagement, FormatsOutOfRangeSummaryTimestampsAsInvalid)
 
     const std::string summary = account::format_account_summary(account_data);
 
-    EXPECT_NE(summary.find("Created: Invalid\n\r"), std::string::npos);
-    EXPECT_NE(summary.find("Updated: Invalid\n\r"), std::string::npos);
+    // A 64-bit long's maximum is beyond any calendar gmtime_r() can represent; a 32-bit long's
+    // maximum equals a 32-bit time_t's, a valid instant, so no long is out of range there.
+    if constexpr (sizeof(long) > sizeof(std::int32_t)) {
+        EXPECT_NE(summary.find("Created: Invalid\n\r"), std::string::npos) << summary;
+        EXPECT_NE(summary.find("Updated: Invalid\n\r"), std::string::npos) << summary;
+    } else {
+        EXPECT_NE(summary.find("Created: 2038-01-19 03:14:07 UTC\n\r"), std::string::npos)
+            << summary;
+        EXPECT_NE(summary.find("Updated: 2038-01-19 03:14:07 UTC\n\r"), std::string::npos)
+            << summary;
+    }
 }
 
 TEST(AccountManagement, FormatsPendingVerificationWindowWithHumanReadableDates)

@@ -63,9 +63,14 @@ TEST(SpellParser, SaySpellUsesMagicColorForColorEnabledObservers)
 
     say_spell(&caster, SPELL_MAGIC_MISSILE);
 
+    // say_spell() passes the global buf as the message; the colour prefix appearing once and the
+    // caster's name surviving show the message was not overwritten while being coloured.
     const std::string output = observer_descriptor.output;
-    EXPECT_NE(output.find(color_sequence[CBBLU]), std::string::npos) << output;
-    EXPECT_NE(output.find("A strange command, 'magic missile'"), std::string::npos) << output;
+    const std::string magic_color = color_sequence[CBBLU];
+    EXPECT_EQ(output.find(magic_color), 0u) << output;
+    EXPECT_EQ(output.find(magic_color, magic_color.size()), std::string::npos) << output;
+    EXPECT_NE(output.find("Caster utters a strange command, 'magic missile'"), std::string::npos)
+        << output;
     EXPECT_NE(output.find(color_sequence[CNRM]), std::string::npos) << output;
 }
 

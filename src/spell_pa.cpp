@@ -50,19 +50,31 @@ void check_break_prep(struct char_data* ch);
 
 ACMD(do_flee);
 
+// Sends the act() template `message`, wrapped in each receiver's magic colour, to everyone awake
+// in the caster's room except the caster. `message` may point into the global `buf`. A null
+// `caster` or `message` is logged and nothing is sent; a caster in no room sends nothing.
 void send_magic_room_message(char_data* caster, const char* message)
 {
-    if (caster == nullptr || message == nullptr || caster->in_room < 0)
+    if (caster == nullptr || message == nullptr) {
+        log("SYSERR: send_magic_room_message called with a null caster or message.");
         return;
+    }
 
+    if (caster->in_room < 0) {
+        return;
+    }
+
+    // Formatting into `buf` would overlap `message` when say_spell() passes `buf`, which is
+    // undefined behaviour; a local buffer of the same size keeps the output and truncation.
+    char colored_message[sizeof(buf)];
     const room_data& room = world[caster->in_room];
     for (char_data* receiver = room.people; receiver; receiver = receiver->next_in_room) {
         if (receiver == caster || GET_POS(receiver) <= POSITION_SLEEPING)
             continue;
 
-        std::snprintf(buf, sizeof(buf), "%s%s%s",
+        std::snprintf(colored_message, sizeof(colored_message), "%s%s%s",
             CC_USE(receiver, COLOR_MAGIC), message, CC_NORM(receiver));
-        act(buf, FALSE, caster, 0, receiver, TO_VICT);
+        act(colored_message, FALSE, caster, 0, receiver, TO_VICT);
     }
 }
 
