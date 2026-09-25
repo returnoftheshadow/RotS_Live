@@ -5,53 +5,56 @@
 #include "../structs.h"
 #include "../utils.h"
 
+#include <gtest/gtest.h>
+
 namespace test_support {
 
-char_data* allocate_test_character(int clear_mode)
-{
+namespace {
+
+// The level fill_stack_npc() gives; any mortal level serves the affect tests.
+constexpr int kStackNpcLevel = 10;
+
+} // namespace
+
+char_data* allocate_test_character(int clear_mode) {
     char_data* character = nullptr;
     CREATE(character, char_data, 1);
     clear_char(character, clear_mode);
     return character;
 }
 
-void release_test_character(char_data* character)
-{
+void release_test_character(char_data* character) {
+    if (character == nullptr) {
+        ADD_FAILURE() << "release_test_character: null character";
+        return;
+    }
     free_char(character);
 }
 
-void make_stack_npc(char_data& character, char_prof_data& profs)
-{
-    character.profs = &profs;
-    character.specials2.act = MOB_ISNPC;
-    character.nr = -1;
-    character.player.race = RACE_HUMAN;
-    character.player.level = 10;
-    character.specials.position = POSITION_STANDING;
-    character.specials.fighting = nullptr;
+void fill_stack_npc(char_data& out_character, char_prof_data& profs) {
+    out_character.profs = &profs;
+    out_character.specials2.act = MOB_ISNPC;
+    out_character.nr = -1;
+    out_character.player.race = RACE_HUMAN;
+    out_character.player.level = kStackNpcLevel;
+    out_character.specials.position = POSITION_STANDING;
+    out_character.specials.fighting = nullptr;
 }
 
-void make_sturdy_stack_npc(char_data& character, char_prof_data& profs)
-{
-    make_stack_npc(character, profs);
-    character.abilities.hit = 500;
-    character.tmpabilities.hit = 500;
+void fill_sturdy_stack_npc(char_data& out_character, char_prof_data& profs) {
+    fill_stack_npc(out_character, profs);
+    out_character.abilities.hit = kSturdyNpcHitPoints;
+    out_character.tmpabilities.hit = kSturdyNpcHitPoints;
 }
 
-ScopedCharExists::ScopedCharExists(char_data& character, int abs_number)
-    : m_character(character)
-{
+ScopedCharExists::ScopedCharExists(char_data& character, int abs_number) : m_character(character) {
     character.abs_number = abs_number;
     set_char_exists(abs_number, &character);
 }
 
-ScopedCharExists::~ScopedCharExists()
-{
-    remove_char_exists(m_character.abs_number);
-}
+ScopedCharExists::~ScopedCharExists() { remove_char_exists(m_character.abs_number); }
 
-ScopedAffectCleanup::~ScopedAffectCleanup()
-{
+ScopedAffectCleanup::~ScopedAffectCleanup() {
     while (m_character.affected) {
         affect_remove(&m_character, m_character.affected);
     }

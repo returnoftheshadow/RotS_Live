@@ -13,7 +13,7 @@ TEST(GetAffectUnbounded, FindsAnAffectBuriedPastMaxAffectEntries)
 {
     char_data victim {};
     char_prof_data victim_profs {};
-    test_support::make_stack_npc(victim, victim_profs);
+    test_support::fill_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     affected_type poison = test_support::inert_affect(SPELL_POISON, 20);
     affect_to_char(&victim, &poison);
@@ -28,7 +28,7 @@ TEST(GetAffectUnbounded, ReturnsTheNewestMatchOrNullptr)
 {
     char_data victim {};
     char_prof_data victim_profs {};
-    test_support::make_stack_npc(victim, victim_profs);
+    test_support::fill_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     test_support::add_filler_affects(victim, 3);
 
@@ -50,7 +50,7 @@ TEST(AffectJoin, MergesIntoAPoisonJustPastTheCappedFinder)
 {
     char_data victim {};
     char_prof_data victim_profs {};
-    test_support::make_stack_npc(victim, victim_profs);
+    test_support::fill_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     affected_type first_poison = test_support::inert_affect(SPELL_POISON, 20);
     affect_to_char(&victim, &first_poison);
@@ -71,7 +71,7 @@ TEST(AffectJoin, MergesIntoAPoisonBuriedFarPastTheCap)
 {
     char_data victim {};
     char_prof_data victim_profs {};
-    test_support::make_stack_npc(victim, victim_profs);
+    test_support::fill_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     affected_type first_poison = test_support::inert_affect(SPELL_POISON, 20);
     affect_to_char(&victim, &first_poison);
@@ -103,7 +103,7 @@ TEST(AffectRemove, UnlinksAndStripsAnAffectBuriedPastMaxAffectEntries)
 {
     char_data victim {};
     char_prof_data victim_profs {};
-    test_support::make_stack_npc(victim, victim_profs);
+    test_support::fill_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     affected_type resist_magic = saving_throw_affect();
     affect_to_char(&victim, &resist_magic);
@@ -124,7 +124,7 @@ TEST(AffectRemove, LeavesStatsAndFlagsAloneForAnAffectNotOnTheList)
 {
     char_data victim {};
     char_prof_data victim_profs {};
-    test_support::make_stack_npc(victim, victim_profs);
+    test_support::fill_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     affected_type resist_magic = saving_throw_affect();
     affect_to_char(&victim, &resist_magic);
@@ -143,7 +143,7 @@ TEST(AffectJoin, AddsTheAffectWhenNoneOfItsTypeIsPresent)
 {
     char_data victim {};
     char_prof_data victim_profs {};
-    test_support::make_stack_npc(victim, victim_profs);
+    test_support::fill_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     test_support::add_filler_affects(victim, 2);
 

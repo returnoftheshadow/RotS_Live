@@ -6,11 +6,12 @@ struct char_data;
 
 namespace test_support {
 
-// Makes `occupants` the only people in world[room_number] for the scope, growing the test world
-// to hold that room and lighting it, and restores the room's people and light on exit. Each
-// occupant's in_room is set to the room; the list is built by prepending, so the last occupant
-// given heads it. The combat list is left alone: pair this with a ScopedCombatList when the test
-// can start a fight.
+// Makes `occupants` the only people in world[room_number] for the scope, raising top_of_world to
+// cover that room (see ensure_test_world()) and lighting it, and restores the room's people and
+// light on exit. Each occupant's in_room is set to the room; the list is built by prepending, so
+// the last occupant given heads it. A null occupant is reported as a test failure and skipped.
+// The combat list is left alone: pair this with a ScopedCombatList when the test can start a
+// fight.
 class ScopedRoomOccupants {
   public:
     ScopedRoomOccupants(int room_number, std::initializer_list<char_data*> occupants);

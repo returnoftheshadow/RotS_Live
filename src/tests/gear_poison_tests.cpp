@@ -15,7 +15,7 @@
 
 #include <gtest/gtest.h>
 
-void affect_update_person(struct char_data* i, int mode);
+void affect_update_person(char_data* character, int mode);
 
 namespace {
 
@@ -24,8 +24,9 @@ namespace {
 // which puts it on combat_list, so each test scopes the combat list too.
 constexpr int kWearerRoom = 29;
 
-// The APPLY_BITVECTOR modifier that names AFF_POISON: affect_modify() sets bit 1 << modifier.
+// The APPLY_BITVECTOR modifier that names AFF_POISON.
 constexpr int kPoisonBitNumber = 11;
+static_assert((1 << kPoisonBitNumber) == AFF_POISON, "affect_modify() sets bit 1 << modifier");
 
 // Bound on affect_update_person() calls for a 1-tick poison: one tick spends the duration, the
 // next removes the affect.
@@ -33,7 +34,7 @@ constexpr int kExpiryTickBudget = 3;
 
 // Forces every slow affect to tick on each affect_update_person() call for the scope.
 class ScopedForcedAffectPhase {
-public:
+  public:
     ScopedForcedAffectPhase() : m_previous(harness_force_affect_phase) {
         harness_force_affect_phase = 1;
     }
@@ -41,7 +42,7 @@ public:
     ScopedForcedAffectPhase(const ScopedForcedAffectPhase&) = delete;
     ScopedForcedAffectPhase& operator=(const ScopedForcedAffectPhase&) = delete;
 
-private:
+  private:
     int m_previous; // the flag's value before the scope
 };
 
@@ -49,8 +50,8 @@ private:
 // "sickly amulet". Worn through equip_char() on construction and taken off on scope exit if the
 // test has not already removed it.
 class WornPoisonAmulet {
-public:
-    explicit WornPoisonAmulet(char_data& wearer) : m_wearer(wearer), m_amulet() {
+  public:
+    explicit WornPoisonAmulet(char_data& wearer) : m_wearer(wearer) {
         m_amulet.in_room = NOWHERE; // equip_char() refuses an item lying in a room
         m_amulet.obj_flags.type_flag = ITEM_WORN;
         m_amulet.obj_flags.wear_flags = ITEM_TAKE | ITEM_WEAR_NECK;
@@ -59,48 +60,42 @@ public:
         equip_char(&m_wearer, &m_amulet, WEAR_NECK_1);
     }
     ~WornPoisonAmulet() {
-        if (m_wearer.equipment[WEAR_NECK_1] == &m_amulet) {
+        if (is_worn()) {
             unequip_char(&m_wearer, WEAR_NECK_1);
         }
     }
     WornPoisonAmulet(const WornPoisonAmulet&) = delete;
     WornPoisonAmulet& operator=(const WornPoisonAmulet&) = delete;
 
-    bool is_worn() const { return m_wearer.equipment[WEAR_NECK_1] == &m_amulet; }
+    [[nodiscard]] bool is_worn() const { return m_wearer.equipment[WEAR_NECK_1] == &m_amulet; }
 
-private:
+  private:
     char_data& m_wearer; // the character wearing the amulet
-    obj_data m_amulet; // the item itself, owned by this scope
+    obj_data m_amulet{}; // the item itself, owned by this scope
 };
-
-// The mystic poison's shape (poison_victim_affect_at_level(), poison.cpp) with a 1-tick duration.
-affected_type one_tick_poison() {
-    affected_type poison {};
-    poison.type = SPELL_POISON;
-    poison.duration = 1;
-    poison.modifier = -2;
-    poison.location = APPLY_STR;
-    poison.bitvector = AFF_POISON;
-    return poison;
-}
 
 // Runs forced affect ticks until the wearer carries no SPELL_POISON affect or the budget is spent.
 void tick_until_the_poison_expires(char_data& wearer) {
     ScopedForcedAffectPhase forced_phase;
-    for (int tick = 0; tick < kExpiryTickBudget && affected_by_spell(&wearer, SPELL_POISON);
-         ++tick) {
+    for (int tick = 0; tick < kExpiryTickBudget; ++tick) {
+        const affected_type* const poison = affected_by_spell(&wearer, SPELL_POISON);
+        if (poison == nullptr) {
+            break;
+        }
         affect_update_person(&wearer, 0);
     }
 }
 
-bool is_poisoned(const char_data& character) { return IS_AFFECTED(&character, AFF_POISON); }
+[[nodiscard]] bool is_poisoned(const char_data& character) {
+    return IS_AFFECTED(&character, AFF_POISON);
+}
 
 } // namespace
 
 TEST(GearPoison, AWornPoisonItemSetsThePoisonFlag) {
-    char_data wearer {};
-    char_prof_data wearer_profs {};
-    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    char_data wearer{};
+    char_prof_data wearer_profs{};
+    test_support::fill_sturdy_stack_npc(wearer, wearer_profs);
     test_support::ScopedCombatList combat;
     test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
@@ -109,22 +104,23 @@ TEST(GearPoison, AWornPoisonItemSetsThePoisonFlag) {
     WornPoisonAmulet amulet(wearer);
     ASSERT_TRUE(amulet.is_worn()) << "precondition: equip_char() put the amulet on the neck";
 
-    EXPECT_TRUE(is_poisoned(wearer)) << "a worn APPLY_BITVECTOR 11 item must set AFF_POISON";
+    EXPECT_TRUE(is_poisoned(wearer))
+        << "a worn APPLY_BITVECTOR " << kPoisonBitNumber << " item must set AFF_POISON";
     EXPECT_EQ(affected_by_spell(&wearer, SPELL_POISON), nullptr)
         << "the item's poison is a bare flag, with no SPELL_POISON affect behind it";
 }
 
 TEST(GearPoison, TheWearerStaysPoisonedAfterATimedPoisonExpires) {
-    char_data wearer {};
-    char_prof_data wearer_profs {};
-    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    char_data wearer{};
+    char_prof_data wearer_profs{};
+    test_support::fill_sturdy_stack_npc(wearer, wearer_profs);
     test_support::ScopedCombatList combat;
     test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
     WornPoisonAmulet amulet(wearer);
     ASSERT_TRUE(amulet.is_worn()) << "precondition: equip_char() put the amulet on the neck";
 
-    affected_type poison = one_tick_poison();
+    affected_type poison = poison_victim_affect_at_level(0); // one tick: level 0 + 1
     affect_to_char(&wearer, &poison);
     ASSERT_NE(affected_by_spell(&wearer, SPELL_POISON), nullptr)
         << "precondition: the poison is on";
@@ -139,14 +135,14 @@ TEST(GearPoison, TheWearerStaysPoisonedAfterATimedPoisonExpires) {
 }
 
 TEST(GearPoison, WithoutTheItemTheFlagEndsWithThePoison) {
-    char_data wearer {};
-    char_prof_data wearer_profs {};
-    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    char_data wearer{};
+    char_prof_data wearer_profs{};
+    test_support::fill_sturdy_stack_npc(wearer, wearer_profs);
     test_support::ScopedCombatList combat;
     test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
 
-    affected_type poison = one_tick_poison();
+    affected_type poison = poison_victim_affect_at_level(0); // one tick: level 0 + 1
     affect_to_char(&wearer, &poison);
     ASSERT_TRUE(is_poisoned(wearer)) << "precondition: the poison affect sets AFF_POISON";
 
@@ -158,9 +154,9 @@ TEST(GearPoison, WithoutTheItemTheFlagEndsWithThePoison) {
 }
 
 TEST(GearPoison, RemovingTheItemClearsTheFlag) {
-    char_data wearer {};
-    char_prof_data wearer_profs {};
-    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    char_data wearer{};
+    char_prof_data wearer_profs{};
+    test_support::fill_sturdy_stack_npc(wearer, wearer_profs);
     test_support::ScopedCombatList combat;
     test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
@@ -176,17 +172,17 @@ TEST(GearPoison, RemovingTheItemClearsTheFlag) {
 }
 
 TEST(GearPoison, CuringTheTimedPoisonLeavesTheItemsFlag) {
-    char_data wearer {};
-    char_prof_data wearer_profs {};
-    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    char_data wearer{};
+    char_prof_data wearer_profs{};
+    test_support::fill_sturdy_stack_npc(wearer, wearer_profs);
     test_support::ScopedCombatList combat;
     test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
     WornPoisonAmulet amulet(wearer);
     ASSERT_TRUE(amulet.is_worn()) << "precondition: equip_char() put the amulet on the neck";
 
-    affected_type poison = one_tick_poison();
-    poison.duration = 20;
+    // A 20-tick poison, long enough that nothing but the cure ends it here.
+    affected_type poison = poison_victim_affect_at_level(19);
     affect_to_char(&wearer, &poison);
     ASSERT_NE(affected_by_spell(&wearer, SPELL_POISON), nullptr)
         << "precondition: the poison is on";

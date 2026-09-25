@@ -2,6 +2,14 @@
 
 #include "handler.h"
 #include "structs.h"
+#include "utils.h"
+
+namespace {
+
+// The record of a victim nobody has poisoned; clear_poison_origin() writes it.
+constexpr poison_origin kNoPoisonOrigin{-1, nullptr, 0};
+
+} // namespace
 
 // The recorded address is only compared, never dereferenced: the character it named may have been
 // extracted and freed. char_by_abs_number() names whoever holds the slot now, and only the same
@@ -24,18 +32,23 @@ char_data* resolve_poisoner(const char_data& victim) {
 
 // Every field is written at once: a slot left standing without its address, or the reverse, could
 // answer for whoever holds that slot today.
-void record_poison_origin(char_data* victim, char_data* poisoner) {
+void record_poison_origin(char_data* victim, const char_data* poisoner) {
+    if (victim == nullptr) {
+        log("SYSERR: record_poison_origin: null victim");
+        return;
+    }
     if (poisoner == nullptr) {
         clear_poison_origin(victim);
         return;
     }
-    victim->specials.poisoned_by.abs_number = poisoner->abs_number;
-    victim->specials.poisoned_by.identity = poisoner;
-    victim->specials.poisoned_by.registration_serial = poisoner->registration_serial;
+    victim->specials.poisoned_by =
+        poison_origin{poisoner->abs_number, poisoner, poisoner->registration_serial};
 }
 
 void clear_poison_origin(char_data* victim) {
-    victim->specials.poisoned_by.abs_number = -1;
-    victim->specials.poisoned_by.identity = nullptr;
-    victim->specials.poisoned_by.registration_serial = 0;
+    if (victim == nullptr) {
+        log("SYSERR: clear_poison_origin: null victim");
+        return;
+    }
+    victim->specials.poisoned_by = kNoPoisonOrigin;
 }

@@ -2,8 +2,8 @@
 
 namespace test_support {
 
-// Grows the test binary's shared world[] so `minimum_room_number` is a valid index; never
-// shrinks it.
+// Makes `minimum_room_number` at most top_of_world; allocates the world only when nothing has yet,
+// otherwise storage is whatever the first allocation (gtest_main's create_bulk) provided.
 void ensure_test_world(int minimum_room_number);
 
 } // namespace test_support

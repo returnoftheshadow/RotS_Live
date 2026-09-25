@@ -16,11 +16,12 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <initializer_list>
-#include <string>
 
+using test_support::add_filler_affects;
+using test_support::clear_captured_output;
 using test_support::count_affects_of_type;
-using test_support::inert_affect;
 using test_support::prepare_capture_descriptor;
 using test_support::ScopedAffectCleanup;
 using test_support::ScopedCharExists;
@@ -40,23 +41,27 @@ constexpr int kPoisonRoom = 941;
 
 // A sturdy stack NPC standing in kPoisonRoom: in the game, so resolve_poisoner() accepts it.
 void make_npc_in_poison_room(char_data& character, char_prof_data& profs) {
-    test_support::make_sturdy_stack_npc(character, profs);
+    test_support::fill_sturdy_stack_npc(character, profs);
     character.in_room = kPoisonRoom;
 }
 
 // A SPELL_POISON template with the given strength malus (0 means no malus, like food).
-affected_type poison_of(int strength, int duration) {
+[[nodiscard]] affected_type poison_of(int strength, int duration) {
     affected_type poison{};
     poison.type = SPELL_POISON;
     poison.duration = duration;
     poison.modifier = static_cast<sh_int>(-strength);
-    poison.location = strength > 0 ? APPLY_STR : APPLY_NONE;
+    if (strength > 0) {
+        poison.location = APPLY_STR;
+    } else {
+        poison.location = APPLY_NONE;
+    }
     poison.bitvector = AFF_POISON;
     return poison;
 }
 
 // Puts a running poison on `victim` without apply_poison(): `initial_duration` in its counter,
-// `remaining` ticks left, and `poisoner` (null for nobody) recorded as its source.
+// `remaining` ticks left, and `poisoner` recorded as its source; a null `poisoner` means nobody.
 void give_running_poison(char_data& victim, int strength, int initial_duration, int remaining,
                          char_data* poisoner) {
     affected_type running = poison_of(strength, remaining);
@@ -66,15 +71,8 @@ void give_running_poison(char_data& victim, int strength, int initial_duration, 
 }
 
 // The single running poison, which a test must already have asserted exists.
-const affected_type& running_poison(const char_data& victim) {
+[[nodiscard]] const affected_type& running_poison(const char_data& victim) {
     return *get_affect_unbounded(&victim, SPELL_POISON);
-}
-
-// Empties `descriptor`'s buffer between the calls of one test.
-void clear_output(descriptor_data& descriptor) {
-    descriptor.small_outbuf[0] = '\0';
-    descriptor.bufptr = 0;
-    descriptor.bufspace = SMALL_BUFSIZE - 1;
 }
 
 } // namespace
@@ -93,9 +91,12 @@ TEST(PoisonRules, PoisonStrengthIsTheStrengthMalusOrZero) {
     EXPECT_EQ(poison_strength(weakening_elsewhere), 0)
         << "a -2 CON modifier is no strength malus, so strength 0";
 
-    const int pale_lady = poison_strength(pale_lady_poison_affect());
-    const int mystic = poison_strength(poison_victim_affect_at_level(30));
-    const int food = poison_strength(consumed_poison_affect(10));
+    const affected_type pale_lady_poison = pale_lady_poison_affect();
+    const affected_type mystic_poison = poison_victim_affect_at_level(30);
+    const affected_type food_poison = consumed_poison_affect(10);
+    const int pale_lady = poison_strength(pale_lady_poison);
+    const int mystic = poison_strength(mystic_poison);
+    const int food = poison_strength(food_poison);
     EXPECT_GT(pale_lady, mystic) << "the Pale Lady (" << pale_lady
                                  << ") must outrank mystic poison (" << mystic << ")";
     EXPECT_GT(mystic, food) << "mystic poison (" << mystic << ") must outrank food (" << food
@@ -138,8 +139,7 @@ TEST(PoisonRules, AWeakerPoisonIsBlockedAndChangesNothing) {
     give_running_poison(victim, 4, 24, 24, &first);
     ASSERT_EQ(resolve_poisoner(victim), &first) << "precondition: the first poisoner resolves";
 
-    EXPECT_EQ(apply_poison(&victim, poison_of(2, 30), &second),
-              poison_outcome::blocked_by_stronger)
+    EXPECT_EQ(apply_poison(&victim, poison_of(2, 30), &second), poison_outcome::blocked_by_stronger)
         << "a strength-2 poison cannot touch a strength-4 one, however long it lasts";
 
     ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
@@ -160,8 +160,7 @@ TEST(PoisonRules, FoodCannotTouchASpellPoison) {
     give_running_poison(victim, 2, 10, 10, &poisoner);
     ASSERT_EQ(resolve_poisoner(victim), &poisoner) << "precondition: the poisoner resolves";
 
-    EXPECT_EQ(apply_poison(&victim, poison_of(0, 40), nullptr),
-              poison_outcome::blocked_by_stronger)
+    EXPECT_EQ(apply_poison(&victim, poison_of(0, 40), nullptr), poison_outcome::blocked_by_stronger)
         << "food (strength 0) is weaker than a strength-2 spell poison";
 
     ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
@@ -407,10 +406,7 @@ TEST(PoisonRules, ReplacementRemovesEveryPoisonAffect) {
     ScopedAffectCleanup victim_affects(victim);
     affected_type buried = poison_of(2, 20);
     affect_to_char(&victim, &buried);
-    for (int filler = 0; filler < 2 * MAX_AFFECT; ++filler) {
-        affected_type armor = inert_affect(SPELL_ARMOR, 10);
-        affect_to_char(&victim, &armor);
-    }
+    add_filler_affects(victim, 2 * MAX_AFFECT);
     affected_type newest = poison_of(2, 20);
     affect_to_char(&victim, &newest);
     ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 2)
@@ -500,14 +496,16 @@ TEST(PoisonRules, AResistedPoisonKeepsItsResistanceWhenExtended) {
     ASSERT_NE(poison, nullptr);
     ASSERT_EQ(poison->duration, 9) << "precondition: 4 + 10 / 2 = 9 poison ticks";
 
-    tick_poison_affect(&victim, poison);
+    const bool victim_died = tick_poison_affect(&victim, poison);
+
+    EXPECT_FALSE(victim_died);
 
     EXPECT_EQ(poison->duration, 9 - kClericLevel) << "the resistance shortens the extended poison";
     EXPECT_EQ(resistance->duration, poison->duration)
         << "the next tick syncs the resistance to the extended poison";
 }
 
-TEST(PoisonRules, MergeMessagesReachTheVictimAndCaster) {
+TEST(PoisonRules, EachOutcomeMessagesTheVictimAndOnlyARefusalTellsTheCaster) {
     char victim_short_descr[] = "a poisoned victim";
     char_data victim{};
     char_prof_data victim_profs{};
@@ -526,41 +524,41 @@ TEST(PoisonRules, MergeMessagesReachTheVictimAndCaster) {
     ScopedRoomOccupants room{kPoisonRoom, {&victim, &caster}};
 
     send_poison_outcome_messages(poison_outcome::extended, &victim, &caster, "fresh line\n\r");
-    EXPECT_EQ(std::string(victim_descriptor.small_outbuf),
-              "You feel sicker as the poison lingers in your blood.\n\r");
-    EXPECT_EQ(std::string(caster_descriptor.small_outbuf), "")
+    EXPECT_STREQ(victim_descriptor.small_outbuf,
+                 "You feel sicker as the poison lingers in your blood.\n\r");
+    EXPECT_STREQ(caster_descriptor.small_outbuf, "")
         << "the caster of an extension is told nothing";
 
-    clear_output(victim_descriptor);
+    clear_captured_output(victim_descriptor);
     send_poison_outcome_messages(poison_outcome::blocked_by_stronger, &victim, &caster,
                                  "fresh line\n\r");
-    EXPECT_EQ(std::string(victim_descriptor.small_outbuf),
-              "Your body is already fighting a stronger poison.\n\r");
-    const std::string caster_output = caster_descriptor.small_outbuf;
-    EXPECT_NE(caster_output.find("poisoned victim is already suffering from a stronger poison."),
-              std::string::npos)
-        << "the caster of a refused poison is told why: " << caster_output;
+    EXPECT_STREQ(victim_descriptor.small_outbuf,
+                 "Your body is already fighting a stronger poison.\n\r");
+    EXPECT_NE(std::strstr(caster_descriptor.small_outbuf,
+                          "poisoned victim is already suffering from a stronger poison."),
+              nullptr)
+        << "the caster of a refused poison is told why: " << caster_descriptor.small_outbuf;
 
-    clear_output(victim_descriptor);
-    clear_output(caster_descriptor);
+    clear_captured_output(victim_descriptor);
+    clear_captured_output(caster_descriptor);
     send_poison_outcome_messages(poison_outcome::blocked_by_stronger, &victim, nullptr, nullptr);
-    EXPECT_EQ(std::string(victim_descriptor.small_outbuf),
-              "Your body is already fighting a stronger poison.\n\r")
+    EXPECT_STREQ(victim_descriptor.small_outbuf,
+                 "Your body is already fighting a stronger poison.\n\r")
         << "a refused poison with no caster still tells the victim";
 
     for (const poison_outcome fresh : {poison_outcome::applied, poison_outcome::replaced}) {
-        clear_output(victim_descriptor);
-        clear_output(caster_descriptor);
+        clear_captured_output(victim_descriptor);
+        clear_captured_output(caster_descriptor);
         send_poison_outcome_messages(fresh, &victim, &caster, "You feel very sick.\n\r");
-        EXPECT_EQ(std::string(victim_descriptor.small_outbuf), "You feel very sick.\n\r")
+        EXPECT_STREQ(victim_descriptor.small_outbuf, "You feel very sick.\n\r")
             << "applied and replaced send the source's fresh line, outcome "
             << static_cast<int>(fresh);
-        EXPECT_EQ(std::string(caster_descriptor.small_outbuf), "")
+        EXPECT_STREQ(caster_descriptor.small_outbuf, "")
             << "the caster of a fresh poison is told nothing, outcome " << static_cast<int>(fresh);
 
-        clear_output(victim_descriptor);
+        clear_captured_output(victim_descriptor);
         send_poison_outcome_messages(fresh, &victim, &caster, nullptr);
-        EXPECT_EQ(std::string(victim_descriptor.small_outbuf), "")
+        EXPECT_STREQ(victim_descriptor.small_outbuf, "")
             << "a null fresh line sends nothing, outcome " << static_cast<int>(fresh);
     }
 }

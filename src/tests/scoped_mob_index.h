@@ -13,8 +13,7 @@ namespace test_support {
 class ScopedMobIndex {
   public:
     ScopedMobIndex() : m_previous(mob_index) {
-        m_entry = index_data{};
-        m_entry.virt = 1;
+        m_entry.virt = kPrototypeVirtualNumber;
         mob_index = &m_entry;
     }
     ~ScopedMobIndex() { mob_index = m_previous; }
@@ -22,6 +21,10 @@ class ScopedMobIndex {
     ScopedMobIndex& operator=(const ScopedMobIndex&) = delete;
 
   private:
+    // A positive virtual number, as every loaded prototype has; make_physical_corpse() stamps the
+    // dead NPC's corpse with it as the owner id.
+    static constexpr int kPrototypeVirtualNumber = 1;
+
     index_data* m_previous; // the table installed before the scope (normally null)
     index_data m_entry{};   // prototype slot 0, the one the test NPC's nr names
 };

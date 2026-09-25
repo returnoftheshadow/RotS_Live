@@ -172,10 +172,10 @@ void release_corpse_from_room(int room_number, obj_data* previous_object_list) {
 }
 
 // A stack-local NPC that never dies in these tests (the sentinel/imposter/victim
-// roles below): make_stack_npc() with intelligence 20 and `hit` as both its
+// roles below): fill_stack_npc() with intelligence 20 and `hit` as both its
 // current and maximum hit points.
 void make_npc_with_hit_points(char_data& ch, char_prof_data& profs, int hit) {
-    test_support::make_stack_npc(ch, profs);
+    test_support::fill_stack_npc(ch, profs);
     ch.tmpabilities.intel = 20;
     ch.abilities.hit = hit;
     ch.tmpabilities.hit = hit;

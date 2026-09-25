@@ -28,7 +28,7 @@ int initial_duration_of(const affected_type& running) {
 }
 
 // Starts `poison` in place of any running poison and records `source` as its poisoner.
-poison_outcome start_poison(char_data* victim, const affected_type& poison, char_data* source,
+poison_outcome start_poison(char_data* victim, const affected_type& poison, const char_data* source,
                             poison_outcome outcome) {
     cure_poison(victim);
     affected_type fresh = poison;
@@ -39,7 +39,7 @@ poison_outcome start_poison(char_data* victim, const affected_type& poison, char
 }
 
 // An extension keeps a poisoner who still resolves; otherwise `source` takes the record.
-void hand_over_record_if_poisoner_gone(char_data* victim, char_data* source) {
+void hand_over_record_if_poisoner_gone(char_data* victim, const char_data* source) {
     if (resolve_poisoner(*victim) == nullptr) {
         record_poison_origin(victim, source);
     }
@@ -49,6 +49,10 @@ void hand_over_record_if_poisoner_gone(char_data* victim, char_data* source) {
 
 // Only a SPELL_POISON affect owns the record, so a poison flag from worn gear does not keep it.
 void forget_poison_origin_if_cured(char_data* victim) {
+    if (victim == nullptr) {
+        log("SYSERR: forget_poison_origin_if_cured: null victim");
+        return;
+    }
     if (get_affect_unbounded(victim, SPELL_POISON) == nullptr) {
         clear_poison_origin(victim);
     }
@@ -64,8 +68,9 @@ affected_type poison_victim_affect_at_level(int level) {
     return poison;
 }
 
-affected_type poison_victim_affect(const caster_snapshot& who) {
-    return poison_victim_affect_at_level(get_mystic_caster_level(who));
+affected_type poison_victim_affect(const caster_snapshot& caster) {
+    const int caster_level = get_mystic_caster_level(caster);
+    return poison_victim_affect_at_level(caster_level);
 }
 
 affected_type pale_lady_poison_affect() {
@@ -89,7 +94,11 @@ affected_type consumed_poison_affect(int duration) {
 }
 
 // The caster's willpower and perception attack; the victim's constitution and willpower defend.
-char saves_poison(char_data* victim, const caster_snapshot& caster) {
+bool saves_poison(const char_data* victim, const caster_snapshot& caster) {
+    if (victim == nullptr) {
+        log("SYSERR: saves_poison: null victim");
+        return true;
+    }
     // Wood elves resist disease well, which their low constitution would otherwise hide.
     int wood_elf_bonus = 0;
     if (GET_RACE(victim) == RACE_WOOD) {
@@ -98,27 +107,47 @@ char saves_poison(char_data* victim, const caster_snapshot& caster) {
     const int offence = ((caster.willpower * 8) * caster.perception) / 100;
     const int defense = (GET_CON(victim) * 5) + (GET_WILLPOWER(victim) * 3) + wood_elf_bonus;
 
-    return (number(offence / 3, offence) < number(defense / 2, defense));
+    // Rolled as separate statements so the offence roll always draws first.
+    const int offence_roll = number(offence / 3, offence);
+    const int defense_roll = number(defense / 2, defense);
+    return offence_roll < defense_roll;
 }
 
 // The first resist-poison affect within affected_by_spell()'s reach is the one that shortens it.
-int tick_poison_affect(char_data* victim, affected_type* poison) {
+bool tick_poison_affect(char_data* victim, affected_type* poison) {
+    if (victim == nullptr) {
+        log("SYSERR: tick_poison_affect: null victim");
+        return false;
+    }
+    if (poison == nullptr) {
+        log("SYSERR: tick_poison_affect: null poison");
+        return false;
+    }
     affected_type* const resistance = affected_by_spell(victim, SPELL_RESIST_POISON);
     if (resistance != nullptr) {
         poison->duration = std::max(poison->duration - resistance->modifier, 0);
         resistance->duration = poison->duration;
     }
-    return deal_poison_tick_damage(victim);
+    const int victim_died = deal_poison_tick_damage(victim);
+    return victim_died != 0;
 }
 
 // The victim engages only itself, so nobody else is drawn into a fight; the kill goes to the
 // resolved poisoner, or to nobody once that character is gone.
 int deal_poison_tick_damage(char_data* victim) {
+    if (victim == nullptr) {
+        log("SYSERR: deal_poison_tick_damage: null victim");
+        return 0;
+    }
     char_data* const poisoner = resolve_poisoner(*victim);
     return damage_credited(victim, victim, poisoner, kPoisonTickDamage, SPELL_POISON, 0);
 }
 
 bool cure_poison(char_data* victim) {
+    if (victim == nullptr) {
+        log("SYSERR: cure_poison: null victim");
+        return false;
+    }
     bool cured = false;
     affected_type* affect = victim->affected;
     while (affect != nullptr) {
@@ -141,8 +170,13 @@ int poison_strength(const affected_type& poison) {
     return -poison.modifier;
 }
 
-poison_outcome apply_poison(char_data* victim, const affected_type& poison, char_data* source) {
-    affected_type* running = get_affect_unbounded(victim, SPELL_POISON);
+poison_outcome apply_poison(char_data* victim, const affected_type& poison,
+                            const char_data* source) {
+    if (victim == nullptr) {
+        log("SYSERR: apply_poison: null victim");
+        return poison_outcome::not_applied;
+    }
+    affected_type* const running = get_affect_unbounded(victim, SPELL_POISON);
     if (running == nullptr) {
         return start_poison(victim, poison, source, poison_outcome::applied);
     }
@@ -176,23 +210,38 @@ poison_outcome apply_poison(char_data* victim, const affected_type& poison, char
 
 void send_poison_outcome_messages(poison_outcome outcome, char_data* victim, char_data* caster,
                                   const char* fresh_victim_line) {
-    if (outcome == poison_outcome::applied || outcome == poison_outcome::replaced) {
+    if (victim == nullptr) {
+        log("SYSERR: send_poison_outcome_messages: null victim");
+        return;
+    }
+    switch (outcome) {
+    case poison_outcome::applied:
+    case poison_outcome::replaced:
         if (fresh_victim_line != nullptr) {
             send_to_char(fresh_victim_line, victim);
         }
-    } else if (outcome == poison_outcome::extended) {
+        break;
+    case poison_outcome::extended:
         send_to_char("You feel sicker as the poison lingers in your blood.\n\r", victim);
-    } else if (outcome == poison_outcome::blocked_by_stronger) {
+        break;
+    case poison_outcome::blocked_by_stronger:
         send_to_char("Your body is already fighting a stronger poison.\n\r", victim);
         if (caster != nullptr) {
-            act("$N is already suffering from a stronger poison.", FALSE, caster, 0, victim,
+            act("$N is already suffering from a stronger poison.", FALSE, caster, nullptr, victim,
                 TO_CHAR);
         }
+        break;
+    case poison_outcome::not_applied:
+        break;
     }
 }
 
 // Both lookups stop after MAX_AFFECT entries, as the resist-poison tick's does.
 poison_resistance_outcome start_poison_resistance(char_data* victim, int cleric_level) {
+    if (victim == nullptr) {
+        log("SYSERR: start_poison_resistance: null victim");
+        return poison_resistance_outcome::not_poisoned;
+    }
     const affected_type* const poison = affected_by_spell(victim, SPELL_POISON);
     if (poison == nullptr) {
         return poison_resistance_outcome::not_poisoned;
@@ -204,7 +253,7 @@ poison_resistance_outcome start_poison_resistance(char_data* victim, int cleric_
     affected_type resistance{};
     resistance.type = SPELL_RESIST_POISON;
     resistance.duration = poison->duration;
-    resistance.modifier = cleric_level;
+    resistance.modifier = static_cast<sh_int>(cleric_level);
     resistance.location = APPLY_NONE;
     resistance.bitvector = 0;
     affect_to_char(victim, &resistance);

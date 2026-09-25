@@ -3,6 +3,8 @@
 #include "../structs.h"
 #include "test_world_support.h"
 
+#include <gtest/gtest.h>
+
 extern room_data world;
 
 namespace test_support {
@@ -17,6 +19,10 @@ ScopedRoomOccupants::ScopedRoomOccupants(int room_number,
     room.light = 1; // act() drops a line whose subject stands in a dark room
     room.people = nullptr;
     for (char_data* occupant : occupants) {
+        if (occupant == nullptr) {
+            ADD_FAILURE() << "ScopedRoomOccupants: null occupant";
+            continue;
+        }
         occupant->in_room = room_number;
         occupant->next_in_room = room.people;
         room.people = occupant;

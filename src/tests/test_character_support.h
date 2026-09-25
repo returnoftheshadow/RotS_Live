@@ -11,44 +11,46 @@ namespace test_support {
 char_data* allocate_test_character(int clear_mode);
 
 // Releases a character from allocate_test_character through free_char, the server's own release
-// path, so the calloc/free pairing AddressSanitizer checks is the same one production uses.
+// path, so the calloc/free pairing AddressSanitizer checks is the same one production uses. A
+// null `character` is reported as a test failure and nothing is released.
 void release_test_character(char_data* character);
 
-// Sets up a stack-local, human, level-10 standing NPC with no fight, using `profs` as its
-// profession data: enough state for affect_to_char() and affect_remove().
-void make_stack_npc(char_data& character, char_prof_data& profs);
+// The hit points fill_sturdy_stack_npc() gives, far above the damage any single poison tick,
+// wear or removal deals.
+constexpr int kSturdyNpcHitPoints = 500;
 
-// make_stack_npc() with 500 hit points, far above the damage any single poison tick, wear or
-// removal in the poison suites deals.
-void make_sturdy_stack_npc(char_data& character, char_prof_data& profs);
+// Sets up a stack-local, human, level-10 standing NPC with no fight: enough state for
+// affect_to_char() and affect_remove(). `out_character` keeps a pointer to `profs`, which must
+// outlive it; only these fields are set, so pass a value-initialized character.
+void fill_stack_npc(char_data& out_character, char_prof_data& profs);
+
+// fill_stack_npc() with kSturdyNpcHitPoints hit points.
+void fill_sturdy_stack_npc(char_data& out_character, char_prof_data& profs);
 
 // Registers `character` under `abs_number` (pointer and slot, as register_npc_char() does)
 // for the scope and unregisters it on exit, so an early ASSERT_ return cannot leave a
 // stack character registered for the next test.
 class ScopedCharExists {
-public:
+  public:
     ScopedCharExists(char_data& character, int abs_number);
     ~ScopedCharExists();
     ScopedCharExists(const ScopedCharExists&) = delete;
     ScopedCharExists& operator=(const ScopedCharExists&) = delete;
 
-private:
+  private:
     char_data& m_character; // the character whose registration this scope owns
 };
 
 // Removes every affect still on `character` on scope exit, the cleanup the tick pins
 // otherwise do by hand at their end.
 class ScopedAffectCleanup {
-public:
-    explicit ScopedAffectCleanup(char_data& character)
-        : m_character(character)
-    {
-    }
+  public:
+    explicit ScopedAffectCleanup(char_data& character) : m_character(character) {}
     ~ScopedAffectCleanup();
     ScopedAffectCleanup(const ScopedAffectCleanup&) = delete;
     ScopedAffectCleanup& operator=(const ScopedAffectCleanup&) = delete;
 
-private:
+  private:
     char_data& m_character; // the character whose leftover affects this scope removes
 };
 
