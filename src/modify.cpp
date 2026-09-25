@@ -185,8 +185,8 @@ void string_add_init(struct descriptor_data* d, char** str)
         return;
     }
 
-    send_to_char("Edit the text now, type %e to save and exit, %q to abort,"
-                 "%h for help.\n\r",
+    send_to_char("Edit the text now, type %e to save and exit, %q to abort,\n\r"
+                 "%f to format, %h for help.\n\r",
         d->character);
     if (str)
         if (*str) {

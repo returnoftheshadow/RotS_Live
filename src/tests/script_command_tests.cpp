@@ -292,6 +292,34 @@ TEST_F(WornObject, DoRemoveTakesOffTheLight)
     EXPECT_EQ(&m_ch, m_obj.carried_by);
 }
 
+/* Taking a worn object off a character (extract_obj -> obj_from_char, e.g. a
+ * zone "A 10 2" after "L 4") removes its weight once: unequip_char already
+ * takes it off, so obj_from_char must not take it off again. */
+TEST_F(WornObject, ObjFromCharOnAWornObjectRemovesItsWeightOnce)
+{
+    m_obj.obj_flags.weight = 130;
+    wear(WEAR_BODY);
+    ASSERT_EQ(130, IS_CARRYING_W(&m_ch));
+    obj_from_char(&m_obj);
+    EXPECT_EQ(nullptr, m_ch.equipment[WEAR_BODY]);
+    EXPECT_EQ(nullptr, m_obj.carried_by);
+    EXPECT_EQ(0, IS_CARRYING_W(&m_ch));
+}
+
+/* The same for the common extract_obj(unequip_char(ch, pos)) pattern:
+ * unequip_char leaves carried_by set, so obj_from_char runs on an object
+ * that is in neither list and must not take its weight off a second time. */
+TEST_F(WornObject, ObjFromCharAfterUnequipCharRemovesItsWeightOnce)
+{
+    m_obj.obj_flags.weight = 130;
+    wear(WEAR_BODY);
+    unequip_char(&m_ch, WEAR_BODY);
+    ASSERT_EQ(0, IS_CARRYING_W(&m_ch));
+    obj_from_char(&m_obj);
+    EXPECT_EQ(nullptr, m_obj.carried_by);
+    EXPECT_EQ(0, IS_CARRYING_W(&m_ch));
+}
+
 TEST_F(WornObject, DoRemoveSkipsASlotOutsideTheRange)
 {
     wear(WEAR_BODY);
