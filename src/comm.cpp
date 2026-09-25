@@ -1122,6 +1122,11 @@ void game_loop(SocketType s)
                         if (PRF_FLAGGED(point->character, PRF_ADVANCED_PROMPT)) {
                             sprintf(prompt, "%s [", prompt);
                             add_prompt(prompt, point->character, PROMPT_ADVANCED);
+                            /* what is being shaped, as the normal prompt shows it */
+                            if (PRF_FLAGGED(point->character, PRF_DISPTEXT)) {
+                                strcat(prompt, " ");
+                                add_prompt(prompt, point->character, PRF_DISPTEXT);
+                            }
                         } else if (((GET_HIT(point->character) < GET_MAX_HIT(point->character)) || point->character->specials.fighting) && PRF_FLAGGED(point->character, PRF_PROMPT)) {
                             sprintf(prompt, "%s HP:", prompt);
                         }
