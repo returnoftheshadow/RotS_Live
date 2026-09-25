@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "char_utils.h"
+#include "character_identity.h"
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
@@ -899,14 +900,27 @@ ACMD(do_move)
             } else if (IS_AFFECTED(ch, AFF_SNEAK))
                 snuck_in(ch);
 
+            // An entry special, an ON_ENTER script or the death room can kill the mover; after
+            // each, the move goes on only while this resolves.
+            const character_identity mover = character_identity::capture(*ch);
             if (!ch->spec_busy) {
                 special(ch, rev_dir[cmd] + 1, "", SPECIAL_ENTER, 0);
             }
+            if (mover.resolve() == nullptr) {
+                return;
+            }
 
             call_trigger(ON_ENTER, (void*)&world[ch->in_room], (void*)ch, 0);
+            if (mover.resolve() == nullptr) {
+                return;
+            }
 
-            if (is_death)
+            if (is_death) {
                 raw_kill(ch, NULL, 0);
+                if (mover.resolve() == nullptr) {
+                    return;
+                }
+            }
         } else { // riding...
             if ((ch->mount_data.mount)->mount_data.rider != ch) {
                 send_to_char("You do not control your mount.\n\r", ch);

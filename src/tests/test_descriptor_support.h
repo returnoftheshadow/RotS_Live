@@ -13,4 +13,8 @@ void prepare_capture_descriptor(descriptor_data& out_descriptor);
 // Empties the output that `out_descriptor` has captured so far, keeping it ready to capture more.
 void clear_captured_output(descriptor_data& out_descriptor);
 
+// Frees the large output buffer write_to_output() moves `out_descriptor` to once its small buffer
+// fills, and points its output back at the small buffer. Does nothing when it has none.
+void release_large_output(descriptor_data& out_descriptor);
+
 } // namespace test_support

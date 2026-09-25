@@ -23,22 +23,37 @@
 // garbage). Against the fixed walk it asserts the tick completed, the
 // occupant died, the sentinel's node is intact, and nothing resolved the
 // dead occupant.
+#include "../character_identity.h"
 #include "../db.h"
 #include "../handler.h"
 #include "../interpre.h"
 #include "../pkill.h"
+#include "../poison.h"
 #include "../spells.h"
 #include "../test_harness.h"
 #include "../utils.h"
+#include "character_affect_list_printer.h"
+#include "raw_kill_declaration.h"
+#include "scoped_character_list.h"
+#include "scoped_combat_list.h"
+#include "scoped_flee_world.h"
+#include "scoped_forced_affect_phase.h"
 #include "scoped_mob_index.h"
+#include "scoped_player_death_sandbox.h"
+#include "scoped_room_occupants.h"
+#include "scoped_room_special.h"
+#include "scoped_waiting_list.h"
 #include "test_affect_support.h"
 #include "test_character_support.h"
+#include "test_descriptor_support.h"
+#include "test_flee_support.h"
 #include "test_world_support.h"
 #include "test_random_utils.h"
 #include <algorithm>
 #include <cstring>
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
 
 extern struct char_data* character_list;
 extern struct obj_data* object_list;
@@ -589,13 +604,12 @@ TEST(AffectUpdatePerson, ExpiringAngerResetsAttackedLevelWithoutTouchingTheFreed
     anger_affect.bitvector = 0;
     affect_to_char(character, &anger_affect);
 
-    // harness_force_affect_phase makes a slow affect tick unconditionally
-    // (test_harness.h), so this expires on the very first call regardless
-    // of SPELL_ANGER's own is_fast/time_phase configuration.
-    const int previous_force_phase = harness_force_affect_phase;
-    harness_force_affect_phase = 1;
-    affect_update_person(character, 0);
-    harness_force_affect_phase = previous_force_phase;
+    {
+        // The forced phase expires this on the very first call regardless of SPELL_ANGER's own
+        // is_fast/time_phase configuration.
+        const test_support::ScopedForcedAffectPhase forced_phase;
+        affect_update_person(character, 0);
+    }
 
     EXPECT_EQ(character->specials.attacked_level, 0);
     EXPECT_EQ(character->affected, nullptr);
@@ -647,4 +661,373 @@ TEST(DoFameWarBonuses, UnrankedPlayerLosesTheAffectAndGetsNoReplacement) {
 
 TEST(DoFameWarBonuses, RankBelowTheTableLosesTheAffectInsteadOfTierFour) {
     expect_dropped_rank_removes_fame_war(10, 11); // totalrank 10 -> ranking 11 > MAX_RANK
+}
+
+// ---------------------------------------------------------------------------
+// Tick bodies that run game code
+// ---------------------------------------------------------------------------
+//
+// Fear flees, activity runs the mob's own special, and asphyxiation and poison deal damage, which
+// can set off a wimpy flee or break a sanctuary. That code can kill the character or remove any of
+// its affects, the ticking one and the one the walk saved as next included, so
+// affect_update_person() stops the pass once the character no longer resolves or has lost an
+// affect. Each character below carries a second affect behind the ticking one, so the saved next
+// node is a real node. The characters are heap characters registered the way the game registers
+// them: a death frees them for real, where AddressSanitizer sees any later use, and a survivor
+// keeps resolving.
+
+namespace {
+
+// Rooms these tests own in the shared test world, beside flee_path_tests.cpp's 1015 and 1016 and
+// below the 1024 rooms gtest_main.cpp allocates. A flee leaves the origin east.
+constexpr int kTickOriginRoom = 1017;
+constexpr int kTickDestinationRoom = 1018;
+constexpr int kTickFleeDirection = EAST;
+
+// Long enough that the ticking affect does not expire on the one tick each test runs.
+constexpr int kTickingAffectDuration = 10;
+
+// The affect behind the ticking one. Its arm does nothing, so a tick only counts it down.
+constexpr int kSecondAffectType = SPELL_INFRAVISION;
+constexpr int kSecondAffectDuration = 50;
+
+// The affect an entry special adds in the pin that an addition does not stop the pass.
+constexpr int kAddedAffectType = SPELL_ARMOR;
+constexpr int kAddedAffectDuration = 30;
+
+// Above 20, so the asphyxiation tick deals modifier / 5 damage, and not above 40, the death
+// threshold outside the underwater zone, so it does not kill outright.
+constexpr int kSuffocationModifier = 30;
+// Hit points the suffocation damage (kSuffocationModifier / 5) takes below a fifth of
+// kFleeTestHitPoints, where a MOB_WIMPY NPC flees, alive and awake.
+constexpr int kSuffocatingHitPoints = 25;
+
+// A sanctuary modifier below 0: check_sanctuary() breaks such a sanctuary on any hit by an
+// attacker of alignment 0, which takes nothing off it.
+constexpr int kBrokenSanctuaryModifier = -1;
+
+// Adds an inert affect of `affect_type` at the front of `character`'s list.
+void add_inert_affect(char_data& character, int affect_type, int duration) {
+    affected_type affect = test_support::inert_affect(affect_type, duration);
+    affect_to_char(&character, &affect);
+}
+
+// Removes `character`'s affect of `affect_type`, as a special that dispels it would. Reports a test
+// failure when it has none.
+void remove_affect_of_type(char_data& character, int affect_type) {
+    affected_type* const affect = affected_by_spell(&character, affect_type);
+    if (affect == nullptr) {
+        ADD_FAILURE() << "remove_affect_of_type: no affect of type " << affect_type;
+        return;
+    }
+    affect_remove(&character, affect);
+}
+
+// The types on `character`'s affect list, head first.
+std::vector<int> affect_types_of(const char_data& character) {
+    std::vector<int> types;
+    for (const affected_type* affect = character.affected; affect != nullptr;
+         affect = affect->next) {
+        types.push_back(affect->type);
+    }
+    return types;
+}
+
+// A registered MOB_WIMPY NPC with kSuffocatingHitPoints, an asphyxiation of kSuffocationModifier at
+// the head of its list and the second affect behind it. It suffocates only in a room it cannot
+// breathe in.
+[[nodiscard]] char_data* make_suffocating_wimpy_npc(char* short_description) {
+    char_data* const npc = test_support::make_registered_test_npc(short_description);
+    SET_BIT(npc->specials2.act, MOB_WIMPY);
+    npc->tmpabilities.hit = kSuffocatingHitPoints;
+    add_inert_affect(*npc, kSecondAffectType, kSecondAffectDuration);
+    affected_type asphyxiation =
+        test_support::inert_affect(SPELL_ASPHYXIATION, kTickingAffectDuration);
+    asphyxiation.modifier = kSuffocationModifier;
+    affect_to_char(npc, &asphyxiation);
+    return npc;
+}
+
+// How many times lethal_activity_special() has killed its host.
+int g_activity_special_kills = 0;
+
+// A mob special that kills its host when mob activity runs it (SPECIAL_SELF) and reports that
+// handled. Every other call, such as the death's own SPECIAL_DEATH probe, passes through. A null
+// host is reported as a test failure.
+int lethal_activity_special(char_data* host, char_data* /*character*/, int /*command*/,
+                            char* /*argument*/, int callflag, waiting_type* /*wait_data*/) {
+    if (callflag != SPECIAL_SELF) {
+        return 0;
+    }
+    if (host == nullptr) {
+        ADD_FAILURE() << "lethal_activity_special: null host";
+        return 0;
+    }
+    ++g_activity_special_kills;
+    raw_kill(host, nullptr, 0);
+    return 1;
+}
+
+} // namespace
+
+// Each test ticks one character once, with slow affects forced to tick too, in two rooms a flee
+// can cross. The fixture holds what a death needs and releases what it leaves behind.
+class AffectUpdateTickGuard : public ::testing::Test {
+  protected:
+    AffectUpdateTickGuard()
+        : m_flee_world(kTickOriginRoom, kTickDestinationRoom, kTickFleeDirection) {}
+
+    void TearDown() override {
+        clear_test_random_values();
+        test_support::release_room_objects(kTickOriginRoom);
+        test_support::release_room_objects(kTickDestinationRoom);
+    }
+
+    // mob_index[0], the test NPCs' prototype.
+    test_support::ScopedMobIndex m_prototype_table;
+    // Keeps the tests' fights and other suites' stale fighters apart.
+    test_support::ScopedCombatList m_combat_list;
+    // Keeps other suites' stale entries away from extract_char()'s walk.
+    test_support::ScopedWaitingList m_waiting_list;
+    // The origin, the destination, one exit east between them, and zone 0.
+    test_support::ScopedFleeWorld m_flee_world;
+    // Lets every slow affect tick on the test's affect_update_person() call.
+    test_support::ScopedForcedAffectPhase m_forced_phase;
+};
+
+// Pins the fear arm's check: the flee ends in a room whose entry special kills the NPC.
+TEST_F(AffectUpdateTickGuard, AnNpcKilledDuringItsFearFleeEndsTheTick) {
+    char name[] = "a frightened test orc";
+    char_data* const npc = test_support::make_registered_test_npc(name);
+    add_inert_affect(*npc, kSecondAffectType, kSecondAffectDuration);
+    add_inert_affect(*npc, SPELL_FEAR, kTickingAffectDuration);
+    const character_identity npc_identity = character_identity::capture(*npc);
+    test_support::ScopedCharacterList characters({npc});
+    test_support::ScopedRoomOccupants origin_occupants(kTickOriginRoom, {npc});
+    int entries = 0;
+    test_support::ScopedRoomSpecial lethal_entry(kTickDestinationRoom, SPECIAL_ENTER,
+                                                 [&entries](char_data* character) -> void {
+                                                     ++entries;
+                                                     raw_kill(character, nullptr, 0);
+                                                 });
+    test_support::queue_successful_flee_rolls(kTickFleeDirection);
+
+    affect_update_person(npc, 0);
+    // The NPC has been freed: below it is only resolved, never read.
+
+    EXPECT_EQ(entries, 1);
+    EXPECT_EQ(npc_identity.resolve(), nullptr);
+    EXPECT_EQ(world[kTickOriginRoom].people, nullptr);
+    EXPECT_EQ(world[kTickDestinationRoom].people, nullptr);
+    test_support::release_survivor(npc_identity);
+}
+
+// The same flee by a player with a descriptor: it dies, respawns and still resolves, but its
+// death stripped the fear and the affect behind it, so the tick stops.
+TEST_F(AffectUpdateTickGuard, APlayerKilledDuringItsFearFleeRespawnsAndItsTickEnds) {
+    test_support::ScopedPlayerDeathSandbox sandbox(RACE_HUMAN, kTickOriginRoom);
+    descriptor_data descriptor{};
+    char_data* const player = test_support::make_linked_test_player(descriptor, "Frightened");
+    add_inert_affect(*player, kSecondAffectType, kSecondAffectDuration);
+    add_inert_affect(*player, SPELL_FEAR, kTickingAffectDuration);
+    const character_identity player_identity = character_identity::capture(*player);
+    test_support::ScopedCharacterList characters({player});
+    test_support::ScopedRoomOccupants origin_occupants(kTickOriginRoom, {player});
+    int entries = 0;
+    test_support::ScopedRoomSpecial lethal_entry(kTickDestinationRoom, SPECIAL_ENTER,
+                                                 [&entries](char_data* character) -> void {
+                                                     ++entries;
+                                                     raw_kill(character, nullptr, 0);
+                                                 });
+    test_support::queue_successful_flee_rolls(kTickFleeDirection);
+
+    affect_update_person(player, 0);
+
+    EXPECT_EQ(entries, 1);
+    char_data* const respawned = player_identity.resolve();
+    EXPECT_EQ(respawned, player) << "a respawned player keeps its registration";
+    if (respawned != nullptr) {
+        EXPECT_EQ(respawned->in_room, kTickOriginRoom) << "the player respawns in its start room";
+        EXPECT_EQ(affect_types_of(*respawned), std::vector<int>{}) << "death strips every affect";
+    }
+    test_support::release_survivor(player_identity);
+    test_support::release_large_output(descriptor);
+}
+
+// A fear flee the NPC survives, while the destination's entry special removes the affect behind
+// the fear: the tick stops before the fear's save, which would lower the fear's modifier.
+TEST_F(AffectUpdateTickGuard, AFearFleeThatRemovesTheNextAffectEndsTheTick) {
+    char name[] = "a frightened test orc";
+    char_data* const npc = test_support::make_registered_test_npc(name);
+    add_inert_affect(*npc, kSecondAffectType, kSecondAffectDuration);
+    add_inert_affect(*npc, SPELL_FEAR, kTickingAffectDuration);
+    const character_identity npc_identity = character_identity::capture(*npc);
+    test_support::ScopedCharacterList characters({npc});
+    test_support::ScopedRoomOccupants origin_occupants(kTickOriginRoom, {npc});
+    int entries = 0;
+    test_support::ScopedRoomSpecial dispelling_entry(
+        kTickDestinationRoom, SPECIAL_ENTER, [&entries](char_data* character) -> void {
+            ++entries;
+            remove_affect_of_type(*character, kSecondAffectType);
+        });
+    test_support::queue_successful_flee_rolls(kTickFleeDirection);
+
+    affect_update_person(npc, 0);
+
+    EXPECT_EQ(entries, 1);
+    ASSERT_EQ(npc_identity.resolve(), npc) << "the NPC survives its flee";
+    EXPECT_EQ(npc->in_room, kTickDestinationRoom);
+    EXPECT_EQ(affect_types_of(*npc), std::vector<int>{SPELL_FEAR});
+    const affected_type* const fear = affected_by_spell(npc, SPELL_FEAR);
+    ASSERT_NE(fear, nullptr);
+    EXPECT_EQ(fear->duration, kTickingAffectDuration - 1);
+    EXPECT_EQ(fear->modifier, 0) << "the tick must stop before the fear's save";
+    test_support::release_survivor(npc_identity);
+}
+
+// Suffocation's damage leaves a MOB_WIMPY NPC wounded enough to flee, and the flee ends in a room
+// whose entry special kills it. damage() then reports the victim gone, so the arm's existing
+// return after a lethal damage() stops the tick; damage_credited()'s check after the flee is what
+// this pins.
+TEST_F(AffectUpdateTickGuard, AWimpyNpcKilledFleeingItsOwnSuffocationEndsTheTick) {
+    char name[] = "a suffocating test orc";
+    char_data* const npc = make_suffocating_wimpy_npc(name);
+    const character_identity npc_identity = character_identity::capture(*npc);
+    test_support::ScopedCharacterList characters({npc});
+    test_support::ScopedRoomOccupants origin_occupants(kTickOriginRoom, {npc});
+    world[kTickOriginRoom].sector_type = SECT_UNDERWATER; // the flee world restores the room
+    int entries = 0;
+    test_support::ScopedRoomSpecial lethal_entry(kTickDestinationRoom, SPECIAL_ENTER,
+                                                 [&entries](char_data* character) -> void {
+                                                     ++entries;
+                                                     raw_kill(character, nullptr, 0);
+                                                 });
+    test_support::queue_east_everywhere_rolls();
+
+    affect_update_person(npc, 0);
+
+    EXPECT_EQ(entries, 1);
+    EXPECT_EQ(npc_identity.resolve(), nullptr);
+    EXPECT_EQ(world[kTickOriginRoom].people, nullptr);
+    EXPECT_EQ(world[kTickDestinationRoom].people, nullptr);
+    test_support::release_survivor(npc_identity);
+}
+
+// The same wimpy flee, survived, while the destination's entry special removes the affect behind
+// the asphyxiation: damage() returns 0, and the tick stops before the arm's move loss and before
+// it reaches the removed node. The special runs after the flee has paid its own move cost.
+TEST_F(AffectUpdateTickGuard, AWimpyNpcThatFleesItsOwnSuffocationAndLosesTheNextAffectEndsTheTick) {
+    char name[] = "a suffocating test orc";
+    char_data* const npc = make_suffocating_wimpy_npc(name);
+    const character_identity npc_identity = character_identity::capture(*npc);
+    test_support::ScopedCharacterList characters({npc});
+    test_support::ScopedRoomOccupants origin_occupants(kTickOriginRoom, {npc});
+    world[kTickOriginRoom].sector_type = SECT_UNDERWATER; // the flee world restores the room
+    int entries = 0;
+    int move_points_on_entry = -1;
+    test_support::ScopedRoomSpecial dispelling_entry(
+        kTickDestinationRoom, SPECIAL_ENTER,
+        [&entries, &move_points_on_entry](char_data* character) -> void {
+            ++entries;
+            move_points_on_entry = GET_MOVE(character);
+            remove_affect_of_type(*character, kSecondAffectType);
+        });
+    test_support::queue_east_everywhere_rolls();
+
+    affect_update_person(npc, 0);
+
+    EXPECT_EQ(entries, 1);
+    ASSERT_EQ(npc_identity.resolve(), npc) << "the NPC survives its flee";
+    EXPECT_EQ(npc->in_room, kTickDestinationRoom) << "the wimpy flee went through";
+    EXPECT_EQ(affect_types_of(*npc), std::vector<int>{SPELL_ASPHYXIATION});
+    EXPECT_EQ(GET_MOVE(npc), move_points_on_entry) << "the tick must stop before the move loss";
+    test_support::release_survivor(npc_identity);
+}
+
+// The poison tick's damage runs check_sanctuary() with the victim as its own attacker, and the
+// sanctuary behind the poison breaks: the tick stops, and nothing else happens to the NPC.
+TEST_F(AffectUpdateTickGuard, APoisonTickThatBreaksTheSanctuaryBehindItEndsTheTick) {
+    char name[] = "a poisoned test orc";
+    char_data* const npc = test_support::make_registered_test_npc(name);
+    GET_ALIGNMENT(npc) = 0;
+    affected_type sanctuary = test_support::inert_affect(SPELL_SANCTUARY, kSecondAffectDuration);
+    sanctuary.modifier = kBrokenSanctuaryModifier;
+    sanctuary.bitvector = AFF_SANCTUARY;
+    affect_to_char(npc, &sanctuary);
+    affected_type poison = consumed_poison_affect(kTickingAffectDuration);
+    affect_to_char(npc, &poison);
+    const character_identity npc_identity = character_identity::capture(*npc);
+    test_support::ScopedCharacterList characters({npc});
+    test_support::ScopedRoomOccupants origin_occupants(kTickOriginRoom, {npc});
+
+    affect_update_person(npc, 0);
+
+    ASSERT_EQ(npc_identity.resolve(), npc) << "one poison tick is not lethal";
+    EXPECT_EQ(npc->in_room, kTickOriginRoom) << "nothing made the NPC flee";
+    EXPECT_EQ(affect_types_of(*npc), std::vector<int>{SPELL_POISON}) << "the sanctuary is broken";
+    EXPECT_FALSE(IS_AFFECTED(npc, AFF_SANCTUARY));
+    test_support::release_survivor(npc_identity);
+}
+
+// Pin: an affect added during a tick body removes nothing, so the pass goes on. The destination's
+// entry special adds one ahead of the fear; the fear's save runs, and the affect behind the fear
+// still ticks. The save's own draws come after the queued flee and only decide the fear's duration.
+TEST_F(AffectUpdateTickGuard, AnAffectAddedDuringAFearFleeDoesNotEndTheTick) {
+    char name[] = "a frightened test orc";
+    char_data* const npc = test_support::make_registered_test_npc(name);
+    add_inert_affect(*npc, kSecondAffectType, kSecondAffectDuration);
+    add_inert_affect(*npc, SPELL_FEAR, kTickingAffectDuration);
+    const character_identity npc_identity = character_identity::capture(*npc);
+    test_support::ScopedCharacterList characters({npc});
+    test_support::ScopedRoomOccupants origin_occupants(kTickOriginRoom, {npc});
+    int entries = 0;
+    test_support::ScopedRoomSpecial granting_entry(
+        kTickDestinationRoom, SPECIAL_ENTER, [&entries](char_data* character) -> void {
+            ++entries;
+            add_inert_affect(*character, kAddedAffectType, kAddedAffectDuration);
+        });
+    test_support::queue_successful_flee_rolls(kTickFleeDirection);
+
+    affect_update_person(npc, 0);
+
+    EXPECT_EQ(entries, 1);
+    ASSERT_EQ(npc_identity.resolve(), npc) << "the NPC survives its flee";
+    const std::vector<int> expected_types{kAddedAffectType, SPELL_FEAR, kSecondAffectType};
+    EXPECT_EQ(affect_types_of(*npc), expected_types);
+    const affected_type* const fear = affected_by_spell(npc, SPELL_FEAR);
+    const affected_type* const second = affected_by_spell(npc, kSecondAffectType);
+    const affected_type* const added = affected_by_spell(npc, kAddedAffectType);
+    ASSERT_NE(fear, nullptr);
+    ASSERT_NE(second, nullptr);
+    ASSERT_NE(added, nullptr);
+    EXPECT_EQ(fear->modifier, -2) << "the fear's save ran";
+    EXPECT_EQ(second->duration, kSecondAffectDuration - 1) << "the affect behind still ticks";
+    EXPECT_EQ(added->duration, kAddedAffectDuration) << "an affect ahead waits for the next tick";
+    test_support::release_survivor(npc_identity);
+}
+
+// Pins the activity arm's check: mob activity runs the NPC's own special, which kills it, and the
+// arm must not fall through into confusion's check, which reads the character.
+TEST_F(AffectUpdateTickGuard, AnNpcKilledByItsOwnSpecialDuringActivityEndsTheTick) {
+    g_activity_special_kills = 0;
+    // The fixture's prototype entry, discarded with the fixture.
+    mob_index[0].func = lethal_activity_special;
+    char name[] = "an active test orc";
+    char keywords[] = "orc active";
+    char_data* const npc = test_support::make_registered_test_npc(name);
+    npc->player.name = keywords; // mob activity's special lookup searches them
+    SET_BIT(npc->specials2.act, MOB_SPEC);
+    npc->specials.default_pos = POSITION_STANDING; // so mob activity leaves its position alone
+    add_inert_affect(*npc, kSecondAffectType, kSecondAffectDuration);
+    add_inert_affect(*npc, SPELL_ACTIVITY, kTickingAffectDuration);
+    const character_identity npc_identity = character_identity::capture(*npc);
+    test_support::ScopedCharacterList characters({npc});
+    test_support::ScopedRoomOccupants origin_occupants(kTickOriginRoom, {npc});
+
+    affect_update_person(npc, 0);
+
+    EXPECT_EQ(g_activity_special_kills, 1);
+    EXPECT_EQ(npc_identity.resolve(), nullptr);
+    EXPECT_EQ(world[kTickOriginRoom].people, nullptr);
+    test_support::release_survivor(npc_identity);
 }

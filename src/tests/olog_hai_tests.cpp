@@ -2,6 +2,7 @@
 #include "../interpre.h"
 #include "../spells.h"
 #include "../utils.h"
+#include "character_affect_list_printer.h"
 #include "test_random_utils.h"
 #include <gtest/gtest.h>
 
@@ -352,7 +353,7 @@ TEST(OlogHaiHelpers, FrenzyAffectAppliesItsCurrentIntegerScaledDamageBonus) {
     context.profs.prof_level[PROF_WARRIOR] = 20;
     context.attacker.specials.tactics = TACTICS_AGGRESSIVE;
     context.frenzy.type = SKILL_FRENZY;
-    context.attacker.affected = &context.frenzy;
+    context.attacker.affected.push_front(&context.frenzy);
 
     EXPECT_EQ(olog_hai::get_base_skill_damage(context.attacker, 50), 14)
         << "Expected frenzy to increase base skill damage according to the current integer-scaled multiplier path.";

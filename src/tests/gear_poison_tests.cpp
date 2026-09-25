@@ -10,6 +10,7 @@
 #include "../test_harness.h"
 #include "../utils.h"
 #include "scoped_combat_list.h"
+#include "scoped_forced_affect_phase.h"
 #include "scoped_room_occupants.h"
 #include "test_character_support.h"
 
@@ -31,20 +32,6 @@ static_assert((1 << kPoisonBitNumber) == AFF_POISON, "affect_modify() sets bit 1
 // Bound on affect_update_person() calls for a 1-tick poison: one tick spends the duration, the
 // next removes the affect.
 constexpr int kExpiryTickBudget = 3;
-
-// Forces every slow affect to tick on each affect_update_person() call for the scope.
-class ScopedForcedAffectPhase {
-  public:
-    ScopedForcedAffectPhase() : m_previous(harness_force_affect_phase) {
-        harness_force_affect_phase = 1;
-    }
-    ~ScopedForcedAffectPhase() { harness_force_affect_phase = m_previous; }
-    ScopedForcedAffectPhase(const ScopedForcedAffectPhase&) = delete;
-    ScopedForcedAffectPhase& operator=(const ScopedForcedAffectPhase&) = delete;
-
-  private:
-    int m_previous; // the flag's value before the scope
-};
 
 // A neck item whose one affect line sets AFF_POISON, the unit-test twin of the harness world's
 // "sickly amulet". Worn through equip_char() on construction and taken off on scope exit if the
@@ -76,7 +63,7 @@ class WornPoisonAmulet {
 
 // Runs forced affect ticks until the wearer carries no SPELL_POISON affect or the budget is spent.
 void tick_until_the_poison_expires(char_data& wearer) {
-    ScopedForcedAffectPhase forced_phase;
+    test_support::ScopedForcedAffectPhase forced_phase;
     for (int tick = 0; tick < kExpiryTickBudget; ++tick) {
         const affected_type* const poison = affected_by_spell(&wearer, SPELL_POISON);
         if (poison == nullptr) {

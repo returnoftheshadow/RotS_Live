@@ -202,7 +202,7 @@ TEST(CharUtils, AppliesConfusePenaltyToKnowledgeAndSkillLookups) {
     context.knowledge[SKILL_SWIPE] = 80;
 
     affected_type confuse = make_affect(SPELL_CONFUSE, 8);
-    context.character.affected = &confuse;
+    context.character.affected.push_front(&confuse);
 
     EXPECT_EQ(utils::get_knowledge(context.character, SKILL_SWIPE), 74)
         << "Expected confusion to reduce knowledge by the affect-derived modifier.";
@@ -213,8 +213,9 @@ TEST(CharUtils, AppliesConfusePenaltyToKnowledgeAndSkillLookups) {
 TEST(CharUtils, FindsMatchingSpellAffectAndReturnsNullWhenMissing) {
     CharUtilsTestContext context;
     affected_type tail = make_affect(SPELL_ARMOR, 3);
-    affected_type head = make_affect(SPELL_CONFUSE, 5, &tail);
-    context.character.affected = &head;
+    affected_type head = make_affect(SPELL_CONFUSE, 5);
+    context.character.affected.push_front(&tail);
+    context.character.affected.push_front(&head);
 
     EXPECT_EQ(utils::is_affected_by_spell(context.character, SPELL_CONFUSE), &head);
     EXPECT_EQ(utils::is_affected_by_spell(context.character, SPELL_HAZE), nullptr)
@@ -593,7 +594,7 @@ TEST(CharDataMethods, TracksPracticeSpendingAndResetBehavior) {
 TEST(CharDataMethods, ReportsAffectedStateWhenAffectListExists) {
     CharUtilsTestContext context;
     affected_type affect = make_affect(SPELL_ARMOR, 2);
-    context.character.affected = &affect;
+    context.character.affected.push_front(&affect);
 
     EXPECT_TRUE(context.character.is_affected());
 }

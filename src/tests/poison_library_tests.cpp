@@ -8,6 +8,7 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "character_affect_list_printer.h"
 #include "scoped_combat_list.h"
 #include "scoped_room_occupants.h"
 #include "test_affect_support.h"

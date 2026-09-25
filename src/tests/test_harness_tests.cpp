@@ -80,7 +80,7 @@ struct ForcedPhaseFixture {
         affect.type = SPELL_CURING;
         affect.duration = 5;
         affect.time_phase = 1; // pulse is 0 in the test binary, so the live phase is 0
-        character.affected = &affect;
+        character.affected.push_front(&affect);
     }
 
     ~ForcedPhaseFixture()

@@ -15,6 +15,7 @@
 
 #include <stdio.h>
 
+#include "character_affect_list.h" /* For character_affect_list */
 #include "color.h" /* For MAX_COLOR_FIELDS */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "poison_origin.h" /* For poison_origin */
@@ -1799,7 +1800,7 @@ public:
     byte* knowledge; /* array of knowledge, computed from
                                                                                         pracs spent
                         at logon */
-    struct affected_type* affected; /* affected by what spells       */
+    character_affect_list affected; // this character's affects; written only through its members
     struct obj_data* equipment[MAX_WEAR]; /* Equipment array               */
 
     struct obj_data* carrying; /* Head of list                  */

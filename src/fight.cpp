@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "character_identity.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -1798,10 +1799,6 @@ int maul_damage_reduction(char_data* ch, int damage)
     return damage = std::max(damage, 1);
 }
 
-/*
- * damage now modified to return int - 1 if the victim was
- * killed, 0 if not.
- */
 // `attacker` keeps engaging the victim exactly as before -- set_fighting,
 // on_attacked_character, the group/hide/exp bookkeeping, the damage message.
 // A remote or null `credited_killer` is never engaged: it is not passed to
@@ -2079,6 +2076,10 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
         check_break_prep(attacker);
     }
 
+    // The flees below can kill the victim on the way (an entry special, an ON_ENTER script), so
+    // after each flee the victim is used only while this resolves.
+    const character_identity fleeing_victim = character_identity::capture(*victim);
+
     /* Use send_to_char -- act() doesn't send message if you are DEAD. */
     switch (GET_POS(victim)) {
     case POSITION_INCAP:
@@ -2112,8 +2113,12 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
                 FALSE, victim, 0, 0, TO_CHAR);
             if (IS_NPC(victim)) {
                 if (IS_SET(victim->specials2.act, MOB_WIMPY))
-                    if (GET_POSITION(victim) > POSITION_SLEEPING)
+                    if (GET_POSITION(victim) > POSITION_SLEEPING) {
                         do_flee(victim, "", 0, 0, 0);
+                        if (fleeing_victim.resolve() == nullptr) {
+                            return 1;
+                        }
+                    }
             }
         }
 
@@ -2122,11 +2127,17 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
                 send_to_char("You wimp out, and attempt to flee!\n\r",
                     victim);
                 do_flee(victim, "", 0, 0, 0);
+                if (fleeing_victim.resolve() == nullptr) {
+                    return 1;
+                }
             }
     }
 
     if (!IS_NPC(victim) && !(victim->desc && victim->desc->descriptor) && (victim->specials.fighting) && GET_POS(victim) > POSITION_INCAP) {
         do_flee(victim, "", 0, 0, 0);
+        if (fleeing_victim.resolve() == nullptr) {
+            return 1;
+        }
         victim->specials.was_in_room = victim->in_room;
     }
 

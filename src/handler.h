@@ -180,11 +180,14 @@ void stop_follower(struct char_data* ch);
 void hit(struct char_data* ch, struct char_data* victim, int type);
 void forget(struct char_data* ch, struct char_data* victim);
 void remember(struct char_data* ch, struct char_data* victim);
+// Returns 1 when `victim` died, and also when it was killed or extracted during a flee the hit set
+// off (a wimpy mob or player, or a linkless player who was fighting): `victim` may then have been
+// freed, and the caller must not use it again. Returns 0 otherwise.
 int damage(struct char_data* ch, struct char_data* victim, int dam, int attacktype, int hit_location);
 // damage() with the kill credit named separately from the character that
 // engages the victim. `ch` engages exactly as damage() does; `credited_killer`
 // (which may be null, may equal `ch`, and may stand in another room) is what
-// reaches die(), and is never engaged.
+// reaches die(), and is never engaged. Returns what damage() returns.
 int damage_credited(struct char_data* ch, struct char_data* victim, struct char_data* credited_killer, int dam, int attacktype, int hit_location);
 
 // Punishment class for a PC death, chosen by classify_pc_death().

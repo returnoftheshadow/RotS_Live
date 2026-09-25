@@ -10,6 +10,7 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "character_affect_list_printer.h"
 #include "test_character_support.h"
 
 #include "AccountRecordOnDiskBuilder.h"
@@ -409,9 +410,10 @@ size_t count_occurrences(const std::string& haystack, const std::string& needle)
 size_t count_affects(const char_data* character)
 {
     size_t count = 0;
-    for (const affected_type* affect = character != nullptr ? character->affected : nullptr;
-        affect != nullptr && count < MAX_AFFECT + 1;
-        affect = affect->next) {
+    for (const affected_type* affect = character != nullptr
+                                           ? static_cast<const affected_type*>(character->affected)
+                                           : nullptr;
+         affect != nullptr && count < MAX_AFFECT + 1; affect = affect->next) {
         ++count;
     }
 

@@ -701,8 +701,7 @@ void affect_to_char(struct char_data* ch, struct affected_type* af)
     *affected_alloc = *af;
 
     // 4
-    affected_alloc->next = ch->affected;
-    ch->affected = affected_alloc;
+    ch->affected.push_front(affected_alloc);
 
     affected_alloc->time_phase = get_current_time_phase();
 
@@ -788,7 +787,6 @@ void affect_to_room(struct room_data* room, struct affected_type* af, const cast
                                                */
 void affect_remove(struct char_data* ch, struct affected_type* af)
 {
-    struct affected_type* hjp;
     universal_list *tmplist, *tmplist2;
 
     //   assert(ch->affected);
@@ -801,21 +799,9 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
     // forgotten when the last one goes (see the tail of this function).
     const int removed_type = af->type;
 
-    /* remove structure *af from linked list */
-    if (ch->affected == af) {
-        /* remove head of list */
-        ch->affected = af->next;
-    } else {
-        // Unbounded, like get_affect_unbounded(): affect_join() can hand over an affect sitting past
-        // MAX_AFFECT entries, and it must be removable.
-        for (hjp = ch->affected; (hjp->next) && (hjp->next != af); hjp = hjp->next) {
-        }
-        if (hjp->next != af) {
-            log("SYSERR: FATAL : Could not locate affected_type in ch->affected. (handler.c, affect_remove)");
-            //	 exit(1);
-            return;
-        }
-        hjp->next = af->next; /* skip the af element */
+    if (!ch->affected.unlink(af)) {
+        log("SYSERR: FATAL : Could not locate affected_type in ch->affected. (handler.c, affect_remove)");
+        return;
     }
 
     // Only once the node is unlinked: a failed search above leaves the affect on the list, so its

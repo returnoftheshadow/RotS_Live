@@ -65,6 +65,8 @@ set(ROTS_SERVER_SOURCES
     big_brother.cpp
     boards.cpp
     caster_snapshot.cpp
+    character_affect_list.cpp
+    character_identity.cpp
     char_utils.cpp
     char_utils_combat.cpp
     clerics.cpp
@@ -146,6 +148,8 @@ set(ROTS_TEST_SOURCES
     tests/affect_join_tests.cpp
     tests/affect_update_tests.cpp
     tests/caster_snapshot_tests.cpp
+    tests/character_affect_list_tests.cpp
+    tests/character_identity_tests.cpp
     tests/CharPlayerDataBuilder.cpp
     tests/char_utils_tests.cpp
     tests/character_json_tests.cpp
@@ -157,6 +161,7 @@ set(ROTS_TEST_SOURCES
     tests/exploit_record_tests.cpp
     tests/exploits_json_tests.cpp
     tests/fight_credit_tests.cpp
+    tests/flee_path_tests.cpp
     tests/interpre_account_menu_tests.cpp
     tests/fight_proc_tests.cpp
     tests/gear_poison_tests.cpp
@@ -193,6 +198,10 @@ set(ROTS_TEST_SOURCES
     tests/test_descriptor_support.cpp
     tests/test_world_support.cpp
     tests/scoped_room_occupants.cpp
+    tests/scoped_room_special.cpp
+    tests/scoped_flee_world.cpp
+    tests/scoped_player_death_sandbox.cpp
+    tests/test_flee_support.cpp
     tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp
     tests/xp_formula_tests.cpp

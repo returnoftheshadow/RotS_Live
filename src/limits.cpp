@@ -10,6 +10,7 @@
 
 #include "limits.h"
 #include "caster_snapshot.h"
+#include "character_identity.h"
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
@@ -1347,12 +1348,41 @@ void do_power_of_arda(char_data* ch)
     }
 }
 
+namespace {
+
+// Tells affect_update_person() whether the character a tick body ran on still resolves and has had
+// no affect unlinked since the guard was made, that is, whether the walk may still read the
+// ticking node and the next one it saved.
+class affect_tick_guard {
+  public:
+    explicit affect_tick_guard(const char_data& character)
+        : m_identity(character_identity::capture(character)),
+          m_removal_count(character.affected.removal_count()) {}
+
+    // False once the character no longer resolves or its affect list's removal_count() has moved.
+    [[nodiscard]] bool intact() const {
+        // The count is read only through the resolved character, never through a stale pointer.
+        const char_data* const character = m_identity.resolve();
+        if (character == nullptr) {
+            return false;
+        }
+        return character->affected.removal_count() == m_removal_count;
+    }
+
+  private:
+    character_identity m_identity; // the character the tick body runs on
+    long m_removal_count;          // its affect list's removal_count() when the guard was made
+};
+
+} // namespace
+
+// `i` must resolve through the character registry (character_identity); for one that does not,
+// the pass stops after the first body that runs on a non-expiring affect.
 void affect_update_person(struct char_data* i, int mode)
 {
     affected_type* otheraf;
     // mode != 0 for fast_update
 
-    static struct affected_type *af, *next_af_dude;
     int tmp, freq, val, time_phase;
 
     if (i->desc && i->desc->connected && (i->desc->connected != CON_LINKLS))
@@ -1360,10 +1390,15 @@ void affect_update_person(struct char_data* i, int mode)
 
     time_phase = get_current_time_phase();
 
-    for (af = i->affected; af; af = next_af_dude) {
+    affected_type* next_af_dude = nullptr;
+    for (affected_type* af = i->affected; af; af = next_af_dude) {
         next_af_dude = af->next;
         if (skills[af->type].is_fast || (!mode && (time_phase == af->time_phase || harness_force_affect_phase))) {
             if ((af->duration >= 1) || (af->duration < 0)) {
+                // A body can run game code (a flee, mob activity, damage) that kills the character
+                // or unlinks any of its affects, `af` and `next_af_dude` among them. After such
+                // code the pass stops unless the guard is intact; the rest waits for the next tick.
+                const affect_tick_guard tick_guard(*i);
                 if (af->duration >= 1)
                     af->duration--;
 
@@ -1380,6 +1415,9 @@ void affect_update_person(struct char_data* i, int mode)
                     break;
                 case SPELL_FEAR:
                     do_flee(i, "", 0, 0, 0);
+                    if (!tick_guard.intact()) {
+                        return;
+                    }
                     if (saves_spell(i, af->modifier -= 2, 0))
                         af->duration = 0;
                     break;
@@ -1390,8 +1428,12 @@ void affect_update_person(struct char_data* i, int mode)
                     // handled by hit_gain now.
                     break;
                 case SPELL_ACTIVITY:
-                    if (IS_NPC(i))
+                    if (IS_NPC(i)) {
                         one_mobile_activity(i);
+                        if (!tick_guard.intact()) {
+                            return;
+                        }
+                    }
                 case SPELL_CONFUSE:
                     if (IS_AFFECTED(i, AFF_CONCENTRATION) && (af->duration >= 10))
                         af->duration -= 3;
@@ -1416,6 +1458,9 @@ void affect_update_person(struct char_data* i, int mode)
                         if (af->modifier > 20) {
                             if (damage(i, i, (af->modifier / 5), SPELL_ASPHYXIATION, 0))
                                 return;
+                            if (!tick_guard.intact()) {
+                                return;
+                            }
                             GET_MOVE(i) = MAX(GET_MOVE(i) - 4, 10);
                         }
                     }
@@ -1434,6 +1479,11 @@ void affect_update_person(struct char_data* i, int mode)
                     break;
                 default:
                     break;
+                }
+                // For the bodies without a check of their own, such as a non-lethal poison tick
+                // whose damage broke a sanctuary.
+                if (!tick_guard.intact()) {
+                    return;
                 }
                 if (GET_POS(i) == POSITION_STUNNED)
                     update_pos(i);

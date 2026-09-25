@@ -79,8 +79,7 @@ struct DamageTestContext {
         affect.modifier = modifier;
         affect.location = location;
         affect.bitvector = bitvector;
-        affect.next = victim.affected;
-        victim.affected = &affect;
+        victim.affected.push_front(&affect);
 
         if (bitvector != 0) {
             victim.specials.affected_by |= bitvector;
