@@ -23,7 +23,17 @@ export ROTS_GID="$(id -g)"
 cmd="${1:-boot}"
 case "$cmd" in
   build)
+    # A rebuild moves the rots-dev tag to the new image and leaves the old one behind
+    # untagged; remove it. Never fatal: it may still be in use by a running container.
+    image="rots-dev:bullseye-i386"
+    old_id="$(docker image inspect -f '{{.Id}}' "$image" 2>/dev/null || true)"
     docker compose build
+    new_id="$(docker image inspect -f '{{.Id}}' "$image" 2>/dev/null || true)"
+    if [ -n "$old_id" ] && [ "$old_id" != "$new_id" ]; then
+      docker rmi "$old_id" >/dev/null 2>&1 \
+        && echo "Removed previous $image image ${old_id#sha256:}" \
+        || echo "Note: previous $image image ${old_id#sha256:} is still in use; not removed." >&2
+    fi
     ;;
   compile)
     docker compose run --rm rots bash -lc 'cd /rots/src && make setup && make all'
