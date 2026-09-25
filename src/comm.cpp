@@ -1007,7 +1007,13 @@ void game_loop(SocketType s)
                         point->character->specials.timer = 0;
                     }
                     if (point->character && IS_SET(PLR_FLAGS(point->character), PLR_WRITING)) {
-                        string_add(point, comm);
+                        /* The flag is saved with the character; after a fresh
+                         * load there is no text being edited.  Players only: on
+                         * a mob these bits are its own flags (NOBASH, AGGR). */
+                        if (!point->str && !IS_NPC(point->character))
+                            REMOVE_BIT(PLR_FLAGS(point->character), PLR_MAILING | PLR_WRITING);
+                        else
+                            string_add(point, comm);
                     }
 
                     point->prompt_mode = 1;
