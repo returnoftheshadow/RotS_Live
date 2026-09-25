@@ -1282,14 +1282,10 @@ ASPELL(spell_poison)
         if (!saves_poison(victim, caster_at_cast) && (number(0, magus_save) < 50)) {
             af = poison_victim_affect(caster_at_cast);
 
-            affect_join(victim, &af, FALSE, FALSE);
-            // This poison's origin, for resolve_poisoner() to read back when it
-            // kills. Without it the DoT that follows credits nobody, and a
-            // player killed by a mystic's poison would take the died-to-a-mob
-            // arm.
-            record_poison_origin(victim, caster);
-
-            send_to_char("You feel very sick.\n\r", victim);
+            // The poison merges under the poison rules, which also decide whether the caster is
+            // recorded as the poisoner. The 5 damage lands however it merged.
+            send_poison_outcome_messages(apply_poison(victim, af, caster), victim, caster,
+                                         "You feel very sick.\n\r");
             damage((caster) ? caster : victim, victim, 5, SPELL_POISON, 0);
         } else {
             act("You feel your body fend off the poison.", TRUE, caster, 0, victim, TO_VICT);

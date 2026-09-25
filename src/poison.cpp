@@ -1,8 +1,9 @@
-// The rules of a character's poison: which poison each source applies, whether it lands, who owns
-// it, how it hurts each tick, and how it ends early.
+// The rules of a character's poison: which poison each source applies, whether it lands, how it
+// merges with a running poison, who owns it, how it hurts each tick, and how it ends early.
 #include "poison.h"
 
 #include "caster_snapshot.h"
+#include "comm.h"
 #include "handler.h"
 #include "spells.h"
 #include "structs.h"
@@ -17,6 +18,31 @@ constexpr int kPoisonTickDamage = 5;
 
 // The defense a wood elf adds to its poison save.
 constexpr int kWoodElfPoisonBonus = 30;
+
+// The running poison's initial duration, which apply_poison() keeps in its counter. A counter
+// below the remaining duration (zero, or a poison saved before counters meant this) falls back to
+// the remaining duration, so an extension can never shorten a poison.
+int initial_duration_of(const affected_type& running) {
+    return std::max<int>(running.counter, running.duration);
+}
+
+// Starts `poison` in place of any running poison and records `source` as its poisoner.
+poison_outcome start_poison(char_data* victim, const affected_type& poison, char_data* source,
+                            poison_outcome outcome) {
+    cure_poison(victim);
+    affected_type fresh = poison;
+    fresh.counter = static_cast<sh_int>(poison.duration);
+    affect_to_char(victim, &fresh);
+    record_poison_origin(victim, source);
+    return outcome;
+}
+
+// An extension keeps a poisoner who still resolves; otherwise `source` takes the record.
+void hand_over_record_if_poisoner_gone(char_data* victim, char_data* source) {
+    if (resolve_poisoner(*victim) == nullptr) {
+        record_poison_origin(victim, source);
+    }
+}
 
 } // namespace
 
@@ -144,6 +170,63 @@ bool cure_poison(char_data* victim) {
     return cured;
 }
 
+int poison_strength(const affected_type& poison) {
+    if (poison.location != APPLY_STR || poison.modifier >= 0) {
+        return 0;
+    }
+    return -poison.modifier;
+}
+
+poison_outcome apply_poison(char_data* victim, const affected_type& poison, char_data* source) {
+    affected_type* running = get_affect_unbounded(victim, SPELL_POISON);
+    if (running == nullptr) {
+        return start_poison(victim, poison, source, poison_outcome::applied);
+    }
+
+    const int running_strength = poison_strength(*running);
+    const int new_strength = poison_strength(poison);
+    if (new_strength < running_strength) {
+        return poison_outcome::blocked_by_stronger;
+    }
+    if (new_strength > running_strength) {
+        return start_poison(victim, poison, source, poison_outcome::replaced);
+    }
+
+    // A permanent poison has no initial duration to cap at, and nothing an equal poison could add
+    // to its duration.
+    if (running->duration < 0) {
+        hand_over_record_if_poisoner_gone(victim, source);
+        return poison_outcome::extended;
+    }
+
+    const int initial_duration = initial_duration_of(*running);
+    if (poison.duration > initial_duration) {
+        return start_poison(victim, poison, source, poison_outcome::replaced);
+    }
+
+    running->duration = std::min(running->duration + poison.duration / 2, initial_duration);
+    running->counter = static_cast<sh_int>(initial_duration);
+    hand_over_record_if_poisoner_gone(victim, source);
+    return poison_outcome::extended;
+}
+
+void send_poison_outcome_messages(poison_outcome outcome, char_data* victim, char_data* caster,
+                                  const char* fresh_victim_line) {
+    if (outcome == poison_outcome::applied || outcome == poison_outcome::replaced) {
+        if (fresh_victim_line != nullptr) {
+            send_to_char(fresh_victim_line, victim);
+        }
+    } else if (outcome == poison_outcome::extended) {
+        send_to_char("You feel sicker as the poison lingers in your blood.\n\r", victim);
+    } else if (outcome == poison_outcome::blocked_by_stronger) {
+        send_to_char("Your body is already fighting a stronger poison.\n\r", victim);
+        if (caster != nullptr) {
+            act("$N is already suffering from a stronger poison.", FALSE, caster, 0, victim,
+                TO_CHAR);
+        }
+    }
+}
+
 // Both lookups stop after MAX_AFFECT entries, as the resist-poison tick's does.
 poison_resistance_outcome start_poison_resistance(char_data* victim, int cleric_level) {
     const affected_type* const poison = affected_by_spell(victim, SPELL_POISON);
@@ -162,19 +245,4 @@ poison_resistance_outcome start_poison_resistance(char_data* victim, int cleric_
     resistance.bitvector = 0;
     affect_to_char(victim, &resistance);
     return poison_resistance_outcome::started;
-}
-
-// A consumed poison no longer than the running one changes nothing, and the running poison keeps
-// its poisoner. A longer one replaces it and clears the record, since nobody owns it.
-void apply_consumed_poison(char_data* victim, const affected_type& poison) {
-    const affected_type* running = affected_by_spell(victim, SPELL_POISON);
-    if (running != nullptr && running->duration >= poison.duration) {
-        return;
-    }
-    if (running != nullptr) {
-        affect_from_char(victim, SPELL_POISON);
-    }
-    affected_type consumed = poison;
-    affect_to_char(victim, &consumed);
-    record_poison_origin(victim, nullptr);
 }

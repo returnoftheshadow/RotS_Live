@@ -233,8 +233,9 @@ TEST(PoisonLibrary, ResistingTwiceLeavesTheFirstResistanceAlone) {
 
     EXPECT_EQ(count_affects_of_type(victim, SPELL_RESIST_POISON), 1)
         << "a second attempt adds no resist-poison affect";
-    EXPECT_EQ(get_affect_unbounded(&victim, SPELL_RESIST_POISON)->modifier, 17)
-        << "the running resistance keeps its cleric level";
+    const affected_type* const resistance = get_affect_unbounded(&victim, SPELL_RESIST_POISON);
+    ASSERT_NE(resistance, nullptr) << "the first resistance is still running";
+    EXPECT_EQ(resistance->modifier, 17) << "the running resistance keeps its cleric level";
 }
 
 TEST(PoisonLibrary, AResistedTickShortensThePoisonByTheModifierAndSyncsTheResistance) {
@@ -249,12 +250,16 @@ TEST(PoisonLibrary, AResistedTickShortensThePoisonByTheModifierAndSyncsTheResist
     resistance.modifier = 5;
     affect_to_char(&victim, &resistance);
     affected_type* const running_poison = get_affect_unbounded(&victim, SPELL_POISON);
+    ASSERT_NE(running_poison, nullptr) << "precondition: the poison is on";
     const int starting_hit = GET_HIT(&victim);
 
     EXPECT_EQ(tick_poison_affect(&victim, running_poison), 0) << "a 500-hit victim survives a tick";
 
     EXPECT_EQ(running_poison->duration, 4) << "a remaining 9 less the resist modifier 5 is 4";
-    EXPECT_EQ(get_affect_unbounded(&victim, SPELL_RESIST_POISON)->duration, 4)
+    const affected_type* const running_resistance =
+        get_affect_unbounded(&victim, SPELL_RESIST_POISON);
+    ASSERT_NE(running_resistance, nullptr) << "a resisted tick keeps the resist-poison affect";
+    EXPECT_EQ(running_resistance->duration, 4)
         << "the resist-poison affect follows the poison's duration";
     EXPECT_EQ(GET_HIT(&victim), starting_hit - 5) << "every poison tick deals 5 damage";
 }

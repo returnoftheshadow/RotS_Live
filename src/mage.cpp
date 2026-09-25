@@ -2263,13 +2263,11 @@ ASPELL(spell_black_arrow)
         dam >>= 1;
     } else if (number(1, 50) < level && GET_HIT(victim) > min_poison_dam) {
         // TODO(drelidan):  Should this conditional poison apply after damage is applied?
-        affected_type af = poison_victim_affect_at_level(level);
-        affect_join(victim, &af, FALSE, FALSE);
-        // This poison's origin, for resolve_poisoner() to read back when it
-        // kills -- see mystic.cpp's spell_poison for the same reasoning.
-        record_poison_origin(victim, caster);
-
-        send_to_char("The vile magic poisons you!\n\r", victim);
+        // The poison merges under the poison rules, which also decide whether the mage is
+        // recorded as the poisoner. The poison damage lands however it merged.
+        send_poison_outcome_messages(
+            apply_poison(victim, poison_victim_affect_at_level(level), caster), victim, caster,
+            "The vile magic poisons you!\n\r");
         apply_spell_damage(caster_at_cast, caster, victim, min_poison_dam, SPELL_POISON, 0);
     }
 

@@ -2993,7 +2993,6 @@ SPECIAL(vampire_huntress)
     struct char_data *victim, *mob; // quite quickly.  If she comes across a PC she will either
     waiting_type tmpwtl; // continue on her way, attack, or abduct the victim taking
     int to_room, tmpno; // them back to the dungeons of her tower.
-    struct affected_type af;
     obj_data* obj;
     room_data* room;
     // If she is too badly hurt in a fight, she will flee back to
@@ -3134,13 +3133,12 @@ SPECIAL(vampire_huntress)
                                  "prevent it.\n\r\n",
                         victim);
                     act("$n bites you!", FALSE, host, 0, victim, TO_VICT);
-                    af = pale_lady_poison_affect();
-                    affect_join(victim, &af, FALSE, FALSE);
-                    // The huntress owns this poison. A captive who dies of it unengaged takes the
-                    // gentle arm and no mob-death record (the huntress is the recorded poisoner,
-                    // not the killer); without the record the death would credit nobody at all.
-                    record_poison_origin(victim, host);
-                    send_to_char("You feel extremely sick.\n\r", victim);
+                    // The bite is the strongest poison. It merges under the poison rules, which
+                    // decide whether the huntress is recorded as the poisoner; the swoon and
+                    // hit-point loss follow however it merged.
+                    send_poison_outcome_messages(
+                        apply_poison(victim, pale_lady_poison_affect(), host), victim, nullptr,
+                        "You feel extremely sick.\n\r");
                     send_to_char(
                         "For a moment the pain is too great and you lose consciousness...\n\r\n\n",
                         victim);

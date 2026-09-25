@@ -68,7 +68,7 @@ def test_snake_mob_binds_its_bite_special() -> None:
 
 
 def test_snake_mob_has_the_perception_that_lands_every_bite() -> None:
-    """saves_poison() (spell_pa.cpp) scales the snake's offence by its perception; the arithmetic is
+    """saves_poison() (poison.cpp) scales the snake's offence by its perception; the arithmetic is
     in test_poison_punishment_snake.py's module docstring."""
     text = (WORLD_ROOT / "mob" / "11.mob").read_text(encoding="latin-1")
     record = text.split("#1131", 1)[1].split("#1132", 1)[0]

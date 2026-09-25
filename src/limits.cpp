@@ -747,7 +747,8 @@ void point_update(void)
                     i->specials.attacked_level -= 2;
             }
 
-            // Worn gear's poison flag, with no poison affect behind it, hurts on this tick.
+            // A poison flag with no poison affect behind it, set by worn gear or by a mob
+            // prototype flagged poisoned, hurts on this tick.
             if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON)) {
                 deal_poison_tick_damage(i);
             }

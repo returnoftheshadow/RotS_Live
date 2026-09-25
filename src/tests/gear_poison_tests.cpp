@@ -232,7 +232,7 @@ TEST(GearPoison, CuringTheTimedPoisonLeavesTheItemsFlag) {
     ASSERT_NE(affected_by_spell(&wearer, SPELL_POISON), nullptr)
         << "precondition: the poison is on";
 
-    cure_poison(&wearer);
+    EXPECT_TRUE(cure_poison(&wearer)) << "the cure reports the poison affect it removed";
 
     EXPECT_EQ(affected_by_spell(&wearer, SPELL_POISON), nullptr)
         << "the cure removes the poison affect";

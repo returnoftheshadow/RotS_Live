@@ -1467,80 +1467,171 @@ namespace {
 constexpr int kBlackArrowCasterSlot = MAX_CHARACTERS - 1201;
 constexpr int kMysticPoisonCasterSlot = MAX_CHARACTERS - 1202;
 constexpr int kMysticPoisonSecondCasterSlot = MAX_CHARACTERS - 1203;
+constexpr int kBlackArrowMysticSlot = MAX_CHARACTERS - 1204;
+
+// The level of the mystic poison the black arrow pins start from: its 41-tick initial duration
+// outlasts the arrow's 35 ticks, so the arrow's equal-strength poison extends it.
+constexpr int kRunningMysticPoisonLevel = 40;
+// The running poison's remaining duration when the arrow lands.
+constexpr int kRunningPoisonRemaining = 10;
+// The arrow's poison duration: its caster's mage level 34 (30 + 20 / 5) plus one.
+constexpr int kBlackArrowPoisonDuration = 35;
+
+// Gives `context.victim` a mystic's poison from `context.master`, cut to kRunningPoisonRemaining
+// ticks. The master stands with the victim, so a registered master resolves.
+void give_victim_a_running_mystic_poison(MageTestContext& context) {
+    context.master.in_room = context.victim.in_room;
+    const affected_type mystic_poison = poison_victim_affect_at_level(kRunningMysticPoisonLevel);
+    ASSERT_EQ(apply_poison(&context.victim, mystic_poison, &context.master), poison_outcome::applied)
+        << "precondition: the mystic's poison starts on an unpoisoned victim";
+    affected_type* running = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(running, nullptr) << "precondition: the mystic's poison is running";
+    running->duration = kRunningPoisonRemaining;
+}
 
 } // namespace
 
-// Black arrow names its mage as the poisoner, and still does when it lands on a victim who is
-// already poisoned: the join replaces the running poison, which clears the record, so the
-// record must be written after it. Rolls as in the duration test above. Before the second
-// arrow the running poison is cut to 1 tick, so an arrow that poisons shows as a renewed duration.
-TEST_F(MageProcTest, BlackArrowRecordsTheMageAsThePoisonerEvenOnAnAlreadyPoisonedVictim) {
+// Black arrow on a victim already running a mystic's equal-strength poison extends it by half the
+// arrow's 35 ticks, and the mystic, who still resolves, stays the poisoner. Rolls as in the
+// duration test above.
+TEST_F(MageProcTest, BlackArrowExtendsAnEqualPoisonAndKeepsItsResolvablePoisoner) {
     MageTestContext context;
     context.caster_profs.prof_level[PROF_MAGE] = 30;
     context.prepare_for_spell_damage();
     test_support::ScopedAffectCleanup victim_affects(context.victim);
     test_support::ScopedCharExists caster_registration(context.caster, kBlackArrowCasterSlot);
+    test_support::ScopedCharExists mystic_registration(context.master, kBlackArrowMysticSlot);
+    ASSERT_NO_FATAL_FAILURE(give_victim_a_running_mystic_poison(context));
+    ASSERT_EQ(resolve_poisoner(context.victim), &context.master)
+        << "precondition: the mystic is the recorded poisoner";
 
     queue_fireball_rolls(0.0, 60);
     test_support::cast_spell(spell_black_arrow, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
-    affected_type* poison = affected_by_spell(&context.victim, SPELL_POISON);
-    ASSERT_NE(poison, nullptr) << "precondition: the first arrow poisons";
-    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster) << "the first arrow must record its mage";
-
-    poison->duration = 1;
-    queue_fireball_rolls(0.0, 60);
-    test_support::cast_spell(spell_black_arrow, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
-    poison = affected_by_spell(&context.victim, SPELL_POISON);
-    ASSERT_NE(poison, nullptr) << "precondition: the victim is still poisoned after the second arrow";
-    ASSERT_GT(poison->duration, 1) << "precondition: the second arrow poisons";
-    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster)
-        << "a second arrow joins the running poison and must keep its mage recorded";
     clear_test_random_values();
+
+    const affected_type* poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "the victim must still be poisoned after the arrow";
+    EXPECT_EQ(poison->duration, kRunningPoisonRemaining + kBlackArrowPoisonDuration / 2)
+        << "the arrow's 35-tick poison must extend the running " << kRunningPoisonRemaining
+        << " ticks by half its own duration";
+    EXPECT_EQ(resolve_poisoner(context.victim), &context.master)
+        << "an extension must keep the mystic, who still resolves, as the poisoner";
 }
 
-// Mystic poison names its caster, keeps that record when the same caster poisons again, and a
-// different caster poisoning the same victim becomes the recorded poisoner. Before each later
-// cast the running poison is cut to 1 tick, so a poison that lands shows as a renewed duration.
-TEST_F(MageProcTest, MysticPoisonKeepsItsPoisonerAndASecondPoisonerTakesOver) {
+// Black arrow extending an equal poison whose recorded poisoner has left the game takes the
+// record for its mage.
+TEST_F(MageProcTest, BlackArrowTakesOverAnEqualPoisonWhosePoisonerIsGone) {
+    MageTestContext context;
+    context.caster_profs.prof_level[PROF_MAGE] = 30;
+    context.prepare_for_spell_damage();
+    test_support::ScopedAffectCleanup victim_affects(context.victim);
+    test_support::ScopedCharExists caster_registration(context.caster, kBlackArrowCasterSlot);
+    test_support::ScopedCharExists mystic_registration(context.master, kBlackArrowMysticSlot);
+    ASSERT_NO_FATAL_FAILURE(give_victim_a_running_mystic_poison(context));
+    remove_char_exists(kBlackArrowMysticSlot); // what extract_char() does for the departed mystic
+    ASSERT_EQ(resolve_poisoner(context.victim), nullptr)
+        << "precondition: the mystic no longer resolves";
+
+    queue_fireball_rolls(0.0, 60);
+    test_support::cast_spell(spell_black_arrow, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
+    clear_test_random_values();
+
+    const affected_type* poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "the victim must still be poisoned after the arrow";
+    EXPECT_EQ(poison->duration, kRunningPoisonRemaining + kBlackArrowPoisonDuration / 2)
+        << "the arrow's 35-tick poison must extend the running " << kRunningPoisonRemaining
+        << " ticks, not replace them";
+    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster)
+        << "with the recorded poisoner gone, the arrow's mage must take the record";
+}
+
+namespace {
+
+// Makes `context.victim` unable to save against a mystic's poison: saves_poison()'s defense is 0.
+// affect_total() recomputes an NPC's willpower as level + tmpabilities.wil - confusion / 10,
+// which stays 0 here: the level is 0 (prepare_for_spell_damage()), wil is 0 and the victim is not
+// confused.
+void make_victim_unable_to_save_poison(MageTestContext& context) {
+    context.victim.tmpabilities.con = 0;
+    context.victim.points.willpower = 0;
+}
+
+} // namespace
+
+// A second mystic's equal poison extends the running one by half its duration, capped at the
+// running poison's initial duration, and the first mystic stays the poisoner. Both casters are
+// cleric level 10 with no willpower, so each poison lasts 11 ticks.
+TEST_F(MageProcTest, MysticPoisonExtendsWithoutChangingAResolvablePoisoner) {
     MageTestContext context;
     context.caster_profs.prof_level[PROF_CLERIC] = 10;
     context.master_profs.prof_level[PROF_CLERIC] = 10;
     context.prepare_for_spell_damage();
     context.master.in_room = context.victim.in_room; // the second poisoner stands with the victim
     context.master.specials.position = POSITION_STANDING;
-    // saves_poison()'s defense is then 0, so the poison always lands. affect_total() recomputes an
-    // NPC's willpower as level + tmpabilities.wil - confusion / 10, which stays 0 here: the level
-    // is 0 (prepare_for_spell_damage()), wil is 0 and the victim is not confused.
-    context.victim.tmpabilities.con = 0;
-    context.victim.points.willpower = 0;
+    make_victim_unable_to_save_poison(context);
     test_support::ScopedAffectCleanup victim_affects(context.victim);
     test_support::ScopedCharExists caster_registration(context.caster, kMysticPoisonCasterSlot);
     test_support::ScopedCharExists master_registration(context.master, kMysticPoisonSecondCasterSlot);
+    constexpr int kMysticPoisonDuration = 11;
 
     queue_fireball_rolls(0.5, 60);
     test_support::cast_spell(spell_poison, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
     affected_type* poison = affected_by_spell(&context.victim, SPELL_POISON);
     ASSERT_NE(poison, nullptr) << "precondition: the poison lands";
-    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster) << "the first poison must record its caster";
-
-    poison->duration = 1;
-    queue_fireball_rolls(0.5, 60);
-    test_support::cast_spell(spell_poison, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
-    poison = affected_by_spell(&context.victim, SPELL_POISON);
-    ASSERT_NE(poison, nullptr) << "precondition: the victim is still poisoned after the second poison";
-    ASSERT_GT(poison->duration, 1) << "precondition: the second poison lands";
-    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster)
-        << "re-poisoning an already-poisoned victim must keep the caster recorded";
+    ASSERT_EQ(poison->duration, kMysticPoisonDuration) << "precondition: cleric level 10 poisons for 11 ticks";
+    ASSERT_EQ(resolve_poisoner(context.victim), &context.caster) << "precondition: the first poison records its caster";
 
     poison->duration = 1;
     queue_fireball_rolls(0.5, 60);
     test_support::cast_spell(spell_poison, &context.master, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
     poison = affected_by_spell(&context.victim, SPELL_POISON);
-    ASSERT_NE(poison, nullptr) << "precondition: the victim is still poisoned after the second poisoner's cast";
-    ASSERT_GT(poison->duration, 1) << "precondition: the second poisoner's poison lands";
-    EXPECT_EQ(resolve_poisoner(context.victim), &context.master)
-        << "a second poisoner's landed poison must become the recorded origin";
+    ASSERT_NE(poison, nullptr) << "the victim must still be poisoned after the second mystic's cast";
+    EXPECT_EQ(poison->duration, 1 + kMysticPoisonDuration / 2)
+        << "the second mystic's 11-tick poison must extend the running 1 tick by 5";
+    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster)
+        << "an extension must keep the first mystic, who still resolves, as the poisoner";
+
+    poison->duration = 8;
+    queue_fireball_rolls(0.5, 60);
+    test_support::cast_spell(spell_poison, &context.master, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
+    poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "the victim must still be poisoned after the third cast";
+    EXPECT_EQ(poison->duration, kMysticPoisonDuration)
+        << "8 running ticks plus 5 must be capped at the initial 11-tick duration";
+    EXPECT_EQ(resolve_poisoner(context.victim), &context.caster)
+        << "a capped extension must still keep the first mystic as the poisoner";
     clear_test_random_values();
+}
+
+// Mystic poison on a victim running the Pale Lady's stronger poison leaves that poison's duration
+// and strength untouched and records nobody, but the spell's 5 damage still lands.
+TEST_F(MageProcTest, MysticPoisonCannotTouchThePaleLadysPoison) {
+    MageTestContext context;
+    context.caster_profs.prof_level[PROF_CLERIC] = 10;
+    context.prepare_for_spell_damage();
+    make_victim_unable_to_save_poison(context);
+    test_support::ScopedAffectCleanup victim_affects(context.victim);
+    test_support::ScopedCharExists caster_registration(context.caster, kMysticPoisonCasterSlot);
+    const affected_type pale_lady_poison = pale_lady_poison_affect();
+    ASSERT_EQ(apply_poison(&context.victim, pale_lady_poison, nullptr), poison_outcome::applied)
+        << "precondition: the Pale Lady's poison starts on an unpoisoned victim";
+    const int hit_points_before = GET_HIT(&context.victim);
+
+    queue_fireball_rolls(0.5, 60);
+    test_support::cast_spell(spell_poison, &context.caster, nullptr, SPELL_TYPE_SPELL, &context.victim, nullptr, 0, 0);
+    clear_test_random_values();
+
+    const affected_type* poison = affected_by_spell(&context.victim, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "the Pale Lady's poison must still be running";
+    EXPECT_EQ(poison->duration, pale_lady_poison.duration)
+        << "a weaker poison must not extend the Pale Lady's " << pale_lady_poison.duration << " ticks";
+    EXPECT_EQ(poison->modifier, pale_lady_poison.modifier)
+        << "a weaker poison must not replace the Pale Lady's " << pale_lady_poison.modifier << " STR";
+    EXPECT_EQ(resolve_poisoner(context.victim), nullptr)
+        << "a refused poison must not record its caster";
+    EXPECT_EQ(GET_HIT(&context.victim), hit_points_before - 5)
+        << "the spell's 5 damage must still land when its poison is refused (had " << hit_points_before
+        << ")";
 }
 
 namespace {

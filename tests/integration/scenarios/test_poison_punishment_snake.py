@@ -18,7 +18,7 @@ its store_prog_number, and the special silently never fires (no ASSIGNMOB entry 
 the dispatch is data-driven once MOB_SPEC is set, per mobact.cpp:116-134).
 
 Every bite lands, whatever the RNG draws. spell_poison() resists a bite when saves_poison()
-(spell_pa.cpp) finds number(offence / 3, offence) < number(defense / 2, defense), with offence =
+(poison.cpp) finds number(offence / 3, offence) < number(defense / 2, defense), with offence =
 snake willpower * 8 * perception / 100 and defense = victim CON * 5 + willpower * 3 + 30 for a wood
 elf. The #1131 record gives the snake perception 100 and the setup raises its willpower to 99, so
 offence is 792 and its lowest roll, 264, beats Harnvictim's highest defence, 139 (CON 11,
@@ -50,7 +50,7 @@ pytestmark = pytest.mark.scenario
 
 BITE_MARKER = "bites you!"  # spec_pro.cpp SPECIAL(snake)
 POISON_WAIT_BUDGET = 90.0  # wall-clock seconds tolerated for the snake to land a bite
-WOOD_ELF_POISON_BONUS = 30  # saves_poison(), spell_pa.cpp
+WOOD_ELF_POISON_BONUS = 30  # saves_poison(), poison.cpp
 # do_stat_character's first line (act_wiz.cpp), lower-cased: "MALE MOB 'a harness snake'  IDNum: ...".
 SNAKE_STAT_HEADER = "mob 'a harness snake'"
 VICTIM_STAT_HEADER = "pc 'harnvictim'"
@@ -58,7 +58,7 @@ VICTIM_STAT_HEADER = "pc 'harnvictim'"
 
 @dataclass(frozen=True)
 class PoisonSaveInputs:
-    """The four values saves_poison() (spell_pa.cpp) reads, as `stat` printed them."""
+    """The four values saves_poison() (poison.cpp) reads, as `stat` printed them."""
 
     snake_perception: int  # the snake's "Perception" on its stat line
     snake_willpower: int  # the snake's "Willpower" on its stat line

@@ -195,7 +195,7 @@ ranger.o : ranger.cpp structs.h utils.h comm.h interpre.h handler.h db.h\
 	 $(CC) -c $(CFLAGS) ranger.cpp
 player_file_finalize.o : player_file_finalize.cpp player_file_finalize.h
 	$(CC) -c $(CFLAGS) player_file_finalize.cpp
-poison.o : poison.cpp poison.h caster_snapshot.h handler.h spells.h structs.h utils.h
+poison.o : poison.cpp poison.h caster_snapshot.h comm.h handler.h spells.h structs.h utils.h
 	$(CC) -c $(CFLAGS) poison.cpp
 save_benchmark.o : save_benchmark.cpp save_benchmark.h account_cache.h account_management.h character_json.h db.h stopwatch.h structs.h account_management_types.h
 	$(CC) -c $(CFLAGS) save_benchmark.cpp

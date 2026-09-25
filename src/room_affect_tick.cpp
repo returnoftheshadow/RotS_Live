@@ -10,8 +10,9 @@
 //   * a lethal tick credits the RECORDED caster -- who may be standing
 //     somewhere else, and may no longer exist -- through damage_credited()/
 //     apply_spell_damage_credited() rather than crediting the victim itself;
-//   * poison_tick() records the poisoner on the victim, so a later poison death
-//     resolves back to whoever cast it (resolve_poisoner(), poison.cpp).
+//   * poison_tick() applies its poison under the poison rules (apply_poison(),
+//     poison.cpp), so a later poison death resolves back to whoever the rules
+//     recorded as the poisoner.
 //
 // ENGAGEMENT IS NOT ONE OF THEM. The ENGAGING attacker every tick hands to
 // damage_credited()/apply_spell_damage_credited() is always the OCCUPANT
@@ -86,24 +87,15 @@ void blaze_tick(const caster_snapshot& who, char_data* caster, char_data* occupa
 void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occupant)
 {
     if (!saves_poison(occupant, who) && (number(0, 0) < 50)) {
-        affected_type poison_affect = poison_victim_affect(who);
-        affect_join(occupant, &poison_affect, FALSE, FALSE);
-
-        // The origin resolve_poisoner() reads when this poison eventually
-        // kills, written through the one shared writer (poison.cpp) so the
-        // record's fields can never disagree. `caster` is the RESOLVED
-        // character -- null when the recorded caster is gone, and null when
-        // this room affect never had one, in which case nobody is credited.
-        // (Stamping who.abs_number/who.identity_ptr directly here instead
-        // would, for a live caster, be the same record; for a departed one it
-        // would write a stale pair resolve_poisoner() rejects anyway, and for
-        // an affect with NO record at all it would name the occupant as its
-        // own poisoner -- which would make a player's death by a
-        // builder-placed poison read as a player kill, the opposite of this
-        // tick's documented "nobody credited" fallback.)
-        record_poison_origin(occupant, caster);
-
-        send_to_char("You feel very sick.\n\r", occupant);
+        // The source is the resolved caster, null when the recorded caster is
+        // gone or the room affect never had one, so the rules never record a
+        // stale caster or the occupant itself. Only a caster standing here is
+        // addressed by the merge messages. The 5 damage lands however the
+        // poison merged.
+        send_poison_outcome_messages(apply_poison(occupant, poison_victim_affect(who), caster),
+                                     occupant,
+                                     caster_is_present(caster, occupant) ? caster : nullptr,
+                                     "You feel very sick.\n\r");
         // Engaging attacker == the occupant itself; see blaze_tick() above and
         // the file banner. The ordinary poison tick, deal_poison_tick_damage(),
         // engages the same way.

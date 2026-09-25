@@ -20,9 +20,8 @@ import pytest
 
 import poison_support
 from combat_support import VICTIM_LEVEL, move_out_of_the_fight, quit_once_anger_allows, read_affect_listing
-from poison_support import AMULET_REMOVED, affect_flags, poison_until_it_lands, spell_affects, wear_the_sickly_amulet
+from poison_support import AMULET_REMOVED, affect_flags, hit_points, poison_until_it_lands, spell_affects, wear_the_sickly_amulet
 from rots_harness import fixtures
-from rots_harness.session import Transcript
 
 pytestmark = pytest.mark.scenario
 
@@ -67,8 +66,8 @@ def test_a_poison_item_keeps_its_wearer_poisoned_after_a_spell_poison_expires(se
 
     harness.tick()
     after_tick = read_affect_listing(imp, "harnvictim")
-    hit_before, _maximum = Transcript(listing).hit_points()
-    hit_after, _maximum = Transcript(after_tick).hit_points()
+    hit_before = hit_points(listing)
+    hit_after = hit_points(after_tick)
     assert hit_after <= hit_before - GEAR_POISON_DAMAGE + poison_support.REGEN_ALLOWANCE, (
         f"an hourly tick must still take {GEAR_POISON_DAMAGE} hit points from the wearer, less up to "
         f"{poison_support.REGEN_ALLOWANCE} of regen: {hit_before} -> {hit_after}"

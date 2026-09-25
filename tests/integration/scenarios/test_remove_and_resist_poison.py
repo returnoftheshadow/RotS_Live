@@ -11,12 +11,27 @@ then takes the modifier off the poison on top of the normal decrement, never bel
 result to the resist affect.
 
 A gtest cannot drive the cast path, the messages to three observers, and the forced affect tick
-together. Durations are read from `stat` just before and after one forced tick. A poison affect's
-own slow tick fires about once a minute of wall clock after it lands (utility.cpp
-get_current_time_phase()); every test reads its before and after durations well inside that.
+together.
+
+Timing. A poison affect's own real-time tick still fires in harness mode, every 60 s on the time
+phase affect_to_char() (handler.cpp) recorded when it landed (affect_update_person(), limits.cpp;
+get_current_time_phase(), utility.cpp); test_poison_extension.py sets out the mechanism. With
+resist poison running, that tick takes 1 + the resist modifier, which would break the exact
+duration comparison. test_resist_poison_shortens_the_poison_each_tick therefore makes the poison
+land on the first cast (make_every_cast_land_alike(), poison_support.py, sets the willpowers and
+checks from `stat` that no save can succeed), stamps the landing with time.monotonic(), reads both
+durations inside SLOW_TICK_FREE_WINDOW (poison_support.py), and fails with that cause through
+assert_no_slow_tick_yet() if the window has passed.
+
+Bounds. poison_until_it_lands() casts at most eight times, 12 s each. Inside the window:
+move_out_of_the_fight()'s wait_for_disengagement() (combat_support.py, 10 s), the resist cast's
+mage.cast() retries (at most six, 12 s each, a retry following a rare concentration loss) and one
+forced tick.
 """
 
 from __future__ import annotations
+
+import time
 
 import pytest
 
@@ -24,6 +39,7 @@ import poison_support
 from combat_support import VICTIM_LEVEL, move_out_of_the_fight, quit_once_anger_allows, read_affect_listing
 from poison_support import (
     CAST_COMPLETED,
+    MAGE_MYSTIC_LEVEL,
     REMOVE_POISON_CURED,
     REMOVE_POISON_ROOM,
     RESIST_POISON_ALREADY,
@@ -32,17 +48,19 @@ from poison_support import (
     RESIST_POISON_STARTED,
     RESIST_POISON_TARGET_UNPOISONED,
     affect_flags,
+    assert_no_slow_tick_yet,
+    hit_points,
+    make_every_cast_land_alike,
     poison_until_it_lands,
     spell_affects,
     wear_the_sickly_amulet,
 )
 from rots_harness import fixtures
-from rots_harness.session import GameSession, Transcript
+from rots_harness.session import GameSession
 
 pytestmark = pytest.mark.scenario
 
 POISON_TICK_DAMAGE = 5  # affect_update_person()'s SPELL_POISON arm, limits.cpp
-MAGE_MYSTIC_LEVEL = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnmage").professions["mystic"]
 
 
 def _gather_in_arena_centre(imp: GameSession, mage: GameSession, victim: GameSession) -> None:
@@ -54,20 +72,17 @@ def _gather_in_arena_centre(imp: GameSession, mage: GameSession, victim: GameSes
     imp.command(f"wizset harnvictim level {VICTIM_LEVEL}")  # Big Brother: caster 30 < 3 * 11
 
 
-def _poison_and_end_the_fight(imp: GameSession, mage: GameSession, victim: GameSession) -> None:
+def _poison_and_end_the_fight(imp: GameSession, mage: GameSession, victim: GameSession) -> float:
     """Lands a mystic poison on Harnvictim, ends the fight the cast started, and brings the mage
-    and the imp back to Arena Centre, so the next cast is not made from melee."""
+    and the imp back to Arena Centre, so the next cast is not made from melee. Returns the
+    monotonic time the landing line arrived."""
     poison_until_it_lands(mage, victim, "elf")
+    landed_at = time.monotonic()
     move_out_of_the_fight(imp, mage, "harnmage", "harnvictim")
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnmage")
     mage.expect_room("Arena Centre")
-
-
-def _hit_points(stat_text: str) -> int:
-    reading = Transcript(stat_text).hit_points()
-    assert reading is not None, f"stat reply has no hit points: {stat_text}"
-    return reading[0]
+    return landed_at
 
 
 def _cast_remove_poison_on_the_victim(mage: GameSession) -> None:
@@ -83,8 +98,8 @@ def test_remove_poison_cures_a_spell_poison(server, imp, mage, victim, harness) 
     assert spell_affects(before_tick, "poison"), f"precondition: the poison is running: {before_tick}"
     harness.affects()
     after_tick = read_affect_listing(imp, "harnvictim")
-    assert _hit_points(after_tick) <= _hit_points(before_tick) - POISON_TICK_DAMAGE + poison_support.REGEN_ALLOWANCE, (
-        f"control: a tick of the running poison takes hit points: {_hit_points(before_tick)} -> {_hit_points(after_tick)}"
+    assert hit_points(after_tick) <= hit_points(before_tick) - POISON_TICK_DAMAGE + poison_support.REGEN_ALLOWANCE, (
+        f"control: a tick of the running poison takes hit points: {hit_points(before_tick)} -> {hit_points(after_tick)}"
     )
 
     imp_mark = len(imp.everything)
@@ -99,8 +114,8 @@ def test_remove_poison_cures_a_spell_poison(server, imp, mage, victim, harness) 
 
     harness.affects()
     after_cure_tick = read_affect_listing(imp, "harnvictim")
-    assert _hit_points(after_cure_tick) >= _hit_points(cured), (
-        f"a tick after the cure must take no hit points: {_hit_points(cured)} -> {_hit_points(after_cure_tick)}"
+    assert hit_points(after_cure_tick) >= hit_points(cured), (
+        f"a tick after the cure must take no hit points: {hit_points(cured)} -> {hit_points(after_cure_tick)}"
     )
 
     quit_once_anger_allows(mage, harness)  # the poison cast angered the caster
@@ -171,7 +186,8 @@ def test_resist_poison_matches_the_poison_and_refuses_a_second_cast(server, imp,
 
 def test_resist_poison_shortens_the_poison_each_tick(server, imp, mage, victim, harness) -> None:
     _gather_in_arena_centre(imp, mage, victim)
-    _poison_and_end_the_fight(imp, mage, victim)
+    make_every_cast_land_alike(imp)
+    landed_at = _poison_and_end_the_fight(imp, mage, victim)
     mage.cast("resist poison", "elf", success_markers=(RESIST_POISON_CASTER,))
 
     before = read_affect_listing(imp, "harnvictim")
@@ -182,6 +198,7 @@ def test_resist_poison_shortens_the_poison_each_tick(server, imp, mage, victim, 
 
     harness.affects()
     after = read_affect_listing(imp, "harnvictim")
+    assert_no_slow_tick_yet(landed_at)
     expected = max(poisons[0].duration - 1 - resists[0].modifier, 0)
     poisons_after = spell_affects(after, "poison")
     resists_after = spell_affects(after, "resist poison")

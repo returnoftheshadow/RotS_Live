@@ -742,11 +742,10 @@ TEST(RoomAffectTick, PoisonTickRecordsTheResolvedCasterAsPoisoner)
     EXPECT_EQ(poison->duration, 16);
 }
 
-// A room-poison tick on an occupant who is already poisoned keeps the recorded caster, and a
-// renewal that hands the room to another caster makes that caster the occupant's poisoner.
-// Before each later tick the running poison is cut to 1 tick, so a tick that lands shows as a
-// renewed duration.
-TEST(RoomAffectTick, PoisonTickOnAnAlreadyPoisonedOccupantKeepsThenReplacesTheRecordedCaster)
+// A room-poison tick on an occupant already running an equal poison extends it by half the tick's
+// duration and keeps the recorded caster, even after the room passes to another caster of the
+// same level. Both casters are cleric level 10, so each tick's poison lasts 16 ticks.
+TEST(RoomAffectTick, PoisonTickExtendsAnEqualPoisonAndKeepsItsRecordedCaster)
 {
     CombatListGuard combat_list_guard;
     RoomFixture room(kPoisonRoom);
@@ -762,32 +761,66 @@ TEST(RoomAffectTick, PoisonTickOnAnAlreadyPoisonedOccupantKeepsThenReplacesTheRe
 
     CasterFixture first_caster(0, 10, game_types::PS_None, kPoisonRoom);
     ScopedCharExists first_registration(first_caster.ch, kCasterASlot);
-    CasterFixture second_caster(0, 12, game_types::PS_None, kPoisonRoom);
+    CasterFixture second_caster(0, 10, game_types::PS_None, kPoisonRoom);
     ScopedCharExists second_registration(second_caster.ch, kCasterBSlot);
     set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(first_caster.ch));
+    constexpr int kTickPoisonDuration = 16;
 
     affected_type affect = dummy_affect();
     room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
     affected_type* poison = affected_by_spell(&occupant, SPELL_POISON);
     ASSERT_NE(poison, nullptr) << "precondition: the first tick poisons";
+    ASSERT_EQ(poison->duration, kTickPoisonDuration) << "precondition: the first tick poisons for 16 ticks";
     ASSERT_EQ(resolve_poisoner(occupant), &first_caster.ch) << "precondition: the first tick records its caster";
-
-    poison->duration = 1;
-    room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
-    poison = affected_by_spell(&occupant, SPELL_POISON);
-    ASSERT_NE(poison, nullptr) << "precondition: the occupant is still poisoned after the second tick";
-    ASSERT_GT(poison->duration, 1) << "precondition: the second tick lands";
-    EXPECT_EQ(resolve_poisoner(occupant), &first_caster.ch)
-        << "a second tick joins the running poison and must keep the caster recorded";
 
     poison->duration = 1;
     set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(second_caster.ch));
     room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
     poison = affected_by_spell(&occupant, SPELL_POISON);
-    ASSERT_NE(poison, nullptr) << "precondition: the occupant is still poisoned after the new caster's tick";
-    ASSERT_GT(poison->duration, 1) << "precondition: the new caster's tick lands";
+    ASSERT_NE(poison, nullptr) << "the occupant must still be poisoned after the new caster's tick";
+    EXPECT_EQ(poison->duration, 1 + kTickPoisonDuration / 2)
+        << "the new caster's 16-tick poison must extend the running 1 tick by 8";
+    EXPECT_EQ(resolve_poisoner(occupant), &first_caster.ch)
+        << "an extension must keep the recorded caster, who still resolves";
+}
+
+// A room-poison tick extending an equal poison whose recorded poisoner has left the game hands the
+// record to the tick's own resolved caster.
+TEST(RoomAffectTick, PoisonTickHandsTheRecordToItsCasterWhenThePoisonerIsGone)
+{
+    CombatListGuard combat_list_guard;
+    RoomFixture room(kPoisonRoom);
+
+    char_data occupant {};
+    char_prof_data occupant_profs {};
+    make_weak_occupant(occupant, occupant_profs, 500);
+    occupant.player.level = 0; // every tick lands, as in the extension pin above
+    test_support::ScopedAffectCleanup occupant_affects(occupant);
+
+    CasterFixture first_caster(0, 10, game_types::PS_None, kPoisonRoom);
+    ScopedCharExists first_registration(first_caster.ch, kCasterASlot);
+    CasterFixture second_caster(0, 10, game_types::PS_None, kPoisonRoom);
+    ScopedCharExists second_registration(second_caster.ch, kCasterBSlot);
+    set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(first_caster.ch));
+    constexpr int kTickPoisonDuration = 16;
+
+    affected_type affect = dummy_affect();
+    room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
+    affected_type* poison = affected_by_spell(&occupant, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "precondition: the first tick poisons";
+    ASSERT_EQ(poison->duration, kTickPoisonDuration) << "precondition: the first tick poisons for 16 ticks";
+    remove_char_exists(kCasterASlot); // what extract_char() does for the departed first caster
+    ASSERT_EQ(resolve_poisoner(occupant), nullptr) << "precondition: the first caster no longer resolves";
+
+    poison->duration = 1;
+    set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(second_caster.ch));
+    room_affect_tick(SPELL_POISON, room.room(), &occupant, affect);
+    poison = affected_by_spell(&occupant, SPELL_POISON);
+    ASSERT_NE(poison, nullptr) << "the occupant must still be poisoned after the new caster's tick";
+    EXPECT_EQ(poison->duration, 1 + kTickPoisonDuration / 2)
+        << "the new caster's 16-tick poison must extend the running 1 tick by 8, not replace it";
     EXPECT_EQ(resolve_poisoner(occupant), &second_caster.ch)
-        << "the room's new caster must become the occupant's poisoner";
+        << "with the recorded poisoner gone, the tick's resolved caster must take the record";
 }
 
 // A poison tick that kills credits the recorded caster, read back through Big Brother as in

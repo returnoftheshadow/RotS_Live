@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 
 import pytest
 
-from rots_harness.session import GameSession
+from rots_harness import fixtures
+from rots_harness.session import GameSession, Transcript
 
 POISON_LANDED = ("You feel very sick.",)  # spell_poison, mystic.cpp
 POISON_RESISTED = ("You feel your body fend off the poison.",)
+POISON_EXTENDED = ("You feel sicker as the poison lingers in your blood.",)  # send_poison_outcome_messages, poison.cpp: an equal poison extended the running one
+POISON_BLOCKED = ("Your body is already fighting a stronger poison.",)  # send_poison_outcome_messages, poison.cpp: a weaker poison was refused
 DEATH_MARKER = "You are dead!  Sorry..."  # fight.cpp damage()
 CAST_COMPLETED = "Ok."  # spell_pa.cpp do_cast: sent to the caster just before the spell body runs
 REMOVE_POISON_CURED = "A warm feeling runs through your body."  # spell_remove_poison, mystic.cpp: to the victim
@@ -26,8 +30,9 @@ AMULET_WORN = "You wear a sickly amulet around your neck."  # act_obj2.cpp wear 
 AMULET_REMOVED = "You stop using a sickly amulet."  # act_obj2.cpp perform_remove
 AMULET_GIVEN = "You give a sickly amulet to"  # act_obj1.cpp perform_give, the giver's line
 # act_wiz.cpp do_stat_character: "SPL: (%3dhr) %-21s" with duration + 1, then "%+d to <apply>" when the
-# modifier is non-zero. The name column is exactly 21 characters wide for every skills[] name, and
-# the server ends lines with "\n\r", so each line after the first starts with a carriage return.
+# modifier is non-zero. %-21s pads the name to at least 21 characters; no skills[] name (consts.cpp)
+# is longer, so the column is 21 wide. The server ends lines with "\n\r", so each line after the
+# first starts with a carriage return.
 SPELL_AFFECT_LINE = re.compile(r"^\r?SPL: \(\s*(-?\d+)hr\) (.{21})(.*)$", re.MULTILINE)
 SPELL_AFFECT_MODIFIER = re.compile(r"^\s*([+-]\d+) to ")
 # Where a dead or slain Harnmage wakes: raw_kill() sends a mortal to r_mortal_start_room[race], and
@@ -40,6 +45,15 @@ ROSTER_CON = 11  # tests/integration/fixtures/character.template.json abilities.
 # hit-point assertion taken some wall-clock time after the death tick allows a small margin above
 # the pinned revival value instead of an exact match.
 REGEN_ALLOWANCE = 3
+# wil / 5 is 5, a multiple of 5, so get_mystic_caster_level() (mystic.cpp) adds no random extra level.
+DETERMINISTIC_WILLPOWER = 25
+VICTIM_WILLPOWER = 0  # lowers saves_poison()'s defense below the caster's lowest offence roll
+WOOD_ELF_POISON_BONUS = 30  # saves_poison(), poison.cpp
+MAGE_MYSTIC_LEVEL = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnmage").professions["mystic"]
+# A poison affect's own real-time tick (affect_update_person(), limits.cpp) repeats every 60 s on
+# the time phase recorded when it landed, so after the landing pulse the next comes 60 s minus at
+# most one fast-update period (3 s) later; 55 s leaves a margin for the landing line's arrival.
+SLOW_TICK_FREE_WINDOW = 55.0
 
 
 def death_tick_budget(hit: int, con: int = ROSTER_CON) -> int:
@@ -75,6 +89,73 @@ def poison_until_it_lands(caster: GameSession, victim: GameSession, target_word:
             return
         caster.drain(0.5)
     pytest.fail(f"poison never landed in {attempts} casts")
+
+
+def hit_points(stat_text: str) -> int:
+    """The current hit points of a `stat` reply, failing by name when it carries none."""
+    reading = Transcript(stat_text).hit_points()
+    assert reading is not None, f"stat reply has no hit points: {stat_text}"
+    return reading[0]
+
+
+def read_stat_with_willpower(imp: GameSession, name: str) -> Transcript:
+    """A `stat` reply that carries both the ability line and the perception/willpower line."""
+    # combat_support imports this module, so it is imported here rather than at the top.
+    from combat_support import stat_replies
+
+    replies = stat_replies(
+        imp, name, lambda text: Transcript(text).abilities() is not None and Transcript(text).perception_and_willpower() is not None
+    )
+    reading = Transcript(replies[-1])
+    assert reading.abilities() is not None and reading.perception_and_willpower() is not None, (
+        f"stat {name} never printed its ability and willpower lines: {replies}"
+    )
+    return reading
+
+
+def make_every_cast_land_alike(imp: GameSession) -> int:
+    """Sets both willpowers so every poison Harnmage casts on Harnvictim lands and lasts the same
+    number of ticks, asserts both from `stat`, and returns that duration:
+    poison_victim_affect_at_level() (poison.cpp) gives level + 1.
+
+    wizset's "will" sets the base value and calls affect_total(); do_restore (act_wiz.cpp) then
+    copies the base to the current one, but only after its own affect_total(). The second wizset
+    runs affect_total() again, so affect_naked() (handler.cpp) derives the Willpower that
+    saves_poison() reads from the new current value."""
+    for name, willpower in (("harnmage", DETERMINISTIC_WILLPOWER), ("harnvictim", VICTIM_WILLPOWER)):
+        imp.command(f"wizset {name} will {willpower}")
+        imp.command(f"restore {name}")
+        imp.command(f"wizset {name} will {willpower}")
+
+    mage_stat = read_stat_with_willpower(imp, "harnmage")
+    will_factor = mage_stat.abilities()["wil"] // 5
+    assert will_factor % 5 == 0, (
+        f"precondition: Harnmage's willpower {mage_stat.abilities()['wil']} must give a will factor with "
+        f"no random extra level ((wil / 5) % 5 == 0)"
+    )
+
+    mage_perception, mage_willpower = mage_stat.perception_and_willpower()
+    victim_stat = read_stat_with_willpower(imp, "harnvictim")
+    _victim_perception, victim_willpower = victim_stat.perception_and_willpower()
+    offence = (mage_willpower * 8 * mage_perception) // 100
+    defense = victim_stat.abilities()["con"] * 5 + victim_willpower * 3 + WOOD_ELF_POISON_BONUS
+    assert offence // 3 >= defense, (
+        f"precondition: the caster's lowest offence roll {offence // 3} must reach the victim's highest "
+        f"defense roll {defense} (willpower {mage_willpower}, perception {mage_perception} against "
+        f"CON {victim_stat.abilities()['con']}, willpower {victim_willpower})"
+    )
+    return MAGE_MYSTIC_LEVEL + will_factor + 1
+
+
+def assert_no_slow_tick_yet(landed_at: float) -> None:
+    """Fails by name once SLOW_TICK_FREE_WINDOW has passed since the monotonic `landed_at`, when
+    the poison's own real-time tick may have changed the durations a test compares."""
+    elapsed = time.monotonic() - landed_at
+    if elapsed >= SLOW_TICK_FREE_WINDOW:
+        pytest.fail(
+            f"the durations were read {elapsed:.1f}s after the first poison landed, past the "
+            f"{SLOW_TICK_FREE_WINDOW}s before its own real-time tick can fire, so they cannot be compared exactly"
+        )
 
 
 def affect_ticks_until_death(harness, victim: GameSession, budget: int) -> bool:

@@ -272,9 +272,8 @@ TEST(PoisonOrigin, ClearCharBlanksThePoisonRecord)
     EXPECT_EQ(character.specials.poisoned_by.identity, nullptr);
 }
 
-// Poisoned food or drink has no recorded poisoner. It replaces a weaker poison (and clears the
-// record, since nobody owns the new one) and leaves a stronger one, and its poisoner, alone.
-TEST(PoisonOrigin, ConsumedPoisonLeavesAStrongerSpellPoisonAndItsPoisoner)
+// Poisoned food or drink has no strength malus, so it cannot touch any spell poison.
+TEST(PoisonOrigin, ConsumedPoisonCannotTouchASpellPoison)
 {
     char_data poisoner {};
     ScopedCharExists poisoner_exists { poisoner, kPoisonerSlot };
@@ -282,19 +281,22 @@ TEST(PoisonOrigin, ConsumedPoisonLeavesAStrongerSpellPoisonAndItsPoisoner)
     char_prof_data victim_profs {};
     make_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
-    affected_type spell_poison = inert_poison_affect(20);
+    affected_type spell_poison = poison_victim_affect_at_level(19);
     affect_to_char(&victim, &spell_poison);
     record_poison_origin(&victim, &poisoner);
 
-    apply_consumed_poison(&victim, inert_poison_affect(5));
+    apply_poison(&victim, consumed_poison_affect(30), nullptr);
 
     const affected_type* poison = affected_by_spell(&victim, SPELL_POISON);
     ASSERT_NE(poison, nullptr);
-    EXPECT_EQ(poison->duration, 20) << "the weaker consumed poison changes nothing";
-    EXPECT_EQ(resolve_poisoner(victim), &poisoner);
+    EXPECT_EQ(poison->duration, 20) << "a 30-tick consumed poison leaves the 20-tick spell poison";
+    EXPECT_EQ(poison->modifier, -2) << "the spell poison's -2 STR malus stays";
+    EXPECT_EQ(resolve_poisoner(victim), &poisoner) << "the spell poisoner stays recorded";
 }
 
-TEST(PoisonOrigin, ConsumedPoisonReplacesAWeakerSpellPoisonAndClearsThePoisoner)
+// An equal consumed poison extends the running one by half its duration, and keeps a poisoner
+// that still resolves.
+TEST(PoisonOrigin, AnEqualConsumedPoisonExtendsAndKeepsAResolvablePoisoner)
 {
     char_data poisoner {};
     ScopedCharExists poisoner_exists { poisoner, kPoisonerSlot };
@@ -302,16 +304,22 @@ TEST(PoisonOrigin, ConsumedPoisonReplacesAWeakerSpellPoisonAndClearsThePoisoner)
     char_prof_data victim_profs {};
     make_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
-    affected_type spell_poison = inert_poison_affect(5);
-    affect_to_char(&victim, &spell_poison);
+    affected_type running = consumed_poison_affect(10);
+    running.counter = 10;
+    running.duration = 4;
+    affect_to_char(&victim, &running);
     record_poison_origin(&victim, &poisoner);
+    const affected_type* before = affected_by_spell(&victim, SPELL_POISON);
+    ASSERT_NE(before, nullptr);
+    ASSERT_EQ(before->counter, 10) << "precondition: initial duration 10";
+    ASSERT_EQ(before->duration, 4) << "precondition: 4 ticks remain";
 
-    apply_consumed_poison(&victim, inert_poison_affect(20));
+    apply_poison(&victim, consumed_poison_affect(10), nullptr);
 
     const affected_type* poison = affected_by_spell(&victim, SPELL_POISON);
     ASSERT_NE(poison, nullptr);
-    EXPECT_EQ(poison->duration, 20) << "the stronger consumed poison takes over";
-    EXPECT_EQ(resolve_poisoner(victim), nullptr) << "nobody owns a consumed poison";
+    EXPECT_EQ(poison->duration, 9) << "4 remaining plus half of 10 is 9, under the cap of 10";
+    EXPECT_EQ(resolve_poisoner(victim), &poisoner) << "an extension keeps the poisoner";
 }
 
 TEST(PoisonOrigin, ConsumedPoisonOnAnUnpoisonedCharacterAppliesAndRecordsNobody)
@@ -321,10 +329,11 @@ TEST(PoisonOrigin, ConsumedPoisonOnAnUnpoisonedCharacterAppliesAndRecordsNobody)
     make_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
 
-    apply_consumed_poison(&victim, inert_poison_affect(8));
+    apply_poison(&victim, consumed_poison_affect(8), nullptr);
 
     const affected_type* poison = affected_by_spell(&victim, SPELL_POISON);
     ASSERT_NE(poison, nullptr);
     EXPECT_EQ(poison->duration, 8);
+    EXPECT_EQ(poison->counter, 8) << "the initial duration is the applied duration";
     EXPECT_EQ(resolve_poisoner(victim), nullptr);
 }

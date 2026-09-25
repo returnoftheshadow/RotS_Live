@@ -48,6 +48,32 @@ int deal_poison_tick_damage(char_data* victim);
 // A poison flag set by worn gear stays.
 bool cure_poison(char_data* victim);
 
+// How one poison application resolved against the poison already running on the victim.
+enum class poison_outcome {
+    applied, // the victim had no poison; this one now runs
+    replaced, // it displaced a weaker poison, or an equal one it outlasts
+    extended, // an equal poison was running; its duration grew, up to its initial duration
+    blocked_by_stronger, // a stronger poison is running; nothing changed
+};
+
+// The size of `poison`'s strength malus: 4 for a -4 STR poison, 0 for one with no strength malus.
+int poison_strength(const affected_type& poison);
+
+// Applies `poison` (a SPELL_POISON affect) to `victim` and records `source` as the poisoner
+// when the poison starts or is replaced. A null `source` means nobody. A weaker poison than the
+// running one changes nothing. A stronger one, or an equal one lasting longer than the running
+// poison's initial duration, replaces it. Otherwise an equal one extends the running poison by
+// half its duration, capped at that initial duration; an equal one leaves a permanent poison's
+// duration alone. Either extension takes over the record only when the recorded poisoner no longer
+// resolves. Sends no messages.
+poison_outcome apply_poison(char_data* victim, const affected_type& poison, char_data* source);
+
+// Tells `victim` how a poison application resolved. Applied or replaced sends
+// `fresh_victim_line`, the source's own line, when it is not null. Extended or refused sends the
+// shared merge line, and a refusal also tells `caster` when it is not null.
+void send_poison_outcome_messages(poison_outcome outcome, char_data* victim, char_data* caster,
+                                  const char* fresh_victim_line);
+
 // How a resist-poison attempt resolved.
 enum class poison_resistance_outcome {
     started, // a resist-poison affect now matches the running poison
@@ -56,7 +82,3 @@ enum class poison_resistance_outcome {
 };
 // Starts resisting `victim`'s running poison at `cleric_level`, the resist affect's modifier.
 poison_resistance_outcome start_poison_resistance(char_data* victim, int cleric_level);
-
-// Applies poisoned food or drink under the old "longer duration wins" rule, until the poison
-// rules replace it.
-void apply_consumed_poison(char_data* victim, const affected_type& poison);
