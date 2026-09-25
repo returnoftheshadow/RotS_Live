@@ -1010,7 +1010,13 @@ void game_loop(SocketType s)
                         point->character->specials.timer = 0;
                     }
                     if (point->character && IS_SET(PLR_FLAGS(point->character), PLR_WRITING)) {
-                        string_add(point, comm);
+                        /* The flag is saved with the character; after a fresh
+                         * load there is no text being edited.  Players only: on
+                         * a mob these bits are its own flags (NOBASH, AGGR). */
+                        if (!point->str && !IS_NPC(point->character))
+                            REMOVE_BIT(PLR_FLAGS(point->character), PLR_MAILING | PLR_WRITING);
+                        else
+                            string_add(point, comm);
                     }
 
                     point->prompt_mode = 1;
@@ -1119,6 +1125,11 @@ void game_loop(SocketType s)
                         if (PRF_FLAGGED(point->character, PRF_ADVANCED_PROMPT)) {
                             sprintf(prompt, "%s [", prompt);
                             add_prompt(prompt, point->character, PROMPT_ADVANCED);
+                            /* what is being shaped, as the normal prompt shows it */
+                            if (PRF_FLAGGED(point->character, PRF_DISPTEXT)) {
+                                strcat(prompt, " ");
+                                add_prompt(prompt, point->character, PRF_DISPTEXT);
+                            }
                         } else if (((GET_HIT(point->character) < GET_MAX_HIT(point->character)) || point->character->specials.fighting) && PRF_FLAGGED(point->character, PRF_PROMPT)) {
                             sprintf(prompt, "%s HP:", prompt);
                         }

@@ -288,10 +288,10 @@ void renum_zone_one(int zone, struct char_data* to)
         switch (zone_table[zone].cmd[comm].command) {
         case 'A':
             switch (zone_table[zone].cmd[comm].arg1) {
+            /* Types 5 and 6 do not name a mob in arg3: 5 holds the new
+             * object value and 6 is unused, so they are left as typed. */
             case 0:
             case 4:
-            case 5:
-            case 6:
                 a = zone_table[zone].cmd[comm].arg3 = zrequire_mob(zone_table[zone].cmd[comm].arg3);
                 break;
             }
@@ -314,6 +314,14 @@ void renum_zone_one(int zone, struct char_data* to)
             case 2:
             case 3:
                 a = zone_table[zone].cmd[comm].arg3 = zrequire_obj(zone_table[zone].cmd[comm].arg3);
+                break;
+            case 4:
+                /* -1 means any object in the wear slot; it reads back from
+                 * the file as 65535 ("%hd"). */
+                if (zone_table[zone].cmd[comm].arg3 < 0 || zone_table[zone].cmd[comm].arg3 == 65535)
+                    zone_table[zone].cmd[comm].arg3 = -1;
+                else
+                    a = zone_table[zone].cmd[comm].arg3 = zrequire_obj(zone_table[zone].cmd[comm].arg3);
                 break;
             }
             break;
@@ -919,6 +927,7 @@ void reset_zone(int zone)
                     GET_DIFFICULTY(mob) = ZCMD.arg5;
                     GET_LOADLINE(mob) = (cmd_no + 1);
                     GET_LOADZONE(mob) = zone;
+                    GET_MOB_LOADROOM(mob) = ZCMD.arg2 + 1;
                     mob->specials.trophy_line = (byte)ZCMD.arg7;
                     char_to_room(mob, ZCMD.arg2);
                     act("$n arrives.", TRUE, mob, 0, 0, TO_ROOM);

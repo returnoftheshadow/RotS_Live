@@ -1230,6 +1230,7 @@ void obj_from_char(struct obj_data* object)
 {
     struct obj_data* tmp;
     int i;
+    bool in_inventory = true;
 
     if (object->carried_by->carrying == object) { /* head of list */
         object->carried_by->carrying = object->next_content;
@@ -1245,6 +1246,7 @@ void obj_from_char(struct obj_data* object)
             IS_CARRYING_N(object->carried_by)
             --;
         } else {
+            in_inventory = false;
             for (i = 0; i < MAX_WEAR; i++)
                 if (object->carried_by->equipment[i] == object)
                     break;
@@ -1257,10 +1259,16 @@ void obj_from_char(struct obj_data* object)
     if (!IS_NPC(object->carried_by))
         SET_BIT(PLR_FLAGS(object->carried_by), PLR_CRASH);
 
-    if (IS_RIDING(object->carried_by))
-        IS_CARRYING_W(object->carried_by->mount_data.mount) -= GET_OBJ_WEIGHT(object);
+    /* Only obj_to_char adds weight, and only for the inventory list.  A worn
+     * object's weight is taken off by unequip_char, here or by the caller
+     * (extract_obj(unequip_char(...)) leaves carried_by set), and worn
+     * weight is never added to a mount. */
+    if (in_inventory) {
+        if (IS_RIDING(object->carried_by))
+            IS_CARRYING_W(object->carried_by->mount_data.mount) -= GET_OBJ_WEIGHT(object);
 
-    IS_CARRYING_W(object->carried_by) -= GET_OBJ_WEIGHT(object);
+        IS_CARRYING_W(object->carried_by) -= GET_OBJ_WEIGHT(object);
+    }
     object->carried_by = 0;
     object->next_content = 0;
     object->in_room = NOWHERE;
