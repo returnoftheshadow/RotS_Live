@@ -54,6 +54,9 @@ void affect_from_char(struct char_data* ch, byte skill);
 #include <stddef.h>
 
 affected_type* affected_by_spell(const char_data* character, byte skill, affected_type* firstaf = 0);
+// Returns the first affect of `affect_type` on `character`, or nullptr. Unlike affected_by_spell,
+// it walks the whole list rather than stopping after MAX_AFFECT entries.
+affected_type* get_affect_unbounded(const char_data* character, int affect_type);
 affected_type* room_affected_by_spell(const room_data* room, int spell);
 
 void affect_join(struct char_data* ch, struct affected_type* af,

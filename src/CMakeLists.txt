@@ -141,6 +141,7 @@ set(ROTS_TEST_SOURCES
     tests/account_management_types_header_compile.cpp
     tests/act_comm_tests.cpp
     tests/act_wiz_tests.cpp
+    tests/affect_join_tests.cpp
     tests/affect_update_tests.cpp
     tests/caster_snapshot_tests.cpp
     tests/CharPlayerDataBuilder.cpp

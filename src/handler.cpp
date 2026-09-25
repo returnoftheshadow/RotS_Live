@@ -976,6 +976,17 @@ affected_type* affected_by_spell(const char_data* ch, byte skill, affected_type*
     return NULL;
 }
 
+affected_type* get_affect_unbounded(const char_data* character, int affect_type)
+{
+    for (affected_type* affect = character->affected; affect != nullptr; affect = affect->next) {
+        if (affect->type == affect_type) {
+            return affect;
+        }
+    }
+
+    return nullptr;
+}
+
 /* Return a pointer to an affection if the room is affected by the spell.
    Otherwise return null. */
 affected_type* room_affected_by_spell(const room_data* room, int spell)
@@ -997,31 +1008,25 @@ affected_type* room_affected_by_spell(const room_data* room, int spell)
 void affect_join(struct char_data* ch, struct affected_type* af,
     char avg_dur, char avg_mod)
 {
-    struct affected_type* hjp;
-    char found = FALSE;
+    // Unbounded, so a new affect merges into a same-type affect sitting past MAX_AFFECT entries
+    // instead of being added beside it.
+    affected_type* existing = get_affect_unbounded(ch, af->type);
+    if (existing) {
+        if (af->duration < existing->duration)
+            af->duration += existing->duration;
 
-    for (hjp = ch->affected; !found && hjp; hjp = hjp->next) {
-        if (hjp->type == af->type) {
+        //	 if (avg_dur)
+        //	    af->duration /= 2;
 
-            if (af->duration < hjp->duration)
-                af->duration += hjp->duration;
+        if ((af->modifier >= 0) && (af->modifier < existing->modifier))
+            af->modifier += existing->modifier;
 
-            //	 if (avg_dur)
-            //	    af->duration /= 2;
+        //	 if (avg_mod)
+        //	    af->modifier /= 2;
 
-            if (((af->modifier >= 0) && (af->modifier < hjp->modifier)) || ((af->modifier >= 0) && (af->modifier < hjp->modifier)))
-                af->modifier += hjp->modifier;
-
-            //	 if (avg_mod)
-            //	    af->modifier /= 2;
-
-            affect_remove(ch, hjp);
-            affect_to_char(ch, af);
-            found = TRUE;
-        }
+        affect_remove(ch, existing);
     }
-    if (!found)
-        affect_to_char(ch, af);
+    affect_to_char(ch, af);
 }
 
 //***************** follow_type procedures ********************************
