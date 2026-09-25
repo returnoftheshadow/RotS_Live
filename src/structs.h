@@ -17,6 +17,7 @@
 
 #include "color.h" /* For MAX_COLOR_FIELDS */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
+#include "poison.h" /* For poison_origin */
 
 #include "protocol.h"
 #include <algorithm>
@@ -1146,16 +1147,7 @@ struct char_special_data {
     int timer; /* Timer for update                        */
     int was_in_room; /* storage of location for linkdead people */
 
-    // Identity of the character whose poison this one carries, captured when a
-    // poison affect is applied. Written only by record_poison_origin(); cleared
-    // by it (null poisoner), by affect_remove() when the last SPELL_POISON
-    // affect goes, and by clear_char(). Not persisted. No field is meaningful
-    // alone: only resolve_poisoner() may turn the pointer back into a
-    // character, and it refuses once that character is gone or its slot has
-    // been recycled.
-    int poisoned_by_abs_number; // poisoner's abs_number, -1 when nothing is recorded
-    char_data* poisoned_by; // pointer at record time; an identity token, never dereferenced
-    long poisoned_by_serial; // poisoner's registration_serial at record time
+    poison_origin poisoned_by; // this character's poisoner; read and written only through poison.h
 
     int ENERGY; /* current energy */
     sh_int current_parry; /*parry currently affected by 'parry split' */

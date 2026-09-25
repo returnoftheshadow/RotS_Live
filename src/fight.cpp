@@ -21,6 +21,7 @@
 #include "interpre.h"
 #include "limits.h"
 #include "pkill.h"
+#include "poison.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
@@ -875,65 +876,6 @@ void death_cry(struct char_data* ch)
             ch->in_room = was_in;
         }
     }
-}
-
-// THE RECORDED POINTER IS NEVER DEREFERENCED to produce the result -- the
-// character it names may have been extracted and freed. char_by_abs_number()
-// reports who CURRENTLY owns the recorded slot (nullptr when nobody does), and
-// only a pointer-identical answer counts: an extracted poisoner resolves to
-// nullptr, and so does one whose abs_number has since been recycled by a
-// different mob. This is caster_snapshot::resolve()'s shape, for the same
-// reason (see its own comment and handler.h's char_by_abs_number()); the
-// pointer serves purely as an identity token to compare against. A poisoner
-// parked at the character menu fails character_in_game() and resolves to nullptr.
-char_data* resolve_poisoner(const char_data& victim)
-{
-    const int number = victim.specials.poisoned_by_abs_number;
-    char_data* ptr = victim.specials.poisoned_by;
-    if (number < 0 || ptr == nullptr) {
-        return nullptr;
-    }
-    char_data* live = char_by_abs_number(number);
-    if (live != nullptr && live == ptr && live->registration_serial == victim.specials.poisoned_by_serial
-        && character_in_game(live)) {
-        return live;
-    }
-    return nullptr;
-}
-
-// Writing both halves together is the point: resolve_poisoner() above reads
-// the pair, so an abs_number left standing without its pointer (or the
-// reverse) could answer for whoever holds that slot today. `poisoner` is not
-// dereferenced beyond reading its abs_number here; the pointer is stored only
-// as an identity token to compare against later.
-// token to compare against later.
-void record_poison_origin(char_data* victim, char_data* poisoner)
-{
-    int poisoner_abs_number = -1;
-    if (poisoner != nullptr) {
-        poisoner_abs_number = poisoner->abs_number;
-    }
-    long poisoner_serial = 0;
-    if (poisoner != nullptr) {
-        poisoner_serial = poisoner->registration_serial;
-    }
-    victim->specials.poisoned_by_abs_number = poisoner_abs_number;
-    victim->specials.poisoned_by = poisoner;
-    victim->specials.poisoned_by_serial = poisoner_serial;
-}
-
-void apply_consumed_poison(char_data* victim, const affected_type& poison)
-{
-    const affected_type* running = affected_by_spell(victim, SPELL_POISON);
-    if (running != nullptr && running->duration >= poison.duration) {
-        return;
-    }
-    if (running != nullptr) {
-        affect_from_char(victim, SPELL_POISON);
-    }
-    affected_type consumed = poison;
-    affect_to_char(victim, &consumed);
-    record_poison_origin(victim, nullptr);
 }
 
 namespace {

@@ -4,6 +4,7 @@
 // item's affects, so the wearer stays poisoned until the item comes off.
 #include "../db.h"
 #include "../handler.h"
+#include "../poison.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../test_harness.h"
@@ -118,7 +119,7 @@ void make_wearer(char_data& wearer, char_prof_data& profs) {
     wearer.specials.fighting = nullptr;
 }
 
-// The mystic poison's shape (poison_victim_affect_at_level(), mystic.cpp) with a 1-tick duration.
+// The mystic poison's shape (poison_victim_affect_at_level(), poison.cpp) with a 1-tick duration.
 affected_type one_tick_poison() {
     affected_type poison {};
     poison.type = SPELL_POISON;
@@ -231,7 +232,7 @@ TEST(GearPoison, CuringTheTimedPoisonLeavesTheItemsFlag) {
     ASSERT_NE(affected_by_spell(&wearer, SPELL_POISON), nullptr)
         << "precondition: the poison is on";
 
-    affect_from_char(&wearer, SPELL_POISON);
+    cure_poison(&wearer);
 
     EXPECT_EQ(affected_by_spell(&wearer, SPELL_POISON), nullptr)
         << "the cure removes the poison affect";

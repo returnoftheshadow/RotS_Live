@@ -16,6 +16,7 @@
 #include "interpre.h"
 #include "pkill.h"
 #include "platdef.h"
+#include "poison.h"
 #include "profs.h"
 #include "room_affect_tick.h"
 #include "spells.h"
@@ -746,13 +747,9 @@ void point_update(void)
                     i->specials.attacked_level -= 2;
             }
 
-            // This tick still ENGAGES the poisoned character with itself
-            // (nobody else is in the fight), but the kill is credited to
-            // whoever poisoned it -- resolve_poisoner() answers nullptr, i.e.
-            // nobody, once that character is gone.
+            // Worn gear's poison flag, with no poison affect behind it, hurts on this tick.
             if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON)) {
-                char_data* const poisoner = resolve_poisoner(*i);
-                damage_credited(i, i, poisoner, 5, SPELL_POISON, 0);
+                deal_poison_tick_damage(i);
             }
             //        if (GET_POS(i) == POSITION_STUNNED)
             //  	update_pos(i);
@@ -1371,22 +1368,9 @@ void affect_update_person(struct char_data* i, int mode)
 
                 switch (af->type) {
                 case SPELL_POISON:
-                    otheraf = affected_by_spell(i, SPELL_RESIST_POISON);
-                    if (otheraf) {
-                        af->duration = std::max(af->duration - otheraf->modifier, 0);
-                        otheraf->duration = af->duration;
-                    }
-
-                    /* If poison is fatal, damage returns non-zero */
-                    // The ordinary poison DoT -- the tick behind every
-                    // SPELL_POISON affect a spell, a bite or a poisoned meal
-                    // applied. Same crediting shape as point_update()'s
-                    // gear-poison arm above.
-                    {
-                        char_data* const poisoner = resolve_poisoner(*i);
-                        if (damage_credited(i, i, poisoner, 5, SPELL_POISON, 0)) {
-                            return;
-                        }
+                    // After a fatal tick the victim may be gone, so nothing more is updated.
+                    if (tick_poison_affect(i, af)) {
+                        return;
                     }
                     break;
                 case SPELL_CURING:

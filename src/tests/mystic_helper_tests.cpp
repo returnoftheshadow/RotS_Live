@@ -2,6 +2,7 @@
 // spell_fear cast pins that hold it to the same snapshot rule.
 #include "../caster_snapshot.h"
 #include "../handler.h"
+#include "../poison.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"

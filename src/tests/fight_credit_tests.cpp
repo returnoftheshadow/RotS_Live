@@ -34,8 +34,8 @@
 //   (e) SPELL_POISON forces the gear-move branch on regardless of killer (see
 //       the `attack_type == SPELL_POISON ||` clause above), so the gear
 //       signal cannot distinguish killers for a poison death. This pin
-//       instead drives limits.cpp's exact call shape
-//       (`damage_credited(i, i, resolve_poisoner(*i), 5, SPELL_POISON, 0)`)
+//       instead drives deal_poison_tick_damage()'s exact call shape
+//       (`damage_credited(victim, victim, resolve_poisoner(*victim), 5, SPELL_POISON, 0)`)
 //       and observes that the credited poisoner's specials.fighting is never
 //       touched -- proving the credited character is never engaged even
 //       though it took the kill.
@@ -51,6 +51,7 @@
 #include "../handler.h"
 #include "../kill_contributors.h"
 #include "../pkill.h"
+#include "../poison.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
@@ -59,9 +60,9 @@
 #include <algorithm>
 #include <gtest/gtest.h>
 
-// damage()/damage_credited()/resolve_poisoner()/record_poison_origin()/
-// set_char_exists()/char_by_abs_number() are all declared by handler.h,
-// included above.
+// damage()/damage_credited()/set_char_exists()/char_by_abs_number() are
+// declared by handler.h, and resolve_poisoner()/record_poison_origin() by
+// poison.h, both included above.
 
 extern room_data world;
 extern int top_of_world;
@@ -462,9 +463,9 @@ TEST(FightCredit, NullCreditWithNoEngagedOpponentCreditsNobody)
 
 // Pin (e): the poison DoT via resolve_poisoner() credits the recorded
 // poisoner, and -- damage_credited()'s central claim -- never engages it. Drives
-// limits.cpp's exact call shape from both the point_update() gear-poison arm
-// and affect_update_person()'s ordinary poison arm:
-// `damage_credited(i, i, resolve_poisoner(*i), 5, SPELL_POISON, 0)`.
+// deal_poison_tick_damage()'s exact call shape, which both the point_update()
+// gear-poison arm and affect_update_person()'s ordinary poison arm reach:
+// `damage_credited(victim, victim, resolve_poisoner(*victim), 5, SPELL_POISON, 0)`.
 // SPELL_POISON forces make_physical_corpse()'s gear-move branch on
 // regardless of killer (see the file comment above), so this pin cannot use
 // the gear-move oracle; it instead observes the poisoner's own
@@ -502,7 +503,7 @@ TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
 
     obj_data* const previous_object_list = object_list;
 
-    // Matches both limits.cpp call sites exactly.
+    // Matches deal_poison_tick_damage() exactly.
     int result = damage_credited(victim, victim, resolve_poisoner(*victim), 5, SPELL_POISON, 0);
 
     EXPECT_EQ(result, 1) << "the poison tick must be lethal against a 1-hit-point victim";
@@ -793,12 +794,12 @@ TEST(KillContributors, UnionsFightersPoisonerAndPrimaryWithoutDuplicates)
 // records nothing" -- the exact condition die()'s
 // `const kill_contributor_list contributors = kill_contributors(dead_man,
 // killer);` followed by `if (contributors.count > 0)` guards. A fresh
-// char_data{} already has no recorded poisoner (poisoned_by defaults to
-// nullptr, which resolve_poisoner() treats as "nobody" regardless of
-// poisoned_by_abs_number) and no combat_list entry, so this needs no extra
+// char_data{} already has no recorded poisoner (poisoned_by.identity defaults
+// to nullptr, which resolve_poisoner() treats as "nobody" regardless of
+// poisoned_by.abs_number) and no combat_list entry, so this needs no extra
 // setup beyond an empty combat_list and a null primary -- exactly a poison
 // tick whose resolved poisoner is gone and whose victim is not otherwise
-// fighting anyone (limits.cpp passes `resolve_poisoner(*i)` as the primary
+// fighting anyone (the poison tick passes resolve_poisoner()'s answer as the primary
 // killer argument for the poison DoT, so a gone poisoner surfaces here as
 // `primary == nullptr`).
 TEST(KillContributors, EmptyWhenNoPoisonerAndNoFightersRecordsNothing)

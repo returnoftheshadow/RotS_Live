@@ -97,6 +97,7 @@ set(ROTS_SERVER_SOURCES
     olog_hai.cpp
     pkill.cpp
     player_file_finalize.cpp
+    poison.cpp
     profs.cpp
     protocol.cpp
     ranger.cpp
@@ -170,6 +171,7 @@ set(ROTS_TEST_SOURCES
     tests/json_perf_tests.cpp
     tests/objects_json_tests.cpp
     tests/player_finalize_tests.cpp
+    tests/poison_library_tests.cpp
     tests/poison_origin_tests.cpp
     tests/protocol_tests.cpp
     tests/room_affect_caster_tests.cpp

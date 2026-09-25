@@ -41,6 +41,7 @@
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "poison.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -833,16 +834,9 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
         }
     }
 
-    // The poison origin outlives no poison. Once the last
-    // SPELL_POISON affect is gone the record is stale -- the next poison,
-    // from whoever casts it, records its own origin. A character whose
-    // AFF_POISON bit comes from somewhere other than an affect (worn gear)
-    // keeps whatever was recorded, because nothing was removed here that
-    // owned it.
-    if (removed_type == SPELL_POISON && affected_by_spell(ch, SPELL_POISON) == nullptr) {
-        ch->specials.poisoned_by_abs_number = -1;
-        ch->specials.poisoned_by = nullptr;
-        ch->specials.poisoned_by_serial = 0;
+    // The poisoner record ends with the last poison affect; removing any other affect leaves it.
+    if (removed_type == SPELL_POISON) {
+        forget_poison_origin_if_cured(ch);
     }
 
     affect_total(ch);

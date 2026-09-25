@@ -186,21 +186,6 @@ int damage(struct char_data* ch, struct char_data* victim, int dam, int attackty
 // (which may be null, may equal `ch`, and may stand in another room) is what
 // reaches die(), and is never engaged.
 int damage_credited(struct char_data* ch, struct char_data* victim, struct char_data* credited_killer, int dam, int attacktype, int hit_location);
-// The live character recorded as the source of `victim`'s poison, or null when
-// the record no longer names a live character. Never dereferences the recorded
-// pointer, so an extracted or slot-recycled poisoner is reported as null rather
-// than dangling.
-struct char_data* resolve_poisoner(const struct char_data& victim);
-// Records `poisoner` as the source of `victim`'s poison, for resolve_poisoner()
-// to read back. A null `poisoner` -- a poisoned meal or drink has no character
-// behind it -- clears the record rather than leaving it half-set. `poisoner` is
-// not retained: only its identity is stored, and it is never dereferenced later.
-void record_poison_origin(struct char_data* victim, struct char_data* poisoner);
-// Applies poison from eaten or drunk food, which has no recorded poisoner. Only the stronger
-// poison stays on `victim`: a consumed poison no longer than the one already running changes
-// nothing (and the running poison keeps its poisoner); a longer one replaces it and clears the
-// record, since nobody owns it.
-void apply_consumed_poison(struct char_data* victim, const struct affected_type& poison);
 
 // Punishment class for a PC death, chosen by classify_pc_death().
 enum class death_punishment {

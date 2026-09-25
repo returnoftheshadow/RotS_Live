@@ -22,6 +22,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "poison.h"
 #include "profs.h"
 #include "spells.h"
 #include "structs.h"
@@ -3133,11 +3134,7 @@ SPECIAL(vampire_huntress)
                                  "prevent it.\n\r\n",
                         victim);
                     act("$n bites you!", FALSE, host, 0, victim, TO_VICT);
-                    af.type = SPELL_POISON; // replace with more powerful poison when coded
-                    af.duration = 24;
-                    af.modifier = -4;
-                    af.location = APPLY_STR;
-                    af.bitvector = AFF_POISON;
+                    af = pale_lady_poison_affect();
                     affect_join(victim, &af, FALSE, FALSE);
                     // The huntress owns this poison. A captive who dies of it unengaged takes the
                     // gentle arm and no mob-death record (the huntress is the recorded poisoner,

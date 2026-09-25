@@ -1,13 +1,13 @@
-// Poison origin tracking. record_poison_origin()
-// (fight.cpp) is the only sanctioned writer of char_special_data's
-// poisoned_by_abs_number/poisoned_by pair; resolve_poisoner() is the only
-// sanctioned reader. The pair is never persisted (char_special_data does not
-// appear in char_file_u), so these tests exercise only the in-memory
-// lifecycle: record+resolve round-trip, resolution safely failing once the
-// recorded poisoner is gone (extracted, or its abs_number slot recycled by a
+// Poison origin tracking. record_poison_origin() (poison.cpp) is the only
+// sanctioned writer of char_special_data's poisoned_by record;
+// resolve_poisoner() is the only sanctioned reader. The record is never
+// persisted (char_special_data does not appear in char_file_u), so these tests
+// exercise only the in-memory lifecycle: record+resolve round-trip, resolution
+// safely failing once the recorded poisoner is gone (extracted, or its
+// abs_number slot recycled by a
 // different character -- never dereferencing the stale pointer to find out),
 // record_poison_origin(victim, nullptr) clearing an existing record, and the
-// two production sites that clear the pair without going through
+// two production sites that clear the record without going through
 // record_poison_origin: affect_remove() (handler.cpp, once the last
 // SPELL_POISON affect is gone -- but not while a second concurrent
 // SPELL_POISON affect remains) and clear_char() (db.cpp).
@@ -22,6 +22,7 @@
 // is not re-driven here.
 #include "../db.h"
 #include "../handler.h"
+#include "../poison.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "test_character_support.h"
@@ -79,8 +80,8 @@ TEST(PoisonOrigin, RecordAndResolveRoundTrip)
     char_data victim {};
     record_poison_origin(&victim, &poisoner);
 
-    EXPECT_EQ(victim.specials.poisoned_by_abs_number, kPoisonerSlot);
-    EXPECT_EQ(victim.specials.poisoned_by, &poisoner);
+    EXPECT_EQ(victim.specials.poisoned_by.abs_number, kPoisonerSlot);
+    EXPECT_EQ(victim.specials.poisoned_by.identity, &poisoner);
     EXPECT_EQ(resolve_poisoner(victim), &poisoner);
 }
 
@@ -138,7 +139,7 @@ TEST(PoisonOrigin, ResolveReturnsNullptrAfterTheSlotIsRecycledByADifferentCharac
     // register_npc_char()'s cursor hands the freed slot to a brand-new mob --
     // the SAME abs_number, a DIFFERENT char_data*. resolve_poisoner() must
     // recognize the mismatch by pointer identity without ever dereferencing
-    // the victim's own (now-stale) poisoned_by -- it only compares that
+    // the victim's own (now-stale) poisoned_by.identity -- it only compares that
     // value against char_by_abs_number()'s report of the CURRENT owner.
     char_data imposter {};
     imposter.abs_number = kPoisonerSlot;
@@ -188,8 +189,8 @@ TEST(PoisonOrigin, RecordWithNullptrPoisonerClearsAnExistingRecord)
     // do_eat() (act_obj2.cpp) both record nullptr for exactly this reason.
     record_poison_origin(&victim, nullptr);
 
-    EXPECT_EQ(victim.specials.poisoned_by_abs_number, -1);
-    EXPECT_EQ(victim.specials.poisoned_by, nullptr);
+    EXPECT_EQ(victim.specials.poisoned_by.abs_number, -1);
+    EXPECT_EQ(victim.specials.poisoned_by.identity, nullptr);
     EXPECT_EQ(resolve_poisoner(victim), nullptr);
 
     remove_char_exists(kPoisonerSlot);
@@ -214,8 +215,8 @@ TEST(PoisonOrigin, AffectRemoveOfTheLastSpellPoisonAffectClearsTheRecord)
     affect_remove(&victim, victim.affected); // removes the only (and therefore last) SPELL_POISON affect
 
     EXPECT_EQ(affected_by_spell(&victim, SPELL_POISON), nullptr);
-    EXPECT_EQ(victim.specials.poisoned_by_abs_number, -1);
-    EXPECT_EQ(victim.specials.poisoned_by, nullptr);
+    EXPECT_EQ(victim.specials.poisoned_by.abs_number, -1);
+    EXPECT_EQ(victim.specials.poisoned_by.identity, nullptr);
     EXPECT_EQ(resolve_poisoner(victim), nullptr);
 
     remove_char_exists(kPoisonerSlot);
@@ -262,13 +263,13 @@ TEST(PoisonOrigin, ClearCharBlanksThePoisonRecord)
     char_data poisoner {};
 
     char_data character {};
-    character.specials.poisoned_by_abs_number = 777;
-    character.specials.poisoned_by = &poisoner;
+    character.specials.poisoned_by.abs_number = 777;
+    character.specials.poisoned_by.identity = &poisoner;
 
     clear_char(&character, MOB_VOID);
 
-    EXPECT_EQ(character.specials.poisoned_by_abs_number, -1);
-    EXPECT_EQ(character.specials.poisoned_by, nullptr);
+    EXPECT_EQ(character.specials.poisoned_by.abs_number, -1);
+    EXPECT_EQ(character.specials.poisoned_by.identity, nullptr);
 }
 
 // Poisoned food or drink has no recorded poisoner. It replaces a weaker poison (and clears the

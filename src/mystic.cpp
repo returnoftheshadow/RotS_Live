@@ -23,6 +23,7 @@
 #include "interpre.h"
 #include "limits.h"
 #include "platdef.h"
+#include "poison.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -56,7 +57,6 @@ extern char* race_abbrevs[];
  */
 
 char saves_mystic(struct char_data*);
-// saves_poison() is declared in spells.h, which this file already includes.
 char saves_confuse(struct char_data*, char_data*);
 char saves_leadership(struct char_data*);
 char saves_insight(struct char_data*, struct char_data*);
@@ -76,22 +76,6 @@ int get_mystic_caster_level(const caster_snapshot& caster)
     }
 
     return mystic_level + will_factor;
-}
-
-affected_type poison_victim_affect_at_level(int level)
-{
-    affected_type poison {};
-    poison.type = SPELL_POISON;
-    poison.duration = level + 1;
-    poison.modifier = -2;
-    poison.location = APPLY_STR;
-    poison.bitvector = AFF_POISON;
-    return poison;
-}
-
-affected_type poison_victim_affect(const caster_snapshot& who)
-{
-    return poison_victim_affect_at_level(get_mystic_caster_level(who));
 }
 
 int illusion_caster_level(const caster_snapshot& who)
@@ -759,30 +743,28 @@ ASPELL(spell_infravision)
 
 ASPELL(spell_resist_poison)
 {
-    affected_type* af;
-    affected_type newaf;
-
     if (!victim)
         victim = caster;
-    af = affected_by_spell(victim, SPELL_POISON);
-    if (af) {
-        if (affected_by_spell(victim, SPELL_RESIST_POISON)) {
-            send_to_char("The poison is already being resisted.\n\r", caster);
-        } else {
-            newaf.type = SPELL_RESIST_POISON;
-            newaf.duration = af->duration;
-            newaf.modifier = GET_PROF_LEVEL(PROF_CLERIC, caster);
-            newaf.location = APPLY_NONE;
-            newaf.bitvector = 0;
-            affect_to_char(victim, &newaf);
-            send_to_char("You begin to resist the poison.\n\r", victim);
-            if (victim != caster)
-                send_to_char("They begin to resist the poison.\n\r", caster);
+
+    const int cleric_level = GET_PROF_LEVEL(PROF_CLERIC, caster);
+    switch (start_poison_resistance(victim, cleric_level)) {
+    case poison_resistance_outcome::started:
+        send_to_char("You begin to resist the poison.\n\r", victim);
+        if (victim != caster) {
+            send_to_char("They begin to resist the poison.\n\r", caster);
         }
-    } else if (victim == caster)
-        send_to_char("But you have not been poisoned!\n\r", caster);
-    else
-        send_to_char("But they are not poisoned!\n\r", caster);
+        break;
+    case poison_resistance_outcome::already_resisting:
+        send_to_char("The poison is already being resisted.\n\r", caster);
+        break;
+    case poison_resistance_outcome::not_poisoned:
+        if (victim == caster) {
+            send_to_char("But you have not been poisoned!\n\r", caster);
+        } else {
+            send_to_char("But they are not poisoned!\n\r", caster);
+        }
+        break;
+    }
 }
 
 ASPELL(spell_curing)
@@ -866,8 +848,7 @@ ASPELL(spell_remove_poison)
     }
 
     if (victim) {
-        if (affected_by_spell(victim, SPELL_POISON)) {
-            affect_from_char(victim, SPELL_POISON);
+        if (cure_poison(victim)) {
             act("A warm feeling runs through your body.", FALSE, victim, 0, 0, TO_CHAR);
             act("$N looks better.", FALSE, caster, 0, victim, TO_ROOM);
         }

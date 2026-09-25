@@ -32,6 +32,7 @@
 #include "../comm.h"
 #include "../db.h"
 #include "../handler.h"
+#include "../poison.h"
 #include "../room_affect_tick.h"
 #include "../spells.h"
 #include "../structs.h"

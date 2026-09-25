@@ -14,6 +14,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "platdef.h"
+#include "poison.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"

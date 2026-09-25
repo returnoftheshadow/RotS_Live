@@ -11,7 +11,7 @@
 //     somewhere else, and may no longer exist -- through damage_credited()/
 //     apply_spell_damage_credited() rather than crediting the victim itself;
 //   * poison_tick() records the poisoner on the victim, so a later poison death
-//     resolves back to whoever cast it (resolve_poisoner(), fight.cpp).
+//     resolves back to whoever cast it (resolve_poisoner(), poison.cpp).
 //
 // ENGAGEMENT IS NOT ONE OF THEM. The ENGAGING attacker every tick hands to
 // damage_credited()/apply_spell_damage_credited() is always the OCCUPANT
@@ -37,6 +37,7 @@
 #include "caster_snapshot.h"
 #include "comm.h"
 #include "handler.h"
+#include "poison.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -89,8 +90,8 @@ void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occup
         affect_join(occupant, &poison_affect, FALSE, FALSE);
 
         // The origin resolve_poisoner() reads when this poison eventually
-        // kills, written through the one shared writer (fight.cpp) so the two
-        // halves of the record can never disagree. `caster` is the RESOLVED
+        // kills, written through the one shared writer (poison.cpp) so the
+        // record's fields can never disagree. `caster` is the RESOLVED
         // character -- null when the recorded caster is gone, and null when
         // this room affect never had one, in which case nobody is credited.
         // (Stamping who.abs_number/who.identity_ptr directly here instead
@@ -104,8 +105,8 @@ void poison_tick(const caster_snapshot& who, char_data* caster, char_data* occup
 
         send_to_char("You feel very sick.\n\r", occupant);
         // Engaging attacker == the occupant itself; see blaze_tick() above and
-        // the file banner. limits.cpp's ordinary poison DoT ticks the same way
-        // (`damage_credited(i, i, resolve_poisoner(*i), ...)`).
+        // the file banner. The ordinary poison tick, deal_poison_tick_damage(),
+        // engages the same way.
         damage_credited(occupant, occupant, caster, 5, SPELL_POISON, 0);
     } else {
         // The victim-facing line goes straight to the occupant. It carries no

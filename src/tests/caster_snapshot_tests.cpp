@@ -1,6 +1,7 @@
 #include "../caster_snapshot.h"
 #include "../char_utils.h"
 #include "../handler.h"
+#include "../poison.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"

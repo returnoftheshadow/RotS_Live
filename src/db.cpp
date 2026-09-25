@@ -19,6 +19,7 @@
 #include "mail.h"
 #include "mudlle.h"
 #include "pkill.h"
+#include "poison.h"
 #include "protos.h"
 #include "spells.h"
 #include "structs.h"
@@ -3917,12 +3918,8 @@ void clear_char(struct char_data* ch, int mode)
     ch->specials.alias = 0;
     ch->in_room = NOWHERE;
     ch->specials.was_in_room = NOWHERE;
-    // A fresh character carries no poison and therefore no poisoner: a
-    // memset(0) char_data would otherwise read abs_number 0, i.e. an actual
-    // slot.
-    ch->specials.poisoned_by_abs_number = -1;
-    ch->specials.poisoned_by = nullptr;
-    ch->specials.poisoned_by_serial = 0;
+    // The memset left the poisoner's slot at 0, a real slot; a fresh character has no poisoner.
+    clear_poison_origin(ch);
     ch->specials.position = POSITION_STANDING;
     ch->specials.default_pos = POSITION_STANDING;
     SET_TACTICS(ch, TACTICS_NORMAL);

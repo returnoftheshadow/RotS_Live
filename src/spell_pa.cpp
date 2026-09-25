@@ -321,23 +321,6 @@ char saves_mystic(struct char_data* ch)
 }
 
 /*
- * Saving poison depends on the caster's willpower and perception
- * and the victim's constitution, willpower and race.  As far as
- * race goes, wood elves simply get a bonus (a rather large one),
- * since they were very resilient to disease, but are represented
- * in rots by such low constitution.
- */
-char saves_poison(struct char_data* victim, const caster_snapshot& caster)
-{
-    int offence, defense;
-    offence = ((caster.willpower * 8) * caster.perception) / 100;
-    /* wood elves get a bonus against poison */
-    defense = (GET_CON(victim) * 5) + (GET_WILLPOWER(victim) * 3) + (GET_RACE(victim) == RACE_WOOD ? 30 : 0);
-
-    return (number(offence / 3, offence) < number(defense / 2, defense));
-}
-
-/*
  * Saving confuse depends only on the willpowers of the caster
  * and the victim.  This should probably depend on some other
  * thing as well..
