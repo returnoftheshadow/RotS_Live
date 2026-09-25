@@ -17,7 +17,7 @@
 
 #include "color.h" /* For MAX_COLOR_FIELDS */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
-#include "poison.h" /* For poison_origin */
+#include "poison_origin.h" /* For poison_origin */
 
 #include "protocol.h"
 #include <algorithm>
@@ -1147,7 +1147,7 @@ struct char_special_data {
     int timer; /* Timer for update                        */
     int was_in_room; /* storage of location for linkdead people */
 
-    poison_origin poisoned_by; // this character's poisoner; read and written only through poison.h
+    poison_origin poisoned_by; // this character's poisoner; used only through poison_origin.h
 
     int ENERGY; /* current energy */
     sh_int current_parry; /*parry currently affected by 'parry split' */

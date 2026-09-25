@@ -23,6 +23,7 @@
 #include "../db.h"
 #include "../handler.h"
 #include "../poison.h"
+#include "../poison_origin.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "test_character_support.h"

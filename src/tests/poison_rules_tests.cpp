@@ -4,6 +4,7 @@
 // poison that runs, except that an extension keeps a poisoner who still resolves.
 #include "../handler.h"
 #include "../poison.h"
+#include "../poison_origin.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"

@@ -19,7 +19,7 @@
 #include "mail.h"
 #include "mudlle.h"
 #include "pkill.h"
-#include "poison.h"
+#include "poison_origin.h"
 #include "protos.h"
 #include "spells.h"
 #include "structs.h"

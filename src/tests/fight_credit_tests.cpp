@@ -52,6 +52,7 @@
 #include "../kill_contributors.h"
 #include "../pkill.h"
 #include "../poison.h"
+#include "../poison_origin.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"

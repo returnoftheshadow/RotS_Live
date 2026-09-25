@@ -22,6 +22,7 @@
 #include "limits.h"
 #include "pkill.h"
 #include "poison.h"
+#include "poison_origin.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"

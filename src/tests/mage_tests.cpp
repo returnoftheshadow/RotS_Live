@@ -1,6 +1,7 @@
 #include "../db.h"
 #include "../handler.h"
 #include "../poison.h"
+#include "../poison_origin.h"
 #include "../spells.h"
 #include "../utils.h"
 #include "../zone.h"

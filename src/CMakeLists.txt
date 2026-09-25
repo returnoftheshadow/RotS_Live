@@ -98,6 +98,7 @@ set(ROTS_SERVER_SOURCES
     pkill.cpp
     player_file_finalize.cpp
     poison.cpp
+    poison_origin.cpp
     profs.cpp
     protocol.cpp
     ranger.cpp

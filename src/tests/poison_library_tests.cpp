@@ -3,6 +3,7 @@
 // must see a poison at any depth, where affected_by_spell() stops after MAX_AFFECT entries.
 #include "../handler.h"
 #include "../poison.h"
+#include "../poison_origin.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
